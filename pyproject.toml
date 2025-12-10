@@ -1,0 +1,33 @@
+[project]
+name = "hunter-v2"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "django>=5.2.9",
+    "django-tailwind-cli>=4.4.2",
+]
+
+[dependency-groups]
+dev = [
+    "django-stubs>=5.2.8",
+    "mypy>=1.19.0",
+    "ruff>=0.14.8",
+]
+
+[tool.ruff]
+line-length = 320
+
+[tool.mypy]
+plugins = ["mypy_django_plugin.main"]
+disallow_untyped_defs = true
+disallow_any_unimported = true
+no_implicit_optional = true
+check_untyped_defs = true
+warn_return_any = true
+warn_unused_ignores = true
+show_error_codes = true
+
+[tool.django-stubs]
+django_settings_module = "config.settings"
