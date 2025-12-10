@@ -109,3 +109,6 @@ media/
 *.pyc
 *.db
 *.pid
+
+# Tailwind
+.django_tailwind_cli/
