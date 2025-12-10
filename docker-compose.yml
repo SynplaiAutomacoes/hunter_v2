@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:latest
+    volumes:
+      - postgres_data:/var/lib/postgresql/data # Persistência dos dados
+    environment:
+      - POSTGRES_DB=meu_crm
+      - POSTGRES_USER=usuario_crm
+      - POSTGRES_PASSWORD=senha_secreta
+    ports:
+      - "5432:5432"
+
+volumes:
+  postgres_data:
