@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     # Dependencies
     'django_tailwind_cli',
     'django_filters',
+    'django_htmx',
     'djmoney',
     'phonenumber_field',
     'simple_history',
@@ -62,6 +63,7 @@ MIDDLEWARE = [
 
     # Dependencies
     'simple_history.middleware.HistoryRequestMiddleware',
+    'django_htmx.middleware.HtmxMiddleware',
 ]
 
 ROOT_URLCONF = 'config.urls'
