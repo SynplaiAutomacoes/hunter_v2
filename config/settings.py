@@ -42,6 +42,7 @@ INSTALLED_APPS = [
 
     # Dependencies
     'django_tailwind_cli',
+    'crispy_forms',
     'django_filters',
     'django_htmx',
     'djmoney',
