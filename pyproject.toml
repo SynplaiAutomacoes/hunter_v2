@@ -9,6 +9,7 @@ dependencies = [
     "django-crispy-forms>=2.5",
     "django-filter>=25.2",
     "django-htmx>=1.27.0",
+    "django-localflavor>=5.0",
     "django-money>=3.5.4",
     "django-phonenumber-field[phonenumbers]>=8.4.0",
     "django-simple-history>=3.10.1",

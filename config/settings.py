@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     'crispy_forms',
     'django_filters',
     'django_htmx',
+    'localflavor',
     'djmoney',
     'phonenumber_field',
     'simple_history',
