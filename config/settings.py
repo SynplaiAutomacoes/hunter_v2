@@ -42,6 +42,7 @@ INSTALLED_APPS = [
 
     # Dependencies
     'django_tailwind_cli',
+    'crispy_tailwind',
     'crispy_forms',
     'django_filters',
     'django_htmx',
@@ -84,11 +85,17 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
             ],
+            'builtins': [
+                'crispy_forms.templatetags.crispy_forms_tags',
+                'crispy_tailwind.templatetags.tailwind_filters',
+            ],
         },
     },
 ]
 
 WSGI_APPLICATION = 'config.wsgi.application'
+
+CRISPY_TEMPLATE_PACK = 'tailwind'
 
 
 # Database
