@@ -50,6 +50,7 @@
             @input="handleInput"
             inputmode="numeric"
             autocomplete="off"
+            :placeholder="mode === 'positive' ? '0' : (mode === 'negative' ? '-0' : '±0')"
             class="{% include 'widgets/_input_style_base.html' %}"
         >
 
