@@ -38,3 +38,7 @@ class CEPInput(forms.TextInput):
 
 class DurationInput(forms.TextInput):
     template_name = "widgets/duration_input.html"
+
+
+class EmailInput(forms.EmailInput):
+    template_name = "widgets/email_input.html"
