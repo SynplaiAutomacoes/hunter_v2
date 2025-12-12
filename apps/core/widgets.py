@@ -34,3 +34,7 @@ class PhoneInput(forms.TextInput):
 
 class CEPInput(forms.TextInput):
     template_name = "widgets/cep_input.html"
+
+
+class DurationInput(forms.TextInput):
+    template_name = "widgets/duration_input.html"
