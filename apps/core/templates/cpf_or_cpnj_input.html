@@ -1,0 +1,85 @@
+{% with raw=widget.value|default_if_none:"" %}
+<div
+  x-data="{
+    rawValue: '{{ raw }}',
+    docMode: '{{ widget.doc_mode|default:"both" }}',
+
+    mode() {
+      return (this.docMode || 'both').toLowerCase();
+    },
+
+    onlyDigits(v) {
+      return (v ?? '').toString().replace(/\D/g, '');
+    },
+
+    maxDigitsForMode(digits) {
+      const m = this.mode();
+      if (m === 'cpf') return 11;
+      if (m === 'cnpj') return 14;
+      return digits.length <= 11 ? 11 : 14; // both
+    },
+
+    formatCpf(d) {
+      d = d.slice(0, 11);
+      d = d.replace(/^(\d{3})(\d)/, '$1.$2');
+      d = d.replace(/^(\d{3})\.(\d{3})(\d)/, '$1.$2.$3');
+      d = d.replace(/^(\d{3})\.(\d{3})\.(\d{3})(\d{1,2})$/, '$1.$2.$3-$4');
+      return d;
+    },
+
+    formatCnpj(d) {
+      d = d.slice(0, 14);
+      d = d.replace(/^(\d{2})(\d)/, '$1.$2');
+      d = d.replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3');
+      d = d.replace(/^(\d{2})\.(\d{3})\.(\d{3})(\d)/, '$1.$2.$3/$4');
+      d = d.replace(/^(\d{2})\.(\d{3})\.(\d{3})\/(\d{4})(\d{1,2})$/, '$1.$2.$3/$4-$5');
+      return d;
+    },
+
+    format(digits) {
+      if (!digits) return '';
+      const m = this.mode();
+      if (m === 'cpf') return this.formatCpf(digits);
+      if (m === 'cnpj') return this.formatCnpj(digits);
+      return digits.length <= 11 ? this.formatCpf(digits) : this.formatCnpj(digits);
+    },
+
+    handleInput(e) {
+      let digits = this.onlyDigits(e.target.value);
+
+      const maxDigits = this.maxDigitsForMode(digits);
+      if (digits.length > maxDigits) {
+        digits = digits.slice(0, maxDigits);
+      }
+
+      this.$refs.value.value = digits;
+      e.target.value = this.format(digits);
+    }
+  }"
+  x-init="
+    let d = onlyDigits(rawValue);
+    const maxDigits = maxDigitsForMode(d);
+    d = d.slice(0, maxDigits);
+    $refs.value.value = d;
+    $refs.display.value = format(d);
+  "
+  class="relative rounded-md shadow-sm mt-1"
+>
+  <input
+    type="text"
+    x-ref="display"
+    @input="handleInput"
+    inputmode="numeric"
+    autocomplete="off"
+    class="block w-full rounded-md border-0 py-1.5 px-3 text-gray-900 ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 transition-shadow duration-250 ease-in-out focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-800 sm:text-sm sm:leading-6 {{ widget.attrs.class }}"
+  >
+
+  <input
+    type="hidden"
+    x-ref="value"
+    name="{{ widget.name }}"
+    id="{{ widget.attrs.id }}"
+    value="{{ raw }}"
+  >
+</div>
+{% endwith %}
