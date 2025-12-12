@@ -26,3 +26,7 @@ class CPForCNPJInput(forms.TextInput):
 
 class RGInput(forms.TextInput):
     template_name = "widgets/rg_input.html"
+
+
+class PhoneInput(forms.TextInput):
+    template_name = "widgets/phone_input.html"

@@ -1,0 +1,83 @@
+{% with raw=widget.value|default_if_none:"" %}
+<div
+    x-data="{
+        rawValue: '{{ raw }}',
+
+        onlyDigits(v) {
+            return (v ?? '').toString().replace(/\D/g, '');
+        },
+
+        normalizeToE164BR(v) {
+            // Aceita: +55..., 55..., (xx)xxxxx-xxxx, etc.
+            let d = this.onlyDigits(v);
+
+            // Remove 55 se vier com DDI
+            if (d.startsWith('55')) d = d.slice(2);
+
+            // Mantém no máximo 11 dígitos (DD + 9 dígitos)
+            d = d.slice(0, 11);
+
+            // Se não tiver nada, retorna vazio (não valida)
+            if (!d) return '';
+
+            // Se incompleto, ainda devolve parcial (útil durante digitação)
+            // Mas o backend só vai aceitar quando estiver completo.
+            return '+55' + d;
+        },
+
+        formatBRFromDigits(d) {
+            // d = apenas números, sem 55, no formato: DDD + 9 dígitos (11 total)
+            d = (d ?? '').toString().replace(/\D/g, '').slice(0, 11);
+            if (!d) return '';
+
+            const dd = d.slice(0, 2);
+            const rest = d.slice(2);
+
+            if (d.length <= 2) return `(${dd}`;
+            if (rest.length <= 5) return `(${dd}) ${rest}`;
+
+            const first = rest.slice(0, 5);
+            const last = rest.slice(5, 9);
+            return `(${dd}) ${first}-${last}`;
+        },
+
+        handleInput(e) {
+            const digits = this.onlyDigits(e.target.value).replace(/^55/, '').slice(0, 11);
+
+            // hidden (POST) em E.164
+            const e164 = digits ? ('+55' + digits) : '';
+            this.$refs.value.value = e164;
+
+            // display (UI) formatado pt-BR
+            e.target.value = this.formatBRFromDigits(digits);
+        }
+    }"
+    x-init="
+        // Se vier +55..., converte pra display
+        let d = onlyDigits(rawValue);
+        if (d.startsWith('55')) d = d.slice(2);
+        d = d.slice(0, 11);
+
+        $refs.value.value = d ? ('+55' + d) : '';
+        $refs.display.value = formatBRFromDigits(d);
+    "
+    class="relative rounded-md shadow-sm mt-1"
+>
+    <input
+        type="text"
+        x-ref="display"
+        @input="handleInput"
+        inputmode="numeric"
+        autocomplete="off"
+        class="{% include 'widgets/_input_style_base.html' %} {{ widget.attrs.class }}"
+    >
+
+    <input
+        type="hidden"
+        x-ref="value"
+        name="{{ widget.name }}"
+        id="{{ widget.attrs.id }}"
+        value="{{ raw }}"
+    >
+</div>
+{% endwith %}
