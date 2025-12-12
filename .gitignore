@@ -112,3 +112,7 @@ media/
 
 # Tailwind
 .django_tailwind_cli/
+static/css/tailwind.css
+
+# Node
+node_modules/
