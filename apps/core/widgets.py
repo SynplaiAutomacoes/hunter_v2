@@ -2,7 +2,7 @@ from django import forms
 
 
 class MoneyInput(forms.TextInput):
-    template_name = 'money_input.html'
+    template_name = 'widgets/money_input.html'
 
 
 class CPForCNPJInput(forms.TextInput):
@@ -12,7 +12,7 @@ class CPForCNPJInput(forms.TextInput):
       - "cnpj" -> máscara/limite CNPJ
       - "both" -> alterna CPF até 11 dígitos e CNPJ acima
     """
-    template_name = "cpf_or_cpnj_input.html"
+    template_name = "widgets/cpf_or_cpnj_input.html"
 
     def __init__(self, *args, mode: str = "both", **kwargs):
         super().__init__(*args, **kwargs)
