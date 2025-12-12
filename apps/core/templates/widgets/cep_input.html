@@ -1,0 +1,55 @@
+{% with raw=widget.value|default_if_none:"" %}
+<div
+    x-data="{
+        rawValue: '{{ raw }}',
+
+        onlyDigits(v) {
+            return (v ?? '').toString().replace(/\D/g, '');
+        },
+
+        normalizeCep(v) {
+            return this.onlyDigits(v).slice(0, 8); // ViaCEP usa 8 dígitos
+        },
+
+        formatCep(d) {
+            d = (d ?? '').toString().replace(/\D/g, '').slice(0, 8);
+            if (!d) return '';
+            if (d.length <= 5) return d;
+            return d.slice(0, 5) + '-' + d.slice(5);
+        },
+
+        handleInput(e) {
+            const normalized = this.normalizeCep(e.target.value);
+
+            // hidden (POST): 8 dígitos (sem hífen)
+            this.$refs.value.value = normalized;
+
+            // display (UI): 00000-000
+            e.target.value = this.formatCep(normalized);
+        }
+    }"
+    x-init="
+        const n = normalizeCep(rawValue);
+        $refs.value.value = n;
+        $refs.display.value = formatCep(n);
+    "
+    class="relative rounded-md shadow-sm mt-1"
+>
+    <input
+        type="text"
+        x-ref="display"
+        @input="handleInput"
+        inputmode="numeric"
+        autocomplete="off"
+        class="{% include 'widgets/_input_style_base.html' %} {{ widget.attrs.class }}"
+    >
+
+    <input
+        type="hidden"
+        x-ref="value"
+        name="{{ widget.name }}"
+        id="{{ widget.attrs.id }}"
+        value="{{ raw }}"
+    >
+</div>
+{% endwith %}

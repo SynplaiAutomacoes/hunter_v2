@@ -30,3 +30,7 @@ class RGInput(forms.TextInput):
 
 class PhoneInput(forms.TextInput):
     template_name = "widgets/phone_input.html"
+
+
+class CEPInput(forms.TextInput):
+    template_name = "widgets/cep_input.html"
