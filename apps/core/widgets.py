@@ -22,3 +22,7 @@ class CPForCNPJInput(forms.TextInput):
         ctx = super().get_context(name, value, attrs)
         ctx["widget"]["doc_mode"] = self.mode
         return ctx
+
+
+class RGInput(forms.TextInput):
+    template_name = "widgets/rg_input.html"

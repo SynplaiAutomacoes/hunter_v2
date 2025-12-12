@@ -1,0 +1,78 @@
+{% with raw=widget.value|default_if_none:"" %}
+<div
+    x-data="{
+        rawValue: '{{ raw }}',
+
+        normalizeRg(value) {
+            // RG pode terminar com X (ex: ...-X). Mantém dígitos e X/x.
+            let s = (value ?? '').toString().toUpperCase();
+            s = s.replace(/[^0-9X]/g, '');
+
+            // Permite apenas 1 'X' e só no final
+            s = s.replace(/X+/g, 'X');
+            if (s.includes('X')) {
+                s = s.replace(/X/g, '');
+                s = s + 'X';
+            }
+
+            // Limite comum: até 9 caracteres (8 dígitos + dígito verificador) ou 9 dígitos.
+            // Se vier com X, conta como 1.
+            if (s.length > 9) s = s.slice(0, 9);
+
+            return s; // sem máscara (vai pro POST)
+        },
+
+        formatRg(normalized) {
+            if (!normalized) return '';
+
+            // Máscara padrão: 00.000.000-0 (ou -X)
+            // Funciona bem até 9 chars (incluindo X no final).
+            let v = normalized;
+
+            // separa DV (último char)
+            if (v.length <= 1) return v;
+
+            let body = v.slice(0, -1);
+            let dv = v.slice(-1);
+
+            // body: até 8 dígitos
+            body = body.replace(/\D/g, '').slice(0, 8);
+
+            // aplica pontos: 2 + 3 + 3
+            if (body.length > 2) body = body.slice(0, 2) + '.' + body.slice(2);
+            if (body.length > 6) body = body.slice(0, 6) + '.' + body.slice(6);
+
+            return body + '-' + dv;
+        },
+
+        handleInput(e) {
+            const normalized = this.normalizeRg(e.target.value);
+            this.$refs.value.value = normalized;
+            e.target.value = this.formatRg(normalized);
+        }
+    }"
+    x-init="
+        const n = normalizeRg(rawValue);
+        $refs.value.value = n;
+        $refs.display.value = formatRg(n);
+    "
+    class="relative rounded-md shadow-sm mt-1"
+>
+    <input
+        type="text"
+        x-ref="display"
+        @input="handleInput"
+        inputmode="text"
+        autocomplete="off"
+        class="{% include 'widgets/_input_style_base.html' %} {{ widget.attrs.class }}"
+    >
+
+    <input
+        type="hidden"
+        x-ref="value"
+        name="{{ widget.name }}"
+        id="{{ widget.attrs.id }}"
+        value="{{ raw }}"
+    >
+</div>
+{% endwith %}
