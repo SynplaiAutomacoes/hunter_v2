@@ -110,3 +110,22 @@ class TextInput(forms.TextInput):
 
 class CheckboxInput(forms.CheckboxInput):
     template_name = "widgets/checkbox_input.html"
+
+
+class NumberInput(forms.TextInput):
+    """
+    mode:
+      - "positive" (default): só >= 0
+      - "negative": só <= 0
+      - "both": permite sinal +/- (um único '-' no começo)
+    """
+    template_name = "widgets/number_input.html"
+
+    def __init__(self, *args, mode: str = "positive", **kwargs):
+        super().__init__(*args, **kwargs)
+        self.mode = mode
+
+    def get_context(self, name, value, attrs):
+        ctx = super().get_context(name, value, attrs)
+        ctx["widget"]["number_mode"] = self.mode
+        return ctx
