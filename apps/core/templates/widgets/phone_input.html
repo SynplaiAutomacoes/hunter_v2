@@ -61,7 +61,7 @@
         $refs.value.value = d ? ('+55' + d) : '';
         $refs.display.value = formatBRFromDigits(d);
     "
-    class="relative rounded-md shadow-sm mt-1"
+    class="{% include 'widgets/_shadow_style.html' %}"
 >
     <input
         type="text"

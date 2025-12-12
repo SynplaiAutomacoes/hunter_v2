@@ -102,3 +102,11 @@ class CalendarDateInput(forms.DateInput):
         attrs = kwargs.setdefault("attrs", {})
         attrs.setdefault("type", "date")
         super().__init__(*args, **kwargs)
+
+
+class TextInput(forms.TextInput):
+    template_name = "widgets/text_input.html"
+
+
+class CheckboxInput(forms.CheckboxInput):
+    template_name = "widgets/checkbox_input.html"
