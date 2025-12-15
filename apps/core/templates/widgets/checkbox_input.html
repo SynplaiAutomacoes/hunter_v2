@@ -1,11 +1,42 @@
 <div class="py-2 flex items-center">
-    <label for="{{ widget.attrs.id }}"></label><input
-        type="checkbox"
-        name="{{ widget.name }}"
-        id="{{ widget.attrs.id }}"
-        class="h-5 w-5 border-gray-300 text-blue-800"
-        {% if widget.value %}checked{% endif %}
-        {% if widget.attrs.required %}required{% endif %}
-        {% if widget.attrs.disabled %}disabled{% endif %}
-    >
+    <label for="{{ widget.attrs.id }}" class="relative inline-flex cursor-pointer items-center select-none">
+        <input
+            type="checkbox"
+            name="{{ widget.name }}"
+            id="{{ widget.attrs.id }}"
+            class="sr-only peer"
+            {% if widget.value %}checked{% endif %}
+            {% if widget.attrs.required %}required{% endif %}
+            {% if widget.attrs.disabled %}disabled{% endif %}
+        >
+
+        <!-- trilho -->
+        <span
+            class="relative h-7 w-15 rounded-full bg-gray-300 shadow-sm transition-colors duration-200
+                   peer-checked:bg-blue-800
+                   peer-disabled:opacity-50 peer-disabled:cursor-not-allowed
+
+                   after:content-[''] after:absolute after:left-1 after:top-1 after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow
+                   after:transition-transform after:duration-200
+                   peer-checked:after:translate-x-8"
+        ></span>
+
+        <!-- texto SIM (aparece quando ativo) -->
+        <span
+            class="pointer-events-none absolute inset-y-0 left-2 flex items-center text-[11px] font-semibold
+                   text-white opacity-0 transition-opacity duration-200
+                   peer-checked:opacity-100"
+        >
+            Sim
+        </span>
+
+        <!-- texto NÃO (aparece quando inativo) -->
+        <span
+            class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[11px] font-semibold
+                   text-gray-700 opacity-100 transition-opacity duration-200
+                   peer-checked:opacity-0 peer-checked:text-white"
+        >
+            Não
+        </span>
+    </label>
 </div>
