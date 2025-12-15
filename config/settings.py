@@ -9,6 +9,7 @@ https://docs.djangoproject.com/en/5.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
+
 import os
 from pathlib import Path
 
@@ -21,7 +22,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-*!la5rnv&w$a(jf-esbsc_)=s*=s)wb@$o7i1r_wsizp*ekx#h'
+SECRET_KEY = "django-insecure-*!la5rnv&w$a(jf-esbsc_)=s*=s)wb@$o7i1r_wsizp*ekx#h"
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -33,69 +34,66 @@ ALLOWED_HOSTS = []
 
 INSTALLED_APPS = [
     # Django
-    'django.contrib.admin',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.sessions',
-    'django.contrib.messages',
-    'django.contrib.staticfiles',
-
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
     # Dependencies
-    'django_tailwind_cli',
-    'crispy_tailwind',
-    'crispy_forms',
-    'django_filters',
-    'django_htmx',
-    'localflavor',
-    'djmoney',
-    'phonenumber_field',
-    'simple_history',
-    'django_tables2',
-
+    "django_tailwind_cli",
+    "crispy_tailwind",
+    "crispy_forms",
+    "django_filters",
+    "django_htmx",
+    "localflavor",
+    "djmoney",
+    "phonenumber_field",
+    "simple_history",
+    "django_tables2",
     # Local
-    'apps.core',
-    'apps.accounts',
+    "apps.core",
+    "apps.accounts",
 ]
 
 MIDDLEWARE = [
     # Django
-    'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
-
+    "django.middleware.security.SecurityMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
     # Dependencies
-    'simple_history.middleware.HistoryRequestMiddleware',
-    'django_htmx.middleware.HtmxMiddleware',
+    "simple_history.middleware.HistoryRequestMiddleware",
+    "django_htmx.middleware.HtmxMiddleware",
 ]
 
-ROOT_URLCONF = 'config.urls'
+ROOT_URLCONF = "config.urls"
 
 TEMPLATES = [
     {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR / 'templates'],
-        'APP_DIRS': True,
-        'OPTIONS': {
-            'context_processors': [
-                'django.template.context_processors.request',
-                'django.contrib.auth.context_processors.auth',
-                'django.contrib.messages.context_processors.messages',
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [BASE_DIR / "templates"],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
             ],
-            'builtins': [
-                'crispy_forms.templatetags.crispy_forms_tags',
-                'crispy_tailwind.templatetags.tailwind_filters',
+            "builtins": [
+                "crispy_forms.templatetags.crispy_forms_tags",
+                "crispy_tailwind.templatetags.tailwind_filters",
             ],
         },
     },
 ]
 
-WSGI_APPLICATION = 'config.wsgi.application'
+WSGI_APPLICATION = "config.wsgi.application"
 
-CRISPY_TEMPLATE_PACK = 'tailwind'
+CRISPY_TEMPLATE_PACK = "tailwind"
 CRISPY_ALLOWED_TEMPLATE_PACKS = ("tailwind",)
 
 
@@ -103,13 +101,13 @@ CRISPY_ALLOWED_TEMPLATE_PACKS = ("tailwind",)
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('DB_NAME', 'meu_crm'),
-        'USER': os.getenv('DB_USER', 'usuario_crm'),
-        'PASSWORD': os.getenv('DB_PASSWORD', 'senha_secreta'),
-        'HOST': os.getenv('DB_HOST', 'localhost'),
-        'PORT': os.getenv('DB_PORT', '5432'),
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.getenv("DB_NAME", "meu_crm"),
+        "USER": os.getenv("DB_USER", "usuario_crm"),
+        "PASSWORD": os.getenv("DB_PASSWORD", "senha_secreta"),
+        "HOST": os.getenv("DB_HOST", "localhost"),
+        "PORT": os.getenv("DB_PORT", "5432"),
     }
 }
 
@@ -119,27 +117,27 @@ DATABASES = {
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
     },
 ]
 
-AUTH_USER_MODEL = 'accounts.User'
+AUTH_USER_MODEL = "accounts.User"
 
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
 
-LANGUAGE_CODE = 'pt-br'
-TIME_ZONE = 'America/Sao_Paulo'
+LANGUAGE_CODE = "pt-br"
+TIME_ZONE = "America/Sao_Paulo"
 USE_I18N = True
 USE_TZ = True
 
@@ -149,20 +147,22 @@ USE_THOUSAND_SEPARATOR = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = "static/"
 STATICFILES_DIRS = [os.path.join(BASE_DIR, "static")]
+
+TAILWIND_CLI_SRC_CSS = os.path.join(BASE_DIR, "static", "css", "main.css")
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Money
-DEFAULT_CURRENCY = 'BRL'
-CURRENCIES = ('BRL',)
-CURRENCY_CHOICES = [('BRL', 'Real Brasileiro')]
+DEFAULT_CURRENCY = "BRL"
+CURRENCIES = ("BRL",)
+CURRENCY_CHOICES = [("BRL", "Real Brasileiro")]
 CURRENCY_DECIMAL_PLACES = 2
 
 # Phone Numbers
-PHONENUMBER_DEFAULT_REGION = 'BR'
-PHONENUMBER_DEFAULT_FORMAT = 'NATIONAL'
+PHONENUMBER_DEFAULT_REGION = "BR"
+PHONENUMBER_DEFAULT_FORMAT = "NATIONAL"
