@@ -14,7 +14,7 @@
     {% tailwind_css %} {# This tag injects the Tailwind styles #}
     {% htmx_script %}
 </head>
-<body hx-headers='{"x-csrftoken": "{{ csrf_token }}"}'>
+<body class="color-scheme text-default bg-default" hx-headers='{"x-csrftoken": "{{ csrf_token }}"}'>
     <main>
         {% block content %}
         {% endblock %}

@@ -63,7 +63,7 @@
     $refs.value.value = d;
     $refs.display.value = format(d);
   "
-  class="{% include 'widgets/_shadow_style.html' %}"
+  class="input-shadow"
 >
   <input
     type="text"
@@ -72,7 +72,7 @@
     inputmode="numeric"
     autocomplete="off"
     :placeholder="mode() === 'cpf' ? '000.000.000-00' : (mode() === 'cnpj' ? '00.000.000/0000-00' : 'CPF ou CNPJ')"
-    class="{% include 'widgets/_input_style_base.html' %} {{ widget.attrs.class }}"
+    class="input-theme {{ widget.attrs.class }}"
   >
 
   <input

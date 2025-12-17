@@ -1,4 +1,89 @@
 @import "tailwindcss";
+
 @plugin "@tailwindcss/typography";
-@plugin "@tailwindcss/forms";
 @plugin "@tailwindcss/container-queries";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+    --color-primary: #1e3a8a;
+
+    --color-light-background: #ffffff;
+    --color-dark-background: #121212;
+
+    /* Texto */
+    --color-light-text: #101010;
+    --color-dark-text: #e2e2e2;
+    --color-light-muted: #909090;
+    --color-dark-muted: #8b8b8b;
+
+    /* Inputs */
+    --color-light-input-bg: #ffffff;
+    --color-dark-input-bg: #1e1e1e;
+    --color-light-input-ring: #d1d5db;
+    --color-dark-input-ring: #151515;
+    --color-light-input-placeholder: #9ca3af;
+    --color-dark-input-placeholder: #6b6b6b;
+
+    --input-transition-duration: 250ms;
+}
+
+@layer components {
+    .color-scheme {
+        color-scheme: light;
+
+        &:where(.dark, .dark *) {
+             color-scheme: dark;
+        }
+    }
+
+    .bg-default {
+        @apply bg-[var(--color-light-background)] dark:bg-[var(--color-dark-background)];
+    }
+
+     .text-default {
+        @apply text-[var(--color-light-text)] dark:text-[var(--color-dark-text)];
+    }
+
+    .text-muted {
+        @apply text-[var(--color-light-muted)] dark:text-[var(--color-dark-muted)];
+    }
+
+    .input-theme {
+        @apply block w-full rounded-md border-0 py-1.5 px-3;
+        @apply ring-1 ring-inset;
+        @apply focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary;
+        @apply sm:text-sm sm:leading-6;
+        @apply transition-shadow ease-in-out;
+        transition-duration: var(--input-transition-duration);
+
+        /* Light */
+        @apply bg-[var(--color-light-input-bg)] text-[var(--color-light-text)] ring-[var(--color-light-input-ring)];
+        @apply placeholder:text-[var(--color-light-input-placeholder)];
+
+        /* Dark */
+        @apply dark:bg-[var(--color-dark-input-bg)] dark:text-[var(--color-dark-text)] dark:ring-[var(--color-dark-input-ring)];
+        @apply dark:placeholder:text-[var(--color-dark-input-placeholder)];
+    }
+
+    .input-shadow {
+        @apply relative rounded-md shadow-sm mt-1;
+    }
+
+    .input-placeholder-color {
+        @apply text-[var(--color-light-input-placeholder)];
+        @apply dark:text-[var(--color-dark-input-placeholder)];
+    }
+
+    .input-background-color {
+        @apply bg-[var(--color-light-input-bg)];
+        @apply dark:bg-[var(--color-dark-input-bg)];
+    }
+
+    /* Força as labels a usarem a cor do tema. */
+    /* O ! é necessário para vencer a classe utilitária (ex: text-gray-700) */
+    /* que o Crispy injeta no HTML. *!  */
+    label {
+        @apply !text-[var(--color-light-text)] dark:!text-[var(--color-dark-text)];
+    }
+}

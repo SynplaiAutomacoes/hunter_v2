@@ -56,7 +56,7 @@
         $refs.value.value = n;
         $refs.display.value = formatRg(n);
     "
-    class="{% include 'widgets/_shadow_style.html' %}"
+    class="input-shadow"
 >
     <input
         type="text"
@@ -65,7 +65,7 @@
         inputmode="text"
         autocomplete="off"
         placeholder="00.000.000-0"
-        class="{% include 'widgets/_input_style_base.html' %} {{ widget.attrs.class }}"
+        class="input-theme {{ widget.attrs.class }}"
     >
 
     <input

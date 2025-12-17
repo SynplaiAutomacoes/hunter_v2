@@ -1,5 +1,5 @@
 {% with raw=widget.value|default_if_none:"" %}
-<div class="{% include 'widgets/_shadow_style.html' %}">
+<div class="input-shadow">
     <div
         x-data="{
             rawValue: '{{ raw }}',
@@ -51,7 +51,7 @@
             inputmode="numeric"
             autocomplete="off"
             :placeholder="mode === 'positive' ? '0' : (mode === 'negative' ? '-0' : '±0')"
-            class="{% include 'widgets/_input_style_base.html' %}"
+            class="input-theme"
         >
 
         <input
