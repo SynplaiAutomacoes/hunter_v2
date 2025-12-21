@@ -150,7 +150,12 @@ USE_THOUSAND_SEPARATOR = True
 STATIC_URL = "static/"
 STATICFILES_DIRS = [os.path.join(BASE_DIR, "static")]
 
+# Tailwind
+# TODO: Optimize for production https://github.com/django-commons/django-tailwind-cli?tab=readme-ov-file#production-settings
 TAILWIND_CLI_SRC_CSS = os.path.join(BASE_DIR, "static", "css", "main.css")
+
+TAILWIND_CLI_SRC_REPO = "dobicinaitis/tailwind-cli-extra"
+TAILWIND_CLI_USE_DAISY_UI = True
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
