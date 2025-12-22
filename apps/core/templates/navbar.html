@@ -1,7 +1,7 @@
 <nav x-data="{
     menus: [
         {
-            label: 'Menu 1',
+            label: 'Cadastros',
             items: [
                 { label: 'Item 1', href: '#' },
                 { label: 'Item 2', href: '#' },
@@ -9,15 +9,11 @@
             ]
         },
         {
-            label: 'Menu 2',
-            items: [
-                { label: 'Item 4', href: '#' },
-                { label: 'Item 5', href: '#' },
-                { label: 'Item 6', href: '#' }
-            ]
+            label: 'Orçamentos',
+            href: '#'
         },
         {
-            label: 'Menu 3',
+            label: 'Estoque',
             items: [
                 { label: 'Item 7', href: '#' },
                 { label: 'Item 8', href: '#' },
@@ -41,16 +37,22 @@
                 <ul tabindex="0" class="dropdown-content menu menu-md bg-base-100 text-base-content rounded-box w-64 shadow">
                     <template x-for="menu in menus" :key="menu.label">
                         <li>
-                            <details x-data="{ open: false }" @toggle="open = $el.open">
-                                <summary class="flex items-center justify-between gap-2">
-                                    <span x-text="menu.label"></span>
-                                </summary>
-                                <ul>
-                                    <template x-for="item in menu.items" :key="item.label">
-                                        <li><a :href="item.href" x-text="item.label"></a></li>
-                                    </template>
-                                </ul>
-                            </details>
+                            <template x-if="menu.items" class="hidden">
+                                <details x-data="{ open: false }" @toggle="open = $el.open">
+                                    <summary class="flex items-center justify-between gap-2">
+                                        <span x-text="menu.label"></span>
+                                    </summary>
+                                    <ul>
+                                        <template x-for="item in menu.items" :key="item.label">
+                                            <li><a :href="item.href" x-text="item.label"></a></li>
+                                        </template>
+                                    </ul>
+                                </details>
+                            </template>
+
+                            <template x-if="!menu.items" class="hidden">
+                                <a :href="menu.href" x-text="menu.label"></a>
+                            </template>
                         </li>
                     </template>
                 </ul>
@@ -65,24 +67,30 @@
             <ul class="menu menu-horizontal">
                 <template x-for="menu in menus" :key="menu.label">
                     <li>
-                        <div class="dropdown dropdown-hover dropdown-center" x-data="{ hover: false }" @mouseenter="hover = true" @mouseleave="hover = false">
-                            <div tabindex="0" role="button" class="flex items-center gap-1 text-lg">
-                                <span x-text="menu.label"></span>
-                                <svg xmlns="http://www.w3.org/2000/svg"
-                                     viewBox="0 0 20 20"
-                                     fill="currentColor"
-                                     class="h-4 w-4"
-                                     style="transition: transform 200ms;"
-                                     :style="hover ? 'transform: rotate(180deg)' : 'transform: rotate(0deg)'">
-                                    <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.168l3.71-3.938a.75.75 0 1 1 1.08 1.04l-4.24 4.5a.75.75 0 0 1-1.08 0l-4.24-4.5a.75.75 0 0 1 .02-1.06Z" clip-rule="evenodd"></path>
-                                </svg>
+                        <template x-if="menu.items" class="hidden">
+                            <div class="dropdown dropdown-hover dropdown-center" x-data="{ hover: false }" @mouseenter="hover = true" @mouseleave="hover = false">
+                                <div tabindex="0" role="button" class="flex items-center gap-1 text-base font-medium">
+                                    <span x-text="menu.label"></span>
+                                    <svg xmlns="http://www.w3.org/2000/svg"
+                                         viewBox="0 0 20 20"
+                                         fill="currentColor"
+                                         stroke="currentColor"
+                                         class="h-4 w-4 origin-center transform-gpu transition-transform duration-[250ms] ease-out motion-reduce:transition-none"
+                                         :style="hover ? 'transform: rotate(180deg)' : 'transform: rotate(0deg)'">
+                                        <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.168l3.71-3.938a.75.75 0 1 1 1.08 1.04l-4.24 4.5a.75.75 0 0 1-1.08 0l-4.24-4.5a.75.75 0 0 1 .02-1.06Z" clip-rule="evenodd"></path>
+                                    </svg>
+                                </div>
+                                <ul tabindex="-1" class="dropdown-content menu bg-base-100 text-base-content rounded-box z-1 mt-1 w-52 p-2 shadow">
+                                    <template x-for="item in menu.items" :key="item.label">
+                                        <li><a :href="item.href" x-text="item.label"></a></li>
+                                    </template>
+                                </ul>
                             </div>
-                            <ul tabindex="-1" class="dropdown-content menu bg-base-100 text-base-content rounded-box z-1 mt-1 w-52 p-2 shadow">
-                                <template x-for="item in menu.items" :key="item.label">
-                                    <li><a :href="item.href" x-text="item.label"></a></li>
-                                </template>
-                            </ul>
-                        </div>
+                        </template>
+
+                        <template x-if="!menu.items" class="hidden">
+                            <a class="text-base font-medium" :href="menu.href" x-text="menu.label"></a>
+                        </template>
                     </li>
                 </template>
             </ul>
@@ -90,17 +98,16 @@
 
         <!-- ──── END ──── -->
         <div class="navbar-end gap-2">
-            <select class="select select-sm select-bordered bg-base-100 text-base-content max-w-32">
+            <select class="select select-sm bg-base-100 text-base-content max-w-32">
                 <option selected>Opção A</option>
                 <option>Opção B</option>
                 <option>Opção C</option>
             </select>
 
             <div class="dropdown dropdown-end">
-                <div tabindex="0" role="button" class="btn btn-ghost btn-circle avatar"
-                     aria-label="Abrir menu do perfil">
+                <div tabindex="0" role="button" class="avatar hover:cursor-pointer" aria-label="Abrir menu do perfil">
                     <div class="w-9 rounded-full ring ring-base-100 ring-offset-2 ring-offset-primary">
-                        <img alt="Avatar" src="https://daisyui.com/images/stock/photo-1534528741775-53994a69daeb.jpg"/>
+                        <img alt="Avatar" src="https://img.daisyui.com/images/profile/demo/spiderperson@192.webp"/>
                     </div>
                 </div>
                 <ul tabindex="0"
