@@ -3,9 +3,14 @@
         {
             label: 'Cadastros',
             items: [
-                { label: 'Item 1', href: '#' },
-                { label: 'Item 2', href: '#' },
-                { label: 'Item 3', href: '#' }
+                { label: 'Cliente', href: '#' },
+                { label: 'Colaborador', href: '#' },
+                { label: 'Checklist', href: '#' },
+                { label: 'Fornecedor', href: '#' },
+                { label: 'Grupo', href: '#' },
+                { label: 'Produto', href: '#' },
+                { label: 'Serviço', href: '#' },
+                { label: 'Kit', href: '#' }
             ]
         },
         {
@@ -13,22 +18,37 @@
             href: '#'
         },
         {
+            label: 'Ordens de Serviço',
+            href: '#'
+        },
+        {
             label: 'Estoque',
+            href: '#'
+        },
+        {
+            label: 'Consulta',
             items: [
-                { label: 'Item 7', href: '#' },
-                { label: 'Item 8', href: '#' },
-                { label: 'Item 9', href: '#' }
+                { label: 'Histórico de Clientes', href: '#' }
+            ]
+        },
+        {
+            label: 'Gestão',
+            items: [
+                { label: 'Gerenciar Oficinas', href: '#' },
+                { label: 'Custos Mensais', href: '#' },
+                { label: 'Custo Mensal da Oficina', href: '#' },
+                { label: 'Perguntas Investigativas', href: '#' }
             ]
         }
     ]
 }">
-    <div class="navbar bg-navbar shadow-sm text-base-100">
+    <div class="navbar bg-navbar shadow-md text-base-100 md:px-10 xl:px-20 relative">
         <!-- ──── START ──── -->
         <div class="navbar-start">
             <!-- Mobile hamburger -->
             <div class="dropdown">
-                <div tabindex="0" role="button" class="btn btn-ghost lg:hidden" aria-label="Abrir menu">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <div tabindex="0" role="button" class="pr-5 lg:hidden" aria-label="Abrir menu">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-9 w-9" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
                     </svg>
                 </div>
@@ -59,7 +79,10 @@
             </div>
 
             <!-- Logo -->
-            <a href="/" class="btn btn-ghost text-xl normal-case">Hunter</a>
+            <a href="/" class="hidden items-center gap-1 md:flex md:absolute md:left-1/2 md:-translate-x-1/2 lg:static lg:translate-x-0">
+                <span class="material-icons !text-4xl text-indigo-300">directions_car</span>
+                <h1 class="text-2xl font-semibold">Hunter</h1>
+            </a>
         </div>
 
         <!-- ──── CENTER ──── -->
@@ -80,7 +103,7 @@
                                         <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.168l3.71-3.938a.75.75 0 1 1 1.08 1.04l-4.24 4.5a.75.75 0 0 1-1.08 0l-4.24-4.5a.75.75 0 0 1 .02-1.06Z" clip-rule="evenodd"></path>
                                     </svg>
                                 </div>
-                                <ul tabindex="-1" class="dropdown-content menu bg-base-100 text-base-content rounded-box z-1 mt-1 w-52 p-2 shadow">
+                                <ul tabindex="-1" class="dropdown-content bg-base-100 text-base-content rounded-box z-1 mt-1 w-52 p-2 shadow">
                                     <template x-for="item in menu.items" :key="item.label">
                                         <li><a :href="item.href" x-text="item.label"></a></li>
                                     </template>
@@ -98,7 +121,7 @@
 
         <!-- ──── END ──── -->
         <div class="navbar-end gap-2">
-            <select class="select select-sm bg-base-100 text-base-content max-w-32">
+            <select class="select select-xs bg-base-100 text-base-content max-w-32 outline-0">
                 <option selected>Opção A</option>
                 <option>Opção B</option>
                 <option>Opção C</option>
@@ -106,13 +129,12 @@
 
             <div class="dropdown dropdown-end">
                 <div tabindex="0" role="button" class="avatar hover:cursor-pointer" aria-label="Abrir menu do perfil">
-                    <div class="w-9 rounded-full ring ring-base-100 ring-offset-2 ring-offset-primary">
-                        <img alt="Avatar" src="https://img.daisyui.com/images/profile/demo/spiderperson@192.webp"/>
+                    <div class="w-9 rounded-full ring-navbar ring-offset-indigo-300 ring-indigo-300 ring-2 ring-offset-2">
+                        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="36px" height="36px" viewBox="0,0,256,256"><g fill="#ffffff" fill-rule="nonzero" stroke="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="10" stroke-dasharray="" stroke-dashoffset="0" font-family="none" font-weight="none" font-size="none" text-anchor="none" style="mix-blend-mode: normal"><g transform="scale(5.33333,5.33333)"><path d="M24,4c-5.50508,0 -10,4.49492 -10,10c0,5.50508 4.49492,10 10,10c5.50508,0 10,-4.49492 10,-10c0,-5.50508 -4.49492,-10 -10,-10zM24,7c3.88376,0 7,3.11624 7,7c0,3.88376 -3.11624,7 -7,7c-3.88376,0 -7,-3.11624 -7,-7c0,-3.88376 3.11624,-7 7,-7zM11.97852,28c-2.17981,0 -3.97852,1.79871 -3.97852,3.97852v1.52148c0,3.60417 2.27927,6.39223 5.30664,8.0625c3.02737,1.67027 6.86146,2.4375 10.69336,2.4375c3.8319,0 7.66599,-0.76723 10.69336,-2.4375c2.58128,-1.42415 4.52398,-3.69988 5.06836,-6.5625h0.24023v-3.02148c0,-2.17981 -1.80066,-3.97852 -3.98047,-3.97852zM11.97852,31h24.04297c0.55819,0 0.98047,0.42033 0.98047,0.97852v0.02148h-0.00195v1.5c0,2.39583 -1.34573,4.10777 -3.75586,5.4375c-2.41013,1.32973 -5.82604,2.0625 -9.24414,2.0625c-3.4181,0 -6.83401,-0.73277 -9.24414,-2.0625c-2.41013,-1.32973 -3.75586,-3.04167 -3.75586,-5.4375v-1.52148c0,-0.55819 0.42033,-0.97852 0.97852,-0.97852z"></path></g></g></svg>
                     </div>
                 </div>
                 <ul tabindex="0"
-                    class="dropdown-content menu menu-sm bg-base-100 text-base-content rounded-box mt-3 w-52 p-2 shadow"
-                    style="z-index: 50;">
+                    class="dropdown-content menu bg-base-100 text-base-content rounded-box mt-3 w-52 p-2 shadow">
                     <li><a href="#">Perfil</a></li>
                     <li><a href="#">Configurações</a></li>
                     <li><a href="#">Sair</a></li>
