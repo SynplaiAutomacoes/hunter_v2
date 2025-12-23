@@ -1,9 +1,9 @@
 from django import forms
-from typing import List, Tuple
+from typing import List, Tuple, Literal
 
 
 class MoneyInput(forms.TextInput):
-    template_name = 'widgets/money_input.html'
+    template_name = "widgets/money_input.html"
 
 
 class CPForCNPJInput(forms.TextInput):
@@ -13,9 +13,10 @@ class CPForCNPJInput(forms.TextInput):
       - "cnpj" -> máscara/limite CNPJ
       - "both" -> alterna CPF até 11 dígitos e CNPJ acima
     """
+
     template_name = "widgets/cpf_or_cpnj_input.html"
 
-    def __init__(self, *args, mode: str = "both", **kwargs):
+    def __init__(self, *args, mode: Literal["both", "cnpj", "cpf"] = "both", **kwargs):
         super().__init__(*args, **kwargs)
         self.mode = mode
 
@@ -77,15 +78,7 @@ class SelectInput(forms.TextInput):
             if selected:
                 has_selected = True
 
-            subgroup.append(
-                {
-                    "name": name,
-                    "value": opt_value_str,
-                    "label": opt_label,
-                    "selected": selected,
-                    "attrs": attrs or {}
-                }
-            )
+            subgroup.append({"name": name, "value": opt_value_str, "label": opt_label, "selected": selected, "attrs": attrs or {}})
 
         groups.append((group_name, subgroup, group_index))
         return groups
@@ -119,9 +112,10 @@ class NumberInput(forms.TextInput):
       - "negative": só <= 0
       - "both": permite sinal +/- (um único '-' no começo)
     """
+
     template_name = "widgets/number_input.html"
 
-    def __init__(self, *args, mode: str = "positive", **kwargs):
+    def __init__(self, *args, mode: Literal["positive", "negative", "both"] = "positive", **kwargs):
         super().__init__(*args, **kwargs)
         self.mode = mode
 

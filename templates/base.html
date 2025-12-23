@@ -5,7 +5,41 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+
     <title>Hunter</title>
+
+    <script>
+        const THEME_LIGHT = "light";
+        const THEME_DARK = "business";
+        const STORAGE_KEY = "theme";
+
+        function getPreferredTheme() {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved === THEME_LIGHT || saved === THEME_DARK) return saved;
+
+            const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+            return prefersDark ? THEME_DARK : THEME_LIGHT;
+        }
+
+        // Aplica o tema o mais cedo possível (reduz FOUC)
+        document.documentElement.setAttribute("data-theme", getPreferredTheme());
+
+        // Expõe helpers para o botão de trocar tema
+        window.__theme = {
+            THEME_LIGHT,
+            THEME_DARK,
+            STORAGE_KEY,
+            set(theme) {
+                document.documentElement.setAttribute("data-theme", theme);
+                localStorage.setItem(STORAGE_KEY, theme);
+            },
+            get() {
+                return document.documentElement.getAttribute("data-theme") || THEME_LIGHT;
+            }
+        };
+    </script>
 
     {#Alpine#}
     <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/mask@3.x.x/dist/cdn.min.js"></script>
@@ -14,7 +48,7 @@
     {% tailwind_css %} {# This tag injects the Tailwind styles #}
     {% htmx_script %}
 </head>
-<body class="color-scheme text-default bg-default" hx-headers='{"x-csrftoken": "{{ csrf_token }}"}'>
+<body class="antialiased scroll-smooth" hx-headers='{"x-csrftoken": "{{ csrf_token }}"}'>
     <main>
         {% block content %}
         {% endblock %}
