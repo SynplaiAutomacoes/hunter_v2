@@ -3,7 +3,6 @@
 @plugin "@tailwindcss/typography";
 @plugin "@tailwindcss/container-queries";
 
-/*TODO: Add --prefersdark at the right side of "business" theme*/
 @plugin 'daisyui' {
     themes: light, business;
 }
