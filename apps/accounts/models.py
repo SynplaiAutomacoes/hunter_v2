@@ -11,7 +11,7 @@ class User(AbstractUser):
         MECHANIC = "MEC", "Mechanic"
 
     cpf = BRCPFField(unique=True, null=False, blank=False)
-    role = models.CharField(max_length=3, choices=Role.choices, default=Role.MECHANIC)
+    role = models.CharField(max_length=3, choices=Role.choices, default=Role.ADMIN)
     workshops = models.ManyToManyField(Workshop, related_name="users", blank=True)
 
     def __str__(self):

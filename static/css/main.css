@@ -42,8 +42,8 @@
     --color-navbar: var(--color-primary);
     --color-navbar-text: var(--color-base-content);
 
-    --color-input-base: var(--color-base-200);
-    --color-input-ring: var(--color-base-200);
+    --color-input-base: var(--color-base-100);
+    --color-input-ring: var(--color-base-100);
 }
 
 
