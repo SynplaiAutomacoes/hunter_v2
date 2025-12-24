@@ -101,6 +101,10 @@ class TextInput(forms.TextInput):
     template_name = "widgets/text_input.html"
 
 
+class PasswordInput(forms.PasswordInput):
+    template_name = "widgets/password_input.html"
+
+
 class CheckboxInput(forms.CheckboxInput):
     template_name = "widgets/checkbox_input.html"
 
