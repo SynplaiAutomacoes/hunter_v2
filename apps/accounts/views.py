@@ -15,7 +15,7 @@ class UserLoginView(LoginView):
 
 
 class UserSignUpView(FormView):
-    template_name = "cadastro.html"
+    template_name = "register.html"
     form_class = SignUpForm
     success_url = reverse_lazy("accounts:login")
 
