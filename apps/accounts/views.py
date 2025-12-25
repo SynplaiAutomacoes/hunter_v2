@@ -8,8 +8,10 @@ from .forms import LoginForm, SignUpForm
 class UserLoginView(LoginView):
     template_name = "login.html"
     authentication_form = LoginForm
-    success_url = reverse_lazy("home")
     redirect_authenticated_user = True
+
+    def get_success_url(self):
+        return self.get_redirect_url() or reverse_lazy("workshops:create")
 
 
 class UserSignUpView(FormView):

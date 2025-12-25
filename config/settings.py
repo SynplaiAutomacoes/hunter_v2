@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     # Local
     "apps.core",
     "apps.accounts",
+    "apps.workshops",
 ]
 
 MIDDLEWARE = [
@@ -68,6 +69,8 @@ MIDDLEWARE = [
     # Dependencies
     "simple_history.middleware.HistoryRequestMiddleware",
     "django_htmx.middleware.HtmxMiddleware",
+    # Local
+    "apps.core.middlewares.RequireFirstWorkshopMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"

@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+
+{% block content %}
+
+{% include 'navbar.html' %}
+
+<div class="px-2 md:px-10 xl:px-20 text-base-content">
+    <div class="min-h-[calc(100vh-5rem)] flex py-10">
+        <div class="card bg-base-200 w-full">
+            <div class="card-body">
+                <div>
+                    <h1 class="text-2xl font-semibold">Cadastrar Oficina</h1>
+                    <p class="mt-1 opacity-70">
+                        Preencha os dados abaixo para criar uma nova oficina.
+                    </p>
+                </div>
+
+                <div class="divider my-1"></div>
+
+                {% crispy form %}
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
