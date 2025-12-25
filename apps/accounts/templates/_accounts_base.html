@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="min-h-screen grid grid-cols-1 lg:grid-cols-2">
+    <section class="bg-primary text-primary-content flex items-center justify-center p-10">
+        <div class="text-center max-w-md">
+            <div class="flex items-center justify-center">
+                <img src="{% static 'image/logo.svg' %}" alt="Logo" class="w-64 max-w-full">
+            </div>
+
+            <p class="mt-6 text-base/relaxed">
+                {% block accounts_left_text %}{% endblock %}
+            </p>
+        </div>
+    </section>
+
+    <section class="bg-base-100 text-base-content flex items-center justify-center p-6 sm:p-10">
+        <div class="w-full max-w-md">
+            <h2 class="text-2xl font-semibold">{% block accounts_title %}{% endblock %}</h2>
+            <p class="mt-1 text-sm opacity-70">{% block accounts_subtitle %}{% endblock %}</p>
+
+            <div class="mt-6 card bg-base-200">
+                <div class="card-body">
+                    {% crispy form %}
+
+                    <div class="mt-4 text-sm">
+                        {% block accounts_bottom_text %}{% endblock %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+</div>
+{% endblock %}

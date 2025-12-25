@@ -1,34 +1,13 @@
-{% extends 'base.html' %}
-{% load static %}
+{% extends '_accounts_base.html' %}
 
-{% block content %}
-<div class="min-h-screen grid grid-cols-1 lg:grid-cols-2">
-    <section class="bg-primary text-primary-content flex items-center justify-center p-10">
-        <div class="text-center max-w-md">
-            <div class="flex items-center justify-center">
-                <img src="{% static 'image/logo.svg' %}" alt="Logo" class="w-64 max-w-full">
-            </div>
-            <p class="mt-6 text-base/relaxed">
-                Crie sua conta para começar a usar o sistema.
-            </p>
-        </div>
-    </section>
+{% block accounts_left_text %}
+Crie sua conta para começar a usar o sistema.
+{% endblock %}
 
-    <section class="bg-base-100 text-base-content flex items-center justify-center p-6 sm:p-10">
-        <div class="w-full max-w-md">
-            <h2 class="text-2xl font-semibold">Cadastro</h2>
-            <p class="mt-1 text-sm opacity-70">Preencha os dados abaixo.</p>
+{% block accounts_title %}Cadastro{% endblock %}
+{% block accounts_subtitle %}Preencha os dados abaixo.{% endblock %}
 
-            <div class="mt-6 card bg-base-200">
-                <div class="card-body">
-                    {% crispy form %}
-                    <div class="mt-4 text-sm">
-                        <span class="opacity-70">Já tem conta?</span>
-                        <a class="link link-primary" href="{% url 'accounts:login' %}">Entrar</a>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
-</div>
+{% block accounts_bottom_text %}
+<span class="opacity-70">Já tem conta?</span>
+<a class="link link-primary" href="{% url 'accounts:login' %}">Entrar</a>
 {% endblock %}
