@@ -48,7 +48,7 @@
     {% tailwind_css %} {# This tag injects the Tailwind styles #}
     {% htmx_script %}
 </head>
-<body class="antialiased scroll-smooth" hx-headers='{"x-csrftoken": "{{ csrf_token }}"}'>
+<body class="antialiased scroll-smooth bg-background" hx-headers='{"x-csrftoken": "{{ csrf_token }}"}'>
     <main>
         {% block content %}
         {% endblock %}

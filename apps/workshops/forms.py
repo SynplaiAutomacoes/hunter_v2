@@ -1,7 +1,8 @@
-from crispy_forms.layout import Layout, Div, Field, Submit
+from crispy_forms.layout import Submit, Layout, Div, HTML, Field
 from django.forms import ModelForm
 
 from crispy_forms.helper import FormHelper
+
 
 from apps.workshops.models import Workshop
 from apps.core.widgets import TextInput, CPForCNPJInput
@@ -23,16 +24,12 @@ class WorkshopCreateForm(ModelForm):
         self.fields["cnpj"].label = "CNPJ"
 
         self.helper = FormHelper()
-        self.helper.attrs = {"class": "h-full flex flex-col"}
-
         self.helper.layout = Layout(
+            Div(Field("name", wrapper_class="w-full"), Field("cnpj", wrapper_class="w-full"), css_class="grid grid-cols-1 lg:grid-cols-2 gap-4"),
+            HTML('<div class="divider"></div>'),
             Div(
-                Field("name"),
-                Field("cnpj"),
-                css_class="grid grid-cols-1 lg:grid-cols-2 gap-4",
-            ),
-            Div(
-                Submit("submit", "Salvar", css_class="btn btn-primary w-full lg:w-auto"),
-                css_class="mt-auto pt-6 flex justify-end",
+                HTML('<a href="#" class="btn btn-ghost text-base-content/70">Cancelar</a>'),
+                Submit("submit", "Salvar", css_class="btn btn-primary px-8"),
+                css_class="flex items-center justify-end gap-2",
             ),
         )
