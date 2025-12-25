@@ -17,7 +17,7 @@ class UserLoginView(LoginView):
 class UserSignUpView(FormView):
     template_name = "cadastro.html"
     form_class = SignUpForm
-    success_url = reverse_lazy("login")
+    success_url = reverse_lazy("accounts:login")
 
     def form_valid(self, form):
         form.save()
@@ -25,4 +25,4 @@ class UserSignUpView(FormView):
 
 
 class UserLogoutView(LogoutView):
-    next_page = reverse_lazy("login")
+    next_page = reverse_lazy("accounts:login")
