@@ -14,7 +14,7 @@ class RequireFirstWorkshopMiddleware:
             match = resolve(request.path_info)
             current = f"{match.namespace}:{match.url_name}" if match.namespace else match.url_name
 
-            allowed = {"workshops:create", "login", "cadastro", "logout"}
+            allowed = {"workshops:create", "accounts:login", "accounts:register", "accounts:logout"}
 
             if current not in allowed:
                 from apps.workshops.models import Workshop
