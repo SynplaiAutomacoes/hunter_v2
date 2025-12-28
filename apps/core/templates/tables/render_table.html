@@ -1,0 +1,108 @@
+<div id="{{ table_id }}" class="w-full" x-data="{ all: false, toggleAll() { $el.querySelectorAll('input.row-checkbox').forEach(cb => cb.checked = this.all) } }">
+    <div class="overflow-x-auto">
+        <table class="table table-zebra w-full">
+            <thead>
+            <tr>
+                {% if selectable %}
+                    <th class="w-10">
+                        <input type="checkbox" class="checkbox" x-model="all" @change="toggleAll" aria-label="Selecionar todos" />
+                    </th>
+                {% endif %}
+
+                {% for col in columns %}
+                    <th class="{{ col.th_class }}">
+                        {% if col.sortable and col.sort_url %}
+                            <a
+                                class="inline-flex items-center gap-1 link link-hover"
+                                hx-get="{{ col.sort_url }}"
+                                hx-target="#{{ table_id }}"
+                                hx-swap="outerHTML"
+                                hx-push-url="true"
+                            >
+                                <span>{{ col.label }}</span>
+                                <span
+                                    class="inline-flex w-4 justify-center text-xs {% if col.is_asc or col.is_desc %}opacity-70{% else %}opacity-40{% endif %}"
+                                    aria-hidden="true"
+                                >
+                                    {% if col.is_asc %}
+                                        ▲
+                                    {% elif col.is_desc %}
+                                        ▼
+                                    {% else %}
+                                        ↕
+                                    {% endif %}
+                                </span>
+                            </a>
+                        {% else %}
+                            <span>{{ col.label }}</span>
+                        {% endif %}
+                    </th>
+                {% endfor %}
+            </tr>
+            </thead>
+
+            <tbody>
+            {% if rows %}
+                {% for row in rows %}
+                    <tr>
+                        {% if selectable %}
+                            <td class="w-10">
+                                <input
+                                    type="checkbox"
+                                    class="checkbox row-checkbox"
+                                    name="{{ checkbox_name }}"
+                                    value="{{ row.pk }}"
+                                    aria-label="Selecionar linha"
+                                />
+                            </td>
+                        {% endif %}
+
+                        {% for cell in row.cells %}
+                            <td class="{{ cell.td_class }}">{{ cell.value }}</td>
+                        {% endfor %}
+                    </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="{% if selectable %}{{ columns|length|add:1 }}{% else %}{{ columns|length }}{% endif %}" class="text-center py-8 text-base-content/70">
+                        {{ empty_text }}
+                    </td>
+                </tr>
+            {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if is_paginated %}
+        <div class="flex items-center justify-between gap-3 pt-4">
+            <div class="text-sm text-base-content/70">
+                Página {{ page_obj.number }} de {{ paginator.num_pages }}
+            </div>
+
+            <div class="join">
+                <button
+                    class="btn btn-sm btn-primary join-item"
+                    {% if prev_url %}
+                        hx-get="{{ prev_url }}"
+                        hx-target="#{{ table_id }}"
+                        hx-swap="outerHTML"
+                        hx-push-url="true"
+                    {% else %}
+                        disabled
+                    {% endif %}
+                >Anterior</button>
+                <button
+                    class="btn btn-sm btn-primary join-item"
+                    {% if next_url %}
+                        hx-get="{{ next_url }}"
+                        hx-target="#{{ table_id }}"
+                        hx-swap="outerHTML"
+                        hx-push-url="true"
+                    {% else %}
+                        disabled
+                    {% endif %}
+                >Próxima</button>
+            </div>
+        </div>
+    {% endif %}
+</div>

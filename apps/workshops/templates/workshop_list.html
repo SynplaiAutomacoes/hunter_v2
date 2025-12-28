@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+
+{% block content %}
+
+{% include 'navbar.html' %}
+
+<div class="min-h-[calc(100vh-5rem)] py-10 px-2 md:px-10 xl:px-20">
+    <div class="mx-auto space-y-6">
+        <div class="flex items-center justify-between gap-4">
+            <div>
+                <h1 class="text-3xl font-bold text-base-content">Oficinas</h1>
+                <p class="text-base-content/70 mt-1">Lista com paginação e ordenação via HTMX.</p>
+            </div>
+
+            <a href="{% url 'workshops:create' %}" class="btn btn-primary">Cadastrar</a>
+        </div>
+
+        <div class="card bg-base-100 shadow-xl">
+            <div class="card-body p-6 md:p-8">
+                {% include 'workshops/partials/workshop_table.html' %}
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
