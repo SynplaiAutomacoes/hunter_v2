@@ -1,4 +1,51 @@
 <div id="{{ table_id }}" class="w-full" x-data="{ all: false, toggleAll() { $el.querySelectorAll('input.row-checkbox').forEach(cb => cb.checked = this.all) } }">
+    {% if show_search %}
+        <div class="pb-4">
+            <form
+                class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
+                hx-get="{{ request.path }}"
+                hx-target="#{{ table_id }}"
+                hx-swap="outerHTML"
+                hx-push-url="true"
+                hx-trigger="submit, keyup changed delay:500ms from:input"
+            >
+                <div class="flex items-center gap-2 w-full sm:max-w-lg">
+                    <input type="hidden" name="page" value="1" />
+                    {% if current_sort %}
+                        <input type="hidden" name="sort" value="{{ current_sort }}" />
+                    {% endif %}
+
+                    <div class="relative w-full">
+                        <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-base-content/60" aria-hidden="true">
+                            <svg class="h-[1em] opacity-50" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                                <g
+                                    stroke-linejoin="round"
+                                    stroke-linecap="round"
+                                    stroke-width="2.5"
+                                    fill="none"
+                                    stroke="currentColor"
+                                >
+                                    <circle cx="11" cy="11" r="8"></circle>
+                                    <path d="m21 21-4.3-4.3"></path>
+                                </g>
+                            </svg>
+                        </span>
+
+                        <input
+                            type="text"
+                            name="{{ search_param }}"
+                            value="{{ search_query }}"
+                            placeholder="{{ search_placeholder }}"
+                            autocomplete="off"
+                            aria-label="Buscar"
+                            class="input-theme pl-10"
+                        />
+                    </div>
+                </div>
+            </form>
+        </div>
+    {% endif %}
+
     <div class="overflow-x-auto">
         <table class="table w-full">
             <thead>

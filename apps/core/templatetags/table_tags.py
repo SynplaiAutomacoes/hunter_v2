@@ -5,7 +5,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from django.core.exceptions import FieldError
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.db.models.expressions import BaseExpression
 from django.http import HttpRequest
 from django.template import Library
@@ -21,6 +21,9 @@ class TableColumn:
     th_class: str = ""
     td_class: str = ""
     sortable: bool = True
+    searchable: bool = True
+    # Opcional: permite customizar o lookup usado na busca. Ex.: "name", "customer__name".
+    search_by: str | None = None
     # Opcional: permite customizar o `order_by` quando `sort=<attr>`.
     # Aceita:
     # - str (campo/lookup),
@@ -60,6 +63,8 @@ def _normalize_fields(fields: Iterable[Any]) -> list[TableColumn]:
                     th_class=str(f.get("th_class", "")),
                     td_class=str(f.get("td_class", "")),
                     sortable=bool(f.get("sortable", True)),
+                    searchable=bool(f.get("searchable", True)),
+                    search_by=(str(f.get("search_by")) if f.get("search_by") is not None else None),
                     sort_by=f.get("sort_by"),
                 )
             )
@@ -72,7 +77,20 @@ def _normalize_fields(fields: Iterable[Any]) -> list[TableColumn]:
             td_class = str(f[3]) if len(f) > 3 else ""
             sortable = bool(f[4]) if len(f) > 4 else True
             sort_by = f[5] if len(f) > 5 else None
-            normalized.append(TableColumn(label=label, attr=attr, th_class=th_class, td_class=td_class, sortable=sortable, sort_by=sort_by))
+            searchable = bool(f[6]) if len(f) > 6 else True
+            search_by = str(f[7]) if len(f) > 7 and f[7] is not None else None
+            normalized.append(
+                TableColumn(
+                    label=label,
+                    attr=attr,
+                    th_class=th_class,
+                    td_class=td_class,
+                    sortable=sortable,
+                    searchable=searchable,
+                    search_by=search_by,
+                    sort_by=sort_by,
+                )
+            )
             continue
 
         raise TypeError("Cada coluna deve ser um dict, tuple/list ou TableColumn")
@@ -125,10 +143,36 @@ def render_table(
     selectable: bool = True,
     checkbox_name: str = "selected",
     empty_text: str = "Nenhum registro encontrado.",
+    show_search: bool = True,
+    search_param: str = "q",
+    search_placeholder: str = "Buscar…",
 ) -> dict[str, Any]:
     request: HttpRequest = context["request"]
 
     columns = _normalize_fields(fields)
+    search_query = (request.GET.get(search_param) or "").strip()
+
+    filtered_qs = queryset
+    if show_search and search_query:
+        lookups: list[str] = []
+        for col in columns:
+            if not col.searchable:
+                continue
+            lookup = (col.search_by or col.attr or "").strip()
+            if not lookup:
+                continue
+            lookups.append(lookup.replace(".", "__"))
+
+        if lookups:
+            q_obj = Q()
+            for lookup in lookups:
+                q_obj |= Q(**{f"{lookup}__icontains": search_query})
+            try:
+                filtered_qs = filtered_qs.filter(q_obj)
+            except FieldError:
+                # Se algum lookup for inválido, ignora a busca.
+                search_query = ""
+
     sortable_attrs = {c.attr for c in columns if c.sortable and c.attr}
 
     sort = request.GET.get("sort") or ""
@@ -136,7 +180,7 @@ def render_table(
     sort_desc = sort.startswith("-")
     sort_is_valid = bool(sort_attr) and sort_attr in sortable_attrs
 
-    ordered_qs = queryset
+    ordered_qs = filtered_qs
     if sort_is_valid:
         col_for_sort = next((c for c in columns if c.attr == sort_attr), None)
         if col_for_sort is not None:
@@ -148,8 +192,12 @@ def render_table(
                 ordered_qs = ordered_qs.order_by(*ordering_terms)
             except FieldError:
                 # Se o atributo/expressão não for válido para order_by, ignora a ordenação.
+                sort = ""
                 sort_attr = ""
                 sort_desc = False
+    elif sort:
+        # sort presente, mas não é permitido pelas colunas.
+        sort = ""
 
     # Garante ordenação estável para paginação quando não há sort explícito.
     if not ordered_qs.ordered:
@@ -225,7 +273,10 @@ def render_table(
     prev_url = _build_url(request, updates={"page": page_obj.previous_page_number()}) if page_obj.has_previous() else None
     next_url = _build_url(request, updates={"page": page_obj.next_page_number()}) if page_obj.has_next() else None
 
+    clear_search_url = _build_url(request, updates={search_param: None, "page": 1})
+
     return {
+        "request": request,
         "table_id": table_id,
         "columns": rendered_columns,
         "rows": rows,
@@ -237,4 +288,10 @@ def render_table(
         "selectable": selectable,
         "checkbox_name": checkbox_name,
         "empty_text": empty_text,
+        "show_search": show_search,
+        "search_param": search_param,
+        "search_query": search_query,
+        "search_placeholder": search_placeholder,
+        "clear_search_url": clear_search_url,
+        "current_sort": sort,
     }

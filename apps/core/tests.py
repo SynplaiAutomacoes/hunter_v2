@@ -95,9 +95,9 @@ class TestRenderTableTag(TestCase):
             )
         )
 
-        self.assertIn("badge badge-success", html)
+        self.assertIn("badge-success", html)
         self.assertIn(">Sim<", html)
-        self.assertIn("badge badge-error", html)
+        self.assertIn("badge-error", html)
         self.assertIn(">Não<", html)
 
         # Não deve renderizar o literal Python dentro do <td>.
@@ -133,6 +133,73 @@ class TestRenderTableTag(TestCase):
         self.assertIn('hx-get="/workshops/?page=1"', html)
         # Deve indicar visualmente que está ordenado desc no estado atual.
         self.assertIn("▼", html)
+
+    def test_search_filters_rows(self):
+        Workshop.objects.create(name="Alpha")
+        Workshop.objects.create(name="Beta")
+
+        request = self.factory.get("/workshops/?q=Alp")
+        template = Template(
+            """
+            {% load table_tags %}
+            {% render_table workshops fields table_id='t' per_page=10 %}
+            """
+        )
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "workshops": Workshop.objects.all(),
+                    "fields": [
+                        {"label": "Nome", "attr": "name"},
+                    ],
+                }
+            )
+        )
+
+        self.assertIn("Alpha", html)
+        self.assertNotIn("Beta", html)
+        self.assertIn('name="q"', html)
+        self.assertIn('value="Alp"', html)
+
+    def test_search_query_is_kept_in_pagination_links(self):
+        for i in range(1, 26):
+            Workshop.objects.create(name=f"Oficina {i:02d}")
+
+        request = self.factory.get("/workshops/?q=Oficina&page=2")
+        template = Template(
+            """
+            {% load table_tags %}
+            {% render_table workshops fields table_id='t' per_page=10 %}
+            """
+        )
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "workshops": Workshop.objects.all(),
+                    "fields": [
+                        {"label": "Nome", "attr": "name"},
+                    ],
+                }
+            )
+        )
+
+        compact_html = "".join(html.split())
+
+        # O input deve manter o valor atual.
+        self.assertIn('name="q"', compact_html)
+        self.assertIn('value="Oficina"', compact_html)
+
+        # Links HTMX de paginação devem preservar o filtro.
+        self.assertTrue(
+            'hx-get="/workshops/?q=Oficina&amp;page=1"' in compact_html or 'hx-get="/workshops/?page=1&amp;q=Oficina"' in compact_html,
+            compact_html,
+        )
+        self.assertTrue(
+            'hx-get="/workshops/?q=Oficina&amp;page=3"' in compact_html or 'hx-get="/workshops/?page=3&amp;q=Oficina"' in compact_html,
+            compact_html,
+        )
 
     def test_numeric_sort_by_name_with_custom_sort_by_expression(self):
         # REGEXP_REPLACE é específico do PostgreSQL; em outros bancos esse teste não se aplica.
