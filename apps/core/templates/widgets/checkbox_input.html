@@ -1,42 +1,11 @@
-<div class="py-2 flex items-center">
-    <label for="{{ widget.attrs.id }}" class="relative inline-flex cursor-pointer items-center select-none">
-        <input
+<div>
+    <input
             type="checkbox"
             name="{{ widget.name }}"
             id="{{ widget.attrs.id }}"
-            class="sr-only peer"
+            class="toggle toggle-primary"
             {% if widget.value %}checked{% endif %}
             {% if widget.attrs.required %}required{% endif %}
             {% if widget.attrs.disabled %}disabled{% endif %}
         >
-
-        <!-- trilho -->
-        <span
-            class="input-theme relative h-7 w-15 rounded-full
-                   peer-checked:bg-primary
-                   peer-disabled:opacity-50 peer-disabled:cursor-not-allowed
-
-                   after:content-[''] after:absolute after:left-1 after:top-1 after:h-5 after:w-5 after:rounded-full after:bg-base-content
-                   after:transition-transform
-                   peer-checked:after:translate-x-8 peer-checked:after:bg-base-300"
-        ></span>
-
-        <!-- texto SIM (aparece quando ativo) -->
-        <span
-            class="pointer-events-none absolute inset-y-0 left-2 flex items-center text-[11px] font-semibold
-                   text-white opacity-0
-                   peer-checked:opacity-100"
-        >
-            Sim
-        </span>
-
-        <!-- texto NÃO (aparece quando inativo) -->
-        <span
-            class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[11px] font-semibold
-                   opacity-100
-                   peer-checked:opacity-0 peer-checked:text-white"
-        >
-            Não
-        </span>
-    </label>
 </div>
