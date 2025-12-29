@@ -1,6 +1,6 @@
 <div id="{{ table_id }}" class="w-full" x-data="{ all: false, toggleAll() { $el.querySelectorAll('input.row-checkbox').forEach(cb => cb.checked = this.all) } }">
     <div class="overflow-x-auto">
-        <table class="table table-zebra w-full">
+        <table class="table w-full">
             <thead>
             <tr>
                 {% if selectable %}
@@ -58,7 +58,17 @@
                         {% endif %}
 
                         {% for cell in row.cells %}
-                            <td class="{{ cell.td_class }}">{{ cell.value }}</td>
+                            <td class="{{ cell.td_class }}">
+                                {% if cell.is_boolean %}
+                                    {% if cell.bool_value %}
+                                        <span class="badge badge-soft badge-success badge-sm">Sim</span>
+                                    {% else %}
+                                        <span class="badge badge-soft badge-error badge-sm">Não</span>
+                                    {% endif %}
+                                {% else %}
+                                    {{ cell.value }}
+                                {% endif %}
+                            </td>
                         {% endfor %}
                     </tr>
                 {% endfor %}

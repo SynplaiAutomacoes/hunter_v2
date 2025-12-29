@@ -207,7 +207,19 @@ def render_table(
     for obj in page_obj.object_list:
         cells = []
         for col in columns:
-            cells.append({"value": _resolve_attr(obj, col.attr), "td_class": col.td_class})
+            value = _resolve_attr(obj, col.attr)
+
+            # 'bool' em Python é subclasse de 'int', então checamos pelo tipo exato.
+            is_boolean = type(value) is bool
+
+            cells.append(
+                {
+                    "value": value,
+                    "td_class": col.td_class,
+                    "is_boolean": is_boolean,
+                    "bool_value": value if is_boolean else None,
+                }
+            )
         rows.append({"object": obj, "pk": getattr(obj, "pk", None), "cells": cells})
 
     prev_url = _build_url(request, updates={"page": page_obj.previous_page_number()}) if page_obj.has_previous() else None

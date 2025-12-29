@@ -71,6 +71,39 @@ class TestRenderTableTag(TestCase):
         # Deve renderizar controles de seleção.
         self.assertIn("Selecionar todos", html)
 
+    def test_boolean_cells_render_as_sim_nao_with_badges(self):
+        Workshop.objects.create(name="Oficina 01", is_active=True)
+        Workshop.objects.create(name="Oficina 02", is_active=False)
+
+        request = self.factory.get("/workshops/")
+        template = Template(
+            """
+            {% load table_tags %}
+            {% render_table workshops fields table_id='t' per_page=10 %}
+            """
+        )
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "workshops": Workshop.objects.all(),
+                    "fields": [
+                        {"label": "Nome", "attr": "name"},
+                        {"label": "Ativa", "attr": "is_active"},
+                    ],
+                }
+            )
+        )
+
+        self.assertIn("badge badge-success", html)
+        self.assertIn(">Sim<", html)
+        self.assertIn("badge badge-error", html)
+        self.assertIn(">Não<", html)
+
+        # Não deve renderizar o literal Python dentro do <td>.
+        self.assertNotIn(">True</td>", html)
+        self.assertNotIn(">False</td>", html)
+
     def test_third_click_clears_sort(self):
         # Não criar paginação (mantém apenas o link do cabeçalho como hx-get no HTML).
         Workshop.objects.create(name="Oficina 01")
@@ -132,10 +165,13 @@ class TestRenderTableTag(TestCase):
             )
         )
 
+        # O template pode introduzir whitespace/novas linhas; normalize para asserts estáveis.
+        compact_html = "".join(html.split())
+
         # Com sort numérico asc e per_page=10, o item "11" deve ficar na página 2.
-        self.assertNotIn(">11</td>", html)
-        self.assertIn(">10</td>", html)
+        self.assertNotIn(">11</td>", compact_html)
+        self.assertIn(">10</td>", compact_html)
 
         # Ordem esperada (numérica): 1,2,3,4,...,10.
-        self.assertLess(html.find("Oficina 1"), html.find(">4</td>"))
-        self.assertLess(html.find(">4</td>"), html.find(">10</td>"))
+        self.assertLess(compact_html.find("Oficina1"), compact_html.find(">4</td>"))
+        self.assertLess(compact_html.find(">4</td>"), compact_html.find(">10</td>"))
