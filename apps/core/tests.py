@@ -160,6 +160,7 @@ class TestRenderTableTag(TestCase):
         self.assertIn("Alpha", html)
         self.assertNotIn("Beta", html)
         self.assertIn('name="q"', html)
+        self.assertIn('id="t-search"', html)
         self.assertIn('value="Alp"', html)
 
     def test_search_query_is_kept_in_pagination_links(self):
