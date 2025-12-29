@@ -171,14 +171,14 @@ def _normalize_actions(actions: Iterable[Any] | None) -> list[TableAction]:
                 if not icon:
                     icon = "edit"
                 if not a_class:
-                    a_class = "btn btn-ghost btn-sm"
+                    a_class = "btn btn-primary btn-sm"
             elif kind == "delete":
                 if not label:
                     label = "Excluir"
                 if not icon:
                     icon = "delete"
                 if not a_class:
-                    a_class = "btn btn-ghost btn-sm text-error"
+                    a_class = "btn btn-error btn-sm text-white"
 
             normalized.append(
                 TableAction(

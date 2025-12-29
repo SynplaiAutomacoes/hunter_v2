@@ -50,7 +50,7 @@
 
     <div id="{{ table_id }}-content">
         <div class="overflow-x-auto">
-            <table class="table w-full">
+            <table class="table w-full table-fixed">
                 <thead>
                 <tr>
                     {% if selectable %}
@@ -91,7 +91,7 @@
                     {% endfor %}
 
                     {% if has_actions %}
-                        <th class="text-right whitespace-nowrap">{{ actions_label }}</th>
+                        <th class="whitespace-nowrap">{{ actions_label }}</th>
                     {% endif %}
                     </tr>
                     </thead>
@@ -127,8 +127,8 @@
                             {% endfor %}
 
                             {% if has_actions %}
-                                <td class="text-right whitespace-nowrap">
-                                    <div class="flex items-center justify-end gap-1">
+                                <td class="whitespace-nowrap">
+                                    <div class="flex items-center gap-1">
                                         {% for action in row.actions %}
                                             <a
                                                 href="{{ action.href }}"
