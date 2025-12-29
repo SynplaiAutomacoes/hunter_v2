@@ -1,7 +1,8 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.http import HttpResponse
 from django.template.response import TemplateResponse
 from django.urls import reverse_lazy
-from django.views.generic import CreateView, ListView
+from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from apps.workshops.forms import WorkshopCreateForm
 from apps.workshops.models import Workshop
@@ -11,7 +12,34 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
     model = Workshop
     form_class = WorkshopCreateForm
     template_name = "workshop_create.html"
-    success_url = reverse_lazy("workshops:create")
+    success_url = reverse_lazy("workshops:list")
+
+
+class WorkshopUpdateView(LoginRequiredMixin, UpdateView):
+    model = Workshop
+    form_class = WorkshopCreateForm
+    template_name = "workshop_update.html"
+    success_url = reverse_lazy("workshops:list")
+
+
+class WorkshopDeleteView(LoginRequiredMixin, DeleteView):
+    model = Workshop
+    success_url = reverse_lazy("workshops:list")
+
+    def get_template_names(self):
+        if self.request.htmx:
+            return ["workshops/partials/workshop_delete_modal.html"]
+        return [self.template_name]
+
+    def form_valid(self, form):
+        # Para HTMX: evita redirect e permite atualizar a tabela via evento.
+        if self.request.htmx:
+            self.object.delete()
+            response = HttpResponse()
+            response["HX-Trigger"] = "workshops-table-refresh"
+            return response
+
+        return super().form_valid(form)
 
 
 class WorkshopListView(LoginRequiredMixin, ListView):
@@ -26,6 +54,17 @@ class WorkshopListView(LoginRequiredMixin, ListView):
             {"label": "Nome", "attr": "name", "th_class": "whitespace-nowrap", "td_class": "font-medium"},
             {"label": "CNPJ", "attr": "cnpj", "th_class": "whitespace-nowrap", "td_class": "font-mono"},
             {"label": "Ativa", "attr": "is_active", "th_class": "whitespace-nowrap"},
+        ]
+
+        context["actions"] = [
+            {"kind": "edit", "url_name": "workshops:update"},
+            {
+                "kind": "delete",
+                "url_name": "workshops:delete",
+                "hx_target": "#modal-container",
+                "hx_swap": "innerHTML",
+                "hx_push_url": "false",
+            },
         ]
 
         return context

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Sequence
 
 from django.core.exceptions import FieldError
@@ -9,6 +9,7 @@ from django.db.models import Q, QuerySet
 from django.db.models.expressions import BaseExpression
 from django.http import HttpRequest
 from django.template import Library
+from django.urls import NoReverseMatch, reverse
 from django.utils.http import urlencode
 
 register = Library()
@@ -30,6 +31,29 @@ class TableColumn:
     # - Expression / OrderBy,
     # - sequência de (str|Expression) para ordenar por múltiplos critérios.
     sort_by: str | BaseExpression | Sequence[str | BaseExpression] | None = None
+
+
+@dataclass(frozen=True)
+class TableAction:
+    label: str
+    url_name: str | None = None
+    url: str | None = None
+    # Quais atributos do objeto serão usados como `args` no `reverse`.
+    # Ex.: ("pk",) ou ("customer.pk",)
+    args: Sequence[str] = ("pk",)
+    # kwargs para `reverse`: {"pk": "pk"} ou {"slug": "slug"}.
+    kwargs: Mapping[str, str] = field(default_factory=dict)
+    a_class: str = "btn btn-ghost btn-xs"
+    icon: str = ""
+    aria_label: str = ""
+    confirm: str | None = None
+
+    # Opcional: permite usar HTMX na ação (ex.: abrir modal, fazer swap parcial, etc.).
+    hx_get: str | None = None
+    hx_target: str | None = None
+    hx_swap: str | None = None
+    hx_select: str | None = None
+    hx_push_url: str | None = None
 
 
 def _resolve_attr(obj: Any, attr: str | None) -> Any:
@@ -98,6 +122,89 @@ def _normalize_fields(fields: Iterable[Any]) -> list[TableColumn]:
     return normalized
 
 
+def _normalize_actions(actions: Iterable[Any] | None) -> list[TableAction]:
+    if not actions:
+        return []
+
+    normalized: list[TableAction] = []
+    for a in actions:
+        if isinstance(a, TableAction):
+            normalized.append(a)
+            continue
+
+        if isinstance(a, Mapping):
+            kind = str(a.get("kind", "")).strip().lower()
+
+            label = str(a.get("label") or a.get("title") or "")
+            url_name = str(a.get("url_name")) if a.get("url_name") is not None else None
+            url = str(a.get("url")) if a.get("url") is not None else None
+
+            args = a.get("args")
+            if args is None:
+                args = ("pk",)
+            elif isinstance(args, (list, tuple)):
+                args = tuple(str(x) for x in args)
+            else:
+                args = (str(args),)
+
+            kwargs = a.get("kwargs")
+            if isinstance(kwargs, Mapping):
+                kwargs = {str(k): str(v) for k, v in kwargs.items()}
+            else:
+                kwargs = {}
+
+            a_class = str(a.get("a_class") or a.get("btn_class") or "")
+            icon = str(a.get("icon") or "")
+            aria_label = str(a.get("aria_label") or "")
+            confirm = str(a.get("confirm")) if a.get("confirm") is not None else None
+
+            hx_get = str(a.get("hx_get")) if a.get("hx_get") is not None else None
+            hx_target = str(a.get("hx_target")) if a.get("hx_target") is not None else None
+            hx_swap = str(a.get("hx_swap")) if a.get("hx_swap") is not None else None
+            hx_select = str(a.get("hx_select")) if a.get("hx_select") is not None else None
+            hx_push_url = str(a.get("hx_push_url")) if a.get("hx_push_url") is not None else None
+
+            # Defaults por tipo (sem sobrescrever se o caller passou explicitamente).
+            if kind == "edit":
+                if not label:
+                    label = "Editar"
+                if not icon:
+                    icon = "edit"
+                if not a_class:
+                    a_class = "btn btn-ghost btn-sm"
+            elif kind == "delete":
+                if not label:
+                    label = "Excluir"
+                if not icon:
+                    icon = "delete"
+                if not a_class:
+                    a_class = "btn btn-ghost btn-sm text-error"
+
+            normalized.append(
+                TableAction(
+                    label=label,
+                    url_name=url_name,
+                    url=url,
+                    args=args,
+                    kwargs=kwargs,
+                    a_class=a_class or "btn btn-ghost btn-xs",
+                    icon=icon,
+                    aria_label=aria_label,
+                    confirm=confirm,
+                    hx_get=hx_get,
+                    hx_target=hx_target,
+                    hx_swap=hx_swap,
+                    hx_select=hx_select,
+                    hx_push_url=hx_push_url,
+                )
+            )
+            continue
+
+        raise TypeError("Cada ação deve ser um dict ou TableAction")
+
+    return normalized
+
+
 def _build_url(request: HttpRequest, *, updates: dict[str, Any]) -> str:
     params = request.GET.copy()
     for key, value in updates.items():
@@ -146,10 +253,14 @@ def render_table(
     show_search: bool = True,
     search_param: str = "q",
     search_placeholder: str = "Buscar…",
+    actions: Iterable[Any] | None = None,
+    actions_label: str = "Ações",
 ) -> dict[str, Any]:
     request: HttpRequest = context["request"]
 
     columns = _normalize_fields(fields)
+    normalized_actions = _normalize_actions(actions)
+    has_actions = bool(normalized_actions)
     search_query = (request.GET.get(search_param) or "").strip()
 
     filtered_qs = queryset
@@ -268,18 +379,69 @@ def render_table(
                     "bool_value": value if is_boolean else None,
                 }
             )
-        rows.append({"object": obj, "pk": getattr(obj, "pk", None), "cells": cells})
+        row_actions: list[dict[str, Any]] = []
+        if has_actions:
+            for action in normalized_actions:
+                href: str | None = None
+
+                if action.url:
+                    # Permite URLs com placeholders simples: "/x/{pk}/edit/".
+                    format_ctx: dict[str, Any] = {"pk": getattr(obj, "pk", None)}
+                    for path in action.args:
+                        format_ctx[path] = _resolve_attr(obj, path)
+                    for _, path in action.kwargs.items():
+                        format_ctx[path] = _resolve_attr(obj, path)
+                    try:
+                        href = action.url.format(**format_ctx)
+                    except Exception:
+                        href = action.url
+                elif action.url_name:
+                    try:
+                        url_args = [_resolve_attr(obj, p) for p in action.args]
+                        url_kwargs = {k: _resolve_attr(obj, p) for k, p in action.kwargs.items()}
+                        href = reverse(action.url_name, args=url_args, kwargs=url_kwargs)
+                    except (NoReverseMatch, AttributeError, TypeError, ValueError):
+                        href = None
+
+                if href:
+                    hx_get = action.hx_get
+                    # Conveniência: se a ação tiver alvo HTMX mas não definiu `hx_get`, usa o próprio `href`.
+                    if hx_get in (None, "") and action.hx_target:
+                        hx_get = href
+
+                    row_actions.append(
+                        {
+                            "href": href,
+                            "label": action.label,
+                            "a_class": action.a_class,
+                            "icon": action.icon,
+                            "aria_label": action.aria_label or action.label,
+                            "confirm": action.confirm,
+                            "hx_get": hx_get,
+                            "hx_target": action.hx_target,
+                            "hx_swap": action.hx_swap,
+                            "hx_select": action.hx_select,
+                            "hx_push_url": action.hx_push_url,
+                        }
+                    )
+
+        rows.append({"object": obj, "pk": getattr(obj, "pk", None), "cells": cells, "actions": row_actions})
 
     prev_url = _build_url(request, updates={"page": page_obj.previous_page_number()}) if page_obj.has_previous() else None
     next_url = _build_url(request, updates={"page": page_obj.next_page_number()}) if page_obj.has_next() else None
 
     clear_search_url = _build_url(request, updates={search_param: None, "page": 1})
 
+    colspan = len(rendered_columns) + (1 if selectable else 0) + (1 if has_actions else 0)
+
     return {
         "request": request,
         "table_id": table_id,
         "columns": rendered_columns,
         "rows": rows,
+        "has_actions": has_actions,
+        "actions_label": actions_label,
+        "colspan": colspan,
         "page_obj": page_obj,
         "paginator": paginator,
         "is_paginated": paginator.num_pages > 1,

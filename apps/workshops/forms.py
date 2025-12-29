@@ -28,7 +28,7 @@ class WorkshopCreateForm(ModelForm):
             Div(Field("name", wrapper_class="w-full"), Field("cnpj", wrapper_class="w-full"), css_class="grid grid-cols-1 lg:grid-cols-2 gap-4"),
             HTML('<div class="divider"></div>'),
             Div(
-                HTML('<a href="#" class="btn btn-ghost text-base-content/70">Cancelar</a>'),
+                HTML('<a href="javascript:history.back()" class="btn btn-ghost text-base-content/70">Cancelar</a>'),
                 Submit("submit", "Salvar", css_class="btn btn-primary px-8"),
                 css_class="flex items-center justify-end gap-2",
             ),

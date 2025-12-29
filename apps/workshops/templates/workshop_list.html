@@ -17,9 +17,19 @@
 
         <div class="card bg-base-100 shadow-xl">
             <div class="card-body p-6 md:p-8">
-                {% include 'workshops/partials/workshop_table.html' %}
+                <div
+                    id="workshops-table-wrapper"
+                    hx-get="{% url 'workshops:list' %}"
+                    hx-trigger="workshops-table-refresh from:body"
+                    hx-target="this"
+                    hx-swap="innerHTML"
+                >
+                    {% include 'workshops/partials/workshop_table.html' %}
+                </div>
             </div>
         </div>
+
+        <div id="modal-container"></div>
     </div>
 </div>
 

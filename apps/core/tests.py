@@ -1,8 +1,10 @@
 from django.template import Context, Template
 from django.test import RequestFactory, TestCase
 from django.db import connection
+from django.contrib.auth import get_user_model
 from django.db.models import F, Func, IntegerField, Value
 from django.db.models.functions import Cast, NullIf
+from django.urls import reverse
 
 from apps.workshops.models import Workshop
 
@@ -103,6 +105,66 @@ class TestRenderTableTag(TestCase):
         # Não deve renderizar o literal Python dentro do <td>.
         self.assertNotIn(">True</td>", html)
         self.assertNotIn(">False</td>", html)
+
+    def test_action_column_renders_with_edit_and_delete_links(self):
+        w = Workshop.objects.create(name="Oficina 01", is_active=True)
+
+        request = self.factory.get("/workshops/")
+        template = Template(
+            """
+            {% load table_tags %}
+            {% render_table workshops fields actions=actions table_id='t' per_page=10 %}
+            """
+        )
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "workshops": Workshop.objects.all(),
+                    "fields": [
+                        {"label": "Nome", "attr": "name"},
+                        {"label": "Ativa", "attr": "is_active"},
+                    ],
+                    "actions": [
+                        {"kind": "edit", "url_name": "workshops:update"},
+                        {"kind": "delete", "url_name": "workshops:delete"},
+                    ],
+                }
+            )
+        )
+
+        # Header deve incluir coluna de ações ao final.
+        self.assertIn(">Ações<", html)
+        self.assertLess(html.find(">Ativa<"), html.find(">Ações<"))
+
+        self.assertIn(f'href="/workshops/{w.pk}/edit/"', html)
+        self.assertIn(f'href="/workshops/{w.pk}/delete/"', html)
+
+    def test_empty_state_colspan_includes_actions(self):
+        request = self.factory.get("/workshops/")
+        template = Template(
+            """
+            {% load table_tags %}
+            {% render_table workshops fields actions=actions table_id='t' per_page=10 %}
+            """
+        )
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "workshops": Workshop.objects.none(),
+                    "fields": [
+                        {"label": "Nome", "attr": "name"},
+                    ],
+                    "actions": [
+                        {"kind": "edit", "url_name": "workshops:update"},
+                    ],
+                }
+            )
+        )
+
+        # colunas: checkbox (1) + Nome (1) + Ações (1) = 3
+        self.assertIn('colspan="3"', html)
 
     def test_third_click_clears_sort(self):
         # Não criar paginação (mantém apenas o link do cabeçalho como hx-get no HTML).
@@ -243,3 +305,52 @@ class TestRenderTableTag(TestCase):
         # Ordem esperada (numérica): 1,2,3,4,...,10.
         self.assertLess(compact_html.find("Oficina1"), compact_html.find(">4</td>"))
         self.assertLess(compact_html.find(">4</td>"), compact_html.find(">10</td>"))
+
+    def test_delete_action_can_render_htmx_attributes_and_has_no_default_js_confirm(self):
+        w = Workshop.objects.create(name="Oficina 01", is_active=True)
+
+        request = self.factory.get("/workshops/")
+        template = Template(
+            """
+            {% load table_tags %}
+            {% render_table workshops fields actions=actions table_id='t' per_page=10 %}
+            """
+        )
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "workshops": Workshop.objects.all(),
+                    "fields": [
+                        {"label": "Nome", "attr": "name"},
+                    ],
+                    "actions": [
+                        {"kind": "delete", "url_name": "workshops:delete", "hx_target": "#modal-container", "hx_swap": "innerHTML", "hx_push_url": "false"},
+                    ],
+                }
+            )
+        )
+
+        # Deve usar HTMX para abrir o modal (sem navegar) e NÃO deve ter confirm() por default.
+        self.assertIn('hx-target="#modal-container"', html)
+        self.assertIn(f'hx-get="/workshops/{w.pk}/delete/"', html)
+        self.assertNotIn('onclick="return confirm(', html)
+
+    def test_workshop_delete_view_htmx_get_renders_modal_and_post_triggers_refresh(self):
+        w = Workshop.objects.create(name="Oficina 01", is_active=True)
+
+        User = get_user_model()
+        user = User.objects.create_user(username="u", password="p", cpf="11144477735")
+        self.client.force_login(user)
+
+        url = reverse("workshops:delete", args=[w.pk])
+
+        resp_get = self.client.get(url, HTTP_HX_REQUEST="true")
+        self.assertEqual(resp_get.status_code, 200)
+        self.assertIn('class="modal"', resp_get.content.decode("utf-8"))
+        self.assertIn("Confirmar exclusão", resp_get.content.decode("utf-8"))
+
+        resp_post = self.client.post(url, HTTP_HX_REQUEST="true")
+        self.assertEqual(resp_post.status_code, 200)
+        self.assertEqual(resp_post.get("HX-Trigger"), "workshops-table-refresh")
+        self.assertFalse(Workshop.objects.filter(pk=w.pk).exists())

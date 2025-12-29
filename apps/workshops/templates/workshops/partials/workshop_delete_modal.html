@@ -1,0 +1,29 @@
+<input type="checkbox" id="workshop-delete-modal" class="modal-toggle" checked />
+
+<div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-box">
+        <h3 class="text-lg font-bold text-base-content">Excluir Oficina</h3>
+        <p class="text-base-content/70 mt-1">Esta ação não pode ser desfeita.</p>
+
+        <div class="alert alert-warning mt-4">
+            <span class="material-icons">warning</span>
+            <div>
+                <div class="font-semibold">Confirmar exclusão</div>
+                <div class="text-sm">Tem certeza que deseja excluir <span class="font-medium">{{ object }}</span>?</div>
+            </div>
+        </div>
+
+        <form
+            method="post"
+            class="modal-action"
+            hx-post="{{ request.path }}"
+            hx-target="#modal-container"
+            hx-swap="innerHTML"
+        >
+            {% csrf_token %}
+            <label for="workshop-delete-modal" class="btn btn-ghost">Cancelar</label>
+            <button type="submit" class="btn btn-error">Excluir</button>
+        </form>
+    </div>
+    <label class="modal-backdrop" for="workshop-delete-modal">Close</label>
+</div>
