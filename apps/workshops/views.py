@@ -4,20 +4,20 @@ from django.template.response import TemplateResponse
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
-from apps.workshops.forms import WorkshopCreateForm
+from apps.workshops.forms import WorkshopForm
 from apps.workshops.models import Workshop
 
 
 class WorkshopCreateView(LoginRequiredMixin, CreateView):
     model = Workshop
-    form_class = WorkshopCreateForm
+    form_class = WorkshopForm
     template_name = "workshop_create.html"
     success_url = reverse_lazy("workshops:list")
 
 
 class WorkshopUpdateView(LoginRequiredMixin, UpdateView):
     model = Workshop
-    form_class = WorkshopCreateForm
+    form_class = WorkshopForm
     template_name = "workshop_update.html"
     success_url = reverse_lazy("workshops:list")
 

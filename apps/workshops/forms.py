@@ -5,16 +5,17 @@ from crispy_forms.helper import FormHelper
 
 
 from apps.workshops.models import Workshop
-from apps.core.widgets import TextInput, CPForCNPJInput
+from apps.core.widgets import TextInput, CPForCNPJInput, CheckboxInput
 
 
-class WorkshopCreateForm(ModelForm):
+class WorkshopForm(ModelForm):
     class Meta:
         model = Workshop
-        fields = ["name", "cnpj"]
+        fields = ["name", "cnpj", "is_active"]
         widgets = {
             "name": TextInput(attrs={"placeholder": "Oficina Hunter"}),
             "cnpj": CPForCNPJInput(mode="cnpj"),
+            "is_active": CheckboxInput(),
         }
 
     def __init__(self, *args, **kwargs):
@@ -22,10 +23,16 @@ class WorkshopCreateForm(ModelForm):
 
         self.fields["name"].label = "Nome"
         self.fields["cnpj"].label = "CNPJ"
+        self.fields["is_active"].label = "Ativa"
 
         self.helper = FormHelper()
         self.helper.layout = Layout(
-            Div(Field("name", wrapper_class="w-full"), Field("cnpj", wrapper_class="w-full"), css_class="grid grid-cols-1 lg:grid-cols-2 gap-4"),
+            Div(
+                Field("name", wrapper_class="w-full"),
+                Field("cnpj", wrapper_class="w-full"),
+                Field("is_active", wrapper_class="w-fit"),
+                css_class="grid grid-cols-1 lg:grid-cols-[1fr_1fr_auto] gap-4 items-start",
+            ),
             HTML('<div class="divider"></div>'),
             Div(
                 HTML('<a href="javascript:history.back()" class="btn btn-ghost text-base-content/70">Cancelar</a>'),
