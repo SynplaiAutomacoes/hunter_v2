@@ -187,7 +187,7 @@ def _normalize_actions(actions: Iterable[Any] | None) -> list[TableAction]:
                     url=url,
                     args=args,
                     kwargs=kwargs,
-                    a_class=a_class or "btn btn-ghost btn-xs",
+                    a_class=a_class,
                     icon=icon,
                     aria_label=aria_label,
                     confirm=confirm,
