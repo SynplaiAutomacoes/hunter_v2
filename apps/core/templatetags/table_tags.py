@@ -239,91 +239,107 @@ def _as_ordering_terms(col: TableColumn, *, desc: bool) -> list[str | BaseExpres
     return [_apply_dir(sort_by)]
 
 
-@register.inclusion_tag("tables/render_table.html", takes_context=True)
-def render_table(
-    context: dict[str, Any],
-    queryset: QuerySet[Any],
-    fields: Iterable[Any],
+def _get_search_query(request: HttpRequest, *, show_search: bool, search_param: str) -> str:
+    if not show_search:
+        return ""
+    return (request.GET.get(search_param) or "").strip()
+
+
+def _apply_search(
+    qs: QuerySet[Any],
     *,
-    table_id: str = "table",
-    per_page: int = 10,
-    selectable: bool = True,
-    checkbox_name: str = "selected",
-    empty_text: str = "Nenhum registro encontrado.",
-    show_search: bool = True,
-    search_param: str = "q",
-    search_placeholder: str = "Buscar…",
-    actions: Iterable[Any] | None = None,
-    actions_label: str = "Ações",
-) -> dict[str, Any]:
-    request: HttpRequest = context["request"]
+    columns: Sequence[TableColumn],
+    search_query: str,
+) -> tuple[QuerySet[Any], str]:
+    if not search_query:
+        return qs, search_query
 
-    columns = _normalize_fields(fields)
-    normalized_actions = _normalize_actions(actions)
-    has_actions = bool(normalized_actions)
-    search_query = (request.GET.get(search_param) or "").strip()
+    lookups: list[str] = []
+    for col in columns:
+        if not col.searchable:
+            continue
+        lookup = (col.search_by or col.attr or "").strip()
+        if not lookup:
+            continue
+        lookups.append(lookup.replace(".", "__"))
 
-    filtered_qs = queryset
-    if show_search and search_query:
-        lookups: list[str] = []
-        for col in columns:
-            if not col.searchable:
-                continue
-            lookup = (col.search_by or col.attr or "").strip()
-            if not lookup:
-                continue
-            lookups.append(lookup.replace(".", "__"))
+    if not lookups:
+        return qs, search_query
 
-        if lookups:
-            q_obj = Q()
-            for lookup in lookups:
-                q_obj |= Q(**{f"{lookup}__icontains": search_query})
-            try:
-                filtered_qs = filtered_qs.filter(q_obj)
-            except FieldError:
-                # Se algum lookup for inválido, ignora a busca.
-                search_query = ""
+    q_obj = Q()
+    for lookup in lookups:
+        q_obj |= Q(**{f"{lookup}__icontains": search_query})
 
-    sortable_attrs = {c.attr for c in columns if c.sortable and c.attr}
+    try:
+        return qs.filter(q_obj), search_query
+    except FieldError:
+        # Se algum lookup for inválido, ignora a busca.
+        return qs, ""
 
+
+def _parse_sort(request: HttpRequest, *, sortable_attrs: set[str]) -> tuple[str, str, bool, bool]:
     sort = request.GET.get("sort") or ""
     sort_attr = sort.lstrip("-")
     sort_desc = sort.startswith("-")
     sort_is_valid = bool(sort_attr) and sort_attr in sortable_attrs
+    return sort, sort_attr, sort_desc, sort_is_valid
 
-    ordered_qs = filtered_qs
-    if sort_is_valid:
-        col_for_sort = next((c for c in columns if c.attr == sort_attr), None)
-        if col_for_sort is not None:
-            try:
-                ordering_terms = _as_ordering_terms(col_for_sort, desc=sort_desc)
-                # Desempate estável para paginação.
-                if "pk" not in [t for t in ordering_terms if isinstance(t, str)]:
-                    ordering_terms.append("pk")
-                ordered_qs = ordered_qs.order_by(*ordering_terms)
-            except FieldError:
-                # Se o atributo/expressão não for válido para order_by, ignora a ordenação.
-                sort = ""
-                sort_attr = ""
-                sort_desc = False
-    elif sort:
+
+def _apply_sort(
+    qs: QuerySet[Any],
+    *,
+    columns: Sequence[TableColumn],
+    sort: str,
+    sort_attr: str,
+    sort_desc: bool,
+    sort_is_valid: bool,
+) -> tuple[QuerySet[Any], str, str, bool]:
+    if not sort_is_valid:
         # sort presente, mas não é permitido pelas colunas.
-        sort = ""
+        return qs, "" if sort else sort, "", False
 
+    col_for_sort = next((c for c in columns if c.attr == sort_attr), None)
+    if col_for_sort is None:
+        return qs, "", "", False
+
+    try:
+        ordering_terms = _as_ordering_terms(col_for_sort, desc=sort_desc)
+        # Desempate estável para paginação.
+        if "pk" not in [t for t in ordering_terms if isinstance(t, str)]:
+            ordering_terms.append("pk")
+        return qs.order_by(*ordering_terms), sort, sort_attr, sort_desc
+    except FieldError:
+        # Se o atributo/expressão não for válido para order_by, ignora a ordenação.
+        return qs, "", "", False
+
+
+def _ensure_stable_ordering(qs: QuerySet[Any]) -> QuerySet[Any]:
     # Garante ordenação estável para paginação quando não há sort explícito.
-    if not ordered_qs.ordered:
-        ordered_qs = ordered_qs.order_by("pk")
+    if not qs.ordered:
+        return qs.order_by("pk")
+    return qs
 
-    paginator = Paginator(ordered_qs, per_page)
-    page_number = request.GET.get("page", "1")
+
+def _paginate(qs: QuerySet[Any], *, per_page: int, page_number: str) -> tuple[Any, Paginator]:
+    paginator = Paginator(qs, per_page)
     try:
         page_obj = paginator.page(page_number)
     except PageNotAnInteger:
         page_obj = paginator.page(1)
     except EmptyPage:
         page_obj = paginator.page(paginator.num_pages)
+    return page_obj, paginator
 
+
+def _render_columns(
+    *,
+    columns: Sequence[TableColumn],
+    request: HttpRequest,
+    sort_attr: str,
+    sort_desc: bool,
+) -> list[dict[str, Any]]:
     rendered_columns: list[dict[str, Any]] = []
+
     for col in columns:
         is_sorted = bool(col.attr) and col.attr == sort_attr
         is_desc = is_sorted and sort_desc
@@ -362,9 +378,44 @@ def render_table(
             }
         )
 
+    return rendered_columns
+
+
+def _resolve_action_href(obj: Any, action: TableAction) -> str | None:
+    if action.url:
+        # Permite URLs com placeholders simples: "/x/{pk}/edit/".
+        format_ctx: dict[str, Any] = {"pk": getattr(obj, "pk", None)}
+        for path in action.args:
+            format_ctx[path] = _resolve_attr(obj, path)
+        for _, path in action.kwargs.items():
+            format_ctx[path] = _resolve_attr(obj, path)
+        try:
+            return action.url.format(**format_ctx)
+        except Exception:
+            return action.url
+
+    if action.url_name:
+        try:
+            url_args = [_resolve_attr(obj, p) for p in action.args]
+            url_kwargs = {k: _resolve_attr(obj, p) for k, p in action.kwargs.items()}
+            return reverse(action.url_name, args=url_args, kwargs=url_kwargs)
+        except (NoReverseMatch, AttributeError, TypeError, ValueError):
+            return None
+
+    return None
+
+
+def _render_rows(
+    *,
+    page_obj: Any,
+    columns: Sequence[TableColumn],
+    actions: Sequence[TableAction],
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
+    has_actions = bool(actions)
+
     for obj in page_obj.object_list:
-        cells = []
+        cells: list[dict[str, Any]] = []
         for col in columns:
             value = _resolve_attr(obj, col.attr)
 
@@ -379,53 +430,84 @@ def render_table(
                     "bool_value": value if is_boolean else None,
                 }
             )
+
         row_actions: list[dict[str, Any]] = []
         if has_actions:
-            for action in normalized_actions:
-                href: str | None = None
+            for action in actions:
+                href = _resolve_action_href(obj, action)
+                if not href:
+                    continue
 
-                if action.url:
-                    # Permite URLs com placeholders simples: "/x/{pk}/edit/".
-                    format_ctx: dict[str, Any] = {"pk": getattr(obj, "pk", None)}
-                    for path in action.args:
-                        format_ctx[path] = _resolve_attr(obj, path)
-                    for _, path in action.kwargs.items():
-                        format_ctx[path] = _resolve_attr(obj, path)
-                    try:
-                        href = action.url.format(**format_ctx)
-                    except Exception:
-                        href = action.url
-                elif action.url_name:
-                    try:
-                        url_args = [_resolve_attr(obj, p) for p in action.args]
-                        url_kwargs = {k: _resolve_attr(obj, p) for k, p in action.kwargs.items()}
-                        href = reverse(action.url_name, args=url_args, kwargs=url_kwargs)
-                    except (NoReverseMatch, AttributeError, TypeError, ValueError):
-                        href = None
+                hx_get = action.hx_get
+                # Conveniência: se a ação tiver alvo HTMX mas não definiu `hx_get`, usa o próprio `href`.
+                if hx_get in (None, "") and action.hx_target:
+                    hx_get = href
 
-                if href:
-                    hx_get = action.hx_get
-                    # Conveniência: se a ação tiver alvo HTMX mas não definiu `hx_get`, usa o próprio `href`.
-                    if hx_get in (None, "") and action.hx_target:
-                        hx_get = href
-
-                    row_actions.append(
-                        {
-                            "href": href,
-                            "label": action.label,
-                            "a_class": action.a_class,
-                            "icon": action.icon,
-                            "aria_label": action.aria_label or action.label,
-                            "confirm": action.confirm,
-                            "hx_get": hx_get,
-                            "hx_target": action.hx_target,
-                            "hx_swap": action.hx_swap,
-                            "hx_select": action.hx_select,
-                            "hx_push_url": action.hx_push_url,
-                        }
-                    )
+                row_actions.append(
+                    {
+                        "href": href,
+                        "label": action.label,
+                        "a_class": action.a_class,
+                        "icon": action.icon,
+                        "aria_label": action.aria_label or action.label,
+                        "confirm": action.confirm,
+                        "hx_get": hx_get,
+                        "hx_target": action.hx_target,
+                        "hx_swap": action.hx_swap,
+                        "hx_select": action.hx_select,
+                        "hx_push_url": action.hx_push_url,
+                    }
+                )
 
         rows.append({"object": obj, "pk": getattr(obj, "pk", None), "cells": cells, "actions": row_actions})
+
+    return rows
+
+
+@register.inclusion_tag("tables/render_table.html", takes_context=True)
+def render_table(
+    context: dict[str, Any],
+    queryset: QuerySet[Any],
+    fields: Iterable[Any],
+    *,
+    table_id: str = "table",
+    per_page: int = 10,
+    selectable: bool = True,
+    checkbox_name: str = "selected",
+    empty_text: str = "Nenhum registro encontrado.",
+    show_search: bool = True,
+    search_param: str = "q",
+    search_placeholder: str = "Buscar…",
+    actions: Iterable[Any] | None = None,
+    actions_label: str = "Ações",
+) -> dict[str, Any]:
+    request: HttpRequest = context["request"]
+
+    columns = _normalize_fields(fields)
+    normalized_actions = _normalize_actions(actions)
+    has_actions = bool(normalized_actions)
+    search_query = _get_search_query(request, show_search=show_search, search_param=search_param)
+    filtered_qs, search_query = _apply_search(queryset, columns=columns, search_query=search_query)
+
+    sortable_attrs = {c.attr for c in columns if c.sortable and c.attr}
+    sort, sort_attr, sort_desc, sort_is_valid = _parse_sort(request, sortable_attrs=sortable_attrs)
+
+    ordered_qs, sort, sort_attr, sort_desc = _apply_sort(
+        filtered_qs,
+        columns=columns,
+        sort=sort,
+        sort_attr=sort_attr,
+        sort_desc=sort_desc,
+        sort_is_valid=sort_is_valid,
+    )
+
+    ordered_qs = _ensure_stable_ordering(ordered_qs)
+
+    page_number = request.GET.get("page", "1")
+    page_obj, paginator = _paginate(ordered_qs, per_page=per_page, page_number=page_number)
+
+    rendered_columns = _render_columns(columns=columns, request=request, sort_attr=sort_attr, sort_desc=sort_desc)
+    rows = _render_rows(page_obj=page_obj, columns=columns, actions=normalized_actions)
 
     prev_url = _build_url(request, updates={"page": page_obj.previous_page_number()}) if page_obj.has_previous() else None
     next_url = _build_url(request, updates={"page": page_obj.next_page_number()}) if page_obj.has_next() else None
@@ -456,4 +538,8 @@ def render_table(
         "search_placeholder": search_placeholder,
         "clear_search_url": clear_search_url,
         "current_sort": sort,
+        "htmx_target": f"#{table_id}-content",
+        "htmx_select": f"#{table_id}-content",
+        "htmx_swap": "outerHTML",
+        "htmx_push_url": "true",
     }

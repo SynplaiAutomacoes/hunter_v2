@@ -4,10 +4,10 @@
             <form
                 class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
                 hx-get="{{ request.path }}"
-                hx-target="#{{ table_id }}-content"
-                hx-swap="outerHTML"
-                hx-select="#{{ table_id }}-content"
-                hx-push-url="true"
+                hx-target="{{ htmx_target }}"
+                hx-swap="{{ htmx_swap }}"
+                hx-select="{{ htmx_select }}"
+                hx-push-url="{{ htmx_push_url }}"
                 hx-trigger="submit, keyup changed delay:500ms from:input"
             >
                 <div class="flex items-center gap-2 w-full sm:max-w-lg">
@@ -66,10 +66,10 @@
                                 <a
                                     class="inline-flex items-center gap-1 link link-hover"
                                     hx-get="{{ col.sort_url }}"
-                                    hx-target="#{{ table_id }}-content"
-                                    hx-swap="outerHTML"
-                                    hx-select="#{{ table_id }}-content"
-                                    hx-push-url="true"
+                                    hx-target="{{ htmx_target }}"
+                                    hx-swap="{{ htmx_swap }}"
+                                    hx-select="{{ htmx_select }}"
+                                    hx-push-url="{{ htmx_push_url }}"
                                 >
                                     <span>{{ col.label }}</span>
                                     <span
@@ -176,10 +176,10 @@
                         class="btn btn-sm btn-primary join-item"
                         {% if prev_url %}
                             hx-get="{{ prev_url }}"
-                            hx-target="#{{ table_id }}-content"
-                            hx-swap="outerHTML"
-                            hx-select="#{{ table_id }}-content"
-                            hx-push-url="true"
+                            hx-target="{{ htmx_target }}"
+                            hx-swap="{{ htmx_swap }}"
+                            hx-select="{{ htmx_select }}"
+                            hx-push-url="{{ htmx_push_url }}"
                         {% else %}
                             disabled
                         {% endif %}
@@ -188,10 +188,10 @@
                         class="btn btn-sm btn-primary join-item"
                         {% if next_url %}
                             hx-get="{{ next_url }}"
-                            hx-target="#{{ table_id }}-content"
-                            hx-swap="outerHTML"
-                            hx-select="#{{ table_id }}-content"
-                            hx-push-url="true"
+                            hx-target="{{ htmx_target }}"
+                            hx-swap="{{ htmx_swap }}"
+                            hx-select="{{ htmx_select }}"
+                            hx-push-url="{{ htmx_push_url }}"
                         {% else %}
                             disabled
                         {% endif %}
