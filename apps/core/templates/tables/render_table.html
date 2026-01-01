@@ -1,203 +1,36 @@
-<div id="{{ table_id }}" class="w-full" x-data="{ all: false, toggleAll() { $el.querySelectorAll('input.row-checkbox').forEach(cb => cb.checked = this.all) } }" @htmx:afterSwap.window="all = false">
-    {% if show_search %}
-        <div class="pb-4">
-            <form
-                class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
-                hx-get="{{ request.path }}"
-                hx-target="{{ htmx_target }}"
-                hx-swap="{{ htmx_swap }}"
-                hx-select="{{ htmx_select }}"
-                hx-push-url="{{ htmx_push_url }}"
-                hx-trigger="submit, keyup changed delay:500ms from:input"
-            >
-                <div class="flex items-center gap-2 w-full sm:max-w-lg">
-                    <input type="hidden" name="page" value="1" />
-                    {% if current_sort %}
-                        <input type="hidden" name="sort" value="{{ current_sort }}" />
-                    {% endif %}
-
-                    <div class="relative w-full">
-                        <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-base-content/60" aria-hidden="true">
-                            <svg class="h-[1em] opacity-50" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                                <g
-                                    stroke-linejoin="round"
-                                    stroke-linecap="round"
-                                    stroke-width="2.5"
-                                    fill="none"
-                                    stroke="currentColor"
-                                >
-                                    <circle cx="11" cy="11" r="8"></circle>
-                                    <path d="m21 21-4.3-4.3"></path>
-                                </g>
-                            </svg>
-                        </span>
-
-                        <input
-                            type="text"
-                            name="{{ search_param }}"
-                            id="{{ table_id }}-search"
-                            value="{{ search_query }}"
-                            placeholder="{{ search_placeholder }}"
-                            autocomplete="off"
-                            aria-label="Buscar"
-                            class="input-theme pl-10"
-                        />
-                    </div>
-                </div>
-            </form>
-        <div class="divider m-0 mt-4"></div>
-        </div>
-    {% endif %}
+<div
+    id="{{ table_id }}"
+    class="w-full"
+    x-data="{
+        all: false,
+        toggleAll() {
+            $el.querySelectorAll('input.row-checkbox').forEach(cb => cb.checked = this.all)
+        },
+        setSort(value) {
+            const input = this.$el.querySelector('#{{ table_id }}-sort')
+            if (!input) return
+            input.value = value
+            input.disabled = !value
+        }
+    }"
+    @htmx:afterSwap.window="all = false"
+>
+    {% include "tables/partials/_table_controls.html" %}
 
     <div id="{{ table_id }}-content">
-        <div class="overflow-x-auto">
-            <table class="table w-full">
-                <thead class="bg-base-200 text-base-content font-bold">
-                <tr>
-                    {% if selectable %}
-                        <th class="w-10">
-                            <input type="checkbox" class="checkbox" x-model="all" @change="toggleAll" aria-label="Selecionar todos" />
-                        </th>
-                    {% endif %}
-
-                    {% for col in columns %}
-                        <th class="{{ col.th_class }}">
-                            {% if col.sortable and col.sort_url %}
-                                <a
-                                    class="inline-flex items-center gap-1 link link-hover"
-                                    hx-get="{{ col.sort_url }}"
-                                    hx-target="{{ htmx_target }}"
-                                    hx-swap="{{ htmx_swap }}"
-                                    hx-select="{{ htmx_select }}"
-                                    hx-push-url="{{ htmx_push_url }}"
-                                >
-                                    <span>{{ col.label }}</span>
-                                    <span
-                                        class="inline-flex w-4 justify-center text-xs {% if col.is_asc or col.is_desc %}opacity-70{% else %}opacity-40{% endif %}"
-                                        aria-hidden="true"
-                                    >
-                                        {% if col.is_asc %}
-                                            ▲
-                                        {% elif col.is_desc %}
-                                            ▼
-                                        {% else %}
-                                            ↕
-                                        {% endif %}
-                                    </span>
-                                </a>
-                            {% else %}
-                                <span>{{ col.label }}</span>
-                            {% endif %}
-                        </th>
-                    {% endfor %}
-
-                    {% if has_actions %}
-                        <th class="w-px text-center whitespace-nowrap">{{ actions_label }}</th>
-                    {% endif %}
-                    </tr>
-                    </thead>
-
-                <tbody>
-                {% if rows %}
-                    {% for row in rows %}
-                        <tr>
-                            {% if selectable %}
-                                <td class="w-10">
-                                    <input
-                                        type="checkbox"
-                                        class="checkbox row-checkbox"
-                                        name="{{ checkbox_name }}"
-                                        value="{{ row.pk }}"
-                                        aria-label="Selecionar linha"
-                                    />
-                                </td>
-                            {% endif %}
-
-                            {% for cell in row.cells %}
-                                <td class="{{ cell.td_class }}">
-                                    {% if cell.is_boolean %}
-                                        {% if cell.bool_value %}
-                                            <span class="badge badge-soft badge-success badge-sm">Sim</span>
-                                        {% else %}
-                                            <span class="badge badge-soft badge-error badge-sm">Não</span>
-                                        {% endif %}
-                                    {% else %}
-                                        {{ cell.value }}
-                                    {% endif %}
-                                </td>
-                            {% endfor %}
-
-                            {% if has_actions %}
-                                <td class="w-px whitespace-nowrap">
-                                    <div class="flex items-center justify-end gap-1">
-                                        {% for action in row.actions %}
-                                            <a
-                                                href="{{ action.href }}"
-                                                class="{{ action.a_class }}"
-                                                aria-label="{{ action.aria_label }}"
-                                                {% if action.hx_get %}hx-get="{{ action.hx_get }}"{% endif %}
-                                                {% if action.hx_target %}hx-target="{{ action.hx_target }}"{% endif %}
-                                                {% if action.hx_swap %}hx-swap="{{ action.hx_swap }}"{% endif %}
-                                                {% if action.hx_select %}hx-select="{{ action.hx_select }}"{% endif %}
-                                                {% if action.hx_push_url %}hx-push-url="{{ action.hx_push_url }}"{% endif %}
-                                                {% if action.confirm %}onclick="return confirm('{{ action.confirm|escapejs }}')"{% endif %}
-                                            >
-                                                {% if action.icon %}
-                                                    <span class="material-icons text-base">{{ action.icon }}</span>
-                                                {% else %}
-                                                    {{ action.label }}
-                                                {% endif %}
-                                            </a>
-                                        {% endfor %}
-                                    </div>
-                                </td>
-                            {% endif %}
-                        </tr>
-                    {% endfor %}
-                {% else %}
-                    <tr>
-                        <td colspan="{{ colspan }}" class="text-center py-8 text-base-content/70">
-                            {{ empty_text }}
-                        </td>
-                    </tr>
-                {% endif %}
-                </tbody>
-            </table>
-        </div>
-
-        {% if is_paginated %}
-            <div class="flex items-center justify-between gap-3 pt-4">
-                <div class="text-sm text-base-content/70">
-                    Página {{ page_obj.number }} de {{ paginator.num_pages }}
-                </div>
-
-                <div class="join">
-                    <button
-                        class="btn btn-sm btn-primary join-item"
-                        {% if prev_url %}
-                            hx-get="{{ prev_url }}"
-                            hx-target="{{ htmx_target }}"
-                            hx-swap="{{ htmx_swap }}"
-                            hx-select="{{ htmx_select }}"
-                            hx-push-url="{{ htmx_push_url }}"
-                        {% else %}
-                            disabled
-                        {% endif %}
-                    >Anterior</button>
-                    <button
-                        class="btn btn-sm btn-primary join-item"
-                        {% if next_url %}
-                            hx-get="{{ next_url }}"
-                            hx-target="{{ htmx_target }}"
-                            hx-swap="{{ htmx_swap }}"
-                            hx-select="{{ htmx_select }}"
-                            hx-push-url="{{ htmx_push_url }}"
-                        {% else %}
-                            disabled
-                        {% endif %}
-                    >Próxima</button>
-                </div>
-            </div>
+        {% if is_htmx %}
+            <input
+                type="hidden"
+                id="{{ table_id }}-sort"
+                name="sort"
+                value="{{ current_sort }}"
+                {% if not current_sort %}disabled{% endif %}
+                hx-swap-oob="true"
+            />
         {% endif %}
+
+        {% include "tables/partials/_table_cards_mobile.html" %}
+        {% include "tables/partials/_table_desktop.html" %}
+        {% include "tables/partials/_pagination.html" %}
     </div>
 </div>

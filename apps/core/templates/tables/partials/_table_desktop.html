@@ -1,0 +1,88 @@
+<div class="hidden md:block">
+    <div class="overflow-x-auto">
+        <table class="table w-full">
+            <thead class="bg-base-200 text-base-content font-bold">
+            <tr>
+                {% if selectable %}
+                    <th class="w-10">
+                        <input type="checkbox" class="checkbox" x-model="all" @change="toggleAll" aria-label="Selecionar todos" />
+                    </th>
+                {% endif %}
+
+                {% for col in columns %}
+                    <th class="{{ col.th_class }}">
+                        {% if col.sortable and col.sort_url %}
+                            <a
+                                class="inline-flex items-center gap-1 link link-hover"
+                                hx-get="{{ col.sort_url }}"
+                                hx-target="{{ htmx_target }}"
+                                hx-swap="{{ htmx_swap }}"
+                                hx-select="{{ htmx_select }}"
+                                hx-push-url="{{ htmx_push_url }}"
+                            >
+                                <span>{{ col.label }}</span>
+                                <span
+                                    class="inline-flex w-4 justify-center text-xs {% if col.is_asc or col.is_desc %}opacity-70{% else %}opacity-40{% endif %}"
+                                    aria-hidden="true"
+                                >
+                                    {% if col.is_asc %}
+                                        ▲
+                                    {% elif col.is_desc %}
+                                        ▼
+                                    {% else %}
+                                        ↕
+                                    {% endif %}
+                                </span>
+                            </a>
+                        {% else %}
+                            <span>{{ col.label }}</span>
+                        {% endif %}
+                    </th>
+                {% endfor %}
+
+                {% if has_actions %}
+                    <th class="w-px text-center whitespace-nowrap">{{ actions_label }}</th>
+                {% endif %}
+            </tr>
+            </thead>
+
+            <tbody>
+            {% if rows %}
+                {% for row in rows %}
+                    <tr>
+                        {% if selectable %}
+                            <td class="w-10">
+                                <input
+                                    type="checkbox"
+                                    class="checkbox row-checkbox"
+                                    name="{{ checkbox_name }}"
+                                    value="{{ row.pk }}"
+                                    aria-label="Selecionar linha"
+                                />
+                            </td>
+                        {% endif %}
+
+                        {% for cell in row.cells %}
+                            <td class="{{ cell.td_class }}">
+                                {% include "tables/partials/_cell_value.html" with cell=cell %}
+                            </td>
+                        {% endfor %}
+
+                        {% if has_actions %}
+                            <td class="w-px whitespace-nowrap">
+                                {% include "tables/partials/_row_actions.html" with row=row %}
+                            </td>
+                        {% endif %}
+                    </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="{{ colspan }}" class="text-center py-8 text-base-content/70">
+                        {{ empty_text }}
+                    </td>
+                </tr>
+            {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>

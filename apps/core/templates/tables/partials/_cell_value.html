@@ -1,0 +1,11 @@
+{% with empty_center=empty_center|default:False %}
+    {% if cell.is_boolean %}
+        {% if cell.bool_value %}
+            <span class="badge badge-soft badge-success badge-sm">Sim</span>
+        {% else %}
+            <span class="badge badge-soft badge-error badge-sm">Não</span>
+        {% endif %}
+    {% else %}
+        {{ cell.value }}
+    {% endif %}
+{% endwith %}

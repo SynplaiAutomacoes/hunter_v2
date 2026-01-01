@@ -424,6 +424,7 @@ def _render_rows(
 
             cells.append(
                 {
+                    "label": col.label,
                     "value": value,
                     "td_class": col.td_class,
                     "is_boolean": is_boolean,
@@ -464,6 +465,24 @@ def _render_rows(
     return rows
 
 
+def _build_sort_options(*, columns: Sequence[TableColumn], current_sort: str) -> list[dict[str, Any]]:
+    options: list[dict[str, Any]] = [
+        {"value": "", "label": "Sem ordenação", "selected": current_sort in (None, "")},
+    ]
+
+    for col in columns:
+        if not col.attr or not col.sortable:
+            continue
+
+        asc_value = col.attr
+        desc_value = f"-{col.attr}"
+
+        options.append({"value": asc_value, "label": f"{col.label} (A-Z)", "selected": current_sort == asc_value})
+        options.append({"value": desc_value, "label": f"{col.label} (Z-A)", "selected": current_sort == desc_value})
+
+    return options
+
+
 @register.inclusion_tag("tables/render_table.html", takes_context=True)
 def render_table(
     context: dict[str, Any],
@@ -482,6 +501,8 @@ def render_table(
     actions_label: str = "Ações",
 ) -> dict[str, Any]:
     request: HttpRequest = context["request"]
+
+    is_htmx = bool(getattr(request, "htmx", False))
 
     columns = _normalize_fields(fields)
     normalized_actions = _normalize_actions(actions)
@@ -518,6 +539,7 @@ def render_table(
 
     return {
         "request": request,
+        "is_htmx": is_htmx,
         "table_id": table_id,
         "columns": rendered_columns,
         "rows": rows,
@@ -538,6 +560,7 @@ def render_table(
         "search_placeholder": search_placeholder,
         "clear_search_url": clear_search_url,
         "current_sort": sort,
+        "sort_options": _build_sort_options(columns=columns, current_sort=sort),
         "htmx_target": f"#{table_id}-content",
         "htmx_select": f"#{table_id}-content",
         "htmx_swap": "outerHTML",

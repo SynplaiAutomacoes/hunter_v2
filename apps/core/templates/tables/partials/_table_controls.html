@@ -1,0 +1,66 @@
+{% if show_search or sort_options|length > 1 or selectable %}
+    <div class="pb-4">
+        <form
+            class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
+            hx-get="{{ request.path }}"
+            hx-target="{{ htmx_target }}"
+            hx-swap="{{ htmx_swap }}"
+            hx-select="{{ htmx_select }}"
+            hx-push-url="{{ htmx_push_url }}"
+            hx-trigger="submit, keyup changed delay:500ms from:input, change from:#{{ table_id }}-sort-ui"
+        >
+            <div class="flex flex-col gap-2 w-full sm:flex-row sm:items-center sm:max-w-3xl">
+                <input type="hidden" name="page" value="1" />
+                <input type="hidden" name="sort" id="{{ table_id }}-sort" value="{{ current_sort }}" {% if not current_sort %}disabled{% endif %} />
+
+                {% if show_search %}
+                    <div class="relative w-full">
+                        <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-base-content/60" aria-hidden="true">
+                            <svg class="h-[1em] opacity-50" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                                <g stroke-linejoin="round" stroke-linecap="round" stroke-width="2.5" fill="none" stroke="currentColor">
+                                    <circle cx="11" cy="11" r="8"></circle>
+                                    <path d="m21 21-4.3-4.3"></path>
+                                </g>
+                            </svg>
+                        </span>
+
+                        <input
+                            type="text"
+                            name="{{ search_param }}"
+                            id="{{ table_id }}-search"
+                            value="{{ search_query }}"
+                            placeholder="{{ search_placeholder }}"
+                            autocomplete="off"
+                            aria-label="Buscar"
+                            class="input-theme pl-10"
+                        />
+                    </div>
+                {% endif %}
+
+                {% if sort_options|length > 1 %}
+                    <div class="md:hidden w-full sm:w-56">
+                        <select
+                            id="{{ table_id }}-sort-ui"
+                            class="select select-bordered select-sm w-full"
+                            aria-label="Ordenar"
+                            @change="setSort($event.target.value)"
+                        >
+                            {% for opt in sort_options %}
+                                <option value="{{ opt.value }}" {% if opt.selected %}selected{% endif %}>{{ opt.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                {% endif %}
+            </div>
+
+            {% if selectable %}
+                <label class="md:hidden inline-flex items-center gap-2 self-start sm:self-center">
+                    <input type="checkbox" class="checkbox" x-model="all" @change="toggleAll" aria-label="Selecionar todos" />
+                    <span class="text-sm text-base-content/70">Selecionar todos</span>
+                </label>
+            {% endif %}
+        </form>
+
+        <div class="divider m-0 mt-4"></div>
+    </div>
+{% endif %}

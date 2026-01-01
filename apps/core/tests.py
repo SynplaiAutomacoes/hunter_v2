@@ -264,6 +264,64 @@ class TestRenderTableTag(TestCase):
             compact_html,
         )
 
+    def test_renders_mobile_cards_container(self):
+        Workshop.objects.create(name="Oficina 01", is_active=True)
+
+        request = self.factory.get("/workshops/")
+        template = Template(
+            """
+            {% load table_tags %}
+            {% render_table workshops fields table_id='t' per_page=10 %}
+            """
+        )
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "workshops": Workshop.objects.all(),
+                    "fields": [
+                        {"label": "Nome", "attr": "name"},
+                        {"label": "Ativa", "attr": "is_active"},
+                    ],
+                }
+            )
+        )
+
+        # Container de cards (mobile)
+        self.assertIn('class="md:hidden space-y-3"', html)
+        # Card básico
+        self.assertIn('class="card', html)
+
+    def test_renders_mobile_sort_dropdown_and_hidden_sort_input(self):
+        Workshop.objects.create(name="Oficina 01", is_active=True)
+
+        request = self.factory.get("/workshops/")
+        template = Template(
+            """
+            {% load table_tags %}
+            {% render_table workshops fields table_id='t' per_page=10 %}
+            """
+        )
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "workshops": Workshop.objects.all(),
+                    "fields": [
+                        {"label": "Nome", "attr": "name"},
+                    ],
+                }
+            )
+        )
+
+        # Dropdown (mobile) + input hidden para preservar sort na busca.
+        self.assertIn('id="t-sort-ui"', html)
+        self.assertIn('id="t-sort"', html)
+        self.assertIn('name="sort"', html)
+        # Deve oferecer opção asc/desc para a coluna.
+        self.assertIn('value="name"', html)
+        self.assertIn('value="-name"', html)
+
     def test_numeric_sort_by_name_with_custom_sort_by_expression(self):
         # REGEXP_REPLACE é específico do PostgreSQL; em outros bancos esse teste não se aplica.
         if connection.vendor != "postgresql":

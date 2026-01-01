@@ -1,0 +1,44 @@
+<div class="md:hidden space-y-3">
+    {% if rows %}
+        {% for row in rows %}
+            <div class="card bg-base-100 border border-base-300">
+                <div class="card-body p-4">
+                    <div class="flex items-start justify-between gap-3">
+                        {% if selectable %}
+                            <input
+                                type="checkbox"
+                                class="checkbox row-checkbox"
+                                name="{{ checkbox_name }}"
+                                value="{{ row.pk }}"
+                                aria-label="Selecionar item"
+                            />
+                        {% endif %}
+
+                        <div class="ml-auto">
+                            {% if has_actions %}
+                                {% include "tables/partials/_row_actions.html" with row=row %}
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="divider my-2"></div>
+
+                    <dl class="space-y-2">
+                        {% for cell in row.cells %}
+                            <div class="flex items-center justify-between gap-4">
+                                <dt class="text-sm font-medium text-base-content/70">{{ cell.label }}</dt>
+                                <dd class="text-sm text-base-content text-right">
+                                    {% include "tables/partials/_cell_value.html" with cell=cell %}
+                                </dd>
+                            </div>
+                        {% endfor %}
+                    </dl>
+                </div>
+            </div>
+        {% endfor %}
+    {% else %}
+        <div class="py-8 text-center text-base-content/70">
+            {{ empty_text }}
+        </div>
+    {% endif %}
+</div>

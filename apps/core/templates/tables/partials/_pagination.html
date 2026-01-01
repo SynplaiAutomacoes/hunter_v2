@@ -1,0 +1,34 @@
+{% if is_paginated %}
+    <div class="flex items-center justify-between gap-3 pt-4">
+        <div class="text-sm text-base-content/70">
+            Página {{ page_obj.number }} de {{ paginator.num_pages }}
+        </div>
+
+        <div class="join">
+            <button
+                class="btn btn-sm btn-primary join-item"
+                {% if prev_url %}
+                    hx-get="{{ prev_url }}"
+                    hx-target="{{ htmx_target }}"
+                    hx-swap="{{ htmx_swap }}"
+                    hx-select="{{ htmx_select }}"
+                    hx-push-url="{{ htmx_push_url }}"
+                {% else %}
+                    disabled
+                {% endif %}
+            >Anterior</button>
+            <button
+                class="btn btn-sm btn-primary join-item"
+                {% if next_url %}
+                    hx-get="{{ next_url }}"
+                    hx-target="{{ htmx_target }}"
+                    hx-swap="{{ htmx_swap }}"
+                    hx-select="{{ htmx_select }}"
+                    hx-push-url="{{ htmx_push_url }}"
+                {% else %}
+                    disabled
+                {% endif %}
+            >Próxima</button>
+        </div>
+    </div>
+{% endif %}

@@ -1,0 +1,23 @@
+{% if row.actions %}
+    <div class="flex items-center justify-end gap-1">
+        {% for action in row.actions %}
+            <a
+                href="{{ action.href }}"
+                class="{{ action.a_class }}"
+                aria-label="{{ action.aria_label }}"
+                {% if action.hx_get %}hx-get="{{ action.hx_get }}"{% endif %}
+                {% if action.hx_target %}hx-target="{{ action.hx_target }}"{% endif %}
+                {% if action.hx_swap %}hx-swap="{{ action.hx_swap }}"{% endif %}
+                {% if action.hx_select %}hx-select="{{ action.hx_select }}"{% endif %}
+                {% if action.hx_push_url %}hx-push-url="{{ action.hx_push_url }}"{% endif %}
+                {% if action.confirm %}onclick="return confirm('{{ action.confirm|escapejs }}')"{% endif %}
+            >
+                {% if action.icon %}
+                    <span class="material-icons text-base">{{ action.icon }}</span>
+                {% else %}
+                    {{ action.label }}
+                {% endif %}
+            </a>
+        {% endfor %}
+    </div>
+{% endif %}
