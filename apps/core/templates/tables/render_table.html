@@ -5,29 +5,12 @@
         all: false,
         toggleAll() {
             $el.querySelectorAll('input.row-checkbox').forEach(cb => cb.checked = this.all)
-        },
-        setSort(value) {
-            const input = this.$el.querySelector('#{{ table_id }}-sort')
-            if (!input) return
-            input.value = value
-            input.disabled = !value
         }
     }"
     @htmx:afterSwap.window="all = false"
 >
-    {% include "tables/partials/_table_controls.html" %}
-
     <div id="{{ table_id }}-content">
-        {% if is_htmx %}
-            <input
-                type="hidden"
-                id="{{ table_id }}-sort"
-                name="sort"
-                value="{{ current_sort }}"
-                {% if not current_sort %}disabled{% endif %}
-                hx-swap-oob="true"
-            />
-        {% endif %}
+        {% include "tables/partials/_table_controls.html" %}
 
         {% include "tables/partials/_table_cards_mobile.html" %}
         {% include "tables/partials/_table_desktop.html" %}
