@@ -1,7 +1,7 @@
 {% if show_search or sort_options|length > 1 or selectable %}
     <div class="pb-4">
         <form
-            class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
+            class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
             hx-get="{{ request.path }}"
             hx-target="{{ htmx_target }}"
             hx-swap="{{ htmx_swap }}"
@@ -9,7 +9,7 @@
             hx-push-url="{{ htmx_push_url }}"
             hx-trigger="submit, keyup changed delay:500ms from:input, change from:#{{ table_id }}-sort-ui"
         >
-            <div class="flex flex-col gap-2 w-full sm:flex-row sm:items-center sm:max-w-3xl">
+            <div class="flex flex-col gap-4 w-full sm:flex-row sm:items-center sm:max-w-3xl">
                 <input type="hidden" name="page" value="1" />
                 {% if show_search %}
                     <div class="relative w-full">
@@ -41,7 +41,7 @@
                         <select
                             name="sort"
                             id="{{ table_id }}-sort-ui"
-                            class="select select-bordered select-sm w-full"
+                            class="select select-bordered select-sm w-full outline-0"
                             aria-label="Ordenar"
                         >
                             {% for opt in sort_options %}
@@ -53,7 +53,7 @@
             </div>
 
             {% if selectable %}
-                <label class="md:hidden inline-flex items-center gap-2 self-start sm:self-center">
+                <label class="md:hidden inline-flex items-center gap-2 self-start sm:self-center m-0">
                     <input type="checkbox" class="checkbox" x-model="all" @change="toggleAll" aria-label="Selecionar todos" />
                     <span class="text-sm text-base-content/70">Selecionar todos</span>
                 </label>
