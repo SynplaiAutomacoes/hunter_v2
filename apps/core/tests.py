@@ -106,6 +106,59 @@ class TestRenderTableTag(TestCase):
         self.assertNotIn(">True</td>", html)
         self.assertNotIn(">False</td>", html)
 
+    def test_can_render_cell_with_frontend_format_hint(self):
+        Workshop.objects.create(name="Oficina 01", cnpj="11.222.333/0001-81")
+
+        request = self.factory.get("/workshops/")
+        template = Template(
+            """
+            {% load table_tags %}
+            {% render_table workshops fields table_id='t' per_page=10 %}
+            """
+        )
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "workshops": Workshop.objects.all(),
+                    "fields": [
+                        {"label": "CNPJ", "attr": "cnpj", "format": "cnpj"},
+                    ],
+                }
+            )
+        )
+
+        # A célula deve carregar o hint via data-attribute para o JS aplicar a máscara.
+        self.assertIn('data-hf="cnpj"', html)
+
+    def test_formatted_cell_with_none_renders_literal_none_and_no_hint(self):
+        Workshop.objects.create(name="Oficina 01", cnpj=None)
+
+        request = self.factory.get("/workshops/")
+        template = Template(
+            """
+            {% load table_tags %}
+            {% render_table workshops fields table_id='t' per_page=10 %}
+            """
+        )
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "workshops": Workshop.objects.all(),
+                    "fields": [
+                        {"label": "CNPJ", "attr": "cnpj", "format": "cnpj"},
+                    ],
+                }
+            )
+        )
+
+        compact_html = "".join(html.split())
+
+        # Quando o valor é None, deve mostrar literalmente 'None' (não vazio) e não aplicar data-hf.
+        self.assertIn(">None</", compact_html)
+        self.assertNotIn('data-hf="cnpj"', compact_html)
+
     def test_action_column_renders_with_edit_and_delete_links(self):
         w = Workshop.objects.create(name="Oficina 01", is_active=True)
 
@@ -314,9 +367,8 @@ class TestRenderTableTag(TestCase):
             )
         )
 
-        # Dropdown (mobile) + input hidden para preservar sort na busca.
+        # Dropdown (mobile) de ordenação.
         self.assertIn('id="t-sort-ui"', html)
-        self.assertIn('id="t-sort"', html)
         self.assertIn('name="sort"', html)
         # Deve oferecer opção asc/desc para a coluna.
         self.assertIn('value="name"', html)

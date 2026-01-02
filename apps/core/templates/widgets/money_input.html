@@ -2,50 +2,8 @@
 
 {% with amount=widget.subwidgets.0 currency=widget.subwidgets.1 %}
 <div
-    x-data="{
-        rawValue: '{{ amount.value|default_if_none:""|unlocalize }}',
-        maxDigits: 14,
-
-        normalizeToDotDecimal(value) {
-            // Mantém só dígitos
-            let digits = (value ?? '').toString().replace(/\D/g, '');
-            if (digits === '') return '';
-
-            if (digits.length > this.maxDigits) {
-                digits = digits.slice(0, this.maxDigits);
-            }
-
-            // centavos (divide por 100) e força ponto decimal
-            let number = (parseInt(digits, 10) / 100).toFixed(2);
-            return number; // ex: '1234.56'
-        },
-
-        formatPtBrFromDotDecimal(dotDecimal) {
-            if (!dotDecimal) return '';
-            let n = Number(dotDecimal);
-            if (Number.isNaN(n)) return '';
-
-            return n.toLocaleString('pt-BR', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2
-            });
-        },
-
-        handleInput(e) {
-            let normalized = this.normalizeToDotDecimal(e.target.value);
-
-            // Atualiza o valor que será enviado ao Django (Decimal)
-            this.$refs.amount.value = normalized;
-
-            // Atualiza o que o usuário enxerga (PT-BR)
-            e.target.value = this.formatPtBrFromDotDecimal(normalized);
-        }
-    }"
-    x-init="
-        // Inicializa hidden + display a partir do valor atual do Django
-        $refs.amount.value = rawValue;
-        $refs.display.value = formatPtBrFromDotDecimal(rawValue);
-    "
+    x-data="formatters.widget.moneyInput('{{ amount.value|default_if_none:""|unlocalize|escapejs }}')"
+    x-init="init()"
     class="relative"
 >
     <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">

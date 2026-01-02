@@ -1,48 +1,8 @@
 {% with raw=widget.value|default_if_none:"" %}
 <div>
     <div
-        x-data="{
-            rawValue: '{{ raw }}',
-            mode: '{{ widget.number_mode|default:"positive" }}',
-
-            normalize(v) {
-                let s = (v ?? '').toString().trim();
-
-                // mantém dígitos e '-' (vamos corrigir posição abaixo)
-                s = s.replace(/[^\d-]/g, '');
-
-                // no máximo um '-' e só no começo
-                s = s.replace(/-/g, '');
-                const wantMinus = ((v ?? '').toString().trim().startsWith('-'));
-                if (wantMinus) s = '-' + s;
-
-                // se virou só '-', deixa assim durante digitação
-                if (s === '-') return s;
-
-                // remove zeros à esquerda (mas preserva '0')
-                const sign = s.startsWith('-') ? '-' : '';
-                let digits = s.replace(/-/g, '');
-                digits = digits.replace(/^0+(?=\d)/, '');
-
-                if (!digits) return '';
-
-                // aplica modo
-                if (this.mode === 'positive') return digits;              // sem sinal
-                if (this.mode === 'negative') return '-' + digits;       // sempre negativo
-                return sign + digits;                                     // both
-            },
-
-            handleInput(e) {
-                const n = this.normalize(e.target.value);
-                this.$refs.value.value = (n === '-') ? '' : n; // evita submeter '-' sozinho
-                e.target.value = n;
-            }
-        }"
-        x-init="
-            const n = normalize(rawValue);
-            $refs.value.value = (n === '-') ? '' : n;
-            $refs.display.value = n;
-        "
+        x-data="formatters.widget.numberInput('{{ raw|escapejs }}', '{{ widget.number_mode|default:"positive"|escapejs }}')"
+        x-init="init()"
     >
         <input
             type="text"

@@ -6,6 +6,15 @@
             <span class="badge badge-soft badge-error badge-sm">Não</span>
         {% endif %}
     {% else %}
-        {{ cell.value }}
+        {% if cell.value == None %}
+            None
+        {% elif cell.format %}
+            <span
+                data-hf="{{ cell.format }}"
+                data-hf-raw="{{ cell.value }}"
+            >{{ cell.value }}</span>
+        {% else %}
+            {{ cell.value }}
+        {% endif %}
     {% endif %}
 {% endwith %}

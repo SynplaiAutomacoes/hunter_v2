@@ -1,69 +1,7 @@
 {% with raw=widget.value|default_if_none:"" %}
 <div
-    x-data="{
-        rawValue: '{{ raw }}',
-
-        onlyDigits(v) {
-            return (v ?? '').toString().replace(/\D/g, '');
-        },
-
-        toHHMM(value) {
-            // aceita entrada com qualquer coisa; mantém só dígitos e usa os 4 primeiros
-            let d = this.onlyDigits(value).slice(0, 4);
-            if (!d) return { hh: '', mm: '' };
-
-            // preenche da esquerda: H H M M (ex: '9' -> '9', '12' -> '12', '123' -> '12:3')
-            let hh = d.slice(0, 2);
-            let mm = d.slice(2, 4);
-
-            // clamp minuto (0-59) quando tiver 2 dígitos
-            if (mm.length === 2) {
-                let m = parseInt(mm, 10);
-                if (Number.isNaN(m)) m = 0;
-                if (m > 59) m = 59;
-                mm = String(m).padStart(2, '0');
-            }
-
-            return { hh, mm };
-        },
-
-        formatDisplay(hh, mm) {
-            if (!hh && !mm) return '';
-            if (hh && !mm) return hh;          // durante digitação
-            return `${hh}:${mm}`;
-        },
-
-        normalizeForPost(hh, mm) {
-            // Só envia quando estiver completo HH e MM (2 + 2)
-            if ((hh ?? '').length !== 2 || (mm ?? '').length !== 2) return '';
-            return `${hh}:${mm}:00`;
-        },
-
-        initFromRaw(raw) {
-            // Tenta extrair HH:MM de valores comuns:
-            // - 'HH:MM:SS'
-            // - 'H:MM:SS'
-            // - 'HH:MM'
-            const s = (raw ?? '').toString();
-            const m = s.match(/(\d{1,2}):(\d{2})(?::\d{2})?/);
-            if (!m) return { hh: '', mm: '' };
-            const hh = String(parseInt(m[1], 10)).padStart(2, '0').slice(0, 2);
-            const mm = String(parseInt(m[2], 10)).padStart(2, '0');
-            return { hh, mm };
-        },
-
-        handleInput(e) {
-            const { hh, mm } = this.toHHMM(e.target.value);
-
-            this.$refs.value.value = this.normalizeForPost(hh, mm);
-            e.target.value = this.formatDisplay(hh, mm);
-        }
-    }"
-    x-init="
-        const { hh, mm } = initFromRaw(rawValue);
-        $refs.value.value = normalizeForPost(hh, mm);
-        $refs.display.value = formatDisplay(hh, mm);
-    "
+    x-data="formatters.widget.durationInput('{{ raw|escapejs }}')"
+    x-init="init()"
 >
     <input
         type="text"

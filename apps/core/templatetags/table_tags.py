@@ -31,6 +31,8 @@ class TableColumn:
     # - Expression / OrderBy,
     # - sequência de (str|Expression) para ordenar por múltiplos critérios.
     sort_by: str | BaseExpression | Sequence[str | BaseExpression] | None = None
+    # Opcional: indica um formato front-end para exibição (ex.: "cnpj", "cpf", "phone").
+    format: str | None = None
 
 
 @dataclass(frozen=True)
@@ -80,6 +82,9 @@ def _normalize_fields(fields: Iterable[Any]) -> list[TableColumn]:
             attr = f.get("attr")
             if attr is not None:
                 attr = str(attr)
+
+            fmt = f.get("format")
+            fmt = str(fmt) if fmt not in (None, "") else None
             normalized.append(
                 TableColumn(
                     label=label,
@@ -90,6 +95,7 @@ def _normalize_fields(fields: Iterable[Any]) -> list[TableColumn]:
                     searchable=bool(f.get("searchable", True)),
                     search_by=(str(f.get("search_by")) if f.get("search_by") is not None else None),
                     sort_by=f.get("sort_by"),
+                    format=fmt,
                 )
             )
             continue
@@ -103,6 +109,7 @@ def _normalize_fields(fields: Iterable[Any]) -> list[TableColumn]:
             sort_by = f[5] if len(f) > 5 else None
             searchable = bool(f[6]) if len(f) > 6 else True
             search_by = str(f[7]) if len(f) > 7 and f[7] is not None else None
+            fmt = str(f[8]) if len(f) > 8 and f[8] not in (None, "") else None
             normalized.append(
                 TableColumn(
                     label=label,
@@ -113,6 +120,7 @@ def _normalize_fields(fields: Iterable[Any]) -> list[TableColumn]:
                     searchable=searchable,
                     search_by=search_by,
                     sort_by=sort_by,
+                    format=fmt,
                 )
             )
             continue
@@ -429,6 +437,7 @@ def _render_rows(
                     "td_class": col.td_class,
                     "is_boolean": is_boolean,
                     "bool_value": value if is_boolean else None,
+                    "format": col.format,
                 }
             )
 
