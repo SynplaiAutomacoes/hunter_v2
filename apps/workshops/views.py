@@ -51,9 +51,9 @@ class WorkshopListView(LoginRequiredMixin, ListView):
         context = super().get_context_data(**kwargs)
 
         context["fields"] = [
-            {"label": "Nome", "attr": "name", "th_class": "whitespace-nowrap", "td_class": "font-medium"},
-            {"label": "CNPJ", "attr": "cnpj", "th_class": "whitespace-nowrap", "td_class": "font-mono", "format": "cnpj"},
-            {"label": "Ativa", "attr": "is_active", "th_class": "whitespace-nowrap"},
+            {"label": "Nome", "attr": "name"},
+            {"label": "CNPJ", "attr": "cnpj", "format": "cnpj"},
+            {"label": "Ativa", "attr": "is_active"},
         ]
 
         context["actions"] = [
