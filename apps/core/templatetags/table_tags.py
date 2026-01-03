@@ -17,36 +17,61 @@ register = Library()
 
 @dataclass(frozen=True)
 class TableColumn:
+    """
+    Define a configuração de uma coluna na tabela de dados.
+
+    Attributes:
+        label: O texto exibido no cabeçalho da coluna.
+        attr: O atributo do objeto (ex: 'nome', 'usuario.email') a ser exibido.
+        th_class: Classes CSS adicionais para o elemento <th>.
+        td_class: Classes CSS adicionais para o elemento <td>.
+        sortable: Se True, permite ordenar a tabela por esta coluna.
+        searchable: Se True, o valor desta coluna será considerado na busca global.
+        search_by: Caminho de lookup personalizado para a busca (ex: 'cliente__nome').
+                   Se None, usa o valor de `attr`.
+        sort_by: Expressão ou campo personalizado para ordenação no ORM.
+                 Pode ser uma string, Expression, ou lista deles.
+        format: Identificador de formatação para o frontend (ex: 'cnpj', 'money').
+    """
+
     label: str
     attr: str | None
     th_class: str = ""
     td_class: str = ""
     sortable: bool = True
     searchable: bool = True
-    # Opcional: permite customizar o lookup usado na busca. Ex.: "name", "customer__name".
     search_by: str | None = None
-    # Opcional: permite customizar o `order_by` quando `sort=<attr>`.
-    # Aceita: str, Expression, ou sequência de ambos.
     sort_by: str | BaseExpression | Sequence[str | BaseExpression] | None = None
-    # Opcional: indica um formato front-end para exibição (ex.: "cnpj", "cpf", "phone", "money").
     format: str | None = None
 
 
 @dataclass(frozen=True)
 class TableAction:
+    """
+    Define uma ação (botão/link) disponível para cada linha da tabela.
+
+    Attributes:
+        label: O texto do botão ou tooltip.
+        url_name: O nome da URL (reverse) do Django.
+        url: Uma string de URL direta (pode usar placeholders como {pk}).
+        args: Lista de atributos do objeto a serem passados como args para a URL.
+        kwargs: Dicionário de atributos a serem passados como kwargs para a URL.
+        a_class: Classes CSS para o elemento <a>.
+        icon: Nome do ícone (para bibliotecas como Material Icons).
+        aria_label: Texto para acessibilidade.
+        confirm: Se preenchido, exibe um alerta de confirmação JS ao clicar.
+        hx_get, hx_target, etc.: Atributos para integração com HTMX.
+    """
+
     label: str
     url_name: str | None = None
     url: str | None = None
-    # Quais atributos do objeto serão usados como `args` no `reverse`.
     args: Sequence[str] = ("pk",)
-    # kwargs para `reverse`: {"pk": "pk"} ou {"slug": "slug"}.
     kwargs: dict[str, str] = field(default_factory=dict)
     a_class: str = "btn btn-ghost btn-xs"
     icon: str = ""
     aria_label: str = ""
     confirm: str | None = None
-
-    # Opcional: permite usar HTMX na ação.
     hx_get: str | None = None
     hx_target: str | None = None
     hx_swap: str | None = None
@@ -55,6 +80,10 @@ class TableAction:
 
 
 def _resolve_attr(obj: Any, attr: str | None) -> Any:
+    """
+    Navega recursivamente pelos atributos de um objeto usando notação de ponto.
+    Suporta atributos simples e chamáveis (métodos sem argumentos).
+    """
     if attr in (None, ""):
         return obj
 
@@ -71,6 +100,10 @@ def _resolve_attr(obj: Any, attr: str | None) -> Any:
 
 
 def _build_url(request: HttpRequest, *, updates: dict[str, Any]) -> str:
+    """
+    Reconstrói a URL atual atualizando ou removendo parâmetros da query string.
+    Útil para links de paginação e ordenação mantendo os filtros existentes.
+    """
     params = request.GET.copy()
     for key, value in updates.items():
         if value is None:
@@ -83,16 +116,14 @@ def _build_url(request: HttpRequest, *, updates: dict[str, Any]) -> str:
 
 
 def _as_ordering_terms(col: TableColumn, *, desc: bool) -> list[str | BaseExpression]:
-    """Converte a configuração de sort da coluna em uma lista de termos para `order_by`.
-
-    Observação: `sort` (querystring) continua sendo baseado em `col.attr`.
-    `col.sort_by` apenas altera como a ordenação é aplicada no QuerySet.
+    """
+    C onverte a configuração de ordenação de uma coluna em termos compatíveis
+    com o método `.order_by()` do Django ORM, aplicando a direção(asc/desc).
     """
 
     def _apply_dir(term: str | BaseExpression) -> str | BaseExpression:
         if isinstance(term, str):
             return f"-{term}" if desc else term
-        # Expressions suportam `.asc()`/`.desc()` que retornam `OrderBy`.
         return term.desc() if desc else term.asc()
 
     sort_by = col.sort_by if col.sort_by is not None else col.attr
@@ -105,6 +136,9 @@ def _as_ordering_terms(col: TableColumn, *, desc: bool) -> list[str | BaseExpres
 
 
 def _get_search_query(request: HttpRequest, *, show_search: bool, search_param: str) -> str:
+    """
+    Extrai o termo de busca atual dos parâmetros GET da requisição.
+    """
     if not show_search:
         return ""
     return (request.GET.get(search_param) or "").strip()
@@ -116,6 +150,10 @@ def _apply_search(
     columns: Sequence[TableColumn],
     search_query: str,
 ) -> tuple[QuerySet[Any], str]:
+    """
+    Filtra o QuerySet aplicando uma busca textual (icontains) em todas as
+    colunas marcadas como `searchable`. Retorna o QuerySet filtrado e o termo usado.
+    """
     if not search_query:
         return qs, search_query
 
@@ -142,6 +180,10 @@ def _apply_search(
 
 
 def _parse_sort(request: HttpRequest, *, sortable_attrs: set[str]) -> tuple[str, str, bool, bool]:
+    """
+    Analisa os parâmetros GET para determinar a ordenação solicitada.
+    Retorna o valor bruto, o atributo, se é descendente e se é válido.
+    """
     sort = request.GET.get("sort") or ""
     sort_attr = sort.lstrip("-")
     sort_desc = sort.startswith("-")
@@ -158,6 +200,10 @@ def _apply_sort(
     sort_desc: bool,
     sort_is_valid: bool,
 ) -> tuple[QuerySet[Any], str, str, bool]:
+    """
+    Aplica a cláusula `order_by` ao QuerySet com base na coluna selecionada.
+    Adiciona `pk` como critério de desempate para garantir determinismo.
+    """
     if not sort_is_valid:
         return qs, "" if sort else sort, "", False
 
@@ -175,12 +221,20 @@ def _apply_sort(
 
 
 def _ensure_stable_ordering(qs: QuerySet[Any]) -> QuerySet[Any]:
+    """
+    Garante que o QuerySet tenha alguma ordenação definida (padrão PK)
+    para evitar inconsistências na paginação.
+    """
     if not qs.ordered:
         return qs.order_by("pk")
     return qs
 
 
 def _paginate(qs: QuerySet[Any], *, per_page: int, page_number: str) -> tuple[Any, Paginator]:
+    """
+    Pagina o QuerySet. Trata casos de página inválida (retorna a primeira)
+    ou página vazia (retorna a última).
+    """
     paginator = Paginator(qs, per_page)
     try:
         page_obj = paginator.page(page_number)
@@ -198,6 +252,10 @@ def _render_columns(
     sort_attr: str,
     sort_desc: bool,
 ) -> list[dict[str, Any]]:
+    """
+    Prepara os dados dos cabeçalhos das colunas para o template, incluindo
+    a lógica de URLs para alternar a ordenação (Asc -> Desc -> None).
+    """
     rendered_columns: list[dict[str, Any]] = []
 
     for col in columns:
@@ -210,15 +268,12 @@ def _render_columns(
         if not can_sort:
             sort_url = None
         elif not is_sorted:
-            # 1.º clique: habilita ordenação asc.
             next_sort = col.attr
             sort_url = _build_url(request, updates={"sort": next_sort, "page": 1})
         elif is_asc:
-            # 2.º clique: alterna para desc.
             next_sort = f"-{col.attr}"
             sort_url = _build_url(request, updates={"sort": next_sort, "page": 1})
         elif is_desc:
-            # 3.º clique: remove ordenação.
             sort_url = _build_url(request, updates={"sort": None, "page": 1})
         else:
             next_sort = col.attr
@@ -242,6 +297,10 @@ def _render_columns(
 
 
 def _resolve_action_href(obj: Any, action: TableAction) -> str | None:
+    """
+    Gera a URL final para uma ação em uma linha específica, resolvendo
+    parâmetros dinâmicos (args/kwargs) baseados nos dados do objeto.
+    """
     if action.url:
         format_ctx: dict[str, Any] = {"pk": getattr(obj, "pk", None)}
         for path in action.args:
@@ -270,6 +329,10 @@ def _render_rows(
     columns: Sequence[TableColumn],
     actions: Sequence[TableAction],
 ) -> list[dict[str, Any]]:
+    """
+    Transforma os objetos da página atual em uma estrutura de lista de dicionários
+    pronta para renderização, processando os valores das células e links de ação.
+    """
     rows: list[dict[str, Any]] = []
     has_actions = bool(actions)
 
@@ -298,7 +361,6 @@ def _render_rows(
                     continue
 
                 hx_get = action.hx_get
-                # Se tem hx_target mas não hx_get, assume href como hx_get
                 if hx_get in (None, "") and action.hx_target:
                     hx_get = href
 
@@ -324,6 +386,10 @@ def _render_rows(
 
 
 def _build_sort_options(*, columns: Sequence[TableColumn], current_sort: str) -> list[dict[str, Any]]:
+    """
+    Gera a lista de opções para o dropdown de ordenação (interface mobile),
+    criando pares de ordenação Ascendente (A-Z) e Descendente (Z-A).
+    """
     options: list[dict[str, Any]] = [
         {"value": "", "label": "Sem ordenação", "selected": current_sort in (None, "")},
     ]
@@ -358,6 +424,27 @@ def render_table(
     actions: Sequence[TableAction] | None = None,
     actions_label: str = "Ações",
 ) -> dict[str, Any]:
+    """
+    Inclusion tag principal para renderizar uma tabela de dados completa.
+
+    Processa busca, ordenação, paginação e ações antes de enviar o contexto
+    para o template `tables/render_table.html`.
+
+    Args:
+        context: Contexto do template Django (injetado automaticamente).
+        queryset: O QuerySet base contendo os dados.
+        fields: Lista de objetos TableColumn definindo as colunas.
+        table_id: ID HTML único para a tabela (usado em HTMX/DOM).
+        per_page: Número de registros por página.
+        selectable: Se True, exibe checkboxes para seleção de linhas.
+        checkbox_name: O atributo 'name' dos inputs checkbox.
+        empty_text: Mensagem exibida quando não há registros.
+        show_search: Se True, exibe a barra de busca.
+        search_param: Nome do parâmetro GET para a busca (default: 'q').
+        search_placeholder: Placeholder do input de busca.
+        actions: Lista de objetos TableAction definindo botões por linha.
+        actions_label: Título da coluna de ações.
+    """
     request: HttpRequest = context["request"]
     is_htmx = bool(getattr(request, "htmx", False))
 
