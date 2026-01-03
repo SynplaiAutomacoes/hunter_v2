@@ -13,14 +13,14 @@ from apps.workshops.models import Workshop
 class WorkshopCreateView(LoginRequiredMixin, CreateView):
     model = Workshop
     form_class = WorkshopForm
-    template_name = "workshop_create.html"
+    template_name = "workshops/workshop_create.html"
     success_url = reverse_lazy("workshops:list")
 
 
 class WorkshopUpdateView(LoginRequiredMixin, UpdateView):
     model = Workshop
     form_class = WorkshopForm
-    template_name = "workshop_update.html"
+    template_name = "workshops/workshop_update.html"
     success_url = reverse_lazy("workshops:list")
 
 
@@ -46,7 +46,7 @@ class WorkshopDeleteView(LoginRequiredMixin, DeleteView):
 
 class WorkshopListView(LoginRequiredMixin, ListView):
     model = Workshop
-    template_name = "workshop_list.html"
+    template_name = "workshops/workshop_list.html"
     context_object_name = "workshops"
 
     def get_context_data(self, **kwargs):
