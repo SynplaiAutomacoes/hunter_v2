@@ -60,6 +60,14 @@
         @apply ring-1 ring-input-ring focus:outline-none focus:ring-2 focus:ring-primary;
         @apply shadow-sm;
     }
+
+    /*apps.core.ui.py*/
+    .btn-table-edit {
+        @apply btn btn-sm btn-primary;
+    }
+    .btn-table-delete {
+        @apply btn btn-sm btn-error text-white;
+    }
 }
 
 @layer base {

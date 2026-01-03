@@ -8,13 +8,13 @@ class TableActionStyles:
     EDIT = {
         "label": "Editar",
         "icon": "edit",
-        "a_class": "btn btn-primary btn-sm",
+        "a_class": "btn-table-edit",
         "aria_label": "Editar registro",
     }
 
     DELETE = {
         "label": "Excluir",
         "icon": "delete",
-        "a_class": "btn btn-error btn-sm text-white",
+        "a_class": "btn-table-delete",
         "aria_label": "Excluir registro",
     }
