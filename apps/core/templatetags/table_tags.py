@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Sequence
 
 from django.core.exceptions import FieldError
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
@@ -26,12 +26,9 @@ class TableColumn:
     # Opcional: permite customizar o lookup usado na busca. Ex.: "name", "customer__name".
     search_by: str | None = None
     # Opcional: permite customizar o `order_by` quando `sort=<attr>`.
-    # Aceita:
-    # - str (campo/lookup),
-    # - Expression / OrderBy,
-    # - sequência de (str|Expression) para ordenar por múltiplos critérios.
+    # Aceita: str, Expression, ou sequência de ambos.
     sort_by: str | BaseExpression | Sequence[str | BaseExpression] | None = None
-    # Opcional: indica um formato front-end para exibição (ex.: "cnpj", "cpf", "phone").
+    # Opcional: indica um formato front-end para exibição (ex.: "cnpj", "cpf", "phone", "money").
     format: str | None = None
 
 
@@ -41,16 +38,15 @@ class TableAction:
     url_name: str | None = None
     url: str | None = None
     # Quais atributos do objeto serão usados como `args` no `reverse`.
-    # Ex.: ("pk",) ou ("customer.pk",)
     args: Sequence[str] = ("pk",)
     # kwargs para `reverse`: {"pk": "pk"} ou {"slug": "slug"}.
-    kwargs: Mapping[str, str] = field(default_factory=dict)
+    kwargs: dict[str, str] = field(default_factory=dict)
     a_class: str = "btn btn-ghost btn-xs"
     icon: str = ""
     aria_label: str = ""
     confirm: str | None = None
 
-    # Opcional: permite usar HTMX na ação (ex.: abrir modal, fazer swap parcial, etc.).
+    # Opcional: permite usar HTMX na ação.
     hx_get: str | None = None
     hx_target: str | None = None
     hx_swap: str | None = None
@@ -64,153 +60,14 @@ def _resolve_attr(obj: Any, attr: str | None) -> Any:
 
     value: Any = obj
     for part in attr.split("."):
-        value = getattr(value, part)
+        try:
+            value = getattr(value, part)
+        except AttributeError:
+            return None
+
         if callable(value):
             value = value()
     return value
-
-
-def _normalize_fields(fields: Iterable[Any]) -> list[TableColumn]:
-    normalized: list[TableColumn] = []
-    for f in fields:
-        if isinstance(f, TableColumn):
-            normalized.append(f)
-            continue
-
-        if isinstance(f, Mapping):
-            label = str(f.get("label", ""))
-            attr = f.get("attr")
-            if attr is not None:
-                attr = str(attr)
-
-            fmt = f.get("format")
-            fmt = str(fmt) if fmt not in (None, "") else None
-            normalized.append(
-                TableColumn(
-                    label=label,
-                    attr=attr,
-                    th_class=str(f.get("th_class", "")),
-                    td_class=str(f.get("td_class", "")),
-                    sortable=bool(f.get("sortable", True)),
-                    searchable=bool(f.get("searchable", True)),
-                    search_by=(str(f.get("search_by")) if f.get("search_by") is not None else None),
-                    sort_by=f.get("sort_by"),
-                    format=fmt,
-                )
-            )
-            continue
-
-        if isinstance(f, (list, tuple)):
-            label = str(f[0]) if len(f) > 0 else ""
-            attr = str(f[1]) if len(f) > 1 and f[1] is not None else None
-            th_class = str(f[2]) if len(f) > 2 else ""
-            td_class = str(f[3]) if len(f) > 3 else ""
-            sortable = bool(f[4]) if len(f) > 4 else True
-            sort_by = f[5] if len(f) > 5 else None
-            searchable = bool(f[6]) if len(f) > 6 else True
-            search_by = str(f[7]) if len(f) > 7 and f[7] is not None else None
-            fmt = str(f[8]) if len(f) > 8 and f[8] not in (None, "") else None
-            normalized.append(
-                TableColumn(
-                    label=label,
-                    attr=attr,
-                    th_class=th_class,
-                    td_class=td_class,
-                    sortable=sortable,
-                    searchable=searchable,
-                    search_by=search_by,
-                    sort_by=sort_by,
-                    format=fmt,
-                )
-            )
-            continue
-
-        raise TypeError("Cada coluna deve ser um dict, tuple/list ou TableColumn")
-
-    return normalized
-
-
-def _normalize_actions(actions: Iterable[Any] | None) -> list[TableAction]:
-    if not actions:
-        return []
-
-    normalized: list[TableAction] = []
-    for a in actions:
-        if isinstance(a, TableAction):
-            normalized.append(a)
-            continue
-
-        if isinstance(a, Mapping):
-            kind = str(a.get("kind", "")).strip().lower()
-
-            label = str(a.get("label") or a.get("title") or "")
-            url_name = str(a.get("url_name")) if a.get("url_name") is not None else None
-            url = str(a.get("url")) if a.get("url") is not None else None
-
-            args = a.get("args")
-            if args is None:
-                args = ("pk",)
-            elif isinstance(args, (list, tuple)):
-                args = tuple(str(x) for x in args)
-            else:
-                args = (str(args),)
-
-            kwargs = a.get("kwargs")
-            if isinstance(kwargs, Mapping):
-                kwargs = {str(k): str(v) for k, v in kwargs.items()}
-            else:
-                kwargs = {}
-
-            a_class = str(a.get("a_class") or a.get("btn_class") or "")
-            icon = str(a.get("icon") or "")
-            aria_label = str(a.get("aria_label") or "")
-            confirm = str(a.get("confirm")) if a.get("confirm") is not None else None
-
-            hx_get = str(a.get("hx_get")) if a.get("hx_get") is not None else None
-            hx_target = str(a.get("hx_target")) if a.get("hx_target") is not None else None
-            hx_swap = str(a.get("hx_swap")) if a.get("hx_swap") is not None else None
-            hx_select = str(a.get("hx_select")) if a.get("hx_select") is not None else None
-            hx_push_url = str(a.get("hx_push_url")) if a.get("hx_push_url") is not None else None
-
-            # Defaults por tipo (sem sobrescrever se o caller passou explicitamente).
-            if kind == "edit":
-                if not label:
-                    label = "Editar"
-                if not icon:
-                    icon = "edit"
-                if not a_class:
-                    a_class = "btn btn-primary btn-sm"
-            elif kind == "delete":
-                if not label:
-                    label = "Excluir"
-                if not icon:
-                    icon = "delete"
-                if not a_class:
-                    a_class = "btn btn-error btn-sm text-white"
-
-            normalized.append(
-                TableAction(
-                    label=label,
-                    url_name=url_name,
-                    url=url,
-                    args=args,
-                    kwargs=kwargs,
-                    a_class=a_class,
-                    icon=icon,
-                    aria_label=aria_label,
-                    confirm=confirm,
-                    hx_get=hx_get,
-                    hx_target=hx_target,
-                    hx_swap=hx_swap,
-                    hx_select=hx_select,
-                    hx_push_url=hx_push_url,
-                )
-            )
-            continue
-
-        raise TypeError("Cada ação deve ser um dict ou TableAction")
-
-    return normalized
 
 
 def _build_url(request: HttpRequest, *, updates: dict[str, Any]) -> str:
@@ -281,7 +138,6 @@ def _apply_search(
     try:
         return qs.filter(q_obj), search_query
     except FieldError:
-        # Se algum lookup for inválido, ignora a busca.
         return qs, ""
 
 
@@ -303,7 +159,6 @@ def _apply_sort(
     sort_is_valid: bool,
 ) -> tuple[QuerySet[Any], str, str, bool]:
     if not sort_is_valid:
-        # sort presente, mas não é permitido pelas colunas.
         return qs, "" if sort else sort, "", False
 
     col_for_sort = next((c for c in columns if c.attr == sort_attr), None)
@@ -312,17 +167,14 @@ def _apply_sort(
 
     try:
         ordering_terms = _as_ordering_terms(col_for_sort, desc=sort_desc)
-        # Desempate estável para paginação.
         if "pk" not in [t for t in ordering_terms if isinstance(t, str)]:
             ordering_terms.append("pk")
         return qs.order_by(*ordering_terms), sort, sort_attr, sort_desc
     except FieldError:
-        # Se o atributo/expressão não for válido para order_by, ignora a ordenação.
         return qs, "", "", False
 
 
 def _ensure_stable_ordering(qs: QuerySet[Any]) -> QuerySet[Any]:
-    # Garante ordenação estável para paginação quando não há sort explícito.
     if not qs.ordered:
         return qs.order_by("pk")
     return qs
@@ -391,7 +243,6 @@ def _render_columns(
 
 def _resolve_action_href(obj: Any, action: TableAction) -> str | None:
     if action.url:
-        # Permite URLs com placeholders simples: "/x/{pk}/edit/".
         format_ctx: dict[str, Any] = {"pk": getattr(obj, "pk", None)}
         for path in action.args:
             format_ctx[path] = _resolve_attr(obj, path)
@@ -426,8 +277,6 @@ def _render_rows(
         cells: list[dict[str, Any]] = []
         for col in columns:
             value = _resolve_attr(obj, col.attr)
-
-            # 'bool' em Python é subclasse de 'int', então checamos pelo tipo exato.
             is_boolean = type(value) is bool
 
             cells.append(
@@ -449,7 +298,7 @@ def _render_rows(
                     continue
 
                 hx_get = action.hx_get
-                # Conveniência: se a ação tiver alvo HTMX mas não definiu `hx_get`, usa o próprio `href`.
+                # Se tem hx_target mas não hx_get, assume href como hx_get
                 if hx_get in (None, "") and action.hx_target:
                     hx_get = href
 
@@ -496,7 +345,7 @@ def _build_sort_options(*, columns: Sequence[TableColumn], current_sort: str) ->
 def render_table(
     context: dict[str, Any],
     queryset: QuerySet[Any],
-    fields: Iterable[Any],
+    fields: Sequence[TableColumn],
     *,
     table_id: str = "table",
     per_page: int = 10,
@@ -506,16 +355,16 @@ def render_table(
     show_search: bool = True,
     search_param: str = "q",
     search_placeholder: str = "Buscar…",
-    actions: Iterable[Any] | None = None,
+    actions: Sequence[TableAction] | None = None,
     actions_label: str = "Ações",
 ) -> dict[str, Any]:
     request: HttpRequest = context["request"]
-
     is_htmx = bool(getattr(request, "htmx", False))
 
-    columns = _normalize_fields(fields)
-    normalized_actions = _normalize_actions(actions)
-    has_actions = bool(normalized_actions)
+    columns = fields
+    action_list = actions or []
+    has_actions = bool(action_list)
+
     search_query = _get_search_query(request, show_search=show_search, search_param=search_param)
     filtered_qs, search_query = _apply_search(queryset, columns=columns, search_query=search_query)
 
@@ -537,7 +386,7 @@ def render_table(
     page_obj, paginator = _paginate(ordered_qs, per_page=per_page, page_number=page_number)
 
     rendered_columns = _render_columns(columns=columns, request=request, sort_attr=sort_attr, sort_desc=sort_desc)
-    rows = _render_rows(page_obj=page_obj, columns=columns, actions=normalized_actions)
+    rows = _render_rows(page_obj=page_obj, columns=columns, actions=action_list)
 
     prev_url = _build_url(request, updates={"page": page_obj.previous_page_number()}) if page_obj.has_previous() else None
     next_url = _build_url(request, updates={"page": page_obj.next_page_number()}) if page_obj.has_next() else None

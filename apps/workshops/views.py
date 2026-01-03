@@ -4,6 +4,8 @@ from django.template.response import TemplateResponse
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
+from apps.core.templatetags.table_tags import TableColumn, TableAction
+from apps.core.ui import TableActionStyles
 from apps.workshops.forms import WorkshopForm
 from apps.workshops.models import Workshop
 
@@ -51,20 +53,23 @@ class WorkshopListView(LoginRequiredMixin, ListView):
         context = super().get_context_data(**kwargs)
 
         context["fields"] = [
-            {"label": "Nome", "attr": "name"},
-            {"label": "CNPJ", "attr": "cnpj", "format": "cnpj"},
-            {"label": "Ativa", "attr": "is_active"},
+            TableColumn(label="Nome", attr="name"),
+            TableColumn(label="CNPJ", attr="cnpj", format="cnpj"),
+            TableColumn(label="Ativa", attr="is_active"),
         ]
 
         context["actions"] = [
-            {"kind": "edit", "url_name": "workshops:update"},
-            {
-                "kind": "delete",
-                "url_name": "workshops:delete",
-                "hx_target": "#modal-container",
-                "hx_swap": "innerHTML",
-                "hx_push_url": "false",
-            },
+            TableAction(
+                url_name="workshops:update",
+                **TableActionStyles.EDIT,
+            ),
+            TableAction(
+                url_name="workshops:delete",
+                hx_target="#modal-container",
+                hx_swap="innerHTML",
+                hx_push_url="false",
+                **TableActionStyles.DELETE,
+            ),
         ]
 
         return context
