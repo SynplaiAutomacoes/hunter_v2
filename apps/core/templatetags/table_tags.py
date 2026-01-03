@@ -407,7 +407,7 @@ def _build_sort_options(*, columns: Sequence[TableColumn], current_sort: str) ->
     return options
 
 
-@register.inclusion_tag("tables/render_table.html", takes_context=True)
+@register.inclusion_tag("tables/main_table.html", takes_context=True)
 def render_table(
     context: dict[str, Any],
     queryset: QuerySet[Any],
@@ -428,7 +428,7 @@ def render_table(
     Inclusion tag principal para renderizar uma tabela de dados completa.
 
     Processa busca, ordenação, paginação e ações antes de enviar o contexto
-    para o template `tables/render_table.html`.
+    para o template `tables/main_table.html`.
 
     Args:
         context: Contexto do template Django (injetado automaticamente).
