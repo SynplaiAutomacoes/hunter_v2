@@ -1,0 +1,30 @@
+{% extends 'crud/page.html' %}
+
+{% block crud_content %}
+
+    <div class="flex items-center justify-between gap-4">
+        <div>
+            <h1 class="text-3xl font-bold text-base-content">{% block crud_title %}{% endblock %}</h1>
+            <p class="text-base-content/70 mt-1">{% block crud_subtitle %}{% endblock %}</p>
+        </div>
+
+        {% block crud_header_actions %}{% endblock %}
+    </div>
+
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body p-6 md:p-8">
+            <div
+                id="{% block crud_table_wrapper_id %}table-wrapper{% endblock %}"
+                hx-get="{% block crud_table_hx_get %}{{ request.path }}{% endblock %}"
+                hx-trigger="{% block crud_table_hx_trigger %}table-refresh from:body{% endblock %}"
+                hx-target="this"
+                hx-swap="innerHTML"
+            >
+                {% block crud_table %}{% endblock %}
+            </div>
+        </div>
+    </div>
+
+    <div id="{% block crud_modal_container_id %}modal-container{% endblock %}"></div>
+
+{% endblock %}

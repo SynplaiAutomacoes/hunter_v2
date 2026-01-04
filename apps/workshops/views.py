@@ -1,9 +1,8 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import HttpResponse
-from django.template.response import TemplateResponse
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
+from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.core.templatetags.table_tags import TableColumn, TableAction
 from apps.core.ui import TableActionStyles
 from apps.workshops.forms import WorkshopForm
@@ -24,30 +23,20 @@ class WorkshopUpdateView(LoginRequiredMixin, UpdateView):
     success_url = reverse_lazy("workshops:list")
 
 
-class WorkshopDeleteView(LoginRequiredMixin, DeleteView):
+class WorkshopDeleteView(LoginRequiredMixin, HtmxDeleteResponseMixin, DeleteView):
     model = Workshop
     success_url = reverse_lazy("workshops:list")
 
-    def get_template_names(self):
-        if self.request.htmx:
-            return ["workshops/partials/workshop_delete_modal.html"]
-        return [self.template_name]
-
-    def form_valid(self, form):
-        # Para HTMX: evita redirect e permite atualizar a tabela via evento.
-        if self.request.htmx:
-            self.object.delete()
-            response = HttpResponse()
-            response["HX-Trigger"] = "workshops-table-refresh"
-            return response
-
-        return super().form_valid(form)
+    htmx_template_name = "workshops/partials/workshop_delete_modal.html"
+    htmx_trigger = "workshops-table-refresh"
 
 
-class WorkshopListView(LoginRequiredMixin, ListView):
+class WorkshopListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):
     model = Workshop
     template_name = "workshops/workshop_list.html"
     context_object_name = "workshops"
+
+    htmx_template_name = "workshops/partials/workshop_table.html"
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -83,8 +72,3 @@ class WorkshopListView(LoginRequiredMixin, ListView):
         ]
 
         return context
-
-    def render_to_response(self, context, **response_kwargs):
-        if self.request.htmx:
-            return TemplateResponse(self.request, "workshops/partials/workshop_table.html", context, **response_kwargs)
-        return super().render_to_response(context, **response_kwargs)

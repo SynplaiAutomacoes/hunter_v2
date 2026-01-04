@@ -1,36 +1,16 @@
-{% extends 'base.html' %}
+{% extends 'crud/list_page.html' %}
 
-{% block content %}
+{% block crud_title %}Oficinas{% endblock %}
+{% block crud_subtitle %}Cadastre, edite ou remova oficinas.{% endblock %}
 
-{% include 'navbar.html' %}
+{% block crud_header_actions %}
+    <a href="{% url 'workshops:create' %}" class="btn btn-primary">Cadastrar Oficina</a>
+{% endblock %}
 
-<div class="min-h-[calc(100vh-5rem)] py-10 px-2 md:px-10 xl:px-20">
-    <div class="mx-auto space-y-6">
-        <div class="flex items-center justify-between gap-4">
-            <div>
-                <h1 class="text-3xl font-bold text-base-content">Oficinas</h1>
-                <p class="text-base-content/70 mt-1">Cadastre, edite ou remova oficinas.</p>
-            </div>
+{% block crud_table_wrapper_id %}workshops-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'workshops:list' %}{% endblock %}
+{% block crud_table_hx_trigger %}workshops-table-refresh from:body{% endblock %}
 
-            <a href="{% url 'workshops:create' %}" class="btn btn-primary">Cadastrar Oficina</a>
-        </div>
-
-        <div class="card bg-base-100 shadow-xl">
-            <div class="card-body p-6 md:p-8">
-                <div
-                    id="workshops-table-wrapper"
-                    hx-get="{% url 'workshops:list' %}"
-                    hx-trigger="workshops-table-refresh from:body"
-                    hx-target="this"
-                    hx-swap="innerHTML"
-                >
-                    {% include 'workshops/partials/workshop_table.html' %}
-                </div>
-            </div>
-        </div>
-
-        <div id="modal-container"></div>
-    </div>
-</div>
-
+{% block crud_table %}
+    {% include 'workshops/partials/workshop_table.html' %}
 {% endblock %}

@@ -1,0 +1,23 @@
+{% extends 'crud/page.html' %}
+
+{% block crud_content %}
+
+    <div class="flex items-center justify-between gap-4">
+        <div>
+            <h1 class="text-3xl font-bold text-base-content">{% block crud_title %}{% endblock %}</h1>
+            <p class="text-base-content/70 mt-1">{% block crud_subtitle %}{% endblock %}</p>
+        </div>
+
+        <a href="{% block crud_back_url %}{% endblock %}" class="hidden md:flex btn btn-ghost gap-2 text-base-content/70">
+            <span class="material-icons text-sm">arrow_back</span>
+            {% block crud_back_label %}Voltar{% endblock %}
+        </a>
+    </div>
+
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body p-6 md:p-8">
+            {% block crud_form %}{% crispy form %}{% endblock %}
+        </div>
+    </div>
+
+{% endblock %}

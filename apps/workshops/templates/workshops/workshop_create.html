@@ -1,31 +1,5 @@
-{% extends 'base.html' %}
+{% extends 'crud/form_page.html' %}
 
-{% block content %}
-
-{% include 'navbar.html' %}
-
-<div class="min-h-[calc(100vh-5rem)] py-10 px-2 md:px-10 xl:px-20">
-
-    <div class="mx-auto space-y-6">
-
-        <div class="flex items-center justify-between gap-4">
-            <div>
-                <h1 class="text-3xl font-bold text-base-content">Cadastrar Oficina</h1>
-                <p class="text-base-content/70 mt-1">Preencha os dados da unidade para registro no sistema.</p>
-            </div>
-
-            <a href="{% url 'workshops:list' %}" class="hidden md:flex btn btn-ghost gap-2 text-base-content/70">
-                <span class="material-icons text-sm">arrow_back</span>
-                Voltar
-            </a>
-        </div>
-
-        <div class="card bg-base-100 shadow-xl">
-            <div class="card-body p-6 md:p-8">
-                {% crispy form %}
-            </div>
-        </div>
-    </div>
-</div>
-
-{% endblock %}
+{% block crud_title %}Cadastrar Oficina{% endblock %}
+{% block crud_subtitle %}Preencha os dados da unidade para registro no sistema.{% endblock %}
+{% block crud_back_url %}{% url 'workshops:list' %}{% endblock %}
