@@ -61,6 +61,11 @@
         @apply shadow-sm;
     }
 
+    /* Força o estilo nas mensagens de erro do Crispy Forms */
+    p[id^="error_"] {
+        @apply text-error text-xs mt-1;
+    }
+
     .btn-form-cancel {
         @apply btn btn-ghost text-base-content/70;
     }
