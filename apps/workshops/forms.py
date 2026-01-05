@@ -21,10 +21,6 @@ class WorkshopForm(ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.fields["name"].label = "Nome"
-        self.fields["cnpj"].label = "CNPJ"
-        self.fields["is_active"].label = "Ativa"
-
         self.helper = FormHelper()
         self.helper.layout = Layout(
             Div(

@@ -43,16 +43,16 @@ class WorkshopListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):
 
         context["fields"] = [
             TableColumn(
-                label="Nome",
+                label=Workshop.name.field.verbose_name,
                 attr=Workshop.name.field.name,
             ),
             TableColumn(
-                label="CNPJ",
+                label=Workshop.cnpj.field.verbose_name,
                 attr=Workshop.cnpj.field.name,
                 format="cnpj",
             ),
             TableColumn(
-                label="Ativa",
+                label=Workshop.is_active.field.verbose_name,
                 attr=Workshop.is_active.field.name,
             ),
         ]
