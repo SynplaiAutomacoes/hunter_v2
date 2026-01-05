@@ -61,6 +61,13 @@
         @apply shadow-sm;
     }
 
+    .btn-form-cancel {
+        @apply btn btn-ghost text-base-content/70;
+    }
+    .btn-form-save {
+        @apply btn btn-primary px-8;
+    }
+
     /*apps.core.tables.py*/
     .btn-table-edit {
         @apply btn btn-sm btn-primary;

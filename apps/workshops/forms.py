@@ -26,15 +26,15 @@ class WorkshopForm(ModelForm):
         self.helper = FormHelper()
         self.helper.layout = Layout(
             Div(
-                Field("name", wrapper_class="w-full"),
-                Field("cnpj", wrapper_class="w-full"),
-                Field("is_active", wrapper_class="w-fit"),
+                Field(Workshop.name.field.name, wrapper_class="w-full"),
+                Field(Workshop.cnpj.field.name, wrapper_class="w-full"),
+                Field(Workshop.is_active.field.name, wrapper_class="w-fit"),
                 css_class="grid grid-cols-1 lg:grid-cols-[1fr_1fr_auto] gap-4 items-start",
             ),
             HTML('<div class="divider"></div>'),
             Div(
-                HTML(f'<a href="{cancel_url}" class="btn btn-ghost text-base-content/70">Cancelar</a>'),
-                Submit("submit", "Salvar", css_class="btn btn-primary px-8"),
+                HTML(f'<a href="{cancel_url}" class="btn-form-cancel">Cancelar</a>'),
+                Submit("submit", "Salvar", css_class="btn-form-save"),
                 css_class="flex items-center justify-end gap-2",
             ),
         )
