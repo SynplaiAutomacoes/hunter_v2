@@ -1,12 +1,20 @@
-<select
-    class="select select-xs bg-base-100 text-base-content max-w-32 outline-0"
-    hx-get="{% url 'workshops:workshop_select' %}"
-    hx-trigger="workshops-table-refresh from:body"
+<form
+    hx-post="{% url 'workshops:workshop_select' %}"
+    hx-trigger="change from:#active-workshop-select, workshops-table-refresh from:body"
     hx-swap="outerHTML"
 >
-    {% for workshop in active_workshops %}
-        <option value="{{ workshop.pk }}">{{ workshop.name }}</option>
-    {% empty %}
-        <option selected disabled>Nenhuma oficina ativa</option>
-    {% endfor %}
-</select>
+
+    <select
+        id="active-workshop-select"
+        name="workshop_id"
+        class="select select-xs bg-base-100 text-base-content max-w-32 min-w-20 outline-0"
+    >
+        {% for workshop in active_workshops %}
+            <option value="{{ workshop.pk }}" {% if workshop.pk == active_workshop_id %}selected{% endif %}>
+                {{ workshop.name }}
+            </option>
+        {% empty %}
+            <option selected disabled>Nenhuma oficina ativa</option>
+        {% endfor %}
+    </select>
+</form>

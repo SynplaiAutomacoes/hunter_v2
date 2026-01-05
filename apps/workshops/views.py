@@ -68,5 +68,24 @@ class WorkshopListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):
 
 
 class UpdateNavbarWorkshopSelectView(LoginRequiredMixin, View):
-    def get(self, request, *args, **kwargs):
+    def post(self, request, *args, **kwargs):
+        workshop_id = request.POST.get("workshop_id")
+
+        if workshop_id:
+            try:
+                workshop_id_int = int(workshop_id)
+            except (TypeError, ValueError):
+                workshop_id_int = None
+
+            if (
+                workshop_id_int is not None
+                and Workshop.objects.filter(
+                    pk=workshop_id_int,
+                    is_active=True,
+                ).exists()
+            ):
+                request.session["active_workshop_id"] = workshop_id_int
+            else:
+                request.session.pop("active_workshop_id", None)
+
         return TemplateResponse(request, "navbar/partials/workshop_select.html", {})
