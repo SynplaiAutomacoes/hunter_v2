@@ -157,6 +157,18 @@ def _apply_search(
     if not search_query:
         return qs, search_query
 
+    normalized = search_query.strip().lower()
+
+    # Como eu defini nas células da tabela para usarem "Sim" e "Não" ao invés de "True" e "False", estou mudando a pesquisa para usar esses termos.
+    truthy_terms = {"sim"}
+    falsy_terms = {"nao", "não"}
+
+    bool_term: bool | None = None
+    if normalized in truthy_terms:
+        bool_term = True
+    elif normalized in falsy_terms:
+        bool_term = False
+
     lookups: list[str] = []
     for col in columns:
         if not col.searchable:
@@ -171,6 +183,8 @@ def _apply_search(
 
     q_obj = Q()
     for lookup in lookups:
+        if bool_term is not None:
+            q_obj |= Q(**{f"{lookup}__exact": bool_term})
         q_obj |= Q(**{f"{lookup}__icontains": search_query})
 
     try:
