@@ -4,7 +4,7 @@
 @plugin "@tailwindcss/container-queries";
 
 @plugin 'daisyui' {
-    themes: light, business;
+    themes: light, dark;
 }
 
 /* We need to declare the new variables here before defining them inside the DaisyUI themes */
@@ -35,7 +35,7 @@
 }
 
 @plugin "daisyui/theme" {
-    name: business;
+    name: dark;
     color-scheme: dark;
     prefersdark: true;
 
@@ -47,8 +47,8 @@
     --color-navbar: var(--color-primary);
     --color-navbar-text: var(--color-base-content);
 
-    --color-input-base: #242424;
-    --color-input-ring: #242424;
+    --color-input-base: var(--color-base-200);
+    --color-input-ring: var(--color-base-200);
 }
 
 
