@@ -1,5 +1,7 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.template.response import TemplateResponse
 from django.urls import reverse_lazy
+from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
@@ -63,3 +65,8 @@ class WorkshopListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):
         ]
 
         return context
+
+
+class UpdateNavbarWorkshopSelectView(LoginRequiredMixin, View):
+    def get(self, request, *args, **kwargs):
+        return TemplateResponse(request, "navbar/partials/workshop_select.html", {})

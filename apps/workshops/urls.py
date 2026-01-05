@@ -1,6 +1,12 @@
 from django.urls import path
 
-from .views import WorkshopCreateView, WorkshopDeleteView, WorkshopListView, WorkshopUpdateView
+from .views import (
+    UpdateNavbarWorkshopSelectView,
+    WorkshopCreateView,
+    WorkshopDeleteView,
+    WorkshopListView,
+    WorkshopUpdateView,
+)
 
 app_name = "workshops"
 
@@ -9,4 +15,5 @@ urlpatterns = [
     path("create/", WorkshopCreateView.as_view(), name="create"),
     path("<int:pk>/edit/", WorkshopUpdateView.as_view(), name="update"),
     path("<int:pk>/delete/", WorkshopDeleteView.as_view(), name="delete"),
+    path("workshop-select/", UpdateNavbarWorkshopSelectView.as_view(), name="workshop_select"),
 ]

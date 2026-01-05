@@ -1,0 +1,12 @@
+<select
+    class="select select-xs bg-base-100 text-base-content max-w-32 outline-0"
+    hx-get="{% url 'workshops:workshop_select' %}"
+    hx-trigger="workshops-table-refresh from:body"
+    hx-swap="outerHTML"
+>
+    {% for workshop in active_workshops %}
+        <option value="{{ workshop.pk }}">{{ workshop.name }}</option>
+    {% empty %}
+        <option selected disabled>Nenhuma oficina ativa</option>
+    {% endfor %}
+</select>

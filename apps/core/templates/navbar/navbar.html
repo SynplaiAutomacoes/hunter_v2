@@ -79,7 +79,7 @@
             </div>
 
             <!-- Logo -->
-            <a href="/" class="hidden items-center gap-1 md:flex md:absolute md:left-1/2 md:-translate-x-1/2 lg:static lg:translate-x-0">
+            <a href="/static" class="hidden items-center gap-1 md:flex md:absolute md:left-1/2 md:-translate-x-1/2 lg:static lg:translate-x-0">
                 <span class="material-icons !text-4xl text-indigo-300">directions_car</span>
                 <h1 class="text-2xl font-semibold">Hunter</h1>
             </a>
@@ -121,11 +121,7 @@
 
         <!-- ──── END ──── -->
         <div class="navbar-end gap-2">
-            <select class="select select-xs bg-base-100 text-base-content max-w-32 outline-0">
-                <option selected>Opção A</option>
-                <option>Opção B</option>
-                <option>Opção C</option>
-            </select>
+            {% include 'navbar/partials/workshop_select.html' %}
 
             <label class="swap swap-rotate px-2 text-navbar-text m-0" aria-label="Alternar tema">
                 <input
