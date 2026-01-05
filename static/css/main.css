@@ -61,7 +61,7 @@
         @apply shadow-sm;
     }
 
-    /*apps.core.ui.py*/
+    /*apps.core.tables.py*/
     .btn-table-edit {
         @apply btn btn-sm btn-primary;
     }

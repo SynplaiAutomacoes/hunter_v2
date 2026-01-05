@@ -3,8 +3,8 @@ from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
-from apps.core.templatetags.table_tags import TableColumn, TableAction
-from apps.core.ui import TableActionStyles
+from apps.core.templatetags.table_tags import TableColumn
+from apps.core.tables import TableActionDefaults
 from apps.workshops.forms import WorkshopForm
 from apps.workshops.models import Workshop
 
@@ -58,17 +58,8 @@ class WorkshopListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):
         ]
 
         context["actions"] = [
-            TableAction(
-                url_name="workshops:update",
-                **TableActionStyles.EDIT,
-            ),
-            TableAction(
-                url_name="workshops:delete",
-                hx_target="#modal-container",
-                hx_swap="innerHTML",
-                hx_push_url="false",
-                **TableActionStyles.DELETE,
-            ),
+            TableActionDefaults.edit("workshops:update"),
+            TableActionDefaults.delete("workshops:delete"),
         ]
 
         return context
