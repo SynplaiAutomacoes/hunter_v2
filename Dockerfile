@@ -36,6 +36,12 @@ COPY . .
 # Set the path to include the virtual environment
 ENV PATH="/app/.venv/bin:$PATH"
 
+RUN uv run python manage.py tailwind build
+
+RUN DB_HOST=none DB_NAME=none DB_USER=none DB_PASSWORD=none \
+    DJANGO_SECRET_KEY=build_key \
+    python manage.py collectstatic --noinput \
+
 RUN chmod +x /app/entrypoint.sh
 
 CMD ["/app/entrypoint.sh"]
