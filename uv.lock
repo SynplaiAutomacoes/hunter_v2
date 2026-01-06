@@ -421,15 +421,6 @@ wheels = [
 ]
 
 [[package]]
-name = "fnctl"
-version = "0.1.2"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/c0/2e/518c19137b34bc603d22e954b383e7a65a370ca2bc0a412587f67687de1b/fnctl-0.1.2.tar.gz", hash = "sha256:0a3291ff4ecbbdf14e26662cd8beb3a1699d7db3b481307959c95c207f47765b", size = 13020, upload-time = "2025-09-24T01:03:59.535Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/93/72/ff7a110264b23692c732fa5ccdc32c27a8a475e4ee0bdfd767e7b3d1eeb2/fnctl-0.1.2-py3-none-any.whl", hash = "sha256:23eead17fa2681aafb7574eba4bf4d49ee13e931a29f39dd3e88958959d3ba83", size = 11506, upload-time = "2025-09-24T01:03:58.783Z" },
-]
-
-[[package]]
 name = "fonttools"
 version = "4.61.0"
 source = { registry = "https://pypi.org/simple" }
@@ -514,7 +505,6 @@ dependencies = [
     { name = "django-simple-history" },
     { name = "django-tables2" },
     { name = "django-tailwind-cli" },
-    { name = "fnctl" },
     { name = "gunicorn" },
     { name = "psycopg", extra = ["binary"] },
     { name = "weasyprint" },
@@ -540,7 +530,6 @@ requires-dist = [
     { name = "django-simple-history", specifier = ">=3.10.1" },
     { name = "django-tables2", specifier = ">=2.8.0" },
     { name = "django-tailwind-cli", specifier = ">=4.4.2" },
-    { name = "fnctl", specifier = ">=0.1.2" },
     { name = "gunicorn", specifier = ">=23.0.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.2" },
     { name = "weasyprint", specifier = ">=67.0" },
