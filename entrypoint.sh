@@ -4,8 +4,5 @@ set -e
 echo "Running migrations..."
 uv run python manage.py migrate --noinput
 
-echo "Downloading tailwind cli"
-uv run python manage.py tailwind build
-
 echo "Starting gunicorn..."
 exec uv run gunicorn config.wsgi:application --bind 0.0.0.0:8000
