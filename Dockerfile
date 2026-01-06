@@ -14,14 +14,6 @@ COPY uv.lock ./
 # Install uv
 RUN pip install uv
 
-# Args for GitHub authentication
-ARG GITHUB_TOKEN
-
-# Configure git to use the GitHub token
-RUN if [ -n "$GITHUB_TOKEN" ]; then \
-    git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"; \
-    fi
-
 # Install dependencies using uv
 RUN uv sync --frozen
 
