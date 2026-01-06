@@ -23,5 +23,6 @@ COPY . .
 # Set the path to include the virtual environment
 ENV PATH="/app/.venv/bin:$PATH"
 
-# Comando padrão (pode ser sobrescrito no docker-compose)
-CMD ["uv", "run", "gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000"]
+RUN chmod +x /app/entrypoint.sh
+
+CMD ["/app/entrypoint.sh"]

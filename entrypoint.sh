@@ -1,0 +1,8 @@
+#!/bin/sh
+set -e
+
+echo "Running migrations..."
+uv run python manage.py migrate --noinput
+
+echo "Starting gunicorn..."
+exec uv run gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000}
