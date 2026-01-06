@@ -161,6 +161,7 @@ USE_THOUSAND_SEPARATOR = True
 
 STATIC_URL = "static/"
 STATICFILES_DIRS = [os.path.join(BASE_DIR, "static")]
+STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 
 # Tailwind
 # TODO: Optimize for production https://github.com/django-commons/django-tailwind-cli?tab=readme-ov-file#production-settings
