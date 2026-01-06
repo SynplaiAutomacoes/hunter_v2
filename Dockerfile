@@ -36,8 +36,6 @@ COPY . .
 # Set the path to include the virtual environment
 ENV PATH="/app/.venv/bin:$PATH"
 
-RUN uv run python manage.py tailwind build
-
 RUN chmod +x /app/entrypoint.sh
 
 CMD ["/app/entrypoint.sh"]
