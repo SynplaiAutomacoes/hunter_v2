@@ -1,30 +1,35 @@
-# Usa Python 3.12 (leve)
-FROM python:3.12-slim
+FROM python:3.11-slim
 
-# Instala o uv dentro do container
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
-
-# Define diretório de trabalho
 WORKDIR /app
 
-# Variáveis de ambiente para Python não criar arquivos .pyc e logs serem imediatos
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-
-# Instala dependências do sistema necessárias para compilar certas libs (opcional, mas bom ter)
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
-    gcc \
-    libpq-dev \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
-# Copia arquivos de dependência primeiro (para cache do Docker)
-COPY pyproject.toml uv.lock ./
+# Copy requirements first for better caching
+COPY pyproject.toml ./
+COPY uv.lock ./
 
-# Instala dependências do projeto no sistema do container
+# Install uv
+RUN pip install uv
+
+# Args for GitHub authentication
+ARG GITHUB_TOKEN
+
+# Configure git to use the GitHub token
+RUN if [ -n "$GITHUB_TOKEN" ]; then \
+    git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"; \
+    fi
+
+# Install dependencies using uv
 RUN uv sync --frozen
 
-# Copia o resto do código
+# Copy the rest of the application
 COPY . .
+
+# Set the path to include the virtual environment
+ENV PATH="/app/.venv/bin:$PATH"
 
 # Comando padrão (pode ser sobrescrito no docker-compose)
 CMD ["uv", "run", "gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000"]
