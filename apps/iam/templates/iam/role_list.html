@@ -1,0 +1,16 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Grupos de permissões{% endblock %}
+{% block crud_subtitle %}Crie e gerencie grupos de permissões para atribuir aos colaboradores.{% endblock %}
+
+{% block crud_header_actions %}
+    <a href="{% url 'iam:role_create' %}" class="btn btn-primary">Criar grupo</a>
+{% endblock %}
+
+{% block crud_table_wrapper_id %}roles-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'iam:role_list' %}{% endblock %}
+{% block crud_table_hx_trigger %}roles-table-refresh from:body{% endblock %}
+
+{% block crud_table %}
+    {% include 'iam/partials/role_table.html' %}
+{% endblock %}

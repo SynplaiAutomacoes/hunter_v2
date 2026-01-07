@@ -23,5 +23,6 @@ urlpatterns = [
     path("", RedirectView.as_view(pattern_name="accounts:login", permanent=False)),
     path("admin/", admin.site.urls),
     path("accounts/", include("apps.accounts.urls")),
+    path("roles/", include(("apps.iam.urls", "iam"), namespace="iam")),
     path("workshops/", include("apps.workshops.urls")),
 ]

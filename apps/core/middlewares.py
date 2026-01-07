@@ -19,10 +19,10 @@ class RequireFirstWorkshopMiddleware:
                 "accounts:login",
                 "accounts:register",
                 "accounts:logout",
-                "accounts:role_list",
-                "accounts:role_create",
-                "accounts:role_update",
-                "accounts:role_delete",
+                "iam:role_list",
+                "iam:role_create",
+                "iam:role_update",
+                "iam:role_delete",
             }
 
             if current not in allowed:
@@ -38,7 +38,7 @@ class RequireFirstWorkshopMiddleware:
                     ).exists():
                         return redirect(reverse("workshops:create"))
                 else:
-                    from apps.accounts.models import WorkshopMember
+                    from apps.workshops.models import WorkshopMember
 
                     if not WorkshopMember.objects.filter(
                         user=request.user,

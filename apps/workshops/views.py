@@ -6,8 +6,8 @@ from django.urls import reverse_lazy
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
-from apps.accounts.models import WorkshopMember
-from apps.accounts.utils import get_or_create_director_role
+from apps.workshops.models import WorkshopMember
+from apps.iam.utils import get_or_create_director_role
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.tables import TableActionDefaults
@@ -38,7 +38,7 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
             form.instance.account = self.request.user.account
             response = super().form_valid(form)
 
-            director_role = get_or_create_director_role(account=self.request.user.account, with_all_permissions=True)
+            director_role = get_or_create_director_role(account=self.request.user.account)
             WorkshopMember.objects.get_or_create(
                 user=self.request.user,
                 workshop=self.object,
@@ -111,19 +111,15 @@ class WorkshopListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):
 
         qs = super().get_queryset().filter(account=self.request.user.account, is_active=True)
         if self.request.user.account.owner_id == self.request.user.id:
-            return qs.order_by("name")
+            return qs
 
-        return (
-            qs.filter(
-                members__user=self.request.user,
-                members__is_active=True,
-                members__role__permissions__content_type__app_label="workshops",
-                members__role__permissions__content_type__model="workshop",
-                members__role__permissions__codename="view_workshop",
-            )
-            .distinct()
-            .order_by("name")
-        )
+        return qs.filter(
+            members__user=self.request.user,
+            members__is_active=True,
+            members__role__permissions__content_type__app_label="workshops",
+            members__role__permissions__content_type__model="workshop",
+            members__role__permissions__codename="view_workshop",
+        ).distinct()
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

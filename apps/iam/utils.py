@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from django.contrib.auth.models import Permission
 
-from apps.accounts.models import Account, WorkshopRole
+from apps.accounts.models import Account
+from apps.iam.models import WorkshopRole
 
 
 def get_or_create_director_role(*, account: Account, with_all_permissions: bool = True) -> WorkshopRole:

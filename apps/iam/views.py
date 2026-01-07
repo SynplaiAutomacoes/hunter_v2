@@ -5,20 +5,19 @@ from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from apps.accounts.mixins import AccountOwnerRequiredMixin
-from apps.accounts.models import WorkshopRole
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
-
-from .forms import WorkshopRoleForm
+from apps.iam.forms import WorkshopRoleForm
+from apps.iam.models import WorkshopRole
 
 
 class WorkshopRoleListView(AccountOwnerRequiredMixin, HtmxTemplateResponseMixin, ListView):
     model = WorkshopRole
-    template_name = "accounts/role_list.html"
+    template_name = "iam/role_list.html"
     context_object_name = "roles"
 
-    htmx_template_name = "accounts/partials/role_table.html"
+    htmx_template_name = "iam/partials/role_table.html"
 
     def get_queryset(self):
         return super().get_queryset().filter(account=self.request.user.account).order_by("name")
@@ -42,8 +41,8 @@ class WorkshopRoleListView(AccountOwnerRequiredMixin, HtmxTemplateResponseMixin,
         ]
 
         context["actions"] = [
-            TableActionDefaults.edit("accounts:role_update"),
-            TableActionDefaults.delete("accounts:role_delete"),
+            TableActionDefaults.edit("iam:role_update"),
+            TableActionDefaults.delete("iam:role_delete"),
         ]
 
         return context
@@ -52,8 +51,8 @@ class WorkshopRoleListView(AccountOwnerRequiredMixin, HtmxTemplateResponseMixin,
 class WorkshopRoleCreateView(AccountOwnerRequiredMixin, CreateView):
     model = WorkshopRole
     form_class = WorkshopRoleForm
-    template_name = "accounts/role_create.html"
-    success_url = reverse_lazy("accounts:role_list")
+    template_name = "iam/role_create.html"
+    success_url = reverse_lazy("iam:role_list")
 
     def form_valid(self, form):
         form.instance.account = self.request.user.account
@@ -63,8 +62,8 @@ class WorkshopRoleCreateView(AccountOwnerRequiredMixin, CreateView):
 class WorkshopRoleUpdateView(AccountOwnerRequiredMixin, UpdateView):
     model = WorkshopRole
     form_class = WorkshopRoleForm
-    template_name = "accounts/role_update.html"
-    success_url = reverse_lazy("accounts:role_list")
+    template_name = "iam/role_update.html"
+    success_url = reverse_lazy("iam:role_list")
 
     def get_queryset(self):
         return super().get_queryset().filter(account=self.request.user.account)
@@ -78,7 +77,7 @@ class WorkshopRoleUpdateView(AccountOwnerRequiredMixin, UpdateView):
 
 class WorkshopRoleDeleteView(AccountOwnerRequiredMixin, HtmxDeleteResponseMixin, DeleteView):
     model = WorkshopRole
-    success_url = reverse_lazy("accounts:role_list")
+    success_url = reverse_lazy("iam:role_list")
 
     htmx_template_name = "crud/delete_modal.html"
     htmx_trigger = "roles-table-refresh"

@@ -4,7 +4,7 @@ from django.urls import reverse_lazy
 from django.views.generic import FormView
 
 from apps.accounts.models import Account
-from apps.accounts.utils import get_or_create_director_role
+from apps.iam.utils import get_or_create_director_role
 
 from .forms import LoginForm, SignUpForm
 
@@ -34,7 +34,7 @@ class UserSignUpView(FormView):
             user.account = account
             user.save(update_fields=["account"])
 
-            get_or_create_director_role(account=account, with_all_permissions=True)
+            get_or_create_director_role(account=account)
 
         return super().form_valid(form)
 

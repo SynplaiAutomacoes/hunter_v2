@@ -61,6 +61,7 @@ INSTALLED_APPS = [
     # Local
     "apps.core",
     "apps.accounts",
+    "apps.iam",
     "apps.workshops",
 ]
 
