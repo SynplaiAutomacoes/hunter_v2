@@ -5,13 +5,10 @@ from django.contrib.auth.models import Permission
 from apps.accounts.models import Account, WorkshopRole
 
 
-DIRECTOR_ROLE_NAME = "Diretor"
-
-
 def get_or_create_director_role(*, account: Account, with_all_permissions: bool = True) -> WorkshopRole:
     role, _ = WorkshopRole.objects.get_or_create(
         account=account,
-        name=DIRECTOR_ROLE_NAME,
+        name="Diretor",
         defaults={
             "is_system": True,
             "is_editable": False,
