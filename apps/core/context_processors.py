@@ -4,8 +4,36 @@ from apps.workshops.models import Workshop
 
 
 def active_workshops(request):
-    workshops = Workshop.objects.filter(is_active=True).order_by("name")
-    workshop_ids = workshops.values_list("pk", flat=True)
+    if not request.user.is_authenticated:
+        return {
+            "active_workshops": Workshop.objects.none(),
+            "active_workshop_id": None,
+        }
+
+    if not getattr(request.user, "account_id", None):
+        return {
+            "active_workshops": Workshop.objects.none(),
+            "active_workshop_id": None,
+        }
+
+    if request.user.account.owner_id == request.user.id:
+        workshops = Workshop.objects.filter(
+            account=request.user.account,
+            is_active=True,
+        ).order_by("name")
+    else:
+        workshops = (
+            Workshop.objects.filter(
+                account=request.user.account,
+                is_active=True,
+                members__user=request.user,
+                members__is_active=True,
+            )
+            .distinct()
+            .order_by("name")
+        )
+
+    workshop_ids = list(workshops.values_list("pk", flat=True))
 
     active_workshop_id = request.session.get("active_workshop_id")
 

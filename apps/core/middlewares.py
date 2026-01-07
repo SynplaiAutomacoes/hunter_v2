@@ -14,12 +14,38 @@ class RequireFirstWorkshopMiddleware:
             match = resolve(request.path_info)
             current = f"{match.namespace}:{match.url_name}" if match.namespace else match.url_name
 
-            allowed = {"workshops:create", "accounts:login", "accounts:register", "accounts:logout"}
+            allowed = {
+                "workshops:create",
+                "accounts:login",
+                "accounts:register",
+                "accounts:logout",
+                "accounts:role_list",
+                "accounts:role_create",
+                "accounts:role_update",
+                "accounts:role_delete",
+            }
 
             if current not in allowed:
-                from apps.workshops.models import Workshop
+                if not getattr(request.user, "account_id", None):
+                    return redirect(reverse("accounts:logout"))
 
-                if not Workshop.objects.exists():
-                    return redirect(reverse("workshops:create"))
+                if request.user.account.owner_id == request.user.id:
+                    from apps.workshops.models import Workshop
+
+                    if not Workshop.objects.filter(
+                        account=request.user.account,
+                        is_active=True,
+                    ).exists():
+                        return redirect(reverse("workshops:create"))
+                else:
+                    from apps.accounts.models import WorkshopMember
+
+                    if not WorkshopMember.objects.filter(
+                        user=request.user,
+                        is_active=True,
+                        workshop__account=request.user.account,
+                        workshop__is_active=True,
+                    ).exists():
+                        return redirect(reverse("accounts:logout"))
 
         return self.get_response(request)

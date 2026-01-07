@@ -1,9 +1,13 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import PermissionDenied
+from django.db import transaction
 from django.template.response import TemplateResponse
 from django.urls import reverse_lazy
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
+from apps.accounts.models import WorkshopMember
+from apps.accounts.utils import get_or_create_director_role
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.tables import TableActionDefaults
@@ -17,12 +21,57 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
     template_name = "workshops/workshop_create.html"
     success_url = reverse_lazy("workshops:list")
 
+    def dispatch(self, request, *args, **kwargs):
+        if not getattr(request.user, "account_id", None):
+            raise PermissionDenied
+
+        if request.user.account.owner_id != request.user.id:
+            raise PermissionDenied
+
+        return super().dispatch(request, *args, **kwargs)
+
+    def form_valid(self, form):
+        if not getattr(self.request.user, "account_id", None):
+            raise PermissionDenied
+
+        with transaction.atomic():
+            form.instance.account = self.request.user.account
+            response = super().form_valid(form)
+
+            director_role = get_or_create_director_role(account=self.request.user.account, with_all_permissions=True)
+            WorkshopMember.objects.get_or_create(
+                user=self.request.user,
+                workshop=self.object,
+                defaults={
+                    "role": director_role,
+                    "is_active": True,
+                },
+            )
+
+        return response
+
 
 class WorkshopUpdateView(LoginRequiredMixin, UpdateView):
     model = Workshop
     form_class = WorkshopForm
     template_name = "workshops/workshop_update.html"
     success_url = reverse_lazy("workshops:list")
+
+    def get_queryset(self):
+        if not getattr(self.request.user, "account_id", None):
+            return super().get_queryset().none()
+
+        qs = super().get_queryset().filter(account=self.request.user.account, is_active=True)
+        if self.request.user.account.owner_id == self.request.user.id:
+            return qs
+
+        return qs.filter(
+            members__user=self.request.user,
+            members__is_active=True,
+            members__role__permissions__content_type__app_label="workshops",
+            members__role__permissions__content_type__model="workshop",
+            members__role__permissions__codename="change_workshop",
+        ).distinct()
 
 
 class WorkshopDeleteView(LoginRequiredMixin, HtmxDeleteResponseMixin, DeleteView):
@@ -32,6 +81,22 @@ class WorkshopDeleteView(LoginRequiredMixin, HtmxDeleteResponseMixin, DeleteView
     htmx_template_name = "workshops/partials/workshop_delete_modal.html"
     htmx_trigger = "workshops-table-refresh"
 
+    def get_queryset(self):
+        if not getattr(self.request.user, "account_id", None):
+            return super().get_queryset().none()
+
+        qs = super().get_queryset().filter(account=self.request.user.account, is_active=True)
+        if self.request.user.account.owner_id == self.request.user.id:
+            return qs
+
+        return qs.filter(
+            members__user=self.request.user,
+            members__is_active=True,
+            members__role__permissions__content_type__app_label="workshops",
+            members__role__permissions__content_type__model="workshop",
+            members__role__permissions__codename="delete_workshop",
+        ).distinct()
+
 
 class WorkshopListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):
     model = Workshop
@@ -39,6 +104,26 @@ class WorkshopListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):
     context_object_name = "workshops"
 
     htmx_template_name = "workshops/partials/workshop_table.html"
+
+    def get_queryset(self):
+        if not getattr(self.request.user, "account_id", None):
+            return super().get_queryset().none()
+
+        qs = super().get_queryset().filter(account=self.request.user.account, is_active=True)
+        if self.request.user.account.owner_id == self.request.user.id:
+            return qs.order_by("name")
+
+        return (
+            qs.filter(
+                members__user=self.request.user,
+                members__is_active=True,
+                members__role__permissions__content_type__app_label="workshops",
+                members__role__permissions__content_type__model="workshop",
+                members__role__permissions__codename="view_workshop",
+            )
+            .distinct()
+            .order_by("name")
+        )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -81,9 +166,22 @@ class UpdateNavbarWorkshopSelectView(LoginRequiredMixin, View):
                 workshop_id_int is not None
                 and Workshop.objects.filter(
                     pk=workshop_id_int,
+                    account=request.user.account,
                     is_active=True,
                 ).exists()
             ):
+                if (
+                    request.user.account.owner_id != request.user.id
+                    and not WorkshopMember.objects.filter(
+                        user=request.user,
+                        workshop_id=workshop_id_int,
+                        is_active=True,
+                        workshop__is_active=True,
+                    ).exists()
+                ):
+                    request.session.pop("active_workshop_id", None)
+                    return TemplateResponse(request, "navbar/partials/workshop_select.html", {})
+
                 request.session["active_workshop_id"] = workshop_id_int
             else:
                 request.session.pop("active_workshop_id", None)

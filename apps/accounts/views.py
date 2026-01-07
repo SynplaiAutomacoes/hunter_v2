@@ -1,6 +1,10 @@
 from django.contrib.auth.views import LoginView, LogoutView
+from django.db import transaction
 from django.urls import reverse_lazy
 from django.views.generic import FormView
+
+from apps.accounts.models import Account
+from apps.accounts.utils import get_or_create_collaborator_role, get_or_create_director_role
 
 from .forms import LoginForm, SignUpForm
 
@@ -20,7 +24,19 @@ class UserSignUpView(FormView):
     success_url = reverse_lazy("accounts:login")
 
     def form_valid(self, form):
-        form.save()
+        with transaction.atomic():
+            user = form.save()
+
+            account = Account.objects.create(
+                name=user.get_full_name() or user.username,
+                owner=user,
+            )
+            user.account = account
+            user.save(update_fields=["account"])
+
+            get_or_create_director_role(account=account, with_all_permissions=True)
+            get_or_create_collaborator_role(account=account)
+
         return super().form_valid(form)
 
 
