@@ -4,13 +4,7 @@ from apps.workshops.models import Workshop
 
 
 def active_workshops(request):
-    if not request.user.is_authenticated:
-        return {
-            "active_workshops": Workshop.objects.none(),
-            "active_workshop_id": None,
-        }
-
-    if not getattr(request.user, "account_id", None):
+    if not request.user.is_authenticated or not getattr(request.user, "account_id", None):
         return {
             "active_workshops": Workshop.objects.none(),
             "active_workshop_id": None,
@@ -33,7 +27,7 @@ def active_workshops(request):
             .order_by("name")
         )
 
-    workshop_ids = list(workshops.values_list("pk", flat=True))
+    workshop_ids = workshops.values_list("pk", flat=True)
 
     active_workshop_id = request.session.get("active_workshop_id")
 
