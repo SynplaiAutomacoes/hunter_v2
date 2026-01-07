@@ -3,6 +3,7 @@ from __future__ import annotations
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.db.models import Q
 from localflavor.br.models import BRCPFField
 
 from apps.core.models import TimeStampedModel
@@ -31,10 +32,20 @@ class User(AbstractUser):
         null=True,
         blank=True,
     )
-    cpf = BRCPFField(unique=True, null=False, blank=False)
+    is_account_owner = models.BooleanField(default=False)
+    cpf = BRCPFField(unique=False, null=False, blank=False)
     workshops = models.ManyToManyField(
         Workshop,
         through="workshops.WorkshopMember",
         related_name="users",
         blank=True,
     )
+
+    class Meta(AbstractUser.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                fields=("cpf",),
+                condition=Q(is_account_owner=True),
+                name="unique_owner_cpf",
+            ),
+        ]

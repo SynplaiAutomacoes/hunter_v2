@@ -26,13 +26,14 @@ class UserSignUpView(FormView):
     def form_valid(self, form):
         with transaction.atomic():
             user = form.save()
+            user.is_account_owner = True
 
             account = Account.objects.create(
                 name=user.get_full_name() or user.username,
                 owner=user,
             )
             user.account = account
-            user.save(update_fields=["account"])
+            user.save(update_fields=["account", "is_account_owner"])
 
             get_or_create_director_role(account=account)
 
