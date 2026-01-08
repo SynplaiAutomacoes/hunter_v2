@@ -35,8 +35,6 @@ class UserSignUpView(FormView):
             user.account = account
             user.save(update_fields=["account", "is_account_owner"])
 
-            get_or_create_director_role(account=account)
-
         return super().form_valid(form)
 
 
