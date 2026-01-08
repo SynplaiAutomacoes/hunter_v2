@@ -20,7 +20,7 @@ class WorkshopRoleListView(AccountOwnerRequiredMixin, HtmxTemplateResponseMixin,
     htmx_template_name = "iam/partials/role_table.html"
 
     def get_queryset(self):
-        return super().get_queryset().filter(account=self.request.user.account).order_by("name")
+        return super().get_queryset().filter(account=self.request.user.account)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -79,7 +79,7 @@ class WorkshopRoleDeleteView(AccountOwnerRequiredMixin, HtmxDeleteResponseMixin,
     model = WorkshopRole
     success_url = reverse_lazy("iam:role_list")
 
-    htmx_template_name = "crud/delete_modal.html"
+    htmx_template_name = "iam/partials/role_delete_modal.html"
     htmx_trigger = "roles-table-refresh"
 
     def get_queryset(self):

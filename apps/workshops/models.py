@@ -130,7 +130,7 @@ class WorkshopEmployee(models.Model):
                 name="unique_employee_cpf_per_workshop",
             ),
             models.CheckConstraint(
-                check=Q(commission_percentage__isnull=True) | (Q(commission_percentage__gte=0) & Q(commission_percentage__lte=100)),
+                condition=Q(commission_percentage__isnull=True) | (Q(commission_percentage__gte=0) & Q(commission_percentage__lte=100)),
                 name="employee_commission_percentage_range",
             ),
         ]
