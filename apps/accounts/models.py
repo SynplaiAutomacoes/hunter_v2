@@ -10,6 +10,7 @@ from apps.core.models import TimeStampedModel
 from apps.workshops.models import Workshop
 
 
+# TODO: Checar se Account preisa ser null e blank
 class Account(TimeStampedModel):
     name = models.CharField(verbose_name="Conta", max_length=255)
     owner = models.OneToOneField(
@@ -24,6 +25,7 @@ class Account(TimeStampedModel):
         return self.name
 
 
+# TODO: Checar se realmente preciso de is_account_owner
 class User(AbstractUser):
     account = models.ForeignKey(
         "accounts.Account",
