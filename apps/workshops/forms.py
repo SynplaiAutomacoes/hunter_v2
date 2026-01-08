@@ -114,12 +114,12 @@ class BaseWorkshopEmployeeForm(forms.ModelForm):
             WorkshopEmployee.phone.field.name: PhoneInput(),
             WorkshopEmployee.email.field.name: EmailInput(),
             WorkshopEmployee.position.field.name: TextInput(attrs={"placeholder": "Cargo"}),
-            WorkshopEmployee.salary.field.name: MoneyInput(attrs={"placeholder": "0,00"}),
+            WorkshopEmployee.salary.field.name: MoneyInput(),
             WorkshopEmployee.admission_date.field.name: CalendarDateInput(),
             WorkshopEmployee.termination_date.field.name: CalendarDateInput(),
             WorkshopEmployee.employee_type.field.name: SelectInput(choices=WorkshopEmployee.EmployeeType.choices),
             WorkshopEmployee.receives_commission.field.name: CheckboxInput(),
-            WorkshopEmployee.commission_percentage.field.name: MoneyInput(attrs={"placeholder": "0,00"}),
+            WorkshopEmployee.commission_percentage.field.name: MoneyInput(),
             WorkshopEmployee.is_active.field.name: CheckboxInput(),
             WorkshopEmployee.system_access.field.name: CheckboxInput(),
         }
@@ -132,7 +132,7 @@ class BaseWorkshopEmployeeForm(forms.ModelForm):
         # Roles por conta
         roles_qs = WorkshopRole.objects.filter(account=account).order_by("name") if account else WorkshopRole.objects.none()
         self.fields[self.F_ROLE].queryset = roles_qs
-        self.fields[self.F_ROLE].widget = SelectInput(choices=[("", "---------")] + [(str(r.pk), r.name) for r in roles_qs])
+        self.fields[self.F_ROLE].widget = SelectInput(choices=[(str(r.pk), r.name) for r in roles_qs])
 
         # Preenche username/role quando já existe user vinculado
         if self.instance and getattr(self.instance, "user_id", None):
