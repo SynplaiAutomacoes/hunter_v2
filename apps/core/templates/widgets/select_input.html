@@ -80,26 +80,28 @@
                 {% endif %}
 
                 {% for option in group_choices %}
-                    <li
-                        @click="select($el)"
-                        data-value="{{ option.value }}"
-                        data-label="{{ option.label|escapejs }}"
-                        data-selected="{% if option.selected %}1{% else %}0{% endif %}"
-                        class="relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white group"
-                    >
-                        <span class="block truncate" :class="{'font-semibold': value === $el.dataset.value}">
-                            {{ option.label }}
-                        </span>
-
-                        <span
-                            x-show="value === $el.dataset.value"
-                            class="absolute inset-y-0 right-0 flex items-center pr-4 text-primary group-hover:text-white"
+                    {% if option.value %}
+                        <li
+                            @click="select($el)"
+                            data-value="{{ option.value }}"
+                            data-label="{{ option.label|escapejs }}"
+                            data-selected="{% if option.selected %}1{% else %}0{% endif %}"
+                            class="relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white group"
                         >
-                            <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
-                            </svg>
-                        </span>
-                    </li>
+                            <span class="block truncate" :class="{'font-semibold': value === $el.dataset.value}">
+                                {{ option.label }}
+                            </span>
+
+                            <span
+                                x-show="value === $el.dataset.value"
+                                class="absolute inset-y-0 right-0 flex items-center pr-4 text-primary group-hover:text-white"
+                            >
+                                <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+                                </svg>
+                            </span>
+                        </li>
+                    {% endif %}
                 {% endfor %}
             {% endfor %}
         </ul>
