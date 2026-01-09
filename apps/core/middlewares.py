@@ -38,7 +38,7 @@ class RequireFirstWorkshopMiddleware:
                     ).exists():
                         return redirect(reverse("workshops:create"))
                 else:
-                    from apps.workshops.models import WorkshopMember
+                    from apps.collaborators.models import WorkshopMember
 
                     if not WorkshopMember.objects.filter(
                         user=request.user,

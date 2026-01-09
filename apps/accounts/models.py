@@ -36,7 +36,7 @@ class User(AbstractUser):
     cpf = BRCPFField(unique=False, null=False, blank=False)
     workshops = models.ManyToManyField(
         Workshop,
-        through="workshops.WorkshopMember",
+        through="collaborators.WorkshopMember",
         related_name="users",
         blank=True,
     )

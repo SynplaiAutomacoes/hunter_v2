@@ -4,7 +4,6 @@ from django.urls import reverse_lazy
 from django.views.generic import FormView
 
 from apps.accounts.models import Account
-from apps.iam.utils import get_or_create_director_role
 
 from .forms import LoginForm, SignUpForm
 

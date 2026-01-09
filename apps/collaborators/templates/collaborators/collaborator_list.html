@@ -1,0 +1,16 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Colaboradores{% endblock %}
+{% block crud_subtitle %}Colaboradores cadastrados na oficina ativa.{% endblock %}
+
+{% block crud_header_actions %}
+    <a href="{% url 'collaborators:collaborator_create' %}" class="btn btn-primary">Criar colaborador</a>
+{% endblock %}
+
+{% block crud_table_wrapper_id %}collaborators-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'collaborators:collaborator_list' %}{% endblock %}
+{% block crud_table_hx_trigger %}collaborators-table-refresh from:body{% endblock %}
+
+{% block crud_table %}
+    {% include 'collaborators/partials/collaborator_table.html' %}
+{% endblock %}
