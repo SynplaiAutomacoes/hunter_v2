@@ -64,6 +64,7 @@ INSTALLED_APPS = [
     "apps.iam",
     "apps.workshops",
     "apps.collaborators",
+    "apps.catalog",
 ]
 
 MIDDLEWARE = [
