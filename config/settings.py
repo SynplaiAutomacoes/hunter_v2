@@ -96,7 +96,7 @@ TEMPLATES = [
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 # Local
-                "apps.core.context_processors.active_workshops",
+                "apps.workshops.context_processors.active_workshops",
             ],
             "builtins": [
                 "crispy_forms.templatetags.crispy_forms_tags",

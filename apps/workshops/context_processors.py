@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from apps.workshops.models import Workshop
 
 
@@ -10,22 +8,16 @@ def active_workshops(request):
             "active_workshop_id": None,
         }
 
-    if request.user.account.owner_id == request.user.id:
-        workshops = Workshop.objects.filter(
+    workshops = (
+        Workshop.objects.filter(
             account=request.user.account,
             is_active=True,
-        ).order_by("name")
-    else:
-        workshops = (
-            Workshop.objects.filter(
-                account=request.user.account,
-                is_active=True,
-                members__user=request.user,
-                members__is_active=True,
-            )
-            .distinct()
-            .order_by("name")
+            members__user=request.user,
+            members__is_active=True,
         )
+        .distinct()
+        .order_by("name")
+    )
 
     workshop_ids = workshops.values_list("pk", flat=True)
 

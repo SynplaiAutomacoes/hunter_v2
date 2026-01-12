@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
@@ -11,30 +10,16 @@ from apps.collaborators.models import WorkshopCollaborator, WorkshopMember
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
-from apps.workshops.util import User, get_active_workshop_or_404, has_workshop_perm
+from apps.workshops.mixin import WorkshopScopedMixin
+from apps.workshops.util import User
 
 
-class WorkshopCollaboratorListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):
+class WorkshopCollaboratorListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = WorkshopCollaborator
     template_name = "collaborators/collaborator_list.html"
     context_object_name = "collaborators"
 
     htmx_template_name = "collaborators/partials/collaborator_table.html"
-
-    def dispatch(self, request, *args, **kwargs):
-        self.workshop = get_active_workshop_or_404(request)
-        if not has_workshop_perm(
-            user=request.user,
-            workshop=self.workshop,
-            app_label="collaborators",
-            model=WorkshopCollaborator._meta.model_name,
-            codename="view_workshopcollaborator",
-        ):
-            raise PermissionDenied
-        return super().dispatch(request, *args, **kwargs)
-
-    def get_queryset(self):
-        return super().get_queryset().filter(workshop=self.workshop).order_by("name")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -55,23 +40,11 @@ class WorkshopCollaboratorListView(LoginRequiredMixin, HtmxTemplateResponseMixin
         return context
 
 
-class WorkshopCollaboratorCreateView(LoginRequiredMixin, CreateView):
+class WorkshopCollaboratorCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
     model = WorkshopCollaborator
     form_class = WorkshopCollaboratorCreateForm
     template_name = "collaborators/collaborator_create.html"
     success_url = reverse_lazy("collaborators:collaborator_list")
-
-    def dispatch(self, request, *args, **kwargs):
-        self.workshop = get_active_workshop_or_404(request)
-        if not has_workshop_perm(
-            user=request.user,
-            workshop=self.workshop,
-            app_label="collaborators",
-            model=WorkshopCollaborator._meta.model_name,
-            codename="add_workshopcollaborator",
-        ):
-            raise PermissionDenied
-        return super().dispatch(request, *args, **kwargs)
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
@@ -120,33 +93,11 @@ class WorkshopCollaboratorCreateView(LoginRequiredMixin, CreateView):
         return response
 
 
-class WorkshopCollaboratorUpdateView(LoginRequiredMixin, UpdateView):
+class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
     model = WorkshopCollaborator
     form_class = WorkshopCollaboratorUpdateForm
     template_name = "collaborators/collaborator_update.html"
     success_url = reverse_lazy("collaborators:collaborator_list")
-
-    def dispatch(self, request, *args, **kwargs):
-        self.workshop = get_active_workshop_or_404(request)
-        if not has_workshop_perm(
-            user=request.user,
-            workshop=self.workshop,
-            app_label="collaborators",
-            model=WorkshopCollaborator._meta.model_name,
-            codename="change_workshopcollaborator",
-        ):
-            raise PermissionDenied
-        return super().dispatch(request, *args, **kwargs)
-
-    def get_queryset(self):
-        return (
-            super()
-            .get_queryset()
-            .filter(
-                workshop=self.workshop,
-                workshop__account=self.request.user.account,
-            )
-        )
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
@@ -184,40 +135,9 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, UpdateView):
             return response
 
 
-class WorkshopCollaboratorDeleteView(LoginRequiredMixin, HtmxDeleteResponseMixin, DeleteView):
+class WorkshopCollaboratorDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResponseMixin, DeleteView):
     model = WorkshopCollaborator
     success_url = reverse_lazy("collaborators:collaborator_list")
 
     htmx_template_name = "collaborators/partials/collaborator_delete_modal.html"
     htmx_trigger = "collaborators-table-refresh"
-
-    def dispatch(self, request, *args, **kwargs):
-        self.workshop = get_active_workshop_or_404(request)
-        if not has_workshop_perm(
-            user=request.user,
-            workshop=self.workshop,
-            app_label="collaborators",
-            model=WorkshopCollaborator._meta.model_name,
-            codename="delete_workshopcollaborator",
-        ):
-            raise PermissionDenied
-        return super().dispatch(request, *args, **kwargs)
-
-    def get_queryset(self):
-        return (
-            super()
-            .get_queryset()
-            .filter(
-                workshop=self.workshop,
-                workshop__account=self.request.user.account,
-            )
-        )
-
-    def delete(self, request, *args, **kwargs):
-        self.object = self.get_object()
-        with transaction.atomic():
-            if self.object.user_id:
-                WorkshopMember.objects.filter(user=self.object.user, workshop=self.workshop).update(is_active=False)
-                self.object.user.is_active = False
-                self.object.user.save(update_fields=["is_active"])
-            return super().delete(request, *args, **kwargs)
