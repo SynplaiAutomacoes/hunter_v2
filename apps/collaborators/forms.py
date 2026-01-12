@@ -88,12 +88,39 @@ class BaseWorkshopCollaboratorForm(forms.ModelForm):
             if member:
                 self.fields["role"].initial = member.role
 
+        receives_commission = self._get_checkbox_state("receives_commission")
+        system_access = self._get_checkbox_state("system_access")
+
+        self.fields["receives_commission"].widget.attrs["x-model"] = "receives_commission"
+        self.fields["commission_percentage"].widget.attrs["x-bind:disabled"] = "!receives_commission"
+        if not receives_commission:
+            self.fields["commission_percentage"].widget.attrs["disabled"] = True
+
+        self.fields["system_access"].widget.attrs["x-model"] = "system_access"
+        self.fields["system_username"].widget.attrs["x-bind:disabled"] = "!system_access"
+        self.fields["role"].widget.attrs["x-bind:disabled"] = "!system_access"
+        if not system_access:
+            self.fields["system_username"].widget.attrs["disabled"] = True
+            self.fields["role"].widget.attrs["disabled"] = True
+
+        if "password1" in self.fields:
+            self.fields["password1"].widget.attrs["x-bind:disabled"] = "!system_access"
+            if not system_access:
+                self.fields["password1"].widget.attrs["disabled"] = True
+        if "password2" in self.fields:
+            self.fields["password2"].widget.attrs["x-bind:disabled"] = "!system_access"
+            if not system_access:
+                self.fields["password2"].widget.attrs["disabled"] = True
+
         self.helper = FormHelper()
         self.helper.form_method = "post"
         self.helper.layout = self.get_layout()
 
     def get_layout(self):
         cancel_url = reverse("collaborators:collaborator_list")
+
+        receives_commission = self._get_checkbox_state("receives_commission")
+        system_access = self._get_checkbox_state("system_access")
 
         return Layout(
             Div(
@@ -117,16 +144,24 @@ class BaseWorkshopCollaboratorForm(forms.ModelForm):
                 #
                 HTML('<div class="col-span-12 divider"></div>'),
                 #
-                Field("receives_commission", wrapper_class="col-span-12 lg:col-span-1"),
-                Field("commission_percentage", wrapper_class="col-span-12 lg:col-span-11"),
+                Field("receives_commission", wrapper_class="col-span-12 lg:col-span-1", x_model="receives_commission"),
+                Field("commission_percentage", wrapper_class="col-span-12 lg:col-span-11", x_ref="commission_percentage"),
                 #
                 HTML('<div class="col-span-12 divider"></div>'),
                 #
-                Field("system_access", wrapper_class="col-span-12 lg:col-span-1"),
-                Field("system_username", wrapper_class="col-span-12 lg:col-span-6"),
-                Field("role", wrapper_class="col-span-12 lg:col-span-5"),
+                Field("system_access", wrapper_class="col-span-12 lg:col-span-1", x_model="system_access"),
+                Field("system_username", wrapper_class="col-span-12 lg:col-span-6", x_ref="system_username"),
+                Field("role", wrapper_class="col-span-12 lg:col-span-5", x_ref="role"),
                 *self.get_access_extra_layout_fields(),
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
+                x_data=f"{{ receives_commission: {str(receives_commission).lower()}, system_access: {str(system_access).lower()} }}",
+                x_effect=(
+                    "$refs.commission_percentage && ($refs.commission_percentage.disabled = !receives_commission);"
+                    "$refs.system_username && ($refs.system_username.disabled = !system_access);"
+                    "$refs.role && ($refs.role.disabled = !system_access);"
+                    "$refs.password1 && ($refs.password1.disabled = !system_access);"
+                    "$refs.password2 && ($refs.password2.disabled = !system_access);"
+                ),
             ),
             #
             HTML('<div class="divider"></div>'),
@@ -141,6 +176,16 @@ class BaseWorkshopCollaboratorForm(forms.ModelForm):
     @property
     def is_create(self) -> bool:
         return self.instance.pk is None
+
+    def _get_checkbox_state(self, field_name: str) -> bool:
+        if self.is_bound:
+            return field_name in self.data
+
+        initial = self.initial.get(field_name)
+        if initial is not None:
+            return bool(initial)
+
+        return bool(getattr(self.instance, field_name, False))
 
     def get_access_extra_layout_fields(self) -> list[Field]:
         return []
@@ -193,8 +238,8 @@ class WorkshopCollaboratorCreateForm(BaseWorkshopCollaboratorForm):
 
     def get_access_extra_layout_fields(self) -> list[Field]:
         return [
-            Field("password1", wrapper_class="col-span-12 lg:col-span-6"),
-            Field("password2", wrapper_class="col-span-12 lg:col-span-6"),
+            Field("password1", wrapper_class="col-span-12 lg:col-span-6", x_ref="password1"),
+            Field("password2", wrapper_class="col-span-12 lg:col-span-6", x_ref="password2"),
         ]
 
     def clean(self):

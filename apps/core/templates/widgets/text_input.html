@@ -10,5 +10,10 @@
         {% if widget.attrs.required %}required{% endif %}
         {% if widget.attrs.disabled %}disabled{% endif %}
         {% if widget.attrs.readonly %}readonly{% endif %}
+        {% for name, value in widget.attrs.items %}
+            {% if name != "id" and name != "placeholder" and name != "required" and name != "disabled" and name != "readonly" and name != "class" %}
+                {% if value is True %}{{ name }}{% elif value is False or value is None %}{% else %}{{ name }}="{{ value|escape }}"{% endif %}
+            {% endif %}
+        {% endfor %}
     >
 </div>
