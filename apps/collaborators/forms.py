@@ -95,9 +95,6 @@ class BaseWorkshopCollaboratorForm(forms.ModelForm):
     def get_layout(self):
         cancel_url = reverse("collaborators:collaborator_list")
 
-        init_commission = "true" if self.instance.receives_commission else "false"
-        init_sys_access = "true" if self.instance.system_access else "false"
-
         return Layout(
             Div(
                 Field("name", wrapper_class="col-span-12 lg:col-span-4"),
