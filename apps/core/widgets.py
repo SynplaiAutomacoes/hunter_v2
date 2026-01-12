@@ -1,8 +1,10 @@
 from django import forms
 from typing import List, Tuple, Literal
 
+from djmoney.forms import MoneyWidget
 
-class MoneyInput(forms.TextInput):
+
+class MoneyInput(MoneyWidget):
     template_name = "widgets/money_input.html"
 
 
@@ -90,11 +92,11 @@ class SelectInput(forms.TextInput):
 class CalendarDateInput(forms.DateInput):
     template_name = "widgets/calendar_date_input.html"
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, format="%Y-%m-%d", *args, **kwargs):
         # HTML date input (abre picker nativo no mobile/desktop quando suportado)
         attrs = kwargs.setdefault("attrs", {})
         attrs.setdefault("type", "date")
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs, format=format)
 
 
 class TextInput(forms.TextInput):

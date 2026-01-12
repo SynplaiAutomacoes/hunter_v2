@@ -39,7 +39,7 @@
         type="hidden"
         name="{{ currency.name }}"
         id="{{ currency.attrs.id }}"
-        value="{{ currency.value|default_if_none:'BRL' }}"
+        value="BRL"
         {% if currency.attrs.disabled %}disabled{% endif %}
     >
 </div>

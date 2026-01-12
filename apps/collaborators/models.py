@@ -3,6 +3,7 @@ from __future__ import annotations
 from django.conf import settings
 from django.db import models
 from django.db.models import Q
+from djmoney.models.fields import MoneyField
 from localflavor.br.models import BRCPFField
 from phonenumber_field.modelfields import PhoneNumberField
 
@@ -63,41 +64,36 @@ class WorkshopCollaborator(models.Model):
     )
 
     name = models.CharField(verbose_name="Nome", max_length=255)
-    cpf = BRCPFField(verbose_name="CPF")
-    rg = models.CharField(verbose_name="RG", max_length=50, blank=True)
-    birth_date = models.DateField(verbose_name="Data de Nascimento", null=True, blank=True)
+    cpf = BRCPFField(verbose_name="CPF", null=False, blank=False)
+    # TODO: Create specific field for RG
+    rg = models.CharField(verbose_name="RG", max_length=9, blank=True, null=True)
+    birth_date = models.DateField(verbose_name="Data de Nascimento", null=False, blank=False)
     sex = models.CharField(verbose_name="Sexo", max_length=1, choices=Sex.choices, blank=True)
 
     phone = PhoneNumberField(verbose_name="Telefone", blank=True)
     email = models.EmailField(verbose_name="E-mail", blank=True)
 
     position = models.CharField(verbose_name="Cargo", max_length=255, blank=True)
-    salary = models.DecimalField(
+    salary = MoneyField(
         verbose_name="Salário",
         max_digits=14,
         decimal_places=2,
-        null=True,
-        blank=True,
+        null=False,
+        blank=False,
     )
 
-    admission_date = models.DateField(verbose_name="Data de Admissão", null=True, blank=True)
+    admission_date = models.DateField(verbose_name="Data de Admissão", null=False, blank=False)
     termination_date = models.DateField(verbose_name="Data de Saída", null=True, blank=True)
 
-    collaborator_type = models.CharField(
-        verbose_name="Tipo",
-        max_length=1,
-        choices=CollaboratorType.choices,
-        blank=True,
-    )
+    collaborator_type = models.CharField(verbose_name="Tipo", max_length=1, choices=CollaboratorType.choices, blank=False, null=False)
 
     receives_commission = models.BooleanField(verbose_name="Recebe Comissão", default=False)
     commission_percentage = models.DecimalField(
         verbose_name="Percentual de Comissão",
-        max_digits=5,
+        max_digits=3,
         decimal_places=2,
         null=True,
         blank=True,
-        help_text="Percentual (0 a 100)",
     )
 
     is_active = models.BooleanField(verbose_name="Ativo", default=True)
