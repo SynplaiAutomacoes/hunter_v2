@@ -19,6 +19,7 @@ from apps.workshops.util import User
 AuthUser = get_user_model()
 
 
+# TODO: Validar melhor o fluxo de edição e criação com relação ao acesso ao sistema.
 class WorkshopCollaboratorListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = WorkshopCollaborator
     template_name = "collaborators/collaborator_list.html"
