@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
+from django.http import HttpResponse, HttpResponseRedirect
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
@@ -12,6 +14,9 @@ from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util import User
+
+
+AuthUser = get_user_model()
 
 
 class WorkshopCollaboratorListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
@@ -141,3 +146,26 @@ class WorkshopCollaboratorDeleteView(LoginRequiredMixin, WorkshopScopedMixin, Ht
 
     htmx_template_name = "collaborators/partials/collaborator_delete_modal.html"
     htmx_trigger = "collaborators-table-refresh"
+
+    def _delete_collaborator_and_related(self, *, using: str):
+        user_id = self.object.user_id
+        workshop_id = self.object.workshop_id
+
+        with transaction.atomic(using=using):
+            if user_id:
+                WorkshopMember.objects.using(using).filter(user_id=user_id, workshop_id=workshop_id).delete()
+                AuthUser.objects.using(using).filter(pk=user_id).delete()
+
+            self.object.delete(using=using)
+
+    def form_valid(self, form):
+        using = self.object._state.db
+        self._delete_collaborator_and_related(using=using)
+
+        if bool(getattr(self.request, "htmx", False)):
+            response = HttpResponse()
+            if self.htmx_trigger:
+                response["HX-Trigger"] = self.htmx_trigger
+            return response
+
+        return HttpResponseRedirect(self.get_success_url())
