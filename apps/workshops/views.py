@@ -24,18 +24,12 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
     success_url = reverse_lazy("workshops:list")
 
     def dispatch(self, request, *args, **kwargs):
-        if not getattr(request.user, "account_id", None):
-            raise PermissionDenied
-
         if request.user.account.owner_id != request.user.id:
             raise PermissionDenied
 
         return super().dispatch(request, *args, **kwargs)
 
     def form_valid(self, form):
-        if not getattr(self.request.user, "account_id", None):
-            raise PermissionDenied
-
         with transaction.atomic():
             form.instance.account = self.request.user.account
             response = super().form_valid(form)
@@ -60,20 +54,18 @@ class WorkshopUpdateView(LoginRequiredMixin, UpdateView):
     success_url = reverse_lazy("workshops:list")
 
     def get_queryset(self):
-        if not getattr(self.request.user, "account_id", None):
-            return super().get_queryset().none()
-
-        qs = super().get_queryset().filter(account=self.request.user.account, is_active=True)
-        if self.request.user.account.owner_id == self.request.user.id:
-            return qs
-
-        return qs.filter(
-            members__user=self.request.user,
-            members__is_active=True,
-            members__role__permissions__content_type__app_label="workshops",
-            members__role__permissions__content_type__model="workshop",
-            members__role__permissions__codename="change_workshop",
-        ).distinct()
+        return (
+            super()
+            .get_queryset()
+            .filter(
+                members__user=self.request.user,
+                members__is_active=True,
+                members__role__permissions__content_type__app_label="workshops",
+                members__role__permissions__content_type__model="workshop",
+                members__role__permissions__codename="change_workshop",
+            )
+            .distinct()
+        )
 
 
 class WorkshopDeleteView(LoginRequiredMixin, HtmxDeleteResponseMixin, DeleteView):
@@ -84,20 +76,18 @@ class WorkshopDeleteView(LoginRequiredMixin, HtmxDeleteResponseMixin, DeleteView
     htmx_trigger = "workshops-table-refresh"
 
     def get_queryset(self):
-        if not getattr(self.request.user, "account_id", None):
-            return super().get_queryset().none()
-
-        qs = super().get_queryset().filter(account=self.request.user.account, is_active=True)
-        if self.request.user.account.owner_id == self.request.user.id:
-            return qs
-
-        return qs.filter(
-            members__user=self.request.user,
-            members__is_active=True,
-            members__role__permissions__content_type__app_label="workshops",
-            members__role__permissions__content_type__model="workshop",
-            members__role__permissions__codename="delete_workshop",
-        ).distinct()
+        return (
+            super()
+            .get_queryset()
+            .filter(
+                members__user=self.request.user,
+                members__is_active=True,
+                members__role__permissions__content_type__app_label="workshops",
+                members__role__permissions__content_type__model="workshop",
+                members__role__permissions__codename="delete_workshop",
+            )
+            .distinct()
+        )
 
 
 class WorkshopListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):
@@ -108,20 +98,18 @@ class WorkshopListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):
     htmx_template_name = "workshops/partials/workshop_table.html"
 
     def get_queryset(self):
-        if not getattr(self.request.user, "account_id", None):
-            return super().get_queryset().none()
-
-        qs = super().get_queryset().filter(account=self.request.user.account, is_active=True)
-        if self.request.user.account.owner_id == self.request.user.id:
-            return qs
-
-        return qs.filter(
-            members__user=self.request.user,
-            members__is_active=True,
-            members__role__permissions__content_type__app_label="workshops",
-            members__role__permissions__content_type__model="workshop",
-            members__role__permissions__codename="view_workshop",
-        ).distinct()
+        return (
+            super()
+            .get_queryset()
+            .filter(
+                members__user=self.request.user,
+                members__is_active=True,
+                members__role__permissions__content_type__app_label="workshops",
+                members__role__permissions__content_type__model="workshop",
+                members__role__permissions__codename="view_workshop",
+            )
+            .distinct()
+        )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -150,7 +138,7 @@ class WorkshopListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):
         return context
 
 
-class UpdateNavbarWorkshopSelectView(LoginRequiredMixin, View):
+class NavbarWorkshopSelectView(LoginRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         workshop_id = request.POST.get("workshop_id")
 
@@ -160,23 +148,8 @@ class UpdateNavbarWorkshopSelectView(LoginRequiredMixin, View):
             except (TypeError, ValueError):
                 workshop_id_int = None
 
-            if (
-                workshop_id_int is not None
-                and Workshop.objects.filter(
-                    pk=workshop_id_int,
-                    account=request.user.account,
-                    is_active=True,
-                ).exists()
-            ):
-                if (
-                    request.user.account.owner_id != request.user.id
-                    and not WorkshopMember.objects.filter(
-                        user=request.user,
-                        workshop_id=workshop_id_int,
-                        is_active=True,
-                        workshop__is_active=True,
-                    ).exists()
-                ):
+            if workshop_id_int is not None and Workshop.objects.filter(pk=workshop_id_int, account=request.user.account, is_active=True).exists():
+                if not WorkshopMember.objects.filter(user=request.user, workshop_id=workshop_id_int, is_active=True, workshop__is_active=True).exists():
                     request.session.pop("active_workshop_id", None)
                     return TemplateResponse(request, "navbar/partials/workshop_select.html", {})
 
