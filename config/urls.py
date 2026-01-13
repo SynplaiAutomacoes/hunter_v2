@@ -26,4 +26,5 @@ urlpatterns = [
     path("roles/", include(("apps.iam.urls", "iam"), namespace="iam")),
     path("workshops/", include("apps.workshops.urls")),
     path("collaborators/", include("apps.collaborators.urls")),
+    path("catalog/", include("apps.catalog.urls")),
 ]

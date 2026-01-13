@@ -1,0 +1,16 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Grupos{% endblock %}
+{% block crud_subtitle %}Grupos cadastrados na oficina ativa.{% endblock %}
+
+{% block crud_header_actions %}
+    <a href="{% url 'catalog:group_create' %}" class="btn btn-primary">Criar grupo</a>
+{% endblock %}
+
+{% block crud_table_wrapper_id %}groups-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'catalog:group_list' %}{% endblock %}
+{% block crud_table_hx_trigger %}groups-table-refresh from:body{% endblock %}
+
+{% block crud_table %}
+    {% include 'groups/partials/group_table.html' %}
+{% endblock %}
