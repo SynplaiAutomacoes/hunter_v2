@@ -2,7 +2,7 @@ from django.contrib.auth import get_user_model
 from django.http import Http404
 
 from apps.collaborators.models import WorkshopMember
-from apps.workshops.models import Workshop
+from apps.workshops.models.workshops import Workshop
 
 User = get_user_model()
 

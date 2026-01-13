@@ -1,4 +1,4 @@
-from apps.workshops.models import Workshop
+from apps.workshops.models.workshops import Workshop
 
 
 def active_workshops(request):

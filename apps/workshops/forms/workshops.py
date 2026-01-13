@@ -12,7 +12,7 @@ from apps.core.widgets import (
     CPForCNPJInput,
     TextInput,
 )
-from apps.workshops.models import Workshop
+from apps.workshops.models.workshops import Workshop
 
 User = get_user_model()
 

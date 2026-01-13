@@ -1,6 +1,6 @@
 from django.urls import path
 
-from .views import (
+from .views.workshops import (
     NavbarWorkshopSelectView,
     WorkshopCreateView,
     WorkshopDeleteView,

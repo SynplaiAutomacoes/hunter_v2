@@ -7,7 +7,6 @@ from django.db.models import Q
 from localflavor.br.models import BRCPFField
 
 from apps.core.models import TimeStampedModel
-from apps.workshops.models import Workshop
 
 
 class Account(TimeStampedModel):
@@ -35,7 +34,7 @@ class User(AbstractUser):
     is_account_owner = models.BooleanField(default=False)  # Util para constraint
     cpf = BRCPFField(unique=False, null=False, blank=False)
     workshops = models.ManyToManyField(
-        Workshop,
+        "workshops.Workshop",
         through="collaborators.WorkshopMember",
         related_name="users",
         blank=True,

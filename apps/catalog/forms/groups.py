@@ -8,7 +8,7 @@ from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 
 from apps.catalog.models.groups import CatalogGroup
 from apps.core.widgets import TextInput
-from apps.workshops.models import Workshop
+from apps.workshops.models.workshops import Workshop
 
 
 class CatalogGroupForm(forms.ModelForm):

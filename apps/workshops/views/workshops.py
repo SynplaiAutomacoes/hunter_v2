@@ -12,8 +12,8 @@ from apps.iam.utils import get_or_create_director_role
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.tables import TableActionDefaults
-from apps.workshops.forms import WorkshopForm
-from apps.workshops.models import Workshop
+from apps.workshops.forms.workshops import WorkshopForm
+from apps.workshops.models.workshops import Workshop
 from apps.collaborators.models import WorkshopMember
 
 

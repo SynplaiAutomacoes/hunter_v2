@@ -30,7 +30,7 @@ class RequireFirstWorkshopMiddleware:
                     return redirect(reverse("accounts:logout"))
 
                 if request.user.account.owner_id == request.user.id:
-                    from apps.workshops.models import Workshop
+                    from apps.workshops.models.workshops import Workshop
 
                     if not Workshop.objects.filter(
                         account=request.user.account,
