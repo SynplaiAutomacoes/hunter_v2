@@ -13,10 +13,10 @@ from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.workshops.mixin import WorkshopScopedMixin
-from apps.workshops.util import User
 
 
 AuthUser = get_user_model()
+User = get_user_model()
 
 
 # TODO: Validar melhor o fluxo de edição e criação com relação ao acesso ao sistema.

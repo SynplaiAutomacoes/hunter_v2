@@ -15,8 +15,10 @@ from apps.core.tables import TableActionDefaults
 from apps.workshops.forms.workshops import WorkshopForm
 from apps.workshops.models.workshops import Workshop
 from apps.collaborators.models import WorkshopMember
+from apps.workshops.util.monthly_costs import create_default_monthly_costs
 
 
+# TODO: Não permitir nome igual de oficina
 class WorkshopCreateView(LoginRequiredMixin, CreateView):
     model = Workshop
     form_class = WorkshopForm
@@ -43,6 +45,8 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
                     "is_active": True,
                 },
             )
+
+            create_default_monthly_costs(workshop=self.object)
 
         return response
 

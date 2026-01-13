@@ -3,7 +3,7 @@ from __future__ import annotations
 from django.core.exceptions import PermissionDenied, ImproperlyConfigured
 from django.views.generic import ListView, CreateView, UpdateView, DeleteView
 
-from apps.workshops.util import get_active_workshop_or_404, has_workshop_perm
+from apps.workshops.util.workshops import get_active_workshop_or_404, has_workshop_perm
 
 
 class WorkshopScopedMixin:

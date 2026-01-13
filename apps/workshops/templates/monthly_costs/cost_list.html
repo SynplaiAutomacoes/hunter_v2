@@ -1,0 +1,16 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Custos Mensais{% endblock %}
+{% block crud_subtitle %}Categorias de custos para o DRE da oficina.{% endblock %}
+
+{% block crud_header_actions %}
+    <a href="{% url 'workshops:cost_create' %}" class="btn btn-primary">Criar custo</a>
+{% endblock %}
+
+{% block crud_table_wrapper_id %}costs-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'workshops:cost_list' %}{% endblock %}
+{% block crud_table_hx_trigger %}monthly-costs-table-refresh from:body{% endblock %}
+
+{% block crud_table %}
+    {% include 'monthly_costs/partials/cost_table.html' %}
+{% endblock %}
