@@ -90,8 +90,8 @@ class WorkshopCollaborator(models.Model):
     receives_commission = models.BooleanField(verbose_name="Recebe Comissão", default=False)
     commission_percentage = models.DecimalField(
         verbose_name="Percentual de Comissão",
-        max_digits=3,
-        decimal_places=2,
+        max_digits=7,
+        decimal_places=6,
         null=True,
         blank=True,
     )
@@ -106,7 +106,7 @@ class WorkshopCollaborator(models.Model):
                 name="unique_collaborator_cpf_per_workshop",
             ),
             models.CheckConstraint(
-                condition=Q(commission_percentage__isnull=True) | (Q(commission_percentage__gte=0) & Q(commission_percentage__lte=100)),
+                condition=Q(commission_percentage__isnull=True) | (Q(commission_percentage__gte=0) & Q(commission_percentage__lte=1)),
                 name="collaborator_commission_percentage_range",
             ),
         ]

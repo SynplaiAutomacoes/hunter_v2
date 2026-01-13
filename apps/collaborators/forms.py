@@ -20,7 +20,7 @@ from apps.core.widgets import (
     RGInput,
     SelectInput,
     TextInput,
-    NumberInput,
+    PercentageInput,
 )
 from apps.iam.models import WorkshopRole
 from apps.workshops.models.workshops import Workshop
@@ -66,7 +66,7 @@ class BaseWorkshopCollaboratorForm(forms.ModelForm):
             "termination_date": CalendarDateInput(),
             "collaborator_type": SelectInput(),
             "receives_commission": CheckboxInput(),
-            "commission_percentage": NumberInput(),
+            "commission_percentage": PercentageInput(),
             "is_active": CheckboxInput(),
             "system_access": CheckboxInput(),
         }

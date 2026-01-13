@@ -129,3 +129,18 @@ class NumberInput(forms.TextInput):
         ctx = super().get_context(name, value, attrs)
         ctx["widget"]["number_mode"] = self.mode
         return ctx
+
+
+class PercentageInput(forms.TextInput):
+    template_name = "widgets/percentage_input.html"
+
+    def __init__(self, *args, min_percent: float = 0, max_percent: float = 100, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.min_percent = min_percent
+        self.max_percent = max_percent
+
+    def get_context(self, name, value, attrs):
+        ctx = super().get_context(name, value, attrs)
+        ctx["widget"]["min_percent"] = self.min_percent
+        ctx["widget"]["max_percent"] = self.max_percent
+        return ctx

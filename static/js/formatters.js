@@ -195,6 +195,103 @@
         },
     };
 
+    const percent = {
+        clamp(n, min, max) {
+            if (Number.isNaN(n)) return NaN;
+            if (n < min) return min;
+            if (n > max) return max;
+            return n;
+        },
+        // Entrada livre -> string dot-decimal (ex: "12.34").
+        // Aceita tanto "," quanto "." como separador digitado; internamente normaliza para ".".
+        normalizeToDotDecimal(value, maxFractionDigits = 6) {
+            let s = (value ?? '').toString().trim();
+            if (!s) return '';
+
+            // Mantém apenas dígitos e separadores, colapsa múltiplos.
+            s = s.replace(/[^0-9.,]/g, '');
+            if (!s) return '';
+
+            // Se houver ambos, trata "." como milhar e "," como decimal (padrão pt-BR)
+            const hasDot = s.includes('.');
+            const hasComma = s.includes(',');
+            if (hasDot && hasComma) {
+                s = s.replace(/\./g, '');
+                s = s.replace(',', '.');
+            } else {
+                // Caso contrário, usa o último separador como decimal.
+                const lastComma = s.lastIndexOf(',');
+                const lastDot = s.lastIndexOf('.');
+                const decPos = Math.max(lastComma, lastDot);
+                if (decPos >= 0) {
+                    const intPart = s.slice(0, decPos).replace(/[.,]/g, '');
+                    const fracPart = s.slice(decPos + 1).replace(/[.,]/g, '');
+                    // Preserva separador final (ex.: "25," enquanto o usuário ainda vai digitar as casas)
+                    s = intPart + '.' + fracPart;
+                } else {
+                    s = s.replace(/[.,]/g, '');
+                }
+            }
+
+            if (s === '.') return '';
+            if (!/^\d+(?:\.\d*)?$/.test(s)) return '';
+
+            // Limita casas (sem apagar o ponto quando ainda não há fração)
+            if (s.includes('.')) {
+                const [i, f] = s.split('.');
+                const frac = (f ?? '').slice(0, maxFractionDigits);
+                s = (f === undefined) ? i : (i + '.' + frac);
+            }
+            // Remove zeros à esquerda (mas preserva "0.x")
+            s = s.replace(/^0+(?=\d)/, '');
+            if (s.startsWith('.')) s = '0' + s;
+            return s;
+        },
+        // Exibição com separador decimal "." (sem agrupamento de milhar).
+        formatDotFromDotDecimal(dotDecimal, maxFractionDigits = 2) {
+            if (!dotDecimal && dotDecimal !== 0) return '';
+            const s = (dotDecimal ?? '').toString();
+            if (!s) return '';
+            const n = Number(s);
+            if (Number.isNaN(n)) return '';
+            return new Intl.NumberFormat('en-US', {
+                useGrouping: false,
+                minimumFractionDigits: 0,
+                maximumFractionDigits: maxFractionDigits,
+            }).format(n);
+        },
+        formatPtBrFromDotDecimal(dotDecimal, maxFractionDigits = 2) {
+            if (!dotDecimal && dotDecimal !== 0) return '';
+            const s = (dotDecimal ?? '').toString();
+            if (!s) return '';
+            const n = Number(s);
+            if (Number.isNaN(n)) return '';
+            return n.toLocaleString('pt-BR', {
+                minimumFractionDigits: 0,
+                maximumFractionDigits: maxFractionDigits,
+            });
+        },
+        // Converte fração (0..1) -> % (0..100)
+        fractionToPercentValue(rawFraction) {
+            if (rawFraction === null || rawFraction === undefined) return '';
+            const s = rawFraction.toString().trim();
+            if (!s) return '';
+            const n = Number(s);
+            if (Number.isNaN(n)) return '';
+            // Suporte defensivo: se vier como 50, assume que já está em percent.
+            if (n > 1) return n;
+            return n * 100;
+        },
+        // Converte % -> fração dot-decimal
+        percentToFractionDotDecimal(percentValue, maxFractionDigits = 10) {
+            const n = Number(percentValue);
+            if (Number.isNaN(n)) return '';
+            const frac = n / 100;
+            // Evita notação científica e corta excesso
+            return frac.toFixed(maxFractionDigits).replace(/0+$/, '').replace(/\.$/, '');
+        },
+    };
+
     function formatValue(kind, raw) {
         const k = (kind ?? '').toString().toLowerCase();
         if (!raw && raw !== 0) return '';
@@ -324,6 +421,59 @@
                     const n = number.normalize(e.target.value, this.mode);
                     this.$refs.value.value = (n === '-') ? '' : n;
                     e.target.value = n;
+                },
+            };
+        },
+        percentageInput(rawFraction, minPercent, maxPercent) {
+            return {
+                rawValue: (rawFraction ?? '').toString(),
+                minPercent: Number(minPercent ?? 0),
+                maxPercent: Number(maxPercent ?? 100),
+                maxDisplayFractionDigits: 2,
+                maxParseFractionDigits: 6,
+                init() {
+                    const p = percent.fractionToPercentValue(this.rawValue);
+                    if (p === '') {
+                        this.$refs.value.value = '';
+                        this.$refs.display.value = '';
+                        return;
+                    }
+                    const clamped = percent.clamp(Number(p), this.minPercent, this.maxPercent);
+                    this.$refs.value.value = percent.percentToFractionDotDecimal(clamped);
+                    this.$refs.display.value = percent.formatDotFromDotDecimal(clamped, this.maxDisplayFractionDigits);
+                },
+                handleInput(e) {
+                    const typed = (e.target.value ?? '').toString();
+                    const normalized = percent.normalizeToDotDecimal(typed, this.maxParseFractionDigits);
+                    if (!normalized) {
+                        this.$refs.value.value = '';
+                        e.target.value = '';
+                        return;
+                    }
+                    const n = Number(normalized);
+                    if (Number.isNaN(n)) {
+                        this.$refs.value.value = '';
+                        e.target.value = '';
+                        return;
+                    }
+                    const clamped = percent.clamp(n, this.minPercent, this.maxPercent);
+                    this.$refs.value.value = percent.percentToFractionDotDecimal(clamped);
+
+                    // Para não “apagar” zeros na digitação (ex.: "45.0"), preserva o que foi digitado
+                    // (normalizado) quando não houve clamp.
+                    if (clamped !== n) {
+                        e.target.value = percent.formatDotFromDotDecimal(clamped, this.maxDisplayFractionDigits);
+                        return;
+                    }
+
+                    if (normalized.includes('.')) {
+                        const [i, f = ''] = normalized.split('.');
+                        const frac = f.slice(0, this.maxDisplayFractionDigits);
+                        e.target.value = i + '.' + frac;
+                        return;
+                    }
+
+                    e.target.value = normalized;
                 },
             };
         },
