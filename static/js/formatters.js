@@ -143,35 +143,72 @@
     };
 
     const duration = {
-        toHHMM(value) {
-            let d = onlyDigits(value).slice(0, 4);
+        parse(value, mode = 'hours_minutes') {
+            let d = onlyDigits(value);
+
             if (!d) return { hh: '', mm: '' };
+
+            if (mode === 'hours') {
+                return { hh: d.slice(0, 2), mm: '' };
+            }
+
+            if (mode === 'minutes') {
+                let mm = d.slice(0, 2);
+                let m = parseInt(mm, 10);
+                if (!Number.isNaN(m) && m > 59) m = 59;
+                return { hh: '', mm: String(m).padStart(2, '0') };
+            }
+
+            // hours_minutes (default)
+            d = d.slice(0, 4);
             let hh = d.slice(0, 2);
             let mm = d.slice(2, 4);
+
             if (mm.length === 2) {
                 let m = parseInt(mm, 10);
-                if (Number.isNaN(m)) m = 0;
-                if (m > 59) m = 59;
+                if (!Number.isNaN(m) && m > 59) m = 59;
                 mm = String(m).padStart(2, '0');
             }
+
             return { hh, mm };
         },
-        formatDisplay(hh, mm) {
+
+        formatDisplay(hh, mm, mode = 'hours_minutes') {
+            if (mode === 'hours') return hh || '';
+            if (mode === 'minutes') return mm || '';
             if (!hh && !mm) return '';
             if (hh && !mm) return hh;
             return `${hh}:${mm}`;
         },
-        normalizeForPost(hh, mm) {
+
+        normalizeForPost(hh, mm, mode = 'hours_minutes') {
+            if (mode === 'hours' && hh) return `${hh}:00:00`;
+            if (mode === 'minutes' && mm) return `00:${mm}:00`;
+
             if ((hh ?? '').length !== 2 || (mm ?? '').length !== 2) return '';
             return `${hh}:${mm}:00`;
         },
-        initFromRaw(raw) {
+
+        initFromRaw(raw, mode = 'hours_minutes') {
             const s = (raw ?? '').toString();
+
+            if (mode === 'hours') {
+                const m = s.match(/(\d{1,2})/);
+                return { hh: m ? m[1].padStart(2, '0') : '', mm: '' };
+            }
+
+            if (mode === 'minutes') {
+                const m = s.match(/:(\d{2})/);
+                return { hh: '', mm: m ? m[1] : '' };
+            }
+
             const m = s.match(/(\d{1,2}):(\d{2})(?::\d{2})?/);
             if (!m) return { hh: '', mm: '' };
-            const hh = String(parseInt(m[1], 10)).padStart(2, '0').slice(0, 2);
-            const mm = String(parseInt(m[2], 10)).padStart(2, '0');
-            return { hh, mm };
+
+            return {
+                hh: String(parseInt(m[1], 10)).padStart(2, '0'),
+                mm: String(parseInt(m[2], 10)).padStart(2, '0'),
+            };
         },
     };
 
@@ -378,18 +415,21 @@
                 },
             };
         },
-        durationInput(raw) {
+        durationInput(raw, mode) {
             return {
                 rawValue: raw ?? '',
+                mode: mode,
+
                 init() {
-                    const { hh, mm } = duration.initFromRaw(this.rawValue);
-                    this.$refs.value.value = duration.normalizeForPost(hh, mm);
-                    this.$refs.display.value = duration.formatDisplay(hh, mm);
+                    const { hh, mm } = duration.initFromRaw(this.rawValue, this.mode);
+                    this.$refs.value.value = duration.normalizeForPost(hh, mm, this.mode);
+                    this.$refs.display.value = duration.formatDisplay(hh, mm, this.mode);
                 },
+
                 handleInput(e) {
-                    const { hh, mm } = duration.toHHMM(e.target.value);
-                    this.$refs.value.value = duration.normalizeForPost(hh, mm);
-                    e.target.value = duration.formatDisplay(hh, mm);
+                    const { hh, mm } = duration.parse(e.target.value, this.mode);
+                    this.$refs.value.value = duration.normalizeForPost(hh, mm, this.mode);
+                    e.target.value = duration.formatDisplay(hh, mm, this.mode);
                 },
             };
         },

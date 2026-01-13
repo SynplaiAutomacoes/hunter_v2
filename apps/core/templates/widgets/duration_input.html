@@ -1,15 +1,18 @@
 {% with raw=widget.value|default_if_none:"" %}
 <div
-    x-data="formatters.widget.durationInput('{{ raw|escapejs }}')"
+    x-data="formatters.widget.durationInput(
+        '{{ raw|escapejs }}',
+        '{{ widget.mode }}'
+    )"
     x-init="init()"
 >
     <input
-        type="text"
+         type="text"
         x-ref="display"
         @input="handleInput"
         inputmode="numeric"
         autocomplete="off"
-        placeholder="HH:MM"
+        placeholder="{% if widget.mode == 'hours' %}HH:00{% elif widget.mode == 'minutes' %}00:MM{% else %}HH:MM{% endif %}"
         class="input-theme {{ widget.attrs.class }}"
         {% if widget.attrs.required %}required{% endif %}
         {% if widget.attrs.disabled %}disabled{% endif %}

@@ -21,6 +21,7 @@ from apps.core.widgets import (
     SelectInput,
     TextInput,
     PercentageInput,
+    DurationInput,
 )
 from apps.iam.models import WorkshopRole
 from apps.workshops.models.workshops import Workshop
@@ -60,7 +61,7 @@ class BaseWorkshopCollaboratorForm(forms.ModelForm):
             "sex": SelectInput(),
             "phone": PhoneInput(),
             "email": EmailInput(),
-            "position": TextInput(attrs={"placeholder": "Cargo"}),
+            "position": DurationInput(),
             "salary": MoneyInput(),
             "admission_date": CalendarDateInput(),
             "termination_date": CalendarDateInput(),

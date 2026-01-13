@@ -43,6 +43,15 @@ class CEPInput(forms.TextInput):
 class DurationInput(forms.TextInput):
     template_name = "widgets/duration_input.html"
 
+    def __init__(self, *args, mode: Literal["hours", "minutes", "hours_minutes"] = "hours_minutes", **kwargs):
+        super().__init__(*args, **kwargs)
+        self.mode = mode
+
+    def get_context(self, name, value, attrs):
+        ctx = super().get_context(name, value, attrs)
+        ctx["widget"]["mode"] = self.mode
+        return ctx
+
 
 class EmailInput(forms.EmailInput):
     template_name = "widgets/email_input.html"
