@@ -18,13 +18,13 @@ class SupplierListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
         context = super().get_context_data(**kwargs)
 
         context["fields"] = [
-            TableColumn(Supplier.name.field.verbose_name, attr="name"),
-            TableColumn(Supplier.cnpj.field.verbose_name, attr="cnpj"),
-            TableColumn(Supplier.contact_person.field.verbose_name, attr="contact_person"),
-            TableColumn(Supplier.phone.field.verbose_name, attr="phone"),
-            TableColumn(Supplier.email.field.verbose_name, attr="email"),
+            TableColumn(Supplier.name.field.verbose_name, attr=Supplier.name.field.name),
+            TableColumn(Supplier.cnpj.field.verbose_name, attr=Supplier.cnpj.field.name),
+            TableColumn(Supplier.contact_person.field.verbose_name, attr=Supplier.contact_person.field.name),
+            TableColumn(Supplier.phone.field.verbose_name, attr=Supplier.phone.field.name),
+            TableColumn(Supplier.email.field.verbose_name, attr=Supplier.email.field.name),
             TableColumn("Endereço", attr="full_address"),
-            TableColumn(Supplier.registration_date.field.verbose_name, attr="registration_date"),
+            TableColumn(Supplier.registration_date.field.verbose_name, attr=Supplier.registration_date.field.name),
         ]
 
         context["actions"] = [
