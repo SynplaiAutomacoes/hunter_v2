@@ -16,7 +16,7 @@ class WorkshopCostListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplate
     model = WorkshopCost
     template_name = "workshop_costs/workshop_cost_list.html"
     context_object_name = "workshop_costs"
-    htmx_template_name = "workshop_costs/partials/workshops_cost_table.html"
+    htmx_template_name = "workshop_costs/partials/workshop_cost_table.html"
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
