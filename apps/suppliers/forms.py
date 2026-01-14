@@ -3,7 +3,7 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 from django.urls import reverse
 
-from apps.core.widgets import CPForCNPJInput, CalendarDateInput, TextInput, CheckboxInput, EmailInput, PhoneInput, NumberInput, SelectInput
+from apps.core.widgets import CPForCNPJInput, CalendarDateInput, TextInput, CheckboxInput, EmailInput, PhoneInput, SelectInput
 from apps.suppliers.models import Supplier
 from apps.workshops.models.workshops import Workshop
 
@@ -58,7 +58,7 @@ class SupplierForm(forms.ModelForm):
         self.helper.layout = Layout(
             Div(
                 # Seção: Dados do Fornecedor
-                HTML('<h3 class="col-span-12 text-lg font-bold">Dados do Fornecedor</h3>'),
+                HTML('<h3 class="col-span-12 text-xl font-bold">Dados do Fornecedor</h3>'),
                 Field("cnpj", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("name", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("contact_person", wrapper_class="col-span-12 lg:col-span-4"),
@@ -73,7 +73,7 @@ class SupplierForm(forms.ModelForm):
                 HTML('<div class="col-span-12 divider"></div>'),
                 #
                 # Seção: Endereço
-                HTML('<h3 class="col-span-12 text-lg font-bold">Endereço</h3>'),
+                HTML('<h3 class="col-span-12 text-xl font-bold">Endereço</h3>'),
                 Field("cep", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("logradouro", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("numero", wrapper_class="col-span-12 lg:col-span-4"),
@@ -94,3 +94,21 @@ class SupplierForm(forms.ModelForm):
                 css_class="flex items-center justify-end gap-2",
             ),
         )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        cnpj = cleaned_data.get("cnpj")
+
+        # Só validamos se tivermos o CNPJ e a workshop disponível
+        if cnpj and self.workshop:
+            queryset = Supplier.objects.filter(workshop=self.workshop, cnpj=cnpj)
+
+            # Se for edição (update), ignoramos o próprio objeto
+            if self.instance.pk:
+                queryset = queryset.exclude(pk=self.instance.pk)
+
+            if queryset.exists():
+                # Adiciona o erro especificamente no campo CNPJ
+                self.add_error("cnpj", "Já existe um fornecedor cadastrado com este CNPJ nesta oficina.")
+
+        return cleaned_data
