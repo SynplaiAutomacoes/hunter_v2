@@ -18,6 +18,10 @@ class Supplier(TimeStampedModel, Address):
     registration_date = models.DateField(verbose_name="Data de Cadastro", default=timezone.now)
     is_active = models.BooleanField(verbose_name="Ativo", default=True)
 
+    @property
+    def full_address(self) -> str:
+        return f"{self.logradouro}, {self.numero} - {self.cidade}/{self.estado}"
+
     class Meta:
         verbose_name = "Fornecedor"
         verbose_name_plural = "Fornecedores"

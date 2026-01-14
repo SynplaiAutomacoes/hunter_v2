@@ -21,7 +21,9 @@ class SupplierListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
             TableColumn(Supplier.name.field.verbose_name, attr="name"),
             TableColumn(Supplier.cnpj.field.verbose_name, attr="cnpj"),
             TableColumn(Supplier.contact_person.field.verbose_name, attr="contact_person"),
+            TableColumn(Supplier.phone.field.verbose_name, attr="phone"),
             TableColumn(Supplier.email.field.verbose_name, attr="email"),
+            TableColumn("Endereço", attr="full_address"),
             TableColumn(Supplier.registration_date.field.verbose_name, attr="registration_date"),
         ]
 
