@@ -23,8 +23,8 @@ class Supplier(TimeStampedModel, Address):
         verbose_name_plural = "Fornecedores"
         constraints = [
             models.UniqueConstraint(
-                fields=["workshop"],
-                name="unique_supplier_per_workshop",
+                fields=("workshop", "cnpj"),
+                name="unique_supplier_cnpj_per_workshop",
             ),
         ]
 
