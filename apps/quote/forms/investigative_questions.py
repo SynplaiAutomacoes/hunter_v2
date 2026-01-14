@@ -57,14 +57,14 @@ class InvestigativeQuestionForm(forms.ModelForm):
                     Field("is_active", wrapper_class="col-span-12 lg:col-span-1"),
                     # --- Área Dinâmica de Opções (Alpine) ---
                     Div(
-                        HTML('<label class="label"><span class="label-text font-bold">Opções de Resposta</span></label>'),
+                        HTML('<label class="label"><span class="label-text font-bold mb-2">Opções de Resposta</span></label>'),
                         HTML("""
                         <div class="flex gap-2 mb-2">
-                            <input type="text" class="input input-bordered w-full" 
+                            <input type="text" class="input-theme w-full" 
                                    placeholder="Digite uma opção e pressione Enter ou +..." 
                                    x-model="newOption" 
                                    @keydown.enter.prevent="addOption()">
-                            <button type="button" class="btn btn-neutral" @click="addOption()">
+                            <button type="button" class="btn btn-primary px-5" @click="addOption()">
                                 +
                             </button>
                         </div>
@@ -72,10 +72,13 @@ class InvestigativeQuestionForm(forms.ModelForm):
                         HTML("""
                         <ul class="flex flex-col gap-2">
                             <template x-for="(opt, index) in options" :key="index">
-                                <li class="flex items-center gap-2 bg-base-200 p-2 rounded-md">
-                                    <span class="flex-1" x-text="opt"></span>
-                                    <button type="button" class="btn btn-xs btn-error btn-outline" @click="removeOption(index)">
-                                        Remover
+                                <li class="flex gap-2 items-center">
+                                    <div class="p-2 rounded-md w-full flex items-center bg-base-200 text-base-content cursor-default">
+                                        <span x-text="opt"></span>
+                                    </div>
+
+                                    <button type="button" class="btn-table-delete" @click="removeOption(index)" title="Remover">
+                                        <span class="material-icons text-base">delete</span>
                                     </button>
                                 </li>
                             </template>
@@ -85,7 +88,7 @@ class InvestigativeQuestionForm(forms.ModelForm):
                         </ul>
                         """),
                         Field("options_json", **{"x-ref": "optionsInput"}),
-                        css_class="col-span-12 lg:col-span-6 p-4 bg-base-100 border border-base-300 rounded-box",
+                        css_class="col-span-12 p-4 bg-base-300 rounded-box",
                         **{"x-show": "qType === 'CHOICE'", "x-cloak": True},
                     ),
                     css_class="grid grid-cols-1 lg:grid-cols-11 gap-4 items-start",
