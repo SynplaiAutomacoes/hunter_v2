@@ -110,7 +110,7 @@ class WorkshopCost(TimeStampedModel):
         constraints = [models.UniqueConstraint(fields=["workshop", "month", "year"], name="unique_workshop_cost_reference")]
 
     def __str__(self):
-        return f"{self.get_month_display()}/{self.year} - {self.workshop.name}"
+        return f"{self.get_month_display()}/{self.year}"
 
 
 class WorkshopCostItem(models.Model):
