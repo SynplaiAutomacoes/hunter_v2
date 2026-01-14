@@ -37,8 +37,8 @@ class WorkshopCost(TimeStampedModel):
 
     # --- Mecânicos Produtivos ---
     mechanic_quantity = models.PositiveIntegerField(verbose_name="Qtd. Mecânicos Produtivos", validators=[MinValueValidator(0)])
-    work_hours_per_day = models.DurationField(verbose_name="Horas de trabalho/dia")
-    work_days_per_month = models.IntegerField(verbose_name="Dias úteis/mês", validators=[MinValueValidator(0), MaxValueValidator(31)])
+    work_hours_per_day = models.DurationField(verbose_name="Horas de trabalho/dia", default=8)
+    work_days_per_month = models.IntegerField(verbose_name="Dias úteis/mês", validators=[MinValueValidator(0), MaxValueValidator(31)], default=22)
     productivity_average = models.DecimalField(
         verbose_name="Produtividade Média",
         max_digits=5,
