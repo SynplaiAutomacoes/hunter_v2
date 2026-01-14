@@ -3,10 +3,10 @@ from __future__ import annotations
 import datetime
 from django import forms
 from django.urls import reverse
-from djmoney.forms.fields import MoneyField
 
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
+from djmoney.forms import MoneyField
 
 from apps.core.widgets import (
     TextInput,
@@ -96,9 +96,10 @@ class WorkshopCostForm(forms.ModelForm):
             field_name = f"cost_item_{cost.id}"
             self.cost_fields_names.append(field_name)
 
-            initial_val = saved_values.get(cost.id, None)
+            self.fields[field_name] = MoneyField(label=cost.name, required=False, widget=MoneyInput())
 
-            self.fields[field_name] = MoneyField(label=cost.name, required=False, initial=initial_val, widget=MoneyInput())
+            if cost.id in saved_values:
+                self.initial[field_name] = saved_values[cost.id]
 
         self.helper = FormHelper()
         self.helper.form_method = "post"
