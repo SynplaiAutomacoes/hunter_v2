@@ -1,0 +1,16 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Custos Mensais da Oficina{% endblock %}
+{% block crud_subtitle %}Calculo mensal dos custos.{% endblock %}
+
+{% block crud_header_actions %}
+    <a href="{% url 'workshops:workshop_cost_create' %}" class="btn btn-primary">Novo Custo Mensal</a>
+{% endblock %}
+
+{% block crud_table_wrapper_id %}workshop-costs-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'workshops:workshop_cost_list' %}{% endblock %}
+{% block crud_table_hx_trigger %}workshop-costs-table-refresh from:body{% endblock %}
+
+{% block crud_table %}
+    {% include 'workshop_costs/partials/workshops_cost_table.html' %}
+{% endblock %}

@@ -37,7 +37,7 @@
                 { label: 'Gerenciar Oficinas', href: '{% url "workshops:list" %}' },
                 { label: 'Gerenciar Permissões', href: '{% url "iam:role_list" %}' },
                 { label: 'Custos Mensais', href: '{% url "workshops:cost_list" %}' },
-                { label: 'Custo Mensal da Oficina', href: '#' },
+                { label: 'Custo Mensal da Oficina', href: '{% url "workshops:workshop_cost_list" %}' },
                 { label: 'Perguntas Investigativas', href: '#' }
             ]
         }
