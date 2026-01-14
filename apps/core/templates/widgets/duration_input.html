@@ -1,3 +1,5 @@
+{% comment %}TODO: Na formatação, tentar adicionar o 00 depois ou antes se estivermos usando apenas horas ou minutos (24:00) ou (00:59) {% endcomment %}
+
 {% with raw=widget.value|default_if_none:"" %}
 <div
     x-data="formatters.widget.durationInput(
