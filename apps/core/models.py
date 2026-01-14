@@ -19,3 +19,6 @@ class Address(models.Model):
     bairro = models.CharField(verbose_name="Bairro", max_length=20)
     cidade = models.CharField(verbose_name="Cidade", max_length=20)
     estado = BRStateField(verbose_name="Estado")
+
+    class Meta:
+        abstract = True
