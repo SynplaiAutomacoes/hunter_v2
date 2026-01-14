@@ -1,3 +1,4 @@
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 from apps.suppliers.models import Supplier
@@ -7,7 +8,7 @@ from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 
-class SupplierListView(WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
+class SupplierListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = Supplier
     template_name = "suppliers/supplier_list.html"
     context_object_name = "suppliers"
@@ -15,36 +16,51 @@ class SupplierListView(WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+
         context["fields"] = [
-            TableColumn(label="Nome", attr="name"),
-            TableColumn(label="CNPJ", attr="cnpj"),
-            TableColumn(label="Responsável", attr="contact_person"),
-            TableColumn(label="E-mail", attr="email"),
-            TableColumn(label="Cadastro", attr="registration_date"),
+            TableColumn(Supplier.name.field.verbose_name, attr="name"),
+            TableColumn(Supplier.cnpj.field.verbose_name, attr="cnpj"),
+            TableColumn(Supplier.contact_person.field.verbose_name, attr="contact_person"),
+            TableColumn(Supplier.email.field.verbose_name, attr="email"),
+            TableColumn(Supplier.registration_date.field.verbose_name, attr="registration_date"),
         ]
+
         context["actions"] = [
-            TableActionDefaults.edit("catalog:supplier_update"),
-            TableActionDefaults.delete("catalog:supplier_delete"),
+            TableActionDefaults.edit("suppliers:supplier_update"),
+            TableActionDefaults.delete("suppliers:supplier_delete"),
         ]
+
         return context
 
-class SupplierCreateView(WorkshopScopedMixin, CreateView):
+class SupplierCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
     model = Supplier
     form_class = SupplierForm
     template_name = "suppliers/supplier_create.html"
-    success_url = reverse_lazy("catalog:supplier_list")
+    success_url = reverse_lazy("suppliers:supplier_list")
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["workshop"] = self.workshop
+        return kwargs
 
     def form_valid(self, form):
         form.instance.workshop = self.workshop
         return super().form_valid(form)
 
-class SupplierUpdateView(WorkshopScopedMixin, UpdateView):
+class SupplierUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
     model = Supplier
     form_class = SupplierForm
     template_name = "suppliers/supplier_update.html"
-    success_url = reverse_lazy("catalog:supplier_list")
+    success_url = reverse_lazy("suppliers:supplier_list")
 
-class SupplierDeleteView(WorkshopScopedMixin, HtmxDeleteResponseMixin, DeleteView):
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["workshop"] = self.workshop
+        return kwargs
+
+class SupplierDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResponseMixin, DeleteView):
     model = Supplier
+    success_url = reverse_lazy("suppliers:supplier_list")
+
     htmx_template_name = "suppliers/partials/supplier_delete_modal.html"
     htmx_trigger = "suppliers-table-refresh"

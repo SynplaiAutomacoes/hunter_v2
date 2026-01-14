@@ -79,7 +79,7 @@ class SupplierForm(forms.ModelForm):
             HTML('<div class="divider my-6"></div>'),
 
             Div(
-                HTML('<a href="{% url "catalog:supplier_list" %}" class="btn-form-cancel">Cancelar</a>'),
+                HTML('<a href="{% url "suppliers:supplier_list" %}" class="btn-form-cancel">Cancelar</a>'),
                 Submit("submit", "Salvar", css_class="btn-form-save"),
                 css_class="flex items-center justify-end gap-2",
             ),
