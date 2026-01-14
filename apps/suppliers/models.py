@@ -1,4 +1,5 @@
 from django.db import models
+from phonenumber_field.modelfields import PhoneNumberField
 from apps.core.models import TimeStampedModel, Address
 from django.utils import timezone
 from localflavor.br.models import BRCNPJField
@@ -12,8 +13,8 @@ class Supplier(TimeStampedModel, Address):
     cnpj = BRCNPJField(verbose_name="CNPJ")
     name = models.CharField(verbose_name="Nome", max_length=255)
     contact_person = models.CharField(verbose_name="Responsável", max_length=255, default="", blank=True)
-    phone = models.CharField(verbose_name="Telefone", max_length=20, default="", blank=True)
-    mobile = models.CharField(verbose_name="Celular", max_length=20, default="", blank=True)
+    phone = PhoneNumberField(region="BR", verbose_name="Telefone", max_length=20, default="", blank=True)
+    mobile = PhoneNumberField(region="BR", verbose_name="Celular", max_length=20, default="", blank=True)
     email = models.EmailField(verbose_name="Email", default="", blank=True)
     registration_date = models.DateField(verbose_name="Data de Cadastro", default=timezone.now)
     is_active = models.BooleanField(verbose_name="Ativo", default=True)
