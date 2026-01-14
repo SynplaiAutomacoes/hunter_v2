@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.http import HttpResponse
+from django.shortcuts import render
 from django.urls import reverse_lazy
+from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from apps.catalog.forms.services import ServiceForm
@@ -71,3 +74,20 @@ class ServiceDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteRespo
 
     htmx_template_name = "services/partials/services_delete_modal.html"
     htmx_trigger = "services-table-refresh"
+
+
+class ServiceNameSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Service
+    workshop_permission_codename = "view_service"
+
+    def get(self, request):
+        query = request.GET.get("name", "").strip()
+
+        # Só busca se tiver pelo menos 2 caracteres para não poluir
+        if len(query) < 2:
+            return HttpResponse()
+
+        # Busca serviços da mesma oficina que contêm o texto (case-insensitive)
+        suggestions = Service.objects.filter(workshop=self.workshop, name__icontains=query).values_list("name", flat=True).distinct()[:5]  # Limita a 5 sugestões
+
+        return render(request, "services/partials/name_suggestions.html", {"suggestions": suggestions})

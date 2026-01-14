@@ -35,11 +35,25 @@ class ServiceForm(forms.ModelForm):
 
     def get_layout(self):
         cancel_url = reverse("catalog:services_list")
+        search_url = reverse("catalog:services_search")
 
         return Layout(
             Div(
                 # Linha 1: Nome e Checkbox Terceiro
-                Field("name", wrapper_class="col-span-12 lg:col-span-10"),
+                Div(
+                    Field(
+                        "name",
+                        hx_get=search_url,
+                        hx_trigger="keyup changed delay:500ms",
+                        hx_target="#name-suggestions",  # Onde renderizar o resultado
+                        hx_swap="innerHTML",
+                        autocomplete="off",
+                        wrapper_class="w-full",
+                    ),
+                    # Container VAZIO para as sugestões (Preenchido via HTMX)
+                    HTML('<div id="name-suggestions" class="absolute z-50 w-full top-full left-0"></div>'),
+                    css_class="relative col-span-12 lg:col-span-9",
+                ),
                 Field("is_third_party", wrapper_class="col-span-12 lg:col-span-2 text-nowrap"),
                 # Linha 2: Valores e Duração
                 Field("duration", wrapper_class="col-span-12 lg:col-span-4"),

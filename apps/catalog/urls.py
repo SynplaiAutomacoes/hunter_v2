@@ -12,6 +12,7 @@ from apps.catalog.views.services import (
     ServiceCreateView,
     ServiceUpdateView,
     ServiceDeleteView,
+    ServiceNameSearchView,
 )
 
 app_name = "catalog"
@@ -25,4 +26,5 @@ urlpatterns = [
     path("services/create/", ServiceCreateView.as_view(), name="services_create"),
     path("services/<int:pk>/edit/", ServiceUpdateView.as_view(), name="services_update"),
     path("services/<int:pk>/delete/", ServiceDeleteView.as_view(), name="services_delete"),
+    path("services/search/", ServiceNameSearchView.as_view(), name="services_search"),
 ]
