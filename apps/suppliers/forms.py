@@ -40,7 +40,7 @@ class SupplierForm(forms.ModelForm):
             "is_active": CheckboxInput(),
             "cep": TextInput(),
             "logradouro": TextInput(),
-            "numero": NumberInput(),
+            "numero": TextInput(),
             "complemento": TextInput(),
             "bairro": TextInput(),
             "cidade": TextInput(),
