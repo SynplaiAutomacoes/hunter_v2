@@ -60,7 +60,7 @@ class WorkshopCostForm(forms.ModelForm):
             "card_rate": PercentageInput(),
             "tax_rate": PercentageInput(),
             "profit_margin": PercentageInput(),
-            "commission_rate": PercentageInput(),
+            "commission_rate": PercentageInput(max_percent=10),
             "risk_coefficient": NumberInput(),
             "parts_purchase_cap": MoneyInput(),
             "freight_cost": MoneyInput(),
