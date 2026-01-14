@@ -3,8 +3,7 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 from django.urls import reverse
 
-from apps.core.widgets import CPForCNPJInput, CalendarDateInput, TextInput, CheckboxInput, EmailInput, PhoneInput, \
-    NumberInput
+from apps.core.widgets import CPForCNPJInput, CalendarDateInput, TextInput, CheckboxInput, EmailInput, PhoneInput, NumberInput, SelectInput
 from apps.suppliers.models import Supplier
 from apps.workshops.models.workshops import Workshop
 
@@ -45,7 +44,7 @@ class SupplierForm(forms.ModelForm):
             "complemento": TextInput(),
             "bairro": TextInput(),
             "cidade": TextInput(),
-            "estado": TextInput(),
+            "estado": SelectInput(attrs={"class": "form-control"}),
         }
 
     def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
