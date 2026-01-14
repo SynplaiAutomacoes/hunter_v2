@@ -112,26 +112,26 @@ class WorkshopCostForm(forms.ModelForm):
         return Layout(
             Div(
                 # --- SEÇÃO 1: Referência ---
-                HTML('<h3 class="col-span-12 text-lg font-bold mb-2">Mês de Referência</h3>'),
+                HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Mês de Referência</h3>'),
                 Field("month", wrapper_class="col-span-12 lg:col-span-6"),
                 Field("year", wrapper_class="col-span-12 lg:col-span-6"),
                 HTML('<div class="col-span-12 divider my-2"></div>'),
                 # --- SEÇÃO 2: Mecânicos ---
-                HTML('<h3 class="col-span-12 text-lg font-bold mb-2">Mecânicos Produtivos</h3>'),
+                HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Mecânicos Produtivos</h3>'),
                 Field("mechanic_quantity", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("work_hours_per_day", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("work_days_per_month", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("productivity_average", wrapper_class="col-span-12 lg:col-span-12"),
                 HTML('<div class="col-span-12 divider my-2"></div>'),
                 # --- SEÇÃO 3: Custos Mensais (Dinâmico) ---
-                HTML('<h3 class="col-span-12 text-lg font-bold mb-2">Custos Mensais</h3>'),
+                HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Custos Mensais</h3>'),
                 Div(
                     *cost_fields_layout,
                     css_class="contents",  # Permite que os filhos obedeçam ao Grid pai
                 ),
                 HTML('<div class="col-span-12 divider my-2"></div>'),
                 # --- SEÇÃO 4: Taxas e Impostos ---
-                HTML('<h3 class="col-span-12 text-lg font-bold mb-2">Taxas e Impostos</h3>'),
+                HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Taxas e Impostos</h3>'),
                 Field("card_rate", wrapper_class="col-span-12 lg:col-span-3"),
                 Field("tax_rate", wrapper_class="col-span-12 lg:col-span-3"),
                 Field("profit_margin", wrapper_class="col-span-12 lg:col-span-3"),
@@ -139,7 +139,7 @@ class WorkshopCostForm(forms.ModelForm):
                 Field("risk_coefficient", wrapper_class="col-span-12 lg:col-span-12"),
                 HTML('<div class="col-span-12 divider my-2"></div>'),
                 # --- SEÇÃO 5: Metas e Indicadores ---
-                HTML('<h3 class="col-span-12 text-lg font-bold mb-2">Metas e Indicadores</h3>'),
+                HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Metas e Indicadores</h3>'),
                 Field("parts_purchase_cap", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("freight_cost", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("third_party_service_cap", wrapper_class="col-span-12 lg:col-span-4"),
