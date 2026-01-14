@@ -107,7 +107,7 @@ class WorkshopCostForm(forms.ModelForm):
         cancel_url = reverse("workshops:workshop_cost_list")
 
         # Gera os campos dinâmicos de custo para o Layout
-        cost_fields_layout = [Field(name, wrapper_class="col-span-12 lg:col-span-2") for name in self.cost_fields_names]
+        cost_fields_layout = [Field(name, wrapper_class="col-span-12 lg:col-span-3") for name in self.cost_fields_names]
 
         return Layout(
             Div(
