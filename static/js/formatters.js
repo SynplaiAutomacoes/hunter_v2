@@ -232,6 +232,30 @@
         },
     };
 
+    const decimal = {
+        clean(value) {
+            let s = (value ?? '').toString();
+            s = s.replace(/,/g, '.');
+            s = s.replace(/[^0-9.-]/g, '');
+            const parts = s.split('.');
+            if (parts.length > 2) {
+                s = parts.shift() + '.' + parts.join('');
+            }
+            if (s.lastIndexOf('-') > 0) {
+                s = s.replace(/-/g, '');
+                s = '-' + s;
+            }
+            return s;
+        },
+
+        format(value, places = 2) {
+            if (value === '' || value === null || value === undefined) return '';
+            const n = parseFloat(value);
+            if (Number.isNaN(n)) return '';
+            return n.toFixed(places);
+        }
+    };
+
     const percent = {
         clamp(n, min, max) {
             if (Number.isNaN(n)) return NaN;
@@ -462,6 +486,71 @@
                     this.$refs.value.value = (n === '-') ? '' : n;
                     e.target.value = n;
                 },
+            };
+        },
+        decimalInput(raw, minVal, maxVal, places = 2) {
+
+            const parseLimit = (v) => {
+                if (v === null || v === undefined) return null;
+                let s = v.toString().trim();
+
+                if (!s || s.toLowerCase() === 'none' || s.toLowerCase() === 'null') return null;
+                s = s.replace(',', '.');
+
+                const n = parseFloat(s);
+                return Number.isNaN(n) ? null : n;
+            };
+
+            return {
+                rawValue: (raw ?? '').toString().replace(',', '.'),
+                min: parseLimit(minVal),
+                max: parseLimit(maxVal),
+                places: Number(places),
+
+                init() {
+                    if (this.rawValue && !isNaN(parseFloat(this.rawValue))) {
+                        const formatted = decimal.format(this.rawValue, this.places);
+                        this.$refs.display.value = formatted;
+                        this.$refs.value.value = formatted;
+                    }
+                },
+
+                handleInput(e) {
+                    let typed = e.target.value;
+                    let cleaned = decimal.clean(typed);
+
+                    if (typed !== cleaned) {
+                        e.target.value = cleaned;
+                    }
+
+                    this.$refs.value.value = cleaned;
+                },
+
+                handleBlur(e) {
+                    let currentVal = decimal.clean(e.target.value);
+
+                    if (!currentVal || currentVal === '-') {
+                        this.$refs.display.value = '';
+                        this.$refs.value.value = '';
+                        return;
+                    }
+
+                    let val = parseFloat(currentVal);
+
+                    if (Number.isNaN(val)) {
+                        this.$refs.display.value = '';
+                        this.$refs.value.value = '';
+                        return;
+                    }
+
+                    if (this.min !== null && val < this.min) val = this.min;
+                    if (this.max !== null && val > this.max) val = this.max;
+
+                    const finalStr = decimal.format(val, this.places);
+
+                    this.$refs.display.value = finalStr;
+                    this.$refs.value.value = finalStr;
+                }
             };
         },
         percentageInput(rawFraction, minPercent, maxPercent) {

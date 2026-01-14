@@ -15,6 +15,7 @@ from apps.core.widgets import (
     PercentageInput,
     MoneyInput,
     NumberInput,
+    DecimalInput,
 )
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from apps.workshops.models.monthly_costs import MonthlyCost
@@ -61,7 +62,7 @@ class WorkshopCostForm(forms.ModelForm):
             "tax_rate": PercentageInput(),
             "profit_margin": PercentageInput(),
             "commission_rate": PercentageInput(max_percent=10),
-            "risk_coefficient": NumberInput(),
+            "risk_coefficient": DecimalInput(min_value=1.0, max_value=1.5, decimal_places=1),
             "parts_purchase_cap": MoneyInput(),
             "freight_cost": MoneyInput(),
             "third_party_service_cap": MoneyInput(),

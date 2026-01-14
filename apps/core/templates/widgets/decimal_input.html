@@ -1,0 +1,41 @@
+{% with raw=widget.value|default_if_none:"" %}
+<div>
+    <div
+        x-data="formatters.widget.decimalInput(
+            '{{ raw|escapejs }}', 
+            '{{ widget.min_value }}',
+            '{{ widget.max_value }}',
+            '{{ widget.decimal_places|default:2 }}'
+        )"
+        x-init="init()"
+    >
+        <input
+            type="text"
+            x-ref="display"
+            @input="handleInput"
+            @blur="handleBlur"
+            inputmode="decimal"
+            autocomplete="off"
+            placeholder="0.00"
+            class="input-theme"
+            {% if widget.attrs.required %}required{% endif %}
+            {% if widget.attrs.disabled %}disabled{% endif %}
+            {% if widget.attrs.readonly %}readonly{% endif %}
+            {% for name, value in widget.attrs.items %}
+                {% if name != "id" and name != "name" and name != "placeholder" and name != "required" and name != "disabled" and name != "readonly" and name != "class" %}
+                    {% if value is True %}{{ name }}{% elif value is False or value is None %}{% else %}{{ name }}="{{ value|escape }}"{% endif %}
+                {% endif %}
+            {% endfor %}
+        >
+
+        <input
+            type="hidden"
+            x-ref="value"
+            name="{{ widget.name }}"
+            id="{{ widget.attrs.id }}"
+            value="{{ raw }}"
+            {% if widget.attrs.disabled %}disabled{% endif %}
+        >
+    </div>
+</div>
+{% endwith %}

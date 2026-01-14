@@ -140,6 +140,23 @@ class NumberInput(forms.TextInput):
         return ctx
 
 
+class DecimalInput(forms.TextInput):
+    template_name = "widgets/decimal_input.html"
+
+    def __init__(self, *args, min_value: float | None = None, max_value: float | None = None, decimal_places: int = 2, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.min_value = min_value
+        self.max_value = max_value
+        self.decimal_places = decimal_places
+
+    def get_context(self, name, value, attrs):
+        ctx = super().get_context(name, value, attrs)
+        ctx["widget"]["min_value"] = self.min_value
+        ctx["widget"]["max_value"] = self.max_value
+        ctx["widget"]["decimal_places"] = self.decimal_places
+        return ctx
+
+
 class PercentageInput(forms.TextInput):
     template_name = "widgets/percentage_input.html"
 
