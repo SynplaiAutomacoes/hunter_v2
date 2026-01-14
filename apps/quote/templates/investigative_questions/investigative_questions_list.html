@@ -1,0 +1,16 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Perguntas Investigativas{% endblock %}
+{% block crud_subtitle %}Configure o roteiro de perguntas para o orçamento.{% endblock %}
+
+{% block crud_header_actions %}
+    <a href="{% url 'quote:investigative_question_create' %}" class="btn btn-primary">Nova Pergunta</a>
+{% endblock %}
+
+{% block crud_table_wrapper_id %}investigative-questions-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'quote:investigative_question_list' %}{% endblock %}
+{% block crud_table_hx_trigger %}investigative-questions-table-refresh from:body{% endblock %}
+
+{% block crud_table %}
+    {% include 'investigative_questions/partials/investigative_questions_table.html' %}
+{% endblock %}
