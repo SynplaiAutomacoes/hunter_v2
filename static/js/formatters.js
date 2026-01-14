@@ -485,35 +485,43 @@
                 handleInput(e) {
                     const typed = (e.target.value ?? '').toString();
                     const normalized = percent.normalizeToDotDecimal(typed, this.maxParseFractionDigits);
+
                     if (!normalized) {
                         this.$refs.value.value = '';
                         e.target.value = '';
                         return;
                     }
-                    const n = Number(normalized);
-                    if (Number.isNaN(n)) {
-                        this.$refs.value.value = '';
-                        e.target.value = '';
-                        return;
-                    }
-                    const clamped = percent.clamp(n, this.minPercent, this.maxPercent);
-                    this.$refs.value.value = percent.percentToFractionDotDecimal(clamped);
 
-                    // Para não “apagar” zeros na digitação (ex.: "45.0"), preserva o que foi digitado
-                    // (normalizado) quando não houve clamp.
-                    if (clamped !== n) {
-                        e.target.value = percent.formatDotFromDotDecimal(clamped, this.maxDisplayFractionDigits);
-                        return;
-                    }
+                    const n = Number(normalized);
+                    if (Number.isNaN(n)) return;
+
+                    this.$refs.value.value = percent.percentToFractionDotDecimal(n);
 
                     if (normalized.includes('.')) {
                         const [i, f = ''] = normalized.split('.');
-                        const frac = f.slice(0, this.maxDisplayFractionDigits);
-                        e.target.value = i + '.' + frac;
-                        return;
+                        e.target.value = i + '.' + f.slice(0, this.maxDisplayFractionDigits);
+                    } else {
+                        e.target.value = normalized;
                     }
+                },
+                handleBlur() {
+                    const raw = this.$refs.value.value;
+                    if (!raw) return;
 
-                    e.target.value = normalized;
+                    const percentValue = Number(raw) * 100;
+                    if (Number.isNaN(percentValue)) return;
+
+                    const clamped = percent.clamp(
+                        percentValue,
+                        this.minPercent,
+                        this.maxPercent
+                    );
+
+                    this.$refs.value.value = percent.percentToFractionDotDecimal(clamped);
+                    this.$refs.display.value = percent.formatDotFromDotDecimal(
+                        clamped,
+                        this.maxDisplayFractionDigits
+                    );
                 },
             };
         },
