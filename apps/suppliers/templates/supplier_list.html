@@ -1,0 +1,14 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Fornecedores{% endblock %}
+{% block crud_header_actions %}
+    <a href="{% url 'catalog:supplier_create' %}" class="btn btn-primary">Criar fornecedor</a>
+{% endblock %}
+
+{% block crud_table_wrapper_id %}suppliers-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'catalog:supplier_list' %}{% endblock %}
+{% block crud_table_hx_trigger %}suppliers-table-refresh from:body{% endblock %}
+
+{% block crud_table %}
+    {% include 'suppliers/partials/supplier_table.html' %}
+{% endblock %}
