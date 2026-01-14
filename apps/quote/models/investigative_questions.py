@@ -31,7 +31,7 @@ class InvestigativeQuestion(TimeStampedModel):
     # Options for multiple choice questions
     options = JSONField(verbose_name="Opções", default=list, blank=True)
 
-    order = models.PositiveIntegerField(verbose_name="Ordem", default=0)
+    order = models.PositiveIntegerField(verbose_name="Ordem", default=0, help_text="Ordem em que a pergunta aparecerá (0 = Primeiro)")
 
     is_active = models.BooleanField(verbose_name="Ativa", default=True)
 
