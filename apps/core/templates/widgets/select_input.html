@@ -5,25 +5,46 @@
         label: 'Selecione...',
 
         init() {
-            const selected = this.$refs.options.querySelector(`[data-value='${this.value}']`);
-            if (selected) {
-                this.value = selected.dataset.value;
-                this.label = selected.dataset.label;
+            // Sincroniza o label inicial com o valor atual
+            this.updateLabelFromValue();
+
+            // Opcional: Observa mudanças se o valor mudar externamente (ex: reset de form)
+            this.$watch('value', () => this.updateLabelFromValue());
+        },
+
+        updateLabelFromValue() {
+            if (!this.value) {
+                this.label = 'Selecione...';
                 return;
             }
-            this.label = this.value ? this.label : 'Selecione...';
+            // Busca o label correspondente ao valor atual nos itens da lista
+            const selectedEl = this.$refs.options.querySelector(`[data-value='${this.value}']`);
+            if (selectedEl) {
+                this.label = selectedEl.dataset.label;
+            } else {
+                // Fallback caso o valor não esteja nas opções (ex: carregamento inicial)
+                this.label = 'Selecione...';
+            }
         },
 
         select(el) {
             this.value = el.dataset.value || '';
-            this.label = el.dataset.label || 'Selecione...';
             this.open = false;
+            this.dispatchEvents();
         },
 
         clear() {
             this.value = '';
-            this.label = 'Selecione...';
             this.open = false;
+            this.dispatchEvents();
+        },
+
+        dispatchEvents() {
+            // Dispara eventos para que o x-model do pai perceba a mudança
+            this.$nextTick(() => {
+                this.$refs.input.dispatchEvent(new Event('input', { bubbles: true }));
+                this.$refs.input.dispatchEvent(new Event('change', { bubbles: true }));
+            });
         }
     }"
     x-init="init()"
@@ -31,6 +52,7 @@
     @click.outside="open = false"
 >
     <input
+        x-ref="input"
         type="hidden"
         name="{{ widget.name }}"
         id="{{ widget.attrs.id }}"
@@ -38,6 +60,7 @@
         {% if widget.attrs.required %}required{% endif %}
         {% if widget.attrs.disabled %}disabled{% endif %}
         {% for name, value in widget.attrs.items %}
+            {# Filtramos atributos que não devem ser duplicados ou já foram tratados #}
             {% if name != "id" and name != "name" and name != "placeholder" and name != "required" and name != "disabled" and name != "readonly" and name != "class" %}
                 {% if value is True %}{{ name }}{% elif value is False or value is None %}{% else %}{{ name }}="{{ value|escape }}"{% endif %}
             {% endif %}
@@ -48,15 +71,11 @@
         type="button"
         @click="open = !open"
         class="input-theme {{ widget.attrs.class }} flex w-full items-center justify-between text-left cursor-default"
-        :class="{'ring-2 ring-primary border-primary': open}"
+        :class="{'ring-2 ring-primary border-primary': open, 'opacity-50 cursor-not-allowed': {{ widget.attrs.disabled|yesno:'true,false' }} }"
         {% if widget.attrs.disabled or widget.attrs.readonly %}disabled{% endif %}
-        {% for name, value in widget.attrs.items %}
-            {% if name != "id" and name != "name" and name != "placeholder" and name != "required" and name != "disabled" and name != "readonly" and name != "class" %}
-                {% if value is True %}{{ name }}{% elif value is False or value is None %}{% else %}{{ name }}="{{ value|escape }}"{% endif %}
-            {% endif %}
-        {% endfor %}
     >
         <span x-text="label" :class="{'input-placeholder-color': !value}"></span>
+
         <span class="pointer-events-none flex items-center pr-2">
             <svg class="h-5 w-5 transition-transform duration-200" :class="{'rotate-180': open}" viewBox="0 0 20 20" fill="currentColor">
                 <path fill-rule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"></path>
@@ -78,14 +97,14 @@
         <ul role="listbox" x-ref="options">
             <li
                 @click="clear()"
-                class="cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white"
+                class="cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white font-semibold text-error"
             >
                 Limpar seleção
             </li>
 
             {% for group_name, group_choices, group_index in widget.optgroups %}
                 {% if group_name %}
-                    <li class="relative py-1 pl-3 pr-9 text-xs font-semibold">
+                    <li class="relative py-1 pl-3 pr-9 text-xs font-bold text-gray-500 uppercase tracking-wider">
                         {{ group_name }}
                     </li>
                 {% endif %}
@@ -97,18 +116,18 @@
                             data-value="{{ option.value }}"
                             data-label="{{ option.label|escapejs }}"
                             data-selected="{% if option.selected %}1{% else %}0{% endif %}"
-                            class="relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white group"
+                            class="relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white group transition-colors"
                         >
-                            <span class="block truncate" :class="{'font-semibold': value === $el.dataset.value}">
+                            <span class="block truncate" :class="{'font-bold': value == '{{ option.value }}'}">
                                 {{ option.label }}
                             </span>
 
                             <span
-                                x-show="value === $el.dataset.value"
+                                x-show="value == '{{ option.value }}'"
                                 class="absolute inset-y-0 right-0 flex items-center pr-4 text-primary group-hover:text-white"
                             >
                                 <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+                                    <path fill-rule="evenodd" d=\"M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z\" clip-rule=\"evenodd\"></path>
                                 </svg>
                             </span>
                         </li>
