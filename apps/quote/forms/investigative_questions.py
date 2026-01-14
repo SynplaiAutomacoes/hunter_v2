@@ -97,17 +97,33 @@ class InvestigativeQuestionForm(forms.ModelForm):
                     qType: '{init_type}',
                     options: {init_options},
                     newOption: '',
+                    errorMessage: '',
+
                     addOption() {{
-                        if (this.newOption.trim() !== '') {{
-                            this.options.push(this.newOption.trim());
+                        const val = this.newOption.trim();
+                        if (val !== '') {{
+                            // Verificação de Duplicidade (Case Insensitive)
+                            const exists = this.options.some(opt => opt.toLowerCase() === val.toLowerCase());
+
+                            if (exists) {{
+                                this.errorMessage = 'Esta opção já foi adicionada.';
+                                // Limpa a mensagem após 3 segundos
+                                setTimeout(() => this.errorMessage = '', 3000);
+                                return;
+                            }}
+
+                            this.options.push(val);
                             this.newOption = '';
+                            this.errorMessage = ''; // Limpa erro se houver
                             this.syncOptions();
                         }}
                     }},
+
                     removeOption(index) {{
                         this.options.splice(index, 1);
                         this.syncOptions();
                     }},
+
                     syncOptions() {{
                         $refs.optionsInput.value = JSON.stringify(this.options);
                     }}
@@ -136,6 +152,10 @@ class InvestigativeQuestionForm(forms.ModelForm):
         if rtype == InvestigativeQuestion.ResponseType.MULTIPLE_CHOICE:
             if not options_list:
                 self.add_error("response_type", "Para múltipla escolha, adicione pelo menos uma opção.")
+            else:
+                normalized_options = [opt.lower().strip() for opt in options_list]
+                if len(normalized_options) != len(set(normalized_options)):
+                    self.add_error("response_type", "Existem opções duplicadas na lista de múltipla escolha.")
         else:
             options_list = []
 
