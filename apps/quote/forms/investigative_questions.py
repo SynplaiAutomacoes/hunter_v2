@@ -64,8 +64,8 @@ class InvestigativeQuestionForm(forms.ModelForm):
                                    placeholder="Digite uma opção e pressione Enter ou +..." 
                                    x-model="newOption" 
                                    @keydown.enter.prevent="addOption()">
-                            <button type="button" class="btn btn-primary px-5" @click="addOption()">
-                                +
+                            <button type="button" class="btn btn-primary px-3" @click="addOption()">
+                                <span class="material-icons text-base">add</span>
                             </button>
                         </div>
                         """),
