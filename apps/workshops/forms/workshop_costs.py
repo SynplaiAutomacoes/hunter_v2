@@ -107,7 +107,7 @@ class WorkshopCostForm(forms.ModelForm):
         cancel_url = reverse("workshops:workshop_cost_list")
 
         # Gera os campos dinâmicos de custo para o Layout
-        cost_fields_layout = [Field(name, wrapper_class="col-span-12 lg:col-span-4") for name in self.cost_fields_names]
+        cost_fields_layout = [Field(name, wrapper_class="col-span-12 lg:col-span-2") for name in self.cost_fields_names]
 
         return Layout(
             Div(
@@ -118,10 +118,10 @@ class WorkshopCostForm(forms.ModelForm):
                 HTML('<div class="col-span-12 divider my-2"></div>'),
                 # --- SEÇÃO 2: Mecânicos ---
                 HTML('<h3 class="col-span-12 text-lg font-bold mb-2">Mecânicos Produtivos</h3>'),
-                Field("mechanic_quantity", wrapper_class="col-span-12 lg:col-span-3"),
-                Field("work_hours_per_day", wrapper_class="col-span-12 lg:col-span-3"),
-                Field("work_days_per_month", wrapper_class="col-span-12 lg:col-span-3"),
-                Field("productivity_average", wrapper_class="col-span-12 lg:col-span-3"),
+                Field("mechanic_quantity", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("work_hours_per_day", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("work_days_per_month", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("productivity_average", wrapper_class="col-span-12 lg:col-span-12"),
                 HTML('<div class="col-span-12 divider my-2"></div>'),
                 # --- SEÇÃO 3: Custos Mensais (Dinâmico) ---
                 HTML('<h3 class="col-span-12 text-lg font-bold mb-2">Custos Mensais</h3>'),
@@ -132,11 +132,11 @@ class WorkshopCostForm(forms.ModelForm):
                 HTML('<div class="col-span-12 divider my-2"></div>'),
                 # --- SEÇÃO 4: Taxas e Impostos ---
                 HTML('<h3 class="col-span-12 text-lg font-bold mb-2">Taxas e Impostos</h3>'),
-                Field("card_rate", wrapper_class="col-span-12 lg:col-span-2"),
-                Field("tax_rate", wrapper_class="col-span-12 lg:col-span-2"),
-                Field("profit_margin", wrapper_class="col-span-12 lg:col-span-2"),
-                Field("commission_rate", wrapper_class="col-span-12 lg:col-span-2"),
-                Field("risk_coefficient", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("card_rate", wrapper_class="col-span-12 lg:col-span-3"),
+                Field("tax_rate", wrapper_class="col-span-12 lg:col-span-3"),
+                Field("profit_margin", wrapper_class="col-span-12 lg:col-span-3"),
+                Field("commission_rate", wrapper_class="col-span-12 lg:col-span-3"),
+                Field("risk_coefficient", wrapper_class="col-span-12 lg:col-span-12"),
                 HTML('<div class="col-span-12 divider my-2"></div>'),
                 # --- SEÇÃO 5: Metas e Indicadores ---
                 HTML('<h3 class="col-span-12 text-lg font-bold mb-2">Metas e Indicadores</h3>'),
@@ -144,12 +144,15 @@ class WorkshopCostForm(forms.ModelForm):
                 Field("freight_cost", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("third_party_service_cap", wrapper_class="col-span-12 lg:col-span-4"),
                 # Campos calculados (Desabilitados visualmente)
-                HTML('<div class="col-span-12 mt-4 mb-2"><span class="badge badge-neutral">Cálculos Automáticos</span></div>'),
-                Field("total_value", wrapper_class="col-span-12 lg:col-span-4"),
-                Field("total_monthly_costs", wrapper_class="col-span-12 lg:col-span-4"),
-                Field("profit_target", wrapper_class="col-span-12 lg:col-span-4"),
-                Field("gross_revenue_target", wrapper_class="col-span-12 lg:col-span-6"),
-                Field("profitability_multiplier", wrapper_class="col-span-12 lg:col-span-6"),
+                Div(
+                    HTML('<div class="col-span-12 mb-4"><span class="badge badge-neutral">Cálculos Automáticos</span></div>'),
+                    Field("total_value", wrapper_class="col-span-12"),
+                    Field("total_monthly_costs", wrapper_class="col-span-12 lg:col-span-6"),
+                    Field("profit_target", wrapper_class="col-span-12 lg:col-span-6"),
+                    Field("gross_revenue_target", wrapper_class="col-span-12 lg:col-span-6"),
+                    Field("profitability_multiplier", wrapper_class="col-span-12 lg:col-span-6"),
+                    css_class="col-span-12 bg-base-300 p-6 rounded-box grid grid-cols-1 lg:grid-cols-12 gap-4 items-start mt-4",
+                ),
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
             ),
             HTML('<div class="divider"></div>'),
