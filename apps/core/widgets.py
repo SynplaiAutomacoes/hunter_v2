@@ -180,3 +180,7 @@ class PercentageInput(forms.TextInput):
         ctx["widget"]["min_percent"] = self.min_percent
         ctx["widget"]["max_percent"] = self.max_percent
         return ctx
+
+
+class ImageInput(forms.ClearableFileInput):
+    template_name = "widgets/image_input.html"

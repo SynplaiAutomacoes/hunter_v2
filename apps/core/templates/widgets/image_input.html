@@ -1,0 +1,58 @@
+{% load i18n %}
+<div
+    x-data="formatters.widget.imageInput('{{ widget.value.url|default:"" }}', '{{ widget.checkbox_name }}')"
+    class="flex flex-col gap-3"
+>
+    <div class="relative w-full max-w-xs aspect-video bg-base-200 rounded-box border border-base-300 flex items-center justify-center overflow-hidden group">
+
+        <template x-if="previewUrl">
+            <img :src="previewUrl" class="w-full h-full object-cover" alt="Preview">
+        </template>
+
+        <template x-if="!previewUrl">
+            <div class="text-base-content/30 flex flex-col items-center">
+                <span class="material-icons text-4xl">image</span>
+                <span class="text-xs uppercase font-bold mt-1">Sem Imagem</span>
+            </div>
+        </template>
+
+        <button
+            type="button"
+            x-show="previewUrl"
+            @click="remove()"
+            class="absolute top-2 right-2 btn btn-circle btn-xs btn-error opacity-0 group-hover:opacity-100 transition-opacity"
+            title="Remover imagem"
+        >
+            ✕
+        </button>
+    </div>
+
+    <div class="flex items-center gap-2">
+        <input
+            type="file"
+            name="{{ widget.name }}"
+            id="{{ widget.attrs.id }}"
+            x-ref="fileInput"
+            @change="handleFile"
+            class="file-input file-input-sm focus:border-none focus:ring-2 focus:ring-primary outline-0 w-full max-w-xs"
+            accept="image/*"
+            {% if widget.attrs.disabled %}disabled{% endif %}
+            {% if widget.attrs.required %}required{% endif %}
+        >
+
+        {% if widget.is_initial %}
+            <input
+                type="checkbox"
+                name="{{ widget.checkbox_name }}"
+                id="{{ widget.checkbox_id }}"
+                x-model="isCleared"
+                class="hidden"
+            >
+        {% endif %}
+    </div>
+
+    <div x-show="isCleared && '{{ widget.value.url }}'" class="text-xs text-error">
+        ⚠️ A imagem atual será removida ao salvar.
+        <button type="button" @click="restoreOriginal()" class="link link-hover font-bold">Desfazer</button>
+    </div>
+</div>

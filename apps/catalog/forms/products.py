@@ -15,6 +15,7 @@ from apps.core.widgets import (
     PercentageInput,
     CheckboxInput,
     TextareaInput,
+    ImageInput,
 )
 from apps.workshops.models.workshops import Workshop
 
@@ -72,6 +73,7 @@ class ProductForm(forms.ModelForm):
             "cest": TextInput(),
             "origin_cst": SelectInput(),
             "purpose": SelectInput(),
+            "image": ImageInput(),
             "application": TextareaInput(),
             "is_active": CheckboxInput(),
         }
