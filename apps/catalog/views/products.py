@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from django.urls import reverse_lazy
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from apps.catalog.forms.products import ProductForm
+from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
@@ -46,6 +48,13 @@ class ProductCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
     form_class = ProductForm
     template_name = "products/product_create.html"
     success_url = reverse_lazy("catalog:product_list")
+
+    def get(self, request, *args, **kwargs):
+        if not CatalogGroup.objects.filter(workshop=self.workshop).exists():
+            messages.warning(request, "Para cadastrar produtos, você precisa criar ao menos um Grupo (Categoria) antes.")
+            return redirect("catalog:group_list")
+
+        return super().get(request, *args, **kwargs)
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
