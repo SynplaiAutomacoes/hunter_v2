@@ -507,6 +507,7 @@ dependencies = [
     { name = "django-tailwind-cli" },
     { name = "gunicorn" },
     { name = "psycopg", extra = ["binary"] },
+    { name = "python-stdnum" },
     { name = "weasyprint" },
     { name = "whitenoise" },
 ]
@@ -533,6 +534,7 @@ requires-dist = [
     { name = "django-tailwind-cli", specifier = ">=4.4.2" },
     { name = "gunicorn", specifier = ">=23.0.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.2" },
+    { name = "python-stdnum", specifier = ">=2.1" },
     { name = "weasyprint", specifier = ">=67.0" },
     { name = "whitenoise", specifier = ">=6.11.0" },
 ]

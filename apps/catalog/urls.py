@@ -15,6 +15,14 @@ from apps.catalog.views.services import (
     ServiceNameSearchView,
 )
 
+from apps.catalog.views.products import (
+    ProductListView,
+    ProductCreateView,
+    ProductUpdateView,
+    ProductDeleteView,
+    ProductSearchSelectView,
+)
+
 app_name = "catalog"
 
 urlpatterns = [
@@ -27,4 +35,9 @@ urlpatterns = [
     path("services/<int:pk>/edit/", ServiceUpdateView.as_view(), name="services_update"),
     path("services/<int:pk>/delete/", ServiceDeleteView.as_view(), name="services_delete"),
     path("services/search/", ServiceNameSearchView.as_view(), name="services_search"),
+    path("products/", ProductListView.as_view(), name="product_list"),
+    path("products/create/", ProductCreateView.as_view(), name="product_create"),
+    path("products/<int:pk>/edit/", ProductUpdateView.as_view(), name="product_update"),
+    path("products/<int:pk>/delete/", ProductDeleteView.as_view(), name="product_delete"),
+    path("products/search/", ProductSearchSelectView.as_view(), name="product_search"),
 ]

@@ -1,0 +1,15 @@
+{% if products %}
+<ul class="menu bg-base-100 w-full rounded-box shadow-lg border border-base-200 mt-1 absolute z-50">
+    {% for product in products %}
+    <li>
+        <button type="button" 
+                @click="$dispatch('add-equivalent', {id: '{{ product.id }}', name: '{{ product.code }} - {{ product.description|escapejs }}'}); document.getElementById('id_equivalent_search').value = ''; document.getElementById('product-suggestions').innerHTML = '';">
+            <div class="flex flex-col items-start">
+                <span class="font-bold">{{ product.description }}</span>
+                <span class="text-xs text-gray-500">{{ product.code }} | {{ product.brand }}</span>
+            </div>
+        </button>
+    </li>
+    {% endfor %}
+</ul>
+{% endif %}

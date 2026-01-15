@@ -1,0 +1,213 @@
+from __future__ import annotations
+
+import json
+from django import forms
+from django.urls import reverse
+
+from crispy_forms.helper import FormHelper
+from crispy_forms.layout import Div, Field, HTML, Layout, Submit
+
+from apps.catalog.models.products import Product
+from apps.core.widgets import (
+    TextInput,
+    MoneyInput,
+    SelectInput,
+    PercentageInput,
+    CheckboxInput,
+)
+from apps.workshops.models.workshops import Workshop
+
+
+class ProductForm(forms.ModelForm):
+    # Campo auxiliar para busca de equivalentes (não salvo diretamente)
+    equivalent_search = forms.CharField(required=False, label="Adicionar Equivalente")
+
+    class Meta:
+        model = Product
+        fields = [
+            # Identificação
+            "code",
+            "name",
+            "description",
+            "unit",
+            "group",
+            "brand",
+            "model",
+            # Estoque
+            "sku",
+            "barcode",
+            "location",
+            "equivalent_parts",
+            # Financeiro
+            "cost_price",
+            "selling_price",
+            "profit_margin",
+            # Fiscal
+            "ncm",
+            "cest",
+            "origin_cst",
+            "purpose",
+            # Detalhes
+            "image",
+            "application",
+            "is_active",
+        ]
+        widgets = {
+            "code": TextInput(),
+            "name": TextInput(),
+            "description": TextInput(),
+            "unit": SelectInput(),
+            "group": SelectInput(),
+            "brand": TextInput(),
+            "model": TextInput(),
+            "sku": TextInput(),
+            "barcode": TextInput(),
+            "location": TextInput(),
+            # equivalent_parts: Widget padrão será substituído pela UI customizada
+            "cost_price": MoneyInput(),
+            "selling_price": MoneyInput(),
+            "profit_margin": PercentageInput(attrs={"readonly": True}),  # Readonly pois é calculado
+            "ncm": TextInput(),
+            "cest": TextInput(),
+            "origin_cst": SelectInput(),
+            "purpose": SelectInput(),
+            "application": TextInput(),
+            "is_active": CheckboxInput(),
+        }
+
+    def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.workshop = workshop
+
+        # Filtra grupos pela oficina
+        if workshop:
+            self.fields["group"].queryset = self.fields["group"].queryset.filter(workshop=workshop)
+            # Filtra equivalentes para não mostrar produtos de outras oficinas
+            self.fields["equivalent_parts"].queryset = Product.objects.filter(workshop=workshop)
+
+            if self.instance.pk:
+                self.fields["equivalent_parts"].queryset = self.fields["equivalent_parts"].queryset.exclude(pk=self.instance.pk)
+
+        self.helper = FormHelper()
+        self.helper.form_method = "post"
+        self.helper.layout = self.get_layout()
+
+    def get_layout(self):
+        cancel_url = reverse("catalog:product_list")
+        search_product_url = reverse("catalog:product_search")
+
+        # Dados iniciais para o Alpine de Equivalentes
+        initial_equivalents = []
+        if self.instance.pk:
+            initial_equivalents = [{"id": p.id, "name": str(p)} for p in self.instance.equivalent_parts.all()]
+
+        # Serializa para JSON seguro para o HTML
+        equivalents_json = json.dumps(initial_equivalents).replace('"', "&quot;")
+
+        return Layout(
+            Div(
+                # CORREÇÃO: Passamos a Div interna diretamente (sem 'content=')
+                Div(
+                    # --- DADOS GERAIS ---
+                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Dados Gerais</h3>'),
+                    Field("code", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("name", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("unit", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("group", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("brand", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("model", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("description", wrapper_class="col-span-12 lg:col-span-11"),
+                    Field("is_active", wrapper_class="col-span-12 lg:col-span-1"),
+                    HTML('<div class="col-span-12 divider my-1"></div>'),
+                    # --- FINANCEIRO ---
+                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Financeiro</h3>'),
+                    # x-ref e @input passados via dicionário para preservar os hífens/arrombas
+                    Field("cost_price", wrapper_class="col-span-12 lg:col-span-4", **{"x-ref": "cost", "@input": "calculateMargin()"}),
+                    Field("selling_price", wrapper_class="col-span-12 lg:col-span-4", **{"x-ref": "sell", "@input": "calculateMargin()"}),
+                    Field("profit_margin", wrapper_class="col-span-12 lg:col-span-4", **{"x-ref": "margin"}),
+                    HTML('<div class="col-span-12 divider my-1"></div>'),
+                    # --- ESTOQUE E LOGÍSTICA ---
+                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Estoque e Logística</h3>'),
+                    Field("location", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("barcode", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("sku", wrapper_class="col-span-12 lg:col-span-4"),
+                    # --- Peças Equivalentes (Custom UI) ---
+                    Div(
+                        HTML('<label class="label"><span class="label-text font-bold">Peças Equivalentes</span></label>'),
+                        Field("equivalent_search", wrapper_class="w-full", autocomplete="off", placeholder="Digite para buscar produtos...", hx_get=search_product_url, hx_trigger="keyup changed delay:300ms", hx_target="#product-suggestions"),
+                        HTML('<div id="product-suggestions" class="relative"></div>'),
+                        HTML(f"""
+                        <div class="mt-2" 
+                             x-data='{{ 
+                                selecteds: {equivalents_json},
+                                remove(index) {{ this.selecteds.splice(index, 1); }}
+                             }}' 
+                             id="equivalents-manager"
+                             @add-equivalent.window="if(!selecteds.find(i=>i.id==$event.detail.id)) selecteds.push($event.detail)"
+                        >
+                            <select name="equivalent_parts" multiple class="hidden">
+                                <template x-for="item in selecteds" :key="item.id">
+                                    <option :value="item.id" selected></option>
+                                </template>
+                            </select>
+
+                            <div class="flex flex-wrap gap-2">
+                                <template x-for="(item, index) in selecteds" :key="item.id">
+                                    <div class="badge badge-lg gap-2 pl-4 pr-2 py-4 bg-base-200 border-base-300">
+                                        <span x-text="item.name"></span>
+                                        <button type="button" @click="remove(index)" class="btn btn-ghost btn-xs btn-circle text-error">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                        </button>
+                                    </div>
+                                </template>
+                                <span x-show="selecteds.length === 0" class="text-sm text-gray-400 italic py-2">Nenhuma equivalência selecionada.</span>
+                            </div>
+                        </div>
+                        """),
+                        css_class="col-span-12 bg-base-100 p-4 rounded-box border border-base-200",
+                    ),
+                    HTML('<div class="col-span-12 divider my-1"></div>'),
+                    # --- FISCAL ---
+                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Fiscal</h3>'),
+                    Field("ncm", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("cest", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("origin_cst", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("purpose", wrapper_class="col-span-12"),
+                    HTML('<div class="col-span-12 divider my-1"></div>'),
+                    # --- DETALHES ---
+                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Detalhes</h3>'),
+                    Field("image", wrapper_class="col-span-12 lg:col-span-6"),
+                    Field("application", wrapper_class="col-span-12"),
+                    css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
+                ),
+                **{
+                    "x-data": """{
+                    calculateMargin() {
+                        // Tenta pegar o elemento input. 
+                        // Se for um MoneyWidget customizado, pode ser que o valor real esteja num hidden ou precise de tratamento.
+                        // Assumindo input text padrão com máscara ou valor simples:
+                        let costStr = $refs.cost ? $refs.cost.value : '0';
+                        let sellStr = $refs.sell ? $refs.sell.value : '0';
+
+                        // Limpeza básica de moeda PT-BR (remove R$, remove pontos de milhar, troca vírgula por ponto)
+                        let cost = parseFloat(costStr.replace(/[^0-9,.-]+/g,"").replace(".","").replace(",","."));
+                        let sell = parseFloat(sellStr.replace(/[^0-9,.-]+/g,"").replace(".","").replace(",","."));
+
+                        if (sell > 0 && !isNaN(cost) && !isNaN(sell)) {
+                            let margin = ((sell - cost) / sell) * 100;
+                            // Formata de volta para PT-BR (vírgula decimal)
+                            $refs.margin.value = margin.toFixed(2).replace(".", ",");
+                        } else {
+                            $refs.margin.value = '0,00';
+                        }
+                    }
+                }"""
+                },
+            ),
+            HTML('<div class="divider"></div>'),
+            Div(
+                HTML(f'<a href="{cancel_url}" class="btn-form-cancel">Cancelar</a>'),
+                Submit("submit", "Salvar", css_class="btn-form-save"),
+                css_class="flex items-center justify-end gap-2",
+            ),
+        )
