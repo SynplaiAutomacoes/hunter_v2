@@ -118,7 +118,18 @@ class ProductForm(forms.ModelForm):
                     HTML('<h3 class="col-span-12 text-lg font-bold mb-2">Financeiro</h3>'),
                     Div(
                         Field("cost_price", wrapper_class="col-span-12 lg:col-span-4"),
-                        Field("selling_price", wrapper_class="col-span-12 lg:col-span-4"),
+                        Div(
+                            Field("selling_price", wrapper_class="w-full"),
+                            HTML("""
+                                <div class="text-error text-xs mt-1" 
+                                     x-show="priceError" 
+                                     x-cloak 
+                                     x-transition>
+                                    ⚠️ O preço de venda está menor que o custo!
+                                </div>
+                            """),
+                            css_class="col-span-12 lg:col-span-4",
+                        ),
                         Field("profit_margin", wrapper_class="col-span-12 lg:col-span-4", css_class="opacity-50 cursor-not-allowed"),
                         css_class="contents",
                         **{
@@ -182,6 +193,7 @@ class ProductForm(forms.ModelForm):
                 ),
                 **{
                     "x-data": """{
+                        priceError: false,
                         calculateMargin() {
                             const getRawValue = (fieldId) => {
                                 const el = document.getElementById(fieldId);
@@ -190,6 +202,12 @@ class ProductForm(forms.ModelForm):
 
                             let cost = getRawValue("id_cost_price_0");
                             let sell = getRawValue("id_selling_price_0");
+
+                            if (sell > 0 && sell < cost) {
+                                this.priceError = true;
+                            } else {
+                                this.priceError = false;
+                            }
 
                             let marginEl = document.getElementById("id_profit_margin_display");
 
@@ -216,3 +234,14 @@ class ProductForm(forms.ModelForm):
                 css_class="flex items-center justify-end gap-2",
             ),
         )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        cost_price = cleaned_data.get("cost_price")
+        selling_price = cleaned_data.get("selling_price")
+
+        if cost_price and selling_price:
+            if selling_price < cost_price:
+                self.add_error("selling_price", "O preço de venda não pode ser menor que o valor de custo.")
+
+        return cleaned_data
