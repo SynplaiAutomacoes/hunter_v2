@@ -4,6 +4,8 @@ from typing import Any
 
 from django.http import HttpResponse
 from django.template.response import TemplateResponse
+from django.shortcuts import render
+import requests
 
 
 class HtmxTemplateResponseMixin:
@@ -39,3 +41,31 @@ class HtmxDeleteResponseMixin:
             return response
 
         return super().form_valid(form)
+
+
+def cep_lookup(request):
+    cep = request.GET.get("cep", "").replace("-", "").replace(".", "")
+    context = {
+        "logradouro": "",
+        "bairro": "",
+        "cidade": "",
+        "estado": "",
+        "readonly": False,
+    }
+    if len(cep) == 8:
+        try:
+            response = requests.get(f"https://viacep.com.br/ws/{cep}/json/", timeout=5)
+            data = response.json()
+            if "erro" not in data:
+                context.update(
+                    {
+                        "logradouro": data.get("logradouro", ""),
+                        "bairro": data.get("bairro", ""),
+                        "cidade": data.get("localidade", ""),
+                        "estado": data.get("uf", ""),
+                        "readonly": True,
+                    }
+                )
+        except Exception:
+            pass
+    return render(request, "partials/address_fields.html", context)
