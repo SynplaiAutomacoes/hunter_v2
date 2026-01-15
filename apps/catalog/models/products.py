@@ -55,7 +55,7 @@ class Product(TimeStampedModel):
     )
 
     # --- Dados de Identificação ---
-    code = models.CharField(verbose_name="Código da Peça", max_length=50)
+    code = models.CharField(verbose_name="Código", max_length=50)
     name = models.CharField(verbose_name="Peça", max_length=255)
     description = models.CharField(verbose_name="Descrição", max_length=255)
     unit = models.CharField(verbose_name="Unidade", max_length=5, choices=Unit.choices)

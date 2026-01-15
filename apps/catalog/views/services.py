@@ -27,7 +27,7 @@ class ServiceListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespo
         context["fields"] = [
             TableColumn(Service.name.field.verbose_name, attr="name"),
             TableColumn(Service.duration.field.verbose_name, attr="duration"),
-            TableColumn(Service.selling_price.field.verbose_name, attr="selling_price", format="money"),
+            TableColumn(Service.selling_price.field.verbose_name, attr="selling_price"),
             TableColumn(Service.is_third_party.field.verbose_name, attr="is_third_party"),
             TableColumn(Service.is_active.field.verbose_name, attr="is_active"),
         ]

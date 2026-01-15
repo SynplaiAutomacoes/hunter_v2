@@ -27,12 +27,14 @@ class ProductListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespo
         context = super().get_context_data(**kwargs)
 
         context["fields"] = [
-            TableColumn(label="Código", attr="code"),
-            TableColumn(label="Descrição", attr="description"),
-            TableColumn(label="Marca", attr="brand"),
-            TableColumn(label="Unidade", attr="unit"),
-            TableColumn(label="Preço Venda", attr="selling_price", format="money"),
-            TableColumn(label="Estoque", attr="location"),
+            TableColumn(Product.code.field.verbose_name, attr="code"),
+            TableColumn(Product.name.field.verbose_name, attr="name"),
+            TableColumn(Product.brand.field.verbose_name, attr="brand"),
+            TableColumn(Product.unit.field.verbose_name, attr="unit"),
+            TableColumn(Product.cost_price.field.verbose_name, attr="cost_price"),
+            TableColumn(Product.selling_price.field.verbose_name, attr="selling_price"),
+            TableColumn(Product.location.field.verbose_name, attr="location"),
+            TableColumn(Product.is_active.field.verbose_name, attr="is_active"),
         ]
 
         context["actions"] = [
