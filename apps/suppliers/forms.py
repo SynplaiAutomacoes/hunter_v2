@@ -54,6 +54,13 @@ class SupplierForm(forms.ModelForm):
         self.helper = FormHelper()
         self.helper.form_method = "post"
 
+        address_fields = ["logradouro", "bairro", "cidade"]
+        for field in address_fields:
+            self.fields[field].widget.attrs["readonly"] = True
+            self.fields[field].widget.attrs["class"] = self.fields[field].widget.attrs.get("class", "")
+            self.fields[field].widget.attrs["style"] = "cursor: not-allowed;"
+            self.fields[field].widget.attrs["title"] = "Preencha o campo de CEP"
+
         cancel_url = reverse("suppliers:supplier_list")
 
         self.helper.layout = Layout(
@@ -75,7 +82,9 @@ class SupplierForm(forms.ModelForm):
                 #
                 # Seção: Endereço
                 HTML('<h3 class="col-span-12 text-xl font-bold">Endereço</h3>'),
-                Field("cep", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("cep", wrapper_class="col-span-12 lg:col-span-4", hx_get=reverse("core:cep_lookup"),
+                      hx_trigger="blur", hx_target="this", hx_swap="none", hx_include="[name='cep']",
+                      hx_indicator="#cep-loader"),
                 Field("logradouro", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("numero", wrapper_class="col-span-12 lg:col-span-4"),
                 #

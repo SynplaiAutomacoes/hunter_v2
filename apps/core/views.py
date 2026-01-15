@@ -45,27 +45,28 @@ class HtmxDeleteResponseMixin:
 
 def cep_lookup(request):
     cep = request.GET.get("cep", "").replace("-", "").replace(".", "")
-    context = {
-        "logradouro": "",
-        "bairro": "",
-        "cidade": "",
-        "estado": "",
-        "readonly": False,
+    updates = {
+        "id_logradouro": "",
+        "id_bairro": "",
+        "id_cidade": "",
+        "readonly": True
     }
     if len(cep) == 8:
         try:
             response = requests.get(f"https://viacep.com.br/ws/{cep}/json/", timeout=5)
             data = response.json()
             if "erro" not in data:
-                context.update(
+                updates.update(
                     {
-                        "logradouro": data.get("logradouro", ""),
-                        "bairro": data.get("bairro", ""),
-                        "cidade": data.get("localidade", ""),
-                        "estado": data.get("uf", ""),
+                        "id_logradouro": data.get("logradouro", ""),
+                        "id_bairro": data.get("bairro", ""),
+                        "id_cidade": data.get("localidade", ""),
                         "readonly": True,
                     }
                 )
+            else:
+                updates.update({"readonly": True})
         except Exception:
-            pass
-    return render(request, "partials/address_fields.html", context)
+            updates.update({"readonly": True})
+
+    return render(request, "partials/address_fields.html", {"updates": updates})
