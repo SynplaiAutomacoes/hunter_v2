@@ -26,12 +26,12 @@ def validate_ncm(value):
 
 class Product(TimeStampedModel):
     class Unit(models.TextChoices):
-        UND = "UND", "Unidade"
-        PC = "PC", "Peça"
-        JG = "JG", "Jogo"
-        GR = "GR", "Grama"
-        LT = "LT", "Litro"
-        KG = "KG", "Quilo"
+        UND = "UND", "UND"
+        PC = "PC", "PC"
+        JG = "JG", "JG"
+        GR = "GR", "GR"
+        LT = "LT", "LT"
+        KG = "KG", "KG"
 
     class OriginCST(models.IntegerChoices):
         NACIONAL = 0, "0 - Nacional"
@@ -78,7 +78,7 @@ class Product(TimeStampedModel):
     selling_price = MoneyField(verbose_name="Valor de Venda", max_digits=14, decimal_places=2)
 
     # Margem armazenada para facilidade de consulta, mas calculada no form
-    profit_margin = models.DecimalField(verbose_name="Margem de Lucro (%)", max_digits=8, decimal_places=2, default=0, blank=True)
+    profit_margin = models.DecimalField(verbose_name="Margem de Lucro", max_digits=7, decimal_places=6, default=0, blank=True)
 
     # --- Fiscal ---
     ncm = models.CharField(verbose_name="NCM", max_length=10, validators=[validate_ncm], blank=True)

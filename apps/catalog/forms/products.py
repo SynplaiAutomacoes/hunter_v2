@@ -66,7 +66,7 @@ class ProductForm(forms.ModelForm):
             "cost_price": MoneyInput(),
             "selling_price": MoneyInput(),
             # Readonly e disabled para evitar edição manual da margem
-            "profit_margin": PercentageInput(attrs={"readonly": True, "disabled": True}),
+            "profit_margin": PercentageInput(attrs={"readonly": True}),
             "ncm": TextInput(),
             "cest": TextInput(),
             "origin_cst": SelectInput(),
@@ -119,7 +119,7 @@ class ProductForm(forms.ModelForm):
                     Div(
                         Field("cost_price", wrapper_class="col-span-12 lg:col-span-4"),
                         Field("selling_price", wrapper_class="col-span-12 lg:col-span-4"),
-                        Field("profit_margin", wrapper_class="col-span-12 lg:col-span-4"),
+                        Field("profit_margin", wrapper_class="col-span-12 lg:col-span-4", css_class="opacity-50 cursor-not-allowed"),
                         css_class="contents",
                         **{
                             "@input": "calculateMargin()",
@@ -191,13 +191,19 @@ class ProductForm(forms.ModelForm):
                             let cost = getRawValue("id_cost_price_0");
                             let sell = getRawValue("id_selling_price_0");
 
-                            let marginDisplayEl = document.getElementById("id_profit_margin_display");
+                            let marginEl = document.getElementById("id_profit_margin_display");
 
                             if (sell > 0) {
                                 let margin = ((sell - cost) / sell) * 100;
-                                if (marginDisplayEl) marginDisplayEl.value = margin.toFixed(2).replace(".", ",");
+                                if (marginEl) {
+                                    marginEl.value = margin.toFixed(2).replace(".", ",");
+                                    marginEl.dispatchEvent(new Event('input', { bubbles: true }));
+                                }
                             } else {
-                                if (marginDisplayEl) marginDisplayEl.value = "0,00";
+                                if (marginEl) {
+                                    marginEl.value = "0,00";
+                                    marginEl.dispatchEvent(new Event('input', { bubbles: true }));
+                                }
                             }
                         }
                     }"""
