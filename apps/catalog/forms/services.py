@@ -7,7 +7,7 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 
 from apps.catalog.models.services import Service
-from apps.core.widgets import TextInput, MoneyInput, DurationInput, CheckboxInput
+from apps.core.widgets import TextInput, MoneyInput, DurationInput, CheckboxInput, TextareaInput
 from apps.workshops.models.workshops import Workshop
 
 
@@ -21,7 +21,7 @@ class ServiceForm(forms.ModelForm):
             "duration": DurationInput(),
             "selling_price": MoneyInput(),
             "suggested_cost": MoneyInput(),
-            "description": TextInput(),
+            "description": TextareaInput(),
             "is_active": CheckboxInput(),
         }
 

@@ -14,6 +14,7 @@ from apps.core.widgets import (
     SelectInput,
     PercentageInput,
     CheckboxInput,
+    TextareaInput,
 )
 from apps.workshops.models.workshops import Workshop
 
@@ -55,7 +56,7 @@ class ProductForm(forms.ModelForm):
         widgets = {
             "code": TextInput(),
             "name": TextInput(),
-            "description": TextInput(),
+            "description": TextareaInput(),
             "unit": SelectInput(),
             "group": SelectInput(),
             "brand": TextInput(),
@@ -71,7 +72,7 @@ class ProductForm(forms.ModelForm):
             "cest": TextInput(),
             "origin_cst": SelectInput(),
             "purpose": SelectInput(),
-            "application": TextInput(),
+            "application": TextareaInput(),
             "is_active": CheckboxInput(),
         }
 
