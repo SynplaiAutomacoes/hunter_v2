@@ -115,7 +115,7 @@ class ProductForm(forms.ModelForm):
                     Field("is_active", wrapper_class="col-span-12 lg:col-span-1"),
                     HTML('<div class="col-span-12 divider my-1"></div>'),
                     # --- FINANCEIRO ---
-                    HTML('<h3 class="col-span-12 text-lg font-bold mb-2">Financeiro</h3>'),
+                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Financeiro</h3>'),
                     Div(
                         Field("cost_price", wrapper_class="col-span-12 lg:col-span-4"),
                         Div(

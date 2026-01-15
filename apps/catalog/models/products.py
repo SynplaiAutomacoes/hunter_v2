@@ -57,7 +57,7 @@ class Product(TimeStampedModel):
     # --- Dados de Identificação ---
     code = models.CharField(verbose_name="Código", max_length=50)
     name = models.CharField(verbose_name="Produto", max_length=255)
-    description = models.CharField(verbose_name="Descrição", max_length=255)
+    description = models.CharField(verbose_name="Descrição", max_length=255, blank=True)
     unit = models.CharField(verbose_name="Unidade", max_length=5, choices=Unit.choices)
 
     group = models.ForeignKey(CatalogGroup, verbose_name="Grupo", on_delete=models.CASCADE, related_name="products")
@@ -88,7 +88,7 @@ class Product(TimeStampedModel):
 
     # --- Detalhes ---
     image = models.ImageField(verbose_name="Imagem", upload_to="products/", blank=True, null=True)
-    application = models.TextField(verbose_name="Aplicação", blank=True, help_text="Veículos compatíveis")
+    application = models.TextField(verbose_name="Aplicação", blank=True)
 
     is_active = models.BooleanField(verbose_name="Ativo", default=True)
 
