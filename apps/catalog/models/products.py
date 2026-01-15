@@ -42,6 +42,7 @@ class Product(TimeStampedModel):
         NACIONAL_MENOR_40 = 5, "5 - Nacional (Conteúdo Importação <= 40%)"
         ESTRANGEIRA_SEM_SIMILAR = 6, "6 - Estrangeira (Importação direta, sem similar)"
         ESTRANGEIRA_ADQUIRIDA_INTERNO_SEM_SIMILAR = 7, "7 - Estrangeira (Adq. interno, sem similar)"
+        NACIONAL_SUPERIOR_70 = 8, "8 - Nacional (Conteúdo Importação > 70%)"
 
     class Purpose(models.TextChoices):
         RESALE = "REVENDA", "Revenda / Aplicação"
