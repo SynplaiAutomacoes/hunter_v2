@@ -61,12 +61,12 @@ def cep_lookup(request):
                         "id_logradouro": data.get("logradouro", ""),
                         "id_bairro": data.get("bairro", ""),
                         "id_cidade": data.get("localidade", ""),
-                        "readonly": True,
+                        "readonly": False,
                     }
                 )
             else:
-                updates.update({"readonly": True})
+                updates.update({"readonly": False})
         except Exception:
-            updates.update({"readonly": True})
+            updates.update({"readonly": False})
 
     return render(request, "partials/address_fields.html", {"updates": updates})

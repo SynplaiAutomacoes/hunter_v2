@@ -81,10 +81,18 @@ class SupplierForm(forms.ModelForm):
                 HTML('<div class="col-span-12 divider"></div>'),
                 #
                 # Seção: Endereço
-                HTML('<h3 class="col-span-12 text-xl font-bold">Endereço</h3>'),
-                Field("cep", wrapper_class="col-span-12 lg:col-span-4", hx_get=reverse("core:cep_lookup"),
-                      hx_trigger="blur", hx_target="this", hx_swap="none", hx_include="[name='cep']",
-                      hx_indicator="#cep-loader"),
+                HTML("""
+                <div class="col-span-12" style="display: flex; align-items: center; gap: 25px;">
+                    <h3 class="col-span-12 text-xl font-bold">Endereço</h3>
+                    
+                    <h5 id="cep-loader" class="htmx-indicator" style="margin:0;">
+                        <span class="text-lg font-semibold">
+                            (Buscando endereço...)
+                        </span>
+                    </h5>
+                </div>
+                """),
+                Field("cep", wrapper_class="col-span-12 lg:col-span-4", hx_get=reverse("core:cep_lookup"), hx_trigger="blur", hx_target="this", hx_swap="none", hx_include="[name='cep']", hx_indicator="#cep-loader"),
                 Field("logradouro", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("numero", wrapper_class="col-span-12 lg:col-span-4"),
                 #
