@@ -56,7 +56,7 @@ class Product(TimeStampedModel):
 
     # --- Dados de Identificação ---
     code = models.CharField(verbose_name="Código", max_length=50)
-    name = models.CharField(verbose_name="Peça", max_length=255)
+    name = models.CharField(verbose_name="Produto", max_length=255)
     description = models.CharField(verbose_name="Descrição", max_length=255)
     unit = models.CharField(verbose_name="Unidade", max_length=5, choices=Unit.choices)
 
@@ -103,4 +103,4 @@ class Product(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        return f"{self.code} - {self.description}"
+        return f"{self.code} - {self.name}"
