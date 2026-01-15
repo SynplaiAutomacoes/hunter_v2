@@ -63,10 +63,9 @@ class ProductForm(forms.ModelForm):
             "sku": TextInput(),
             "barcode": TextInput(),
             "location": TextInput(),
-            # equivalent_parts: Widget padrão será substituído pela UI customizada
             "cost_price": MoneyInput(),
             "selling_price": MoneyInput(),
-            "profit_margin": PercentageInput(attrs={"readonly": True}),  # Readonly pois é calculado
+            "profit_margin": PercentageInput(attrs={"readonly": True, "disabled": True}),
             "ncm": TextInput(),
             "cest": TextInput(),
             "origin_cst": SelectInput(),
@@ -79,10 +78,8 @@ class ProductForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.workshop = workshop
 
-        # Filtra grupos pela oficina
         if workshop:
             self.fields["group"].queryset = self.fields["group"].queryset.filter(workshop=workshop)
-            # Filtra equivalentes para não mostrar produtos de outras oficinas
             self.fields["equivalent_parts"].queryset = Product.objects.filter(workshop=workshop)
 
             if self.instance.pk:
@@ -96,17 +93,14 @@ class ProductForm(forms.ModelForm):
         cancel_url = reverse("catalog:product_list")
         search_product_url = reverse("catalog:product_search")
 
-        # Dados iniciais para o Alpine de Equivalentes
         initial_equivalents = []
         if self.instance.pk:
             initial_equivalents = [{"id": p.id, "name": str(p)} for p in self.instance.equivalent_parts.all()]
 
-        # Serializa para JSON seguro para o HTML
         equivalents_json = json.dumps(initial_equivalents).replace('"', "&quot;")
 
         return Layout(
             Div(
-                # CORREÇÃO: Passamos a Div interna diretamente (sem 'content=')
                 Div(
                     # --- DADOS GERAIS ---
                     HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Dados Gerais</h3>'),
@@ -121,7 +115,6 @@ class ProductForm(forms.ModelForm):
                     HTML('<div class="col-span-12 divider my-1"></div>'),
                     # --- FINANCEIRO ---
                     HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Financeiro</h3>'),
-                    # x-ref e @input passados via dicionário para preservar os hífens/arrombas
                     Field("cost_price", wrapper_class="col-span-12 lg:col-span-4", **{"x-ref": "cost", "@input": "calculateMargin()"}),
                     Field("selling_price", wrapper_class="col-span-12 lg:col-span-4", **{"x-ref": "sell", "@input": "calculateMargin()"}),
                     Field("profit_margin", wrapper_class="col-span-12 lg:col-span-4", **{"x-ref": "margin"}),
