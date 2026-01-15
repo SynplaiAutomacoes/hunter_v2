@@ -12,6 +12,7 @@
     <!-- input visível (apenas UI) -->
     <input
         type="text"
+        id="{{ widget.attrs.id }}_display"
         x-ref="display"
         @input="handleInput"
         @blur="handleBlur"

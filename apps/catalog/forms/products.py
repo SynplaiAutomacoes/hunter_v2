@@ -65,6 +65,7 @@ class ProductForm(forms.ModelForm):
             "location": TextInput(),
             "cost_price": MoneyInput(),
             "selling_price": MoneyInput(),
+            # Readonly e disabled para evitar edição manual da margem
             "profit_margin": PercentageInput(attrs={"readonly": True, "disabled": True}),
             "ncm": TextInput(),
             "cest": TextInput(),
@@ -114,17 +115,23 @@ class ProductForm(forms.ModelForm):
                     Field("is_active", wrapper_class="col-span-12 lg:col-span-1"),
                     HTML('<div class="col-span-12 divider my-1"></div>'),
                     # --- FINANCEIRO ---
-                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Financeiro</h3>'),
-                    Field("cost_price", wrapper_class="col-span-12 lg:col-span-4", **{"x-ref": "cost", "@input": "calculateMargin()"}),
-                    Field("selling_price", wrapper_class="col-span-12 lg:col-span-4", **{"x-ref": "sell", "@input": "calculateMargin()"}),
-                    Field("profit_margin", wrapper_class="col-span-12 lg:col-span-4", **{"x-ref": "margin"}),
+                    HTML('<h3 class="col-span-12 text-lg font-bold mb-2">Financeiro</h3>'),
+                    Div(
+                        Field("cost_price", wrapper_class="col-span-12 lg:col-span-4"),
+                        Field("selling_price", wrapper_class="col-span-12 lg:col-span-4"),
+                        Field("profit_margin", wrapper_class="col-span-12 lg:col-span-4"),
+                        css_class="contents",
+                        **{
+                            "@input": "calculateMargin()",
+                        },
+                    ),
                     HTML('<div class="col-span-12 divider my-1"></div>'),
                     # --- ESTOQUE E LOGÍSTICA ---
                     HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Estoque e Logística</h3>'),
                     Field("location", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("barcode", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("sku", wrapper_class="col-span-12 lg:col-span-4"),
-                    # --- Peças Equivalentes (Custom UI) ---
+                    # --- Peças Equivalentes ---
                     Div(
                         HTML('<label class="label"><span class="label-text font-bold">Peças Equivalentes</span></label>'),
                         Field("equivalent_search", wrapper_class="w-full", autocomplete="off", placeholder="Digite para buscar produtos...", hx_get=search_product_url, hx_trigger="keyup changed delay:300ms", hx_target="#product-suggestions"),
@@ -175,26 +182,25 @@ class ProductForm(forms.ModelForm):
                 ),
                 **{
                     "x-data": """{
-                    calculateMargin() {
-                        // Tenta pegar o elemento input. 
-                        // Se for um MoneyWidget customizado, pode ser que o valor real esteja num hidden ou precise de tratamento.
-                        // Assumindo input text padrão com máscara ou valor simples:
-                        let costStr = $refs.cost ? $refs.cost.value : '0';
-                        let sellStr = $refs.sell ? $refs.sell.value : '0';
+                        calculateMargin() {
+                            const getRawValue = (fieldId) => {
+                                const el = document.getElementById(fieldId);
+                                return el ? parseFloat(el.value) || 0 : 0;
+                            }
 
-                        // Limpeza básica de moeda PT-BR (remove R$, remove pontos de milhar, troca vírgula por ponto)
-                        let cost = parseFloat(costStr.replace(/[^0-9,.-]+/g,"").replace(".","").replace(",","."));
-                        let sell = parseFloat(sellStr.replace(/[^0-9,.-]+/g,"").replace(".","").replace(",","."));
+                            let cost = getRawValue("id_cost_price_0");
+                            let sell = getRawValue("id_selling_price_0");
 
-                        if (sell > 0 && !isNaN(cost) && !isNaN(sell)) {
-                            let margin = ((sell - cost) / sell) * 100;
-                            // Formata de volta para PT-BR (vírgula decimal)
-                            $refs.margin.value = margin.toFixed(2).replace(".", ",");
-                        } else {
-                            $refs.margin.value = '0,00';
+                            let marginDisplayEl = document.getElementById("id_profit_margin_display");
+
+                            if (sell > 0) {
+                                let margin = ((sell - cost) / sell) * 100;
+                                if (marginDisplayEl) marginDisplayEl.value = margin.toFixed(2).replace(".", ",");
+                            } else {
+                                if (marginDisplayEl) marginDisplayEl.value = "0,00";
+                            }
                         }
-                    }
-                }"""
+                    }"""
                 },
             ),
             HTML('<div class="divider"></div>'),
