@@ -21,7 +21,6 @@ from apps.workshops.models.workshops import Workshop
 
 
 class ProductForm(forms.ModelForm):
-    # Campo auxiliar para busca de equivalentes (não salvo diretamente)
     equivalent_search = forms.CharField(required=False, label="Adicionar Equivalente")
 
     class Meta:
@@ -67,7 +66,6 @@ class ProductForm(forms.ModelForm):
             "location": TextInput(),
             "cost_price": MoneyInput(),
             "selling_price": MoneyInput(),
-            # Readonly e disabled para evitar edição manual da margem
             "profit_margin": PercentageInput(attrs={"readonly": True}),
             "ncm": TextInput(),
             "cest": TextInput(),
@@ -101,7 +99,7 @@ class ProductForm(forms.ModelForm):
         if self.instance.pk:
             initial_equivalents = [{"id": p.id, "name": str(p)} for p in self.instance.equivalent_parts.all()]
 
-        equivalents_json = json.dumps(initial_equivalents).replace('"', "&quot;")
+        equivalents_json = json.dumps(initial_equivalents)
 
         return Layout(
             Div(
@@ -147,38 +145,62 @@ class ProductForm(forms.ModelForm):
                     Field("sku", wrapper_class="col-span-12 lg:col-span-4"),
                     # --- Peças Equivalentes ---
                     Div(
-                        HTML('<label class="label"><span class="label-text font-bold">Peças Equivalentes</span></label>'),
-                        Field("equivalent_search", wrapper_class="w-full", autocomplete="off", placeholder="Digite para buscar produtos...", hx_get=search_product_url, hx_trigger="keyup changed delay:300ms", hx_target="#product-suggestions"),
-                        HTML('<div id="product-suggestions" class="relative"></div>'),
-                        HTML(f"""
-                        <div class="mt-2" 
-                             x-data='{{ 
-                                selecteds: {equivalents_json},
-                                remove(index) {{ this.selecteds.splice(index, 1); }}
-                             }}' 
-                             id="equivalents-manager"
-                             @add-equivalent.window="if(!selecteds.find(i=>i.id==$event.detail.id)) selecteds.push($event.detail)"
-                        >
+                        HTML('<label class="label"><span class="label-text font-bold mb-1">Peças Equivalentes</span></label>'),
+                        Div(
+                            Field(
+                                "equivalent_search",
+                                wrapper_class="w-full",
+                                autocomplete="off",
+                                hx_get=search_product_url,
+                                hx_trigger="keyup changed delay:500ms",
+                                hx_target="#product-suggestions",
+                                hx_swap="innerHTML",
+                                id="equivalent-search-input",
+                                hx_vals=json.dumps({"ignore_id": self.instance.pk}) if self.instance.pk else "{}",
+                            ),
+                            HTML('<div id="product-suggestions" class="absolute z-50 w-full top-full left-0"></div>'),
+                            css_class="relative w-full mb-3",
+                        ),
+                        HTML("""
+                            <ul class="flex flex-col gap-2">
+                                <template x-for="(item, index) in selecteds" :key="item.id">
+                                    <li class="flex gap-2 items-center">
+                                        <div class="p-2 rounded-md w-full flex items-center bg-base-200 text-base-content cursor-default border border-base-300">
+                                            <span x-text="item.name"></span>
+                                        </div>
+
+                                        <button type="button" class="btn btn-square btn-outline btn-error btn-sm" @click="remove(index)" title="Remover">
+                                            <span class="material-icons text-base">delete</span>
+                                        </button>
+                                    </li>
+                                </template>
+
+                                <li x-show="selecteds.length === 0" class="text-sm text-gray-500 italic">
+                                    Nenhuma peça equivalente adicionada.
+                                </li>
+                            </ul>
+                            """),
+                        # Select Oculto para salvar
+                        HTML("""
                             <select name="equivalent_parts" multiple class="hidden">
                                 <template x-for="item in selecteds" :key="item.id">
                                     <option :value="item.id" selected></option>
                                 </template>
                             </select>
-
-                            <div class="flex flex-wrap gap-2">
-                                <template x-for="(item, index) in selecteds" :key="item.id">
-                                    <div class="badge badge-lg gap-2 pl-4 pr-2 py-4 bg-base-200 border-base-300">
-                                        <span x-text="item.name"></span>
-                                        <button type="button" @click="remove(index)" class="btn btn-ghost btn-xs btn-circle text-error">
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                                        </button>
-                                    </div>
-                                </template>
-                                <span x-show="selecteds.length === 0" class="text-sm text-gray-400 italic py-2">Nenhuma equivalência selecionada.</span>
-                            </div>
-                        </div>
-                        """),
-                        css_class="col-span-12 bg-base-100 p-4 rounded-box border border-base-200",
+                            """),
+                        **{
+                            "x-data": f"""{{ selecteds: {equivalents_json},remove(index) {{ this.selecteds.splice(index, 1); }}}}""",
+                            "id": "equivalents-manager",
+                            "@add-equivalent.window": """
+                                if(!selecteds.find(i=>i.id==$event.detail.id)) {
+                                    selecteds.push($event.detail);
+                                    // Limpa input e sugestões
+                                    document.getElementById('equivalent-search-input').value = '';
+                                    document.getElementById('product-suggestions').innerHTML = '';
+                                }
+                            """,
+                        },
+                        css_class="col-span-12 p-4 bg-base-100 border border-base-200 rounded-box",
                     ),
                     HTML('<div class="col-span-12 divider my-1"></div>'),
                     # --- FISCAL ---
@@ -190,7 +212,7 @@ class ProductForm(forms.ModelForm):
                     HTML('<div class="col-span-12 divider my-1"></div>'),
                     # --- DETALHES ---
                     HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Detalhes</h3>'),
-                    Field("image", wrapper_class="col-span-12 lg:col-span-6"),
+                    Field("image", wrapper_class="col-span-12 lg:col-span- 6"),
                     Field("application", wrapper_class="col-span-12"),
                     css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
                 ),

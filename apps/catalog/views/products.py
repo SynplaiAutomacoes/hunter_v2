@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db.models import Q
 from django.http import HttpResponse
 from django.shortcuts import render, redirect
 from django.urls import reverse_lazy
@@ -96,11 +97,16 @@ class ProductSearchSelectView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def get(self, request, *args, **kwargs):
         query = request.GET.get("equivalent_search", "").strip()
+        ignore_id = request.GET.get("ignore_id", "")
 
-        if len(query) < 2:
+        if len(query) < 1:
             return HttpResponse("")
 
-        # Busca produtos (excluindo o próprio se estiver editando seria ideal, mas no front já filtramos visualmente)
-        products = Product.objects.filter(workshop=self.workshop, description__icontains=query).only("id", "description", "code")[:5]
+        products = Product.objects.filter(Q(code__icontains=query) | Q(name__icontains=query) | Q(brand__icontains=query), workshop=self.workshop).only("code", "name", "brand")
+
+        if ignore_id and ignore_id.isdigit():
+            products = products.exclude(id=int(ignore_id))
+
+        products = products.only("code", "name", "brand")[:5]
 
         return render(request, "products/partials/search_suggestions.html", {"products": products})
