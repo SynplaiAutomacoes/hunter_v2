@@ -21,7 +21,7 @@ from apps.workshops.models.workshops import Workshop
 
 
 class ProductForm(forms.ModelForm):
-    equivalent_search = forms.CharField(required=False, label="Adicionar Equivalente")
+    equivalent_search = forms.CharField(required=False, label="Produtos Equivalentes")
 
     class Meta:
         model = Product
@@ -170,7 +170,7 @@ class ProductForm(forms.ModelForm):
                                             <span x-text="item.name"></span>
                                         </div>
 
-                                        <button type="button" class="btn btn-square btn-outline btn-error btn-sm" @click="remove(index)" title="Remover">
+                                        <button type="button" class="btn-table-delete" @click="remove(index)" title="Remover">
                                             <span class="material-icons text-base">delete</span>
                                         </button>
                                     </li>
