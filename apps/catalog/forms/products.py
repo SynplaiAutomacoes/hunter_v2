@@ -149,6 +149,7 @@ class ProductForm(forms.ModelForm):
                         Div(
                             Field(
                                 "equivalent_search",
+                                css_class="input-theme border-none",
                                 wrapper_class="w-full",
                                 autocomplete="off",
                                 hx_get=search_product_url,
@@ -200,7 +201,7 @@ class ProductForm(forms.ModelForm):
                                 }
                             """,
                         },
-                        css_class="col-span-12 p-4 bg-base-100 border border-base-200 rounded-box",
+                        css_class="col-span-12 p-4 bg-base-300 rounded-box",
                     ),
                     HTML('<div class="col-span-12 divider my-1"></div>'),
                     # --- FISCAL ---
