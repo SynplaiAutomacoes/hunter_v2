@@ -261,6 +261,17 @@ class ProductForm(forms.ModelForm):
             ),
         )
 
+    def clean_code(self):
+        code = self.cleaned_data.get("code")
+
+        if code and self.workshop:
+            qs = Product.objects.filter(workshop=self.workshop, code__iexact=code)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+
+            if qs.exists():
+                raise forms.ValidationError("Já existe um produto cadastrado com este código.")
+
     def clean(self):
         cleaned_data = super().clean()
         cost_price = cleaned_data.get("cost_price")
