@@ -145,13 +145,13 @@ class ProductForm(forms.ModelForm):
                     Field("sku", wrapper_class="col-span-12 lg:col-span-4"),
                     # --- Peças Equivalentes ---
                     Div(
-                        HTML('<label class="label"><span class="label-text font-bold mb-1">Peças Equivalentes</span></label>'),
                         Div(
                             Field(
                                 "equivalent_search",
                                 css_class="input-theme border-none",
                                 wrapper_class="w-full",
                                 autocomplete="off",
+                                placeholder="Buscar...",
                                 hx_get=search_product_url,
                                 hx_trigger="keyup changed delay:500ms",
                                 hx_target="#product-suggestions",
