@@ -177,7 +177,7 @@ class ProductForm(forms.ModelForm):
                                 </template>
 
                                 <li x-show="selecteds.length === 0" class="text-sm text-gray-500 italic">
-                                    Nenhuma peça equivalente adicionada.
+                                    Nenhum produto equivalente adicionado.
                                 </li>
                             </ul>
                             """),
