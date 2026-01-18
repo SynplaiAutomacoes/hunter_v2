@@ -272,6 +272,8 @@ class ProductForm(forms.ModelForm):
             if qs.exists():
                 raise forms.ValidationError("Já existe um produto cadastrado com este código.")
 
+        return code
+
     def clean(self):
         cleaned_data = super().clean()
         cost_price = cleaned_data.get("cost_price")
