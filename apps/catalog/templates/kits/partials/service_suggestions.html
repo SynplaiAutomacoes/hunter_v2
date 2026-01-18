@@ -1,0 +1,15 @@
+{% if services %}
+<ul class="menu bg-base-100 w-full rounded-box shadow-lg border border-base-200 mt-1 absolute z-50 max-h-64 overflow-y-auto">
+    {% for service in services %}
+    <li>
+        <button type="button"
+                class="flex flex-col items-start py-2 h-auto"
+                @click="$dispatch('add-kit-service', { id: '{{ service.id }}', name: '{{ service.name|escapejs }}' });">
+            <div class="flex flex-col items-start text-left w-full">
+                <span class="font-bold text-sm">{{ service.name }}</span>
+            </div>
+        </button>
+    </li>
+    {% endfor %}
+</ul>
+{% endif %}

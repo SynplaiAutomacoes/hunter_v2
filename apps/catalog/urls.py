@@ -23,6 +23,15 @@ from apps.catalog.views.products import (
     ProductSearchSelectView,
 )
 
+from apps.catalog.views.kits import (
+    KitListView,
+    KitCreateView,
+    KitUpdateView,
+    KitDeleteView,
+    KitProductSearchView,
+    KitServiceSearchView,
+)
+
 app_name = "catalog"
 
 urlpatterns = [
@@ -40,4 +49,10 @@ urlpatterns = [
     path("products/<int:pk>/edit/", ProductUpdateView.as_view(), name="product_update"),
     path("products/<int:pk>/delete/", ProductDeleteView.as_view(), name="product_delete"),
     path("products/search/", ProductSearchSelectView.as_view(), name="product_search"),
+    path("kits/", KitListView.as_view(), name="kits_list"),
+    path("kits/create/", KitCreateView.as_view(), name="kits_create"),
+    path("kits/<int:pk>/edit/", KitUpdateView.as_view(), name="kits_update"),
+    path("kits/<int:pk>/delete/", KitDeleteView.as_view(), name="kits_delete"),
+    path("kits/products/search/", KitProductSearchView.as_view(), name="kits_product_search"),
+    path("kits/services/search/", KitServiceSearchView.as_view(), name="kits_service_search"),
 ]
