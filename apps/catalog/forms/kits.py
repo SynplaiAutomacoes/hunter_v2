@@ -64,12 +64,10 @@ class KitForm(forms.ModelForm):
                         <div
                             class=\"col-span-12\"
                             x-data=\"kitItemsManager()\"
-                            @add-kit-product.window=\"addProduct($event.detail)\"
-                            @add-kit-service.window=\"addService($event.detail)\"
                         >
                             <div class=\"flex flex-wrap gap-2 mb-3\">
-                                <label for=\"kit-products-modal\" class=\"btn btn-outline btn-sm\">Adicionar Produto</label>
-                                <label for=\"kit-services-modal\" class=\"btn btn-outline btn-sm\">Adicionar Serviço</label>
+                                <label for=\"kit-products-modal\" class=\"btn btn-outline btn-sm\" @click=\"openProductsModal()\">Adicionar Produto</label>
+                                <label for=\"kit-services-modal\" class=\"btn btn-outline btn-sm\" @click=\"openServicesModal()\">Adicionar Serviço</label>
                             </div>
 
                             <div class=\"p-4 bg-base-300 rounded-box mb-4\">
@@ -121,23 +119,30 @@ class KitForm(forms.ModelForm):
                                 <div class=\"modal-box\">
                                     <h3 class=\"text-lg font-bold\">Adicionar Produto</h3>
                                     <div class=\"mt-4\">
-                                        <div class=\"relative\">
-                                            <input
-                                                type=\"text\"
-                                                id=\"kit-product-search-input\"
-                                                name=\"product_search\"
-                                                class=\"input input-bordered w-full\"
-                                                placeholder=\"Buscar produto por código, nome ou marca...\"
-                                                autocomplete=\"off\"
-                                                hx-get=\"{product_search_url}\"
-                                                hx-trigger=\"keyup changed delay:500ms\"
-                                                hx-target=\"#kit-product-suggestions\"
-                                                hx-swap=\"innerHTML\"
-                                            />
-                                            <div id=\"kit-product-suggestions\" class=\"absolute z-50 w-full top-full left-0\"></div>
-                                        </div>
+                                        <input
+                                            type=\"text\"
+                                            id=\"kit-product-search-input\"
+                                            name=\"product_search\"
+                                            class=\"input input-bordered w-full\"
+                                            placeholder=\"Filtrar por código, nome ou marca...\"
+                                            autocomplete=\"off\"
+                                            hx-get=\"{product_search_url}\"
+                                            hx-trigger=\"keyup changed delay:500ms\"
+                                            hx-target=\"#kit-product-items\"
+                                            hx-swap=\"innerHTML\"
+                                        />
+
+                                        <ul
+                                            id=\"kit-product-items\"
+                                            class=\"menu bg-base-100 w-full rounded-box border border-base-200 mt-3 max-h-80 overflow-y-auto\"
+                                            hx-get=\"{product_search_url}\"
+                                            hx-trigger=\"load\"
+                                            hx-target=\"this\"
+                                            hx-swap=\"innerHTML\"
+                                        ></ul>
                                     </div>
                                     <div class=\"modal-action\">
+                                        <button type=\"button\" class=\"btn btn-primary\" @click=\"applySelectedProducts()\">Adicionar</button>
                                         <label for=\"kit-products-modal\" class=\"btn btn-ghost\">Fechar</label>
                                     </div>
                                 </div>
@@ -149,23 +154,30 @@ class KitForm(forms.ModelForm):
                                 <div class=\"modal-box\">
                                     <h3 class=\"text-lg font-bold\">Adicionar Serviço</h3>
                                     <div class=\"mt-4\">
-                                        <div class=\"relative\">
-                                            <input
-                                                type=\"text\"
-                                                id=\"kit-service-search-input\"
-                                                name=\"service_search\"
-                                                class=\"input input-bordered w-full\"
-                                                placeholder=\"Buscar serviço por nome...\"
-                                                autocomplete=\"off\"
-                                                hx-get=\"{service_search_url}\"
-                                                hx-trigger=\"keyup changed delay:500ms\"
-                                                hx-target=\"#kit-service-suggestions\"
-                                                hx-swap=\"innerHTML\"
-                                            />
-                                            <div id=\"kit-service-suggestions\" class=\"absolute z-50 w-full top-full left-0\"></div>
-                                        </div>
+                                        <input
+                                            type=\"text\"
+                                            id=\"kit-service-search-input\"
+                                            name=\"service_search\"
+                                            class=\"input input-bordered w-full\"
+                                            placeholder=\"Filtrar por nome...\"
+                                            autocomplete=\"off\"
+                                            hx-get=\"{service_search_url}\"
+                                            hx-trigger=\"keyup changed delay:500ms\"
+                                            hx-target=\"#kit-service-items\"
+                                            hx-swap=\"innerHTML\"
+                                        />
+
+                                        <ul
+                                            id=\"kit-service-items\"
+                                            class=\"menu bg-base-100 w-full rounded-box border border-base-200 mt-3 max-h-80 overflow-y-auto\"
+                                            hx-get=\"{service_search_url}\"
+                                            hx-trigger=\"load\"
+                                            hx-target=\"this\"
+                                            hx-swap=\"innerHTML\"
+                                        ></ul>
                                     </div>
                                     <div class=\"modal-action\">
+                                        <button type=\"button\" class=\"btn btn-primary\" @click=\"applySelectedServices()\">Adicionar</button>
                                         <label for=\"kit-services-modal\" class=\"btn btn-ghost\">Fechar</label>
                                     </div>
                                 </div>
@@ -178,23 +190,69 @@ class KitForm(forms.ModelForm):
                                 return {{
                                     selectedProducts: {products_json},
                                     selectedServices: {services_json},
+                                    modalSelectedProducts: [],
+                                    modalSelectedServices: [],
+
+                                    openProductsModal() {{
+                                        this.modalSelectedProducts = this.selectedProducts.map(p => ({{ id: p.id, name: p.name }}));
+                                    }},
+                                    openServicesModal() {{
+                                        this.modalSelectedServices = this.selectedServices.map(s => ({{ id: s.id, name: s.name }}));
+                                    }},
+
+                                    toggleModalProduct(item) {{
+                                        const idx = this.modalSelectedProducts.findIndex(i => i.id == item.id);
+                                        if (idx >= 0) {{
+                                            this.modalSelectedProducts.splice(idx, 1);
+                                        }} else {{
+                                            this.modalSelectedProducts.push(item);
+                                        }}
+                                    }},
+                                    toggleModalService(item) {{
+                                        const idx = this.modalSelectedServices.findIndex(i => i.id == item.id);
+                                        if (idx >= 0) {{
+                                            this.modalSelectedServices.splice(idx, 1);
+                                        }} else {{
+                                            this.modalSelectedServices.push(item);
+                                        }}
+                                    }},
+
                                     addProduct(item) {{
                                         if (!this.selectedProducts.find(i => i.id == item.id)) {{
                                             this.selectedProducts.push(item);
                                         }}
-                                        const input = document.getElementById('kit-product-search-input');
-                                        const box = document.getElementById('kit-product-suggestions');
-                                        if (input) input.value = '';
-                                        if (box) box.innerHTML = '';
                                     }},
                                     addService(item) {{
                                         if (!this.selectedServices.find(i => i.id == item.id)) {{
                                             this.selectedServices.push(item);
                                         }}
-                                        const input = document.getElementById('kit-service-search-input');
-                                        const box = document.getElementById('kit-service-suggestions');
+                                    }},
+
+                                    applySelectedProducts() {{
+                                        this.modalSelectedProducts.forEach(p => this.addProduct(p));
+
+                                        const modalToggle = document.getElementById('kit-products-modal');
+                                        if (modalToggle) modalToggle.checked = false;
+
+                                        const input = document.getElementById('kit-product-search-input');
                                         if (input) input.value = '';
-                                        if (box) box.innerHTML = '';
+
+                                        const list = document.getElementById('kit-product-items');
+                                        if (list) list.innerHTML = '';
+                                        if (list && window.htmx) window.htmx.trigger(list, 'load');
+                                    }},
+                                    applySelectedServices() {{
+                                        this.modalSelectedServices.forEach(s => this.addService(s));
+
+                                        const modalToggle = document.getElementById('kit-services-modal');
+                                        if (modalToggle) modalToggle.checked = false;
+
+                                        const input = document.getElementById('kit-service-search-input');
+                                        if (input) input.value = '';
+
+                                        const list = document.getElementById('kit-service-items');
+                                        if (list) list.innerHTML = '';
+                                        if (list && window.htmx) window.htmx.trigger(list, 'load');
                                     }},
                                     removeProduct(index) {{ this.selectedProducts.splice(index, 1); }},
                                     removeService(index) {{ this.selectedServices.splice(index, 1); }},

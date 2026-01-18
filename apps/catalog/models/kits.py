@@ -49,6 +49,7 @@ class Kit(TimeStampedModel):
 class KitProduct(TimeStampedModel):
     kit = models.ForeignKey(Kit, on_delete=models.CASCADE, related_name="kit_products")
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="product_kits")
+    quantity = models.PositiveIntegerField(verbose_name="Quantidade", default=1)
 
     class Meta:
         verbose_name = "Item de Kit (Produto)"
@@ -67,6 +68,7 @@ class KitProduct(TimeStampedModel):
 class KitService(TimeStampedModel):
     kit = models.ForeignKey(Kit, on_delete=models.CASCADE, related_name="kit_services")
     service = models.ForeignKey(Service, on_delete=models.CASCADE, related_name="service_kits")
+    quantity = models.PositiveIntegerField(verbose_name="Quantidade", default=1)
 
     class Meta:
         verbose_name = "Item de Kit (Serviço)"

@@ -1,15 +1,32 @@
-{% if services %}
-<ul class="menu bg-base-100 w-full rounded-box shadow-lg border border-base-200 mt-1 absolute z-50 max-h-64 overflow-y-auto">
-    {% for service in services %}
-    <li>
-        <button type="button"
-                class="flex flex-col items-start py-2 h-auto"
-                @click="$dispatch('add-kit-service', { id: '{{ service.id }}', name: '{{ service.name|escapejs }}' });">
-            <div class="flex flex-col items-start text-left w-full">
-                <span class="font-bold text-sm">{{ service.name }}</span>
-            </div>
-        </button>
-    </li>
-    {% endfor %}
-</ul>
+{% for service in services %}
+<li class="px-2">
+    <label class="flex items-start gap-3 py-2 cursor-pointer">
+        <input
+            type="checkbox"
+            class="checkbox checkbox-sm mt-1"
+            :checked="modalSelectedServices.some(i => i.id == '{{ service.id }}')"
+            @change="toggleModalService({ id: '{{ service.id }}', name: '{{ service.name|escapejs }}' })"
+        />
+
+        <div class="flex flex-col items-start text-left w-full">
+            <span class="font-bold text-sm">{{ service.name }}</span>
+        </div>
+    </label>
+</li>
+{% empty %}
+<li class="px-3 py-2 text-sm text-gray-500 italic">Nenhum serviço encontrado.</li>
+{% endfor %}
+
+{% if page_obj.has_next %}
+<li id="kit-service-load-more" class="px-2 py-2">
+    <button
+        type="button"
+        class="btn btn-ghost btn-sm w-full"
+        hx-get="{% url 'catalog:kits_service_search' %}?page={{ page_obj.next_page_number }}&service_search={{ query|urlencode }}"
+        hx-target="#kit-service-load-more"
+        hx-swap="outerHTML"
+    >
+        Carregar mais
+    </button>
+</li>
 {% endif %}

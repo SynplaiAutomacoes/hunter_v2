@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.paginator import Paginator
 from django.db.models import Q
-from django.http import HttpResponse
 from django.shortcuts import render
 from django.urls import reverse_lazy
 from django.views import View
@@ -77,34 +77,60 @@ class KitDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResponseM
 
 
 class KitProductSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
-    """View HTMX para buscar produtos e retornar opções clicáveis para o modal do Kit."""
+    """View HTMX para listar/buscar produtos e retornar opções com checkbox para o modal do Kit."""
 
     model = Product
     workshop_permission_codename = "view_product"
 
     def get(self, request, *args, **kwargs):
         query = request.GET.get("product_search", "").strip()
-        if len(query) < 1:
-            return HttpResponse("")
+        page = request.GET.get("page", "1")
 
-        products = Product.objects.filter(
-            Q(code__icontains=query) | Q(name__icontains=query) | Q(brand__icontains=query),
-            workshop=self.workshop,
-        ).only("code", "name", "brand")[:5]
+        qs = Product.objects.filter(workshop=self.workshop, is_active=True)
+        if query:
+            qs = qs.filter(Q(code__icontains=query) | Q(name__icontains=query) | Q(brand__icontains=query))
 
-        return render(request, "kits/partials/product_suggestions.html", {"products": products})
+        qs = qs.order_by("name").only("id", "code", "name", "brand")
+
+        paginator = Paginator(qs, 50)
+        page_obj = paginator.get_page(page)
+
+        return render(
+            request,
+            "kits/partials/product_suggestions.html",
+            {
+                "products": page_obj.object_list,
+                "page_obj": page_obj,
+                "query": query,
+            },
+        )
 
 
 class KitServiceSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
-    """View HTMX para buscar serviços e retornar opções clicáveis para o modal do Kit."""
+    """View HTMX para listar/buscar serviços e retornar opções com checkbox para o modal do Kit."""
 
     model = Service
     workshop_permission_codename = "view_service"
 
     def get(self, request, *args, **kwargs):
         query = request.GET.get("service_search", "").strip()
-        if len(query) < 1:
-            return HttpResponse("")
+        page = request.GET.get("page", "1")
 
-        services = Service.objects.filter(workshop=self.workshop, name__icontains=query).only("name")[:5]
-        return render(request, "kits/partials/service_suggestions.html", {"services": services})
+        qs = Service.objects.filter(workshop=self.workshop, is_active=True)
+        if query:
+            qs = qs.filter(name__icontains=query)
+
+        qs = qs.order_by("name").only("id", "name")
+
+        paginator = Paginator(qs, 50)
+        page_obj = paginator.get_page(page)
+
+        return render(
+            request,
+            "kits/partials/service_suggestions.html",
+            {
+                "services": page_obj.object_list,
+                "page_obj": page_obj,
+                "query": query,
+            },
+        )
