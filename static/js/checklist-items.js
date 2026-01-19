@@ -7,5 +7,4 @@ window.reorderRows = function() {
     });
 }
 
-// Executar ao carregar a página para numerar os itens vindos do banco
 document.addEventListener('DOMContentLoaded', reorderRows);

@@ -27,21 +27,21 @@ class ChecklistForm(forms.ModelForm):
 
         cancel_url = reverse("checklist:checklist_list")
 
-        agrupamento = TextInput(attrs={"id": "novo-agrupamento", "list": "agrupamentos-sugestoes", "class":"col-span-12 lg:col-span-4"}).render("agrupamento_input", "")
-        item = TextInput(attrs={"id": "novo-item-descricao", "class":"col-span-12 lg:col-span-4"}).render("item_input", "")
-        tipo_resposta = SelectInput(choices=ChecklistItem.TIPO_RESPOSTA_CHOICES, attrs={"id": "novo-tipo-resposta", "class":"col-span-12 lg:col-span-4"}).render("tipo_resposta_select", "")
+        agrupamento_widget = TextInput(attrs={"id": "novo-agrupamento", "list": "agrupamentos-sugestoes", "class":"col-span-12 lg:col-span-4"}).render("agrupamento_input", "")
+        item_widget = TextInput(attrs={"id": "novo-item-descricao", "class":"col-span-12 lg:col-span-4"}).render("item_input", "")
+        tipo_resposta_widget = SelectInput(choices=ChecklistItem.TIPO_RESPOSTA_CHOICES, attrs={"id": "novo-tipo-resposta", "class":"col-span-12 lg:col-span-4"}).render("tipo_resposta_select", "")
 
         existing_items_html = ""
         if self.instance and self.instance.pk:
             items = self.instance.items.all().order_by("order")
-            for item in items:
+            for obj in items:
                 existing_items_html += render_to_string(
                     "checklists/partials/item_row.html",
                     {
-                        "group": item.group,
-                        "description": item.description,
-                        "response_type": item.response_type,
-                        "response_type_display": item.get_response_type_display(),
+                        "group": obj.group,
+                        "description": obj.description,
+                        "response_type": obj.response_type,
+                        "response_type_display": obj.get_response_type_display(),
                     },
                 )
 
@@ -55,19 +55,19 @@ class ChecklistForm(forms.ModelForm):
                         # Agrupamento
                         Div(
                             HTML('<label class="label"><span class="label-text font-bold">Agrupamento</span></label>'),
-                            HTML(agrupamento),
+                            HTML(agrupamento_widget),
                             HTML('<datalist id="agrupamentos-sugestoes"></datalist>'),
                             css_class="col-span-12 lg:col-span-3",
                         ),
                         # Item
                         Div(
                             HTML('<label class="label"><span class="label-text font-bold">Item</span></label>'),
-                            HTML(item),
+                            HTML(item_widget),
                             css_class="col-span-12 lg:col-span-3",
                         ),
                         # Tipo de Resposta
                         Div(HTML('<label class="label"><span class="label-text font-bold">Tipo de Resposta</span></label>'),
-                            HTML(tipo_resposta),
+                            HTML(tipo_resposta_widget),
                             css_class="col-span-12 lg:col-span-3"),
 
                         # Botão Adicionar
