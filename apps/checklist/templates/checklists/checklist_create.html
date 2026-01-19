@@ -1,5 +1,11 @@
 {% extends 'crud/form_page.html' %}
+{% load static %}
 
 {% block crud_title %}Novo Checklist{% endblock %}
 {% block crud_subtitle %}Defina o modelo de inspeção.{% endblock %}
 {% block crud_back_url %}{% url 'checklist:checklist_list' %}{% endblock %}
+
+{% block content %}
+    {{ block.super }}
+    <script src="{% static 'js/checklist-items.js' %}"></script>
+{% endblock %}

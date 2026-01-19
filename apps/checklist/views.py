@@ -1,11 +1,14 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse_lazy
 from django.views.generic import DeleteView, ListView
-from .models import Checklist
+from .models import Checklist, ChecklistItem
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
+from django.db import transaction
+from django.views.generic import CreateView, UpdateView
+from .forms import ChecklistForm
 
 class ChecklistListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = Checklist
@@ -26,12 +29,6 @@ class ChecklistListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRes
         return context
 
 
-from django.db import transaction
-from django.views.generic import CreateView, UpdateView
-from .models import Checklist, ChecklistItem
-from .forms import ChecklistForm
-
-
 class ChecklistCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
     model = Checklist
     form_class = ChecklistForm
@@ -43,7 +40,6 @@ class ChecklistCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
             form.instance.workshop = self.workshop
             response = super().form_valid(form)
 
-            # Processa itens dinâmicos
             agrupamentos = self.request.POST.getlist("agrupamento")
             descricoes = self.request.POST.getlist("descricao")
             tipos = self.request.POST.getlist("tipo_resposta")

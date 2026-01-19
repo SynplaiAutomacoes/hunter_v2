@@ -75,7 +75,7 @@ class ChecklistForm(forms.ModelForm):
                                 <thead>
                                     <tr>
                                         <th class="w-16">Seq.</th>
-                                        <th>Item</th>
+                                        <th>Agrupamento / Item</th>
                                         <th>Tipo de Resposta</th>
                                         <th class="w-20">Ações</th>
                                     </tr>
@@ -93,16 +93,4 @@ class ChecklistForm(forms.ModelForm):
                 Submit("submit", "Salvar", css_class="btn-form-save"),
                 css_class="flex items-center justify-end gap-2",
             ),
-            HTML(self._get_initial_data_script()),
         )
-
-    def _get_initial_data_script(self):
-        """Prepara os dados existentes para o JavaScript em caso de edição"""
-        import json
-
-        items_data = []
-        if self.instance.pk:
-            for item in self.instance.items.all():
-                items_data.append({"agrupamento": item.group, "descricao": item.description, "tipo_resposta": item.response_type, "tipo_texto": item.get_response_type_display()})
-
-        return f'<script id="initial-items" type="application/json">{json.dumps(items_data)}</script>'
