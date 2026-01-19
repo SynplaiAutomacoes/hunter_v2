@@ -1,0 +1,15 @@
+<tr class="hover:bg-base-200 transition-colors">
+    <input type="hidden" name="agrupamento" value="{{ group }}">
+    <input type="hidden" name="descricao" value="{{ description }}">
+    <input type="hidden" name="tipo_resposta" value="{{ response_type }}">
+
+    <td class="font-mono text-xs row-index">#</td>
+    <td class="font-mono text-xs">{{ group|default:"Sem Grupo" }} / {{ description }}</td>
+    <td class="font-mono text-xs">{{ response_type_display }}</td>
+    <td>
+        <button type="button" class="btn btn-ghost btn-xs text-error"
+                onclick="this.closest('tr').remove(); reorderRows();">
+            Remover
+        </button>
+    </td>
+</tr>

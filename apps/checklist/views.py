@@ -9,6 +9,7 @@ from apps.core.templatetags.table_tags import TableColumn
 from django.db import transaction
 from django.views.generic import CreateView, UpdateView
 from .forms import ChecklistForm
+from django.shortcuts import render
 
 class ChecklistListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = Checklist
@@ -76,3 +77,19 @@ class ChecklistDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteRes
     success_url = reverse_lazy("checklist:checklist_list")
     htmx_template_name = "checklists/partials/checklist_delete_modal.html"
     htmx_trigger = "checklists-table-refresh"
+
+
+def add_checklist_item_row(request):
+    group = request.POST.get("agrupamento_input")
+    description = request.POST.get("item_input")
+    response_type = request.POST.get("tipo_resposta_select")
+    response_type_display = dict(ChecklistItem.TIPO_RESPOSTA_CHOICES).get(response_type)
+
+    context = {
+        "group": group,
+        "description": description,
+        "response_type": response_type,
+        "response_type_display": response_type_display,
+    }
+
+    return render(request, "checklists/partials/item_row.html", context)

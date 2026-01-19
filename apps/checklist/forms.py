@@ -1,6 +1,7 @@
 from django import forms
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, HTML, Submit, Button
+from django.template.loader import render_to_string
 from django.urls import reverse
 from .models import Checklist, ChecklistItem
 from apps.core.widgets import TextInput, SelectInput
@@ -33,17 +34,16 @@ class ChecklistForm(forms.ModelForm):
         existing_items_html = ""
         if self.instance and self.instance.pk:
             items = self.instance.items.all().order_by("order")
-            for index, item in enumerate(items, start=1):
-                existing_items_html += f"""
-                        <tr class="hover:bg-base-200 transition-colors">
-                            <input type="hidden" name="agrupamento" value="{item.group}">
-                            <input type="hidden" name="descricao" value="{item.description}">
-                            <input type="hidden" name="tipo_resposta" value="{item.response_type}">
-                            <td class="font-mono text-xs">{index}</td>
-                            <td class="font-mono text-xs">{item.group or "Sem Grupo"} / {item.description}</td>
-                            <td class="font-mono text-xs">{item.get_response_type_display()}</td>
-                            <td><button type="button" class="btn btn-ghost btn-xs text-error btn-remove" onclick="this.closest('tr').remove(); reorderRows();">Remover</button></td>
-                        </tr>"""
+            for item in items:
+                existing_items_html += render_to_string(
+                    "checklists/partials/item_row.html",
+                    {
+                        "group": item.group,
+                        "description": item.description,
+                        "response_type": item.response_type,
+                        "response_type_display": item.get_response_type_display(),
+                    },
+                )
 
         self.helper.layout = Layout(
             Div(
@@ -73,7 +73,11 @@ class ChecklistForm(forms.ModelForm):
                         # Botão Adicionar
                         Div(
                             HTML('<label class="label"><span class="label-text opacity-0">Ação</span></label>'),
-                            Button("add", "Adicionar", css_id="btn-add-item", css_class="btn btn-primary w-full"),
+                            Button("add", "Adicionar", css_id="btn-add-item", css_class="btn btn-primary w-full",
+                                hx_post=reverse("checklist:add_item_row"), hx_target="#itens-tabela-body", hx_swap="beforeend",
+                                hx_include="#novo-agrupamento, #novo-item-descricao, #novo-tipo-resposta",
+                                onclick="setTimeout(() => { reorderRows(); document.getElementById('novo-item-descricao').value = ''; }, 100)"
+                            ),
                             css_class="col-span-12 lg:col-span-3",
                         ),
                         css_class="grid grid-cols-12 gap-4 w-full items-end",

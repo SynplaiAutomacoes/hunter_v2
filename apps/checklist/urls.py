@@ -4,6 +4,7 @@ from .views import (
     ChecklistCreateView,
     ChecklistUpdateView,
     ChecklistDeleteView,
+    add_checklist_item_row,
 )
 
 app_name = "checklist"
@@ -13,4 +14,5 @@ urlpatterns = [
     path("create/", ChecklistCreateView.as_view(), name="checklist_create"),
     path("<int:pk>/edit/", ChecklistUpdateView.as_view(), name="checklist_update"),
     path("<int:pk>/delete/", ChecklistDeleteView.as_view(), name="checklist_delete"),
+    path("add_item_row/", add_checklist_item_row, name="add_item_row"),
 ]
