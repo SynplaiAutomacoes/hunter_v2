@@ -30,6 +30,21 @@ class ChecklistForm(forms.ModelForm):
         item = TextInput(attrs={"id": "novo-item-descricao", "class":"col-span-12 lg:col-span-4"}).render("item_input", "")
         tipo_resposta = SelectInput(choices=ChecklistItem.TIPO_RESPOSTA_CHOICES, attrs={"id": "novo-tipo-resposta", "class":"col-span-12 lg:col-span-4"}).render("tipo_resposta_select", "")
 
+        existing_items_html = ""
+        if self.instance and self.instance.pk:
+            items = self.instance.items.all().order_by("order")
+            for index, item in enumerate(items, start=1):
+                existing_items_html += f"""
+                        <tr class="hover:bg-base-200 transition-colors">
+                            <input type="hidden" name="agrupamento" value="{item.group}">
+                            <input type="hidden" name="descricao" value="{item.description}">
+                            <input type="hidden" name="tipo_resposta" value="{item.response_type}">
+                            <td class="font-mono text-xs">{index}</td>
+                            <td class="font-mono text-xs">{item.group or "Sem Grupo"} / {item.description}</td>
+                            <td class="font-mono text-xs">{item.get_response_type_display()}</td>
+                            <td><button type="button" class="btn btn-ghost btn-xs text-error btn-remove" onclick="this.closest('tr').remove(); reorderRows();">Remover</button></td>
+                        </tr>"""
+
         self.helper.layout = Layout(
             Div(
                 Field("name", wrapper_class="col-span-12 lg:col-span-4"),
@@ -69,7 +84,7 @@ class ChecklistForm(forms.ModelForm):
                 HTML('<h2 class="text-xl font-bold" style="margin-top:6vh;">Itens do Checklist</h2>'),
                 HTML('<div class="divider"></div>'),
                 #
-                HTML("""
+                HTML(f"""
                         <div class="overflow-x-auto col-span-12">
                             <table class="table w-full">
                                 <thead>
@@ -80,7 +95,7 @@ class ChecklistForm(forms.ModelForm):
                                         <th class="w-20">Ações</th>
                                     </tr>
                                 </thead>
-                                <tbody id="itens-tabela-body"></tbody>
+                            <tbody id="itens-tabela-body">{existing_items_html}</tbody>
                             </table>
                         </div>
                     """),
