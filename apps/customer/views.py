@@ -64,4 +64,4 @@ class CustomerDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResp
     success_url = reverse_lazy("customer:customer_list")
 
     htmx_template_name = "customer/partials/customer_delete_modal.html"
-    htmx_trigger = "customers-table-refresh"
+    htmx_trigger = "customer-table-refresh"
