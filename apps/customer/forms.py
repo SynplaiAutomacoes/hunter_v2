@@ -4,8 +4,7 @@ from crispy_forms.layout import Layout, Div, Field, HTML, Submit
 from django.urls import reverse
 
 from .models import Customer
-from apps.core.widgets import CPForCNPJInput, CalendarDateInput, TextInput, SelectInput, RGInput, PhoneInput, EmailInput, \
-    CheckboxInput
+from apps.core.widgets import CPForCNPJInput, CalendarDateInput, TextInput, SelectInput, RGInput, PhoneInput, EmailInput, CheckboxInput, CEPInput
 from ..workshops.models.workshops import Workshop
 
 
@@ -22,6 +21,13 @@ class CustomerForm(forms.ModelForm):
             "phone",
             "email",
             "is_active",
+            "cep",
+            "logradouro",
+            "numero",
+            "complemento",
+            "bairro",
+            "cidade",
+            "estado",
         ]
         widgets = {
             "cpf": CPForCNPJInput(mode="cpf"),
@@ -32,6 +38,13 @@ class CustomerForm(forms.ModelForm):
             "phone": PhoneInput(),
             "email": EmailInput(),
             "is_active": CheckboxInput(),
+            "cep": CEPInput(),
+            "logradouro": TextInput(),
+            "numero": TextInput(),
+            "complemento": TextInput(),
+            "bairro": TextInput(),
+            "cidade": TextInput(),
+            "estado": SelectInput(attrs={"class": "form-control"}),
         }
 
     def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
@@ -102,17 +115,30 @@ class CustomerForm(forms.ModelForm):
     def clean(self):
         cleaned_data = super().clean()
         cpf = cleaned_data.get("cpf")
+        rg = cleaned_data.get("rg")
 
-        # Só validamos se tivermos o CPF e a workshop disponível
-        if cpf and self.workshop:
-            queryset = Customer.objects.filter(workshop=self.workshop, cpf=cpf)
+        # Só validamos se tivermos a workshop disponível
+        if self.workshop:
+            if rg:
+                queryset = Customer.objects.filter(workshop=self.workshop, rg=rg)
 
-            # Se for edição (update), ignoramos o próprio objeto
-            if self.instance.pk:
-                queryset = queryset.exclude(pk=self.instance.pk)
+                # Se for edição (update), ignoramos o próprio objeto
+                if self.instance.pk:
+                    queryset = queryset.exclude(pk=self.instance.pk)
 
-            if queryset.exists():
-                # Adiciona o erro especificamente no campo CPF
-                self.add_error("cpf", "Já existe um cliente cadastrado com este CPF nesta oficina.")
+                if queryset.exists():
+                    # Adiciona o erro especificamente no campo RG
+                    self.add_error("rg", "Já existe um cliente cadastrado com este RG nesta oficina.")
+
+            elif cpf:
+                queryset = Customer.objects.filter(workshop=self.workshop, cpf=cpf)
+
+                # Se for edição (update), ignoramos o próprio objeto
+                if self.instance.pk:
+                    queryset = queryset.exclude(pk=self.instance.pk)
+
+                if queryset.exists():
+                    # Adiciona o erro especificamente no campo CPF
+                    self.add_error("cpf", "Já existe um cliente cadastrado com este CPF nesta oficina.")
 
         return cleaned_data

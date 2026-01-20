@@ -10,7 +10,7 @@ class Customer(TimeStampedModel, Address):
     workshop = models.ForeignKey(
         "workshops.Workshop", on_delete=models.CASCADE, related_name="customers"
     )
-    name = models.CharField("Nome", max_length=255)
+    name = models.CharField("Nome", max_length=255, null=False, blank=False)
     cpf = BRCPFField(verbose_name="CPF", null=False, blank=False)
     # TODO: Create specific field for RG
     rg = models.CharField(verbose_name="RG", max_length=9, blank=True, null=True)
