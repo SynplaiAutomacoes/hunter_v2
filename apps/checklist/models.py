@@ -4,7 +4,7 @@ from apps.core.models import TimeStampedModel
 
 class Checklist(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="checklists")
-    name = models.CharField("Nome do Checklist", max_length=255)
+    name = models.CharField(verbose_name="Nome do Checklist", max_length=255)
 
     class Meta:
         verbose_name = "Checklist"
@@ -24,9 +24,9 @@ class ChecklistItem(models.Model):
     ]
 
     checklist = models.ForeignKey(Checklist, on_delete=models.CASCADE, related_name="items")
-    group = models.CharField("Agrupamento", max_length=100, blank=True)
-    description = models.CharField("Descrição", max_length=500)
-    response_type = models.CharField("Tipo de Resposta", max_length=30, choices=TIPO_RESPOSTA_CHOICES)
+    group = models.CharField(verbose_name="Agrupamento", max_length=100, blank=True)
+    description = models.CharField(verbose_name="Descrição", max_length=500)
+    response_type = models.CharField(verbose_name="Tipo de Resposta", max_length=30, choices=TIPO_RESPOSTA_CHOICES)
     order = models.PositiveIntegerField(default=0)
 
     class Meta:
