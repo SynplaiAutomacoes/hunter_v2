@@ -11,7 +11,6 @@ from ..workshops.models.workshops import Workshop
 class CustomerForm(forms.ModelForm):
     class Meta:
         model = Customer
-        exclude = ["workshop", "criado_em", "atualizado_em"]
         fields = [
             "cpf",
             "name",

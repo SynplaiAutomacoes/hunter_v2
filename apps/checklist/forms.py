@@ -11,7 +11,6 @@ from ..workshops.models.workshops import Workshop
 class ChecklistForm(forms.ModelForm):
     class Meta:
         model = Checklist
-        exclude = ["workshop", "criado_em", "atualizado_em"]
         fields = [
             "name"
         ]

@@ -12,7 +12,6 @@ from apps.workshops.models.workshops import Workshop
 class SupplierForm(forms.ModelForm):
     class Meta:
         model = Supplier
-        exclude = ["workshop", "criado_em", "atualizado_em"]
         fields = [
             "cnpj",
             "name",
