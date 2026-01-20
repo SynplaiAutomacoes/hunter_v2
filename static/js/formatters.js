@@ -393,12 +393,12 @@
                 rawValue: raw ?? '',
                 init() {
                     const formatted = cep.format(this.rawValue);
-                    this.$refs.value.value = cep.normalize(this.rawValue);;
+                    this.$refs.value.value = formatted;
                     this.$refs.display.value = formatted;
                 },
                 handleInput(e) {
                     const formatted = cep.format(e.target.value);
-                    this.$refs.value.value = cep.normalize(e.target.value);
+                    this.$refs.value.value = formatted;
                     e.target.value = formatted;
                 },
             };
