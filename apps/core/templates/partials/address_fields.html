@@ -1,0 +1,15 @@
+{% for field_id, value in updates.items %}
+    {% if field_id != 'readonly' %}
+    <input type="text"
+           name="{{ field_id|cut:'id_' }}"
+           id="{{ field_id }}"
+           value="{{ value }}"
+           autocomplete="off"
+           hx-swap-oob="true"
+           class="input-theme"
+           {% if updates.readonly %}
+                readonly
+                style="cursor: not-allowed;"
+           {% endif %}>
+    {% endif %}
+{% endfor %}
