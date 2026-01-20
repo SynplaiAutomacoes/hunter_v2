@@ -1,0 +1,11 @@
+{% extends 'crud/list_page.html' %}
+{% block crud_title %}Checklists{% endblock %}
+{% block crud_header_actions %}
+    <a href="{% url 'checklist:checklist_create' %}" class="btn btn-primary">Novo Checklist</a>
+{% endblock %}
+{% block crud_table_wrapper_id %}checklists-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'checklist:checklist_list' %}{% endblock %}
+{% block crud_table_hx_trigger %}checklists-table-refresh from:body{% endblock %}
+{% block crud_table %}
+    {% include 'checklists/partials/checklist_table.html' %}
+{% endblock %}
