@@ -28,4 +28,5 @@ urlpatterns = [
     path("collaborators/", include("apps.collaborators.urls")),
     path("catalog/", include("apps.catalog.urls")),
     path("quote/", include("apps.quote.urls")),
+    path("customer/", include("apps.customer.urls")),
 ]
