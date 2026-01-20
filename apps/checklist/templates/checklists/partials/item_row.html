@@ -4,7 +4,8 @@
     <input type="hidden" name="tipo_resposta" value="{{ response_type }}">
 
     <td class="font-mono text-xs row-index">#</td>
-    <td class="font-mono text-xs">{{ group|default:"Sem Grupo" }} / {{ description }}</td>
+    <td class="font-mono text-xs">{{ group|default:"Sem Grupo" }}</td>
+    <td class="font-mono text-xs">{{ description }}</td>
     <td class="font-mono text-xs">{{ response_type_display }}</td>
     <!-- Botão de Remover -->
     <td>

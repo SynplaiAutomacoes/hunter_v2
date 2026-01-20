@@ -94,7 +94,8 @@ class ChecklistForm(forms.ModelForm):
                                 <thead>
                                     <tr>
                                         <th class="w-16">Seq.</th>
-                                        <th>Agrupamento / Item</th>
+                                        <th>Agrupamento</th>
+                                        <th>Item</th>
                                         <th>Tipo de Resposta</th>
                                         <th class="w-20">Ações</th>
                                     </tr>
