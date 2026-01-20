@@ -1,0 +1,16 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Clientes{% endblock %}
+{% block crud_subtitle %}Clientes cadastrados na oficina ativa.{% endblock %}
+
+{% block crud_header_actions %}
+    <a href="{% url 'customers:customer_create' %}" class="btn btn-primary">Criar Cliente</a>
+{% endblock %}
+
+{% block crud_table_wrapper_id %}customer-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'customer:customer_list' %}{% endblock %}
+{% block crud_table_hx_trigger %}customer-table-refresh from:body{% endblock %}
+
+{% block crud_table %}
+    {% include 'customer/partials/customer_table.html' %}
+{% endblock %}
