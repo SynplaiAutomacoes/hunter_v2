@@ -1,6 +1,6 @@
 from django.shortcuts import render
 from django.urls import reverse_lazy
-from django.views.generic import ListView, CreateView, UpdateView, DeleteView
+from django.views.generic import ListView, CreateView, UpdateView, DeleteView, TemplateView
 from django.contrib.auth.mixins import LoginRequiredMixin
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin
@@ -116,14 +116,18 @@ class CustomerDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResp
     htmx_trigger = "customer-table-refresh"
 
 
-def add_vehicle_form(request):
-    """Retorna um formulário de veículo vazio usando o prefixo correto do FormSet."""
-    index = request.GET.get("index")
+class AddVehicleFormView(LoginRequiredMixin, TemplateView):
+    template_name = "customer/partials/vehicle_form_line.html"
 
-    formset = VehicleFormSet(queryset=Vehicle.objects.none(), prefix="vehicles")
-    form = formset.empty_form
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        index = self.request.GET.get("index")
 
-    if index is not None:
-        form.prefix = form.prefix.replace("__prefix__", str(index))
+        formset = VehicleFormSet(queryset=Vehicle.objects.none(), prefix="vehicles")
+        form = formset.empty_form
 
-    return render(request, "customer/partials/vehicle_form_line.html", {"v_form": form})
+        if index is not None:
+            form.prefix = form.prefix.replace("__prefix__", str(index))
+
+        context["v_form"] = form
+        return context
