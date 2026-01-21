@@ -28,8 +28,8 @@ VehicleFormSet = inlineformset_factory(
         "chassi",
         "km",
     ],
-    extra=1,
-    can_delete=False,
+    extra=0,
+    can_delete=True,
     widgets = {
         "plate": TextInput(),
         "brand": TextInput(),
@@ -114,11 +114,15 @@ class CustomerForm(AddressFormMixin, forms.ModelForm):
                 Div(
                     Div(
                         HTML('<h3 class="text-xl font-bold">Veículos</h3>'),
-                        Button(name="add_vehicle", value="+ Adicionar Veículo", css_class="btn-form-save",
+                        Button(
+                            name="add_vehicle",
+                            value="+ Adicionar Veículo",
+                            css_class="btn-form-save",
                             hx_get=add_vehicle_url,
                             hx_target="#vehicle-list",
                             hx_swap="beforeend",
                             hx_vals='js:{index: document.querySelectorAll(".vehicle-item").length}',
+                            hx_on="htmx:afterOnLoad: document.getElementById('id_vehicles-TOTAL_FORMS').value = document.querySelectorAll('.vehicle-item').length",
                         ),
                         css_class="flex items-center justify-between mb-4 border-b pb-2",
                     ),
