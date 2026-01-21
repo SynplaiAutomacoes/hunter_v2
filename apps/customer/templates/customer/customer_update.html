@@ -1,19 +1,5 @@
 {% extends 'crud/form_page.html' %}
-{% load static %}
 
 {% block crud_title %}Editar cliente{% endblock %}
 {% block crud_subtitle %}Edição do cliente.{% endblock %}
 {% block crud_back_url %}{% url 'customer:customer_list' %}{% endblock %}
-
-{% block content %}
-    {{ block.super }}
-    <script>
-        document.body.addEventListener('htmx:afterSwap', (event) => {
-            if (event.detail.target.id === "vehicle-list") {
-                const totalForms = document.getElementById('id_vehicles-TOTAL_FORMS');
-                const count = document.querySelectorAll('.vehicle-item').length;
-                totalForms.value = count;
-            }
-        });
-    </script>
-{% endblock %}

@@ -1,4 +1,20 @@
-{{ vehicles.management_form }}
-{% for v_form in vehicles %}
-    {% include "customer/partials/vehicle_form_line.html" with v_form=v_form %}
-{% endfor %}
+<div x-data="{ 
+    totalForms: {{ vehicles.management_form.TOTAL_FORMS.value }} 
+}" 
+x-on:htmx:after-swap.window="if($event.detail.target.id === 'vehicle-list') totalForms = document.querySelectorAll('.vehicle-item').length">
+    
+    <input type="hidden" 
+           name="vehicles-TOTAL_FORMS" 
+           id="id_vehicles-TOTAL_FORMS" 
+           :value="totalForms">
+    
+    {{ vehicles.management_form.INITIAL_FORMS }}
+    {{ vehicles.management_form.MIN_NUM_FORMS }}
+    {{ vehicles.management_form.MAX_NUM_FORMS }}
+
+    <div id="vehicle-list" class="space-y-4">
+        {% for v_form in vehicles %}
+            {% include "customer/partials/vehicle_form_line.html" with v_form=v_form %}
+        {% endfor %}
+    </div>
+</div>

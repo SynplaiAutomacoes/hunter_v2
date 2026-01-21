@@ -55,6 +55,7 @@
                             } else {
                                 item.remove();
                             }
+                            $dispatch('htmx:after-swap', { detail: { target: { id: 'vehicle-list' } } });
                             document.getElementById('{{ modal_id }}').checked = false;
                         ">
                     Confirmar Remoção
