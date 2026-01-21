@@ -113,10 +113,12 @@ class CustomerDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResp
 
 def add_vehicle_form(request):
     """Retorna um formulário de veículo vazio usando o prefixo correto do FormSet."""
-    index = request.GET.get("index", 0)
+    index = request.GET.get("index")
 
     formset = VehicleFormSet(queryset=Vehicle.objects.none(), prefix="vehicles")
     form = formset.empty_form
-    form.prefix = f"vehicles-{index}"
+
+    if index is not None:
+        form.prefix = form.prefix.replace("__prefix__", str(index))
 
     return render(request, "customer/partials/vehicle_form_line.html", {"v_form": form})
