@@ -78,6 +78,31 @@ class CustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         kwargs["workshop"] = self.workshop
         return kwargs
 
+    def get_context_data(self, **kwargs):
+        data = super().get_context_data(**kwargs)
+        if self.request.POST:
+            data["vehicles"] = VehicleFormSet(self.request.POST, instance=self.object, prefix="vehicles")
+        else:
+            data["vehicles"] = VehicleFormSet(instance=self.object, prefix="vehicles")
+        return data
+
+    def form_valid(self, form):
+        context = self.get_context_data()
+        vehicles = context["vehicles"]
+
+        form.instance.workshop = self.workshop
+
+        if form.is_valid() and vehicles.is_valid():
+            self.object = form.save()
+            vehicles.instance = self.object
+            for v_form in vehicles:
+                if v_form.instance.pk is None:
+                    v_form.instance.workshop = self.workshop
+            vehicles.save()
+            return super().form_valid(form)
+
+        return self.render_to_response(self.get_context_data(form=form))
+
 class CustomerDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResponseMixin, DeleteView):
     model = Customer
     success_url = reverse_lazy("customer:customer_list")

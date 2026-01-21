@@ -1,4 +1,6 @@
 {% load crispy_forms_tags %}
+{% with modal_id="modal-veiculo-"|add:v_form.prefix %} {# Usa o prefixo do form como ID único #}
+
 <div style="border: 1px solid #d1d5db; border-radius: 12px !important; gap: 3vh;" class="vehicle-item p-4 mb-4 flex flex-col">
 
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
@@ -14,9 +16,40 @@
     </div>
 
     <div class="flex justify-end mt-2">
-        <button type="button" class="btn btn-ghost btn-xs text-error flex items-center gap-1" onclick="this.closest('.vehicle-item').remove()">
-            <span class="material-icons text-sm">delete</span>
-            <span style="font-size: 0.75rem;">Remover</span>
-        </button>
+        <label for="{{ modal_id }}"
+               class="flex items-center gap-1 cursor-pointer"
+               style="background: transparent; border: none; color: #ff5861; padding: 4px 8px; font-weight: 500; transition: opacity 0.2s;">
+
+            <span class="material-icons" style="font-size: 18px; vertical-align: middle;">delete</span>
+            <span style="font-size: 0.85rem; line-height: 1;">Remover</span>
+        </label>
+    </div>
+
+    <input type="checkbox" id="{{ modal_id }}" class="modal-toggle" />
+    <div class="modal" role="dialog">
+        <div class="modal-box">
+            <h3 class="text-lg font-bold text-base-content">Remover Veículo</h3>
+            <p class="text-base-content/70 mt-1">Deseja realmente remover este veículo do cadastro?</p>
+
+            <div class="alert alert-warning mt-4">
+                <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                <div>
+                    <div class="font-semibold">Confirmar ação</div>
+                    <div class="text-sm">Esta ação removerá os dados preenchidos acima.</div>
+                </div>
+            </div>
+
+            <div class="modal-action">
+                <label for="{{ modal_id }}" class="btn btn-ghost">Cancelar</label>
+                <label for="{{ modal_id }}"
+                       class="btn btn-error"
+                       onclick="const item = this.closest('.vehicle-item'); setTimeout(() => { item.remove(); }, 200);">
+                    Confirmar Remoção
+                </label>
+            </div>
+        </div>
+        <label class="modal-backdrop" for="{{ modal_id }}">Fechar</label>
     </div>
 </div>
+
+{% endwith %}

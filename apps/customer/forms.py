@@ -33,8 +33,8 @@ VehicleFormSet = inlineformset_factory(
         "plate": TextInput(),
         "brand": TextInput(),
         "model": TextInput(),
-        "year_fabrication": CalendarDateInput(),
-        "year_model": CalendarDateInput(),
+        "year_fabrication": TextInput(),
+        "year_model": TextInput(),
         "color": TextInput(),
         "fuel": TextInput(),
         "engine": TextInput(),
@@ -146,7 +146,17 @@ class CustomerForm(forms.ModelForm):
                         <div class="flex items-center justify-between mb-4 border-b pb-2">
                             <h3 class="text-xl font-bold">Veículos</h3>
                             <button type="button"
-                                class="btn btn-sm btn-secondary"
+                                style="background-color: #491eff; 
+                                    color: white; 
+                                    padding: 6px 12px; 
+                                    border-radius: 8px; 
+                                    font-size: 0.875rem; 
+                                    font-weight: 600; 
+                                    border: none; 
+                                    cursor: pointer;
+                                    transition: filter 0.2s;"
+                                onmouseover="this.style.filter='brightness(0.9)'"
+                                onmouseout="this.style.filter='brightness(1)'"
                                 hx-get="{reverse('customer:add-vehicle-form')}"
                                 hx-target="#vehicle-list"
                                 hx-swap="beforeend"
