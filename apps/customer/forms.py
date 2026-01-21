@@ -1,11 +1,49 @@
 from django import forms
+from django.forms import inlineformset_factory
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, HTML, Submit
 from django.urls import reverse
 
-from .models import Customer
-from apps.core.widgets import CPForCNPJInput, CalendarDateInput, TextInput, SelectInput, RGInput, PhoneInput, EmailInput, CheckboxInput, CEPInput
+from .models import Customer, Vehicle
+from apps.core.widgets import CPForCNPJInput, CalendarDateInput, TextInput, SelectInput, RGInput, PhoneInput, EmailInput, CheckboxInput, CEPInput, \
+    NumberInput
 from ..workshops.models.workshops import Workshop
+
+
+VehicleFormSet = inlineformset_factory(
+    parent_model=Customer,
+    model=Vehicle,
+    fields = [
+        "plate",
+        "brand",
+        "model",
+        "year_fabrication",
+        "year_model",
+        "color",
+        "fuel",
+        "engine",
+        "type",
+        "renavam",
+        "chassi",
+        "km",
+    ],
+    extra=1,
+    can_delete=True,
+    widgets = {
+        "plate": TextInput(),
+        "brand": TextInput(),
+        "model": TextInput(),
+        "year_fabrication": CalendarDateInput(),
+        "year_model": CalendarDateInput(),
+        "color": TextInput(),
+        "fuel": TextInput(),
+        "engine": TextInput(),
+        "type": TextInput(),
+        "renavam": TextInput(),
+        "chassi": TextInput(),
+        "km": NumberInput(),
+    },
+)
 
 
 class CustomerForm(forms.ModelForm):
@@ -99,6 +137,26 @@ class CustomerForm(forms.ModelForm):
                 Field("cidade", wrapper_class="col-span-12 lg:col-span-4"),
                 #
                 Field("estado", wrapper_class="col-span-12 lg:col-span-4"),
+                #
+                HTML('<div class="col-span-12 divider"></div>'),
+                #
+                # Seção: Veículo
+                HTML(f"""
+                    <div class="col-span-12">
+                        <div class="flex items-center justify-between mb-4 border-b pb-2">
+                            <h3 class="text-xl font-bold">Veículos</h3>
+                            <button type="button"
+                                class="btn btn-sm btn-secondary"
+                                hx-get="{reverse('customer:add-vehicle-form')}"
+                                hx-target="#vehicle-list"
+                                hx-swap="beforeend"
+                                hx-vals='js:{{index: document.querySelectorAll(".vehicle-item").length}}'>
+                            + Adicionar Veículo
+                            </button>
+                        </div>
+                    </div>
+                """),
+                Div(HTML('<div id="vehicle-list" class="space-y-4">{% include "customer/partials/vehicle_formset_list.html" %}</div>'), css_class="col-span-12"),
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
             ),
             #

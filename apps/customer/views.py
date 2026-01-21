@@ -1,10 +1,11 @@
+from django.shortcuts import render
 from django.urls import reverse_lazy
 from django.views.generic import ListView, CreateView, UpdateView, DeleteView
 from django.contrib.auth.mixins import LoginRequiredMixin
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin
-from .models import Customer
-from .forms import CustomerForm
+from .models import Customer, Vehicle
+from .forms import CustomerForm, VehicleFormSet
 from ..core.tables import TableActionDefaults
 from ..core.templatetags.table_tags import TableColumn
 
@@ -44,9 +45,27 @@ class CustomerCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
         kwargs["workshop"] = self.workshop
         return kwargs
 
+    def get_context_data(self, **kwargs):
+        data = super().get_context_data(**kwargs)
+        if self.request.POST:
+            data["vehicles"] = VehicleFormSet(self.request.POST, prefix="vehicles")
+        else:
+            data["vehicles"] = VehicleFormSet(prefix="vehicles")
+        return data
+
     def form_valid(self, form):
+        context = self.get_context_data()
+        vehicles = context["vehicles"]
         form.instance.workshop = self.workshop
-        return super().form_valid(form)
+
+        if form.is_valid() and vehicles.is_valid():
+            self.object = form.save()
+            vehicles.instance = self.object
+            for v_form in vehicles:
+                v_form.instance.workshop = self.workshop
+            vehicles.save()
+            return super().form_valid(form)
+        return self.render_to_response(self.get_context_data(form=form))
 
 class CustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
     model = Customer
@@ -65,3 +84,14 @@ class CustomerDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResp
 
     htmx_template_name = "customer/partials/customer_delete_modal.html"
     htmx_trigger = "customer-table-refresh"
+
+
+def add_vehicle_form(request):
+    """Retorna um formulário de veículo vazio usando o prefixo correto do FormSet."""
+    index = request.GET.get("index", 0)
+
+    formset = VehicleFormSet(queryset=Vehicle.objects.none(), prefix="vehicles")
+    form = formset.empty_form
+    form.prefix = f"vehicles-{index}"
+
+    return render(request, "customer/partials/vehicle_form_line.html", {"v_form": form})

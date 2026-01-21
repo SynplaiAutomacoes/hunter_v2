@@ -1,0 +1,4 @@
+{{ vehicles.management_form }}
+{% for v_form in vehicles %}
+    {% include "customer/partials/vehicle_form_line.html" with v_form=v_form %}
+{% endfor %}
