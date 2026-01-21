@@ -137,33 +137,39 @@ class CustomerForm(AddressFormMixin, forms.ModelForm):
             ),
         )
 
-    def clean(self):
+    def clean_cpf(self):
         cleaned_data = super().clean()
         cpf = cleaned_data.get("cpf")
+
+        # Só validamos se tivermos o CPF e o workshop disponível
+        if cpf and self.workshop:
+            queryset = Customer.objects.filter(workshop=self.workshop, cpf=cpf)
+
+            # Se for edição (update), ignoramos o próprio objeto
+            if self.instance.pk:
+                queryset = queryset.exclude(pk=self.instance.pk)
+
+            if queryset.exists():
+                # Adiciona o erro especificamente no campo CPF
+                self.add_error("cpf", "Já existe um cliente cadastrado com este CPF nesta oficina.")
+
+        return cleaned_data
+
+
+    def clean_rg(self):
+        cleaned_data = super().clean()
         rg = cleaned_data.get("rg")
 
-        # Só validamos se tivermos a workshop disponível
-        if self.workshop:
-            if rg:
-                queryset = Customer.objects.filter(workshop=self.workshop, rg=rg)
+        # Só validamos se tivermos o RG e o workshop disponível
+        if rg and self.workshop:
+            queryset = Customer.objects.filter(workshop=self.workshop, rg=rg)
 
-                # Se for edição (update), ignoramos o próprio objeto
-                if self.instance.pk:
-                    queryset = queryset.exclude(pk=self.instance.pk)
+            # Se for edição (update), ignoramos o próprio objeto
+            if self.instance.pk:
+                queryset = queryset.exclude(pk=self.instance.pk)
 
-                if queryset.exists():
-                    # Adiciona o erro especificamente no campo RG
-                    self.add_error("rg", "Já existe um cliente cadastrado com este RG nesta oficina.")
-
-            elif cpf:
-                queryset = Customer.objects.filter(workshop=self.workshop, cpf=cpf)
-
-                # Se for edição (update), ignoramos o próprio objeto
-                if self.instance.pk:
-                    queryset = queryset.exclude(pk=self.instance.pk)
-
-                if queryset.exists():
-                    # Adiciona o erro especificamente no campo CPF
-                    self.add_error("cpf", "Já existe um cliente cadastrado com este CPF nesta oficina.")
+            if queryset.exists():
+                # Adiciona o erro especificamente no campo RG
+                self.add_error("rg", "Já existe um cliente cadastrado com este RG nesta oficina.")
 
         return cleaned_data
