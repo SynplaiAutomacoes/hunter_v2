@@ -28,7 +28,7 @@ VehicleFormSet = inlineformset_factory(
         "km",
     ],
     extra=1,
-    can_delete=True,
+    can_delete=False,
     widgets = {
         "plate": TextInput(),
         "brand": TextInput(),

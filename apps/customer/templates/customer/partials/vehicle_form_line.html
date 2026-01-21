@@ -1,7 +1,7 @@
 {% load crispy_forms_tags %}
-<div style="border: 1px solid #d1d5db; border-radius: 12px !important; overflow: hidden;" class="vehicle-item p-4 border border-gray-300 rounded-lg grid grid-cols-1 lg:grid-cols-12 gap-4 relative mb-4 overflow-hidden">
+<div style="border: 1px solid #d1d5db; border-radius: 12px !important; gap: 3vh;" class="vehicle-item p-4 mb-4 flex flex-col">
 
-    <div class="col-span-12 lg:col-span-11 grid grid-cols-1 lg:grid-cols-12 gap-4">
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
         {% for field in v_form %}
             {% if not field.is_hidden %}
                 <div class="col-span-12 lg:col-span-4">
@@ -13,9 +13,10 @@
         {% endfor %}
     </div>
 
-    <div class="col-span-12 lg:col-span-1 flex items-center justify-center pt-4 lg:pt-0">
-        <button type="button" class="text-red-500 hover:text-red-700 transition-colors" onclick="this.closest('.vehicle-item').remove()">
-            <i class="fas fa-trash"></i>
+    <div class="flex justify-end mt-2">
+        <button type="button" class="btn btn-ghost btn-xs text-error flex items-center gap-1" onclick="this.closest('.vehicle-item').remove()">
+            <span class="material-icons text-sm">delete</span>
+            <span style="font-size: 0.75rem;">Remover</span>
         </button>
     </div>
 </div>
