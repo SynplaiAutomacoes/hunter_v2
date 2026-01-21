@@ -9,7 +9,6 @@ class Checklist(TimeStampedModel):
     class Meta:
         verbose_name = "Checklist"
         verbose_name_plural = "Checklists"
-        ordering = ["-criado_em"]
 
     def __str__(self):
         return self.name
@@ -28,9 +27,6 @@ class ChecklistItem(models.Model):
     description = models.CharField(verbose_name="Descrição", max_length=500)
     response_type = models.CharField(verbose_name="Tipo de Resposta", max_length=30, choices=TIPO_RESPOSTA_CHOICES)
     order = models.PositiveIntegerField(default=0)
-
-    class Meta:
-        ordering = ["group", "order"]
 
     def __str__(self):
         return f"{self.group} - {self.description}"
