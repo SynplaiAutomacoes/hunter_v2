@@ -7,6 +7,7 @@ from django.urls import reverse
 from .models import Customer, Vehicle
 from apps.core.widgets import CPForCNPJInput, CalendarDateInput, TextInput, SelectInput, RGInput, PhoneInput, EmailInput, CheckboxInput, CEPInput, \
     NumberInput
+from ..core.forms import AddressFormMixin, address_layout
 from ..workshops.models.workshops import Workshop
 
 
@@ -46,7 +47,7 @@ VehicleFormSet = inlineformset_factory(
 )
 
 
-class CustomerForm(forms.ModelForm):
+class CustomerForm(AddressFormMixin, forms.ModelForm):
     class Meta:
         model = Customer
         fields = [
@@ -75,27 +76,14 @@ class CustomerForm(forms.ModelForm):
             "phone": PhoneInput(),
             "email": EmailInput(),
             "is_active": CheckboxInput(),
-            "cep": CEPInput(),
-            "logradouro": TextInput(),
-            "numero": TextInput(),
-            "complemento": TextInput(),
-            "bairro": TextInput(),
-            "cidade": TextInput(),
-            "estado": SelectInput(attrs={"class": "form-control"}),
         }
 
     def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.workshop = workshop
+        self.setup_address_fields()
         self.helper = FormHelper()
         self.helper.form_method = "post"
-
-        address_fields = ["logradouro", "bairro", "cidade"]
-        for field in address_fields:
-            self.fields[field].widget.attrs["readonly"] = True
-            self.fields[field].widget.attrs["class"] = self.fields[field].widget.attrs.get("class", "")
-            self.fields[field].widget.attrs["style"] = "cursor: not-allowed;"
-            self.fields[field].widget.attrs["title"] = "Preencha o campo de CEP"
 
         cancel_url = reverse("customer:customer_list")
 
@@ -117,26 +105,7 @@ class CustomerForm(forms.ModelForm):
                 HTML('<div class="col-span-12 divider"></div>'),
                 #
                 # Seção: Endereço
-                HTML("""
-                        <div class="col-span-12" style="display: flex; align-items: center; gap: 25px;">
-                            <h3 class="col-span-12 text-xl font-bold">Endereço</h3>
-
-                            <h5 id="cep-loader" class="htmx-indicator" style="margin:0;">
-                                <span class="text-lg font-semibold">
-                                    (Buscando endereço...)
-                                </span>
-                            </h5>
-                        </div>
-                        """),
-                Field("cep", wrapper_class="col-span-12 lg:col-span-4", hx_get=reverse("core:cep_lookup"), hx_trigger="blur", hx_target="this", hx_swap="none", hx_include="[name='cep']", hx_indicator="#cep-loader"),
-                Field("logradouro", wrapper_class="col-span-12 lg:col-span-4"),
-                Field("numero", wrapper_class="col-span-12 lg:col-span-4"),
-                #
-                Field("complemento", wrapper_class="col-span-12 lg:col-span-4"),
-                Field("bairro", wrapper_class="col-span-12 lg:col-span-4"),
-                Field("cidade", wrapper_class="col-span-12 lg:col-span-4"),
-                #
-                Field("estado", wrapper_class="col-span-12 lg:col-span-4"),
+                address_layout(),
                 #
                 HTML('<div class="col-span-12 divider"></div>'),
                 #
