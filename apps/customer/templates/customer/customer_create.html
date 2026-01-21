@@ -1,11 +1,5 @@
 {% extends 'crud/form_page.html' %}
-{% load static %}
 
 {% block crud_title %}Criar cliente{% endblock %}
 {% block crud_subtitle %}Cadastro do cliente para a oficina ativa.{% endblock %}
 {% block crud_back_url %}{% url 'customer:customer_list' %}{% endblock %}
-
-{% block content %}
-    {{ block.super }}
-    <script src="{% static 'js/vehicle.js' %}"></script>
-{% endblock %}

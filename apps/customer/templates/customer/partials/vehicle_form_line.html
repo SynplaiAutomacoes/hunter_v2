@@ -1,11 +1,13 @@
 {% load crispy_forms_tags %}
-{% with modal_id="modal-veiculo-"|add:v_form.prefix %} {# Usa o prefixo do form como ID único #}
+{% with modal_id="modal-veiculo-"|add:v_form.prefix %}
 
 <div style="border: 1px solid #d1d5db; border-radius: 12px !important; gap: 3vh;" class="vehicle-item p-4 mb-4 flex flex-col">
 
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
         {% for field in v_form %}
-            {% if not field.is_hidden %}
+            {% if field.name == "DELETE" %}
+                <div style="display: none;">{{ field }}</div>
+            {% elif not field.is_hidden %}
                 <div class="col-span-12 lg:col-span-4">
                     {{ field|as_crispy_field }}
                 </div>
@@ -13,6 +15,7 @@
                 {{ field }}
             {% endif %}
         {% endfor %}
+        {{ v_form.id }}
     </div>
 
     <div class="flex justify-end mt-2">
@@ -41,11 +44,21 @@
 
             <div class="modal-action">
                 <label for="{{ modal_id }}" class="btn btn-ghost">Cancelar</label>
-                <label for="{{ modal_id }}"
-                       class="btn btn-error"
-                       onclick="const item = this.closest('.vehicle-item'); setTimeout(() => { item.remove(); }, 200);">
+                <button type="button"
+                        class="btn btn-error"
+                        hx-on:click="
+                            let item = this.closest('.vehicle-item');
+                            let deleteInput = item.querySelector('input[name$=&quot;-DELETE&quot;]');
+                            if (deleteInput) {
+                                deleteInput.checked = true;
+                                item.style.display = 'none';
+                            } else {
+                                item.remove();
+                            }
+                            document.getElementById('{{ modal_id }}').checked = false;
+                        ">
                     Confirmar Remoção
-                </label>
+                </button>
             </div>
         </div>
         <label class="modal-backdrop" for="{{ modal_id }}">Fechar</label>

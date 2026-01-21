@@ -95,10 +95,15 @@ class CustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         if form.is_valid() and vehicles.is_valid():
             self.object = form.save()
             vehicles.instance = self.object
-            for v_form in vehicles:
-                if v_form.instance.pk is None:
-                    v_form.instance.workshop = self.workshop
-            vehicles.save()
+
+            instances = vehicles.save(commit=False)
+            for instance in instances:
+                instance.workshop = self.workshop
+                instance.save()
+
+            for obj in vehicles.deleted_objects:
+                obj.delete()
+
             return super().form_valid(form)
 
         return self.render_to_response(self.get_context_data(form=form))

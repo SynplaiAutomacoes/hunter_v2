@@ -122,7 +122,6 @@ class CustomerForm(AddressFormMixin, forms.ModelForm):
                             hx_target="#vehicle-list",
                             hx_swap="beforeend",
                             hx_vals='js:{index: document.querySelectorAll(".vehicle-item").length}',
-                            hx_on="htmx:afterOnLoad: document.getElementById('id_vehicles-TOTAL_FORMS').value = document.querySelectorAll('.vehicle-item').length",
                         ),
                         css_class="flex items-center justify-between mb-4 border-b pb-2",
                     ),
