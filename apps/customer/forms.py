@@ -1,7 +1,7 @@
 from django import forms
 from django.forms import inlineformset_factory
 from crispy_forms.helper import FormHelper
-from crispy_forms.layout import Layout, Div, Field, HTML, Submit
+from crispy_forms.layout import Layout, Div, Field, HTML, Submit, Button
 from django.urls import reverse
 
 from .models import Customer, Vehicle
@@ -86,6 +86,7 @@ class CustomerForm(AddressFormMixin, forms.ModelForm):
         self.helper.form_method = "post"
 
         cancel_url = reverse("customer:customer_list")
+        add_vehicle_url = reverse("customer:add-vehicle-form")
 
         self.helper.layout = Layout(
             Div(
@@ -110,31 +111,19 @@ class CustomerForm(AddressFormMixin, forms.ModelForm):
                 HTML('<div class="col-span-12 divider"></div>'),
                 #
                 # Seção: Veículo
-                HTML(f"""
-                    <div class="col-span-12">
-                        <div class="flex items-center justify-between mb-4 border-b pb-2">
-                            <h3 class="text-xl font-bold">Veículos</h3>
-                            <button type="button"
-                                style="background-color: #491eff; 
-                                    color: white; 
-                                    padding: 6px 12px; 
-                                    border-radius: 8px; 
-                                    font-size: 0.875rem; 
-                                    font-weight: 600; 
-                                    border: none; 
-                                    cursor: pointer;
-                                    transition: filter 0.2s;"
-                                onmouseover="this.style.filter='brightness(0.9)'"
-                                onmouseout="this.style.filter='brightness(1)'"
-                                hx-get="{reverse('customer:add-vehicle-form')}"
-                                hx-target="#vehicle-list"
-                                hx-swap="beforeend"
-                                hx-vals='js:{{index: document.querySelectorAll(".vehicle-item").length}}'>
-                            + Adicionar Veículo
-                            </button>
-                        </div>
-                    </div>
-                """),
+                Div(
+                    Div(
+                        HTML('<h3 class="text-xl font-bold">Veículos</h3>'),
+                        Button(name="add_vehicle", value="+ Adicionar Veículo", css_class="btn-form-save",
+                            hx_get=add_vehicle_url,
+                            hx_target="#vehicle-list",
+                            hx_swap="beforeend",
+                            hx_vals='js:{index: document.querySelectorAll(".vehicle-item").length}',
+                        ),
+                        css_class="flex items-center justify-between mb-4 border-b pb-2",
+                    ),
+                    css_class="col-span-12",
+                ),
                 Div(HTML('<div id="vehicle-list" class="space-y-4">{% include "customer/partials/vehicle_formset_list.html" %}</div>'), css_class="col-span-12"),
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
             ),
