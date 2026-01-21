@@ -1,6 +1,5 @@
-from django import forms
 from django.urls import reverse
-from crispy_forms.layout import Layout, Div, Field, HTML
+from crispy_forms.layout import Div, Field, HTML
 from apps.core.widgets import CEPInput, TextInput, SelectInput
 
 
@@ -16,12 +15,17 @@ class AddressFormMixin:
             "complemento": TextInput(),
             "bairro": TextInput(),
             "cidade": TextInput(),
-            "estado": SelectInput(attrs={"class": "form-control"}),
+            "estado": SelectInput(),
         }
 
         for field_name, widget in address_widgets.items():
             if field_name in self.fields:
                 self.fields[field_name].widget = widget
+                if field_name == "estado":
+                    self.fields[field_name].widget = SelectInput(
+                        choices=self.fields[field_name].choices,
+                        attrs={"class": "form-control"},
+                    )
 
         # Bloqueio dos campos antes do usuário preencher o campo CEP
         for field in ["logradouro", "bairro", "cidade"]:
