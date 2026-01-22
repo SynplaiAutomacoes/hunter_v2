@@ -30,16 +30,3 @@ class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespon
             TableActionDefaults.delete("budget:budget_delete"),
         ]
         return context
-
-
-class BudgetCreateStepperView(BaseStepperView):
-    model = Budget
-    template_name = "budget/budget_stepper_page.html"
-    steps = [
-        {"id": 1, "title": "Dados do Cliente", "subtitle": "Selecione ou cadastre o cliente", "template": "budget/steps/customer_data.html"},
-        {"id": 2, "title": "Relato do Cliente", "subtitle": "Descreva o problema e responda perguntas", "template": "budget/steps/customer_report.html"},
-        {"id": 3, "title": "Diagnóstico", "subtitle": "Identifique sintomas e observações técnicas", "template": "budget/steps/diagnostic.html"},
-        {"id": 4, "title": "Peças e Serviços", "subtitle": "Selecione peças e serviços necessários", "template": "budget/steps/parts_services.html"},
-        {"id": 5, "title": "Método de Precificação", "subtitle": "Selecione o método e precificação", "template": "budget/steps/pricing_method.html"},
-        {"id": 6, "title": "Revisão e Confirmação", "subtitle": "Revise os dados e confirme o orçamento", "template": "budget/steps/review_confirmation.html"},
-    ]
