@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse
 from django.template.response import TemplateResponse
 from django.shortcuts import render
 import requests
+from django.views.generic import TemplateView
+
+from apps.workshops.mixin import WorkshopScopedMixin
 
 
 class HtmxTemplateResponseMixin:
@@ -70,3 +74,19 @@ def cep_lookup(request):
             updates.update({"readonly": False})
 
     return render(request, "partials/address_fields.html", {"updates": updates})
+
+
+class BaseStepperView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
+    steps = []  # Definido na subclasse
+    model = None
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        current_step = int(self.request.GET.get("step", 1))
+
+        context.update({"steps": self.steps, "current_step": current_step, "current_template": self.steps[current_step - 1]["template"], "max_step_reached": self.request.session.get(f"stepper_{self.model.__name__}", 1)})
+        return context
+
+    def post(self, request, *args, **kwargs):
+        # Lógica para validar o form da etapa atual e avançar o step na sessão
+        pass

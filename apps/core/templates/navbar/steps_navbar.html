@@ -1,0 +1,29 @@
+<div class="stepper-container w-full py-6">
+    <div class="flex items-center justify-between relative">
+        <div class="absolute top-1/2 left-0 w-full h-1 bg-gray-200 -translate-y-1/2 z-0"></div>
+
+        {% for step in steps %}
+        <div class="step-item z-10 flex flex-col items-center flex-1 cursor-pointer"
+             {% if step.id <= max_step_reached %}
+                hx-get="?step={{ step.id }}"
+                hx-target="#stepper-content"
+                hx-trigger="click"
+             {% endif %}>
+
+            <div class="w-10 h-10 rounded-full flex items-center justify-center border-2
+                {% if step.id == current_step %} border-blue-600 bg-white text-blue-600 font-bold
+                {% elif step.id < current_step %} border-green-500 bg-green-500 text-white
+                {% else %} border-gray-300 bg-white text-gray-400 {% endif %}">
+                {% if step.id < current_step %} ✓ {% else %} {{ step.id }} {% endif %}
+            </div>
+
+            <div class="text-center mt-2">
+                <p class="text-sm font-bold {% if step.id == current_step %}text-blue-600{% else %}text-gray-500{% endif %}">
+                    {{ step.title }}
+                </p>
+                <span class="text-xs text-gray-400 hidden lg:block">{{ step.subtitle }}</span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
