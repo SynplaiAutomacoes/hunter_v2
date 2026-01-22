@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+{% load crispy_forms_tags %}
+
+{% block content %}
+<div class="card bg-base-100 shadow-xl">
+    <div class="card-body">
+        <div class="flex items-center justify-between">
+            {% if current_step > 1 %}
+                <button type="button"
+                    hx-get="?step={{ current_step|add:-1 }}"
+                    hx-target="#form-container"
+                    class="btn btn-outline">Voltar
+                </button>
+            {% endif %}
+
+            {% include 'navbar/stepper.html' %}
+
+            <button type="submit" class="btn btn-primary">
+                {% if current_step == steps_config|length %} Finalizar {% else %} Próxima Etapa {% endif %}
+            </button>
+        </div>
+
+        <div id="form-container" class="mt-8">
+            <form hx-post="{{ request.path }}?step={{ current_step }}" hx-swap="outerHTML">
+                {% csrf_token %}
+
+                <div class="grid grid-cols-12 gap-4">
+                    {% crispy form %}
+
+                    {% if step_formset %}
+                        <div class="col-span-12">
+                            <h4 class="font-bold mb-4">Itens da Etapa</h4>
+                            {{ step_formset.management_form }}
+                            {% for inline_form in step_formset %}
+                                <div class="p-4 border rounded mb-2">
+                                    {% crispy inline_form %}
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
