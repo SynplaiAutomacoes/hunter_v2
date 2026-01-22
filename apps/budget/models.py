@@ -13,7 +13,7 @@ class BudgetStatus(models.TextChoices):
 
 
 class Budget(TimeStampedModel):
-    workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="budgets")
+    workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="budgets")
     customer = models.ForeignKey("customer.Customer", verbose_name="Cliente", on_delete=models.SET_NULL, related_name="budgets", null=True)
     vehicle = models.ForeignKey("customer.Vehicle", verbose_name="Veículo", on_delete=models.SET_NULL, related_name="budgets", null=True)
     collaborator = models.ForeignKey("collaborators.WorkshopCollaborator", verbose_name="Colaborador", on_delete=models.SET_NULL, related_name="budgets", null=True)
@@ -26,6 +26,7 @@ class Budget(TimeStampedModel):
     technical_diagnosis = models.TextField(verbose_name="Diagnóstico Técnico", blank=True, null=True)
     notes = models.TextField(verbose_name="Observações", blank=True, null=True)
     current_km = models.PositiveIntegerField(verbose_name="KM Atual", default=0)
+    fuel_level = models.PositiveIntegerField(verbose_name="Nível do Tanque", default=0)
     # TODO add "sintomas_identificados" field
 
     # Financeiro
