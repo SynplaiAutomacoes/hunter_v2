@@ -1,7 +1,7 @@
 {% extends 'crud/list_page.html' %}
 {% block crud_title %}Orçamentos{% endblock %}
 {% block crud_header_actions %}
-    <a href="{% url 'budget:budget_create' %}" class="btn btn-primary">Novo Orçamento</a>
+    <a href="{% url 'budget:budget_list' %}" class="btn btn-primary">Novo Orçamento</a>
 {% endblock %}
 {% block crud_table_wrapper_id %}budget-table-wrapper{% endblock %}
 {% block crud_table_hx_get %}{% url 'budget:budget_list' %}{% endblock %}

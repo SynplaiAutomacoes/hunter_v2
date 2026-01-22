@@ -26,7 +26,7 @@ class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespon
             TableColumn(Budget.status.field.verbose_name, attr=Budget.status.field.name),
         ]
         context["actions"] = [
-            TableActionDefaults.edit("budget:budget_update"),
+            # TableActionDefaults.edit("budget:budget_update"),
             TableActionDefaults.delete("budget:budget_delete"),
         ]
         return context

@@ -14,9 +14,9 @@ class BudgetStatus(models.TextChoices):
 
 class Budget(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="budgets")
-    customer = models.ForeignKey("customer.Customer", on_delete=models.SET_NULL, related_name="budgets")
-    vehicle = models.ForeignKey("customer.Vehicle", on_delete=models.SET_NULL, related_name="budgets")
-    collaborator = models.ForeignKey("collaborators.WorkshopCollaborator", on_delete=models.SET_NULL, related_name="budgets")
+    customer = models.ForeignKey("customer.Customer", verbose_name="Cliente", on_delete=models.SET_NULL, related_name="budgets", null=True)
+    vehicle = models.ForeignKey("customer.Vehicle", verbose_name="Veículo", on_delete=models.SET_NULL, related_name="budgets", null=True)
+    collaborator = models.ForeignKey("collaborators.WorkshopCollaborator", verbose_name="Colaborador", on_delete=models.SET_NULL, related_name="budgets", null=True)
 
     # Datas e Prazos
     expiration_date = models.DateField(verbose_name="Data de Validade")
@@ -39,7 +39,7 @@ class Budget(TimeStampedModel):
     slider = models.SmallIntegerField(verbose_name="Slider", default=0, validators=[MinValueValidator(-100), MaxValueValidator(100)], help_text="Negativo: Peça | Positivo: Mão de Obra")
 
     # Status e Controle
-    status = models.CharField(verbose_name="Status do Orçamento", max_length=20, choices=BudgetStatus.choices, default=BudgetStatus.DRAFT)
+    status = models.CharField(verbose_name="Status", max_length=20, choices=BudgetStatus.choices, default=BudgetStatus.DRAFT)
     cancellation_reason = models.CharField(verbose_name="Motivo do Cancelamento", max_length=255, blank=True, null=True)
 
     class Meta:
