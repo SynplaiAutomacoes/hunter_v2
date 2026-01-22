@@ -1,3 +1,50 @@
 from django.db import models
+from django.core.validators import MinValueValidator, MaxValueValidator
+from apps.core.models import TimeStampedModel
+from djmoney.models.fields import MoneyField
 
-# Create your models here.
+
+class BudgetStatus(models.TextChoices):
+    DRAFT = "draft", "Em Aberto"
+    APPROVED = "approved", "Aprovado"
+    REJECTED = "rejected", "Rejeitado"
+    CANCELLED = "cancelled", "Cancelado"
+    FINISHED = "finished", "Concluído"
+
+
+class Budget(TimeStampedModel):
+    workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="budgets")
+    customer = models.ForeignKey("customer.Customer", on_delete=models.SET_NULL, related_name="budgets")
+    vehicle = models.ForeignKey("customer.Vehicle", on_delete=models.SET_NULL, related_name="budgets")
+    collaborator = models.ForeignKey("collaborators.WorkshopCollaborator", on_delete=models.SET_NULL, related_name="budgets")
+
+    # Datas e Prazos
+    expiration_date = models.DateField(verbose_name="Data de Validade")
+
+    # Informações Técnicas
+    problem_description = models.TextField(verbose_name="Descrição do Problema", blank=True, null=True)
+    technical_diagnosis = models.TextField(verbose_name="Diagnóstico Técnico", blank=True, null=True)
+    notes = models.TextField(verbose_name="Observações", blank=True, null=True)
+    current_km = models.PositiveIntegerField(verbose_name="KM Atual", default=0)
+    # TODO add "sintomas_identificados" field
+
+    # Financeiro
+    base_value = MoneyField(verbose_name="Valor Subtotal", max_digits=14, decimal_places=2, default=0.00)
+    discount_value = MoneyField(verbose_name="Valor de Desconto", max_digits=14, decimal_places=2, default=0.00)
+    total_value = MoneyField(verbose_name="Valor Total", max_digits=14, decimal_places=2, default=0.00)
+
+    # Margens e Ajustes
+    profit_margin_parts = models.DecimalField(verbose_name="Percentual Lucro de Peças", max_digits=5, decimal_places=2, default=0.00)
+    profit_margin_labor = models.DecimalField(verbose_name="Percentual Lucro de Mão de Obra", max_digits=5, decimal_places=2, default=0.00)
+    slider = models.SmallIntegerField(verbose_name="Slider", default=0, validators=[MinValueValidator(-100), MaxValueValidator(100)], help_text="Negativo: Peça | Positivo: Mão de Obra")
+
+    # Status e Controle
+    status = models.CharField(verbose_name="Status do Orçamento", max_length=20, choices=BudgetStatus.choices, default=BudgetStatus.DRAFT)
+    cancellation_reason = models.CharField(verbose_name="Motivo do Cancelamento", max_length=255, blank=True, null=True)
+
+    class Meta:
+        verbose_name = "Orçamento"
+        verbose_name_plural = "Orçamentos"
+
+    def __str__(self):
+        return f"Budget #{self.id} - {self.customer}"
