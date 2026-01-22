@@ -31,4 +31,5 @@ urlpatterns = [
     path("quote/", include("apps.quote.urls")),
     path("checklist/", include("apps.checklist.urls")),
     path("core/", include("apps.core.urls")),
+    path("customer/", include("apps.customer.urls")),
 ]

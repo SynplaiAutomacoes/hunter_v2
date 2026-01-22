@@ -11,7 +11,6 @@ from ..workshops.models.workshops import Workshop
 class ChecklistForm(forms.ModelForm):
     class Meta:
         model = Checklist
-        exclude = ["workshop", "criado_em", "atualizado_em"]
         fields = [
             "name"
         ]
@@ -76,7 +75,7 @@ class ChecklistForm(forms.ModelForm):
                             Button("add", "Adicionar", css_id="btn-add-item", css_class="btn btn-primary w-full",
                                 hx_post=reverse("checklist:add_item_row"), hx_target="#itens-tabela-body", hx_swap="beforeend",
                                 hx_include="#novo-agrupamento, #novo-item-descricao, #novo-tipo-resposta",
-                                onclick="setTimeout(() => { reorderRows(); document.getElementById('novo-item-descricao').value = ''; }, 100)"
+                                hx_on_after_settle="window.dispatchEvent(new CustomEvent('reorder'))",
                             ),
                             css_class="col-span-12 lg:col-span-3",
                         ),
@@ -89,21 +88,33 @@ class ChecklistForm(forms.ModelForm):
                 HTML('<div class="divider"></div>'),
                 #
                 HTML(f"""
-                        <div class="overflow-x-auto col-span-12">
-                            <table class="table w-full">
-                                <thead>
-                                    <tr>
-                                        <th class="w-16">Seq.</th>
-                                        <th>Agrupamento</th>
-                                        <th>Item</th>
-                                        <th>Tipo de Resposta</th>
-                                        <th class="w-20">Ações</th>
-                                    </tr>
-                                </thead>
+                    <div class="overflow-x-auto col-span-12" 
+                         x-data="{{
+                            reorder() {{
+                                this.$nextTick(() => {{
+                                    let indexes = this.$el.querySelectorAll('.row-index');
+                                    indexes.forEach((el, i) => {{
+                                        el.textContent = i + 1;
+                                    }});
+                                }});
+                            }}
+                         }}"
+                         @reorder.window="reorder()"
+                         x-init="reorder()">
+                        <table class="table w-full">
+                            <thead>
+                                <tr>
+                                    <th class="w-16">Seq.</th>
+                                    <th>Agrupamento</th>
+                                    <th>Item</th>
+                                    <th>Tipo de Resposta</th>
+                                    <th class="w-20">Ações</th>
+                                </tr>
+                            </thead>
                             <tbody id="itens-tabela-body">{existing_items_html}</tbody>
-                            </table>
-                        </div>
-                    """),
+                        </table>
+                    </div>
+                """),
             ),
             #
             HTML('<div class="divider"></div>'),
