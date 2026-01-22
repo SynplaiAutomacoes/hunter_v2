@@ -4,7 +4,7 @@ from django.views.generic import ListView
 from apps.budget.models import Budget
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import BaseStepperView, HtmxTemplateResponseMixin
+from apps.core.views import HtmxTemplateResponseMixin
 from apps.workshops.mixin import WorkshopScopedMixin
 
 
