@@ -3,16 +3,15 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 from django.urls import reverse
 
-from apps.core.widgets import CPForCNPJInput, CalendarDateInput, TextInput, CheckboxInput, EmailInput, PhoneInput, SelectInput, \
-    CEPInput
+from apps.core.forms import AddressFormMixin, address_layout
+from apps.core.widgets import CPForCNPJInput, CalendarDateInput, TextInput, CheckboxInput, EmailInput, PhoneInput
 from apps.suppliers.models import Supplier
 from apps.workshops.models.workshops import Workshop
 
 
-class SupplierForm(forms.ModelForm):
+class SupplierForm(AddressFormMixin, forms.ModelForm):
     class Meta:
         model = Supplier
-        exclude = ["workshop", "criado_em", "atualizado_em"]
         fields = [
             "cnpj",
             "name",
@@ -39,27 +38,14 @@ class SupplierForm(forms.ModelForm):
             "email": EmailInput(),
             "registration_date": CalendarDateInput(),
             "is_active": CheckboxInput(),
-            "cep": CEPInput(),
-            "logradouro": TextInput(),
-            "numero": TextInput(),
-            "complemento": TextInput(),
-            "bairro": TextInput(),
-            "cidade": TextInput(),
-            "estado": SelectInput(attrs={"class": "form-control"}),
         }
 
     def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.workshop = workshop
+        self.setup_address_fields()
         self.helper = FormHelper()
         self.helper.form_method = "post"
-
-        address_fields = ["logradouro", "bairro", "cidade"]
-        for field in address_fields:
-            self.fields[field].widget.attrs["readonly"] = True
-            self.fields[field].widget.attrs["class"] = self.fields[field].widget.attrs.get("class", "")
-            self.fields[field].widget.attrs["style"] = "cursor: not-allowed;"
-            self.fields[field].widget.attrs["title"] = "Preencha o campo de CEP"
 
         cancel_url = reverse("suppliers:supplier_list")
 
@@ -81,26 +67,7 @@ class SupplierForm(forms.ModelForm):
                 HTML('<div class="col-span-12 divider"></div>'),
                 #
                 # Seção: Endereço
-                HTML("""
-                <div class="col-span-12" style="display: flex; align-items: center; gap: 25px;">
-                    <h3 class="col-span-12 text-xl font-bold">Endereço</h3>
-                    
-                    <h5 id="cep-loader" class="htmx-indicator" style="margin:0;">
-                        <span class="text-lg font-semibold">
-                            (Buscando endereço...)
-                        </span>
-                    </h5>
-                </div>
-                """),
-                Field("cep", wrapper_class="col-span-12 lg:col-span-4", hx_get=reverse("core:cep_lookup"), hx_trigger="blur", hx_target="this", hx_swap="none", hx_include="[name='cep']", hx_indicator="#cep-loader"),
-                Field("logradouro", wrapper_class="col-span-12 lg:col-span-4"),
-                Field("numero", wrapper_class="col-span-12 lg:col-span-4"),
-                #
-                Field("complemento", wrapper_class="col-span-12 lg:col-span-4"),
-                Field("bairro", wrapper_class="col-span-12 lg:col-span-4"),
-                Field("cidade", wrapper_class="col-span-12 lg:col-span-4"),
-                #
-                Field("estado", wrapper_class="col-span-12 lg:col-span-4"),
+                address_layout(),
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
             ),
             #

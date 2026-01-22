@@ -1,12 +1,12 @@
-<tr class="hover:bg-base-200 transition-colors">
+<tr class="hover:bg-base-200 transition-colors" x-init="$dispatch('reorder')">
     <input type="hidden" name="agrupamento" value="{{ group }}">
     <input type="hidden" name="descricao" value="{{ description }}">
     <input type="hidden" name="tipo_resposta" value="{{ response_type }}">
 
     <td class="font-mono text-xs row-index">#</td>
     <td class="font-mono text-xs">{{ group|default:"Sem Grupo" }}</td>
-    <td class="font-mono text-xs">{{ description }}</td>
-    <td class="font-mono text-xs">{{ response_type_display }}</td>
+    <td class="font-mono text-xs">{{ description|default:"N/A" }}</td>
+    <td class="font-mono text-xs">{{ response_type_display|default:"N/A" }}</td>
     <!-- Botão de Remover -->
     <td>
         {% with modal_id="modal-"|add:description|slugify %}
@@ -32,7 +32,7 @@
                     <label for="{{ modal_id }}" class="btn btn-ghost">Cancelar</label>
                     <label for="{{ modal_id }}"
                            class="btn btn-error"
-                           onclick="const tr = this.closest('tr'); setTimeout(() => { tr.remove(); reorderRows(); }, 200);">
+                           @click="$el.closest('tr').remove(); $dispatch('reorder')">
                         Remover
                     </label>
                 </div>

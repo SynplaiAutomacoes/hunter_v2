@@ -11,13 +11,13 @@ class TimeStampedModel(models.Model):
 
 
 class Address(models.Model):
-    cep = BRPostalCodeField(verbose_name="CEP")
-    logradouro = models.CharField(verbose_name="Logradouro", max_length=225)
-    numero = models.PositiveIntegerField(verbose_name="Número")
+    cep = BRPostalCodeField(verbose_name="CEP", default="")
+    logradouro = models.CharField(verbose_name="Logradouro", max_length=225, default="")
+    numero = models.PositiveIntegerField(verbose_name="Número", default=1)
     complemento = models.CharField(verbose_name="Complemento", max_length=255, null=True, blank=True)
-    bairro = models.CharField(verbose_name="Bairro", max_length=20)
-    cidade = models.CharField(verbose_name="Cidade", max_length=20)
-    estado = BRStateField(verbose_name="Estado")
+    bairro = models.CharField(verbose_name="Bairro", max_length=20, default="")
+    cidade = models.CharField(verbose_name="Cidade", max_length=20, default="")
+    estado = BRStateField(verbose_name="Estado", default="")
 
     class Meta:
         abstract = True

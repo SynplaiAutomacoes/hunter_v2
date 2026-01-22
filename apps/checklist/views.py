@@ -1,5 +1,6 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse_lazy
+from django.views import View
 from django.views.generic import DeleteView, ListView
 from .models import Checklist, ChecklistItem
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -79,17 +80,18 @@ class ChecklistDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteRes
     htmx_trigger = "checklists-table-refresh"
 
 
-def add_checklist_item_row(request):
-    group = request.POST.get("agrupamento_input")
-    description = request.POST.get("item_input")
-    response_type = request.POST.get("tipo_resposta_select")
-    response_type_display = dict(ChecklistItem.TIPO_RESPOSTA_CHOICES).get(response_type)
+class AddChecklistItemRowView(LoginRequiredMixin, View):
+    def post(self, request):
+        group = request.POST.get("agrupamento_input")
+        description = request.POST.get("item_input")
+        response_type = request.POST.get("tipo_resposta_select")
+        response_type_display = dict(ChecklistItem.TIPO_RESPOSTA_CHOICES).get(response_type)
 
-    context = {
-        "group": group,
-        "description": description,
-        "response_type": response_type,
-        "response_type_display": response_type_display,
-    }
+        context = {
+            "group": group,
+            "description": description,
+            "response_type": response_type,
+            "response_type_display": response_type_display,
+        }
 
-    return render(request, "checklists/partials/item_row.html", context)
+        return render(request, "checklists/partials/item_row.html", context)

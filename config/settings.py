@@ -69,6 +69,7 @@ INSTALLED_APPS = [
     "apps.quote",
     "apps.checklist",
     "apps.budget",
+    "apps.customer",
 ]
 
 MIDDLEWARE = [
