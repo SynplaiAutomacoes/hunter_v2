@@ -43,6 +43,7 @@ class Budget(TimeStampedModel):
     # Status e Controle
     status = models.CharField(verbose_name="Status", max_length=20, choices=BudgetStatus.choices, default=BudgetStatus.DRAFT)
     cancellation_reason = models.CharField(verbose_name="Motivo do Cancelamento", max_length=255, blank=True, null=True)
+    current_step = models.PositiveSmallIntegerField(verbose_name="Etapa Atual", default=1)
 
     class Meta:
         verbose_name = "Orçamento"
