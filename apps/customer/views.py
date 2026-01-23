@@ -1,4 +1,4 @@
-from django.shortcuts import render
+from django.shortcuts import render, get_object_or_404
 from django.urls import reverse_lazy
 from django.views.generic import ListView, CreateView, UpdateView, DeleteView, TemplateView
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -131,3 +131,18 @@ class AddVehicleFormView(LoginRequiredMixin, TemplateView):
 
         context["v_form"] = form
         return context
+
+
+def customer_detail(request):
+    customer_id = request.GET.get('customer')
+    customer = None
+    if customer_id:
+        customer = get_object_or_404(Customer, id=customer_id)
+    return render(request, 'budget/partials/customer_resume.html', {'customer': customer})
+
+def vehicle_detail(request):
+    vehicle_id = request.GET.get('vehicle')
+    vehicle = None
+    if vehicle_id:
+        vehicle = get_object_or_404(Vehicle, id=vehicle_id)
+    return render(request, 'budget/partials/vehicle_resume.html', {'vehicle': vehicle})
