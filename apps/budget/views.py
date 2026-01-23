@@ -64,6 +64,7 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["request"] = self.request
+        kwargs["workshop"] = self.workshop
         kwargs["instance"] = self.get_object()
         return kwargs
 

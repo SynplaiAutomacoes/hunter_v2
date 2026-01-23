@@ -41,3 +41,16 @@ class InvestigativeQuestion(TimeStampedModel):
 
     def __str__(self):
         return self.text
+
+
+class InvestigativeResponse(TimeStampedModel):
+    workshop = models.ForeignKey(Workshop, verbose_name="Oficina", on_delete=models.CASCADE, related_name="investigative_responses")
+    budget = models.ForeignKey("budget.Budget", verbose_name="Orçamento", on_delete=models.CASCADE, related_name="investigative_responses")
+    question = models.ForeignKey(InvestigativeQuestion, verbose_name="Pergunta Investigativa", on_delete=models.CASCADE, related_name="investigative_responses")
+    response = models.TextField(verbose_name="Resposta")
+
+    class Meta:
+        unique_together = ["budget", "question"]
+
+    def __str__(self):
+        return f"{self.question}: {self.response}"
