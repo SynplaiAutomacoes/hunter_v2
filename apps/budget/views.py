@@ -50,6 +50,11 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
         {"title": "Revisão e Confirmação", "form_class": BudgetStep2Form},
     ]
 
+    def get_template_names(self):
+        if self.request.htmx:
+            return ["budget/partials/budget_step_content.html"]
+        return [self.template_name]
+
     def get_object(self, queryset=None):
         pk = self.request.GET.get("pk") or self.kwargs.get("pk")
         if pk:
@@ -76,7 +81,9 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
             success_url = f"{reverse('budget:budget_create')}?step={next_step}&pk={self.object.pk}"
 
             if self.request.htmx:
-                return redirect(success_url)
+                response = redirect(success_url)
+                response["HX-Push-Url"] = success_url
+                return response
 
             return redirect(success_url)
 
