@@ -103,6 +103,17 @@ class BudgetUpdateView(BudgetCreateView):
 
         return super().get(request, *args, **kwargs)
 
+    def dispatch(self, request, *args, **kwargs):
+        if not self.budget_object:
+            return redirect("budget:budget_list")
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_object(self, queryset=None):
+        pk = self.kwargs.get("pk")
+        if pk:
+            return Budget.objects.get(pk=pk)
+        return super().get_object()
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["is_update"] = True
