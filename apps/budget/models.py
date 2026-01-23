@@ -23,9 +23,9 @@ class Budget(TimeStampedModel):
     entry_date = models.DateField(verbose_name="Data de Entrada")
 
     # Informações Técnicas
-    problem_description = models.TextField(verbose_name="Descrição do Problema", blank=True, null=True)
-    technical_diagnosis = models.TextField(verbose_name="Diagnóstico Técnico", blank=True, null=True)
-    notes = models.TextField(verbose_name="Observações", blank=True, null=True)
+    problem_description = models.TextField(verbose_name="Relato principal do cliente", blank=True, null=True)
+    technical_diagnosis = models.TextField(verbose_name="Observações Técnicas", blank=True, null=True)
+    notes = models.TextField(verbose_name="Observações Complementares", blank=True, null=True)
     current_km = models.PositiveIntegerField(verbose_name="KM Atual", default=0)
     fuel_level = models.PositiveIntegerField(verbose_name="Nível do Tanque", default=0)
     # TODO add "sintomas_identificados" field

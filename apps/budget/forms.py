@@ -102,6 +102,61 @@ class BudgetStep1Form(forms.ModelForm):
                     ),
                     css_class="col-span-12 lg:col-span-6",
                 ),
+                css_class="grid grid-cols-1 lg:grid-cols-12 lg:gap-35",
+            ),
+        )
+
+
+class BudgetStep2Form(forms.ModelForm):
+    class Meta:
+        model = Budget
+        fields = [
+            "problem_description",
+            "notes",
+        ]
+        widgets = {
+            "problem_description": TextInput(),
+            "notes": TextInput(attrs={"class": "w-full"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        self.workshop = kwargs.pop("workshop", None)
+        super().__init__(*args, **kwargs)
+
+        if self.workshop:
+            self.fields["quotes"].queryset = self.fields["quotes"].queryset.filter(workshop=self.workshop)
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout(
+            Div(
+                HTML('<h3 class="text-2xl font-bold mb-2">Relato do Cliente</h3>'),
+                Div(
+                    Div(
+                        HTML('<h3 class="text-2xl font-bold mb-2">Veículo</h3>'),
+                        Div(
+                            Field("current_km", wrapper_class="col-span-12 lg:col-span-6"),
+                            Field("fuel_level", wrapper_class="col-span-12 lg:col-span-6"),
+                            css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
+                        ),
+                        css_class="mb-6 gap-4",
+                    ),
+                    css_class="col-span-12 lg:col-span-6",
+                ),
+                Div(
+                    Div(
+                        HTML('<h2 class="text-2xl font-bold mb-4 pb-2">Resumo</h2>'),
+                        # Cliente
+                        HTML('<h4 class="text-lg font-bold mb-2">Cliente</h4>'),
+                        Div(id="resumo-cliente", css_class="mb-6 overflow-x-auto"),
+
+                        # Veículo
+                        HTML('<h4 class="text-lg font-bold mb-2">Veículo</h4>'),
+                        Div(id="resumo-veiculo", css_class="overflow-x-auto"),
+                    ),
+                    css_class="col-span-12 lg:col-span-6",
+                ),
+                Field("notes", wrapper_class="col-span-12 lg:col-span-12"),
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-38",
             ),
         )

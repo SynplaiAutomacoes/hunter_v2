@@ -1,12 +1,8 @@
-<div class="mb-5 ml-5">
-    <div class="flex items-center justify-between">
+<div class="mb-9 w-[90%] mx-auto">
+    <div class="flex items-center justify-between gap-3">
         {% for step in steps_config %}
         <div class="flex flex-col items-center flex-1 position-relative">
-            {% if not forloop.first %}
-                <div class="absolute w-full h-1 bg-gray-200 top-5 -left-1/2 {% if step.number <= current_step %}bg-primary{% endif %}"></div>
-            {% endif %}
-
-            <div class="px-9 text-base font-semibold">
+            <div class="px-6 text-base font-semibold">
                 {{ step.title }}
             </div>
 
