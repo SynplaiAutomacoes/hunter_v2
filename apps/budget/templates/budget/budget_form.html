@@ -12,6 +12,7 @@
 
     <div class="card bg-base-100 shadow-xl">
         <div class="card-body p-6 md:p-8">
+            {% include 'navbar/stepper.html' %}
             <div class="flex items-center justify-between">
                 {% if current_step > 1 %}
                     <button type="button"
@@ -19,9 +20,9 @@
                         hx-target="#form-container"
                         class="btn btn-outline">Voltar
                     </button>
+                {% else %}
+                    <div></div>
                 {% endif %}
-
-                {% include 'navbar/stepper.html' %}
 
                 <button type="submit" class="btn btn-primary">
                     {% if current_step == steps_config|length %} Finalizar {% else %} Próxima Etapa {% endif %}

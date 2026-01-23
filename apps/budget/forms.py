@@ -86,8 +86,9 @@ class BudgetStep1Form(forms.ModelForm):
                         ),
                         css_class="mb-6 gap-4",
                     ),
-                    css_class="col-span-12 lg:col-span-6",
+                    css_class="col-span-12 lg:col-span-5",
                 ),
+                Div(css_class="col-span-12 lg:col-span-2"),
                 # Coluna Direita (Resumo)
                 Div(
                     Div(
@@ -100,9 +101,9 @@ class BudgetStep1Form(forms.ModelForm):
                         HTML('<h4 class="text-lg font-bold mb-2">Veículo</h4>'),
                         Div(id="resumo-veiculo", css_class="overflow-x-auto"),
                     ),
-                    css_class="col-span-12 lg:col-span-6",
+                    css_class="col-span-12 lg:col-span-5",
                 ),
-                css_class="grid grid-cols-1 lg:grid-cols-12 lg:gap-35",
+                css_class="grid grid-cols-1 lg:grid-cols-12",
             ),
         )
 

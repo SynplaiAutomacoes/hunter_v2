@@ -1,18 +1,35 @@
-<div class="mb-9 w-[90%] mx-auto">
-    <div class="flex items-center justify-between gap-3">
+<div class="mb-9 w-[100%] mx-auto">
+    <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 lg:gap-3">
+
         {% for step in steps_config %}
-        <div class="flex flex-col items-center flex-1 position-relative">
-            <div class="px-6 text-base font-semibold">
+        <div class="flex flex-row lg:flex-col items-center flex-1 w-full lg:w-auto gap-4 lg:gap-0 relative">
+
+            <div class="hidden lg:block text-base font-semibold lg:mt-2 lg:text-center">
                 {{ step.title }}
             </div>
 
-            <div class="z-10 flex items-center justify-center w-full h-5 text-base text-gray-700
-                {% if step.number < current_step %} bg-success cursor-pointer
-                {% elif step.number == current_step %} bg-yellow-300
-                {% else %} bg-gray-300 {% endif %}"
+            <div class="z-10 flex items-center justify-center shrink-0 w-10 h-10 lg:w-full lg:h-5 text-base font-bold transition-all
+                {% if step.number < current_step %} bg-success text-success-content cursor-pointer
+                {% elif step.number == current_step %} bg-warning text-warning-content ring-2 ring-warning/50
+                {% else %} bg-base-300 text-base-content {% endif %}
+                {% if not forloop.last %} lg:rounded-none {% endif %} rounded-full lg:rounded-sm"
                 {% if step.number < current_step %} hx-get="?step={{ step.number }}" hx-target="#form-container" {% endif %}>
-                {{ step.number }}
+
+                {% if step.number < current_step %}
+                    <span class="material-icons !text-lg">check</span>
+                {% else %}
+                    {{ step.number }}
+                {% endif %}
             </div>
+
+            <div class="text-base font-semibold lg:mt-2 lg:text-center text-left lg:hidden">
+                {{ step.title }}
+            </div>
+
+            {% if not forloop.last %}
+            <div class="absolute left-5 top-10 w-0.5 h-4 bg-base-300 lg:hidden"></div>
+            {% endif %}
+
         </div>
         {% endfor %}
     </div>
