@@ -6,20 +6,16 @@
                 <div class="absolute w-full h-1 bg-gray-200 top-5 -left-1/2 {% if step.number <= current_step %}bg-primary{% endif %}"></div>
             {% endif %}
 
-            <div class="mb-2 text-xs font-bold uppercase text-gray-500">
+            <div class="mb-2 text-base font-semibold uppercase text-gray-500">
                 {{ step.title }}
             </div>
 
-            <div style="width:100%;" class="z-10 flex items-center justify-center w-10 h-10 rounded-full
-                {% if step.number < current_step %} bg-success text-white cursor-pointer
-                {% elif step.number == current_step %} bg-primary text-white
-                {% else %} bg-gray-300 text-gray-600 {% endif %}"
+            <div style="width:13vw; min-width:100%; {% if step.number == current_step %} background-color: #f0f019; {% endif %}" class="z-10 flex items-center justify-center w-10 h-10 text-base  text-gray-600
+                {% if step.number < current_step %} bg-success cursor-pointer
+                {% elif step.number == current_step %} bg-yellow-400
+                {% else %} bg-gray-300 {% endif %}"
                 {% if step.number < current_step %} hx-get="?step={{ step.number }}" hx-target="#form-container" {% endif %}>
-                {% if step.number < current_step %}
-                    <i class="fas fa-check"></i>
-                {% else %}
-                    {{ step.number }}
-                {% endif %}
+                {{ step.number }}
             </div>
         </div>
         {% endfor %}
