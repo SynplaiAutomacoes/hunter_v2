@@ -4,7 +4,7 @@ from django import forms
 from django.urls import reverse
 
 from apps.budget.models import Budget
-from apps.core.widgets import TextInput, SelectInput, NumberInput, CalendarDateInput
+from apps.core.widgets import TextInput, SelectInput, CalendarDateInput
 
 
 class BudgetStep1Form(forms.ModelForm):
@@ -25,8 +25,8 @@ class BudgetStep1Form(forms.ModelForm):
             "entry_date": CalendarDateInput(),
             "customer": SelectInput(),
             "vehicle": SelectInput(),
-            "current_km": NumberInput(),
-            "fuel_level": NumberInput(),
+            "current_km": TextInput(),
+            "fuel_level": TextInput(),
         }
 
     def __init__(self, *args, **kwargs):

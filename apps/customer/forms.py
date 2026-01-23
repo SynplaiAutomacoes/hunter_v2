@@ -117,7 +117,7 @@ class CustomerForm(AddressFormMixin, forms.ModelForm):
                         Button(
                             name="add_vehicle",
                             value="+ Adicionar Veículo",
-                            css_class="btn-form-save",
+                            css_class="btn btn-primary",
                             hx_get=add_vehicle_url,
                             hx_target="#vehicle-list",
                             hx_swap="beforeend",
