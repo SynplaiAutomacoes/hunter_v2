@@ -1,18 +1,20 @@
 {% load crispy_forms_tags %}
-{% if object.pk %}
-    {% url 'budget:budget_update' object.pk as post_url %}
-{% else %}
-    {% url 'budget:budget_create' as post_url %}
-{% endif %}
-
 {% include 'navbar/stepper.html' %}
 
 <div class="flex items-center justify-between mb-6">
     {% if current_step > 1 %}
+        {% if object.pk %}
+            {% url 'budget:budget_update' object.pk as back_url_base %}
+        {% else %}
+            {% url 'budget:budget_create' as back_url_base %}
+        {% endif %}
+
         <button type="button"
-            hx-get="?step={{ current_step|add:-1 }}{% if object.pk %}&pk={{ object.pk }}{% endif %}"
+            hx-get="{{ back_url_base }}?step={{ current_step|add:-1 }}{% if object.pk %}&pk={{ object.pk }}{% endif %}"
             hx-target="#budget-card-content"
-            class="btn btn-outline">Voltar
+            hx-push-url="true"
+            class="btn btn-outline">
+            <span class="material-icons">arrow_back</span> Voltar
         </button>
     {% else %}
         <div></div>

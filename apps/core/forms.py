@@ -60,7 +60,18 @@ class MultiStepFormMixin:
     steps_definition = []
 
     def get_current_step(self):
-        return int(self.request.GET.get("step", 1))
+        obj = getattr(self, "object", None) or self.get_object()
+        if obj and hasattr(obj, "current_step"):
+            print("obj")
+            return obj.current_step
+
+        step_url = self.request.GET.get("step")
+        if step_url:
+            print("step_url")
+            return int(step_url)
+
+        print("default step")
+        return 1
 
     def get_form_class(self):
         """Retorna o form_class definido para a etapa atual."""
@@ -80,6 +91,9 @@ class MultiStepFormMixin:
 
         context["steps_config"] = [{"number": i + 1, "title": step["title"]} for i, step in enumerate(self.steps_definition)]
         context["current_step"] = current_step
+
+        obj = getattr(self, "object", None) or self.get_object()
+        context["max_reached_step"] = obj.current_step if obj else 1
 
         # Injeta o formset específico da etapa atual se existir
         step_config = self.steps_definition[current_step - 1]

@@ -93,7 +93,15 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
 
 
 class BudgetUpdateView(BudgetCreateView):
-    # Herdando de BudgetCreateView, já temos steps_definition e lógica de HTMX
+    def get(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        step_na_url = int(request.GET.get("step", 0))
+
+        if not step_na_url:
+            target_step = self.object.current_step
+            return redirect(f"{reverse('budget:budget_update', kwargs={'pk': self.object.pk})}?step={target_step}")
+
+        return super().get(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

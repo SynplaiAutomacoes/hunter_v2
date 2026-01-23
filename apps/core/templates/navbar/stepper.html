@@ -9,11 +9,23 @@
             </div>
 
             <div class="z-10 flex items-center justify-center shrink-0 w-10 h-10 lg:w-full lg:h-5 text-base font-bold transition-all
-                {% if step.number < current_step %} bg-success text-success-content cursor-pointer
-                {% elif step.number == current_step %} bg-warning text-warning-content ring-2 ring-warning/50
-                {% else %} bg-base-300 text-base-content {% endif %}
+                {% if step.number < current_step %}
+                    bg-success text-success-content cursor-pointer
+                {% elif step.number == current_step %}
+                    bg-warning text-warning-content ring-2 ring-warning/50
+                {% elif step.number <= max_reached_step %}
+                    bg-info text-info-content cursor-pointer
+                {% else %}
+                    bg-base-300 text-base-content opacity-50
+                {% endif %}
                 {% if not forloop.last %} lg:rounded-none {% endif %} rounded-full lg:rounded-sm"
-                {% if step.number < current_step %} hx-get="?step={{ step.number }}" hx-target="#form-container" {% endif %}>
+
+                {# Habilita o clique se a etapa já foi alcançada e não é a atual #}
+                {% if step.number <= max_reached_step and step.number != current_step %}
+                    hx-get="?step={{ step.number }}{% if object.pk %}&pk={{ object.pk }}{% endif %}"
+                    hx-target="#budget-card-content"
+                    hx-push-url="true"
+                {% endif %}>
 
                 {% if step.number < current_step %}
                     <span class="material-icons !text-lg">check</span>
