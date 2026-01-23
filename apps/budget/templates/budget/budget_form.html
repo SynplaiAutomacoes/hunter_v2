@@ -28,11 +28,10 @@
                 </button>
             </div>
 
-            <div id="form-container" style="margin-top: 5vh;">
+            <div id="form-container">
                 <form hx-post="{{ request.path }}?step={{ current_step }}" hx-swap="outerHTML">
                     {% csrf_token %}
 
-                    <div class="grid grid-cols-12 gap-4">
                         {% crispy form %}
 
                         {% if step_formset %}
@@ -46,7 +45,6 @@
                                 {% endfor %}
                             </div>
                         {% endif %}
-                    </div>
                 </form>
             </div>
         </div>

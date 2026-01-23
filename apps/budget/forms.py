@@ -57,40 +57,41 @@ class BudgetStep1Form(forms.ModelForm):
                 Div(
                     # Orçamento
                     Div(
-                        HTML('<h3 class="text-xl font-bold mb-2">Orçamento</h3>'),
+                        HTML('<h3 class="text-2xl font-bold mb-2">Orçamento</h3>'),
                         Div(
                             Field("workshop", wrapper_class="col-span-12 lg:col-span-12"),
                             Field("collaborator", wrapper_class="col-span-12 lg:col-span-12"),
                             Field("entry_date", wrapper_class="col-span-12 lg:col-span-12"),
                             css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
                         ),
-                        css_class="mb-6",
+                        css_class="mb-6 gap-4",
                     ),
                     # Cliente
                     Div(
-                        HTML('<h3 class="text-xl font-bold mb-2">Cliente</h3>'),
+                        HTML('<h3 class="text-2xl font-bold mb-2">Cliente</h3>'),
                         Div(
                             Field("customer", wrapper_class="col-span-12 lg:col-span-12", hx_get=f"{customer_detail}", hx_target="#resumo-cliente", hx_trigger="change"),
                             Field("vehicle", wrapper_class="col-span-12 lg:col-span-12", hx_get=f"{vehicle_detail}", hx_target="#resumo-veiculo", hx_trigger="change"),
                             css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
                         ),
-                        css_class="mb-6",
+                        css_class="mb-6 gap-4",
                     ),
                     # Veículo
                     Div(
-                        HTML('<h3 class="text-xl font-bold mb-2">Veículo</h3>'),
+                        HTML('<h3 class="text-2xl font-bold mb-2">Veículo</h3>'),
                         Div(
                             Field("current_km", wrapper_class="col-span-12 lg:col-span-6"),
                             Field("fuel_level", wrapper_class="col-span-12 lg:col-span-6"),
                             css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
                         ),
+                        css_class="mb-6 gap-4",
                     ),
                     css_class="col-span-12 lg:col-span-6",
                 ),
                 # Coluna Direita (Resumo)
                 Div(
                     Div(
-                        HTML('<h2 class="text-xl font-bold mb-4 border-b pb-2">Resumo</h2>'),
+                        HTML('<h2 class="text-2xl font-bold mb-4 pb-2">Resumo</h2>'),
                         # Cliente
                         HTML('<h4 class="text-lg font-bold mb-2">Cliente</h4>'),
                         Div(id="resumo-cliente", css_class="mb-6 overflow-x-auto"),
@@ -101,6 +102,6 @@ class BudgetStep1Form(forms.ModelForm):
                     ),
                     css_class="col-span-12 lg:col-span-6",
                 ),
-                css_class="grid grid-cols-1 lg:grid-cols-12 w-full",
+                css_class="grid grid-cols-1 lg:grid-cols-12 gap-38",
             ),
         )

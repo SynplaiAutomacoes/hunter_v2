@@ -1,4 +1,4 @@
-<div class="w-full py-4">
+<div class="mb-5 ml-5">
     <div class="flex items-center justify-between">
         {% for step in steps_config %}
         <div class="flex flex-col items-center flex-1 position-relative">
@@ -6,13 +6,13 @@
                 <div class="absolute w-full h-1 bg-gray-200 top-5 -left-1/2 {% if step.number <= current_step %}bg-primary{% endif %}"></div>
             {% endif %}
 
-            <div class="mb-2 text-base font-semibold uppercase text-gray-500">
+            <div class="px-9 text-base font-semibold">
                 {{ step.title }}
             </div>
 
-            <div style="width:13vw; min-width:100%; {% if step.number == current_step %} background-color: #f0f019; {% endif %}" class="z-10 flex items-center justify-center w-10 h-10 text-base  text-gray-600
+            <div class="z-10 flex items-center justify-center w-full h-5 text-base text-gray-700
                 {% if step.number < current_step %} bg-success cursor-pointer
-                {% elif step.number == current_step %} bg-yellow-400
+                {% elif step.number == current_step %} bg-yellow-300
                 {% else %} bg-gray-300 {% endif %}"
                 {% if step.number < current_step %} hx-get="?step={{ step.number }}" hx-target="#form-container" {% endif %}>
                 {{ step.number }}
