@@ -1,11 +1,10 @@
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, HTML
 from django import forms
-from django.forms.widgets import DateInput
 from django.urls import reverse
 
 from apps.budget.models import Budget
-from apps.core.widgets import TextInput, SelectInput, NumberInput
+from apps.core.widgets import TextInput, SelectInput, NumberInput, CalendarDateInput
 
 
 class BudgetStep1Form(forms.ModelForm):
@@ -23,7 +22,7 @@ class BudgetStep1Form(forms.ModelForm):
         widgets = {
             "workshop": TextInput(attrs={"readonly": "readonly", "style": "cursor:not-allowed;"}),
             "collaborator": TextInput(attrs={"readonly": "readonly", "style": "cursor:not-allowed;"}),
-            "entry_date": DateInput(),
+            "entry_date": CalendarDateInput(),
             "customer": SelectInput(),
             "vehicle": SelectInput(),
             "current_km": NumberInput(),
@@ -62,6 +61,7 @@ class BudgetStep1Form(forms.ModelForm):
                         Div(
                             Field("workshop", wrapper_class="col-span-12 lg:col-span-12"),
                             Field("collaborator", wrapper_class="col-span-12 lg:col-span-12"),
+                            Field("entry_date", wrapper_class="col-span-12 lg:col-span-12"),
                             css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
                         ),
                         css_class="mb-6",
