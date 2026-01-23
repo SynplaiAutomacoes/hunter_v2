@@ -24,13 +24,13 @@
                     <div></div>
                 {% endif %}
 
-                <button type="submit" class="btn btn-primary">
+                <button type="submit" form="budget-form" class="btn btn-primary">
                     {% if current_step == steps_config|length %} Finalizar {% else %} Próxima Etapa {% endif %}
                 </button>
             </div>
 
             <div id="form-container">
-                <form hx-post="{{ request.path }}?step={{ current_step }}" hx-swap="outerHTML">
+                <form id="budget-form" hx-post="{{ request.get_full_path }}" hx-target="#form-container" hx-swap="outerHTML">
                     {% csrf_token %}
 
                         {% crispy form %}

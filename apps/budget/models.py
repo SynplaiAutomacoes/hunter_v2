@@ -19,7 +19,7 @@ class Budget(TimeStampedModel):
     collaborator = models.ForeignKey("collaborators.WorkshopCollaborator", verbose_name="Colaborador", on_delete=models.SET_NULL, related_name="budgets", null=True)
 
     # Datas e Prazos
-    expiration_date = models.DateField(verbose_name="Data de Validade")
+    expiration_date = models.DateField(verbose_name="Data de Validade", null=True, blank=True)
     entry_date = models.DateField(verbose_name="Data de Entrada")
 
     # Informações Técnicas
@@ -47,6 +47,18 @@ class Budget(TimeStampedModel):
     class Meta:
         verbose_name = "Orçamento"
         verbose_name_plural = "Orçamentos"
+
+    @property
+    def expiration_date_display(self):
+        return self.expiration_date or ""
+
+    @property
+    def budget_status(self):
+        return BudgetStatus(self.status).label
+
+    @property
+    def collaborator_name(self):
+        return self.collaborator.name if self.collaborator else "Sistema"
 
     def __str__(self):
         return f"Budget #{self.id} - {self.customer}"

@@ -3,11 +3,15 @@ from crispy_forms.layout import Layout, Div, Field, HTML
 from django import forms
 
 from apps.budget.models import Budget
+from apps.collaborators.models import WorkshopCollaborator
 from apps.core.widgets import TextInput, SelectInput, CalendarDateInput
+from apps.customer.models import Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion
 
 
 class BudgetStep1Form(forms.ModelForm):
+    workshop = forms.CharField(widget=TextInput(attrs={"readonly": "readonly"}), required=False)
+    collaborator = forms.CharField(widget=TextInput(attrs={"readonly": "readonly"}), required=False)
     class Meta:
         model = Budget
         fields = [
@@ -20,8 +24,6 @@ class BudgetStep1Form(forms.ModelForm):
             "fuel_level",
         ]
         widgets = {
-            "workshop": TextInput(attrs={"readonly": "readonly", "style": "cursor:not-allowed;"}),
-            "collaborator": TextInput(attrs={"readonly": "readonly", "style": "cursor:not-allowed;"}),
             "entry_date": CalendarDateInput(),
             "customer": SelectInput(),
             "vehicle": forms.Select(),
@@ -38,6 +40,16 @@ class BudgetStep1Form(forms.ModelForm):
         if self.workshop:
             self.fields["workshop"].initial = self.workshop.name
             self.fields["customer"].queryset = self.fields["customer"].queryset.filter(workshop=self.workshop)
+
+        if self.instance and self.instance.customer:
+            self.fields["vehicle"].queryset = self.instance.customer.vehicles.all()
+        elif self.data.get("customer"):
+            try:
+                customer_id = self.data.get("customer")
+                self.fields["vehicle"].queryset = Vehicle.objects.filter(customer_id=customer_id)
+            except (ValueError, TypeError):
+                self.fields["vehicle"].queryset = self.fields["vehicle"].queryset.none()
+        else:
             self.fields["vehicle"].queryset = self.fields["vehicle"].queryset.none()
 
         if self.request and self.request.user:
@@ -155,6 +167,14 @@ class BudgetStep1Form(forms.ModelForm):
                 css_class="grid grid-cols-1 lg:grid-cols-12",
             ),
         )
+
+    def clean(self):
+        cleaned_data = super().clean()
+
+        cleaned_data["workshop"] = self.workshop
+        cleaned_data["collaborator"] = WorkshopCollaborator.objects.filter(user=self.request.user, workshop=self.workshop).first()
+
+        return cleaned_data
 
 
 class BudgetStep2Form(forms.ModelForm):

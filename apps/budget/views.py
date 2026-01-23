@@ -1,14 +1,15 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.shortcuts import redirect
-from django.urls import reverse
-from django.views.generic import ListView, CreateView
+from django.urls import reverse, reverse_lazy
+from django.views.generic import ListView, CreateView, DeleteView
 
 from apps.budget.forms import BudgetStep1Form, BudgetStep2Form
 from apps.budget.models import Budget
+from apps.collaborators.models import WorkshopCollaborator
 from apps.core.forms import MultiStepFormMixin
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxTemplateResponseMixin
+from apps.core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin
 from apps.workshops.mixin import WorkshopScopedMixin
 
 
@@ -23,11 +24,11 @@ class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespon
         context["fields"] = [
             TableColumn(Budget.customer.field.verbose_name, attr=Budget.customer.field.name),
             TableColumn(Budget.vehicle.field.verbose_name, attr=Budget.vehicle.field.name),
-            TableColumn(Budget.collaborator.field.verbose_name, attr=Budget.collaborator.field.name),
+            TableColumn(Budget.collaborator.field.verbose_name, attr="collaborator_name"),
             TableColumn(Budget.criado_em.field.verbose_name, attr=Budget.criado_em.field.name),
-            TableColumn(Budget.expiration_date.field.verbose_name, attr=Budget.expiration_date.field.name),
+            TableColumn(Budget.expiration_date.field.verbose_name, attr="expiration_date_display"),
             TableColumn(Budget.total_value.field.verbose_name, attr=Budget.total_value.field.name),
-            TableColumn(Budget.status.field.verbose_name, attr=Budget.status.field.name),
+            TableColumn(Budget.status.field.verbose_name, attr="budget_status"),
         ]
         context["actions"] = [
             # TableActionDefaults.edit("budget:budget_update"),
@@ -49,22 +50,42 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
         {"title": "Revisão e Confirmação", "form_class": BudgetStep2Form},
     ]
 
+    def get_object(self, queryset=None):
+        pk = self.request.GET.get("pk") or self.kwargs.get("pk")
+        if pk:
+            return Budget.objects.get(pk=pk, workshop=self.workshop)
+        return None
+
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["request"] = self.request
-
+        kwargs["instance"] = self.get_object()
         return kwargs
 
     def form_valid(self, form):
         form.instance.workshop = self.workshop
+        form.instance.collaborator = WorkshopCollaborator.objects.filter(user=self.request.user, workshop=self.workshop).first()
+
         self.object = form.save()  # Salva o progresso atual
 
         current_step = self.get_current_step()
         if current_step < len(self.steps_definition):
             # Se não for a última etapa, redireciona para a próxima via HTMX ou URL
             next_step = current_step + 1
-            # Se for HTMX, você pode retornar o novo form renderizado
-            success_url = f"{reverse('budget:budget_list', kwargs={'pk': self.object.pk})}?step={next_step}"
+            # Redireciona para a mesma view, mas passando o PK do objeto salvo e o próximo step
+            success_url = f"{reverse('budget:budget_create')}?step={next_step}&pk={self.object.pk}"
+
+            if self.request.htmx:
+                return redirect(success_url)
+
             return redirect(success_url)
 
         return super().form_valid(form)
+
+
+class BudgetDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResponseMixin, DeleteView):
+    model = Budget
+    success_url = reverse_lazy("budget:budget_list")
+
+    htmx_template_name = "budget/partials/budget_delete_modal.html"
+    htmx_trigger = "budget-table-refresh"
