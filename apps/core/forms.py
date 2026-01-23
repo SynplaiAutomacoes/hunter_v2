@@ -85,8 +85,6 @@ class MultiStepFormMixin:
         if not kwargs.get("instance"):
             kwargs["instance"] = self.get_object()
 
-        print(f"get_form_kwargs: {kwargs}")
-
         if hasattr(self, "workshop"):
             kwargs.update({'workshop': self.workshop})
         return kwargs
