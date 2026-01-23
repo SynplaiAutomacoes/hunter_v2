@@ -20,6 +20,7 @@ class Budget(TimeStampedModel):
 
     # Datas e Prazos
     expiration_date = models.DateField(verbose_name="Data de Validade")
+    entry_date = models.DateField(verbose_name="Data de Entrada")
 
     # Informações Técnicas
     problem_description = models.TextField(verbose_name="Descrição do Problema", blank=True, null=True)
