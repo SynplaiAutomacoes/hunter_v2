@@ -5,6 +5,7 @@ from django.urls import reverse
 
 from apps.budget.models import Budget
 from apps.core.widgets import TextInput, SelectInput, CalendarDateInput
+from apps.quote.models.investigative_questions import InvestigativeQuestion
 
 
 class BudgetStep1Form(forms.ModelForm):
@@ -96,7 +97,6 @@ class BudgetStep1Form(forms.ModelForm):
                         # Cliente
                         HTML('<h4 class="text-lg font-bold mb-2">Cliente</h4>'),
                         Div(id="resumo-cliente", css_class="mb-6 overflow-x-auto"),
-
                         # Veículo
                         HTML('<h4 class="text-lg font-bold mb-2">Veículo</h4>'),
                         Div(id="resumo-veiculo", css_class="overflow-x-auto"),
@@ -111,13 +111,18 @@ class BudgetStep1Form(forms.ModelForm):
 class BudgetStep2Form(forms.ModelForm):
     class Meta:
         model = Budget
-        fields = [
-            "problem_description",
-            "notes",
-        ]
+        fields = ["problem_description", "notes"]
         widgets = {
-            "problem_description": TextInput(),
-            "notes": TextInput(attrs={"class": "w-full"}),
+            "problem_description": forms.Textarea(attrs={
+                "class": "textarea textarea-bordered w-full",
+                "rows": "17",
+                "placeholder": "Descreva detalhadamente o relato do cliente..."
+            }),
+            "notes": forms.Textarea(attrs={
+                "class": "textarea textarea-bordered w-full",
+                "rows": "4",
+                "placeholder": "Observações gerais sobre este orçamento..."
+            }),
         }
 
     def __init__(self, *args, **kwargs):
@@ -125,21 +130,51 @@ class BudgetStep2Form(forms.ModelForm):
         self.request = kwargs.pop("request", None)
         super().__init__(*args, **kwargs)
 
+        questions = []
+        if self.workshop:
+            questions = InvestigativeQuestion.objects.filter(workshop=self.workshop, is_active=True).order_by("order")
+
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
             Div(
-                HTML('<h3 class="text-2xl font-bold mb-2">Relato do Cliente</h3>'),
+                HTML('<h3 class="text-2xl font-bold col-span-12">Relato do Cliente</h3>'),
+                # Descrição do Problema
+                Div(Field("problem_description", wrapper_class="w-full"), css_class="col-span-12 lg:col-span-6"),
+
+                # Perguntas Investigativas
                 Div(
-                    Field("problem_description", wrapper_class="col-span-12 lg:col-span-6"),
-                    css_class="col-span-12 lg:col-span-5 w-full",
+                    HTML('<h5 class="font-semibold mb-1.5">Perguntas Investigativas</h5>'),
+                    Div(
+                        Div(*[self._render_question(q) for q in questions], css_class="space-y-4 p-4"),
+                        css_class="border rounded-lg bg-base-200 overflow-y-auto",
+                        style="height: 375px;",
+                    ),
+                    css_class="col-span-12 lg:col-span-6",
                 ),
-                Div(css_class="col-span-12 lg:col-span-2"),
-                Div(
-                    HTML("<span>Perguntas Investigativas</span>"),
-                    css_class="col-span-12 lg:col-span-5 w-full",
-                ),
-                Field("notes", wrapper_class="col-span-12 lg:col-span-12"),
-                css_class="grid grid-cols-1 lg:grid-cols-12",
+
+                # Observações
+                Div(Field("notes", wrapper_class="w-full"), css_class="col-span-12"),
+                css_class="grid grid-cols-12 gap-6",
             ),
         )
+
+    def _render_question(self, question):
+        """Helper para renderizar o HTML de cada pergunta dentro do scroll"""
+        # Aqui você pode adaptar o input baseado no question.response_type
+        input_html = f'<input type="text" name="question_{question.id}" class="input input-bordered w-full mt-1" placeholder="Resposta...">'
+
+        if question.response_type == "BOOL":
+            input_html = f"""
+                <div class="flex gap-4 mt-1">
+                    <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="q_{question.id}" class="radio radio-primary"> Sim</label>
+                    <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="q_{question.id}" class="radio radio-primary"> Não</label>
+                </div>
+            """
+
+        return HTML(f"""
+            <div class="form-control w-full border-b border-base-300 pb-3 last:border-0">
+                <span class="text-sm font-medium text-base-content">{question.text}</span>
+                {input_html}
+            </div>
+        """)
