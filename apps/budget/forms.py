@@ -1,7 +1,6 @@
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, HTML
 from django import forms
-from django.urls import reverse
 
 from apps.budget.models import Budget
 from apps.core.widgets import TextInput, SelectInput, CalendarDateInput
@@ -35,9 +34,6 @@ class BudgetStep1Form(forms.ModelForm):
         self.request = kwargs.pop("request", None)
         super().__init__(*args, **kwargs)
 
-        customer_detail = reverse("customer:customer-detail")
-        vehicle_detail = reverse("customer:vehicle-detail")
-
         # Preenchimento inicial (Campos não editáveis)
         if self.workshop:
             self.fields["workshop"].initial = self.workshop.name
@@ -51,8 +47,50 @@ class BudgetStep1Form(forms.ModelForm):
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
-            HTML(f"<span hx-get='{customer_detail}' hx-trigger='load' hx-target='#resumo-cliente' style='display:none;'></span>"),
-            HTML(f"<span hx-get='{vehicle_detail}' hx-trigger='load' hx-target='#resumo-veiculo' style='display:none;'></span>"),
+            HTML("""
+                <script>
+                    (function() {
+                        const updateResume = (name, value, targetId, urlBase) => {
+                            const container = document.getElementById(targetId);
+                            
+                            fetch(`${urlBase}?${name}=${value}`)
+                                .then(response => response.text())
+                                .then(html => { container.innerHTML = html; })
+                                .catch(err => console.error('Erro ao carregar resumo:', err));
+                        };
+
+                        document.addEventListener('change', function(e) {
+                            if (e.target.name === 'customer') {
+                                updateResume('customer', e.target.value, 'resumo-cliente', '/customer/customer-detail/');
+                            }
+                            if (e.target.name === 'vehicle') {
+                                updateResume('vehicle', e.target.value, 'resumo-veiculo', '/customer/vehicle-detail/');
+                            }
+                        });
+                        
+                        const init = () => {
+                            const fields = [
+                                { name: 'customer', id: 'resumo-cliente', url: '/customer/customer-detail/' },
+                                { name: 'vehicle', id: 'resumo-veiculo', url: '/customer/vehicle-detail/' }
+                            ];
+            
+                            fields.forEach(f => {
+                                const el = document.querySelector(`[name="${f.name}"]`);
+                                if (el) updateResume(f.name, el.value, f.id, f.url);
+                            });
+            
+                            document.addEventListener('change', (e) => {
+                                const field = fields.find(f => f.name === e.target.name);
+                                if (field) {
+                                    updateResume(field.name, e.target.value, field.id, field.url);
+                                }
+                            });
+                        };
+            
+                        window.addEventListener('load', init);
+                    })();
+                </script>
+            """),
             Div(
                 # Coluna Esquerda
                 Div(
@@ -71,8 +109,8 @@ class BudgetStep1Form(forms.ModelForm):
                     Div(
                         HTML('<h3 class="text-2xl font-bold mb-2">Cliente</h3>'),
                         Div(
-                            Field("customer", wrapper_class="col-span-12 lg:col-span-12", hx_get=f"{customer_detail}", hx_target="#resumo-cliente", hx_trigger="change"),
-                            Field("vehicle", wrapper_class="col-span-12 lg:col-span-12", hx_get=f"{vehicle_detail}", hx_target="#resumo-veiculo", hx_trigger="change"),
+                            Field("customer", wrapper_class="col-span-12 lg:col-span-12"),
+                            Field("vehicle", wrapper_class="col-span-12 lg:col-span-12"),
                             css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
                         ),
                         css_class="mb-6 gap-4",
