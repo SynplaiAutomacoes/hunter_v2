@@ -24,7 +24,7 @@ class BudgetStep1Form(forms.ModelForm):
             "collaborator": TextInput(attrs={"readonly": "readonly", "style": "cursor:not-allowed;"}),
             "entry_date": CalendarDateInput(),
             "customer": SelectInput(),
-            "vehicle": SelectInput(),
+            "vehicle": forms.Select(),
             "current_km": TextInput(),
             "fuel_level": TextInput(),
         }
@@ -62,6 +62,17 @@ class BudgetStep1Form(forms.ModelForm):
                         document.addEventListener('change', function(e) {
                             if (e.target.name === 'customer') {
                                 updateResume('customer', e.target.value, 'resumo-cliente', '/customer/customer-detail/');
+                                
+                                const vehicleSelect = document.querySelector('[name="vehicle"]');
+                                fetch(`/customer/get-vehicles/?customer_id=${e.target.value}`)
+                                .then(response => response.json())
+                                .then(data => {
+                                    let options = '<option value="">Selecione...</option>';
+                                    data.forEach(v => {
+                                        options += `<option value="${v.id}">${v.label}</option>`;
+                                    });
+                                    vehicleSelect.innerHTML = options;
+                                });
                             }
                             if (e.target.name === 'vehicle') {
                                 updateResume('vehicle', e.target.value, 'resumo-veiculo', '/customer/vehicle-detail/');

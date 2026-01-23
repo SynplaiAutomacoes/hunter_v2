@@ -1,3 +1,4 @@
+from django.http import JsonResponse
 from django.shortcuts import render, get_object_or_404
 from django.urls import reverse_lazy
 from django.views.generic import ListView, CreateView, UpdateView, DeleteView, TemplateView
@@ -138,7 +139,18 @@ def customer_detail(request):
     customer = None
     if customer_id:
         customer = get_object_or_404(Customer, id=customer_id)
-    return render(request, 'budget/partials/customer_resume.html', {'customer': customer})
+    return render(request, "budget/partials/customer_resume.html", {"customer": customer})
+
+
+def get_vehicles(request):
+    customer_id = request.GET.get("customer_id")
+
+    data = []
+    if customer_id:
+        vehicles = Vehicle.objects.filter(customer_id=customer_id)
+        data = [{"id": v.id, "label": str(v)} for v in vehicles]
+
+    return JsonResponse(data, safe=False)
 
 def vehicle_detail(request):
     vehicle_id = request.GET.get('vehicle')

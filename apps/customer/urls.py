@@ -12,4 +12,5 @@ urlpatterns = [
     path("add-vehicle-form/", views.AddVehicleFormView.as_view(), name="add-vehicle-form"),
     path("customer-detail/", views.customer_detail, name="customer-detail"),
     path("vehicle-detail/", views.vehicle_detail, name="vehicle-detail"),
+    path("get-vehicles/", views.get_vehicles, name="vehicle-detail"),
 ]
