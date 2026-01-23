@@ -44,6 +44,12 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
         {"title": "Dados do Cliente", "form_class": BudgetStep1Form},
     ]
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["request"] = self.request
+
+        return kwargs
+
     def form_valid(self, form):
         form.instance.workshop = self.workshop
         self.object = form.save()  # Salva o progresso atual
