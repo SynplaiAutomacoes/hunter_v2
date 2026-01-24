@@ -67,13 +67,21 @@ class MultiStepFormMixin:
 
     def get_current_step(self):
         step_url = self.request.GET.get("step")
-        if step_url:
-            return int(step_url)
+        try:
+            step = int(step_url) if step_url else None
+        except (ValueError, TypeError):
+            step = None
 
-        if self.budget_object and hasattr(self.budget_object, "current_step"):
-            return self.budget_object.current_step
+        if not step:
+            if self.budget_object and hasattr(self.budget_object, "current_step"):
+                step = self.budget_object.current_step
+            else:
+                step = 1
 
-        return 1
+        total_steps = len(self.steps_definition)
+        if step > total_steps:
+            return total_steps
+        return max(1, step)
 
     def get_form_class(self):
         """Retorna o form_class definido para a etapa atual."""

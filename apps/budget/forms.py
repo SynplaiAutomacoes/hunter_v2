@@ -203,12 +203,14 @@ class BudgetStep2Form(forms.ModelForm):
                 initial_value = resp.response if resp else ""
             # Definir o tipo de campo
             if q.response_type == InvestigativeQuestion.ResponseType.BOOLEAN:
-                self.fields[field_name] = forms.ChoiceField(label=q.text, choices=[("", "Selecione..."), ("Sim", "Sim"), ("Não", "Não")], required=False, initial=initial_value, widget=forms.Select(attrs={"class": "select select-bordered w-full"}))
+                choices = [("", "Selecione..."), ("Sim", "Sim"), ("Não", "Não")]
+                self.fields[field_name] = forms.ChoiceField(label=q.text, choices=choices, required=False, initial=initial_value, widget=SelectInput(choices=choices))
             elif q.response_type == InvestigativeQuestion.ResponseType.SCALE:
                 self.fields[field_name] = forms.IntegerField(label=q.text, min_value=1, max_value=10, required=False, initial=initial_value or 5, widget=forms.NumberInput(attrs={"class": "input input-bordered w-full", "type": "range", "step": "1", "min": "1", "max": "10"}))
             elif q.response_type == InvestigativeQuestion.ResponseType.MULTIPLE_CHOICE:
                 choices = [(opt, opt) for opt in q.options]
-                self.fields[field_name] = forms.ChoiceField(label=q.text, choices=[("", "Selecione...")] + choices, required=False, initial=initial_value, widget=forms.Select(attrs={"class": "select select-bordered w-full"}))
+                choices1 = [("", "Selecione...")] + choices
+                self.fields[field_name] = forms.ChoiceField(label=q.text, choices=choices1, required=False, initial=initial_value, widget=SelectInput(choices=choices1))
             else:  # FREE_TEXT
                 self.fields[field_name] = forms.CharField(label=q.text, required=False, initial=initial_value, widget=forms.TextInput(attrs={"class": "input input-bordered w-full"}))
 
