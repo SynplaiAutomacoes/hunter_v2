@@ -6,7 +6,7 @@ from apps.budget.models import Budget
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.widgets import TextInput, SelectInput, CalendarDateInput
 from apps.customer.models import Vehicle
-from apps.quote.models.investigative_questions import InvestigativeQuestion
+from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
 
 
 class BudgetStep1Form(forms.ModelForm):
@@ -177,18 +177,13 @@ class BudgetStep1Form(forms.ModelForm):
         return cleaned_data
 
 
-# budget/forms.py
-from django import forms
-from apps.budget.models import Budget
-from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse  # Ajuste o import conforme seu projeto
-from crispy_forms.helper import FormHelper
-from crispy_forms.layout import Layout, Div, Field, HTML
-
-
 class BudgetStep2Form(forms.ModelForm):
     class Meta:
         model = Budget
         fields = ["problem_description", "notes"]
+        widgets = {
+            "notes": forms.Textarea(attrs={"rows": 4, "cols": 40}),
+        }
 
     def __init__(self, *args, **kwargs):
         self.workshop = kwargs.pop("workshop", None)
@@ -226,12 +221,12 @@ class BudgetStep2Form(forms.ModelForm):
             Div(
                 HTML('<h3 class="text-2xl font-bold col-span-12">Relato do Cliente</h3>'),
                 # Descrição do Problema
-                Div(Field("problem_description", wrapper_class="w-full"), css_class="col-span-12 lg:col-span-6"),
-                # Perguntas Investigativas (Injetadas aqui)
+                Div(Field("problem_description", wrapper_class="flex flex-col h-full", css_class="flex-1"), css_class="col-span-12 lg:col-span-6 flex flex-col"),
+                # Perguntas Investigativas
                 Div(
-                    HTML('<h5 class="font-semibold mb-3">Perguntas Investigativas</h5>'),
-                    *question_layout_fields,
-                    css_class="col-span-12 lg:col-span-6 bg-base-200 p-4 rounded-lg",
+                    HTML('<h5 class="font-bold mb-2">Perguntas Investigativas</h5>'),
+                    Div(*question_layout_fields, css_class="border px-4 py-2 rounded-lg pr-4 overflow-y-auto max-h-[40vh] scrollbar-thin scrollbar-thumb-gray-400"),
+                    css_class="col-span-12 lg:col-span-6",
                 ),
                 # Observações
                 Div(Field("notes", wrapper_class="w-full"), css_class="col-span-12"),
