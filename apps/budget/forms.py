@@ -177,31 +177,48 @@ class BudgetStep1Form(forms.ModelForm):
         return cleaned_data
 
 
+# budget/forms.py
+from django import forms
+from apps.budget.models import Budget
+from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse  # Ajuste o import conforme seu projeto
+from crispy_forms.helper import FormHelper
+from crispy_forms.layout import Layout, Div, Field, HTML
+
+
 class BudgetStep2Form(forms.ModelForm):
     class Meta:
         model = Budget
         fields = ["problem_description", "notes"]
-        widgets = {
-            "problem_description": forms.Textarea(attrs={
-                "class": "textarea textarea-bordered w-full",
-                "rows": "17",
-                "placeholder": "Descreva detalhadamente o relato do cliente..."
-            }),
-            "notes": forms.Textarea(attrs={
-                "class": "textarea textarea-bordered w-full",
-                "rows": "4",
-                "placeholder": "Observações gerais sobre este orçamento..."
-            }),
-        }
 
     def __init__(self, *args, **kwargs):
         self.workshop = kwargs.pop("workshop", None)
         self.request = kwargs.pop("request", None)
         super().__init__(*args, **kwargs)
 
-        questions = []
-        if self.workshop:
-            questions = InvestigativeQuestion.objects.filter(workshop=self.workshop, is_active=True).order_by("order")
+        self.investigative_questions = InvestigativeQuestion.objects.filter(workshop=self.workshop, is_active=True).order_by("order")
+
+        self.question_field_names = []
+        for q in self.investigative_questions:
+            field_name = f"question_{q.id}"
+            self.question_field_names.append(field_name)
+            # Valor inicial (se estiver editando)
+            initial_value = ""
+            if self.instance.pk:
+                resp = InvestigativeResponse.objects.filter(budget=self.instance, question=q).first()
+                initial_value = resp.response if resp else ""
+            # Definir o tipo de campo
+            if q.response_type == InvestigativeQuestion.ResponseType.BOOLEAN:
+                self.fields[field_name] = forms.ChoiceField(label=q.text, choices=[("", "Selecione..."), ("Sim", "Sim"), ("Não", "Não")], required=False, initial=initial_value, widget=forms.Select(attrs={"class": "select select-bordered w-full"}))
+            elif q.response_type == InvestigativeQuestion.ResponseType.SCALE:
+                self.fields[field_name] = forms.IntegerField(label=q.text, min_value=1, max_value=10, required=False, initial=initial_value or 5, widget=forms.NumberInput(attrs={"class": "input input-bordered w-full", "type": "range", "step": "1", "min": "1", "max": "10"}))
+            elif q.response_type == InvestigativeQuestion.ResponseType.MULTIPLE_CHOICE:
+                choices = [(opt, opt) for opt in q.options]
+                self.fields[field_name] = forms.ChoiceField(label=q.text, choices=[("", "Selecione...")] + choices, required=False, initial=initial_value, widget=forms.Select(attrs={"class": "select select-bordered w-full"}))
+            else:  # FREE_TEXT
+                self.fields[field_name] = forms.CharField(label=q.text, required=False, initial=initial_value, widget=forms.TextInput(attrs={"class": "input input-bordered w-full"}))
+
+        # 3. Configurar Layout dinâmico do Crispy
+        question_layout_fields = [Field(name, wrapper_class="mb-4") for name in self.question_field_names]
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -210,40 +227,26 @@ class BudgetStep2Form(forms.ModelForm):
                 HTML('<h3 class="text-2xl font-bold col-span-12">Relato do Cliente</h3>'),
                 # Descrição do Problema
                 Div(Field("problem_description", wrapper_class="w-full"), css_class="col-span-12 lg:col-span-6"),
-
-                # Perguntas Investigativas
+                # Perguntas Investigativas (Injetadas aqui)
                 Div(
-                    HTML('<h5 class="font-semibold mb-1.5">Perguntas Investigativas</h5>'),
-                    Div(
-                        Div(*[self._render_question(q) for q in questions], css_class="space-y-4 p-4"),
-                        css_class="border rounded-lg bg-base-200 overflow-y-auto",
-                        style="height: 375px;",
-                    ),
-                    css_class="col-span-12 lg:col-span-6",
+                    HTML('<h5 class="font-semibold mb-3">Perguntas Investigativas</h5>'),
+                    *question_layout_fields,
+                    css_class="col-span-12 lg:col-span-6 bg-base-200 p-4 rounded-lg",
                 ),
-
                 # Observações
                 Div(Field("notes", wrapper_class="w-full"), css_class="col-span-12"),
                 css_class="grid grid-cols-12 gap-6",
             ),
         )
 
-    def _render_question(self, question):
-        """Helper para renderizar o HTML de cada pergunta dentro do scroll"""
-        # Aqui você pode adaptar o input baseado no question.response_type
-        input_html = f'<input type="text" name="question_{question.id}" class="input input-bordered w-full mt-1" placeholder="Resposta...">'
+    def save(self, commit=True):
+        budget = super().save(commit=commit)
 
-        if question.response_type == "BOOL":
-            input_html = f"""
-                <div class="flex gap-4 mt-1">
-                    <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="q_{question.id}" class="radio radio-primary"> Sim</label>
-                    <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="q_{question.id}" class="radio radio-primary"> Não</label>
-                </div>
-            """
+        # Salvar as respostas vinculadas
+        for field_name in self.question_field_names:
+            question_id = field_name.split("_")[1]
+            response_text = self.cleaned_data.get(field_name)
 
-        return HTML(f"""
-            <div class="form-control w-full border-b border-base-300 pb-3 last:border-0">
-                <span class="text-sm font-medium text-base-content">{question.text}</span>
-                {input_html}
-            </div>
-        """)
+            if response_text:
+                InvestigativeResponse.objects.update_or_create(budget=budget, question_id=question_id, defaults={"workshop": self.workshop, "response": str(response_text)})
+        return budget
