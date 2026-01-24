@@ -3,7 +3,6 @@ from crispy_forms.layout import Layout, Div, Field, HTML
 from django import forms
 
 from apps.budget.models import Budget
-from apps.collaborators.models import WorkshopCollaborator
 from apps.core.widgets import TextInput, SelectInput, CalendarDateInput
 from apps.customer.models import Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
@@ -11,12 +10,12 @@ from apps.quote.models.investigative_questions import InvestigativeQuestion, Inv
 
 class BudgetStep1Form(forms.ModelForm):
     workshop = forms.CharField(widget=TextInput(attrs={"readonly": "readonly"}), required=False)
-    collaborator = forms.CharField(widget=TextInput(attrs={"readonly": "readonly"}), required=False)
+    cost_estimator = forms.CharField(widget=TextInput(attrs={"readonly": "readonly"}), required=False)
     class Meta:
         model = Budget
         fields = [
             "workshop",
-            "collaborator",
+            "cost_estimator",
             "entry_date",
             "customer",
             "vehicle",
@@ -54,7 +53,7 @@ class BudgetStep1Form(forms.ModelForm):
 
         if self.request and self.request.user:
             user = self.request.user
-            self.fields["collaborator"].initial = user.get_full_name() or user.username
+            self.fields["cost_estimator"].initial = user.get_full_name() or user.username
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -122,7 +121,7 @@ class BudgetStep1Form(forms.ModelForm):
                         HTML('<h3 class="text-2xl font-bold mb-2">Orçamento</h3>'),
                         Div(
                             Field("workshop", wrapper_class="col-span-12 lg:col-span-12"),
-                            Field("collaborator", wrapper_class="col-span-12 lg:col-span-12"),
+                            Field("cost_estimator", wrapper_class="col-span-12 lg:col-span-12"),
                             Field("entry_date", wrapper_class="col-span-12 lg:col-span-12"),
                             css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
                         ),
@@ -172,7 +171,7 @@ class BudgetStep1Form(forms.ModelForm):
         cleaned_data = super().clean()
 
         cleaned_data["workshop"] = self.workshop
-        cleaned_data["collaborator"] = WorkshopCollaborator.objects.filter(user=self.request.user, workshop=self.workshop).first()
+        cleaned_data["cost_estimator"] = self.request.user
 
         return cleaned_data
 

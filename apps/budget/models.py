@@ -1,5 +1,6 @@
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
+from django.conf import settings
 from apps.core.models import TimeStampedModel
 from djmoney.models.fields import MoneyField
 
@@ -16,6 +17,7 @@ class Budget(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="budgets")
     customer = models.ForeignKey("customer.Customer", verbose_name="Cliente", on_delete=models.SET_NULL, related_name="budgets", null=True)
     vehicle = models.ForeignKey("customer.Vehicle", verbose_name="Veículo", on_delete=models.SET_NULL, related_name="budgets", null=True)
+    cost_estimator = models.ForeignKey(settings.AUTH_USER_MODEL, verbose_name="Orçamentista", on_delete=models.SET_NULL, related_name="budgets", null=True)
     collaborator = models.ForeignKey("collaborators.WorkshopCollaborator", verbose_name="Colaborador", on_delete=models.SET_NULL, related_name="budgets", null=True)
 
     # Datas e Prazos

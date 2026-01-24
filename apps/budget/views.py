@@ -5,7 +5,6 @@ from django.views.generic import ListView, CreateView, DeleteView
 
 from apps.budget.forms import BudgetStep1Form, BudgetStep2Form
 from apps.budget.models import Budget
-from apps.collaborators.models import WorkshopCollaborator
 from apps.core.forms import MultiStepFormMixin
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
@@ -70,7 +69,7 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
 
     def form_valid(self, form):
         form.instance.workshop = self.workshop
-        form.instance.collaborator = WorkshopCollaborator.objects.filter(user=self.request.user, workshop=self.workshop).first()
+        form.instance.cost_estimator = self.request.user
 
         self.object = form.save()  # Salva o progresso atual
 
@@ -123,6 +122,7 @@ class BudgetUpdateView(BudgetCreateView):
     def form_valid(self, form):
         # Mantemos a lógica de salvar o workshop e colaborador
         form.instance.workshop = self.workshop
+        form.instance.cost_estimator = self.request.user
         self.object = form.save()
 
         current_step = self.get_current_step()
