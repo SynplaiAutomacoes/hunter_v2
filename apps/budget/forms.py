@@ -41,6 +41,12 @@ class BudgetStep1Form(forms.ModelForm):
         if self.workshop:
             self.fields["workshop"].initial = self.workshop.name
             self.fields["customer"].queryset = self.fields["customer"].queryset.filter(workshop=self.workshop)
+            self.initial["workshop"] = self.workshop.name
+
+        if self.instance and self.instance.cost_estimator:
+            user = self.instance.cost_estimator
+            self.fields["cost_estimator"].initial = user.get_full_name() or user.username
+            self.initial["cost_estimator"] = user.get_full_name() or user.username
 
         if self.instance and self.instance.customer:
             self.fields["vehicle"].queryset = self.instance.customer.vehicles.all()
