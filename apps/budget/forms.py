@@ -67,59 +67,50 @@ class BudgetStep1Form(forms.ModelForm):
         self.helper.form_tag = False
         self.helper.layout = Layout(
             HTML("""
-                <script>
-                    (function() {
-                        const updateResume = (name, value, targetId, urlBase) => {
-                            const container = document.getElementById(targetId);
-                            
-                            fetch(`${urlBase}?${name}=${value}`)
-                                .then(response => response.text())
-                                .then(html => { container.innerHTML = html; })
-                                .catch(err => console.error('Erro ao carregar resumo:', err));
-                        };
+            <script>
+                (function() {
+                    const updateResume = (name, value, targetId, urlBase) => {
+                        if (!value) return;
+                        const container = document.getElementById(targetId);
+                        if (!container) return;
 
-                        document.addEventListener('change', function(e) {
-                            if (e.target.name === 'customer') {
-                                updateResume('customer', e.target.value, 'resumo-cliente', '/customer/customer-detail/');
-                                
-                                const vehicleSelect = document.querySelector('[name="vehicle"]');
-                                fetch(`/customer/get-vehicles/?customer_id=${e.target.value}`)
-                                .then(response => response.json())
-                                .then(data => {
-                                    let options = '<option value="">Selecione...</option>';
-                                    data.forEach(v => {
-                                        options += `<option value="${v.id}">${v.label}</option>`;
-                                    });
-                                    vehicleSelect.innerHTML = options;
-                                });
-                            }
-                            if (e.target.name === 'vehicle') {
-                                updateResume('vehicle', e.target.value, 'resumo-veiculo', '/customer/vehicle-detail/');
+                        fetch(`${urlBase}?${name}=${value}`)
+                            .then(response => response.text())
+                            .then(html => { container.innerHTML = html; })
+                            .catch(err => console.error('Erro ao carregar resumo:', err));
+                    };
+
+                    const initFormLogic = () => {
+                        const fields = [
+                            { name: 'customer', id: 'resumo-cliente', url: '/customer/customer-detail/' },
+                            { name: 'vehicle', id: 'resumo-veiculo', url: '/customer/vehicle-detail/' }
+                        ];
+
+                        fields.forEach(f => {
+                            const el = document.querySelector(`[name="${f.name}"]`);
+                            // Carrega o resumo inicial se o campo já tiver valor (vindo do banco)
+                            if (el && el.value) {
+                                updateResume(f.name, el.value, f.id, f.url);
                             }
                         });
-                        
-                        const init = () => {
-                            const fields = [
-                                { name: 'customer', id: 'resumo-cliente', url: '/customer/customer-detail/' },
-                                { name: 'vehicle', id: 'resumo-veiculo', url: '/customer/vehicle-detail/' }
-                            ];
-            
-                            fields.forEach(f => {
-                                const el = document.querySelector(`[name="${f.name}"]`);
-                                if (el) updateResume(f.name, el.value, f.id, f.url);
-                            });
-            
-                            document.addEventListener('change', (e) => {
-                                const field = fields.find(f => f.name === e.target.name);
-                                if (field) {
-                                    updateResume(field.name, e.target.value, field.id, field.url);
-                                }
-                            });
-                        };
-            
-                        window.addEventListener('load', init);
-                    })();
-                </script>
+                    };
+
+                    // Tenta rodar imediatamente (para carregamento inicial da página)
+                    if (document.readyState === 'complete') {
+                        initFormLogic();
+                    } else {
+                        window.addEventListener('load', initFormLogic);
+                    }
+
+                    // Roda sempre que o HTMX trocar o conteúdo do formulário
+                    document.body.addEventListener('htmx:afterSettle', function(evt) {
+                        // Verifica se o conteúdo carregado contém os campos do nosso formulário
+                        if (document.querySelector('[name="customer"]')) {
+                            initFormLogic();
+                        }
+                    });
+                })();
+            </script>
             """),
             Div(
                 # Coluna Esquerda
