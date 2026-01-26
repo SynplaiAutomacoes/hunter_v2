@@ -392,14 +392,14 @@
             return {
                 rawValue: raw ?? '',
                 init() {
-                    const n = cep.normalize(this.rawValue);
-                    this.$refs.value.value = n;
-                    this.$refs.display.value = cep.format(n);
+                    const formatted = cep.format(this.rawValue);
+                    this.$refs.value.value = formatted;
+                    this.$refs.display.value = formatted;
                 },
                 handleInput(e) {
-                    const normalized = cep.normalize(e.target.value);
-                    this.$refs.value.value = normalized;
-                    e.target.value = cep.format(normalized);
+                    const formatted = cep.format(e.target.value);
+                    this.$refs.value.value = formatted;
+                    e.target.value = formatted;
                 },
             };
         },

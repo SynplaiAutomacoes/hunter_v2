@@ -3,10 +3,10 @@
         {
             label: 'Cadastros',
             items: [
-                { label: 'Cliente', href: '#' },
+                { label: 'Cliente', href: '{% url "customer:customer_list" %}' },
                 { label: 'Colaborador', href: '{% url "collaborators:collaborator_list" %}' },
-                { label: 'Checklist', href: '#' },
-                { label: 'Fornecedor', href: '#' },
+                { label: 'Checklist', href: '{% url "checklist:checklist_list" %}' },
+                { label: 'Fornecedor', href: '{% url "suppliers:supplier_list" %}' },
                 { label: 'Grupo', href: '{% url "catalog:group_list" %}' },
                 { label: 'Produto', href: '{% url "catalog:product_list" %}' },
                 { label: 'Serviço', href: '{% url "catalog:services_list" %}' },
