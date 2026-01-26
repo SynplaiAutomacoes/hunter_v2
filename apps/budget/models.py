@@ -13,6 +13,25 @@ class BudgetStatus(models.TextChoices):
     FINISHED = "finished", "Concluído"
 
 
+class Defect(models.Model):
+    workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="defects")
+    budget = models.ForeignKey("budget.Budget", on_delete=models.CASCADE, related_name="defects")
+    name = models.CharField(max_length=100)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = "Defeito"
+        verbose_name_plural = "Defeitos"
+        constraints = [
+            models.UniqueConstraint(
+                fields=("budget", "name"), name="unique_budget_name_per_defetct"
+            )
+        ]
+
+    def __str__(self):
+        return self.name
+
+
 class Budget(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="budgets")
     customer = models.ForeignKey("customer.Customer", verbose_name="Cliente", on_delete=models.SET_NULL, related_name="budgets", null=True)
@@ -30,7 +49,7 @@ class Budget(TimeStampedModel):
     notes = models.TextField(verbose_name="Observações Complementares", blank=True, null=True)
     current_km = models.PositiveIntegerField(verbose_name="KM Atual", default=0)
     fuel_level = models.PositiveIntegerField(verbose_name="Nível do Tanque", default=0)
-    # TODO add "sintomas_identificados" field
+    defect = models.ForeignKey(Defect, on_delete=models.SET_NULL, related_name="budgets", null=True)
 
     # Financeiro
     base_value = MoneyField(verbose_name="Valor Subtotal", max_digits=14, decimal_places=2, default=0.00)
@@ -65,3 +84,18 @@ class Budget(TimeStampedModel):
 
     def __str__(self):
         return f"Budget #{self.id} - {self.customer}"
+
+
+class BudgetImage(TimeStampedModel):
+    workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="budget_image")
+    budget = models.ForeignKey(Budget, on_delete=models.CASCADE, related_name="budget_image")
+    content = models.BinaryField(null=True, blank=True)
+    content_name = models.CharField(max_length=100, null=True, blank=True)
+    content_type = models.CharField(max_length=100, null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Imagem do Orçamento"
+        verbose_name_plural = "Imagens do Orçamento"
+
+    def __str__(self):
+        return f"Image #{self.id} from Budget: {self.budget}"
