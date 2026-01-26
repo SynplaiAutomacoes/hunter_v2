@@ -377,15 +377,13 @@ class BudgetStep3Form(forms.ModelForm):
                         for d in existing_defects
                     ]
                 )
-                # Injeta os defeitos existentes via JS após a renderização do container
+                # Injeta os defeitos existentes após a renderização do container
                 self.helper.layout.append(
                     HTML(f"""
                     <script>
-                        document.addEventListener("DOMContentLoaded", function() {{
-                            document.getElementById('defect-list-container').innerHTML = `{defects_json}`;
-                        }});
+                        document.getElementById('defect-list-container').innerHTML = `{defects_json}`;
                     </script>
-                """)
+                    """)
                 )
 
     def save(self, commit=True):
