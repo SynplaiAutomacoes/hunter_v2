@@ -13,6 +13,7 @@ from apps.quote.models.investigative_questions import InvestigativeQuestion, Inv
 class BudgetStep1Form(forms.ModelForm):
     workshop = forms.CharField(widget=TextInput(attrs={"readonly": "readonly"}), required=False)
     cost_estimator = forms.CharField(widget=TextInput(attrs={"readonly": "readonly"}), required=False)
+    vehicle = forms.ModelChoiceField(label="Veículo",  queryset=Vehicle.objects.none(), required=False, widget=SelectInput())
     class Meta:
         model = Budget
         fields = [
@@ -27,7 +28,6 @@ class BudgetStep1Form(forms.ModelForm):
         widgets = {
             "entry_date": CalendarDateInput(),
             "customer": SelectInput(),
-            "vehicle": forms.Select(),
             "current_km": TextInput(),
             "fuel_level": TextInput(),
         }
