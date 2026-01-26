@@ -24,8 +24,8 @@ class WorkshopCostListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplate
         context["fields"] = [
             TableColumn(label="Mês/Ano", attr="__str__"),
             TableColumn(label="Mecânicos", attr="mechanic_quantity"),
-            TableColumn(label="Total Custos", attr="total_monthly_costs", format="money"),
-            TableColumn(label="Meta Faturamento", attr="gross_revenue_target", format="money"),
+            TableColumn(label="Total Custos", attr="total_monthly_costs"),
+            TableColumn(label="Meta Faturamento", attr="gross_revenue_target"),
         ]
 
         context["actions"] = [

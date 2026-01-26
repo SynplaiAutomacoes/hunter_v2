@@ -1,0 +1,50 @@
+{% for product in products %}
+<tr>
+    <td class="w-10">
+        <input
+            type="checkbox"
+            class="checkbox checkbox-sm"
+            :checked="modalSelectedProducts.some(i => i.id == '{{ product.id }}')"
+            @change="toggleModalProduct({
+                id: '{{ product.id }}',
+                name: '{{ product.code }} - {{ product.name|escapejs }}',
+                cost: '{{ product.cost_price }}',
+                sell: '{{ product.selling_price }}'
+            })"
+        />
+    </td>
+    <td>
+        <div class="flex flex-col">
+            <span class="font-semibold text-sm">{{ product.name }}</span>
+            <span class="text-xs text-base-content/60">
+                <span class="font-mono">{{ product.code }}</span>
+                {% if product.brand %}
+                    <span class="mx-1">|</span> {{ product.brand }}
+                {% endif %}
+            </span>
+        </div>
+    </td>
+    <td class="text-right whitespace-nowrap">{{ product.cost_price }}</td>
+    <td class="text-right whitespace-nowrap">{{ product.selling_price }}</td>
+</tr>
+{% empty %}
+<tr>
+    <td colspan="4" class="px-3 py-3 text-sm text-gray-500 italic">Nenhum produto encontrado.</td>
+</tr>
+{% endfor %}
+
+{% if page_obj.has_next %}
+<tr id="kit-product-load-more">
+    <td colspan="4" class="py-2">
+        <button
+            type="button"
+            class="btn btn-ghost btn-sm w-full"
+            hx-get="{% url 'catalog:kits_product_search' %}?page={{ page_obj.next_page_number }}&product_search={{ query|urlencode }}"
+            hx-target="#kit-product-load-more"
+            hx-swap="outerHTML"
+        >
+            Carregar mais
+        </button>
+    </td>
+</tr>
+{% endif %}

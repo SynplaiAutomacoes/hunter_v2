@@ -8,9 +8,9 @@
                 { label: 'Checklist', href: '{% url "checklist:checklist_list" %}' },
                 { label: 'Fornecedor', href: '{% url "suppliers:supplier_list" %}' },
                 { label: 'Grupo', href: '{% url "catalog:group_list" %}' },
-                { label: 'Produto', href: '#' },
-                { label: 'Serviço', href: '#' },
-                { label: 'Kit', href: '#' }
+                { label: 'Produto', href: '{% url "catalog:product_list" %}' },
+                { label: 'Serviço', href: '{% url "catalog:services_list" %}' },
+                { label: 'Kit', href: '{% url "catalog:kits_list" %}' }
             ]
         },
         {

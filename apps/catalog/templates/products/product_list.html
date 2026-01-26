@@ -1,0 +1,16 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Produtos{% endblock %}
+{% block crud_subtitle %}Gerenciamento de peças e produtos do estoque.{% endblock %}
+
+{% block crud_header_actions %}
+    <a href="{% url 'catalog:product_create' %}" class="btn btn-primary">Novo Produto</a>
+{% endblock %}
+
+{% block crud_table_wrapper_id %}products-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'catalog:product_list' %}{% endblock %}
+{% block crud_table_hx_trigger %}products-table-refresh from:body{% endblock %}
+
+{% block crud_table %}
+    {% include 'products/partials/product_table.html' %}
+{% endblock %}

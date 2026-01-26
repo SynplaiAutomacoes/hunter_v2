@@ -646,6 +646,38 @@
                 },
             };
         },
+        imageInput(initialUrl, clearCheckboxName) {
+            return {
+                previewUrl: initialUrl || null,
+                fileName: null,
+                isCleared: false,
+                clearCheckboxName: clearCheckboxName,
+
+                handleFile(e) {
+                    const file = e.target.files[0];
+                    if (file) {
+                        // Cria URL temporária para preview
+                        this.previewUrl = URL.createObjectURL(file);
+                        this.fileName = file.name;
+                        this.isCleared = false;
+                    }
+                },
+
+                remove() {
+                    this.previewUrl = null;
+                    this.fileName = null;
+                    this.isCleared = true;
+                    // Limpa o input file real
+                    this.$refs.fileInput.value = '';
+                },
+
+                restoreOriginal() {
+                   this.previewUrl = initialUrl;
+                   this.isCleared = false;
+                   this.$refs.fileInput.value = '';
+                }
+            };
+        },
     };
 
     window.formatters = window.formatters || {};

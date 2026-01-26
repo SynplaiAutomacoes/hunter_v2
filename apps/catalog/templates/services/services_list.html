@@ -1,0 +1,16 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Serviços{% endblock %}
+{% block crud_subtitle %}Catálogo de serviços prestados pela oficina.{% endblock %}
+
+{% block crud_header_actions %}
+    <a href="{% url 'catalog:services_create' %}" class="btn btn-primary">Novo Serviço</a>
+{% endblock %}
+
+{% block crud_table_wrapper_id %}services-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'catalog:services_list' %}{% endblock %}
+{% block crud_table_hx_trigger %}services-table-refresh from:body{% endblock %}
+
+{% block crud_table %}
+    {% include 'services/partials/services_table.html' %}
+{% endblock %}
