@@ -11,8 +11,8 @@ from apps.quote.models.investigative_questions import InvestigativeQuestion, Inv
 
 
 class BudgetStep1Form(forms.ModelForm):
-    workshop = forms.CharField(widget=TextInput(attrs={"readonly": "readonly"}), required=False)
-    cost_estimator = forms.CharField(widget=TextInput(attrs={"readonly": "readonly"}), required=False)
+    workshop = forms.CharField(label="Empresa", widget=TextInput(attrs={"readonly": "readonly"}), required=False)
+    cost_estimator = forms.CharField(label="Orçamentista",widget=TextInput(attrs={"readonly": "readonly"}), required=False)
     vehicle = forms.ModelChoiceField(label="Veículo",  queryset=Vehicle.objects.none(), required=False, widget=SelectInput())
     class Meta:
         model = Budget
@@ -257,7 +257,7 @@ class BudgetStep3Form(forms.ModelForm):
 
     class Meta:
         model = Budget
-        fields = ["technical_diagnosis"]
+        fields = ["collaborator","technical_diagnosis"]
         widgets = {
             "technical_diagnosis": forms.Textarea(attrs={"rows": 10, "placeholder": "Descreva detalhadamente as observações técnicas, diagnósticos preliminares, testes realizados...", "class": "textarea textarea-bordered w-full"}),
         }
@@ -285,9 +285,7 @@ class BudgetStep3Form(forms.ModelForm):
                                 <input type="hidden" name="defects_list" value="${text}">
                                 <span class="font-medium">${text}</span>
                                 <button type="button" onclick="this.parentElement.remove()" class="btn btn-ghost btn-xs btn-circle text-error">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
+                                    X
                                 </button>
                             </div>`;
                         container.insertAdjacentHTML('beforeend', html);
@@ -304,7 +302,7 @@ class BudgetStep3Form(forms.ModelForm):
                         Field("collaborator", label="Selecione o colaborador que realizará o serviço", wrapper_class="mb-6"),
                         #
                         HTML('<label class="block text-gray-700 font-bold mb-2">Adicione os defeitos encontrados durante a inspeção</label>'),
-                        Div(id="defect-list-container", css_class="mb-4 p-4 border-2 border-dashed border-gray-200 rounded-lg bg-gray-50 min-h-[120px] flex flex-wrap content-start"),
+                        Div(id="defect-list-container", css_class="mb-4 p-4 border-2 border-dashed border-gray-200 rounded-lg min-h-[120px] flex flex-wrap content-start"),
                         Div(Div(Field("new_defect", wrapper_class="mb-0"), css_class="flex-1"),
                             HTML("""<button type="button" class="btn btn-primary ml-2" onclick="addDefectRow()">
                                     Adicionar</button>"""), css_class="flex items-end mb-8"),
@@ -313,7 +311,10 @@ class BudgetStep3Form(forms.ModelForm):
                     # Checklist para Impressão
                     Div(
                         HTML('<h3 class="text-2xl font-bold mb-4">Checklist para Impressão</h3>'),
-                        Field("checklist", wrapper_class="mb-2")
+                        Div(Div(Field("checklist", wrapper_class="mb-0"), css_class="flex-1"),
+                        HTML("""<button type="button" class="btn btn-primary ml-2">
+                                            Imprimir</button>"""), css_class="flex items-end mb-8"),
+                        css_class="mb-8",
                     ),
                     css_class="col-span-12 lg:col-span-5",
                 ),
@@ -331,19 +332,15 @@ class BudgetStep3Form(forms.ModelForm):
                     # Imagens
                     Div(
                         HTML('<h3 class="text-2xl font-bold mb-4">Anexar Imagens</h3>'),
-                        HTML("""
-                            <div class="flex items-center justify-center w-full">
-                                <label class="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
+                        HTML("""<div class="flex items-center justify-center w-full">
+                                <label class="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer">
                                     <div class="flex flex-col items-center justify-center pt-5 pb-6">
-                                        <svg class="w-8 h-8 mb-4 text-gray-500" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 16">
-                                            <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 13h3a3 3 0 0 0 0-6h-.025A5.56 5.56 0 0 0 16 6.5 5.5 5.5 0 0 0 5.207 5.021C5.137 5.017 5.071 5 5 5a4 4 0 0 0 0 8h2.167M10 15V6m0 0L8 8m2-2 2 2"/>
-                                        </svg>
-                                        <p class="mb-2 text-sm text-gray-500"><span class="font-semibold">Clique para enviar</span> ou arraste imagens</p>
+                                        <p class="mb-1 text-lg font-semibold text-gray-700">Arraste e solte imagens aqui ou clique para selecionar</p>
+                                        <p class="text-sm text-gray-400">Formatos aceitos: JPG, PNG, GIF (máx. 5MB cada)</p>
                                     </div>
                                     <input type="file" name="budget_images" class="hidden" multiple accept="image/*" />
                                 </label>
-                            </div>
-                        """), css_class="mb-6",
+                            </div>"""), css_class="mb-6",
                     ), css_class="col-span-12 lg:col-span-6",
                 ), css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
             ),
@@ -358,9 +355,7 @@ class BudgetStep3Form(forms.ModelForm):
                             <input type="hidden" name="defects_list" value="{d.name}">
                             <span class="font-medium">{d.name}</span>
                             <button type="button" onclick="this.parentElement.remove()" class="btn btn-ghost btn-xs btn-circle text-error">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                                </svg>
+                                X
                             </button>
                         </div>"""
                         for d in existing_defects
