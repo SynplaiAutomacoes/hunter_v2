@@ -44,8 +44,6 @@ class KitForm(forms.ModelForm):
         initial_products = []
         initial_services = []
         if self.instance.pk:
-            # djmoney MoneyField (produtos) usa 2 colunas (valor + moeda).
-            # Incluir `*_currency` evita problemas quando o template/JS acessa o Money.
             kit_products = (
                 KitProduct.objects.filter(kit=self.instance)
                 .select_related("product")
@@ -61,19 +59,17 @@ class KitForm(forms.ModelForm):
                 )
             )
             for kp in kit_products:
-                p = kp.product
+                product = kp.product
                 initial_products.append(
                     {
-                        "id": p.id,
-                        "name": f"{p.code} - {p.name}",
-                        "cost": str(p.cost_price),
-                        "sell": str(p.selling_price),
+                        "id": product.id,
+                        "name": f"{product.code} - {product.name}",
+                        "cost": str(product.cost_price),
+                        "sell": str(product.selling_price),
                         "qty": kp.quantity,
                     }
                 )
 
-            # djmoney MoneyField (serviços) usa 2 colunas (valor + moeda).
-            # Incluir `*_currency` evita problemas quando o template/JS acessa o Money.
             kit_services = (
                 KitService.objects.filter(kit=self.instance)
                 .select_related("service")
@@ -88,13 +84,13 @@ class KitForm(forms.ModelForm):
                 )
             )
             for ks in kit_services:
-                s = ks.service
+                service = ks.service
                 initial_services.append(
                     {
-                        "id": s.id,
-                        "name": s.name,
-                        "cost": str(s.suggested_cost) if s.suggested_cost else "-",
-                        "sell": str(s.selling_price),
+                        "id": service.id,
+                        "name": service.name,
+                        "cost": str(service.suggested_cost) if service.suggested_cost else "-",
+                        "sell": str(service.selling_price),
                         "qty": ks.quantity,
                     }
                 )
@@ -106,204 +102,204 @@ class KitForm(forms.ModelForm):
             Div(
                 Div(
                     HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Dados do Kit</h3>'),
-                    Field("name", wrapper_class="col-span-12 lg:col-span-6"),
-                    Field("is_active", wrapper_class="col-span-12 lg:col-span-2"),
+                    Field("name", wrapper_class="col-span-12 lg:col-span-11"),
+                    Field("is_active", wrapper_class="col-span-12 lg:col-span-1"),
                     Field("description", wrapper_class="col-span-12"),
                     HTML('<div class="col-span-12 divider my-1"></div>'),
                     HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Itens do Kit</h3>'),
                     HTML(
                         f"""
                         <div
-                            class=\"col-span-12\"
-                            x-data=\"kitItemsManager()\"
+                            class="col-span-12"
+                            x-data="kitItemsManager()"
                         >
-                            <div class=\"flex flex-wrap gap-2 mb-3\">
-                                <label for=\"kit-products-modal\" class=\"btn btn-outline btn-sm\" @click=\"openProductsModal()\">Adicionar Produto</label>
-                                <label for=\"kit-services-modal\" class=\"btn btn-outline btn-sm\" @click=\"openServicesModal()\">Adicionar Serviço</label>
+                            <div class="flex flex-wrap gap-2 mb-3">
+                                <label for="kit-products-modal" class="btn btn-sm btn-primary" @click="openProductsModal()">Adicionar Produto</label>
+                                <label for="kit-services-modal" class="btn btn-sm btn-primary" @click="openServicesModal()">Adicionar Serviço</label>
                             </div>
 
-                            <div class=\"p-4 bg-base-300 rounded-box mb-4\">
-                                <div class=\"font-semibold mb-2\">Produtos</div>
-                                <div class=\"overflow-x-auto\">
-                                    <table class=\"table table-sm\">
+                            <div class="p-4 bg-base-300 rounded-box mb-4">
+                                <div class="font-semibold mb-2">Produtos</div>
+                                <div class="overflow-x-auto">
+                                    <table class="table table-sm">
                                         <thead>
                                             <tr>
                                                 <th>Produto</th>
-                                                <th class=\"text-right\">Custo</th>
-                                                <th class=\"text-right\">Venda</th>
-                                                <th class=\"text-center\">Qtd</th>
-                                                <th class=\"text-right\"></th>
+                                                <th class="text-right">Custo</th>
+                                                <th class="text-right">Venda</th>
+                                                <th class="text-center">Qtd</th>
+                                                <th class="text-right"></th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            <template x-for=\"(item, index) in selectedProducts\" :key=\"'p-'+item.id\">
+                                            <template x-for="(item, index) in selectedProducts" :key="'p-'+item.id">
                                                 <tr>
                                                     <td>
-                                                        <span x-text=\"item.name\"></span>
+                                                        <span x-text="item.name"></span>
                                                     </td>
-                                                    <td class=\"text-right whitespace-nowrap\"><span x-text=\"item.cost\"></span></td>
-                                                    <td class=\"text-right whitespace-nowrap\"><span x-text=\"item.sell\"></span></td>
-                                                    <td class=\"text-center\">
-                                                        <input type=\"number\" min=\"1\" step=\"1\" class=\"input input-bordered input-sm w-20 text-center\" x-model.number=\"item.qty\" />
+                                                    <td class="text-right whitespace-nowrap"><span x-text="item.cost"></span></td>
+                                                    <td class="text-right whitespace-nowrap"><span x-text="item.sell"></span></td>
+                                                    <td class="text-center">
+                                                        <input type="number" min="1" step="1" class="input-theme w-20 text-center" x-model.number="item.qty" />
                                                     </td>
-                                                    <td class=\"text-right\">
-                                                        <button type=\"button\" class=\"btn-table-delete\" @click=\"removeProduct(index)\" title=\"Remover\">
-                                                            <span class=\"material-icons text-base\">delete</span>
+                                                    <td class="text-right">
+                                                        <button type="button" class="btn-table-delete" @click="removeProduct(index)" title="Remover">
+                                                            <span class="material-icons text-base">delete</span>
                                                         </button>
                                                     </td>
                                                 </tr>
                                             </template>
-                                            <tr x-show=\"selectedProducts.length === 0\">
-                                                <td colspan=\"5\" class=\"text-sm text-gray-500 italic\">Nenhum produto adicionado.</td>
+                                            <tr x-show="selectedProducts.length === 0">
+                                                <td colspan="5" class="text-sm text-gray-500 italic">Nenhum produto adicionado.</td>
                                             </tr>
                                         </tbody>
                                     </table>
                                 </div>
-                                <select name=\"kit_products\" multiple class=\"hidden\">
-                                    <template x-for=\"item in selectedProducts\" :key=\"'po-'+item.id\">
-                                        <option :value=\"item.id\" selected></option>
+                                <select name="kit_products" multiple class="hidden">
+                                    <template x-for="item in selectedProducts" :key="'po-'+item.id">
+                                        <option :value="item.id" selected></option>
                                     </template>
                                 </select>
-                                <template x-for=\"item in selectedProducts\" :key=\"'pq-'+item.id\">
-                                    <input type=\"hidden\" :name=\"'kit_product_qty_' + item.id\" :value=\"item.qty\" />
+                                <template x-for="item in selectedProducts" :key="'pq-'+item.id">
+                                    <input type="hidden" :name="'kit_product_qty_' + item.id" :value="item.qty" />
                                 </template>
                             </div>
 
-                            <div class=\"p-4 bg-base-300 rounded-box\">
-                                <div class=\"font-semibold mb-2\">Serviços</div>
-                                <div class=\"overflow-x-auto\">
-                                    <table class=\"table table-sm\">
+                            <div class="p-4 bg-base-300 rounded-box">
+                                <div class="font-semibold mb-2">Serviços</div>
+                                <div class="overflow-x-auto">
+                                    <table class="table table-sm">
                                         <thead>
                                             <tr>
                                                 <th>Serviço</th>
-                                                <th class=\"text-right\">Custo</th>
-                                                <th class=\"text-right\">Venda</th>
-                                                <th class=\"text-center\">Qtd</th>
-                                                <th class=\"text-right\"></th>
+                                                <th class="text-right">Custo</th>
+                                                <th class="text-right">Venda</th>
+                                                <th class="text-center">Qtd</th>
+                                                <th class="text-right"></th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            <template x-for=\"(item, index) in selectedServices\" :key=\"'s-'+item.id\">
+                                            <template x-for="(item, index) in selectedServices" :key="'s-'+item.id">
                                                 <tr>
-                                                    <td><span x-text=\"item.name\"></span></td>
-                                                    <td class=\"text-right whitespace-nowrap\"><span x-text=\"item.cost\"></span></td>
-                                                    <td class=\"text-right whitespace-nowrap\"><span x-text=\"item.sell\"></span></td>
-                                                    <td class=\"text-center\">
-                                                        <input type=\"number\" min=\"1\" step=\"1\" class=\"input input-bordered input-sm w-20 text-center\" x-model.number=\"item.qty\" />
+                                                    <td><span x-text="item.name"></span></td>
+                                                    <td class="text-right whitespace-nowrap"><span x-text="item.cost"></span></td>
+                                                    <td class="text-right whitespace-nowrap"><span x-text="item.sell"></span></td>
+                                                    <td class="text-center">
+                                                        <input type="number" min="1" step="1" class="input-theme w-20 text-center" x-model.number="item.qty" />
                                                     </td>
-                                                    <td class=\"text-right\">
-                                                        <button type=\"button\" class=\"btn-table-delete\" @click=\"removeService(index)\" title=\"Remover\">
-                                                            <span class=\"material-icons text-base\">delete</span>
+                                                    <td class="text-right">
+                                                        <button type="button" class="btn-table-delete" @click="removeService(index)" title="Remover">
+                                                            <span class="material-icons text-base">delete</span>
                                                         </button>
                                                     </td>
                                                 </tr>
                                             </template>
-                                            <tr x-show=\"selectedServices.length === 0\">
-                                                <td colspan=\"5\" class=\"text-sm text-gray-500 italic\">Nenhum serviço adicionado.</td>
+                                            <tr x-show="selectedServices.length === 0">
+                                                <td colspan="5" class="text-sm text-gray-500 italic">Nenhum serviço adicionado.</td>
                                             </tr>
                                         </tbody>
                                     </table>
                                 </div>
-                                <select name=\"kit_services\" multiple class=\"hidden\">
-                                    <template x-for=\"item in selectedServices\" :key=\"'so-'+item.id\">
-                                        <option :value=\"item.id\" selected></option>
+                                <select name="kit_services" multiple class="hidden">
+                                    <template x-for="item in selectedServices" :key="'so-'+item.id">
+                                        <option :value="item.id" selected></option>
                                     </template>
                                 </select>
-                                <template x-for=\"item in selectedServices\" :key=\"'sq-'+item.id\">
-                                    <input type=\"hidden\" :name=\"'kit_service_qty_' + item.id\" :value=\"item.qty\" />
+                                <template x-for="item in selectedServices" :key="'sq-'+item.id">
+                                    <input type="hidden" :name="'kit_service_qty_' + item.id" :value="item.qty" />
                                 </template>
                             </div>
 
-                            <input type=\"checkbox\" id=\"kit-products-modal\" class=\"modal-toggle\" />
-                            <div class=\"modal\" role=\"dialog\" aria-modal=\"true\">
-                                <div class=\"modal-box\">
-                                    <h3 class=\"text-lg font-bold\">Adicionar Produto</h3>
-                                    <div class=\"mt-4\">
+                            <input type="checkbox" id="kit-products-modal" class="modal-toggle" />
+                            <div class="modal" role="dialog" aria-modal="true">
+                                <div class="modal-box max-w-4xl">
+                                    <h3 class="text-lg font-bold">Adicionar Produto</h3>
+                                    <div class="mt-4">
                                         <input
-                                            type=\"text\"
-                                            id=\"kit-product-search-input\"
-                                            name=\"product_search\"
-                                            class=\"input input-bordered w-full\"
-                                            placeholder=\"Filtrar por código, nome ou marca...\"
-                                            autocomplete=\"off\"
-                                            hx-get=\"{product_search_url}\"
-                                            hx-trigger=\"keyup changed delay:500ms\"
-                                            hx-target=\"#kit-product-items\"
-                                            hx-swap=\"innerHTML\"
+                                            type="text"
+                                            id="kit-product-search-input"
+                                            name="product_search"
+                                            class="input-theme w-full"
+                                            placeholder="Filtrar por código, nome ou marca..."
+                                            autocomplete="off"
+                                            hx-get="{product_search_url}"
+                                            hx-trigger="keyup changed delay:500ms"
+                                            hx-target="#kit-product-items"
+                                            hx-swap="innerHTML"
                                         />
 
-                                        <div class=\"mt-3 max-h-80 overflow-y-auto border border-base-200 rounded-box\">
-                                            <table class=\"table table-sm bg-base-100\">
-                                                <thead class=\"sticky top-0 bg-base-100\">
+                                        <div class="mt-3 max-h-80 overflow-y-auto border border-base-200 rounded-box">
+                                            <table class="table table-sm bg-base-100">
+                                                <thead class="sticky top-0 bg-base-100">
                                                     <tr>
-                                                        <th class=\"w-10\"></th>
+                                                        <th class="w-10"></th>
                                                         <th>Produto</th>
-                                                        <th class=\"text-right\">Custo</th>
-                                                        <th class=\"text-right\">Venda</th>
+                                                        <th class="text-right">Custo</th>
+                                                        <th class="text-right">Venda</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody
-                                                    id=\"kit-product-items\"
-                                                    hx-get=\"{product_search_url}\"
-                                                    hx-trigger=\"load\"
-                                                    hx-target=\"this\"
-                                                    hx-swap=\"innerHTML\"
+                                                    id="kit-product-items"
+                                                    hx-get="{product_search_url}"
+                                                    hx-trigger="load"
+                                                    hx-target="this"
+                                                    hx-swap="innerHTML"
                                                 ></tbody>
                                             </table>
                                         </div>
                                     </div>
-                                    <div class=\"modal-action\">
-                                        <button type=\"button\" class=\"btn btn-primary\" @click=\"applySelectedProducts()\">Adicionar</button>
-                                        <label for=\"kit-products-modal\" class=\"btn btn-ghost\">Fechar</label>
+                                    <div class="modal-action">
+                                        <button type="button" class="btn btn-primary" @click="applySelectedProducts()">Adicionar</button>
+                                        <label for="kit-products-modal" class="btn btn-ghost">Fechar</label>
                                     </div>
                                 </div>
-                                <label class=\"modal-backdrop\" for=\"kit-products-modal\">Close</label>
+                                <label class="modal-backdrop" for="kit-products-modal">Close</label>
                             </div>
 
-                            <input type=\"checkbox\" id=\"kit-services-modal\" class=\"modal-toggle\" />
-                            <div class=\"modal\" role=\"dialog\" aria-modal=\"true\">
-                                <div class=\"modal-box\">
-                                    <h3 class=\"text-lg font-bold\">Adicionar Serviço</h3>
-                                    <div class=\"mt-4\">
+                            <input type="checkbox" id="kit-services-modal" class="modal-toggle" />
+                            <div class="modal" role="dialog" aria-modal="true">
+                                <div class="modal-box max-w-4xl">
+                                    <h3 class="text-lg font-bold">Adicionar Serviço</h3>
+                                    <div class="mt-4">
                                         <input
-                                            type=\"text\"
-                                            id=\"kit-service-search-input\"
-                                            name=\"service_search\"
-                                            class=\"input input-bordered w-full\"
-                                            placeholder=\"Filtrar por nome...\"
-                                            autocomplete=\"off\"
-                                            hx-get=\"{service_search_url}\"
-                                            hx-trigger=\"keyup changed delay:500ms\"
-                                            hx-target=\"#kit-service-items\"
-                                            hx-swap=\"innerHTML\"
+                                            type="text"
+                                            id="kit-service-search-input"
+                                            name="service_search"
+                                            class="input-theme w-full"
+                                            placeholder="Filtrar por nome..."
+                                            autocomplete="off"
+                                            hx-get="{service_search_url}"
+                                            hx-trigger="keyup changed delay:500ms"
+                                            hx-target="#kit-service-items"
+                                            hx-swap="innerHTML"
                                         />
 
-                                        <div class=\"mt-3 max-h-80 overflow-y-auto border border-base-200 rounded-box\">
-                                            <table class=\"table table-sm bg-base-100\">
-                                                <thead class=\"sticky top-0 bg-base-100\">
+                                        <div class="mt-3 max-h-80 overflow-y-auto border border-base-200 rounded-box">
+                                            <table class="table table-sm bg-base-100">
+                                                <thead class="sticky top-0 bg-base-100">
                                                     <tr>
-                                                        <th class=\"w-10\"></th>
+                                                        <th class="w-10"></th>
                                                         <th>Serviço</th>
-                                                        <th class=\"text-right\">Custo</th>
-                                                        <th class=\"text-right\">Venda</th>
+                                                        <th class="text-right">Custo</th>
+                                                        <th class="text-right">Venda</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody
-                                                    id=\"kit-service-items\"
-                                                    hx-get=\"{service_search_url}\"
-                                                    hx-trigger=\"load\"
-                                                    hx-target=\"this\"
-                                                    hx-swap=\"innerHTML\"
+                                                    id="kit-service-items"
+                                                    hx-get="{service_search_url}"
+                                                    hx-trigger="load"
+                                                    hx-target="this"
+                                                    hx-swap="innerHTML"
                                                 ></tbody>
                                             </table>
                                         </div>
                                     </div>
-                                    <div class=\"modal-action\">
-                                        <button type=\"button\" class=\"btn btn-primary\" @click=\"applySelectedServices()\">Adicionar</button>
-                                        <label for=\"kit-services-modal\" class=\"btn btn-ghost\">Fechar</label>
+                                    <div class="modal-action">
+                                        <button type="button" class="btn btn-primary" @click="applySelectedServices()">Adicionar</button>
+                                        <label for="kit-services-modal" class="btn btn-ghost">Fechar</label>
                                     </div>
                                 </div>
-                                <label class=\"modal-backdrop\" for=\"kit-services-modal\">Close</label>
+                                <label class="modal-backdrop" for="kit-services-modal">Close</label>
                             </div>
                         </div>
 
