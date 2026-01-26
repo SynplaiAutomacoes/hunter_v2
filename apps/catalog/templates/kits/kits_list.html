@@ -1,0 +1,16 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Kits{% endblock %}
+{% block crud_subtitle %}Catálogo de kits de produtos e/ou serviços.{% endblock %}
+
+{% block crud_header_actions %}
+    <a href="{% url 'catalog:kits_create' %}" class="btn btn-primary">Novo Kit</a>
+{% endblock %}
+
+{% block crud_table_wrapper_id %}kits-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'catalog:kits_list' %}{% endblock %}
+{% block crud_table_hx_trigger %}kits-table-refresh from:body{% endblock %}
+
+{% block crud_table %}
+    {% include 'kits/partials/kits_table.html' %}
+{% endblock %}

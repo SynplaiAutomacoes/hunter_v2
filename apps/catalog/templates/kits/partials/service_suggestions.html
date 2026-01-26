@@ -1,0 +1,42 @@
+{% for service in services %}
+<tr>
+    <td class="w-10">
+        <input
+            type="checkbox"
+            class="checkbox checkbox-sm"
+            :checked="modalSelectedServices.some(i => i.id == '{{ service.id }}')"
+            @change="toggleModalService({
+                id: '{{ service.id }}',
+                name: '{{ service.name|escapejs }}',
+                cost: '{% if service.suggested_cost %}{{ service.suggested_cost }}{% else %}-{% endif %}',
+                sell: '{{ service.selling_price }}'
+            })"
+        />
+    </td>
+    <td>
+        <span class="font-semibold text-sm">{{ service.name }}</span>
+    </td>
+    <td class="text-right whitespace-nowrap">{% if service.suggested_cost %}{{ service.suggested_cost }}{% else %}-{% endif %}</td>
+    <td class="text-right whitespace-nowrap">{{ service.selling_price }}</td>
+</tr>
+{% empty %}
+<tr>
+    <td colspan="4" class="px-3 py-3 text-sm text-gray-500 italic">Nenhum serviço encontrado.</td>
+</tr>
+{% endfor %}
+
+{% if page_obj.has_next %}
+<tr id="kit-service-load-more">
+    <td colspan="4" class="py-2">
+        <button
+            type="button"
+            class="btn btn-ghost btn-sm w-full"
+            hx-get="{% url 'catalog:kits_service_search' %}?page={{ page_obj.next_page_number }}&service_search={{ query|urlencode }}"
+            hx-target="#kit-service-load-more"
+            hx-swap="outerHTML"
+        >
+            Carregar mais
+        </button>
+    </td>
+</tr>
+{% endif %}

@@ -590,6 +590,7 @@ dependencies = [
     { name = "gunicorn" },
     { name = "psycopg", extra = ["binary"] },
     { name = "requests" },
+    { name = "python-stdnum" },
     { name = "weasyprint" },
     { name = "whitenoise" },
 ]
@@ -617,6 +618,7 @@ requires-dist = [
     { name = "gunicorn", specifier = ">=23.0.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.2" },
     { name = "requests", specifier = ">=2.32.5" },
+    { name = "python-stdnum", specifier = ">=2.1" },
     { name = "weasyprint", specifier = ">=67.0" },
     { name = "whitenoise", specifier = ">=6.11.0" },
 ]

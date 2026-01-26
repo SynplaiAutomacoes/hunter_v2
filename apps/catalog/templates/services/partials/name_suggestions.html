@@ -1,0 +1,12 @@
+{% if suggestions %}
+<ul class="menu bg-base-100 w-full rounded-box shadow-lg border border-base-200 mt-1">
+    {% for name in suggestions %}
+    <li>
+        <button type="button" 
+                onclick="document.getElementById('id_name').value = '{{ name|escapejs }}'; document.getElementById('name-suggestions').innerHTML = '';">
+            {{ name }}
+        </button>
+    </li>
+    {% endfor %}
+</ul>
+{% endif %}

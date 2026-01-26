@@ -112,6 +112,16 @@ class TextInput(forms.TextInput):
     template_name = "widgets/text_input.html"
 
 
+class TextareaInput(forms.Textarea):
+    template_name = "widgets/textarea_input.html"
+
+    def __init__(self, *args, rows=2, **kwargs):
+        # Podemos definir um padrão de linhas (rows) aqui
+        attrs = kwargs.setdefault("attrs", {})
+        attrs.setdefault("rows", rows)
+        super().__init__(*args, **kwargs)
+
+
 class PasswordInput(forms.PasswordInput):
     template_name = "widgets/password_input.html"
 
@@ -170,3 +180,7 @@ class PercentageInput(forms.TextInput):
         ctx["widget"]["min_percent"] = self.min_percent
         ctx["widget"]["max_percent"] = self.max_percent
         return ctx
+
+
+class ImageInput(forms.ClearableFileInput):
+    template_name = "widgets/image_input.html"
