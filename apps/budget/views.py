@@ -3,7 +3,7 @@ from django.shortcuts import redirect
 from django.urls import reverse, reverse_lazy
 from django.views.generic import ListView, CreateView, DeleteView
 
-from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form
+from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
 from apps.budget.models import Budget
 from apps.core.forms import MultiStepFormMixin
 from apps.core.tables import TableActionDefaults
@@ -44,9 +44,9 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
         {"title": "Dados do Cliente", "form_class": BudgetStep1Form},
         {"title": "Relato do Cliente", "form_class": BudgetStep2Form},
         {"title": "Diagnóstico", "form_class": BudgetStep3Form},
-        {"title": "Peças e Serviços", "form_class": BudgetStep2Form},
-        {"title": "Método de Precificação", "form_class": BudgetStep2Form},
-        {"title": "Revisão e Confirmação", "form_class": BudgetStep2Form},
+        {"title": "Peças e Serviços", "form_class": BudgetStep4Form},
+        {"title": "Método de Precificação", "form_class": BudgetStep5Form},
+        {"title": "Revisão e Confirmação", "form_class": BudgetStep6Form},
     ]
 
     def get_template_names(self):

@@ -214,7 +214,7 @@ class BudgetStep2Form(forms.ModelForm):
                     widget=forms.NumberInput(attrs={ "class": "range range-primary w-full", "type": "range", "step": "1", "min": "1", "max": "10", "oninput": f"document.getElementById('{display_id}').innerText = this.value" }
                     ),
                 )
-                self.fields[field_name].help_text = f'Valor selecionado: <span id="{display_id}" class="font-bold text-primary">{initial_value or 5}</span>'
+                self.fields[field_name].help_text = f'Valor selecionado: <span id="{display_id}" class="font-bold text-xs">{initial_value or 5}</span>'
             elif q.response_type == InvestigativeQuestion.ResponseType.MULTIPLE_CHOICE:
                 choices = [(opt, opt) for opt in q.options]
                 choices1 = [("", "Selecione...")] + choices
@@ -395,3 +395,51 @@ class BudgetStep3Form(forms.ModelForm):
                     )
 
         return budget
+
+
+class BudgetStep4Form(forms.ModelForm):
+    class Meta:
+        model = Budget
+        fields = []
+        widgets = {}
+
+    def __init__(self, *args, **kwargs):
+        self.workshop = kwargs.pop("workshop", None)
+        self.request = kwargs.pop("request", None)
+        super().__init__(*args, **kwargs)
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout()
+
+
+class BudgetStep5Form(forms.ModelForm):
+    class Meta:
+        model = Budget
+        fields = []
+        widgets = {}
+
+    def __init__(self, *args, **kwargs):
+        self.workshop = kwargs.pop("workshop", None)
+        self.request = kwargs.pop("request", None)
+        super().__init__(*args, **kwargs)
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout()
+
+
+class BudgetStep6Form(forms.ModelForm):
+    class Meta:
+        model = Budget
+        fields = []
+        widgets = {}
+
+    def __init__(self, *args, **kwargs):
+        self.workshop = kwargs.pop("workshop", None)
+        self.request = kwargs.pop("request", None)
+        super().__init__(*args, **kwargs)
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout()
