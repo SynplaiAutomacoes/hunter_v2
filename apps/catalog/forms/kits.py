@@ -44,8 +44,60 @@ class KitForm(forms.ModelForm):
         initial_products = []
         initial_services = []
         if self.instance.pk:
-            initial_products = [{"id": p.id, "name": str(p)} for p in self.instance.products.all()]
-            initial_services = [{"id": s.id, "name": str(s)} for s in self.instance.services.all()]
+            # djmoney MoneyField (produtos) usa 2 colunas (valor + moeda).
+            # Incluir `*_currency` evita problemas quando o template/JS acessa o Money.
+            kit_products = (
+                KitProduct.objects.filter(kit=self.instance)
+                .select_related("product")
+                .only(
+                    "quantity",
+                    "product__id",
+                    "product__code",
+                    "product__name",
+                    "product__cost_price",
+                    "product__cost_price_currency",
+                    "product__selling_price",
+                    "product__selling_price_currency",
+                )
+            )
+            for kp in kit_products:
+                p = kp.product
+                initial_products.append(
+                    {
+                        "id": p.id,
+                        "name": f"{p.code} - {p.name}",
+                        "cost": str(p.cost_price),
+                        "sell": str(p.selling_price),
+                        "qty": kp.quantity,
+                    }
+                )
+
+            # djmoney MoneyField (serviços) usa 2 colunas (valor + moeda).
+            # Incluir `*_currency` evita problemas quando o template/JS acessa o Money.
+            kit_services = (
+                KitService.objects.filter(kit=self.instance)
+                .select_related("service")
+                .only(
+                    "quantity",
+                    "service__id",
+                    "service__name",
+                    "service__suggested_cost",
+                    "service__suggested_cost_currency",
+                    "service__selling_price",
+                    "service__selling_price_currency",
+                )
+            )
+            for ks in kit_services:
+                s = ks.service
+                initial_services.append(
+                    {
+                        "id": s.id,
+                        "name": s.name,
+                        "cost": str(s.suggested_cost) if s.suggested_cost else "-",
+                        "sell": str(s.selling_price),
+                        "qty": ks.quantity,
+                    }
+                )
 
         products_json = json.dumps(initial_products)
         services_json = json.dumps(initial_services)
@@ -72,46 +124,94 @@ class KitForm(forms.ModelForm):
 
                             <div class=\"p-4 bg-base-300 rounded-box mb-4\">
                                 <div class=\"font-semibold mb-2\">Produtos</div>
-                                <ul class=\"flex flex-col gap-2\">
-                                    <template x-for=\"(item, index) in selectedProducts\" :key=\"'p-'+item.id\">
-                                        <li class=\"flex gap-2 items-center\">
-                                            <div class=\"p-2 rounded-md w-full flex items-center bg-base-200 text-base-content cursor-default border border-base-300\">
-                                                <span x-text=\"item.name\"></span>
-                                            </div>
-                                            <button type=\"button\" class=\"btn-table-delete\" @click=\"removeProduct(index)\" title=\"Remover\">
-                                                <span class=\"material-icons text-base\">delete</span>
-                                            </button>
-                                        </li>
-                                    </template>
-                                    <li x-show=\"selectedProducts.length === 0\" class=\"text-sm text-gray-500 italic\">Nenhum produto adicionado.</li>
-                                </ul>
+                                <div class=\"overflow-x-auto\">
+                                    <table class=\"table table-sm\">
+                                        <thead>
+                                            <tr>
+                                                <th>Produto</th>
+                                                <th class=\"text-right\">Custo</th>
+                                                <th class=\"text-right\">Venda</th>
+                                                <th class=\"text-center\">Qtd</th>
+                                                <th class=\"text-right\"></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <template x-for=\"(item, index) in selectedProducts\" :key=\"'p-'+item.id\">
+                                                <tr>
+                                                    <td>
+                                                        <span x-text=\"item.name\"></span>
+                                                    </td>
+                                                    <td class=\"text-right whitespace-nowrap\"><span x-text=\"item.cost\"></span></td>
+                                                    <td class=\"text-right whitespace-nowrap\"><span x-text=\"item.sell\"></span></td>
+                                                    <td class=\"text-center\">
+                                                        <input type=\"number\" min=\"1\" step=\"1\" class=\"input input-bordered input-sm w-20 text-center\" x-model.number=\"item.qty\" />
+                                                    </td>
+                                                    <td class=\"text-right\">
+                                                        <button type=\"button\" class=\"btn-table-delete\" @click=\"removeProduct(index)\" title=\"Remover\">
+                                                            <span class=\"material-icons text-base\">delete</span>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                            <tr x-show=\"selectedProducts.length === 0\">
+                                                <td colspan=\"5\" class=\"text-sm text-gray-500 italic\">Nenhum produto adicionado.</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
                                 <select name=\"kit_products\" multiple class=\"hidden\">
                                     <template x-for=\"item in selectedProducts\" :key=\"'po-'+item.id\">
                                         <option :value=\"item.id\" selected></option>
                                     </template>
                                 </select>
+                                <template x-for=\"item in selectedProducts\" :key=\"'pq-'+item.id\">
+                                    <input type=\"hidden\" :name=\"'kit_product_qty_' + item.id\" :value=\"item.qty\" />
+                                </template>
                             </div>
 
                             <div class=\"p-4 bg-base-300 rounded-box\">
                                 <div class=\"font-semibold mb-2\">Serviços</div>
-                                <ul class=\"flex flex-col gap-2\">
-                                    <template x-for=\"(item, index) in selectedServices\" :key=\"'s-'+item.id\">
-                                        <li class=\"flex gap-2 items-center\">
-                                            <div class=\"p-2 rounded-md w-full flex items-center bg-base-200 text-base-content cursor-default border border-base-300\">
-                                                <span x-text=\"item.name\"></span>
-                                            </div>
-                                            <button type=\"button\" class=\"btn-table-delete\" @click=\"removeService(index)\" title=\"Remover\">
-                                                <span class=\"material-icons text-base\">delete</span>
-                                            </button>
-                                        </li>
-                                    </template>
-                                    <li x-show=\"selectedServices.length === 0\" class=\"text-sm text-gray-500 italic\">Nenhum serviço adicionado.</li>
-                                </ul>
+                                <div class=\"overflow-x-auto\">
+                                    <table class=\"table table-sm\">
+                                        <thead>
+                                            <tr>
+                                                <th>Serviço</th>
+                                                <th class=\"text-right\">Custo</th>
+                                                <th class=\"text-right\">Venda</th>
+                                                <th class=\"text-center\">Qtd</th>
+                                                <th class=\"text-right\"></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <template x-for=\"(item, index) in selectedServices\" :key=\"'s-'+item.id\">
+                                                <tr>
+                                                    <td><span x-text=\"item.name\"></span></td>
+                                                    <td class=\"text-right whitespace-nowrap\"><span x-text=\"item.cost\"></span></td>
+                                                    <td class=\"text-right whitespace-nowrap\"><span x-text=\"item.sell\"></span></td>
+                                                    <td class=\"text-center\">
+                                                        <input type=\"number\" min=\"1\" step=\"1\" class=\"input input-bordered input-sm w-20 text-center\" x-model.number=\"item.qty\" />
+                                                    </td>
+                                                    <td class=\"text-right\">
+                                                        <button type=\"button\" class=\"btn-table-delete\" @click=\"removeService(index)\" title=\"Remover\">
+                                                            <span class=\"material-icons text-base\">delete</span>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                            <tr x-show=\"selectedServices.length === 0\">
+                                                <td colspan=\"5\" class=\"text-sm text-gray-500 italic\">Nenhum serviço adicionado.</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
                                 <select name=\"kit_services\" multiple class=\"hidden\">
                                     <template x-for=\"item in selectedServices\" :key=\"'so-'+item.id\">
                                         <option :value=\"item.id\" selected></option>
                                     </template>
                                 </select>
+                                <template x-for=\"item in selectedServices\" :key=\"'sq-'+item.id\">
+                                    <input type=\"hidden\" :name=\"'kit_service_qty_' + item.id\" :value=\"item.qty\" />
+                                </template>
                             </div>
 
                             <input type=\"checkbox\" id=\"kit-products-modal\" class=\"modal-toggle\" />
@@ -132,14 +232,25 @@ class KitForm(forms.ModelForm):
                                             hx-swap=\"innerHTML\"
                                         />
 
-                                        <ul
-                                            id=\"kit-product-items\"
-                                            class=\"menu bg-base-100 w-full rounded-box border border-base-200 mt-3 max-h-80 overflow-y-auto\"
-                                            hx-get=\"{product_search_url}\"
-                                            hx-trigger=\"load\"
-                                            hx-target=\"this\"
-                                            hx-swap=\"innerHTML\"
-                                        ></ul>
+                                        <div class=\"mt-3 max-h-80 overflow-y-auto border border-base-200 rounded-box\">
+                                            <table class=\"table table-sm bg-base-100\">
+                                                <thead class=\"sticky top-0 bg-base-100\">
+                                                    <tr>
+                                                        <th class=\"w-10\"></th>
+                                                        <th>Produto</th>
+                                                        <th class=\"text-right\">Custo</th>
+                                                        <th class=\"text-right\">Venda</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody
+                                                    id=\"kit-product-items\"
+                                                    hx-get=\"{product_search_url}\"
+                                                    hx-trigger=\"load\"
+                                                    hx-target=\"this\"
+                                                    hx-swap=\"innerHTML\"
+                                                ></tbody>
+                                            </table>
+                                        </div>
                                     </div>
                                     <div class=\"modal-action\">
                                         <button type=\"button\" class=\"btn btn-primary\" @click=\"applySelectedProducts()\">Adicionar</button>
@@ -167,14 +278,25 @@ class KitForm(forms.ModelForm):
                                             hx-swap=\"innerHTML\"
                                         />
 
-                                        <ul
-                                            id=\"kit-service-items\"
-                                            class=\"menu bg-base-100 w-full rounded-box border border-base-200 mt-3 max-h-80 overflow-y-auto\"
-                                            hx-get=\"{service_search_url}\"
-                                            hx-trigger=\"load\"
-                                            hx-target=\"this\"
-                                            hx-swap=\"innerHTML\"
-                                        ></ul>
+                                        <div class=\"mt-3 max-h-80 overflow-y-auto border border-base-200 rounded-box\">
+                                            <table class=\"table table-sm bg-base-100\">
+                                                <thead class=\"sticky top-0 bg-base-100\">
+                                                    <tr>
+                                                        <th class=\"w-10\"></th>
+                                                        <th>Serviço</th>
+                                                        <th class=\"text-right\">Custo</th>
+                                                        <th class=\"text-right\">Venda</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody
+                                                    id=\"kit-service-items\"
+                                                    hx-get=\"{service_search_url}\"
+                                                    hx-trigger=\"load\"
+                                                    hx-target=\"this\"
+                                                    hx-swap=\"innerHTML\"
+                                                ></tbody>
+                                            </table>
+                                        </div>
                                     </div>
                                     <div class=\"modal-action\">
                                         <button type=\"button\" class=\"btn btn-primary\" @click=\"applySelectedServices()\">Adicionar</button>
@@ -194,10 +316,22 @@ class KitForm(forms.ModelForm):
                                     modalSelectedServices: [],
 
                                     openProductsModal() {{
-                                        this.modalSelectedProducts = this.selectedProducts.map(p => ({{ id: p.id, name: p.name }}));
+                                        this.modalSelectedProducts = this.selectedProducts.map(p => ({{
+                                            id: p.id,
+                                            name: p.name,
+                                            cost: p.cost,
+                                            sell: p.sell,
+                                            qty: p.qty,
+                                        }}));
                                     }},
                                     openServicesModal() {{
-                                        this.modalSelectedServices = this.selectedServices.map(s => ({{ id: s.id, name: s.name }}));
+                                        this.modalSelectedServices = this.selectedServices.map(s => ({{
+                                            id: s.id,
+                                            name: s.name,
+                                            cost: s.cost,
+                                            sell: s.sell,
+                                            qty: s.qty,
+                                        }}));
                                     }},
 
                                     toggleModalProduct(item) {{
@@ -219,12 +353,18 @@ class KitForm(forms.ModelForm):
 
                                     addProduct(item) {{
                                         if (!this.selectedProducts.find(i => i.id == item.id)) {{
-                                            this.selectedProducts.push(item);
+                                            this.selectedProducts.push({{
+                                                ...item,
+                                                qty: 1,
+                                            }});
                                         }}
                                     }},
                                     addService(item) {{
                                         if (!this.selectedServices.find(i => i.id == item.id)) {{
-                                            this.selectedServices.push(item);
+                                            this.selectedServices.push({{
+                                                ...item,
+                                                qty: 1,
+                                            }});
                                         }}
                                     }},
 
@@ -310,6 +450,31 @@ class KitForm(forms.ModelForm):
         cleaned_data["_kit_products_ids"] = unique_product_ids
         cleaned_data["_kit_services_ids"] = unique_service_ids
 
+        product_qty: dict[str, int] = {}
+        for pid in unique_product_ids:
+            raw = self.data.get(f"kit_product_qty_{pid}", "1")
+            try:
+                qty = int(raw)
+            except (TypeError, ValueError):
+                qty = 0
+            if qty < 1:
+                self.add_error(None, "Quantidade inválida para produto.")
+            product_qty[pid] = qty if qty >= 1 else 1
+
+        service_qty: dict[str, int] = {}
+        for sid in unique_service_ids:
+            raw = self.data.get(f"kit_service_qty_{sid}", "1")
+            try:
+                qty = int(raw)
+            except (TypeError, ValueError):
+                qty = 0
+            if qty < 1:
+                self.add_error(None, "Quantidade inválida para serviço.")
+            service_qty[sid] = qty if qty >= 1 else 1
+
+        cleaned_data["_kit_products_qty"] = product_qty
+        cleaned_data["_kit_services_qty"] = service_qty
+
         if self.workshop:
             if unique_product_ids:
                 valid_products = set(Product.objects.filter(workshop=self.workshop, id__in=unique_product_ids).values_list("id", flat=True))
@@ -331,18 +496,24 @@ class KitForm(forms.ModelForm):
 
         product_ids = self.cleaned_data.get("_kit_products_ids", [])
         service_ids = self.cleaned_data.get("_kit_services_ids", [])
+        product_qty: dict[str, int] = self.cleaned_data.get("_kit_products_qty", {})
+        service_qty: dict[str, int] = self.cleaned_data.get("_kit_services_qty", {})
 
         KitProduct.objects.filter(kit=instance).exclude(product_id__in=product_ids).delete()
         KitService.objects.filter(kit=instance).exclude(service_id__in=service_ids).delete()
 
-        existing_product_ids = set(KitProduct.objects.filter(kit=instance).values_list("product_id", flat=True))
         for pid in product_ids:
-            if int(pid) not in existing_product_ids:
-                KitProduct.objects.create(kit=instance, product_id=int(pid))
+            KitProduct.objects.update_or_create(
+                kit=instance,
+                product_id=int(pid),
+                defaults={"quantity": int(product_qty.get(pid, 1) or 1)},
+            )
 
-        existing_service_ids = set(KitService.objects.filter(kit=instance).values_list("service_id", flat=True))
         for sid in service_ids:
-            if int(sid) not in existing_service_ids:
-                KitService.objects.create(kit=instance, service_id=int(sid))
+            KitService.objects.update_or_create(
+                kit=instance,
+                service_id=int(sid),
+                defaults={"quantity": int(service_qty.get(sid, 1) or 1)},
+            )
 
         return instance

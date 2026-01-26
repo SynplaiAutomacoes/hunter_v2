@@ -58,3 +58,92 @@ class KitTests(TestCase):
 
         self.assertFalse(form.is_valid())
         self.assertIn("Existem serviços repetidos no kit.", form.non_field_errors())
+
+    def test_kit_form_persists_service_quantity(self):
+        kit = Kit.objects.create(workshop=self.workshop, name="Kit A", description="", is_active=True)
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name="Serviço 1",
+            description="",
+            duration=datetime.timedelta(minutes=30),
+            selling_price=Money(10, "BRL"),
+            suggested_cost=None,
+            is_third_party=False,
+            is_active=True,
+        )
+
+        form = KitForm(
+            instance=kit,
+            data={
+                "name": "Kit A",
+                "description": "",
+                "is_active": "on",
+                "kit_services": [str(service.id)],
+                f"kit_service_qty_{service.id}": "2",
+            },
+            workshop=self.workshop,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        form.save()
+
+        item = KitService.objects.get(kit=kit, service=service)
+        self.assertEqual(item.quantity, 2)
+
+    def test_kit_form_rejects_invalid_service_quantity(self):
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name="Serviço 1",
+            description="",
+            duration=datetime.timedelta(minutes=30),
+            selling_price=Money(10, "BRL"),
+            suggested_cost=None,
+            is_third_party=False,
+            is_active=True,
+        )
+
+        form = KitForm(
+            data={
+                "name": "Kit A",
+                "description": "",
+                "is_active": "on",
+                "kit_services": [str(service.id)],
+                f"kit_service_qty_{service.id}": "0",
+            },
+            workshop=self.workshop,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("Quantidade inválida para serviço.", form.non_field_errors())
+
+    def test_service_money_fields_work_with_only_including_currency_fields(self):
+        """Regressão: `djmoney` precisa do campo `*_currency` junto com o valor.
+
+        Em alguns fluxos (ex.: HTMX do modal de Kits) usamos `.only(...)`.
+        Se não incluirmos `*_currency`, acessar `service.suggested_cost` pode quebrar
+        durante renderização de template.
+        """
+
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name="Serviço 1",
+            description="",
+            duration=datetime.timedelta(minutes=30),
+            selling_price=Money(10, "BRL"),
+            suggested_cost=Money(5, "BRL"),
+            is_third_party=False,
+            is_active=True,
+        )
+
+        s = Service.objects.only(
+            "id",
+            "name",
+            "suggested_cost",
+            "suggested_cost_currency",
+            "selling_price",
+            "selling_price_currency",
+        ).get(pk=service.pk)
+
+        # Não deve levantar exceção
+        self.assertEqual(str(s.suggested_cost), "R$\xa05,00")
+        self.assertEqual(str(s.selling_price), "R$\xa010,00")

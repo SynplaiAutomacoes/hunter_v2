@@ -90,7 +90,19 @@ class KitProductSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if query:
             qs = qs.filter(Q(code__icontains=query) | Q(name__icontains=query) | Q(brand__icontains=query))
 
-        qs = qs.order_by("name").only("id", "code", "name", "brand")
+        # djmoney MoneyField usa 2 colunas (valor + moeda). Ao usar `.only(...)`,
+        # precisamos incluir também os campos `*_currency` para evitar erros ao
+        # acessar `product.cost_price` / `product.selling_price` em templates.
+        qs = qs.order_by("name").only(
+            "id",
+            "code",
+            "name",
+            "brand",
+            "cost_price",
+            "cost_price_currency",
+            "selling_price",
+            "selling_price_currency",
+        )
 
         paginator = Paginator(qs, 50)
         page_obj = paginator.get_page(page)
@@ -120,7 +132,17 @@ class KitServiceSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if query:
             qs = qs.filter(name__icontains=query)
 
-        qs = qs.order_by("name").only("id", "name")
+        # djmoney MoneyField usa 2 colunas (valor + moeda). Ao usar `.only(...)`,
+        # precisamos incluir também os campos `*_currency` para evitar erros ao
+        # acessar `service.suggested_cost` / `service.selling_price` em templates.
+        qs = qs.order_by("name").only(
+            "id",
+            "name",
+            "suggested_cost",
+            "suggested_cost_currency",
+            "selling_price",
+            "selling_price_currency",
+        )
 
         paginator = Paginator(qs, 50)
         page_obj = paginator.get_page(page)
