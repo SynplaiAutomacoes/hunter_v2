@@ -2,7 +2,9 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, HTML
 from django import forms
 
-from apps.budget.models import Budget
+from apps.budget.models import Budget, Defect
+from apps.checklist.models import Checklist
+from apps.collaborators.models import WorkshopCollaborator
 from apps.core.widgets import TextInput, SelectInput, CalendarDateInput
 from apps.customer.models import Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
@@ -245,4 +247,151 @@ class BudgetStep2Form(forms.ModelForm):
 
             if response_text:
                 InvestigativeResponse.objects.update_or_create(budget=budget, question_id=question_id, defaults={"workshop": self.workshop, "response": str(response_text)})
+        return budget
+
+
+class BudgetStep3Form(forms.ModelForm):
+    new_defect = forms.CharField(label=False, required=False, widget=TextInput(attrs={"id": "id_new_defect", "placeholder": "Digite um defeito e clique em Adicionar", "onkeypress": "if(event.keyCode==13){ event.preventDefault(); addDefectRow(); }"}))
+    checklist = forms.ModelChoiceField(label="Selecione o Checklist", queryset=Checklist.objects.none(), required=False, widget=SelectInput())
+    collaborator = forms.ModelChoiceField(label="Selecione o colaborador que realizará o serviço", required=True, queryset=WorkshopCollaborator.objects.none(), widget=SelectInput())
+
+    class Meta:
+        model = Budget
+        fields = ["technical_diagnosis"]
+        widgets = {
+            "technical_diagnosis": forms.Textarea(attrs={"rows": 10, "placeholder": "Descreva detalhadamente as observações técnicas, diagnósticos preliminares, testes realizados...", "class": "textarea textarea-bordered w-full"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        self.workshop = kwargs.pop("workshop", None)
+        self.request = kwargs.pop("request", None)
+        super().__init__(*args, **kwargs)
+
+        if self.workshop:
+            self.fields["collaborator"].queryset = WorkshopCollaborator.objects.filter(workshop=self.workshop, is_active=True)
+            self.fields["checklist"].queryset = Checklist.objects.filter(workshop=self.workshop)
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout(
+            HTML("""<script>
+                    function addDefectRow() {
+                        const input = document.getElementById('id_new_defect');
+                        const container = document.getElementById('defect-list-container');
+                        const text = input.value.trim();
+                        if (text === "") return;
+                        const id = 'new-' + Date.now();
+                        const html = `<div class="badge badge-lg badge-ghost gap-2 py-5 mb-2 mr-2 pr-1" id="defect-${id}">
+                                <input type="hidden" name="defects_list" value="${text}">
+                                <span class="font-medium">${text}</span>
+                                <button type="button" onclick="this.parentElement.remove()" class="btn btn-ghost btn-xs btn-circle text-error">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>`;
+                        container.insertAdjacentHTML('beforeend', html);
+                        input.value = "";
+                        input.focus();
+                    }
+                </script>"""),
+            Div(
+                # Coluna Esquerda
+                Div(
+                    # Diagnóstico Técnico
+                    Div(
+                        HTML('<h3 class="text-2xl font-bold mb-4">Diagnóstico Técnico</h3>'),
+                        Field("collaborator", label="Selecione o colaborador que realizará o serviço", wrapper_class="mb-6"),
+                        #
+                        HTML('<label class="block text-gray-700 font-bold mb-2">Adicione os defeitos encontrados durante a inspeção</label>'),
+                        Div(id="defect-list-container", css_class="mb-4 p-4 border-2 border-dashed border-gray-200 rounded-lg bg-gray-50 min-h-[120px] flex flex-wrap content-start"),
+                        Div(Div(Field("new_defect", wrapper_class="mb-0"), css_class="flex-1"),
+                            HTML("""<button type="button" class="btn btn-primary ml-2" onclick="addDefectRow()">
+                                    Adicionar</button>"""), css_class="flex items-end mb-8"),
+                        css_class="mb-8",
+                    ),
+                    # Checklist para Impressão
+                    Div(
+                        HTML('<h3 class="text-2xl font-bold mb-4">Checklist para Impressão</h3>'),
+                        Field("checklist", wrapper_class="mb-2")
+                    ),
+                    css_class="col-span-12 lg:col-span-5",
+                ),
+                #
+                Div(css_class="hidden lg:block lg:col-span-1"),
+                #
+                # Coluna Direita
+                Div(
+                    # Observações Técnicas
+                    Div(
+                        HTML('<h3 class="text-2xl font-bold mb-4">Observações Técnicas</h3>'),
+                        Field("technical_diagnosis", label=False, wrapper_class="mb-0"),
+                        css_class="mb-8",
+                    ),
+                    # Imagens
+                    Div(
+                        HTML('<h3 class="text-2xl font-bold mb-4">Anexar Imagens</h3>'),
+                        HTML("""
+                            <div class="flex items-center justify-center w-full">
+                                <label class="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
+                                    <div class="flex flex-col items-center justify-center pt-5 pb-6">
+                                        <svg class="w-8 h-8 mb-4 text-gray-500" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 16">
+                                            <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 13h3a3 3 0 0 0 0-6h-.025A5.56 5.56 0 0 0 16 6.5 5.5 5.5 0 0 0 5.207 5.021C5.137 5.017 5.071 5 5 5a4 4 0 0 0 0 8h2.167M10 15V6m0 0L8 8m2-2 2 2"/>
+                                        </svg>
+                                        <p class="mb-2 text-sm text-gray-500"><span class="font-semibold">Clique para enviar</span> ou arraste imagens</p>
+                                    </div>
+                                    <input type="file" name="budget_images" class="hidden" multiple accept="image/*" />
+                                </label>
+                            </div>
+                        """), css_class="mb-6",
+                    ), css_class="col-span-12 lg:col-span-6",
+                ), css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
+            ),
+        )
+
+        if self.instance.pk:
+            existing_defects = self.instance.defects.all()
+            if existing_defects.exists():
+                defects_json = "".join(
+                    [
+                        f"""<div class="badge badge-lg badge-ghost gap-2 py-5 mb-2 mr-2 pr-1" id="defect-old-{d.id}">
+                            <input type="hidden" name="defects_list" value="{d.name}">
+                            <span class="font-medium">{d.name}</span>
+                            <button type="button" onclick="this.parentElement.remove()" class="btn btn-ghost btn-xs btn-circle text-error">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>"""
+                        for d in existing_defects
+                    ]
+                )
+                # Injeta os defeitos existentes via JS após a renderização do container
+                self.helper.layout.append(
+                    HTML(f"""
+                    <script>
+                        document.addEventListener("DOMContentLoaded", function() {{
+                            document.getElementById('defect-list-container').innerHTML = `{defects_json}`;
+                        }});
+                    </script>
+                """)
+                )
+
+    def save(self, commit=True):
+        budget = super().save(commit=commit)
+
+        # Processamento dos Defeitos (Somente no Save final)
+        if "defects_list" in self.request.POST:
+            defect_names = self.request.POST.getlist("defects_list")
+
+            # Sincronização: remove antigos e adiciona novos
+            budget.defects.all().delete()
+            for name in defect_names:
+                if name.strip():
+                    Defect.objects.create(
+                        workshop=self.workshop,
+                        budget=budget,
+                        name=name.strip()
+                    )
+
         return budget
