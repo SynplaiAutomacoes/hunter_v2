@@ -207,7 +207,17 @@ class BudgetStep2Form(forms.ModelForm):
                 choices = [("", "Selecione..."), ("Sim", "Sim"), ("Não", "Não")]
                 self.fields[field_name] = forms.ChoiceField(label=q.text, choices=choices, required=False, initial=initial_value, widget=SelectInput(choices=choices))
             elif q.response_type == InvestigativeQuestion.ResponseType.SCALE:
-                self.fields[field_name] = forms.IntegerField(label=q.text, min_value=1, max_value=10, required=False, initial=initial_value or 5, widget=forms.NumberInput(attrs={"class": "input input-bordered w-full", "type": "range", "step": "1", "min": "1", "max": "10"}))
+                display_id = f"display_{field_name}"
+                self.fields[field_name] = forms.IntegerField(
+                    label=q.text,
+                    min_value=1,
+                    max_value=10,
+                    required=False,
+                    initial=initial_value or 5,
+                    widget=forms.NumberInput(attrs={ "class": "range range-primary w-full", "type": "range", "step": "1", "min": "1", "max": "10", "oninput": f"document.getElementById('{display_id}').innerText = this.value" }
+                    ),
+                )
+                self.fields[field_name].help_text = f'Valor selecionado: <span id="{display_id}" class="font-bold text-primary">{initial_value or 5}</span>'
             elif q.response_type == InvestigativeQuestion.ResponseType.MULTIPLE_CHOICE:
                 choices = [(opt, opt) for opt in q.options]
                 choices1 = [("", "Selecione...")] + choices
