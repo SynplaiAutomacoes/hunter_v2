@@ -20,6 +20,7 @@ from apps.core.widgets import (
 from apps.workshops.models.workshops import Workshop
 
 
+# TODO: Improve equivalent products to use a modal similar to Kits. Probably make a reusable modal for it.
 class ProductForm(forms.ModelForm):
     equivalent_search = forms.CharField(required=False, label="Produtos Equivalentes")
 

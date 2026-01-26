@@ -15,6 +15,7 @@ from apps.core.widgets import CheckboxInput, TextInput, TextareaInput
 from apps.workshops.models.workshops import Workshop
 
 
+# TODO: Improve mobile visibility of table
 class KitForm(forms.ModelForm):
     product_search = forms.CharField(required=False, label="Produtos")
     service_search = forms.CharField(required=False, label="Serviços")
