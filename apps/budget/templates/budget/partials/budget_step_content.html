@@ -29,6 +29,8 @@
     <form id="budget-form"
           hx-post="{{ request.path }}?step={{ current_step }}{% if object.pk %}&pk={{ object.pk }}{% endif %}"
           hx-target="#budget-card-content"
+          hx-encoding="multipart/form-data"
+          enctype="multipart/form-data"
           hx-swap="innerHTML">
         {% csrf_token %}
         {% crispy form %}

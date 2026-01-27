@@ -2,7 +2,7 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, HTML
 from django import forms
 
-from apps.budget.models import Budget, Defect
+from apps.budget.models import Budget, Defect, BudgetImage
 from apps.checklist.models import Checklist
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.widgets import TextInput, SelectInput, CalendarDateInput
@@ -278,6 +278,18 @@ class BudgetStep3Form(forms.ModelForm):
             self.fields["collaborator"].queryset = WorkshopCollaborator.objects.filter(workshop=self.workshop, is_active=True)
             self.fields["checklist"].queryset = Checklist.objects.filter(workshop=self.workshop)
 
+        existing_file_html = ""
+        if self.instance.pk:
+            img = self.instance.budget_image.first()
+            if img:
+                existing_file_html = f"""<div class="mb-4">
+                            <p class="text-sm font-medium text-gray-500 mb-2">Imagem atual:</p>
+                            <div class="badge badge-success gap-2 py-3">
+                                <span class="material-icons text-xs">attachment</span>
+                                {img.content_name}
+                            </div>
+                        </div>"""
+
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
@@ -339,17 +351,39 @@ class BudgetStep3Form(forms.ModelForm):
                     # Imagens
                     Div(
                         HTML('<h3 class="text-2xl font-bold mb-4">Anexar Imagens</h3>'),
-                        HTML("""<div class="flex items-center justify-center w-full">
-                                <label class="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer">
-                                    <div class="flex flex-col items-center justify-center pt-5 pb-6">
-                                        <p class="mb-1 text-lg font-semibold text-gray-700">Arraste e solte imagens aqui ou clique para selecionar</p>
-                                        <p class="text-sm text-gray-400">Formatos aceitos: JPG, PNG, GIF (máx. 5MB cada)</p>
-                                    </div>
-                                    <input type="file" name="budget_images" class="hidden" multiple accept="image/*" />
-                                </label>
-                            </div>"""), css_class="mb-6",
-                    ), css_class="col-span-12 lg:col-span-6",
-                ), css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
+                        HTML(existing_file_html),
+                        HTML("""
+                                        <div class="flex flex-col w-full gap-4">
+                                            <label class="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer hover:bg-base-200 transition-colors">
+                                                <div class="flex flex-col items-center justify-center pt-5 pb-6">
+                                                    <p class="mb-1 text-lg font-semibold text-gray-700">Clique para selecionar novas imagens</p>
+                                                    <p class="text-sm text-gray-400">JPG, PNG, GIF (máx. 5MB)</p>
+                                                    <div id="image-preview-container" class="flex flex-wrap gap-2 mt-2"></div>
+                                                </div>
+                                                <input type="file" id="image-input" name="budget_images" class="hidden" multiple accept="image/*" onchange="previewImages(this)" />
+                                            </label>
+                                        </div>
+                                        <script>
+                                            function previewImages(input) {
+                                                const container = document.getElementById('image-preview-container');
+                                                container.innerHTML = '';
+                                                if (input.files) {
+                                                    Array.from(input.files).forEach(file => {
+                                                        const html = `
+                                                            <div class="mt-2 badge badge-info gap-2 py-2">
+                                                                <span class="max-w-[150px] truncate">${file.name}</span>
+                                                            </div>`;
+                                                        container.insertAdjacentHTML('beforeend', html);
+                                                    });
+                                                }
+                                            }
+                                        </script>
+                                    """),
+                        css_class="mb-6",
+                    ),
+                    css_class="col-span-12 lg:col-span-6",
+                ),
+                css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
             ),
         )
 
@@ -393,6 +427,17 @@ class BudgetStep3Form(forms.ModelForm):
                         budget=budget,
                         name=name.strip()
                     )
+
+        new_image = self.request.FILES.get("budget_images")
+        if new_image:
+            budget.budget_image.all().delete()
+            BudgetImage.objects.create(
+                workshop=self.workshop,
+                budget=budget,
+                content=new_image.read(),
+                content_name=new_image.name,
+                content_type=new_image.content_type
+            )
 
         return budget
 
