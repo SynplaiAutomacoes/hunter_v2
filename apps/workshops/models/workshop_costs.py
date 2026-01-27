@@ -152,8 +152,19 @@ class WorkshopCost(TimeStampedModel):
         multiplier = (gross_revenue_target.amount / total_value.amount).quantize(Decimal('0.01'), ROUND_HALF_UP)
         
         return multiplier
+    
+    def calculate_all(self):
+        total_value = self.calculate_total_value()
+        total_monthly_costs = self.calculate_total_monthly_costs()
+        profit_target = self.calculate_profit_target(total_monthly_costs)
+        gross_revenue_target = self.calculate_gross_revenue_target(total_monthly_costs, profit_target, total_value)
+        profitability_multiplier = self.calculate_profitability_multiplier(gross_revenue_target, total_value)
         
-
+        self.total_value = total_value
+        self.total_monthly_costs = total_monthly_costs
+        self.profit_target = profit_target
+        self.gross_revenue_target = gross_revenue_target
+        self.profitability_multiplier = profitability_multiplier
 
 class WorkshopCostItem(models.Model):
     """
