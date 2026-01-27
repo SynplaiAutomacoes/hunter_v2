@@ -1,0 +1,18 @@
+{% load crispy_forms_tags %}
+<div class="modal-box max-w-4xl bg-base-100 shadow-2xl border border-base-300">
+    <h3 class="font-bold text-2xl mb-6 flex items-center gap-2">
+      <span class="material-icons">{% if form.instance.pk %}edit{% else %}person_add{% endif %}</span>
+      {% if form.instance.pk %}Editar{% else %} Cadastro Rápido{% endif %}
+    </h3>
+
+    <form id="quick-customer-form" hx-post="{{ request.path }}" hx-target="#modal-container" hx-swap="innerHTML">
+        {% csrf_token %}
+        {% crispy form %}
+
+        <div class="col-span-12 divider my-1 pt-4"></div>
+        <div class="modal-action">
+            <button type="button" class="btn btn-ghost" onclick="customer_modal.close()">Cancelar</button>
+            <button type="submit" class="btn btn-primary">Salvar</button>
+        </div>
+    </form>
+</div>

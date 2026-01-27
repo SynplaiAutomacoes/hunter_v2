@@ -13,4 +13,6 @@ urlpatterns = [
     path("customer-detail/", views.customer_detail, name="customer-detail"),
     path("vehicle-detail/", views.vehicle_detail, name="vehicle-detail"),
     path("get-vehicles/", views.get_vehicles, name="vehicle-detail"),
+    path("quick-create/", views.QuickCustomerCreateView.as_view(), name="quick_create"),
+    path("quick-update/<int:pk>/", views.QuickCustomerUpdateView.as_view(), name="quick_update"),
 ]

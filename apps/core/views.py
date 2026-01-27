@@ -70,3 +70,16 @@ def cep_lookup(request):
             updates.update({"readonly": False})
 
     return render(request, "partials/address_fields.html", {"updates": updates})
+
+
+class BaseModalFormView:
+    """MixIn para lidar com formulários dentro de Modais via HTMX"""
+    template_name = "partials/modal_form.html"
+
+    def form_valid(self, form):
+        form.instance.workshop = self.workshop
+        self.object = form.save()
+        # Retorna o ID e Nome para o Alpine.js atualizar o select original
+        response = HttpResponse(status=204) # No Content
+        response["HX-Trigger"] = f'{{"customerSaved": {{"id": "{self.object.id}", "name": "{self.object.name}"}}}}'
+        return response

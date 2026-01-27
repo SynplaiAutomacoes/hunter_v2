@@ -1,12 +1,12 @@
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.shortcuts import render, get_object_or_404
 from django.urls import reverse_lazy
 from django.views.generic import ListView, CreateView, UpdateView, DeleteView, TemplateView
 from django.contrib.auth.mixins import LoginRequiredMixin
 from apps.workshops.mixin import WorkshopScopedMixin
-from apps.core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin
+from apps.core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin, BaseModalFormView
 from .models import Customer, Vehicle
-from .forms import CustomerForm, VehicleFormSet
+from .forms import CustomerForm, VehicleFormSet, QuickCustomerForm
 from ..core.tables import TableActionDefaults
 from ..core.templatetags.table_tags import TableColumn
 
@@ -158,3 +158,12 @@ def vehicle_detail(request):
     if vehicle_id:
         vehicle = get_object_or_404(Vehicle, id=vehicle_id)
     return render(request, 'budget/partials/vehicle_resume.html', {'vehicle': vehicle})
+
+
+class QuickCustomerCreateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalFormView, CreateView):
+    model = Customer
+    form_class = QuickCustomerForm
+
+class QuickCustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalFormView, UpdateView):
+    model = Customer
+    form_class = QuickCustomerForm

@@ -16,18 +16,10 @@ class BudgetStep1Form(forms.ModelForm):
     vehicle = forms.ModelChoiceField(label="Veículo",  queryset=Vehicle.objects.none(), required=False, widget=SelectInput())
     class Meta:
         model = Budget
-        fields = [
-            "workshop",
-            "cost_estimator",
-            "entry_date",
-            "customer",
-            "vehicle",
-            "current_km",
-            "fuel_level",
-        ]
+        fields = ["workshop", "cost_estimator", "entry_date", "customer", "vehicle", "current_km", "fuel_level"]
         widgets = {
             "entry_date": CalendarDateInput(),
-            "customer": SelectInput(),
+            "customer": SelectInput(attrs={"x-model": "customerId", "@change": "customerId = $el.value"}),
             "current_km": TextInput(),
             "fuel_level": TextInput(),
         }
@@ -130,13 +122,41 @@ class BudgetStep1Form(forms.ModelForm):
                     Div(
                         HTML('<h3 class="text-2xl font-bold mb-2">Cliente</h3>'),
                         Div(
-                            Field("customer", wrapper_class="col-span-12 lg:col-span-12"),
-                            Field("vehicle", wrapper_class="col-span-12 lg:col-span-12"),
-                            css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
+                            Div(
+                                Field("customer", wrapper_class="flex-1"),
+                                # Botão de Ação Dinâmico
+                                HTML("""
+                                <button type="button" 
+                                    class="btn btn-square mb-1 transition-all duration-300"
+                                    :class="customerId ? 'btn-warning' : 'btn-primary'"
+                                    @click="
+                                        const url = customerId ? `/customer/quick-update/${customerId}/` : '/customer/quick-create/';
+                                        htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
+                                        document.getElementById('customer_modal').showModal();
+                                    ">
+                                    <span class="material-icons" x-text="customerId ? 'edit' : 'person_add'"></span>
+                                </button>
+                                """),
+                                css_class="flex items-end gap-2 w-full",
+                                x_data=f"{{ customerId: '{self.instance.customer.id if self.instance and self.instance.customer else ''}' }}",
+                                custom_attribs={
+                                    "@customer-saved.window": """
+                                        const sel = document.querySelector('[name=customer]');
+                                        if (!Array.from(sel.options).some(o => o.value == $event.detail.id)) {
+                                            sel.add(new Option($event.detail.name, $event.detail.id, true, true));
+                                        }
+                                        sel.value = $event.detail.id;
+                                        customerId = $event.detail.id;
+                                        sel.dispatchEvent(new Event('change'));
+                                        document.getElementById('customer_modal').close();
+                                    """
+                                }
+                            ),
+                            Field("vehicle", wrapper_class="col-span-12"),
+                            css_class="grid grid-cols-1 gap-2",
                         ),
-                        css_class="mb-6 gap-4",
+                        css_class="mb-6",
                     ),
-                    # Veículo
                     Div(
                         HTML('<h3 class="text-2xl font-bold mb-2">Veículo</h3>'),
                         Div(
