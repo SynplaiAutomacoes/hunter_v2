@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from decimal import ROUND_HALF_UP, Decimal
+from typing import Self
 
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from djmoney.models.fields import MoneyField
+from moneyed import Money
 
 from apps.core.models import TimeStampedModel
 from apps.workshops.models.workshops import Workshop
@@ -111,6 +114,45 @@ class WorkshopCost(TimeStampedModel):
 
     def __str__(self):
         return f"{self.get_month_display()}/{self.year}"
+    
+    def calculate_total_value(self) -> Money:
+        parts_purchase_cap = self.parts_purchase_cap or Money(0, 'BRL')
+        freight_cost = self.freight_cost or Money(0, 'BRL')
+        third_party_service_cap = self.third_party_service_cap or Money(0, 'BRL')
+        
+        total_value = parts_purchase_cap + freight_cost + third_party_service_cap
+        
+        return total_value
+    
+    def calculate_total_monthly_costs(self) -> Money:
+        card_rate = self.card_rate or Decimal(0)
+        tax_rate = self.tax_rate or Decimal(0)
+        risk_coefficient = self.risk_coefficient or Decimal(0)
+        comission_rate = self.commission_rate or Decimal(0)
+        
+        fixed_cost = Money(0, 'BRL')
+        
+        for item in self.items.all():
+            fixed_cost += item.amount
+            
+        total = (fixed_cost / 100 * (card_rate + tax_rate + comission_rate) + fixed_cost) * risk_coefficient
+        
+        return total
+    
+    def calculate_profit_target(self, total_monthly_costs: Money) -> Money:
+        return total_monthly_costs * Decimal('0.25')
+        
+    def calculate_gross_revenue_target(self, total_monthly_costs: Money, profit_target: Money, total_value: Money) -> Money:
+        return total_monthly_costs + profit_target + total_value
+    
+    def calculate_profitability_multiplier(self, gross_revenue_target: Money, total_value: Money) -> Decimal:
+        if total_value.amount == 0:
+            return Decimal('0.00')
+        
+        multiplier = (gross_revenue_target.amount / total_value.amount).quantize(Decimal('0.01'), ROUND_HALF_UP)
+        
+        return multiplier
+        
 
 
 class WorkshopCostItem(models.Model):
