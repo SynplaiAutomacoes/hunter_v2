@@ -124,7 +124,7 @@ class WorkshopCost(TimeStampedModel):
         
         return total_value
     
-    def calculate_total_monthly_costs(self) -> Money:
+    def calculate_total_monthly_costs(self, items=None) -> Money:
         card_rate = self.card_rate or Decimal(0)
         tax_rate = self.tax_rate or Decimal(0)
         risk_coefficient = self.risk_coefficient or Decimal(0)
@@ -132,7 +132,9 @@ class WorkshopCost(TimeStampedModel):
         
         fixed_cost = Money(0, 'BRL')
         
-        for item in self.items.all():
+        iterable_items = items if items is not None else self.items.all()
+        
+        for item in iterable_items:
             fixed_cost += item.amount
             
         total = (fixed_cost / 100 * (card_rate + tax_rate + comission_rate) + fixed_cost) * risk_coefficient
