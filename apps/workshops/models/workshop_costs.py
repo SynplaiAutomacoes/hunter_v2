@@ -114,6 +114,10 @@ class WorkshopCost(TimeStampedModel):
 
     def __str__(self):
         return f"{self.get_month_display()}/{self.year}"
+
+    def _quantize_money(self, value: Money) -> Money:
+        amount = value.amount.quantize(Decimal("0.01"), ROUND_HALF_UP)
+        return Money(amount, value.currency)
     
     def calculate_total_value(self) -> Money:
         parts_purchase_cap = self.parts_purchase_cap or Money(0, 'BRL')
@@ -122,7 +126,7 @@ class WorkshopCost(TimeStampedModel):
         
         total_value = parts_purchase_cap + freight_cost + third_party_service_cap
         
-        return total_value
+        return self._quantize_money(total_value)
     
     def calculate_total_monthly_costs(self, items=None) -> Money:
         card_rate = self.card_rate or Decimal(0)
@@ -139,13 +143,13 @@ class WorkshopCost(TimeStampedModel):
             
         total = (fixed_cost / 100 * (card_rate + tax_rate + comission_rate) + fixed_cost) * risk_coefficient
         
-        return total
+        return self._quantize_money(total)
     
     def calculate_profit_target(self, total_monthly_costs: Money) -> Money:
-        return total_monthly_costs * Decimal('0.25')
+        return self._quantize_money(total_monthly_costs * Decimal('0.25'))
         
     def calculate_gross_revenue_target(self, total_monthly_costs: Money, profit_target: Money, total_value: Money) -> Money:
-        return total_monthly_costs + profit_target + total_value
+        return self._quantize_money(total_monthly_costs + profit_target + total_value)
     
     def calculate_profitability_multiplier(self, gross_revenue_target: Money, total_value: Money) -> Decimal:
         if total_value.amount == 0:

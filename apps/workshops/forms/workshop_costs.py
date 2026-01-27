@@ -67,11 +67,11 @@ class WorkshopCostForm(forms.ModelForm):
             "freight_cost": MoneyInput(),
             "third_party_service_cap": MoneyInput(),
             # Readonly widgets
-            "total_value": MoneyInput(attrs={"readonly": True, "disabled": True}),
-            "total_monthly_costs": MoneyInput(attrs={"readonly": True, "disabled": True}),
-            "profit_target": MoneyInput(attrs={"readonly": True, "disabled": True}),
-            "gross_revenue_target": MoneyInput(attrs={"readonly": True, "disabled": True}),
-            "profitability_multiplier": TextInput(attrs={"readonly": True, "disabled": True}),
+            "total_value": MoneyInput(attrs={"readonly": True}),
+            "total_monthly_costs": MoneyInput(attrs={"readonly": True}),
+            "profit_target": MoneyInput(attrs={"readonly": True}),
+            "gross_revenue_target": MoneyInput(attrs={"readonly": True}),
+            "profitability_multiplier": TextInput(attrs={"readonly": True}),
         }
 
     def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
@@ -152,7 +152,7 @@ class WorkshopCostForm(forms.ModelForm):
                     # Atributos HTMX no container de inputs
                     # hx-include="closest form": Garante que todos os dados do form sejam enviados
                     hx_post=calculate_url,
-                    hx_trigger="change delay:200ms, keyup delay:800ms changed",
+                    hx_trigger="input delay:100ms, change delay:100ms",
                     hx_target="#calculation-results",
                     hx_include="closest form",
                     css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start col-span-12"

@@ -72,6 +72,9 @@ class WorkshopCostDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDelete
 
 
 class WorkshopCostCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkshopCost
+    workshop_permission_codename = "view_workshopcost"
+
     def post(self, request, *args, **kwargs):
         form = WorkshopCostForm(request.POST, workshop=self.workshop)
         
