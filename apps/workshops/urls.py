@@ -16,6 +16,7 @@ from apps.workshops.views.monthly_costs import (
 )
 
 from apps.workshops.views.workshop_costs import (
+    WorkshopCostCalculateView,
     WorkshopCostListView,
     WorkshopCostCreateView,
     WorkshopCostUpdateView,
@@ -38,4 +39,5 @@ urlpatterns = [
     path("workshops_costs/create/", WorkshopCostCreateView.as_view(), name="workshop_cost_create"),
     path("workshops_costs/<int:pk>/edit/", WorkshopCostUpdateView.as_view(), name="workshop_cost_update"),
     path("workshops_costs/<int:pk>/delete/", WorkshopCostDeleteView.as_view(), name="workshop_cost_delete"),
+    path("workshops_costs/calculate/", WorkshopCostCalculateView.as_view(), name="workshop_cost_calculate"),
 ]
