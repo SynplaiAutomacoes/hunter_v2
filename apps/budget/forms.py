@@ -220,7 +220,7 @@ class BudgetStep2Form(forms.ModelForm):
                 choices1 = [("", "Selecione...")] + choices
                 self.fields[field_name] = forms.ChoiceField(label=q.text, choices=choices1, required=False, initial=initial_value, widget=SelectInput(choices=choices1))
             else:  # FREE_TEXT
-                self.fields[field_name] = forms.CharField(label=q.text, required=False, initial=initial_value, widget=forms.TextInput(attrs={"class": "input input-bordered w-full"}))
+                self.fields[field_name] = forms.CharField(label=q.text, required=False, initial=initial_value, widget=TextInput())
 
         # 3. Configurar Layout dinâmico do Crispy
         question_layout_fields = [Field(name, wrapper_class="mb-4") for name in self.question_field_names]
@@ -419,17 +419,13 @@ class BudgetStep4Form(forms.ModelForm):
                     Div(
                         Div(
                             HTML('<h3 class="text-xl font-semibold text-gray-700">Produtos</h3>'),
-                            HTML("""
-                                <button type="button" class="btn btn-primary" hx-get="#" hx-target="#modal-container">
-                                    Inserir Produto
-                                </button>
-                            """),
+                            HTML('<button type="button" class="btn btn-primary" hx-get="#" hx-target="#modal-container">Inserir Produto</button>'),
                             css_class="flex justify-between items-center mb-4",
                         ),
                         Div(
                             HTML("""
-                                <table class="table table-zebra w-full shadow-sm border">
-                                    <thead class="bg-gray-50">
+                                <table class="table table-zebra w-full">
+                                    <thead>
                                         <tr>
                                             <th>DESCRIÇÃO</th>
                                             <th class="text-center">QTD.</th>
@@ -445,7 +441,7 @@ class BudgetStep4Form(forms.ModelForm):
                                     </tbody>
                                 </table>
                             """),
-                            css_class="overflow-x-auto mb-8",
+                            css_class="overflow-x-auto mb-8 rounded-lg shadow-md shadow-gray-300/50",
                         ),
                         css_class="mb-10",
                     ),
@@ -453,17 +449,13 @@ class BudgetStep4Form(forms.ModelForm):
                     Div(
                         Div(
                             HTML('<h3 class="text-xl font-semibold text-gray-700">Serviços</h3>'),
-                            HTML("""
-                                <button type="button" class="btn btn-primary" hx-get="#" hx-target="#modal-container">
-                                    Inserir Serviço
-                                </button>
-                            """),
+                            HTML('<button type="button" class="btn btn-primary" hx-get="#" hx-target="#modal-container">Inserir Serviço</button>'),
                             css_class="flex justify-between items-center mb-4",
                         ),
                         Div(
                             HTML("""
-                                <table class="table table-zebra w-full shadow-sm border">
-                                    <thead class="bg-gray-100">
+                                <table class="table table-zebra w-full">
+                                    <thead>
                                         <tr>
                                             <th>DESCRIÇÃO</th>
                                             <th class="text-center">QTD.</th>
@@ -479,7 +471,7 @@ class BudgetStep4Form(forms.ModelForm):
                                     </tbody>
                                 </table>
                             """),
-                            css_class="overflow-x-auto mb-8",
+                            css_class="overflow-x-auto mb-8 rounded-lg shadow-md shadow-gray-300/50",
                         ),
                         css_class="mb-10",
                     ),
@@ -487,17 +479,13 @@ class BudgetStep4Form(forms.ModelForm):
                     Div(
                         Div(
                             HTML('<h3 class="text-xl font-semibold text-gray-700">Kits</h3>'),
-                            HTML("""
-                                <button type="button" class="btn btn-primary" hx-get="#" hx-target="#modal-container">
-                                    Inserir Kit
-                                </button>
-                            """),
+                            HTML('<button type="button" class="btn btn-primary px-8" hx-get="#" hx-target="#modal-container">Inserir Kit</button>'),
                             css_class="flex justify-between items-center mb-4",
                         ),
                         Div(
                             HTML("""
-                                <table class="table table-compact w-full shadow-sm border">
-                                    <thead class="bg-gray-50">
+                                <table class="table table-compact w-full">
+                                    <thead>
                                         <tr>
                                             <th>NOME</th>
                                             <th>DESCRIÇÃO</th>
@@ -511,7 +499,7 @@ class BudgetStep4Form(forms.ModelForm):
                                     </tbody>
                                 </table>
                             """),
-                            css_class="overflow-x-auto mb-4",
+                            css_class="overflow-x-auto mb-4 rounded-lg shadow-md shadow-gray-300/50",
                         ),
                         css_class="mb-6",
                     ),
@@ -523,16 +511,16 @@ class BudgetStep4Form(forms.ModelForm):
                 # Coluna Direita
                 Div(
                     Div(
-                        HTML('<h2 class="text-2xl font-bold mb-4">Resumo</h2>'),
+                        HTML('<h2 class="text-2xl font-bold mb-4 mt-8">Resumo</h2>'),
                         Div(
-                            Div(HTML('<span>Total Produtos</span><span>R$ 0,00</span>'), css_class="border rounded-2xl flex justify-between items-center p-3 bg-gray-50 rounded mb-2"),
-                            Div(HTML('<span>Total Serviços</span><span>R$ 0,00</span>'), css_class="border rounded-2xl flex justify-between items-center p-3 bg-gray-50 rounded mb-2"),
-                            Div(HTML('<span>Total Frete</span><span>R$ 0,00</span>'), css_class="border rounded-2xl flex justify-between items-center p-3 bg-gray-50 rounded mb-2"),
-                            Div(HTML('<span>Tempo Total</span><span>00h 00min</span>'), css_class="border rounded-2xl flex justify-between items-center p-3 bg-gray-50 rounded mb-2"),
-                            Div(HTML('<span class="font-bold">Total Geral</span><span class="font-bold">R$ 0,00</span>'), css_class="border rounded-2xl flex justify-between items-center p-3 bg-gray-50 rounded mb-2"),
+                            Div(HTML('<span>Total Produtos</span><span>R$ 0,00</span>'), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
+                            Div(HTML('<span>Total Serviços</span><span>R$ 0,00</span>'), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
+                            Div(HTML('<span>Total Frete</span><span>R$ 0,00</span>'), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
+                            Div(HTML('<span>Tempo Total</span><span>00h 00min</span>'), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
+                            Div(HTML('<span class="font-bold">Total Geral</span><span class="font-bold">R$ 0,00</span>'), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
                             css_class="sticky top-4",
                         ),
-                        css_class="p-6 bg-white shadow-sm h-fit",
+                        css_class="p-6 h-fit text-lg",
                     ),
                     css_class="col-span-12 lg:col-span-5 mt-10 lg:mt-0",
                 ),
