@@ -410,7 +410,139 @@ class BudgetStep4Form(forms.ModelForm):
 
         self.helper = FormHelper()
         self.helper.form_tag = False
-        self.helper.layout = Layout()
+        self.helper.layout = Layout(
+            Div(
+                # Coluna Esquerda: Seleção
+                Div(
+                    HTML('<h2 class="text-2xl font-bold mb-6">Seleção de Produtos e Serviços</h2>'),
+                    # Seção de Produtos
+                    Div(
+                        Div(
+                            HTML('<h3 class="text-xl font-semibold text-gray-700">Produtos</h3>'),
+                            HTML("""
+                                <button type="button" class="btn btn-primary" hx-get="#" hx-target="#modal-container">
+                                    Inserir Produto
+                                </button>
+                            """),
+                            css_class="flex justify-between items-center mb-4",
+                        ),
+                        Div(
+                            HTML("""
+                                <table class="table table-zebra w-full shadow-sm border">
+                                    <thead class="bg-gray-50">
+                                        <tr>
+                                            <th>DESCRIÇÃO</th>
+                                            <th class="text-center">QTD.</th>
+                                            <th>CUSTO</th>
+                                            <th>VALOR VENDA</th>
+                                            <th>FRETE</th>
+                                            <th>TOTAL</th>
+                                            <th class="text-center">AÇÕES</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="product-list-body">
+                                        <tr><td colspan="7" class="text-center text-gray-400 py-4">Nenhum produto adicionado</td></tr>
+                                    </tbody>
+                                </table>
+                            """),
+                            css_class="overflow-x-auto mb-8",
+                        ),
+                        css_class="mb-10",
+                    ),
+                    # Seção de Serviços
+                    Div(
+                        Div(
+                            HTML('<h3 class="text-xl font-semibold text-gray-700">Serviços</h3>'),
+                            HTML("""
+                                <button type="button" class="btn btn-primary" hx-get="#" hx-target="#modal-container">
+                                    Inserir Serviço
+                                </button>
+                            """),
+                            css_class="flex justify-between items-center mb-4",
+                        ),
+                        Div(
+                            HTML("""
+                                <table class="table table-zebra w-full shadow-sm border">
+                                    <thead class="bg-gray-100">
+                                        <tr>
+                                            <th>DESCRIÇÃO</th>
+                                            <th class="text-center">QTD.</th>
+                                            <th>CUSTO</th>
+                                            <th>VALOR VENDA</th>
+                                            <th>TEMPO</th>
+                                            <th>TOTAL</th>
+                                            <th class="text-center">AÇÕES</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="service-list-body">
+                                        <tr><td colspan="7" class="text-center text-gray-400 py-4">Nenhum serviço adicionado</td></tr>
+                                    </tbody>
+                                </table>
+                            """),
+                            css_class="overflow-x-auto mb-8",
+                        ),
+                        css_class="mb-10",
+                    ),
+                    # Seção de Kits
+                    Div(
+                        Div(
+                            HTML('<h3 class="text-xl font-semibold text-gray-700">Kits</h3>'),
+                            HTML("""
+                                <button type="button" class="btn btn-primary" hx-get="#" hx-target="#modal-container">
+                                    Inserir Kit
+                                </button>
+                            """),
+                            css_class="flex justify-between items-center mb-4",
+                        ),
+                        Div(
+                            HTML("""
+                                <table class="table table-compact w-full shadow-sm border">
+                                    <thead class="bg-gray-50">
+                                        <tr>
+                                            <th>NOME</th>
+                                            <th>DESCRIÇÃO</th>
+                                            <th class="text-center">QTD. PRODUTOS</th>
+                                            <th class="text-center">QTD. SERVIÇOS</th>
+                                            <th class="text-center">AÇÕES</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="kit-list-body">
+                                        <tr><td colspan="5" class="text-center text-gray-400 py-4">Nenhum kit aplicado</td></tr>
+                                    </tbody>
+                                </table>
+                            """),
+                            css_class="overflow-x-auto mb-4",
+                        ),
+                        css_class="mb-6",
+                    ),
+                    css_class="col-span-12 lg:col-span-6",
+                ),
+                #
+                Div(css_class="hidden lg:block lg:col-span-1"),
+                #
+                # Coluna Direita
+                Div(
+                    Div(
+                        HTML('<h2 class="text-2xl font-bold mb-4">Resumo</h2>'),
+                        Div(
+                            Div(HTML('<span>Total Produtos</span><span>R$ 0,00</span>'), css_class="border rounded-2xl flex justify-between items-center p-3 bg-gray-50 rounded mb-2"),
+                            Div(HTML('<span>Total Serviços</span><span>R$ 0,00</span>'), css_class="border rounded-2xl flex justify-between items-center p-3 bg-gray-50 rounded mb-2"),
+                            Div(HTML('<span>Total Frete</span><span>R$ 0,00</span>'), css_class="border rounded-2xl flex justify-between items-center p-3 bg-gray-50 rounded mb-2"),
+                            Div(HTML('<span>Tempo Total</span><span>00h 00min</span>'), css_class="border rounded-2xl flex justify-between items-center p-3 bg-gray-50 rounded mb-2"),
+                            Div(HTML('<span class="font-bold">Total Geral</span><span class="font-bold">R$ 0,00</span>'), css_class="border rounded-2xl flex justify-between items-center p-3 bg-gray-50 rounded mb-2"),
+                            css_class="sticky top-4",
+                        ),
+                        css_class="p-6 bg-white shadow-sm h-fit",
+                    ),
+                    css_class="col-span-12 lg:col-span-5 mt-10 lg:mt-0",
+                ),
+                css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
+            ),
+        )
+
+    def save(self, commit=True):
+        # Como este form é estrutural, o save lida com persistência de estado da etapa
+        return super().save(commit=commit)
 
 
 class BudgetStep5Form(forms.ModelForm):
