@@ -697,7 +697,6 @@ class BudgetStep4Form(forms.ModelForm):
 class BudgetStep5Form(forms.ModelForm):
     slider = forms.IntegerField(
         required=False,
-        initial=0,
         widget=forms.NumberInput(attrs={
             "class": "range range-primary w-full",
             "type": "range",
@@ -727,6 +726,9 @@ class BudgetStep5Form(forms.ModelForm):
         self.fields['discount_value'].required = False
 
         budget = self.instance
+
+        if budget.pk:
+            self.fields['slider'].initial = budget.slider
 
         # Custos
         custo_pecas = Money(budget.items.aggregate(total=Sum(F("quantity") * F("product_cost_price")))["total"] or 0, 'BRL')
@@ -797,15 +799,18 @@ class BudgetStep5Form(forms.ModelForm):
                         document.body.addEventListener('htmx:afterSettle', initDiscountObserver);
                     }})();
                     
-                    document.addEventListener('DOMContentLoaded', () => {{
-                        const slider = document.querySelector('input[name="slider"]');
-                        const labelPeca = document.getElementById('val-peca');
-                        const labelMO = document.getElementById('val-mo');
-    
-                        if(slider) {{
-                            slider.addEventListener('input', (e) => {{
-                                const val = parseInt(e.target.value);
-                                if(val < 0) {{
+                    (function () {{
+                        function initSlider(root=document) {{
+                            const slider = root.querySelector('input[name="slider"]');
+                            const labelPeca = root.querySelector('#val-peca');
+                            const labelMO = root.querySelector('#val-mo');
+                    
+                            if (!slider || !labelPeca || !labelMO) return;
+                    
+                            const updateLabels = (val) => {{
+                                val = parseInt(val || 0);
+                    
+                                if (val < 0) {{
                                     labelPeca.textContent = Math.abs(val);
                                     labelMO.textContent = 100-Math.abs(val);
                                 }} else if (val > 0) {{
@@ -815,9 +820,22 @@ class BudgetStep5Form(forms.ModelForm):
                                     labelMO.textContent = 0;
                                     labelPeca.textContent = 0;
                                 }}
-                            }});
+                            }};
+                    
+                            updateLabels(slider.value);
+                    
+                            if (!slider.dataset.bound) {{
+                                slider.addEventListener('input', e => updateLabels(e.target.value));
+                                slider.dataset.bound = "1";
+                            }}
                         }}
-                    }});
+                    
+                        document.addEventListener('DOMContentLoaded', () => initSlider());
+                        document.body.addEventListener('htmx:afterSettle', (e) => {{
+                            initSlider(e.target);
+                        }});
+                    
+                    }})();
                 </script>"""),
             Div(
                 HTML('<h3 class="text-2xl font-bold col-span-12">Método de Precificação</h3>'),
