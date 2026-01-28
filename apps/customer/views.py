@@ -112,7 +112,7 @@ class CustomerHistoryListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempl
     model = Customer
     template_name = "history/customer-history_list.html"
     context_object_name = "customer"
-    htmx_template_name = "history/partials/customer-history_table.html"
+    htmx_template_name = "history/partial/customer-history_table.html"
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
