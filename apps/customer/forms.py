@@ -90,6 +90,31 @@ class CustomerForm(AddressFormMixin, forms.ModelForm):
 
         self.helper.layout = Layout(
             Div(
+                HTML("""
+                <div class="col-span-12 mb-4"
+                     x-data="{ tipo: 'PF' }">
+
+                  <div class="flex items-center gap-2 cursor-pointer ml-6">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox"
+                             class="checkbox checkbox-primary"
+                             :checked="tipo === 'PF'"
+                             @change="tipo = 'PF'">
+                      <span class="font-medium">Pessoa Física</span>
+                    </label>
+
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox"
+                             class="checkbox checkbox-primary"
+                             :checked="tipo === 'PJ'"
+                             @change="tipo = 'PJ'">
+                      <span class="font-medium">Pessoa Jurídica</span>
+                    </label>
+                  </div>
+
+                  <input type="hidden" name="tipo_pessoa" :value="tipo">
+                </div>
+                """),
                 # Dados do Cliente
                 HTML('<h3 class="text-xl font-bold col-span-12">Dados Gerais</h3>'),
                 Field("cpf", wrapper_class="col-span-12 lg:col-span-4"),
