@@ -753,8 +753,8 @@ class BudgetStep5Form(forms.ModelForm):
         self.helper.form_tag = False
         self.helper.layout = Layout(
             HTML("""<script>
-                    // Lógica para atualizar labels do Slider em tempo real
                     document.addEventListener('DOMContentLoaded', () => {
+                        // Lógica para atualizar labels do Slider em tempo real
                         const slider = document.querySelector('input[name="slider"]');
                         const labelPeca = document.getElementById('val-peca');
                         const labelMO = document.getElementById('val-mo');
@@ -764,9 +764,12 @@ class BudgetStep5Form(forms.ModelForm):
                                 const val = parseInt(e.target.value);
                                 if(val < 0) {
                                     labelPeca.textContent = Math.abs(val);
-                                    labelMO.textContent = 0;
+                                    labelMO.textContent = 100-Math.abs(val);
+                                } else if (val > 0) {
+                                    labelMO.textContent = Math.abs(val);
+                                    labelPeca.textContent = 100-Math.abs(val);
                                 } else {
-                                    labelMO.textContent = val;
+                                    labelMO.textContent = 0;
                                     labelPeca.textContent = 0;
                                 }
                             });
@@ -857,6 +860,7 @@ class BudgetStep5Form(forms.ModelForm):
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start",
             ),
         )
+
 
 class BudgetStep6Form(forms.ModelForm):
     class Meta:
