@@ -60,9 +60,7 @@ class Budget(TimeStampedModel):
     defect = models.ForeignKey(Defect, on_delete=models.SET_NULL, related_name="budgets", null=True)
 
     # Financeiro
-    base_value = MoneyField(verbose_name="Valor Subtotal", max_digits=14, decimal_places=2, default=0.00)
-    discount_value = MoneyField(verbose_name="Valor de Desconto", max_digits=14, decimal_places=2, default=0.00)
-    total_value = MoneyField(verbose_name="Valor Total", max_digits=14, decimal_places=2, default=0.00)
+    discount_value = MoneyField(verbose_name="Aplicar Desconto (R$)", max_digits=14, decimal_places=2, default=0.00)
 
     # Margens e Ajustes
     profit_margin_parts = models.DecimalField(verbose_name="Percentual Lucro de Peças", max_digits=5, decimal_places=2, default=0.00)
@@ -101,8 +99,12 @@ class Budget(TimeStampedModel):
         return Money(total, "BRL")
 
     @property
-    def total_budget_value(self) -> Money:
+    def total_base_value(self) -> Money:
         return self.total_products_value + self.total_services_value
+
+    @property
+    def total_budget_value(self) -> Money:
+        return self.total_base_value - self.discount_value
 
     @property
     def total_duration_display(self) -> str:

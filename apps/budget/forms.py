@@ -1,13 +1,15 @@
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, HTML
 from django import forms
+from django.db.models import Sum, F
 from django.template.loader import render_to_string
 from django.urls import reverse_lazy, reverse
+from djmoney.money import Money
 
 from apps.budget.models import Budget, Defect, BudgetImage
 from apps.checklist.models import Checklist
 from apps.collaborators.models import WorkshopCollaborator
-from apps.core.widgets import TextInput, SelectInput, CalendarDateInput
+from apps.core.widgets import TextInput, SelectInput, CalendarDateInput, MoneyInput
 from apps.customer.models import Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
 
@@ -676,7 +678,7 @@ class BudgetStep4Form(forms.ModelForm):
                             Div(HTML(f"<span>Total Serviços</span><span>{budget.total_services_value}</span>"), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
                             Div(HTML(f"<span>Total Frete</span><span>R$ 0,00</span>"), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
                             Div(HTML(f"<span>Tempo Total</span><span>{budget.total_duration_display}</span>"), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
-                            Div(HTML(f'<span class="font-bold">Total Geral</span><span class="font-bold">{budget.total_budget_value}</span>'), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
+                            Div(HTML(f'<span class="font-bold">Total Geral</span><span class="font-bold">{budget.total_base_value}</span>'), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
                             css_class="sticky top-4",
                         ),
                         css_class="p-6 h-fit text-lg",
@@ -693,20 +695,168 @@ class BudgetStep4Form(forms.ModelForm):
 
 
 class BudgetStep5Form(forms.ModelForm):
+    slider = forms.IntegerField(
+        required=False,
+        initial=0,
+        widget=forms.NumberInput(attrs={
+            "class": "range range-primary w-full",
+            "type": "range",
+            "min": "-100",
+            "max": "100",
+            "step": "5"
+        })
+    )
+
     class Meta:
         model = Budget
-        fields = []
-        widgets = {}
+        fields = [
+            "discount_value",
+            "slider"
+        ]
+        widgets = {
+            "discount_value": MoneyInput(),
+        }
 
     def __init__(self, *args, **kwargs):
         self.workshop = kwargs.pop("workshop", None)
         self.request = kwargs.pop("request", None)
         super().__init__(*args, **kwargs)
 
+        self.fields['slider'].label = ""
+        self.fields['slider'].help_text = ""
+        self.fields['discount_value'].required = False
+
+        budget = self.instance
+
+        # Custos
+        custo_pecas = Money(budget.items.aggregate(total=Sum(F("quantity") * F("product_cost_price")))["total"] or 0, 'BRL')
+        custo_frete_pecas = Money(0, 'BRL')
+        custo_servico_terceiros = Money(0, 'BRL')
+        custo_hora_mecanico = Money(0, 'BRL')
+
+        # Valores Venda
+        valor_venda_pecas = budget.total_products_value
+        valor_venda_servico_terceiros = Money(0, 'BRL')
+        valor_venda_mao_obra = Money(0, 'BRL')
+
+        # Extra
+        duracao_total = budget.total_duration_display
+        lucro_operacional = Money(0, 'BRL')
+        mlr = "0,00"
+        mlo = "0,00"
+        rentabilidade = 0
+
+        status_cor = "text-error" if rentabilidade < 60 else "text-warning" if (60 <= rentabilidade < 70) else "text-success"
+        status_texto = "Ruim" if rentabilidade < 60 else "Médio" if (60 <= rentabilidade < 70) else "Bom"
+
         self.helper = FormHelper()
         self.helper.form_tag = False
-        self.helper.layout = Layout()
-
+        self.helper.layout = Layout(
+            HTML("""<script>
+                    // Lógica para atualizar labels do Slider em tempo real
+                    document.addEventListener('DOMContentLoaded', () => {
+                        const slider = document.querySelector('input[name="slider"]');
+                        const labelPeca = document.getElementById('val-peca');
+                        const labelMO = document.getElementById('val-mo');
+    
+                        if(slider) {
+                            slider.addEventListener('input', (e) => {
+                                const val = parseInt(e.target.value);
+                                if(val < 0) {
+                                    labelPeca.textContent = Math.abs(val);
+                                    labelMO.textContent = 0;
+                                } else {
+                                    labelMO.textContent = val;
+                                    labelPeca.textContent = 0;
+                                }
+                            });
+                        }
+                    });
+                </script>"""),
+            Div(
+                HTML('<h3 class="text-2xl font-bold col-span-12">Método de Precificação</h3>'),
+                # Coluna Esquerda
+                Div(
+                    Div(
+                        HTML('<h3 class="text-3xl font-bold mb-2 border-b-3 border-[#007bff] text-center">Método {nome}</h3>'),
+                        Div(
+                            # Grid de Custos vs Vendas
+                            Div(
+                                HTML(f"""
+                                    <div class="grid grid-cols-2 gap-4 text-sm">
+                                        <div class="space-y-2 border-r pr-4">
+                                            <div class="flex justify-between"><span>Custo de Peças {custo_pecas}</span></div>
+                                            <div class="flex justify-between"><span>Custo de Frete de Peças {custo_frete_pecas}</span></div>
+                                            <div class="flex justify-between"><span>Custo de Serviço de Terceiros {custo_servico_terceiros}</span></div>
+                                            <div class="flex justify-between"><span>Custo da Hora do Mecânico {custo_hora_mecanico}</span></div>
+                                            <div class="flex justify-between"><span>Duração Total {duracao_total}</span></div>
+                                            <div class="flex justify-between"><span>Lucro Operacional {lucro_operacional}</span></div>
+                                            <div class="flex justify-between"><span>MLR {mlr}</span></div>
+                                        </div>
+                                        <div class="space-y-2 pl-4">
+                                            <div class="flex justify-between"><span>Valor de Venda de Peças {valor_venda_pecas}</span></div>
+                                            <div class="flex justify-between"><span></span></div>
+                                            <div class="flex justify-between"><span>Valor de Venda de Serviços de Terceiros {valor_venda_servico_terceiros}</span></div>
+                                            <div class="flex justify-between"><span>Valor de Venda de Mão de Obra {valor_venda_mao_obra}</span></div>
+                                            <div class="flex justify-between"><span></span></div>
+                                            <div class="flex justify-between"><span>Rentabilidade</span><span class="{status_cor}">{rentabilidade:.2f}% ({status_texto})</span></div>
+                                            <div class="flex justify-between"><span>MLO {mlo}</span></div>
+                                        </div>
+                                    </div>
+                                """),
+                            ),
+                            css_class="bg-base-100 p-6 rounded-xl border border-[#007bff] shadow-inner",
+                        ),
+                        Div(
+                            HTML(f"""<div class="text-center mt-6">
+                                    <p class="text-2xl font-bold">Valor do Orçamento</p>
+                                    <p class="text-3xl font-black">{budget.total_base_value}</p>
+                                </div>""")
+                        ),
+                        css_class="bg-[#d4e6ff] p-6 rounded-2xl border-2 border-[#007bff]",
+                    ),
+                    css_class="col-span-12 lg:col-span-6",
+                ),
+                # Coluna Direita
+                Div(
+                    Div(
+                        # Slider
+                        Div(
+                            HTML('<h4 class="font-bold text-lg mb-2">Margem de Lucro</h4>'),
+                            Div(HTML('<span class="text-sm font-bold">Peça: <span id="val-peca">0</span>%</span>'), HTML('<span class="text-sm font-bold">Mão de Obra: <span id="val-mo">0</span>%</span>'), css_class="flex justify-between mb-1"),
+                            Field("slider", label=False, help_text=False, wrapper_class="mb-0"),
+                            HTML('<p class="text-sm text-gray-500 font-semibold italic">Deslize para a esquerda para aumentar Peça, ou para direita para aumentar Mão de obra</p>'),
+                            css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
+                        ),
+                        # Desconto
+                        Div(
+                            HTML('<h4 class="font-bold text-lg mb-2">Desconto</h4>'),
+                            Field("discount_value", wrapper_class="col-span-12 lg:col-span-4"),
+                            css_class="mb-8 p-4 bg-base-200/50 rounded-lg"
+                        ),
+                        # Valor Final
+                        Div(
+                            HTML('<h4 class="font-bold text-lg mb-2 text-center border-b-1 border-gray-300">Valor Final</h4>'),
+                            HTML('<h5 class="font-semibold text-lg mb-2 text-center">Valor do Orçamento com desconto aplicado:</h5>'),
+                            HTML(f"""<div class="space-y-3">
+                                        <div class="flex justify-between text-xl font-semibold">
+                                            <span>Subtotal:</span>
+                                            <span class="line-through">{budget.total_base_value}</span>
+                                        </div>
+                                        <div class="flex justify-between text-xl font-black">
+                                            <span>Valor Final:</span>
+                                            <span id="valor-final-display">{budget.total_budget_value}</span>
+                                        </div>
+                                    </div>"""),
+                            css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
+                        ),
+                        css_class="sticky top-4",
+                    ),
+                    css_class="col-span-12 lg:col-span-6",
+                ),
+                css_class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start",
+            ),
+        )
 
 class BudgetStep6Form(forms.ModelForm):
     class Meta:
