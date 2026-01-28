@@ -92,15 +92,13 @@ class Budget(TimeStampedModel):
 
     @property
     def total_products_value(self) -> Money:
-        total_from_products = self.items.filter(product__isnull=False).aggregate(total=Sum(F("quantity") * F("product__selling_price")))["total"] or 0
-        total_from_kits = self.items.filter(kit__isnull=False).aggregate(total=Sum(F("quantity") * F("kit__kit_products__quantity") * F("kit__kit_products__product__selling_price")))["total"] or 0
-        return Money(total_from_products + total_from_kits, 'BRL')
+        total = self.items.aggregate(total=Sum(F("quantity") * F("product_selling_price")))["total"] or 0
+        return Money(total, 'BRL')
 
     @property
     def total_services_value(self) -> Money:
-        total_from_services = self.items.filter(service__isnull=False).aggregate(total=Sum(F("quantity") * F("service__selling_price")))["total"] or 0
-        total_from_kits = self.items.filter(kit__isnull=False).aggregate(total=Sum(F("quantity") * F("kit__kit_services__quantity") * F("kit__kit_services__service__selling_price")))["total"] or 0
-        return Money(total_from_services + total_from_kits, "BRL")
+        total = self.items.aggregate(total=Sum(F("quantity") * F("service_selling_price")))["total"] or 0
+        return Money(total, "BRL")
 
     @property
     def total_budget_value(self) -> Money:
@@ -108,17 +106,11 @@ class Budget(TimeStampedModel):
 
     @property
     def total_duration_display(self) -> str:
-        duration_from_services = self.items.filter(service__isnull=False).aggregate(total=Sum(F("quantity") * F("service__duration"), output_field=DurationField()))["total"]
-        duration_from_kits = self.items.filter(kit__isnull=False).aggregate(total=Sum(F("quantity") * F("kit__kit_services__quantity") * F("kit__kit_services__service__duration"), output_field=DurationField()))["total"]
-        total_td = (duration_from_services or timedelta()) + (duration_from_kits or timedelta())
+        total_td = self.items.aggregate(total=Sum(F("quantity") * F("duration"), output_field=DurationField()))["total"]
+        if not total_td: return "00h 00m"
 
-        if not total_td or total_td.total_seconds() == 0:
-            return "00h 00m"
-
-        total_seconds = int(total_td.total_seconds())
-        hours = total_seconds // 3600
-        minutes = (total_seconds % 3600) // 60
-        return f"{hours:02d}h {minutes:02d}m"
+        ts = int(total_td.total_seconds())
+        return f"{ts // 3600:02d}h {(ts % 3600) // 60:02d}m"
 
     def __str__(self):
         return f"Budget #{self.id} - {self.customer}"
@@ -149,22 +141,38 @@ class BudgetItem(TimeStampedModel):
     kit = models.ForeignKey(Kit, on_delete=models.SET_NULL, null=True, blank=True)
 
     # Dados
-    quantity = models.PositiveIntegerField(default=1)
+    quantity = models.PositiveIntegerField(verbose_name="Quantidade", default=1)
+    service_cost_price = MoneyField(verbose_name="Valor de Custo (Serviço)", max_digits=14, decimal_places=2, default=0)
+    product_cost_price = MoneyField(verbose_name="Valor de Custo (Produto)", max_digits=14, decimal_places=2, default=0)
+    service_selling_price = MoneyField(verbose_name="Valor de Venda (Serviço)", max_digits=14, decimal_places=2, default=0)
+    product_selling_price = MoneyField(verbose_name="Valor de Venda (Produto)", max_digits=14, decimal_places=2, default=0)
+    duration = models.DurationField(verbose_name="Duração", null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        if not self.pk:
+            if self.product:
+                self.product_cost_price = self.product.cost_price
+                self.product_selling_price = self.product.selling_price
+
+            elif self.service:
+                self.service_cost_price = self.service.suggested_cost or Money(0, 'BRL')
+                self.service_selling_price = self.service.selling_price
+                self.duration = self.service.duration
+
+            elif self.kit:
+                self.product_selling_price = sum((kp.product.selling_price * kp.quantity for kp in self.kit.kit_products.all()), Money(0, "BRL"))
+                self.service_selling_price = sum((ks.service.selling_price * ks.quantity for ks in self.kit.kit_services.all()), Money(0, "BRL"))
+
+                self.product_cost_price = sum((kp.product.cost_price * kp.quantity for kp in self.kit.kit_products.all()), Money(0, "BRL"))
+                self.service_cost_price = sum((ks.service.suggested_cost * ks.quantity for ks in self.kit.kit_services.all() if ks.service.suggested_cost), Money(0, "BRL"))
+
+                self.duration = sum((ks.service.duration for ks in self.kit.kit_services.all()), timedelta())
+
+        super().save(*args, **kwargs)
 
     @property
     def total_price(self):
-        if self.product:
-            return self.product.selling_price * self.quantity
-
-        if self.service:
-            return self.service.selling_price * self.quantity
-
-        if self.kit:
-            total_products = sum(kp.product.selling_price * kp.quantity for kp in self.kit.kit_products.all())
-            total_services = sum(ks.service.selling_price * ks.quantity for ks in self.kit.kit_services.all())
-            return (total_products + total_services) * self.quantity
-
-        return 0
+        return (self.product_selling_price + self.service_selling_price) * self.quantity
 
 
     class Meta:
