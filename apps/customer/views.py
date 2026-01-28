@@ -143,12 +143,16 @@ def customer_detail(request):
 
 
 def get_vehicles(request):
-    customer_id = request.GET.get("customer_id")
+    customer_id = request.GET.get("customer")
 
-    data = []
+    vehicles = Vehicle.objects.none()
     if customer_id:
         vehicles = Vehicle.objects.filter(customer_id=customer_id)
-        data = [{"id": v.id, "label": str(v)} for v in vehicles]
+
+    data = [
+        {"id": v.id, "label": str(v)}
+        for v in vehicles
+    ]
 
     return JsonResponse(data, safe=False)
 

@@ -1,6 +1,7 @@
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, HTML
 from django import forms
+from django.urls import reverse_lazy
 
 from apps.budget.models import Budget, Defect, BudgetImage
 from apps.checklist.models import Checklist
@@ -28,6 +29,8 @@ class BudgetStep1Form(forms.ModelForm):
         self.workshop = kwargs.pop("workshop", None)
         self.request = kwargs.pop("request", None)
         super().__init__(*args, **kwargs)
+        # No __init__ do BudgetStep1Form, adicione esta linha:
+        self.fields["customer"].widget.attrs.update({"data-vehicle-url": reverse_lazy("customer:get-vehicles")})
 
         # Preenchimento inicial (Campos não editáveis)
         if self.workshop:
@@ -63,6 +66,48 @@ class BudgetStep1Form(forms.ModelForm):
                 (function() {
                     const lastValues = {};
                 
+                    const updateVehicleSelect = (customerId) => {
+                        const vehicleContainer = document.querySelector('[name="vehicle"]').closest('div'); // container do SelectInput
+                        if (!vehicleContainer) return;
+                    
+                        const optionsList = vehicleContainer.querySelector('[x-ref="options"]');
+                        if (!optionsList) return;
+                    
+                        // Limpa opções existentes (exceto o "Limpar seleção")
+                        optionsList.querySelectorAll('li[data-value]').forEach(li => li.remove());
+                    
+                        if (!customerId) return;
+                    
+                        const url = `/customer/get-vehicles/?customer=${customerId}`;
+                        fetch(url)
+                            .then(response => response.json())
+                            .then(data => {
+                                data.forEach(v => {
+                                    const li = document.createElement('li');
+                                    li.setAttribute('data-value', v.id);
+                                    li.setAttribute('data-label', v.label);
+                                    li.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white group transition-colors';
+                                    li.textContent = v.label;
+                    
+                                    li.addEventListener('click', () => {
+                                        const input = vehicleContainer.querySelector('input[name="vehicle"]');
+                                        input.value = v.id;
+                    
+                                        const spanLabel = vehicleContainer.querySelector('button span:first-child');
+                                        if (spanLabel) spanLabel.textContent = v.label;
+                    
+                                        input.dispatchEvent(new Event('input', { bubbles: true }));
+                                        input.dispatchEvent(new Event('change', { bubbles: true }));
+                                        
+                                        document.body.click();
+                                    });
+                    
+                                    optionsList.appendChild(li);
+                                });
+                            })
+                            .catch(err => console.error('Erro ao buscar veículos:', err));
+                    };
+            
                     const updateResume = (name, value, targetId, urlBase) => {
                         if (!value || lastValues[name] === value) return;
                         lastValues[name] = value;
@@ -80,10 +125,21 @@ class BudgetStep1Form(forms.ModelForm):
                         const el = document.querySelector(`[name="${field.name}"]`);
                         if (!el) return;
                 
-                        updateResume(field.name, el.value, field.id, field.url);
+                        if (el.value) {
+                            updateResume(field.name, el.value, field.id, field.url);
+                            if (field.name === 'customer') updateVehicleSelect(el.value);
+                        }
                 
                         el.addEventListener('change', (e) => {
-                            updateResume(field.name, e.target.value, field.id, field.url);
+                            const val = e.target.value;
+                            updateResume(field.name, val, field.id, field.url);
+                            
+                            // Lógica específica para quando o Customer muda
+                            if (field.name === 'customer') {
+                                updateVehicleSelect(val);
+                                const vResumo = document.getElementById('resumo-veiculo');
+                                if (vResumo) vResumo.innerHTML = '';
+                            }
                         });
                     };
                 
@@ -124,7 +180,7 @@ class BudgetStep1Form(forms.ModelForm):
                         HTML('<h3 class="text-2xl font-bold mb-2">Cliente</h3>'),
                         Div(
                             Div(
-                                Field("customer", wrapper_class="flex-1 mb-0", **{"@change": "customerId = $el.querySelector('select').value"}),
+                                Field("customer", wrapper_class="flex-1 mb-0"),
                                 HTML("""<button type="button" class="btn btn-circle mb-2 p-4" :class="customerId ? 'btn-warning' : 'btn-primary'"
                                     @click="
                                         const url = customerId ? `/customer/quick-update/${customerId}/` : '/customer/quick-create/';
@@ -136,7 +192,7 @@ class BudgetStep1Form(forms.ModelForm):
                                 css_class="flex items-end gap-2 w-full",
                             ),
                             Div(
-                                Field("vehicle", wrapper_class="flex-1 mb-0", **{"@change": "vehicleId = $el.querySelector('select').value"}),
+                                Field("vehicle", wrapper_class="flex-1 mb-0"),
                                 HTML("""<button type="button" class="btn btn-circle mb-2 p-4" :class="!customerId ? 'btn-disabled opacity-50' : (vehicleId ? 'btn-warning' : 'btn-primary')" :disabled="!customerId"
                                     @click="
                                         const url = vehicleId ? `/customer/vehicle/quick-update/${vehicleId}/` : `/customer/vehicle/quick-create/?customer_id=${customerId}`;
