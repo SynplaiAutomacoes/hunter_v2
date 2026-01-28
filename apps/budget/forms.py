@@ -123,34 +123,17 @@ class BudgetStep1Form(forms.ModelForm):
                         HTML('<h3 class="text-2xl font-bold mb-2">Cliente</h3>'),
                         Div(
                             Div(
-                                Field("customer", wrapper_class="flex-1"),
-                                # Botão de Ação Dinâmico
-                                HTML("""
-                                <button type="button" 
-                                    class="btn btn-square mb-1 transition-all duration-300"
-                                    :class="customerId ? 'btn-warning' : 'btn-primary'"
+                                Field("customer", wrapper_class="flex-1 mb-0"),
+                                HTML("""<button type="button" class="btn btn-circle mb-2 p-4" :class="customerId ? 'btn-warning' : 'btn-primary'"
                                     @click="
                                         const url = customerId ? `/customer/quick-update/${customerId}/` : '/customer/quick-create/';
                                         htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
                                         document.getElementById('customer_modal').showModal();
                                     ">
                                     <span class="material-icons" x-text="customerId ? 'edit' : 'person_add'"></span>
-                                </button>
-                                """),
+                                </button>"""),
                                 css_class="flex items-end gap-2 w-full",
                                 x_data=f"{{ customerId: '{self.instance.customer.id if self.instance and self.instance.customer else ''}' }}",
-                                custom_attribs={
-                                    "@customer-saved.window": """
-                                        const sel = document.querySelector('[name=customer]');
-                                        if (!Array.from(sel.options).some(o => o.value == $event.detail.id)) {
-                                            sel.add(new Option($event.detail.name, $event.detail.id, true, true));
-                                        }
-                                        sel.value = $event.detail.id;
-                                        customerId = $event.detail.id;
-                                        sel.dispatchEvent(new Event('change'));
-                                        document.getElementById('customer_modal').close();
-                                    """
-                                }
                             ),
                             Field("vehicle", wrapper_class="col-span-12"),
                             css_class="grid grid-cols-1 gap-2",

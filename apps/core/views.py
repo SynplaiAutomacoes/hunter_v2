@@ -79,7 +79,10 @@ class BaseModalFormView:
     def form_valid(self, form):
         form.instance.workshop = self.workshop
         self.object = form.save()
-        # Retorna o ID e Nome para o Alpine.js atualizar o select original
-        response = HttpResponse(status=204) # No Content
-        response["HX-Trigger"] = f'{{"customerSaved": {{"id": "{self.object.id}", "name": "{self.object.name}"}}}}'
-        return response
+
+        if self.request.htmx:
+            response = HttpResponse(status=204)
+            response["HX-Refresh"] = "true"
+            return response
+
+        return super().form_valid(form)
