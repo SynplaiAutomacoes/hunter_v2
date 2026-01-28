@@ -1,4 +1,4 @@
-<tr id="kit-item-{{ item.kit.id }}" hx-swap-oob="true">
+<tr id="kit-item-{{ item.kit.id }}" {% if not is_full_render %}hx-swap-oob="true"{% endif %}>
     <td>{{ item.kit.name }}</td>
     <td class="text-center">{{ item.quantity }}</td>
     <td class="text-center">{{ item.kit.products.count }}</td>

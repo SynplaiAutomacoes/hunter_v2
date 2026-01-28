@@ -557,12 +557,13 @@ class BudgetStep4Form(forms.ModelForm):
         if budget.pk:
             items = budget.items.all()
             for item in items:
+                context = {"item": item, "budget": budget, "is_full_render": True}
                 if item.product:
-                    products_html += render_to_string("budget/partials/item_product_row.html", {"item": item, "budget": budget})
+                    products_html += render_to_string("budget/partials/item_product_row.html", context)
                 if item.service:
-                    services_html += render_to_string("budget/partials/item_service_row.html", {"item": item, "budget": budget})
+                    services_html += render_to_string("budget/partials/item_service_row.html", context)
                 if item.kit:
-                    kits_html += render_to_string("budget/partials/item_kit_row.html", {"item": item, "budget": budget})
+                    kits_html += render_to_string("budget/partials/item_kit_row.html", context)
 
         if not products_html: products_html = '<tr><td colspan="6" class="text-center text-gray-400 py-4">Nenhum produto adicionado</td></tr>'
         if not services_html: services_html = '<tr><td colspan="6" class="text-center text-gray-400 py-4">Nenhum serviço adicionado</td></tr>'
