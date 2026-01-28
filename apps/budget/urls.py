@@ -11,4 +11,5 @@ urlpatterns = [
     path("selection/<int:budget_id>/<str:item_type>/", views.item_selection_modal, name="item_selection"),
     path("<int:budget_id>/add-item/<int:item_id>/<str:item_type>/", views.add_item_to_budget, name="add_item_to_budget"),
     path("<int:budget_id>/remove-item/<int:item_id>/<str:item_type>/", views.remove_item_from_budget, name="remove_item_from_budget"),
+    path("update-budget-discount/<int:budget_id>/", views.update_budget_discount, name="update_budget_discount"),
 ]

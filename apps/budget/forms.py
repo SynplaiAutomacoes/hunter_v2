@@ -752,29 +752,72 @@ class BudgetStep5Form(forms.ModelForm):
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
-            HTML("""<script>
-                    document.addEventListener('DOMContentLoaded', () => {
-                        // Lógica para atualizar labels do Slider em tempo real
+            HTML(f"""<script>
+                    (function() {{
+                        let timeout = null;
+                    
+                        const performUpdate = (value) => {{
+                            htmx.ajax('POST', '{{% url "budget:update_budget_discount" {self.instance.pk} %}}', {{
+                                values: {{ "discount_value_0": value }},
+                                swap: 'none'
+                            }});
+                        }};
+                    
+                        const initDiscountObserver = () => {{
+                            const hiddenInput = document.getElementById('id_discount_value_0');
+                            if (!hiddenInput) return;
+                    
+                            let lastValue = hiddenInput.value;
+                    
+                            const handleChange = (newValue) => {{
+                                if (newValue === lastValue) return;
+                                lastValue = newValue;
+                    
+                                clearTimeout(timeout);
+                                timeout = setTimeout(() => {{
+                                    performUpdate(newValue);
+                                }}, 800);
+                            }};
+                    
+                            const observer = new MutationObserver((mutations) => {{
+                                mutations.forEach((mutation) => {{
+                                    if (mutation.attributeName === 'value') {{
+                                        handleChange(hiddenInput.value);
+                                    }}
+                                }});
+                            }});
+                    
+                            observer.observe(hiddenInput, {{ attributes: true }});
+                    
+                            hiddenInput.addEventListener('input', (e) => handleChange(e.target.value));
+                            hiddenInput.addEventListener('change', (e) => handleChange(e.target.value));
+                        }};
+                    
+                        document.addEventListener('DOMContentLoaded', initDiscountObserver);
+                        document.body.addEventListener('htmx:afterSettle', initDiscountObserver);
+                    }})();
+                    
+                    document.addEventListener('DOMContentLoaded', () => {{
                         const slider = document.querySelector('input[name="slider"]');
                         const labelPeca = document.getElementById('val-peca');
                         const labelMO = document.getElementById('val-mo');
     
-                        if(slider) {
-                            slider.addEventListener('input', (e) => {
+                        if(slider) {{
+                            slider.addEventListener('input', (e) => {{
                                 const val = parseInt(e.target.value);
-                                if(val < 0) {
+                                if(val < 0) {{
                                     labelPeca.textContent = Math.abs(val);
                                     labelMO.textContent = 100-Math.abs(val);
-                                } else if (val > 0) {
+                                }} else if (val > 0) {{
                                     labelMO.textContent = Math.abs(val);
                                     labelPeca.textContent = 100-Math.abs(val);
-                                } else {
+                                }} else {{
                                     labelMO.textContent = 0;
                                     labelPeca.textContent = 0;
-                                }
-                            });
-                        }
-                    });
+                                }}
+                            }});
+                        }}
+                    }});
                 </script>"""),
             Div(
                 HTML('<h3 class="text-2xl font-bold col-span-12">Método de Precificação</h3>'),

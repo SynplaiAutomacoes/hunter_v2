@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse
 from django.shortcuts import redirect, render, get_object_or_404
@@ -205,6 +207,21 @@ def remove_item_from_budget(request, budget_id, item_id, item_type):
         item.save()
     else:
         item.delete()
+
+    response = HttpResponse()
+    response["HX-Refresh"] = "true"
+    return response
+
+
+def update_budget_discount(request, budget_id):
+    workshop = get_active_workshop_or_404(request=request)
+    budget = get_object_or_404(Budget, pk=budget_id, workshop=workshop)
+
+    try:
+        budget.discount_value = Decimal(request.POST.get("discount_value_0", "0").replace(",", "."))
+        budget.save()
+    except (ValueError, TypeError):
+        pass
 
     response = HttpResponse()
     response["HX-Refresh"] = "true"
