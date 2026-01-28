@@ -1,0 +1,45 @@
+{% extends 'crud/page.html' %}
+
+{% block crud_content %}
+    <div class="flex items-center justify-between gap-4">
+        <div>
+            <h1 class="text-3xl font-bold text-base-content">{% block crud_title %}{% endblock %}</h1>
+            <p class="text-base-content/70 mt-1">{% block crud_subtitle %}{% endblock %}</p>
+        </div>
+
+        <div class="flex items-center gap-2">
+            {% block crud_header_actions %}{% endblock %}
+            
+            <a href="{% block crud_back_url %}{% endblock %}" class="hidden md:flex btn btn-ghost gap-2 text-base-content/70">
+                <span class="material-icons text-sm">arrow_back</span>
+                {% block crud_back_label %}Voltar{% endblock %}
+            </a>
+        </div>
+    </div>
+
+    <div class="space-y-6">
+        {% block crud_detail_content %}
+            <div class="card bg-base-100 shadow-xl">
+                <div class="card-body p-6 md:p-8">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="material-icons text-base-content/80">{% block crud_card_icon %}{% endblock %}</span>
+                        <h2 class="text-xl font-bold text-base-content">{% block crud_card_title %}{% endblock %}</h2>
+                    </div>
+                    <div class="divider mt-0 mb-6"></div>
+
+                    <div
+                        id="{% block crud_table_wrapper_id %}table-wrapper{% endblock %}"
+                        hx-get="{% block crud_table_hx_get %}{{ request.path }}{% endblock %}"
+                        hx-trigger="{% block crud_table_hx_trigger %}table-refresh from:body{% endblock %}"
+                        hx-target="this"
+                        hx-swap="innerHTML"
+                    >
+                        {% block crud_table %}{% endblock %}
+                    </div>
+                </div>
+            </div>
+        {% endblock %}
+    </div>
+
+    <div id="{% block crud_modal_container_id %}modal-container{% endblock %}"></div>
+{% endblock %}
