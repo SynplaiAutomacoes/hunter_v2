@@ -31,7 +31,7 @@
 
                     {% if item_type == 'service' %}
                         <td class="text-center whitespace-nowrap">
-                            <span class="badge badge-ghost">{{ item.duration }}</span>
+                            <span class="badge badge-ghost">{{ item.duration_display }}</span>
                         </td>
                     {% endif %}
 
@@ -42,7 +42,7 @@
                     <td class="min-w-[300px]"><div class="font-bold">{{ item.name|default:item.description }}</div></td>
 
                     {% if item_type != 'kit' %}
-                        <td class="whitespace-nowrap font-semibold text-success">{{ item.selling_price }}</td>
+                        <td class="whitespace-nowrap font-semibold">{{ item.selling_price }}</td>
                     {% endif %}
 
                     <td class="text-center">

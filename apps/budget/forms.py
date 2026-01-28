@@ -671,11 +671,11 @@ class BudgetStep4Form(forms.ModelForm):
                     Div(
                         HTML('<h2 class="text-2xl font-bold mb-4 mt-8">Resumo</h2>'),
                         Div(
-                            Div(HTML("<span>Total Produtos</span><span>R$ 0,00</span>"), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
-                            Div(HTML("<span>Total Serviços</span><span>R$ 0,00</span>"), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
-                            Div(HTML("<span>Total Frete</span><span>R$ 0,00</span>"), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
-                            Div(HTML("<span>Tempo Total</span><span>00h 00min</span>"), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
-                            Div(HTML('<span class="font-bold">Total Geral</span><span class="font-bold">R$ 0,00</span>'), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
+                            Div(HTML(f"<span>Total Produtos</span><span>{budget.total_products_value}</span>"), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
+                            Div(HTML(f"<span>Total Serviços</span><span>{budget.total_services_value}</span>"), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
+                            Div(HTML(f"<span>Total Frete</span><span>R$ 0,00</span>"), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
+                            Div(HTML(f"<span>Tempo Total</span><span>{budget.total_duration_display}</span>"), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
+                            Div(HTML(f'<span class="font-bold">Total Geral</span><span class="font-bold">{budget.total_budget_value}</span>'), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
                             css_class="sticky top-4",
                         ),
                         css_class="p-6 h-fit text-lg",
