@@ -10,4 +10,7 @@ urlpatterns = [
     path("<int:pk>/edit/", views.CustomerUpdateView.as_view(), name="customer_update"),
     path("<int:pk>/delete/", views.CustomerDeleteView.as_view(), name="customer_delete"),
     path("add-vehicle-form/", views.AddVehicleFormView.as_view(), name="add-vehicle-form"),
+    path("history/", views.CustomerHistoryListView.as_view(), name="customer_history_list"),
+    path("<int:pk>/history/", views.CustomerHistoryDetailView.as_view(), name="customer_history_detail"),
+    path("vehicle/<int:pk>/history/", views.VehicleHistoryDetailView.as_view(), name="vehicle_history_detail")
 ]

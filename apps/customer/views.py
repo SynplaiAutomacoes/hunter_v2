@@ -1,6 +1,6 @@
 from django.shortcuts import render
 from django.urls import reverse_lazy
-from django.views.generic import ListView, CreateView, UpdateView, DeleteView, TemplateView
+from django.views.generic import ListView, CreateView, UpdateView, DeleteView, TemplateView, DetailView
 from django.contrib.auth.mixins import LoginRequiredMixin
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin
@@ -107,6 +107,57 @@ class CustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
             return super().form_valid(form)
 
         return self.render_to_response(self.get_context_data(form=form))
+
+class CustomerHistoryListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
+    model = Customer
+    template_name = "history/customer-history_list.html"
+    context_object_name = "customer"
+    htmx_template_name = "history/partials/customer-history_table.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+
+        context["fields"] = [
+            TableColumn(Customer.name.field.verbose_name, attr=Customer.name.field.name),
+            TableColumn(Customer.cpf.field.verbose_name, attr=Customer.cpf.field.name),
+            TableColumn("Endereço", attr="full_address"),
+            TableColumn("Qtd. Veículos", attr="vehicles_count"),
+        ]
+
+        context["actions"] = [
+            TableActionDefaults.view("customer:customer_history_detail"),
+        ]
+
+        return context
+
+class CustomerHistoryDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
+    model = Customer
+    template_name = "history/customer-history_detail.html"
+    context_object_name = "customer"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        
+        context["vehicle_fields"] = [
+            TableColumn(Vehicle.plate.field.verbose_name, attr=Vehicle.plate.field.name),
+            TableColumn("Marca / Modelo", attr=lambda x: f"{x.brand} {x.model}"),
+            TableColumn("Ano (Fab/Mod)", attr=lambda x: f"{x.year_fabrication} / {x.year_model}"),
+            TableColumn(Vehicle.km.field.verbose_name, attr=Vehicle.km.field.name),
+            TableColumn(Vehicle.chassi.field.verbose_name, attr=Vehicle.chassi.field.name),
+        ]
+
+        context["vehicle_actions"] = [
+            TableActionDefaults.view("customer:vehicle_history_detail"),
+        ]
+        
+        context["vehicles"] = self.object.vehicles.all()
+
+        return context
+
+class VehicleHistoryDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
+    model = Vehicle
+    template_name = "history/vehicle-history_detail.html"
+    context_object_name = "vehicle"
 
 class CustomerDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResponseMixin, DeleteView):
     model = Customer

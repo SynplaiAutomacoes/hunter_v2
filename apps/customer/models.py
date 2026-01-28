@@ -24,6 +24,10 @@ class Customer(TimeStampedModel, Address):
     def full_address(self) -> str:
         return f"{self.logradouro}, {self.numero} - {self.cidade}/{self.estado}"
 
+    @property
+    def vehicles_count(self) -> str:
+        return str(self.vehicles.count())
+
     class Meta:
         verbose_name = "Cliente"
         verbose_name_plural = "Clientes"

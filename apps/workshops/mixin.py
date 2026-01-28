@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from django.core.exceptions import PermissionDenied, ImproperlyConfigured
-from django.views.generic import ListView, CreateView, UpdateView, DeleteView
+from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView
 
 from apps.workshops.util.workshops import get_active_workshop_or_404, has_workshop_perm
 
@@ -28,7 +28,7 @@ class WorkshopScopedMixin:
                 raise ImproperlyConfigured("Defina `model` na view ou `workshop_permission_model` no mixin.")
             model_name = model._meta.model_name
 
-        if isinstance(self, ListView):
+        if isinstance(self, (ListView, DetailView)):
             action = "view"
         elif isinstance(self, CreateView):
             action = "add"

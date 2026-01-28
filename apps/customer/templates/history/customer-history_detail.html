@@ -1,0 +1,50 @@
+{% extends 'crud/detail.html' %}
+
+{% block crud_title %}Detalhes do Cliente: {{ customer.name }}{% endblock %}
+
+{% block crud_back_url %}{% url 'customer:customer_history_list' %}{% endblock %}
+
+{% block crud_detail_content %}
+
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body p-6 md:p-8">
+            <div class="flex items-center gap-2 mb-2">
+                <span class="material-icons text-base-content/80">account_circle</span>
+                <h2 class="text-xl font-bold text-base-content">Dados Pessoais</h2>
+            </div>
+            <div class="divider mt-0 mb-6"></div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-y-4 gap-x-8">
+                <div class="space-y-2">
+                    <p><span class="font-bold">CPF:</span> {{ customer.cpf }}</p>
+                    <p><span class="font-bold">RG:</span> {{ customer.rg|default:"Não informado" }}</p>
+                    <p><span class="font-bold">Nascimento:</span> {{ customer.birth_date|date:"d/m/Y" }}</p>
+                    <p><span class="font-bold">Email:</span> {{ customer.email|default:"Não informado" }}</p>
+                    <p><span class="font-bold">Telefone:</span> {{ customer.phone }}</p>
+                    <p><span class="font-bold">Sexo:</span> {{ customer.get_sex_display|default:"Não informado" }}</p>
+                </div>
+                <div class="space-y-2">
+                    <p class="font-bold">Endereço Principal:</p>
+                    <p>{{ customer.logradouro }}, {{ customer.numero }}</p>
+                    <p>{{ customer.bairro }} - {{ customer.cidade }}/{{ customer.estado }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# Card de Veículos #}
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body p-6 md:p-8">
+            <div class="flex items-center gap-2 mb-2">
+                <span class="material-icons text-base-content/80">directions_car</span>
+                <h2 class="text-xl font-bold text-base-content">Veículos Associados ({{ customer.vehicles.count }})</h2>
+            </div>
+            <div class="divider mt-0 mb-6"></div>
+            
+            <div id="vehicle-table-wrapper">
+                {% include 'crud/partials/table.html' with queryset=vehicles fields=vehicle_fields actions=vehicle_actions table_id='vehicle-table' %}
+            </div>
+        </div>
+    </div>
+
+{% endblock %}

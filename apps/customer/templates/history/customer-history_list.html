@@ -1,0 +1,11 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Histórico de Clientes{% endblock %}
+
+{% block crud_table_wrapper_id %}customer-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'customer:customer_history_list' %}{% endblock %}
+{% block crud_table_hx_trigger %}customer-table-refresh from:body{% endblock %}
+
+{% block crud_table %}
+    {% include 'history/partial/customer-history_table.html' %}
+{% endblock %}

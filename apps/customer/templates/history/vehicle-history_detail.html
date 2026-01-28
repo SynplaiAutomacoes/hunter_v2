@@ -1,0 +1,57 @@
+{% extends 'crud/detail.html' %}
+
+{% block crud_title %}Detalhes do Veículo: {{ vehicle.plate }}{% endblock %}
+
+{% block crud_back_url %}{% url 'customer:customer_history_detail' vehicle.customer.pk %}{% endblock %}
+
+{% block crud_detail_content %}
+
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body p-6 md:p-8">
+            <div class="flex items-center gap-2 mb-2">
+                <span class="material-icons text-base-content/80">directions_car</span>
+                <h2 class="text-xl font-bold text-base-content">Informações do Veículo</h2>
+            </div>
+            <div class="divider mt-0 mb-6"></div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-y-4 gap-x-8">
+                <div class="space-y-2">
+                    <p><span class="font-bold">Placa:</span> {{ vehicle.plate }}</p>
+                    <p><span class="font-bold">Marca:</span> {{ vehicle.brand }}</p>
+                    <p><span class="font-bold">Modelo:</span> {{ vehicle.model }}</p>
+                    <p><span class="font-bold">Ano (Fab/Mod):</span> {{ vehicle.year_fabrication }} / {{ vehicle.year_model }}</p>
+                    <p><span class="font-bold">Cor:</span> {{ vehicle.color }}</p>
+                </div>
+                <div class="space-y-2">
+                    <p><span class="font-bold">Quilometragem:</span> {{ vehicle.km }} km</p>
+                    <p><span class="font-bold">Combustível:</span> {{ vehicle.fuel|default:"Não informado" }}</p>
+                    <p><span class="font-bold">Motor:</span> {{ vehicle.engine|default:"Não informado" }}</p>
+                    <p><span class="font-bold">Tipo:</span> {{ vehicle.type|default:"Não informado" }}</p>
+                    <p><span class="font-bold">Renavam:</span> {{ vehicle.renavam|default:"Não informado" }}</p>
+                    <p><span class="font-bold">Chassi:</span> {{ vehicle.chassi|default:"Não informado" }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body p-6 md:p-8">
+            <div class="flex items-center gap-2 mb-2">
+                <span class="material-icons text-base-content/80">person</span>
+                <h2 class="text-xl font-bold text-base-content">Proprietário</h2>
+            </div>
+            <div class="divider mt-0 mb-6"></div>
+            
+            <div class="flex justify-between items-center">
+                <div>
+                    <p class="text-lg font-medium">{{ vehicle.customer.name }}</p>
+                    <p class="text-sm text-base-content/70">CPF: {{ vehicle.customer.cpf }}</p>
+                </div>
+                <a href="{% url 'customer:customer_history_detail' vehicle.customer.pk %}" class="btn btn-primary btn-sm">
+                    Ver Cliente
+                </a>
+            </div>
+        </div>
+    </div>
+
+{% endblock %}
