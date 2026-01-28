@@ -336,7 +336,7 @@ class BudgetStep2Form(forms.ModelForm):
                 # Perguntas Investigativas
                 Div(
                     HTML('<h5 class="font-bold mb-2">Perguntas Investigativas</h5>'),
-                    Div(*question_layout_fields, css_class="border px-4 py-2 rounded-lg pr-4 overflow-y-auto max-h-[40vh] scrollbar-thin scrollbar-thumb-gray-400"),
+                    Div(*question_layout_fields, css_class="border px-4 py-2 rounded-lg pr-4 overflow-y-auto min-h-[40vh] max-h-[40vh] scrollbar-thin scrollbar-thumb-gray-400"),
                     css_class="col-span-12 lg:col-span-6",
                 ),
                 # Observações
