@@ -61,30 +61,37 @@ class BudgetStep1Form(forms.ModelForm):
             HTML("""
             <script>
                 (function() {
+                    const lastValues = {};
+                
                     const updateResume = (name, value, targetId, urlBase) => {
-                        if (!value) return;
+                        if (!value || lastValues[name] === value) return;
+                        lastValues[name] = value;
+                
                         const container = document.getElementById(targetId);
                         if (!container) return;
 
                         fetch(`${urlBase}?${name}=${value}`)
-                            .then(response => response.text())
-                            .then(html => { container.innerHTML = html; })
+                            .then(r => r.text())
+                            .then(html => container.innerHTML = html)
                             .catch(err => console.error('Erro ao carregar resumo:', err));
                     };
 
+                    const bindField = (field) => {
+                        const el = document.querySelector(`[name="${field.name}"]`);
+                        if (!el) return;
+                
+                        updateResume(field.name, el.value, field.id, field.url);
+                
+                        el.addEventListener('change', (e) => {
+                            updateResume(field.name, e.target.value, field.id, field.url);
+                        });
+                    };
+                
                     const initFormLogic = () => {
-                        const fields = [
+                        [
                             { name: 'customer', id: 'resumo-cliente', url: '/customer/customer-detail/' },
                             { name: 'vehicle', id: 'resumo-veiculo', url: '/customer/vehicle-detail/' }
-                        ];
-
-                        fields.forEach(f => {
-                            const el = document.querySelector(`[name="${f.name}"]`);
-                            // Carrega o resumo inicial se o campo já tiver valor (vindo do banco)
-                            if (el && el.value) {
-                                updateResume(f.name, el.value, f.id, f.url);
-                            }
-                        });
+                        ].forEach(bindField);
                     };
 
                     // Tenta rodar imediatamente (para carregamento inicial da página)
@@ -94,13 +101,7 @@ class BudgetStep1Form(forms.ModelForm):
                         window.addEventListener('load', initFormLogic);
                     }
 
-                    // Roda sempre que o HTMX trocar o conteúdo do formulário
-                    document.body.addEventListener('htmx:afterSettle', function(evt) {
-                        // Verifica se o conteúdo carregado contém os campos do nosso formulário
-                        if (document.querySelector('[name="customer"]')) {
-                            initFormLogic();
-                        }
-                    });
+                    document.body.addEventListener('htmx:afterSettle', initFormLogic);
                 })();
             </script>
             """),
@@ -123,7 +124,7 @@ class BudgetStep1Form(forms.ModelForm):
                         HTML('<h3 class="text-2xl font-bold mb-2">Cliente</h3>'),
                         Div(
                             Div(
-                                Field("customer", wrapper_class="flex-1 mb-0"),
+                                Field("customer", wrapper_class="flex-1 mb-0", **{"@change": "customerId = $el.querySelector('select').value"}),
                                 HTML("""<button type="button" class="btn btn-circle mb-2 p-4" :class="customerId ? 'btn-warning' : 'btn-primary'"
                                     @click="
                                         const url = customerId ? `/customer/quick-update/${customerId}/` : '/customer/quick-create/';
@@ -133,9 +134,21 @@ class BudgetStep1Form(forms.ModelForm):
                                     <span class="material-icons" x-text="customerId ? 'edit' : 'person_add'"></span>
                                 </button>"""),
                                 css_class="flex items-end gap-2 w-full",
-                                x_data=f"{{ customerId: '{self.instance.customer.id if self.instance and self.instance.customer else ''}' }}",
                             ),
-                            Field("vehicle", wrapper_class="col-span-12"),
+                            Div(
+                                Field("vehicle", wrapper_class="flex-1 mb-0", **{"@change": "vehicleId = $el.querySelector('select').value"}),
+                                HTML("""<button type="button" class="btn btn-circle mb-2 p-4" :class="!customerId ? 'btn-disabled opacity-50' : (vehicleId ? 'btn-warning' : 'btn-primary')" :disabled="!customerId"
+                                    @click="
+                                        const url = vehicleId ? `/customer/vehicle/quick-update/${vehicleId}/` : `/customer/vehicle/quick-create/?customer_id=${customerId}`;
+                                        htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
+                                        document.getElementById('vehicle_modal').showModal();
+                                    ">
+                                    <span class="material-icons" x-text="vehicleId ? 'edit' : 'directions_car_filled'"></span>
+                                </button>"""),
+                                css_class="flex items-end gap-2 w-full",
+                            ),
+                            x_data=f"""{{customerId: '{self.instance.customer.id if self.instance and self.instance.customer else ""}',
+                                       vehicleId: '{self.instance.vehicle.id if self.instance and self.instance.vehicle else ""}'}}""",
                             css_class="grid grid-cols-1 gap-2",
                         ),
                         css_class="mb-6",

@@ -6,7 +6,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin, BaseModalFormView
 from .models import Customer, Vehicle
-from .forms import CustomerForm, VehicleFormSet, QuickCustomerForm
+from .forms import CustomerForm, VehicleFormSet, QuickCustomerForm, QuickVehicleForm
 from ..core.tables import TableActionDefaults
 from ..core.templatetags.table_tags import TableColumn
 
@@ -164,6 +164,29 @@ class QuickCustomerCreateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModal
     model = Customer
     form_class = QuickCustomerForm
 
+
 class QuickCustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalFormView, UpdateView):
     model = Customer
     form_class = QuickCustomerForm
+
+
+class QuickVehicleCreateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalFormView, CreateView):
+    model = Vehicle
+    form_class = QuickVehicleForm
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        customer_id = self.request.GET.get("customer_id")
+        kwargs["customer"] = get_object_or_404(Customer, id=customer_id, workshop=self.workshop)
+        kwargs["workshop"] = self.workshop
+        return kwargs
+
+
+class QuickVehicleUpdateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalFormView, UpdateView):
+    model = Vehicle
+    form_class = QuickVehicleForm
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["workshop"] = self.workshop
+        return kwargs

@@ -198,3 +198,60 @@ class QuickCustomerForm(AddressFormMixin, forms.ModelForm):
                 css_class="grid grid-cols-12 gap-2",
             )
         )
+
+
+class QuickVehicleForm(forms.ModelForm):
+    class Meta:
+        model = Vehicle
+        fields = [
+            "plate", "brand", "model", "year_fabrication", "year_model",
+            "color", "fuel", "engine", "type", "renavam", "chassi", "km"
+        ]
+        widgets = {
+            "plate": TextInput(),
+            "brand": TextInput(),
+            "model": TextInput(),
+            "year_fabrication": TextInput(),
+            "year_model": TextInput(),
+            "color": TextInput(),
+            "fuel": TextInput(),
+            "engine": TextInput(),
+            "type": TextInput(),
+            "renavam": TextInput(),
+            "chassi": TextInput(),
+            "km": NumberInput(),
+        }
+
+    def __init__(self, *args, **kwargs):
+        self.workshop = kwargs.pop("workshop", None)
+        self.customer = kwargs.pop("customer", None)
+        super().__init__(*args, **kwargs)
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout(
+            Div(
+                Field("plate", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("brand", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("model", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("year_fabrication", wrapper_class="col-span-12 lg:col-span-3"),
+                Field("year_model", wrapper_class="col-span-12 lg:col-span-3"),
+                Field("color", wrapper_class="col-span-12 lg:col-span-3"),
+                Field("fuel", wrapper_class="col-span-12 lg:col-span-3"),
+                Field("engine", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("type", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("km", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("renavam", wrapper_class="col-span-12 lg:col-span-6"),
+                Field("chassi", wrapper_class="col-span-12 lg:col-span-6"),
+                css_class="grid grid-cols-12 gap-2",
+            )
+        )
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        if self.workshop:
+            instance.workshop = self.workshop
+        if self.customer:
+            instance.customer = self.customer
+        if commit:
+            instance.save()
+        return instance
