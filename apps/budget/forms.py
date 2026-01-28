@@ -92,10 +92,18 @@ class BudgetStep1Form(forms.ModelForm):
                                     li.addEventListener('click', () => {
                                         const input = vehicleContainer.querySelector('input[name="vehicle"]');
                                         input.value = v.id;
-                    
+                                    
+                                        // --- ADICIONE ESTA LINHA ---
+                                        // Isso garante que o Alpine.js atualize a variável interna vehicleId
+                                        if (window.Alpine) {
+                                            const alpineData = Alpine.$data(input.closest('[x-data]'));
+                                            if (alpineData) alpineData.vehicleId = v.id;
+                                        }
+                                        // ---------------------------
+                                    
                                         const spanLabel = vehicleContainer.querySelector('button span:first-child');
                                         if (spanLabel) spanLabel.textContent = v.label;
-                    
+                                    
                                         input.dispatchEvent(new Event('input', { bubbles: true }));
                                         input.dispatchEvent(new Event('change', { bubbles: true }));
                                         
@@ -124,31 +132,40 @@ class BudgetStep1Form(forms.ModelForm):
                     const bindField = (field) => {
                         const el = document.querySelector(`[name="${field.name}"]`);
                         if (!el) return;
-
-                        // Carregamento inicial (sem disparar o select de veículos se já estiver populado)
-                        if (el.value && !lastValues[field.name]) {
-                            updateResume(field.name, el.value, field.id, field.url);
-                        }
-                
+                    
                         el.addEventListener('change', (e) => {
                             const val = e.target.value;
-                            if (!val || lastValues[field.name] === val) return;
                             
+                            // Sincroniza com o Alpine.js SEMPRE, mesmo se for vazio
+                            if (window.Alpine) {
+                                const alpineData = Alpine.$data(el.closest('[x-data]'));
+                                if (alpineData) {
+                                    if (field.name === 'customer') alpineData.customerId = val;
+                                    if (field.name === 'vehicle') alpineData.vehicleId = val;
+                                }
+                            }
+                    
+                            if (lastValues[field.name] === val) return;
                             lastValues[field.name] = val;
+                    
+                            // Se o valor for vazio, limpa o resumo e para por aqui
+                            if (!val) {
+                                const container = document.getElementById(field.id);
+                                if (container) container.innerHTML = '';
+                                return; 
+                            }
+                    
                             updateResume(field.name, val, field.id, field.url);
                             
-                            // SÓ dispara a busca de veículos se o campo alterado for o CUSTOMER
                             if (field.name === 'customer') {
                                 updateVehicleSelect(val);
                                 const vResumo = document.getElementById('resumo-veiculo');
                                 if (vResumo) vResumo.innerHTML = '';
                                 
-                                // Limpa o valor do veículo no Alpine e no input, pois o cliente mudou
                                 const vehicleInput = document.querySelector('[name="vehicle"]');
                                 if (vehicleInput) {
                                     vehicleInput.value = '';
-                                    // Força o Alpine a zerar o vehicleId
-                                    vehicleInput.dispatchEvent(new Event('input', { bubbles: true }));
+                                    vehicleInput.dispatchEvent(new Event('change', { bubbles: true }));
                                 }
                             }
                         });
@@ -204,13 +221,13 @@ class BudgetStep1Form(forms.ModelForm):
                             ),
                             Div(
                                 Field("vehicle", wrapper_class="flex-1 mb-0"),
-                                HTML("""<button type="button" class="btn btn-circle mb-2 p-4" :class="!customerId ? 'btn-disabled opacity-50' : (vehicleId ? 'btn-warning' : 'btn-primary')" :disabled="!customerId"
+                                HTML("""<button type="button" class="btn btn-circle mb-2 p-4" :class="!customerId ? 'btn-disabled opacity-50' : (vehicleId && vehicleId !== '' ? 'btn-warning' : 'btn-primary')" :disabled="!customerId"
                                     @click="
                                         const url = vehicleId ? `/customer/vehicle/quick-update/${vehicleId}/` : `/customer/vehicle/quick-create/?customer_id=${customerId}`;
                                         htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
                                         document.getElementById('vehicle_modal').showModal();
                                     ">
-                                    <span class="material-icons" x-text="vehicleId ? 'edit' : 'directions_car_filled'"></span>
+                                    <span class="material-icons" x-text="(vehicleId && vehicleId !== '') ? 'edit' : 'directions_car_filled'"></span>
                                 </button>"""),
                                 css_class="flex items-end gap-2 w-full",
                             ),
