@@ -68,7 +68,7 @@ class CustomerForm(AddressFormMixin, forms.ModelForm):
             "estado",
         ]
         widgets = {
-            "cpf": CPForCNPJInput(mode="cpf"),
+            "cpf": CPForCNPJInput(mode="both"),
             "name": TextInput(),
             "rg": RGInput(),
             "birth_date": CalendarDateInput(),
