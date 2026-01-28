@@ -1,6 +1,10 @@
+from datetime import timedelta
+
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.conf import settings
+from django.db.models import Sum, F, DurationField
+from djmoney.money import Money
 
 from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
@@ -85,6 +89,36 @@ class Budget(TimeStampedModel):
     @property
     def collaborator_name(self):
         return self.collaborator.name if self.collaborator else "Sistema"
+
+    @property
+    def total_products_value(self) -> Money:
+        total_from_products = self.items.filter(product__isnull=False).aggregate(total=Sum(F("quantity") * F("product__selling_price")))["total"] or 0
+        total_from_kits = self.items.filter(kit__isnull=False).aggregate(total=Sum(F("quantity") * F("kit__kit_products__quantity") * F("kit__kit_products__product__selling_price")))["total"] or 0
+        return Money(total_from_products + total_from_kits, 'BRL')
+
+    @property
+    def total_services_value(self) -> Money:
+        total_from_services = self.items.filter(service__isnull=False).aggregate(total=Sum(F("quantity") * F("service__selling_price")))["total"] or 0
+        total_from_kits = self.items.filter(kit__isnull=False).aggregate(total=Sum(F("quantity") * F("kit__kit_services__quantity") * F("kit__kit_services__service__selling_price")))["total"] or 0
+        return Money(total_from_services + total_from_kits, "BRL")
+
+    @property
+    def total_budget_value(self) -> Money:
+        return self.total_products_value + self.total_services_value
+
+    @property
+    def total_duration_display(self) -> str:
+        duration_from_services = self.items.filter(service__isnull=False).aggregate(total=Sum(F("quantity") * F("service__duration"), output_field=DurationField()))["total"]
+        duration_from_kits = self.items.filter(kit__isnull=False).aggregate(total=Sum(F("quantity") * F("kit__kit_services__quantity") * F("kit__kit_services__service__duration"), output_field=DurationField()))["total"]
+        total_td = (duration_from_services or timedelta()) + (duration_from_kits or timedelta())
+
+        if not total_td or total_td.total_seconds() == 0:
+            return "00h 00m"
+
+        total_seconds = int(total_td.total_seconds())
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        return f"{hours:02d}h {minutes:02d}m"
 
     def __str__(self):
         return f"Budget #{self.id} - {self.customer}"
