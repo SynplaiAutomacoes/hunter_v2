@@ -213,7 +213,7 @@ class BudgetStep1Form(forms.ModelForm):
                                     @click="
                                         const url = customerId ? `/customer/quick-update/${customerId}/` : '/customer/quick-create/';
                                         htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
-                                        document.getElementById('customer_modal').showModal();
+                                        document.getElementById('form_modal').showModal();
                                     ">
                                     <span class="material-icons" x-text="customerId ? 'edit' : 'person_add'"></span>
                                 </button>"""),
@@ -225,7 +225,7 @@ class BudgetStep1Form(forms.ModelForm):
                                     @click="
                                         const url = vehicleId ? `/customer/vehicle/quick-update/${vehicleId}/` : `/customer/vehicle/quick-create/?customer_id=${customerId}`;
                                         htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
-                                        document.getElementById('vehicle_modal').showModal();
+                                        document.getElementById('form_modal').showModal();
                                     ">
                                     <span class="material-icons" x-text="(vehicleId && vehicleId !== '') ? 'edit' : 'directions_car_filled'"></span>
                                 </button>"""),
