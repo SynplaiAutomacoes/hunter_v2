@@ -1,6 +1,10 @@
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.conf import settings
+
+from apps.catalog.models.kits import Kit
+from apps.catalog.models.products import Product
+from apps.catalog.models.services import Service
 from apps.core.models import TimeStampedModel
 from djmoney.models.fields import MoneyField
 
@@ -99,3 +103,35 @@ class BudgetImage(TimeStampedModel):
 
     def __str__(self):
         return f"Image #{self.id} from Budget: {self.budget}"
+
+
+class BudgetItem(TimeStampedModel):
+    workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="items")
+    budget = models.ForeignKey(Budget, on_delete=models.CASCADE, related_name="items")
+
+    # Referências
+    product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True)
+    service = models.ForeignKey(Service, on_delete=models.SET_NULL, null=True, blank=True)
+    kit = models.ForeignKey(Kit, on_delete=models.SET_NULL, null=True, blank=True)
+
+    # Dados
+    quantity = models.PositiveIntegerField(default=1)
+
+    @property
+    def total_price(self):
+        if self.product:
+            return self.product.selling_price * self.quantity
+
+        if self.service:
+            return self.service.selling_price * self.quantity
+
+        if self.kit:
+            total_products = sum(kp.product.selling_price * kp.quantity for kp in self.kit.kit_products.all())
+            total_services = sum(ks.service.selling_price * ks.quantity for ks in self.kit.kit_services.all())
+            return (total_products + total_services) * self.quantity
+
+        return 0
+
+
+    class Meta:
+        verbose_name = "Item do Orçamento"
