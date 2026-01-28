@@ -1,8 +1,8 @@
 <tr id="service-item-{{ item.service.id }}" hx-swap-oob="true">
     <td>{{ item.service.name }}</td>
-    <td>{{ item.quantity }}</td>
+    <td class="text-center">{{ item.quantity }}</td>
     <td>{{ item.service.selling_price }}</td>
-    <td>{{ item.service.duration }}</td>
+    <td>{{ item.service.duration_display }}</td>
     <td class="font-bold">{{ item.total_price }}</td>
     <td class="text-center">
         <button
