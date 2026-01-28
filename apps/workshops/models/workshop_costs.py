@@ -57,7 +57,7 @@ class WorkshopCost(TimeStampedModel):
     productivity_average = models.DecimalField(
         verbose_name="Produtividade Média",
         max_digits=5,
-        decimal_places=2,
+        decimal_places=4,
         default=0.60,
         help_text="50% a 80%",
         validators=[MinValueValidator(0.5), MaxValueValidator(0.8)],

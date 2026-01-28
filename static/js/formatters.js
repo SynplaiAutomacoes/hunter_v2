@@ -309,7 +309,7 @@
             return s;
         },
         // Exibição com separador decimal "." (sem agrupamento de milhar).
-        formatDotFromDotDecimal(dotDecimal, maxFractionDigits = 2) {
+        formatDotFromDotDecimal(dotDecimal, fractionDigits = 2) {
             if (!dotDecimal && dotDecimal !== 0) return '';
             const s = (dotDecimal ?? '').toString();
             if (!s) return '';
@@ -317,19 +317,19 @@
             if (Number.isNaN(n)) return '';
             return new Intl.NumberFormat('en-US', {
                 useGrouping: false,
-                minimumFractionDigits: 0,
-                maximumFractionDigits: maxFractionDigits,
+                minimumFractionDigits: fractionDigits,
+                maximumFractionDigits: fractionDigits,
             }).format(n);
         },
-        formatPtBrFromDotDecimal(dotDecimal, maxFractionDigits = 2) {
+        formatPtBrFromDotDecimal(dotDecimal, fractionDigits = 2) {
             if (!dotDecimal && dotDecimal !== 0) return '';
             const s = (dotDecimal ?? '').toString();
             if (!s) return '';
             const n = Number(s);
             if (Number.isNaN(n)) return '';
             return n.toLocaleString('pt-BR', {
-                minimumFractionDigits: 0,
-                maximumFractionDigits: maxFractionDigits,
+                minimumFractionDigits: fractionDigits,
+                maximumFractionDigits: fractionDigits,
             });
         },
         // Converte fração (0..1) -> % (0..100)
@@ -553,12 +553,12 @@
                 }
             };
         },
-        percentageInput(rawFraction, minPercent, maxPercent) {
+        percentageInput(rawFraction, minPercent, maxPercent, decimalPlaces) {
             return {
                 rawValue: (rawFraction ?? '').toString(),
                 minPercent: Number(minPercent ?? 0),
                 maxPercent: Number(maxPercent ?? 100),
-                maxDisplayFractionDigits: 2,
+                decimalPlaces: Number(decimalPlaces ?? 2),
                 maxParseFractionDigits: 6,
                 init() {
                     const p = percent.fractionToPercentValue(this.rawValue);
@@ -569,7 +569,7 @@
                     }
                     const clamped = percent.clamp(Number(p), this.minPercent, this.maxPercent);
                     this.$refs.value.value = percent.percentToFractionDotDecimal(clamped);
-                    this.$refs.display.value = percent.formatDotFromDotDecimal(clamped, this.maxDisplayFractionDigits);
+                    this.$refs.display.value = percent.formatPtBrFromDotDecimal(clamped, this.decimalPlaces);
                 },
                 handleInput(e) {
                     const typed = (e.target.value ?? '').toString();
@@ -577,7 +577,6 @@
 
                     if (!normalized) {
                         this.$refs.value.value = '';
-                        e.target.value = '';
                         return;
                     }
 
@@ -586,11 +585,21 @@
 
                     this.$refs.value.value = percent.percentToFractionDotDecimal(n);
 
-                    if (normalized.includes('.')) {
-                        const [i, f = ''] = normalized.split('.');
-                        e.target.value = i + '.' + f.slice(0, this.maxDisplayFractionDigits);
-                    } else {
-                        e.target.value = normalized;
+                    // Permite que o usuário digite o separador decimal sem forçar a formatação imediata
+                    // que poderia atrapalhar a digitação das casas decimais.
+                    if (typed.endsWith(',') || typed.endsWith('.')) {
+                        return;
+                    }
+
+                    // Se não estiver no meio da digitação do separador, limpamos caracteres inválidos
+                    // mas não aplicamos formatação de milhar ainda para não saltar o cursor.
+                    const [intPart, fracPart] = normalized.split('.');
+                    let display = intPart;
+                    if (fracPart !== undefined) {
+                        display += ',' + fracPart.slice(0, this.decimalPlaces);
+                    }
+                    if (typed !== display) {
+                        e.target.value = display;
                     }
                 },
                 handleBlur() {
@@ -607,9 +616,9 @@
                     );
 
                     this.$refs.value.value = percent.percentToFractionDotDecimal(clamped);
-                    this.$refs.display.value = percent.formatDotFromDotDecimal(
+                    this.$refs.display.value = percent.formatPtBrFromDotDecimal(
                         clamped,
-                        this.maxDisplayFractionDigits
+                        this.decimalPlaces
                     );
                 },
             };
