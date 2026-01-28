@@ -180,10 +180,17 @@ class QuickVehicleCreateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalF
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
-        customer_id = self.request.GET.get("customer_id")
-        kwargs["customer"] = get_object_or_404(Customer, id=customer_id, workshop=self.workshop)
+        customer_id = self.request.GET.get("customer_id") or self.request.POST.get("customer_id_persist")
+
+        if customer_id:
+            kwargs["customer"] = get_object_or_404(Customer, id=customer_id, workshop=self.workshop)
         kwargs["workshop"] = self.workshop
         return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["customer_id_persist"] = self.request.GET.get("customer_id")
+        return context
 
 
 class QuickVehicleUpdateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalFormView, UpdateView):
