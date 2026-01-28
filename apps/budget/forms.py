@@ -124,21 +124,32 @@ class BudgetStep1Form(forms.ModelForm):
                     const bindField = (field) => {
                         const el = document.querySelector(`[name="${field.name}"]`);
                         if (!el) return;
-                
-                        if (el.value) {
+
+                        // Carregamento inicial (sem disparar o select de veículos se já estiver populado)
+                        if (el.value && !lastValues[field.name]) {
                             updateResume(field.name, el.value, field.id, field.url);
-                            if (field.name === 'customer') updateVehicleSelect(el.value);
                         }
                 
                         el.addEventListener('change', (e) => {
                             const val = e.target.value;
+                            if (!val || lastValues[field.name] === val) return;
+                            
+                            lastValues[field.name] = val;
                             updateResume(field.name, val, field.id, field.url);
                             
-                            // Lógica específica para quando o Customer muda
+                            // SÓ dispara a busca de veículos se o campo alterado for o CUSTOMER
                             if (field.name === 'customer') {
                                 updateVehicleSelect(val);
                                 const vResumo = document.getElementById('resumo-veiculo');
                                 if (vResumo) vResumo.innerHTML = '';
+                                
+                                // Limpa o valor do veículo no Alpine e no input, pois o cliente mudou
+                                const vehicleInput = document.querySelector('[name="vehicle"]');
+                                if (vehicleInput) {
+                                    vehicleInput.value = '';
+                                    // Força o Alpine a zerar o vehicleId
+                                    vehicleInput.dispatchEvent(new Event('input', { bubbles: true }));
+                                }
                             }
                         });
                     };
