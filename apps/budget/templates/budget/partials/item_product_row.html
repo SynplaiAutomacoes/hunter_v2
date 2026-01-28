@@ -1,0 +1,16 @@
+<tr id="product-item-{{ item.product.id }}" hx-swap-oob="true">
+    <td>{{ item.product.name }}</td>
+    <td>{{ item.quantity }}</td>
+    <td>{{ item.product.selling_price }}</td>
+    <td>-</td>
+    <td class="font-bold">{{ item.total_price }}</td>
+    <td class="text-center">
+        <button
+            type="button"
+            class="btn btn-ghost btn-xs text-error"
+            hx-swap="outerHTML"
+            hx-confirm="Tem certeza que deseja remover este item?">
+            <span class="material-icons text-sm">delete</span>
+        </button>
+    </td>
+</tr>

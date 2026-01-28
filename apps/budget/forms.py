@@ -1,7 +1,8 @@
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, HTML
 from django import forms
-from django.urls import reverse_lazy
+from django.template.loader import render_to_string
+from django.urls import reverse_lazy, reverse
 
 from apps.budget.models import Budget, Defect, BudgetImage
 from apps.checklist.models import Checklist
@@ -531,13 +532,7 @@ class BudgetStep3Form(forms.ModelForm):
         new_image = self.request.FILES.get("budget_images")
         if new_image:
             budget.budget_image.all().delete()
-            BudgetImage.objects.create(
-                workshop=self.workshop,
-                budget=budget,
-                content=new_image.read(),
-                content_name=new_image.name,
-                content_type=new_image.content_type
-            )
+            BudgetImage.objects.create(workshop=self.workshop, budget=budget, content=new_image.read(), content_name=new_image.name, content_type=new_image.content_type)
 
         return budget
 
@@ -553,6 +548,24 @@ class BudgetStep4Form(forms.ModelForm):
         self.request = kwargs.pop("request", None)
         super().__init__(*args, **kwargs)
 
+        budget = self.instance
+
+        products_html = ""
+        service_html = ""
+
+        if budget.pk:
+            items = budget.items.all()
+            for item in items:
+                if item.product:
+                    products_html += render_to_string("budget/partials/item_product_row.html", {"item": item})
+                if item.service:
+                    service_html += render_to_string("budget/partials/item_service_row.html", {"item": item})
+
+        if not products_html:
+            products_html = '<tr><td colspan="6" class="text-center text-gray-400 py-4">Nenhum produto adicionado</td></tr>'
+        if not service_html:
+            service_html = '<tr><td colspan="6" class="text-center text-gray-400 py-4">Nenhum serviço adicionado</td></tr>'
+
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
@@ -564,17 +577,16 @@ class BudgetStep4Form(forms.ModelForm):
                     Div(
                         Div(
                             HTML('<h3 class="text-xl font-semibold text-gray-700">Produtos</h3>'),
-                            HTML('<button type="button" class="btn btn-primary" hx-get="#" hx-target="#modal-container">Inserir Produto</button>'),
+                            HTML(f'<button type="button" class="btn btn-primary" hx-get="{reverse("budget:product_selection", kwargs={"budget_id": budget.pk})}" hx-target="#modal-container" onclick="form_modal.showModal()">Inserir Produto</button>'),
                             css_class="flex justify-between items-center mb-4",
                         ),
                         Div(
-                            HTML("""
+                            HTML(f"""
                                 <table class="table table-zebra w-full">
                                     <thead>
                                         <tr>
                                             <th>DESCRIÇÃO</th>
                                             <th class="text-center">QTD.</th>
-                                            <th>CUSTO</th>
                                             <th>VALOR VENDA</th>
                                             <th>FRETE</th>
                                             <th>TOTAL</th>
@@ -582,7 +594,7 @@ class BudgetStep4Form(forms.ModelForm):
                                         </tr>
                                     </thead>
                                     <tbody id="product-list-body">
-                                        <tr><td colspan="7" class="text-center text-gray-400 py-4">Nenhum produto adicionado</td></tr>
+                                        {products_html}
                                     </tbody>
                                 </table>
                             """),
@@ -594,17 +606,16 @@ class BudgetStep4Form(forms.ModelForm):
                     Div(
                         Div(
                             HTML('<h3 class="text-xl font-semibold text-gray-700">Serviços</h3>'),
-                            HTML('<button type="button" class="btn btn-primary" hx-get="#" hx-target="#modal-container">Inserir Serviço</button>'),
+                            HTML(f'<button type="button" class="btn btn-primary" hx-get="{reverse("budget:service_selection", kwargs={"budget_id": budget.pk})}" hx-target="#modal-container" onclick="form_modal.showModal()">Inserir Serviço</button>'),
                             css_class="flex justify-between items-center mb-4",
                         ),
                         Div(
-                            HTML("""
+                            HTML(f"""
                                 <table class="table table-zebra w-full">
                                     <thead>
                                         <tr>
                                             <th>DESCRIÇÃO</th>
                                             <th class="text-center">QTD.</th>
-                                            <th>CUSTO</th>
                                             <th>VALOR VENDA</th>
                                             <th>TEMPO</th>
                                             <th>TOTAL</th>
@@ -612,7 +623,7 @@ class BudgetStep4Form(forms.ModelForm):
                                         </tr>
                                     </thead>
                                     <tbody id="service-list-body">
-                                        <tr><td colspan="7" class="text-center text-gray-400 py-4">Nenhum serviço adicionado</td></tr>
+                                        {service_html}
                                     </tbody>
                                 </table>
                             """),
