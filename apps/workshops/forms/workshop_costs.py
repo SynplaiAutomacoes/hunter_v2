@@ -71,7 +71,7 @@ class WorkshopCostForm(forms.ModelForm):
             "total_monthly_costs": MoneyInput(attrs={"readonly": True}),
             "profit_target": MoneyInput(attrs={"readonly": True}),
             "gross_revenue_target": MoneyInput(attrs={"readonly": True}),
-            "profitability_multiplier": TextInput(attrs={"readonly": True}),
+            "profitability_multiplier": DecimalInput(decimal_places=2, attrs={"readonly": True}),
         }
 
     def __init__(self, *args, workshop: Workshop | None = None, **kwargs):

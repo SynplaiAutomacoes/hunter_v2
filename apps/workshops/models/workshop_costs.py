@@ -104,7 +104,7 @@ class WorkshopCost(TimeStampedModel):
     total_monthly_costs = MoneyField(verbose_name="Total Custos Mensais", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
     profit_target = MoneyField(verbose_name="Meta de Lucro", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
     gross_revenue_target = MoneyField(verbose_name="Faturamento Bruto Meta", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
-    profitability_multiplier = models.DecimalField(verbose_name="Multiplicador Lucratividade", max_digits=10, decimal_places=4, default=0, null=True, blank=True)
+    profitability_multiplier = models.DecimalField(verbose_name="Multiplicador Lucratividade", max_digits=10, decimal_places=2, default=0, null=True, blank=True)
 
     class Meta:
         verbose_name = "Custo da Oficina"
@@ -157,7 +157,7 @@ class WorkshopCost(TimeStampedModel):
         
         multiplier = (gross_revenue_target.amount / total_value.amount).quantize(Decimal('0.01'), ROUND_HALF_UP)
         
-        return multiplier
+        return multiplier.normalize()
     
     def calculate_all(self):
         total_value = self.calculate_total_value()
