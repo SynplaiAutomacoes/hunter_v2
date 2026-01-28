@@ -7,6 +7,7 @@ from django.views.generic import ListView, CreateView, DeleteView
 
 from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
 from apps.budget.models import Budget, BudgetItem
+from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.core.forms import MultiStepFormMixin
@@ -161,43 +162,28 @@ class BudgetDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteRespon
     htmx_trigger = "budget-table-refresh"
 
 
-def product_selection_modal(request, budget_id):
+def item_selection_modal(request, budget_id, item_type):
     budget = get_object_or_404(Budget, id=budget_id)
     workshop = get_active_workshop_or_404(request=request)
-    products = Product.objects.filter(workshop=workshop, is_active=True)
-    return render(request, "budget/partials/modal_product_list.html", {"products": products, "budget": budget})
+
+    if item_type == "product":
+        queryset = Product.objects.filter(workshop=workshop, is_active=True)
+        title = "Selecionar Produto"
+    elif item_type == "service":
+        queryset = Service.objects.filter(workshop=workshop, is_active=True)
+        title = "Selecionar Serviço"
+    else:
+        queryset = Kit.objects.filter(workshop=workshop, is_active=True)
+        title = "Selecionar Kit"
+
+    return render(request, "budget/partials/modal_item_list.html", {"items": queryset, "budget": budget, "item_type": item_type, "modal_title": title})
 
 
-def service_selection_modal(request, budget_id):
+def add_item_to_budget(request, budget_id, item_id, item_type):
     budget = get_object_or_404(Budget, id=budget_id)
     workshop = get_active_workshop_or_404(request=request)
-    services = Service.objects.filter(workshop=workshop, is_active=True)
-    return render(request, "budget/partials/modal_service_list.html", {"services": services, "budget": budget})
 
-
-def add_service_to_budget(request, budget_id, service_id):
-    budget = get_object_or_404(Budget, id=budget_id)
-    service = get_object_or_404(Service, id=service_id)
-    workshop = get_active_workshop_or_404(request=request)
-
-    item, created = BudgetItem.objects.get_or_create(workshop=workshop, budget=budget, service=service, defaults={"quantity": 1})
-    print(f"Item {item} added to budget {budget} with service {service}")
-
-    if not created:
-        item.quantity += 1
-        item.save()
-
-    response = HttpResponse()
-    response["HX-Refresh"] = "true"
-    return response
-
-
-def add_product_to_budget(request, budget_id, product_id):
-    budget = get_object_or_404(Budget, id=budget_id)
-    product = get_object_or_404(Product, id=product_id)
-    workshop = get_active_workshop_or_404(request=request)
-
-    item, created = BudgetItem.objects.get_or_create(workshop=workshop, budget=budget, product=product, defaults={"quantity": 1})
+    item, created = BudgetItem.objects.get_or_create(workshop=workshop, budget=budget, **{f"{item_type}_id": item_id}, defaults={"quantity": 1})
 
     if not created:
         item.quantity += 1

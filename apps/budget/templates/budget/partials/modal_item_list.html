@@ -1,0 +1,75 @@
+<div class="modal-box w-screen max-w-[90vw] lg:max-w-6xl bg-base-100 shadow-2xl p-0 overflow-hidden">
+
+    <div class="p-6 border-b border-base-200 flex justify-between items-center bg-base-50">
+        <h3 class="font-bold text-2xl flex items-center gap-3">
+            <span class="material-icons">
+                {% if item_type == 'product' %}inventory_2{% else %}build{% endif %}
+            </span>
+            {{ modal_title }}
+        </h3>
+        <button type="button" class="btn btn-sm btn-circle btn-ghost" onclick="form_modal.close()">✕</button>
+    </div>
+
+    <div class="relative overflow-y-auto max-h-[70vh]">
+        <table class="table table-zebra w-full border-separate border-spacing-0">
+            <thead class="sticky top-0 z-20 bg-base-100">
+                <tr class="text-sm uppercase bg-base-200">
+                    {% if item_type == 'product' %}<th class="rounded-none">Código</th>{% endif %}
+                    {% if item_type == 'service' %}<th class="text-center">Duração</th>{% endif %}
+                    {% if item_type == 'kit' %}<th class="text-center">Nome</th>{% endif %}
+                    <th class="w-full">Descrição</th>
+                    {% if item_type != 'kit' %}<th class="whitespace-nowrap">Preço Venda</th>{% endif %}
+                    <th class="text-center rounded-none">Ação</th>
+                </tr>
+            </thead>
+            <tbody class="text-base">
+                {% for item in items %}
+                <tr class="hover:bg-base-200/50 transition-colors">
+                    {% if item_type == 'product' %}
+                        <td class="font-mono text-sm whitespace-nowrap">{{ item.code }}</td>
+                    {% endif %}
+
+                    {% if item_type == 'service' %}
+                        <td class="text-center whitespace-nowrap">
+                            <span class="badge badge-ghost">{{ item.duration }}</span>
+                        </td>
+                    {% endif %}
+
+                    {% if item_type == 'kit' %}
+                        <td class="font-mono text-sm whitespace-nowrap">{{ item.name }}</td>
+                    {% endif %}
+
+                    <td class="min-w-[300px]"><div class="font-bold">{{ item.name|default:item.description }}</div></td>
+
+                    {% if item_type != 'kit' %}
+                        <td class="whitespace-nowrap font-semibold text-success">{{ item.selling_price }}</td>
+                    {% endif %}
+
+                    <td class="text-center">
+                        <button class="btn btn-primary btn-sm px-6"
+                                hx-post="{% url 'budget:add_item_to_budget' budget.id item.id item_type %}"
+                                hx-target="#{{ item_type }}-list-body"
+                                hx-swap="beforeend"
+                                onclick="form_modal.close()">
+                            Adicionar
+                        </button>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="10" class="py-20 text-center">
+                        <div class="flex flex-col items-center justify-center opacity-30">
+                            <span class="material-icons text-6xl">search_off</span>
+                            <p class="text-xl font-semibold mt-4">Nenhum item encontrado</p>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="p-4 border-t border-base-200 flex justify-end bg-base-50">
+          <button type="button" class="btn btn-ghost" onclick="form_modal.close()">Cancelar</button>
+      </div>
+</div>

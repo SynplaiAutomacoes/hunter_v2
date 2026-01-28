@@ -551,7 +551,8 @@ class BudgetStep4Form(forms.ModelForm):
         budget = self.instance
 
         products_html = ""
-        service_html = ""
+        services_html = ""
+        kits_html = ""
 
         if budget.pk:
             items = budget.items.all()
@@ -559,12 +560,13 @@ class BudgetStep4Form(forms.ModelForm):
                 if item.product:
                     products_html += render_to_string("budget/partials/item_product_row.html", {"item": item})
                 if item.service:
-                    service_html += render_to_string("budget/partials/item_service_row.html", {"item": item})
+                    services_html += render_to_string("budget/partials/item_service_row.html", {"item": item})
+                if item.kit:
+                    kits_html += render_to_string("budget/partials/item_kit_row.html", {"item": item})
 
-        if not products_html:
-            products_html = '<tr><td colspan="6" class="text-center text-gray-400 py-4">Nenhum produto adicionado</td></tr>'
-        if not service_html:
-            service_html = '<tr><td colspan="6" class="text-center text-gray-400 py-4">Nenhum serviço adicionado</td></tr>'
+        if not products_html: products_html = '<tr><td colspan="6" class="text-center text-gray-400 py-4">Nenhum produto adicionado</td></tr>'
+        if not services_html: services_html = '<tr><td colspan="6" class="text-center text-gray-400 py-4">Nenhum serviço adicionado</td></tr>'
+        if not kits_html: kits_html = '<tr><td colspan="5" class="text-center text-gray-400 py-4">Nenhum kit adicionado</td></tr>'
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -577,7 +579,7 @@ class BudgetStep4Form(forms.ModelForm):
                     Div(
                         Div(
                             HTML('<h3 class="text-xl font-semibold text-gray-700">Produtos</h3>'),
-                            HTML(f'<button type="button" class="btn btn-primary" hx-get="{reverse("budget:product_selection", kwargs={"budget_id": budget.pk})}" hx-target="#modal-container" onclick="form_modal.showModal()">Inserir Produto</button>'),
+                            HTML(f'<button type="button" class="btn btn-primary" hx-get="{reverse("budget:item_selection", kwargs={"budget_id": budget.pk, "item_type": "product"})}" hx-target="#modal-container" onclick="form_modal.showModal()">Inserir Produto</button>'),
                             css_class="flex justify-between items-center mb-4",
                         ),
                         Div(
@@ -585,7 +587,7 @@ class BudgetStep4Form(forms.ModelForm):
                                 <table class="table table-zebra w-full">
                                     <thead>
                                         <tr>
-                                            <th>DESCRIÇÃO</th>
+                                            <th>NOME</th>
                                             <th class="text-center">QTD.</th>
                                             <th>VALOR VENDA</th>
                                             <th>FRETE</th>
@@ -606,7 +608,7 @@ class BudgetStep4Form(forms.ModelForm):
                     Div(
                         Div(
                             HTML('<h3 class="text-xl font-semibold text-gray-700">Serviços</h3>'),
-                            HTML(f'<button type="button" class="btn btn-primary" hx-get="{reverse("budget:service_selection", kwargs={"budget_id": budget.pk})}" hx-target="#modal-container" onclick="form_modal.showModal()">Inserir Serviço</button>'),
+                            HTML(f'<button type="button" class="btn btn-primary" hx-get="{reverse("budget:item_selection", kwargs={"budget_id": budget.pk, "item_type": "service"})}" hx-target="#modal-container" onclick="form_modal.showModal()">Inserir Serviço</button>'),
                             css_class="flex justify-between items-center mb-4",
                         ),
                         Div(
@@ -614,7 +616,7 @@ class BudgetStep4Form(forms.ModelForm):
                                 <table class="table table-zebra w-full">
                                     <thead>
                                         <tr>
-                                            <th>DESCRIÇÃO</th>
+                                            <th>NOME</th>
                                             <th class="text-center">QTD.</th>
                                             <th>VALOR VENDA</th>
                                             <th>TEMPO</th>
@@ -623,7 +625,7 @@ class BudgetStep4Form(forms.ModelForm):
                                         </tr>
                                     </thead>
                                     <tbody id="service-list-body">
-                                        {service_html}
+                                        {services_html}
                                     </tbody>
                                 </table>
                             """),
@@ -635,23 +637,23 @@ class BudgetStep4Form(forms.ModelForm):
                     Div(
                         Div(
                             HTML('<h3 class="text-xl font-semibold text-gray-700">Kits</h3>'),
-                            HTML('<button type="button" class="btn btn-primary px-8" hx-get="#" hx-target="#modal-container">Inserir Kit</button>'),
+                            HTML(f'<button type="button" class="btn btn-primary px-8" hx-get="{reverse("budget:item_selection", kwargs={"budget_id": budget.pk, "item_type": "kit"})}" hx-target="#modal-container" onclick="form_modal.showModal()">Inserir Kit</button>'),
                             css_class="flex justify-between items-center mb-4",
                         ),
                         Div(
-                            HTML("""
+                            HTML(f"""
                                 <table class="table table-compact w-full">
                                     <thead>
                                         <tr>
                                             <th>NOME</th>
-                                            <th>DESCRIÇÃO</th>
-                                            <th class="text-center">QTD. PRODUTOS</th>
-                                            <th class="text-center">QTD. SERVIÇOS</th>
+                                            <th class="text-center">QTD.</th>
+                                            <th class="text-center">PRODUTOS</th>
+                                            <th class="text-center">SERVIÇOS</th>
                                             <th class="text-center">AÇÕES</th>
                                         </tr>
                                     </thead>
                                     <tbody id="kit-list-body">
-                                        <tr><td colspan="5" class="text-center text-gray-400 py-4">Nenhum kit aplicado</td></tr>
+                                        {kits_html}
                                     </tbody>
                                 </table>
                             """),
@@ -669,10 +671,10 @@ class BudgetStep4Form(forms.ModelForm):
                     Div(
                         HTML('<h2 class="text-2xl font-bold mb-4 mt-8">Resumo</h2>'),
                         Div(
-                            Div(HTML('<span>Total Produtos</span><span>R$ 0,00</span>'), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
-                            Div(HTML('<span>Total Serviços</span><span>R$ 0,00</span>'), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
-                            Div(HTML('<span>Total Frete</span><span>R$ 0,00</span>'), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
-                            Div(HTML('<span>Tempo Total</span><span>00h 00min</span>'), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
+                            Div(HTML("<span>Total Produtos</span><span>R$ 0,00</span>"), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
+                            Div(HTML("<span>Total Serviços</span><span>R$ 0,00</span>"), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
+                            Div(HTML("<span>Total Frete</span><span>R$ 0,00</span>"), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
+                            Div(HTML("<span>Tempo Total</span><span>00h 00min</span>"), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
                             Div(HTML('<span class="font-bold">Total Geral</span><span class="font-bold">R$ 0,00</span>'), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
                             css_class="sticky top-4",
                         ),
