@@ -21,7 +21,10 @@ class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
 
         context["fields"] = [
             TableColumn(Customer.name.field.verbose_name, attr=Customer.name.field.name),
-            TableColumn(Customer.cpf_or_cnpj.field.verbose_name, attr=Customer.cpf_or_cnpj.field.name),
+            TableColumn(
+                Customer.cpf_or_cnpj.field.verbose_name,
+                attr="cpf_or_cnpj_formatted"
+            ),
             TableColumn("Endereço", attr="full_address"),
             TableColumn(Customer.is_active.field.verbose_name, attr=Customer.is_active.field.name),
         ]
