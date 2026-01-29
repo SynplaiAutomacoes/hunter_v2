@@ -121,7 +121,7 @@ class CustomerHistoryListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempl
 
         context["fields"] = [
             TableColumn(Customer.name.field.verbose_name, attr=Customer.name.field.name),
-            TableColumn(Customer.cpf.field.verbose_name, attr=Customer.cpf.field.name),
+            TableColumn(Customer.cpf_or_cnpj.field.verbose_name, attr=Customer.cpf_or_cnpj.field.name),
             TableColumn("Endereço", attr="full_address"),
             TableColumn("Qtd. Veículos", attr="vehicles_count"),
         ]
