@@ -12,6 +12,7 @@
          type="text"
         x-ref="display"
         @input="handleInput"
+        @blur="handleBlur"
         inputmode="numeric"
         autocomplete="off"
         placeholder="{% if widget.mode == 'hours' %}HH:00{% elif widget.mode == 'minutes' %}00:MM{% else %}HH:MM{% endif %}"

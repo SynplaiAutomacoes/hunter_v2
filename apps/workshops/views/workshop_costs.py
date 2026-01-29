@@ -28,8 +28,11 @@ class WorkshopCostListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplate
         context["fields"] = [
             TableColumn(label="Mês/Ano", attr="__str__"),
             TableColumn(label="Mecânicos", attr="mechanic_quantity"),
-            TableColumn(label="Total Custos", attr="total_monthly_costs"),
-            TableColumn(label="Meta Faturamento", attr="gross_revenue_target"),
+            TableColumn(label="Horas Úteis/Mês", attr="working_hours_per_month"),
+            TableColumn(label="Total Geral", attr="total_monthly_costs"),
+            TableColumn(label="Multiplicador de Lucratividade", attr="profitability_multiplier"),
+            TableColumn(label="Custo Hora Mínimo", attr="minimum_hourly_cost"),
+            TableColumn(label="Valor Sua Hora", attr="hourly_cost_value"),
         ]
 
         context["actions"] = [
