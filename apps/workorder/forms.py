@@ -4,7 +4,7 @@ from crispy_forms.layout import Layout, Div, Field, Submit, HTML
 from django.urls import reverse
 from djmoney.money import Money
 
-from apps.core.widgets import SelectInput, NumberInput, MoneyInput, ImageInput, TextInput
+from apps.core.widgets import SelectInput, NumberInput, MoneyInput
 from apps.workorder.models import WorkOrderPaymentMethod, WorkOrderAttachment
 
 
@@ -81,7 +81,8 @@ class WorkOrderAttachmentForm(forms.ModelForm):
                 "id": "file-upload-input",
                 "hx-post": "",
                 "hx-trigger": "change",
-                "hx-target": "#customer-section-container",
+                "hx-target": "#customer-approvement-section",
+                "hx-swap": "innerHTML",
                 "hx-encoding": "multipart/form-data",
             }
         ),
@@ -98,8 +99,7 @@ class WorkOrderAttachmentForm(forms.ModelForm):
         self.fields['file_upload'].label = False
 
         if self.workorder:
-            upload_url = reverse("workorder:upload_attachment", args=[self.workorder.pk])
-            self.fields["file_upload"].widget.attrs["hx-post"] = upload_url
+            self.fields["file_upload"].widget.attrs["hx-post"] = reverse("workorder:upload_attachment", args=[self.workorder.pk])
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -121,7 +121,7 @@ class WorkOrderAttachmentForm(forms.ModelForm):
                         #
                         Div(
                             HTML(f'<a href="{reverse("workorder:view_attachment", args=[self.instance.pk])}" target="_blank" class="btn btn-outline flex items-center mr-4 font-medium"><i class="material-icons text-base mr-1">visibility</i> Abrir</a>'),
-                            HTML(f'<button hx-delete="{reverse("workorder:delete_attachment", args=[self.instance.pk])}" hx-target="#customer-section-container" hx-confirm="Tem certeza que deseja remover este anexo?" class="flex items-center btn btn-outline text-red-600 hover:text-red-800 font-medium"><i class="material-icons text-base mr-1">delete</i> Excluir</button>'),
+                            HTML(f'<button hx-delete="{reverse("workorder:delete_attachment", args=[self.instance.pk])}" hx-swap="innerHTML" hx-target="#customer-approvement-section" hx-confirm="Tem certeza que deseja remover este anexo?" class="flex items-center btn btn-outline text-red-600 hover:text-red-800 font-medium"><i class="material-icons text-base mr-1">delete</i> Excluir</button>'),
                             css_class="flex items-center",
                         ),
                         css_class="flex items-center p-4 border rounded-lg shadow-sm mb-4",

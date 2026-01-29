@@ -96,12 +96,13 @@ class UploadAttachmentView(LoginRequiredMixin, WorkshopScopedMixin, View):
         workorder = get_object_or_404(WorkOrder, pk=pk, workshop=self.workshop)
         file = request.FILES.get("file_upload")
 
+        attachment = None
         if file:
-            WorkOrderAttachment.objects.create(workorder=workorder, content=file.read(), content_name=file.name, content_type=file.content_type)
+            attachment = WorkOrderAttachment.objects.create(workorder=workorder, content=file.read(), content_name=file.name, content_type=file.content_type)
 
         context = {
             "workorder": workorder,
-            "attachment_form": WorkOrderAttachmentForm(workorder=workorder),
+            "attachment_form": WorkOrderAttachmentForm(workorder=workorder, instance=attachment),
         }
 
         return render(request, "workorder/partials/customer_approvement_section.html", context)
@@ -125,5 +126,8 @@ class DeleteAttachmentView(LoginRequiredMixin, WorkshopScopedMixin, View):
         workorder = attachment.workorder
         attachment.delete()
 
-        context = {"workorder": workorder, "attachment_form": WorkOrderAttachmentForm()}
+        context = {
+            "workorder": workorder,
+            "attachment_form": WorkOrderAttachmentForm(workorder=workorder),
+        }
         return render(request, "workorder/partials/customer_approvement_section.html", context)
