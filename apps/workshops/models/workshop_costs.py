@@ -4,6 +4,7 @@ from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Self
 
+from babel.numbers import format_currency
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
@@ -114,6 +115,31 @@ class WorkshopCost(TimeStampedModel):
 
     def __str__(self):
         return f"{self.get_month_display()}/{self.year}"
+
+    @property
+    def working_hours_per_month(self) -> Decimal:
+        work_hours_per_day = self.work_hours_per_day.total_seconds() / 3600
+        productivity_per_day = self.mechanic_quantity * Decimal(work_hours_per_day) * self.productivity_average
+
+        working_hours_per_month = productivity_per_day * self.work_days_per_month
+
+        return working_hours_per_month.quantize(Decimal("0.01"), ROUND_HALF_UP)
+
+    @property
+    def minimum_hourly_cost(self) -> str:
+        minimum_hourly_cost = self.total_monthly_costs.amount / self.working_hours_per_month
+
+        return format_currency(minimum_hourly_cost, "BRL", locale="pt_BR")
+
+    @property
+    def hourly_cost_value(self) -> str:
+        total_monthly_costs = self.total_monthly_costs.amount
+        profit_margin = self.profit_margin * 100
+        working_hours_per_month = self.working_hours_per_month
+
+        hourly_cost_value = ((total_monthly_costs / 100 * profit_margin) + total_monthly_costs) / working_hours_per_month
+
+        return format_currency(hourly_cost_value, "BRL", locale="pt_BR")
 
     def _quantize_money(self, value: Money) -> Money:
         amount = value.amount.quantize(Decimal("0.01"), ROUND_HALF_UP)
