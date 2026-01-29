@@ -1074,28 +1074,97 @@ class BudgetStep6Form(forms.ModelForm):
                         # PDF
                         Div(
                             HTML('<h4 class="font-bold text-lg mb-2 border-b-1 border-gray-300">PDF</h4>'),
-                            # Button "emoji-papel Visualizar PDF"
-                            # Button "emoji-papel Visualizar PDF Gestor"
-                            # Button "emoji-papel Visualizar PDF Mecânico"
-                            # Button "emoji-aviao-papel Enviar orçamento para aprovação"
+                            HTML("""
+                            <div class="flex flex-col gap-3 text-center grid grid-cols-12">
+                            
+                                <button type="button" class="btn btn-success gap-2 col-span-4">
+                                    <span class="material-icons">description</span>
+                                    Visualizar PDF
+                                </button>
+
+                                <button type="button" class="btn btn-success gap-2 col-span-4">
+                                    <span class="material-icons">supervisor_account</span>
+                                    Visualizar PDF Gestor
+                                </button>
+
+                                <button type="button" class="btn btn-success gap-2 col-span-4">
+                                    <span class="material-icons">engineering</span>
+                                    Visualizar PDF Mecânico
+                                </button>
+
+                                <button type="button" class="btn btn-success gap-2 col-span-6">
+                                    <span class="material-icons">send</span>
+                                    Enviar orçamento para aprovação
+                                </button>
+                                
+                            </div>
+                            """),
                             css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
                         ),
                         # Observação
                         Div(
                             HTML('<h4 class="font-bold text-lg mb-2 border-b-1 border-gray-300">Observação</h4>'),
-                            # field TextArea
-                            # caracteres-escritos/500 Button "Salvar observação"
+                            HTML("""
+                            <div class="flex flex-col gap-3">
+
+                                <textarea 
+                                    class="textarea textarea-bordered w-full"
+                                    maxlength="500"
+                                    rows="4"
+                                    placeholder="Digite uma observação para o PDF (máx. 500 caracteres)..."
+                                    id="budget-observation"
+                                ></textarea>
+
+                                <div class="flex justify-between items-center text-sm text-gray-500">
+                                    <span id="obs-counter">0 / 500</span>
+
+                                    <button type="button" class="btn btn-sm btn-primary gap-2 rounded">
+                                        <span class="material-icons">save</span>
+                                        Salvar observação
+                                    </button>
+                                </div>
+
+                            </div>
+
+                            <script>
+                                const textarea = document.getElementById('budget-observation');
+                                const counter = document.getElementById('obs-counter');
+
+                                if (textarea && counter) {
+                                    textarea.addEventListener('input', () => {
+                                        counter.textContent = `${textarea.value.length} / 500`;
+                                    });
+                                }
+                            </script>
+                            """),
                             css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
                         ),
                         # Aprovação
                         Div(
                             HTML('<h4 class="font-bold text-lg mb-2 border-b-1 border-gray-300">Aprovação</h4>'),
-                            # Button "emoji-x Cancelar Orçamento"
-                            # Button "emoji-correto Aprovar Orçamento"
-                            # Button "emoji-fechado Reprovar Orçamento"
+                            HTML("""
+                            <div class="flex flex-col text-center gap-3 grid grid-cols-12">
+
+                                <button type="button" class="btn btn-error gap-2 col-span-4">
+                                    <span class="material-icons">close</span>
+                                    Cancelar Orçamento
+                                </button>
+
+                                <button type="button" class="btn btn-success gap-2 col-span-4">
+                                    <span class="material-icons">check_circle</span>
+                                    Aprovar Orçamento
+                                </button>
+
+                                <button type="button" class="btn btn-warning gap-2 col-span-4">
+                                    <span class="material-icons">lock</span>
+                                    Reprovar Orçamento
+                                </button>
+
+                            </div>
+                            """),
                             css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
                         ),
-                        css_class="sticky top-4",
+                        css_class="sticky",
                     ),
                     css_class="col-span-12 lg:col-span-6",
                 ),
