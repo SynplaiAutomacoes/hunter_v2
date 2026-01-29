@@ -177,16 +177,19 @@
             if (mode === 'hours') return hh || '';
             if (mode === 'minutes') return mm || '';
             if (!hh && !mm) return '';
-            if (hh && !mm) return hh;
+            if (hh && !mm) return hh.length >= 2 ? `${hh}:` : hh;
             return `${hh}:${mm}`;
         },
 
         normalizeForPost(hh, mm, mode = 'hours_minutes') {
-            if (mode === 'hours' && hh) return `${hh}:00:00`;
-            if (mode === 'minutes' && mm) return `00:${mm}:00`;
+            const h = (hh || '').toString();
+            const m = (mm || '').toString();
 
-            if ((hh ?? '').length !== 2 || (mm ?? '').length !== 2) return '';
-            return `${hh}:${mm}:00`;
+            if (mode === 'hours') return h ? `${h.padStart(2, '0')}:00:00` : '';
+            if (mode === 'minutes') return m ? `00:${m.padStart(2, '0')}:00` : '';
+
+            if (!h && !m) return '';
+            return `${h.padStart(2, '0')}:${m.padStart(2, '0')}:00`;
         },
 
         initFromRaw(raw, mode = 'hours_minutes') {
@@ -253,6 +256,16 @@
             const n = parseFloat(value);
             if (Number.isNaN(n)) return '';
             return n.toFixed(places);
+        },
+
+        formatPtBr(value, places = 2) {
+            if (value === '' || value === null || value === undefined) return '';
+            const n = parseFloat(value);
+            if (Number.isNaN(n)) return '';
+            return n.toLocaleString('pt-BR', {
+                minimumFractionDigits: places,
+                maximumFractionDigits: places,
+            });
         }
     };
 
@@ -455,6 +468,19 @@
                     this.$refs.value.value = duration.normalizeForPost(hh, mm, this.mode);
                     e.target.value = duration.formatDisplay(hh, mm, this.mode);
                 },
+
+                handleBlur(e) {
+                    let { hh, mm } = duration.parse(e.target.value, this.mode);
+                    if (!hh && !mm) return;
+
+                    if (this.mode === 'hours_minutes' || !this.mode) {
+                        if (hh && !mm) mm = '00';
+                        if (!hh && mm) hh = '00';
+                    }
+
+                    this.$refs.value.value = duration.normalizeForPost(hh, mm, this.mode);
+                    e.target.value = duration.formatDisplay(hh, mm, this.mode);
+                }
             };
         },
         moneyInput(rawDotDecimal) {
@@ -509,9 +535,9 @@
 
                 init() {
                     if (this.rawValue && !isNaN(parseFloat(this.rawValue))) {
-                        const formatted = decimal.format(this.rawValue, this.places);
+                        const formatted = decimal.formatPtBr(this.rawValue, this.places);
                         this.$refs.display.value = formatted;
-                        this.$refs.value.value = formatted;
+                        this.$refs.value.value = decimal.format(this.rawValue, this.places);
                     }
                 },
 
@@ -519,8 +545,8 @@
                     let typed = e.target.value;
                     let cleaned = decimal.clean(typed);
 
-                    if (typed !== cleaned) {
-                        e.target.value = cleaned;
+                    if (typed !== cleaned && !typed.endsWith(',') && !typed.endsWith('.')) {
+                        e.target.value = cleaned.replace('.', ',');
                     }
 
                     this.$refs.value.value = cleaned;
@@ -546,10 +572,8 @@
                     if (this.min !== null && val < this.min) val = this.min;
                     if (this.max !== null && val > this.max) val = this.max;
 
-                    const finalStr = decimal.format(val, this.places);
-
-                    this.$refs.display.value = finalStr;
-                    this.$refs.value.value = finalStr;
+                    this.$refs.display.value = decimal.formatPtBr(val, this.places);
+                    this.$refs.value.value = decimal.format(val, this.places);
                 }
             };
         },

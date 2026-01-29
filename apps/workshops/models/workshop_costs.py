@@ -83,7 +83,7 @@ class WorkshopCost(TimeStampedModel):
         decimal_places=2,
         default=1.00,
         validators=[MinValueValidator(1.0), MaxValueValidator(1.5)],
-        help_text="1.0 a 1.2 para veículo popular, 1.2 a 1.4 para SUVs e 1.5 para premium, está relacionado ao risco da oficina.",
+        help_text="1,00 a 1,20 para veículo popular, 1,20 a 1,40 para SUVs e 1,50 para premium, está relacionado ao risco da oficina.",
         null=True,
         blank=True,
     )

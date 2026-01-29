@@ -55,7 +55,7 @@ class WorkshopCostForm(forms.ModelForm):
             "month": SelectInput(),
             "year": TextInput(),
             "mechanic_quantity": NumberInput(),
-            "work_hours_per_day": DurationInput(mode="hours"),
+            "work_hours_per_day": DurationInput(),
             "work_days_per_month": NumberInput(),
             "productivity_average": PercentageInput(min_percent=50, max_percent=80, decimal_places=2),
             "card_rate": PercentageInput(decimal_places=2),
