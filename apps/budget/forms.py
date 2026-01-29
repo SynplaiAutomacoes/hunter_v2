@@ -847,29 +847,57 @@ class BudgetStep5Form(forms.ModelForm):
                             # Grid de Custos vs Vendas
                             Div(
                                 HTML(f"""
-                                    <div class="grid grid-cols-2 gap-4 text-sm">
-                                        <div class="space-y-2 border-r pr-4">
-                                            <div class="flex justify-between"><span>Custo de Peças {custo_pecas}</span></div>
-                                            <div class="flex justify-between"><span>Custo de Frete de Peças {custo_frete_pecas}</span></div>
-                                            <div class="flex justify-between"><span>Custo de Serviço de Terceiros {custo_servico_terceiros}</span></div>
-                                            <div class="flex justify-between"><span>Custo da Hora do Mecânico {custo_hora_mecanico}</span></div>
-                                            <div class="flex justify-between"><span>Duração Total {duracao_total}</span></div>
-                                            <div class="flex justify-between"><span>Lucro Operacional {lucro_operacional}</span></div>
-                                            <div class="flex justify-between"><span>MLR {mlr}</span></div>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 mt-7 gap-x-6 gap-y-2 text-base font-semibold">
+                                        <div class="grid grid-cols-12 border bg-white overflow-hidden">
+                                            <span class="col-span-8 p-2 bg-gray-50">Custo de Peças</span>
+                                            <span class="col-span-4 p-2 border-l text-left">{custo_pecas}</span>
                                         </div>
-                                        <div class="space-y-2 pl-4">
-                                            <div class="flex justify-between"><span>Valor de Venda de Peças {valor_venda_pecas}</span></div>
-                                            <div class="flex justify-between"><span></span></div>
-                                            <div class="flex justify-between"><span>Valor de Venda de Serviços de Terceiros {valor_venda_servico_terceiros}</span></div>
-                                            <div class="flex justify-between"><span>Valor de Venda de Mão de Obra {valor_venda_mao_obra}</span></div>
-                                            <div class="flex justify-between"><span></span></div>
-                                            <div class="flex justify-between"><span>Rentabilidade</span><span class="{status_cor}">{rentabilidade:.2f}% ({status_texto})</span></div>
-                                            <div class="flex justify-between"><span>MLO {mlo}</span></div>
+                                        <div class="grid grid-cols-12 border bg-white overflow-hidden">
+                                            <span class="col-span-8 p-2 bg-gray-50">Valor de Venda de Peças</span>
+                                            <span class="col-span-4 p-2 border-l text-left">{valor_venda_pecas}</span>
+                                        </div>
+
+                                        <div class="grid grid-cols-12 border bg-white overflow-hidden">
+                                            <span class="col-span-8 p-2 bg-gray-50">Custo de Frete de Peças</span>
+                                            <span class="col-span-4 p-2 border-l text-left">{custo_frete_pecas}</span>
+                                        </div>
+                                        <div class="invisible md:visible"></div>
+                                        <div class="grid grid-cols-12 border bg-white overflow-hidden">
+                                            <span class="col-span-8 p-2 bg-gray-50">Custo de Serviço de Terceiros</span>
+                                            <span class="col-span-4 p-2 border-l text-left">{custo_servico_terceiros}</span>
+                                        </div>
+                                        <div class="grid grid-cols-12 border bg-white overflow-hidden">
+                                            <span class="col-span-8 p-2 bg-gray-50">Valor de Venda de Serviço de Terceiros</span>
+                                            <span class="col-span-4 p-2 border-l text-left">{valor_venda_servico_terceiros}</span>
+                                        </div>
+
+                                        <div class="grid grid-cols-12 border bg-white overflow-hidden">
+                                            <span class="col-span-8 p-2 bg-gray-50">Custo da Hora do Mecânico</span>
+                                            <span class="col-span-4 p-2 border-l text-left">{custo_hora_mecanico}</span>
+                                        </div>
+                                        <div class="grid grid-cols-12 border bg-white overflow-hidden">
+                                            <span class="col-span-8 p-2 bg-gray-50">Valor de Venda de Mão de Obra</span>
+                                            <span class="col-span-4 p-2 border-l text-left">{valor_venda_mao_obra}</span>
+                                        </div>
+                                        
+                                        <div class="grid grid-cols-12 border bg-white overflow-hidden">
+                                            <span class="col-span-8 p-2 bg-gray-50">Duração Total</span>
+                                            <span class="col-span-4 p-2 border-l text-left">{duracao_total}</span>
+                                        </div>
+                                        <div class="invisible md:visible"></div>
+
+                                        <div class="grid grid-cols-12 border bg-white overflow-hidden">
+                                            <span class="col-span-8 p-2 bg-gray-50">Lucro Operacional</span>
+                                            <span class="col-span-4 p-2 border-l text-left">{lucro_operacional}</span>
+                                        </div>
+                                        <div class="grid grid-cols-12 border bg-white overflow-hidden {status_cor.replace("text-", "border-")}">
+                                            <span class="col-span-8 p-2 bg-gray-50">Rentabilidade</span>
+                                            <span class="col-span-4 p-2 border-l text-left {status_cor}">{rentabilidade:.2f}% ({status_texto})</span>
                                         </div>
                                     </div>
                                 """),
                             ),
-                            css_class="bg-base-100 p-6 rounded-xl border border-[#007bff] shadow-inner",
+                            css_class="h-full",
                         ),
                         Div(
                             HTML(f"""<div class="text-center mt-6">
@@ -877,9 +905,9 @@ class BudgetStep5Form(forms.ModelForm):
                                     <p class="text-3xl font-black">{budget.total_base_value}</p>
                                 </div>""")
                         ),
-                        css_class="bg-[#d4e6ff] p-6 rounded-2xl border-2 border-[#007bff]",
+                        css_class="bg-[#d4e6ff] p-6 rounded-2xl border-2 border-[#007bff] h-full flex flex-col",
                     ),
-                    css_class="col-span-12 lg:col-span-6",
+                    css_class="col-span-12 lg:col-span-6 h-full",
                 ),
                 # Coluna Direita
                 Div(
@@ -893,11 +921,7 @@ class BudgetStep5Form(forms.ModelForm):
                             css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
                         ),
                         # Desconto
-                        Div(
-                            HTML('<h4 class="font-bold text-lg mb-2">Desconto</h4>'),
-                            Field("discount_value", wrapper_class="col-span-12 lg:col-span-4"),
-                            css_class="mb-8 p-4 bg-base-200/50 rounded-lg"
-                        ),
+                        Div(HTML('<h4 class="font-bold text-lg mb-2">Desconto</h4>'), Field("discount_value", wrapper_class="col-span-12 lg:col-span-4"), css_class="mb-8 p-4 bg-base-200/50 rounded-lg"),
                         # Valor Final
                         Div(
                             HTML('<h4 class="font-bold text-lg mb-2 text-center border-b-1 border-gray-300">Valor Final</h4>'),
@@ -918,7 +942,7 @@ class BudgetStep5Form(forms.ModelForm):
                     ),
                     css_class="col-span-12 lg:col-span-6",
                 ),
-                css_class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start",
+                css_class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch",
             ),
         )
 
