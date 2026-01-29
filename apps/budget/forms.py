@@ -33,7 +33,7 @@ class BudgetStep1Form(forms.ModelForm):
         self.request = kwargs.pop("request", None)
         super().__init__(*args, **kwargs)
         # No __init__ do BudgetStep1Form, adicione esta linha:
-        self.fields["customer"].widget.attrs.update({"data-vehicle-url": reverse_lazy("customer:get-vehicles")})
+        self.fields["customer"].widget.attrs.update({"data-vehicle-url": reverse_lazy("budget:get-vehicles")})
 
         # Preenchimento inicial (Campos não editáveis)
         if self.workshop:
@@ -81,7 +81,7 @@ class BudgetStep1Form(forms.ModelForm):
                     
                         if (!customerId) return;
                     
-                        const url = `/customer/get-vehicles/?customer=${customerId}`;
+                        const url = `/budget/get-vehicles/?customer=${customerId}`;
                         fetch(url)
                             .then(response => response.json())
                             .then(data => {
@@ -176,8 +176,8 @@ class BudgetStep1Form(forms.ModelForm):
                 
                     const initFormLogic = () => {
                         [
-                            { name: 'customer', id: 'resumo-cliente', url: '/customer/customer-detail/' },
-                            { name: 'vehicle', id: 'resumo-veiculo', url: '/customer/vehicle-detail/' }
+                            { name: 'customer', id: 'resumo-cliente', url: '/budget/customer-detail/' },
+                            { name: 'vehicle', id: 'resumo-veiculo', url: '/budget/vehicle-detail/' }
                         ].forEach(bindField);
                     };
 

@@ -5,6 +5,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect, render, get_object_or_404
 from django.urls import reverse, reverse_lazy
+from django.views import View
 from django.views.generic import ListView, CreateView, DeleteView
 
 from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
@@ -16,6 +17,7 @@ from apps.core.forms import MultiStepFormMixin
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin
+from apps.customer.models import Customer, Vehicle
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
@@ -162,6 +164,40 @@ class BudgetDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteRespon
 
     htmx_template_name = "budget/partials/budget_delete_modal.html"
     htmx_trigger = "budget-table-refresh"
+
+
+class CustomerDetailView(View):
+    def get(self, request, *args, **kwargs):
+        customer_id = request.GET.get('customer')
+        customer = None
+        if customer_id:
+            customer = get_object_or_404(Customer, id=customer_id)
+        return render(request, "budget/partials/customer_resume.html", {"customer": customer})
+
+
+class VehicleListView(View):
+    def get(self, request, *args, **kwargs):
+        customer_id = request.GET.get("customer")
+
+        vehicles = Vehicle.objects.none()
+        if customer_id:
+            vehicles = Vehicle.objects.filter(customer_id=customer_id)
+
+        data = [
+            {"id": v.id, "label": str(v)}
+            for v in vehicles
+        ]
+
+        return JsonResponse(data, safe=False)
+
+
+class VehicleDetailView(View):
+    def get(self, request, *args, **kwargs):
+        vehicle_id = request.GET.get('vehicle')
+        vehicle = None
+        if vehicle_id:
+            vehicle = get_object_or_404(Vehicle, id=vehicle_id)
+        return render(request, 'budget/partials/vehicle_resume.html', {'vehicle': vehicle})
 
 
 def item_selection_modal(request, budget_id, item_type):
