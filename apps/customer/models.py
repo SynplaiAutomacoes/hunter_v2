@@ -34,9 +34,9 @@ class Customer(TimeStampedModel, Address):
 
     # CAMPOS PESSOA JURÍDICA
     fantasy_name = models.CharField(verbose_name="Nome Fantasia", max_length=255, blank=True, null=True)
-    state_registration = models.CharField(verbose_name="Inscricao Estadual", max_length=255, blank=True, null=True)
-    municipal_registration = models.CharField(verbose_name="Inscricao Municipal", max_length=255, blank=True, null=True)
-    foundation_date = models.DateField(verbose_name="Data de Fundacao", blank=True, null=True)
+    state_registration = models.CharField(verbose_name="Inscrição Estadual", max_length=255, blank=True, null=True)
+    municipal_registration = models.CharField(verbose_name="Inscrição Municipal", max_length=255, blank=True, null=True)
+    foundation_date = models.DateField(verbose_name="Data de Fundação", blank=True, null=True)
 
     @property
     def full_address(self) -> str:

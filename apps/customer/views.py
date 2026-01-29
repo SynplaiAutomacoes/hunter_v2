@@ -23,7 +23,6 @@ class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
             TableColumn(Customer.name.field.verbose_name, attr=Customer.name.field.name),
             TableColumn(Customer.cpf_or_cnpj.field.verbose_name, attr=Customer.cpf_or_cnpj.field.name),
             TableColumn("Endereço", attr="full_address"),
-            TableColumn(Customer.birth_date.field.verbose_name, attr=Customer.birth_date.field.name),
             TableColumn(Customer.is_active.field.verbose_name, attr=Customer.is_active.field.name),
         ]
 
