@@ -961,6 +961,10 @@ class BudgetStep6Form(forms.ModelForm):
 
         budget = self.instance
 
+        saved_observation = ""
+        if self.workshop:
+            saved_observation = self.workshop.pdf_observation or ""
+
         products_html = ""
         services_html = ""
         kits_html = ""
@@ -983,6 +987,34 @@ class BudgetStep6Form(forms.ModelForm):
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
+            HTML("""<script>
+                    function saveObservation(budgetId) {
+                        const observation = document.getElementById('budget-observation').value;
+                    
+                        fetch('/budget/save-observation/', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRFToken': '{{ csrf_token }}'
+                            },
+                            body: JSON.stringify({
+                                budget_id: budgetId,
+                                observation: observation,
+                            })
+                        });
+                    }
+                    
+                    function updateBudgetStatus(budgetId, status) {
+                        if (!confirm('Deseja realmente posseguir?')) return;
+                    
+                        fetch(`/budget/update-status/${budgetId}/${status}`, {
+                            method: 'POST',
+                            headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+                        }).then(() => {
+                            window.location.href = "{% url 'budget:budget_list' %}";
+                        });
+                    }
+            </script>"""),
             Div(
                 HTML('<h3 class="text-2xl font-bold col-span-12">Revisão e Confirmação</h3>'),
                 # Coluna Esquerda
@@ -1104,21 +1136,21 @@ class BudgetStep6Form(forms.ModelForm):
                         # Observação
                         Div(
                             HTML('<h4 class="font-bold text-lg mb-2 border-b-1 border-gray-300">Observação</h4>'),
-                            HTML("""
+                            HTML(f"""
                             <div class="flex flex-col gap-3">
 
                                 <textarea 
                                     class="textarea textarea-bordered w-full"
-                                    maxlength="500"
+                                    maxlength="250"
                                     rows="4"
-                                    placeholder="Digite uma observação para o PDF (máx. 500 caracteres)..."
+                                    placeholder="Digite uma observação para o PDF (máx. 250 caracteres)..."
                                     id="budget-observation"
-                                ></textarea>
+                                >{saved_observation}</textarea>
 
                                 <div class="flex justify-between items-center text-sm text-gray-500">
-                                    <span id="obs-counter">0 / 500</span>
+                                    <span id="obs-counter">0 / 250</span>
 
-                                    <button type="button" class="btn btn-sm btn-primary gap-2 rounded">
+                                    <button type="button" class="btn btn-sm btn-primary gap-2" onclick="saveObservation({budget.pk})">
                                         <span class="material-icons">save</span>
                                         Salvar observação
                                     </button>
@@ -1130,11 +1162,11 @@ class BudgetStep6Form(forms.ModelForm):
                                 const textarea = document.getElementById('budget-observation');
                                 const counter = document.getElementById('obs-counter');
 
-                                if (textarea && counter) {
-                                    textarea.addEventListener('input', () => {
-                                        counter.textContent = `${textarea.value.length} / 500`;
-                                    });
-                                }
+                                if (textarea && counter) {{
+                                    textarea.addEventListener('input', () => {{
+                                        counter.textContent = `${{textarea.value.length}} / 250`;
+                                    }});
+                                }}
                             </script>
                             """),
                             css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
@@ -1142,20 +1174,20 @@ class BudgetStep6Form(forms.ModelForm):
                         # Aprovação
                         Div(
                             HTML('<h4 class="font-bold text-lg mb-2 border-b-1 border-gray-300">Aprovação</h4>'),
-                            HTML("""
+                            HTML(f"""
                             <div class="flex flex-col text-center gap-3 grid grid-cols-12">
 
-                                <button type="button" class="btn btn-error gap-2 col-span-4">
+                                <button type="button" class="btn btn-error gap-2 col-span-4" onclick="updateBudgetStatus({budget.pk}, 'cancel')">
                                     <span class="material-icons">close</span>
                                     Cancelar Orçamento
                                 </button>
 
-                                <button type="button" class="btn btn-success gap-2 col-span-4">
+                                <button type="button" class="btn btn-success gap-2 col-span-4" onclick="updateBudgetStatus({budget.pk}, 'approve')">
                                     <span class="material-icons">check_circle</span>
                                     Aprovar Orçamento
                                 </button>
 
-                                <button type="button" class="btn btn-warning gap-2 col-span-4">
+                                <button type="button" class="btn btn-warning gap-2 col-span-4" onclick="updateBudgetStatus({budget.pk}, 'reject')">
                                     <span class="material-icons">lock</span>
                                     Reprovar Orçamento
                                 </button>

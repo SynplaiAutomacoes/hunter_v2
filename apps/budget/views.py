@@ -1,14 +1,14 @@
+import json
 from decimal import Decimal
 
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect, render, get_object_or_404
 from django.urls import reverse, reverse_lazy
-from django.views import View
 from django.views.generic import ListView, CreateView, DeleteView
 
 from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
-from apps.budget.models import Budget, BudgetItem
+from apps.budget.models import Budget, BudgetItem, BudgetStatus
 from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
@@ -153,7 +153,7 @@ class BudgetUpdateView(BudgetCreateView):
             return redirect(success_url)
 
         # Se for o último passo, volta para a lista
-        return redirect(reverse_lazy("budget:budget_list"))
+        return redirect(reverse("budget:budget_list"))
 
 
 class BudgetDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResponseMixin, DeleteView):
@@ -226,3 +226,32 @@ def update_budget_discount(request, budget_id):
     response = HttpResponse()
     response["HX-Refresh"] = "true"
     return response
+
+def save_observation(request):
+    workshop = get_active_workshop_or_404(request=request)
+
+    try:
+        data = json.loads(request.body)
+        observation = data.get("observation", "").strip()
+    except json.JSONDecodeError:
+        pass
+
+    workshop.pdf_observation = observation
+    workshop.save()
+
+    return JsonResponse({"success": True})
+
+def update_budget_status(request, budget_id, status):
+    workshop = get_active_workshop_or_404(request=request)
+    budget = get_object_or_404(Budget, id=budget_id, workshop=workshop)
+
+    if status == "cancel":
+        budget.status = BudgetStatus.CANCELLED
+    elif status == "approve":
+        budget.status = BudgetStatus.APPROVED
+    elif status == "reject":
+        budget.status = BudgetStatus.REJECTED
+
+    budget.save()
+
+    return JsonResponse({"success": True})
