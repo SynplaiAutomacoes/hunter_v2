@@ -283,7 +283,7 @@ class BudgetStep2Form(forms.ModelForm):
         model = Budget
         fields = ["problem_description", "notes"]
         widgets = {
-            "notes": forms.Textarea(attrs={"rows": 4, "cols": 40}),
+            "notes": forms.Textarea(attrs={"rows": 4, "cols": 40, "class": "!bg-transparent"}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -334,7 +334,10 @@ class BudgetStep2Form(forms.ModelForm):
             Div(
                 HTML('<h3 class="text-2xl font-bold col-span-12">Relato do Cliente</h3>'),
                 # Descrição do Problema
-                Div(Field("problem_description", wrapper_class="flex flex-col h-full", css_class="flex-1"), css_class="col-span-12 lg:col-span-6 flex flex-col"),
+                Div(
+                    Field("problem_description", wrapper_class="flex flex-col h-full", css_class="flex-1 !bg-transparent"),
+                    css_class="col-span-12 lg:col-span-6 flex flex-col"
+                ),
                 # Perguntas Investigativas
                 Div(
                     HTML('<h5 class="font-bold mb-2">Perguntas Investigativas</h5>'),
@@ -369,7 +372,11 @@ class BudgetStep3Form(forms.ModelForm):
         model = Budget
         fields = ["collaborator","technical_diagnosis"]
         widgets = {
-            "technical_diagnosis": forms.Textarea(attrs={"rows": 10, "placeholder": "Descreva detalhadamente as observações técnicas, diagnósticos preliminares, testes realizados...", "class": "textarea textarea-bordered w-full"}),
+            "technical_diagnosis": forms.Textarea(attrs={
+                "rows": 10,
+                "placeholder": "Descreva detalhadamente as observações técnicas, diagnósticos preliminares, testes realizados...",
+                "class": "textarea textarea-bordered w-full !bg-transparent"
+            }),
         }
 
     def __init__(self, *args, **kwargs):
