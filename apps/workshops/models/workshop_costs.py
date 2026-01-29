@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from decimal import ROUND_HALF_UP, Decimal
+from typing import Self
 
+from babel.numbers import format_currency
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from djmoney.models.fields import MoneyField
+from moneyed import Money
 
 from apps.core.models import TimeStampedModel
 from apps.workshops.models.workshops import Workshop
@@ -54,7 +58,7 @@ class WorkshopCost(TimeStampedModel):
     productivity_average = models.DecimalField(
         verbose_name="Produtividade Média",
         max_digits=5,
-        decimal_places=2,
+        decimal_places=4,
         default=0.60,
         help_text="50% a 80%",
         validators=[MinValueValidator(0.5), MaxValueValidator(0.8)],
@@ -80,7 +84,7 @@ class WorkshopCost(TimeStampedModel):
         decimal_places=2,
         default=1.00,
         validators=[MinValueValidator(1.0), MaxValueValidator(1.5)],
-        help_text="1.0 a 1.2 para veículo popular, 1.2 a 1.4 para SUVs e 1.5 para premium, está relacionado ao risco da oficina.",
+        help_text="1,00 a 1,20 para veículo popular, 1,20 a 1,40 para SUVs e 1,50 para premium, está relacionado ao risco da oficina.",
         null=True,
         blank=True,
     )
@@ -101,7 +105,7 @@ class WorkshopCost(TimeStampedModel):
     total_monthly_costs = MoneyField(verbose_name="Total Custos Mensais", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
     profit_target = MoneyField(verbose_name="Meta de Lucro", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
     gross_revenue_target = MoneyField(verbose_name="Faturamento Bruto Meta", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
-    profitability_multiplier = models.DecimalField(verbose_name="Multiplicador Lucratividade", max_digits=10, decimal_places=4, default=0, null=True, blank=True)
+    profitability_multiplier = models.DecimalField(verbose_name="Multiplicador Lucratividade", max_digits=10, decimal_places=2, default=0, null=True, blank=True)
 
     class Meta:
         verbose_name = "Custo da Oficina"
@@ -112,6 +116,87 @@ class WorkshopCost(TimeStampedModel):
     def __str__(self):
         return f"{self.get_month_display()}/{self.year}"
 
+    @property
+    def working_hours_per_month(self) -> Decimal:
+        work_hours_per_day = self.work_hours_per_day.total_seconds() / 3600
+        productivity_per_day = self.mechanic_quantity * Decimal(work_hours_per_day) * self.productivity_average
+
+        working_hours_per_month = productivity_per_day * self.work_days_per_month
+
+        return working_hours_per_month.quantize(Decimal("0.01"), ROUND_HALF_UP)
+
+    @property
+    def minimum_hourly_cost(self) -> str:
+        minimum_hourly_cost = self.total_monthly_costs.amount / self.working_hours_per_month
+
+        return format_currency(minimum_hourly_cost, "BRL", locale="pt_BR")
+
+    @property
+    def hourly_cost_value(self) -> str:
+        total_monthly_costs = self.total_monthly_costs.amount
+        profit_margin = self.profit_margin * 100
+        working_hours_per_month = self.working_hours_per_month
+
+        hourly_cost_value = ((total_monthly_costs / 100 * profit_margin) + total_monthly_costs) / working_hours_per_month
+
+        return format_currency(hourly_cost_value, "BRL", locale="pt_BR")
+
+    def _quantize_money(self, value: Money) -> Money:
+        amount = value.amount.quantize(Decimal("0.01"), ROUND_HALF_UP)
+        return Money(amount, value.currency)
+    
+    def calculate_total_value(self) -> Money:
+        parts_purchase_cap = self.parts_purchase_cap or Money(0, 'BRL')
+        freight_cost = self.freight_cost or Money(0, 'BRL')
+        third_party_service_cap = self.third_party_service_cap or Money(0, 'BRL')
+        
+        total_value = parts_purchase_cap + freight_cost + third_party_service_cap
+        
+        return self._quantize_money(total_value)
+    
+    def calculate_total_monthly_costs(self, items=None) -> Money:
+        card_rate = self.card_rate * 100 or Decimal(0)
+        tax_rate = self.tax_rate * 100 or Decimal(0)
+        risk_coefficient = self.risk_coefficient or Decimal(0)
+        commission_rate = self.commission_rate * 100 or Decimal(0)
+        
+        fixed_cost = Money(0, 'BRL')
+        
+        iterable_items = items if items is not None else self.items.all()
+        
+        for item in iterable_items:
+            fixed_cost += item.amount
+            
+        total = ((fixed_cost / 100) * (card_rate + tax_rate + commission_rate) + fixed_cost) * risk_coefficient
+        
+        return self._quantize_money(total)
+    
+    def calculate_profit_target(self, total_monthly_costs: Money) -> Money:
+        return self._quantize_money(total_monthly_costs * Decimal('0.25'))
+        
+    def calculate_gross_revenue_target(self, total_monthly_costs: Money, profit_target: Money, total_value: Money) -> Money:
+        return self._quantize_money(total_monthly_costs + profit_target + total_value)
+    
+    def calculate_profitability_multiplier(self, gross_revenue_target: Money, total_value: Money) -> Decimal:
+        if total_value.amount == 0:
+            return Decimal('0.00')
+        
+        multiplier = (gross_revenue_target.amount / total_value.amount).quantize(Decimal('0.01'), ROUND_HALF_UP)
+        
+        return multiplier.normalize()
+    
+    def calculate_all(self):
+        total_value = self.calculate_total_value()
+        total_monthly_costs = self.calculate_total_monthly_costs()
+        profit_target = self.calculate_profit_target(total_monthly_costs)
+        gross_revenue_target = self.calculate_gross_revenue_target(total_monthly_costs, profit_target, total_value)
+        profitability_multiplier = self.calculate_profitability_multiplier(gross_revenue_target, total_value)
+        
+        self.total_value = total_value
+        self.total_monthly_costs = total_monthly_costs
+        self.profit_target = profit_target
+        self.gross_revenue_target = gross_revenue_target
+        self.profitability_multiplier = profitability_multiplier
 
 class WorkshopCostItem(models.Model):
     """

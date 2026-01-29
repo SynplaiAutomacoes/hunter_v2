@@ -51,6 +51,9 @@ class Customer(TimeStampedModel, Address):
         elif len(value) == 14:  # CNPJ
             return f"{value[:2]}.{value[2:5]}.{value[5:8]}/{value[8:12]}-{value[12:]}"
         return self.cpf_or_cnpj
+      
+    def vehicles_count(self) -> str:
+        return str(self.vehicles.count())
 
     class Meta:
         verbose_name = "Cliente"

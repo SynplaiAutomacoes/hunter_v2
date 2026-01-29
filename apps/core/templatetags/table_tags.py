@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 from django.core.exceptions import FieldError
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
@@ -79,13 +79,17 @@ class TableAction:
     hx_push_url: str | None = None
 
 
-def _resolve_attr(obj: Any, attr: str | None) -> Any:
+def _resolve_attr(obj: Any, attr: str | Callable[[Any], Any] | None) -> Any:
     """
     Navega recursivamente pelos atributos de um objeto usando notação de ponto.
     Suporta atributos simples e chamáveis (métodos sem argumentos).
     """
     if attr in (None, ""):
         return obj
+    if callable(attr):
+        return attr(obj)
+    if not isinstance(attr, str):
+        return attr
 
     value: Any = obj
     for part in attr.split("."):

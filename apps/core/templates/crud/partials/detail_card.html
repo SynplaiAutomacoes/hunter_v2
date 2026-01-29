@@ -1,0 +1,17 @@
+<div class="card bg-base-100 shadow-xl">
+    <div class="card-body p-6 md:p-8">
+        {% if card_title %}
+        <div class="flex items-center gap-2 mb-2">
+            {% if card_icon %}
+            <span class="material-icons text-base-content/80">{{ card_icon }}</span>
+            {% endif %}
+            <h2 class="text-xl font-bold text-base-content">{{ card_title }}</h2>
+        </div>
+        <div class="divider mt-0 mb-6"></div>
+        {% endif %}
+
+        <div {% if card_id %}id="{{ card_id }}"{% endif %}>
+            {% block card_content %}{% endblock %}
+        </div>
+    </div>
+</div>

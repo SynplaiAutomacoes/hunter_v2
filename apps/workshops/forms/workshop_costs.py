@@ -55,23 +55,23 @@ class WorkshopCostForm(forms.ModelForm):
             "month": SelectInput(),
             "year": TextInput(),
             "mechanic_quantity": NumberInput(),
-            "work_hours_per_day": DurationInput(mode="hours"),
+            "work_hours_per_day": DurationInput(),
             "work_days_per_month": NumberInput(),
-            "productivity_average": PercentageInput(min_percent=50, max_percent=80),
-            "card_rate": PercentageInput(),
-            "tax_rate": PercentageInput(),
-            "profit_margin": PercentageInput(),
-            "commission_rate": PercentageInput(max_percent=10),
-            "risk_coefficient": DecimalInput(min_value=1.0, max_value=1.5, decimal_places=1),
+            "productivity_average": PercentageInput(min_percent=50, max_percent=80, decimal_places=2),
+            "card_rate": PercentageInput(decimal_places=2),
+            "tax_rate": PercentageInput(decimal_places=2),
+            "profit_margin": PercentageInput(decimal_places=2),
+            "commission_rate": PercentageInput(max_percent=10, decimal_places=2),
+            "risk_coefficient": DecimalInput(min_value=1.0, max_value=1.5, decimal_places=2),
             "parts_purchase_cap": MoneyInput(),
             "freight_cost": MoneyInput(),
             "third_party_service_cap": MoneyInput(),
             # Readonly widgets
-            "total_value": MoneyInput(attrs={"readonly": True, "disabled": True}),
-            "total_monthly_costs": MoneyInput(attrs={"readonly": True, "disabled": True}),
-            "profit_target": MoneyInput(attrs={"readonly": True, "disabled": True}),
-            "gross_revenue_target": MoneyInput(attrs={"readonly": True, "disabled": True}),
-            "profitability_multiplier": TextInput(attrs={"readonly": True, "disabled": True}),
+            "total_value": MoneyInput(attrs={"readonly": True}),
+            "total_monthly_costs": MoneyInput(attrs={"readonly": True}),
+            "profit_target": MoneyInput(attrs={"readonly": True}),
+            "gross_revenue_target": MoneyInput(attrs={"readonly": True}),
+            "profitability_multiplier": DecimalInput(decimal_places=2, attrs={"readonly": True}),
         }
 
     def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
@@ -107,44 +107,56 @@ class WorkshopCostForm(forms.ModelForm):
 
     def get_layout(self):
         cancel_url = reverse("workshops:workshop_cost_list")
+        calculate_url = reverse("workshops:workshop_cost_calculate")
 
         # Gera os campos dinâmicos de custo para o Layout
         cost_fields_layout = [Field(name, wrapper_class="col-span-12 lg:col-span-3") for name in self.cost_fields_names]
 
         return Layout(
             Div(
-                # --- SEÇÃO 1: Referência ---
-                HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Mês de Referência</h3>'),
-                Field("month", wrapper_class="col-span-12 lg:col-span-6"),
-                Field("year", wrapper_class="col-span-12 lg:col-span-6"),
-                HTML('<div class="col-span-12 divider my-2"></div>'),
-                # --- SEÇÃO 2: Mecânicos ---
-                HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Mecânicos Produtivos</h3>'),
-                Field("mechanic_quantity", wrapper_class="col-span-12 lg:col-span-4"),
-                Field("work_hours_per_day", wrapper_class="col-span-12 lg:col-span-4"),
-                Field("work_days_per_month", wrapper_class="col-span-12 lg:col-span-4"),
-                Field("productivity_average", wrapper_class="col-span-12 lg:col-span-12"),
-                HTML('<div class="col-span-12 divider my-2"></div>'),
-                # --- SEÇÃO 3: Custos Mensais (Dinâmico) ---
-                HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Custos Mensais</h3>'),
+                # Envoltório com HTMX Trigger. Qualquer mudança (change) ou digitação (keyup) nestes campos dispara o recálculo.
                 Div(
-                    *cost_fields_layout,
-                    css_class="contents",  # Permite que os filhos obedeçam ao Grid pai
+                    # --- SEÇÃO 1: Referência ---
+                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Mês de Referência</h3>'),
+                    Field("month", wrapper_class="col-span-12 lg:col-span-6"),
+                    Field("year", wrapper_class="col-span-12 lg:col-span-6"),
+                    HTML('<div class="col-span-12 divider my-2"></div>'),
+                    # --- SEÇÃO 2: Mecânicos ---
+                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Mecânicos Produtivos</h3>'),
+                    Field("mechanic_quantity", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("work_hours_per_day", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("work_days_per_month", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("productivity_average", wrapper_class="col-span-12 lg:col-span-12"),
+                    HTML('<div class="col-span-12 divider my-2"></div>'),
+                    # --- SEÇÃO 3: Custos Mensais (Dinâmico) ---
+                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Custos Mensais</h3>'),
+                    Div(
+                        *cost_fields_layout,
+                        css_class="contents",  # Permite que os filhos obedeçam ao Grid pai
+                    ),
+                    HTML('<div class="col-span-12 divider my-2"></div>'),
+                    # --- SEÇÃO 4: Taxas e Impostos ---
+                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Taxas e Impostos</h3>'),
+                    Field("card_rate", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("tax_rate", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("profit_margin", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("commission_rate", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("risk_coefficient", wrapper_class="col-span-12 lg:col-span-12"),
+                    HTML('<div class="col-span-12 divider my-2"></div>'),
+                    # --- SEÇÃO 5: Metas e Indicadores ---
+                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Metas e Indicadores</h3>'),
+                    Field("parts_purchase_cap", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("freight_cost", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("third_party_service_cap", wrapper_class="col-span-12 lg:col-span-4"),
+                    
+                    # Atributos HTMX no container de inputs
+                    # hx-include="closest form": Garante que todos os dados do form sejam enviados
+                    hx_post=calculate_url,
+                    hx_trigger="input delay:100ms, change delay:100ms",
+                    hx_target="#calculation-results",
+                    hx_include="closest form",
+                    css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start col-span-12"
                 ),
-                HTML('<div class="col-span-12 divider my-2"></div>'),
-                # --- SEÇÃO 4: Taxas e Impostos ---
-                HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Taxas e Impostos</h3>'),
-                Field("card_rate", wrapper_class="col-span-12 lg:col-span-3"),
-                Field("tax_rate", wrapper_class="col-span-12 lg:col-span-3"),
-                Field("profit_margin", wrapper_class="col-span-12 lg:col-span-3"),
-                Field("commission_rate", wrapper_class="col-span-12 lg:col-span-3"),
-                Field("risk_coefficient", wrapper_class="col-span-12 lg:col-span-12"),
-                HTML('<div class="col-span-12 divider my-2"></div>'),
-                # --- SEÇÃO 5: Metas e Indicadores ---
-                HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Metas e Indicadores</h3>'),
-                Field("parts_purchase_cap", wrapper_class="col-span-12 lg:col-span-4"),
-                Field("freight_cost", wrapper_class="col-span-12 lg:col-span-4"),
-                Field("third_party_service_cap", wrapper_class="col-span-12 lg:col-span-4"),
                 # Campos calculados (Desabilitados visualmente)
                 Div(
                     HTML('<div class="col-span-12 mb-4"><span class="badge badge-neutral">Cálculos Automáticos</span></div>'),
@@ -153,10 +165,12 @@ class WorkshopCostForm(forms.ModelForm):
                     Field("profit_target", wrapper_class="col-span-12 lg:col-span-6"),
                     Field("gross_revenue_target", wrapper_class="col-span-12 lg:col-span-6"),
                     Field("profitability_multiplier", wrapper_class="col-span-12 lg:col-span-6"),
+                    css_id="calculation-results",
                     css_class="col-span-12 bg-base-300 p-6 rounded-box grid grid-cols-1 lg:grid-cols-12 gap-4 items-start mt-4",
                 ),
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
             ),
+
             HTML('<div class="divider"></div>'),
             Div(
                 HTML(f'<a href="{cancel_url}" class="btn-form-cancel">Cancelar</a>'),

@@ -2,7 +2,7 @@ services:
   postgres:
     image: postgres:latest
     volumes:
-      - postgres_data:/var/lib/postgresql/data # Persistência dos dados
+      - postgres_data:/var/lib/postgresql # Persistência dos dados
     environment:
       - POSTGRES_DB=meu_crm
       - POSTGRES_USER=usuario_crm

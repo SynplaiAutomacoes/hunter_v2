@@ -26,3 +26,14 @@ class TableActionDefaults:
             hx_push_url="false",
             **overrides,
         )
+
+    @staticmethod
+    def view(url_name: str, **overrides) -> TableAction:
+        return TableAction(
+            url_name=url_name,
+            label="Visualizar",
+            icon="visibility",
+            a_class="btn-table-view",
+            aria_label="Visualizar registro",
+            **overrides,
+        )

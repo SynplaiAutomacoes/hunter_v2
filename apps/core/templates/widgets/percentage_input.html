@@ -1,7 +1,12 @@
 {% load l10n %}
 {% with raw=widget.value|default_if_none:"" %}
 <div
-    x-data="formatters.widget.percentageInput('{{ raw|unlocalize|escapejs }}', '{{ widget.min_percent|default:0|unlocalize|escapejs }}', '{{ widget.max_percent|default:100|unlocalize|escapejs }}')"
+    x-data="formatters.widget.percentageInput(
+        '{{ raw|unlocalize|escapejs }}', 
+        '{{ widget.min_percent|default:0|unlocalize|escapejs }}', 
+        '{{ widget.max_percent|default:100|unlocalize|escapejs }}',
+        '{{ widget.decimal_places|default:2 }}'
+    )"
     x-init="init()"
     class="relative"
 >
@@ -18,7 +23,7 @@
         @blur="handleBlur"
         inputmode="decimal"
         autocomplete="off"
-        placeholder="0.00"
+        placeholder="0,00"
         class="input-theme pl-8 pr-2 {{ widget.attrs.class }}"
         {% if widget.attrs.required %}required{% endif %}
         {% if widget.attrs.disabled %}disabled{% endif %}
