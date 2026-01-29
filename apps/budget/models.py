@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from django.db import models
+from django.db import models, transaction
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.conf import settings
 from django.db.models import Sum, F, DurationField
@@ -11,6 +11,8 @@ from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.core.models import TimeStampedModel
 from djmoney.models.fields import MoneyField
+
+from apps.workorder.models import WorkOrder
 
 
 class BudgetStatus(models.TextChoices):
@@ -71,6 +73,24 @@ class Budget(TimeStampedModel):
     status = models.CharField(verbose_name="Status", max_length=20, choices=BudgetStatus.choices, default=BudgetStatus.DRAFT)
     cancellation_reason = models.CharField(verbose_name="Motivo do Cancelamento", max_length=255, blank=True, null=True)
     current_step = models.PositiveSmallIntegerField(verbose_name="Etapa Atual", default=1)
+
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+
+        old_status = None
+        if not is_new:
+            old_status = Budget.objects.filter(pk=self.pk).values_list("status", flat=True).first()
+
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+
+            if old_status != BudgetStatus.APPROVED and self.status == BudgetStatus.APPROVED:
+                WorkOrder.objects.get_or_create(
+                    budget=self,
+                    defaults={"workshop": self.workshop},
+                )
+
+        super().save(*args, **kwargs)
 
     class Meta:
         verbose_name = "Orçamento"

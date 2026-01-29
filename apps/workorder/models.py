@@ -1,3 +1,58 @@
 from django.db import models
+from django.db.models import PositiveIntegerField
+from djmoney.models.fields import MoneyField
+from djmoney.money import Money
 
-# Create your models here.
+from apps.core.models import TimeStampedModel
+
+
+class WorkOrder(TimeStampedModel):
+    workshop = models.ForeignKey( "workshops.Workshop", on_delete=models.CASCADE, related_name="workorders")
+    budget = models.ForeignKey("budget.Budget", on_delete=models.CASCADE, related_name="workorders", help_text="Orçamento Aprovado vinculado à esta O.S.")
+
+    class Meta:
+        verbose_name = "Ordem de Serviço"
+        verbose_name_plural = "Ordens de Serviço"
+
+    def __str__(self):
+        return f"OS #{self.id}"
+
+
+class WorkOrderPaymentMethod(TimeStampedModel):
+    PAYMENT_METHOD_CHOICES = (
+        ("CREDITO", "Cartão de Crédito"),
+        ("DEBITO", "Cartão de Débito"),
+        ("PIX", "Pix"),
+        ("DINHEIRO", "Dinheiro"),
+        ("BOLETO", "Boleto"),
+    )
+
+    workorder = models.ForeignKey(WorkOrder, on_delete=models.CASCADE, related_name="payments")
+    payment_method = models.CharField(verbose_name="Forma de Pagamento", choices=PAYMENT_METHOD_CHOICES, max_length=20)
+    installments_count = PositiveIntegerField(verbose_name="Número de Parcelas", default=1)
+    first_installment_amount = MoneyField(verbose_name="Valor da Primeira Parcela", max_digits=14, decimal_places=2, default=0.00)
+    remaining_installments_amount = MoneyField(verbose_name="Valor das Parcelas Restantes", max_digits=14, decimal_places=2, default=0.00)
+
+    class Meta:
+        verbose_name = "Plano de Pagamento"
+        verbose_name_plural = "Planos de Pagamento"
+
+    @property
+    def total_paid(self) -> Money:
+        return Money(self.first_installment_amount.amount + ((self.installments_count-1) * self.remaining_installments_amount.amount), 'BRL')
+
+    def __str__(self):
+        return f"Plano de Pagamento #{self.id} - {self.payment_method}"
+
+
+class WorkOrderAttachment(TimeStampedModel):
+    workorder = models.ForeignKey(WorkOrder, on_delete=models.CASCADE, related_name="attachments")
+    file = models.FileField(upload_to="workorders/attachments/")
+    description = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        verbose_name = "Imagem da OS"
+        verbose_name_plural = "Imagens da OS"
+
+    def __str__(self):
+        return f"Image #{self.id} from Work Order : {self.workorder}"

@@ -1,0 +1,43 @@
+{% extends 'crud/page.html' %}
+{% load crispy_forms_tags %}
+
+{% block crud_content %}
+<div class="p-6 space-y-6">
+    <div class="items-center">
+        <h2 class="text-3xl font-bold text-base-content">Ordem de Serviço N°: {{ workorder.id }}</h2>
+        <p class="text-lg-content/70 mt-1">Status: <span class="uppercase font-bold budget budget-primary text-success">{{ workorder.budget.get_status_display }}</span></p>
+    </div>
+
+    <div role="tablist" class="tabs tabs-lifted w-full mt-8">
+
+        <input type="radio" name="workorder_tabs" role="tab" class="tab text-lg font-semibold" aria-label="Resumo" checked />
+        <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6 shadow-sm">
+            <div id="resume-section">
+                {% include 'workorder/partials/resume_section.html' %}
+            </div>
+        </div>
+
+        <input type="radio" name="workorder_tabs" role="tab" class="tab text-lg font-semibold" aria-label="Condição de Pagamento" />
+        <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6 shadow-sm">
+            <div id="payment-section">
+                {% include 'workorder/partials/payment_section.html' %}
+            </div>
+        </div>
+
+        <input type="radio" name="workorder_tabs" role="tab" class="tab text-lg font-semibold" aria-label="Aprovação do Cliente" />
+        <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6 shadow-sm">
+            <div id="customer-approvement-section">
+                {% include 'workorder/partials/customer_approvement_section.html' %}
+            </div>
+        </div>
+
+        <input type="radio" name="workorder_tabs" role="tab" class="tab text-lg font-semibold" aria-label="Histórico do Veículo" />
+        <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6 shadow-sm">
+            <div id="vehicle-history-section">
+                {% include 'workorder/partials/vehicle_history_section.html' %}
+            </div>
+        </div>
+
+    </div>
+</div>
+{% endblock %}
