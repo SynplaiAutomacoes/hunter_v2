@@ -7,6 +7,6 @@ app_name = "workorder"
 urlpatterns = [
     path("", views.WorkOrderListView.as_view(), name="workorder_list"),
     path("<int:pk>/", views.WorkOrderDetailView.as_view(), name="workorder_detail"),
-    path("add_payment/<int:pk>/", views.add_payment_method, name="add_payment"),
-    path("delete_payment/<int:pk>/", views.delete_payment_method, name="delete_payment"),
+    path("add_payment/<int:pk>/", views.AddPaymentMethodView.as_view(), name="add_payment"),
+    path("delete_payment/<int:pk>/", views.DeletePaymentMethodView.as_view(), name="delete_payment"),
 ]

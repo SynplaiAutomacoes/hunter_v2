@@ -1,5 +1,6 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.shortcuts import get_object_or_404, render
+from django.views import View
 from django.views.decorators.http import require_POST, require_http_methods
 from django.views.generic import ListView, DetailView
 
@@ -52,32 +53,30 @@ class WorkOrderDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
         return kwargs
 
 
-@require_POST
-def add_payment_method(request, pk):
-    workshop = get_active_workshop_or_404(request)
-    workorder = get_object_or_404(WorkOrder, pk=pk, workshop=workshop)
-    form = WorkOrderPaymentForm(request.POST, workorder=workorder)
+class AddPaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    def post(self, request, pk):
+        workorder = get_object_or_404(WorkOrder, pk=pk, workshop=self.workshop)
+        form = WorkOrderPaymentForm(request.POST, workorder=workorder)
 
-    if form.is_valid():
-        payment = form.save(commit=False)
-        payment.workorder = workorder
-        payment.save()
+        if form.is_valid():
+            payment = form.save(commit=False)
+            payment.workorder = workorder
+            payment.save()
 
-    context = {
-        "workorder": workorder,
-        "payment_form": WorkOrderPaymentForm(workorder=workorder),
-    }
-    return render(request, "workorder/partials/payment_section.html", context)
+        context = {
+            "workorder": workorder,
+            "payment_form": WorkOrderPaymentForm(workorder=workorder),
+        }
+        return render(request, "workorder/partials/payment_section.html", context)
 
 
-@require_http_methods(["DELETE"])
-def delete_payment_method(request, pk):
-    workshop = get_active_workshop_or_404(request)
-    payment = get_object_or_404(WorkOrderPaymentMethod, pk=pk, workorder__workshop=workshop)
-    workorder = payment.workorder
+class DeletePaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    def delete(self, request, pk):
+        payment = get_object_or_404(WorkOrderPaymentMethod, pk=pk, workorder__workshop=self.workshop)
+        workorder = payment.workorder
 
-    payment.delete()
+        payment.delete()
 
-    context = {"workorder": workorder, "payment_form": WorkOrderPaymentForm(workorder=workorder)}
+        context = {"workorder": workorder, "payment_form": WorkOrderPaymentForm(workorder=workorder)}
 
-    return render(request, "workorder/partials/payment_section.html", context)
+        return render(request, "workorder/partials/payment_section.html", context)
