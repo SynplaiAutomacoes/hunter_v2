@@ -1,16 +1,15 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, render
 from django.views import View
-from django.views.decorators.http import require_POST, require_http_methods
 from django.views.generic import ListView, DetailView
 
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.workorder.forms import WorkOrderPaymentForm
-from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod
+from apps.workorder.forms import WorkOrderPaymentForm, WorkOrderAttachmentForm
+from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderAttachment
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.core.views import HtmxTemplateResponseMixin
-from ..workshops.util.workshops import get_active_workshop_or_404
 
 
 class WorkOrderListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
@@ -45,6 +44,7 @@ class WorkOrderDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["payment_form"] = WorkOrderPaymentForm(workorder=self.object)
+        context["attachment_form"] = WorkOrderAttachmentForm(instance=self.object.attachments.last(), workorder=self.object)
         return context
 
     def get_form_kwargs(self):
@@ -54,6 +54,9 @@ class WorkOrderDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
 
 
 class AddPaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkOrderPaymentMethod
+    workshop_permission_codename = "add_workorderpaymentmethod"
+
     def post(self, request, pk):
         workorder = get_object_or_404(WorkOrder, pk=pk, workshop=self.workshop)
         form = WorkOrderPaymentForm(request.POST, workorder=workorder)
@@ -71,6 +74,9 @@ class AddPaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
 
 class DeletePaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkOrderPaymentMethod
+    workshop_permission_codename = "delete_workorderpaymentmethod"
+
     def delete(self, request, pk):
         payment = get_object_or_404(WorkOrderPaymentMethod, pk=pk, workorder__workshop=self.workshop)
         workorder = payment.workorder
