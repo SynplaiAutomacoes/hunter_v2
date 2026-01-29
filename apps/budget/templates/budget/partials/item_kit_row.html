@@ -3,6 +3,7 @@
     <td class="text-center">{{ item.quantity }}</td>
     <td class="text-center">{{ item.kit.products.count }}</td>
     <td class="text-center">{{ item.kit.services.count }}</td>
+    {% if not step6 %}
     <td class="text-center">
         <button
             type="button"
@@ -14,4 +15,5 @@
             <span class="material-icons text-sm">delete</span>
         </button>
     </td>
+    {% endif %}
 </tr>

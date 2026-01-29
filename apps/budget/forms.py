@@ -742,6 +742,7 @@ class BudgetStep5Form(forms.ModelForm):
         valor_venda_mao_obra = Money(0, 'BRL')
 
         # Extra
+        metodo_precificacao = "{nome}"
         duracao_total = budget.total_duration_display
         lucro_operacional = Money(0, 'BRL')
         mlr = "0,00"
@@ -842,12 +843,12 @@ class BudgetStep5Form(forms.ModelForm):
                 # Coluna Esquerda
                 Div(
                     Div(
-                        HTML('<h3 class="text-3xl font-bold mb-2 border-b-3 border-[#007bff] text-center">Método {nome}</h3>'),
+                        HTML(f'<h3 class="text-3xl font-bold mb-2 border-b-3 border-[#007bff] text-[#222a2c] text-center">Método {metodo_precificacao}</h3>'),
                         Div(
                             # Grid de Custos vs Vendas
                             Div(
                                 HTML(f"""
-                                    <div class="grid grid-cols-1 md:grid-cols-2 mt-7 gap-x-6 gap-y-2 text-base font-semibold">
+                                    <div class="grid grid-cols-1 md:grid-cols-2 mt-7 gap-x-6 gap-y-2 text-base text-[#222a2c] font-semibold">
                                         <div class="grid grid-cols-12 border bg-white overflow-hidden">
                                             <span class="col-span-8 p-2 bg-gray-50">Custo de Peças</span>
                                             <span class="col-span-4 p-2 border-l text-left">{custo_pecas}</span>
@@ -900,7 +901,7 @@ class BudgetStep5Form(forms.ModelForm):
                             css_class="h-full",
                         ),
                         Div(
-                            HTML(f"""<div class="text-center mt-6">
+                            HTML(f"""<div class="text-center text-[#222a2c] mt-6">
                                     <p class="text-2xl font-bold">Valor do Orçamento</p>
                                     <p class="text-3xl font-black">{budget.total_base_value}</p>
                                 </div>""")
@@ -958,6 +959,146 @@ class BudgetStep6Form(forms.ModelForm):
         self.request = kwargs.pop("request", None)
         super().__init__(*args, **kwargs)
 
+        budget = self.instance
+
+        products_html = ""
+        services_html = ""
+        kits_html = ""
+
+        if budget.pk:
+            items = budget.items.all()
+            for item in items:
+                context = {"item": item, "budget": budget, "is_full_render": True, "step6": True}
+                if item.product:
+                    products_html += render_to_string("budget/partials/item_product_row.html", context)
+                if item.service:
+                    services_html += render_to_string("budget/partials/item_service_row.html", context)
+                if item.kit:
+                    kits_html += render_to_string("budget/partials/item_kit_row.html", context)
+
+        if not products_html: products_html = '<tr><td colspan="5" class="text-center text-gray-400 py-4">Nenhum produto adicionado</td></tr>'
+        if not services_html: services_html = '<tr><td colspan="5" class="text-center text-gray-400 py-4">Nenhum serviço adicionado</td></tr>'
+        if not kits_html: kits_html = '<tr><td colspan="4" class="text-center text-gray-400 py-4">Nenhum kit adicionado</td></tr>'
+
         self.helper = FormHelper()
         self.helper.form_tag = False
-        self.helper.layout = Layout()
+        self.helper.layout = Layout(
+            Div(
+                HTML('<h3 class="text-2xl font-bold col-span-12">Revisão e Confirmação</h3>'),
+                # Coluna Esquerda
+                Div(
+                    HTML('<div class="border-t-2 mb-4 mt-0"></div>'),
+                    HTML('<h2 class="text-lg font-semibold mb-6">Revise os dados e confirme o orçamento</h2>'),
+                    # Seção de Produtos
+                    Div(
+                        Div(
+                            HTML('<h3 class="text-xl font-semibold text-gray-700">Peças Selecionadas</h3>'),
+                            css_class="flex justify-between items-center mb-4",
+                        ),
+                        Div(
+                            HTML(f"""<table class="table table-zebra w-full">
+                                                    <thead class="text-white bg-primary">
+                                                        <tr>
+                                                            <th>NOME</th>
+                                                            <th class="text-center">QTD.</th>
+                                                            <th>VALOR VENDA</th>
+                                                            <th>FRETE</th>
+                                                            <th>TOTAL</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody id="product-list-body">
+                                                        {products_html}
+                                                    </tbody>
+                                                </table>"""),
+                            css_class="overflow-x-auto mb-8 rounded-lg shadow-md shadow-gray-300/50",
+                        ),
+                        css_class="mb-10",
+                    ),
+                    # Seção de Serviços
+                    Div(
+                        Div(
+                            HTML('<h3 class="text-xl font-semibold text-gray-700">Serviços Selecionados</h3>'),
+                            css_class="flex justify-between items-center mb-4",
+                        ),
+                        Div(
+                            HTML(f"""<table class="table table-zebra w-full">
+                                                    <thead class="text-white bg-primary">
+                                                        <tr>
+                                                            <th>NOME</th>
+                                                            <th class="text-center">QTD.</th>
+                                                            <th>VALOR VENDA</th>
+                                                            <th>TEMPO</th>
+                                                            <th>TOTAL</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody id="service-list-body">
+                                                        {services_html}
+                                                    </tbody>
+                                                </table>"""),
+                            css_class="overflow-x-auto mb-8 rounded-lg shadow-md shadow-gray-300/50",
+                        ),
+                        css_class="mb-10",
+                    ),
+                    # Seção de Kits
+                    Div(
+                        Div(
+                            HTML('<h3 class="text-xl font-semibold text-gray-700">Kits Selecionados</h3>'),
+                            css_class="flex justify-between items-center mb-4",
+                        ),
+                        Div(
+                            HTML(f"""<table class="table table-compact w-full">
+                                                    <thead class="text-white bg-primary">
+                                                        <tr>
+                                                            <th>NOME</th>
+                                                            <th class="text-center">QTD.</th>
+                                                            <th class="text-center">PRODUTOS</th>
+                                                            <th class="text-center">SERVIÇOS</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody id="kit-list-body">
+                                                        {kits_html}
+                                                    </tbody>
+                                                </table>"""),
+                            css_class="overflow-x-auto mb-4 rounded-lg shadow-md shadow-gray-300/50",
+                        ),
+                        css_class="mb-6",
+                    ),
+                    css_class="col-span-12 lg:col-span-5",
+                ),
+                #
+                Div(css_class="hidden lg:block lg:col-span-1"),
+                #
+                # Coluna Direita
+                Div(
+                    Div(
+                        # PDF
+                        Div(
+                            HTML('<h4 class="font-bold text-lg mb-2 border-b-1 border-gray-300">PDF</h4>'),
+                            # Button "emoji-papel Visualizar PDF"
+                            # Button "emoji-papel Visualizar PDF Gestor"
+                            # Button "emoji-papel Visualizar PDF Mecânico"
+                            # Button "emoji-aviao-papel Enviar orçamento para aprovação"
+                            css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
+                        ),
+                        # Observação
+                        Div(
+                            HTML('<h4 class="font-bold text-lg mb-2 border-b-1 border-gray-300">Observação</h4>'),
+                            # field TextArea
+                            # caracteres-escritos/500 Button "Salvar observação"
+                            css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
+                        ),
+                        # Aprovação
+                        Div(
+                            HTML('<h4 class="font-bold text-lg mb-2 border-b-1 border-gray-300">Aprovação</h4>'),
+                            # Button "emoji-x Cancelar Orçamento"
+                            # Button "emoji-correto Aprovar Orçamento"
+                            # Button "emoji-fechado Reprovar Orçamento"
+                            css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
+                        ),
+                        css_class="sticky top-4",
+                    ),
+                    css_class="col-span-12 lg:col-span-6",
+                ),
+                css_class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch",
+            ),
+        )
