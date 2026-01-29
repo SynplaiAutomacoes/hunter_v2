@@ -1,10 +1,11 @@
 from django import forms
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, Submit, HTML
+from django.urls import reverse
 from djmoney.money import Money
 
-from apps.core.widgets import SelectInput, NumberInput, MoneyInput
-from apps.workorder.models import WorkOrderPaymentMethod
+from apps.core.widgets import SelectInput, NumberInput, MoneyInput, ImageInput, TextInput
+from apps.workorder.models import WorkOrderPaymentMethod, WorkOrderAttachment
 
 
 class WorkOrderPaymentForm(forms.ModelForm):
@@ -69,3 +70,78 @@ class WorkOrderPaymentForm(forms.ModelForm):
                 css_class="flex justify-end mt-4"
             ),
         )
+
+
+class WorkOrderAttachmentForm(forms.ModelForm):
+    file_upload = forms.FileField(
+        required=False,
+        widget=forms.FileInput(
+            attrs={
+                "class": "hidden",
+                "id": "file-upload-input",
+                "hx-post": "",
+                "hx-trigger": "change",
+                "hx-target": "#customer-section-container",
+                "hx-encoding": "multipart/form-data",
+            }
+        ),
+    )
+
+    class Meta:
+        model = WorkOrderAttachment
+        fields = []
+
+    def __init__(self, *args, **kwargs):
+        self.workorder = kwargs.pop("workorder", None)
+        super().__init__(*args, **kwargs)
+
+        self.fields['file_upload'].label = False
+
+        if self.workorder:
+            upload_url = reverse("workorder:upload_attachment", args=[self.workorder.pk])
+            self.fields["file_upload"].widget.attrs["hx-post"] = upload_url
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+
+        layout_elements = []
+
+        if self.instance and self.instance.pk:
+            layout_elements.append(
+                Div(
+                    Div(
+                        #
+                        HTML('<div class="mr-4"><i class="material-icons text-3xl">description</i></div>'),
+                        #
+                        Div(
+                            HTML(f'<p class="font-boldleading-tight">{self.instance.content_name}</p>'),
+                            HTML(f'<p class="text-xs">{self.instance.criado_em.strftime("%d/%m/%Y %H:%M")}</p>'),
+                            css_class="flex-grow"
+                        ),
+                        #
+                        Div(
+                            HTML(f'<a href="{reverse("workorder:view_attachment", args=[self.instance.pk])}" target="_blank" class="btn btn-outline flex items-center mr-4 font-medium"><i class="material-icons text-base mr-1">visibility</i> Abrir</a>'),
+                            HTML(f'<button hx-delete="{reverse("workorder:delete_attachment", args=[self.instance.pk])}" hx-target="#customer-section-container" hx-confirm="Tem certeza que deseja remover este anexo?" class="flex items-center btn btn-outline text-red-600 hover:text-red-800 font-medium"><i class="material-icons text-base mr-1">delete</i> Excluir</button>'),
+                            css_class="flex items-center",
+                        ),
+                        css_class="flex items-center p-4 border rounded-lg shadow-sm mb-4",
+                    ),
+                    css_class="col-span-12",
+                )
+            )
+
+        layout_elements.append(Div(
+                    HTML("""
+                        <label for="file-upload-input" class="flex flex-col items-center justify-center w-full h-48 border-2 border-gray-500 border-dashed rounded-lg cursor-pointer bg-transparent">
+                            <div class="flex flex-col items-center justify-center pt-5 pb-6">
+                                <i class="fas fa-cloud-upload-alt text-4xl text-gray-500 mb-3"></i>
+                                <p class="mb-2 text-sm text-gray-700 font-semibold">Clique para enviar ou arraste e solte</p>
+                                <p class="text-xs text-gray-500 uppercase font-medium">PDF, PNG, JPG (MÁX. 10MB)</p>
+                            </div>
+                        </label>
+                    """),
+                    Field("file_upload"),
+                    css_class="col-span-12"
+                ))
+
+        self.helper.layout = Layout(*layout_elements)

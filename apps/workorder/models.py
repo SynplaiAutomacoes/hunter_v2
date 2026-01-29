@@ -47,8 +47,9 @@ class WorkOrderPaymentMethod(TimeStampedModel):
 
 class WorkOrderAttachment(TimeStampedModel):
     workorder = models.ForeignKey(WorkOrder, on_delete=models.CASCADE, related_name="attachments")
-    file = models.FileField(upload_to="workorders/attachments/")
-    description = models.CharField(max_length=255, blank=True)
+    content = models.BinaryField(null=True, blank=True)
+    content_name = models.CharField(max_length=100, null=True, blank=True)
+    content_type = models.CharField(max_length=100, null=True, blank=True)
 
     class Meta:
         verbose_name = "Imagem da OS"

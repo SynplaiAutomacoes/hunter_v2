@@ -86,3 +86,44 @@ class DeletePaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
         context = {"workorder": workorder, "payment_form": WorkOrderPaymentForm(workorder=workorder)}
 
         return render(request, "workorder/partials/payment_section.html", context)
+
+
+class UploadAttachmentView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkOrderAttachment
+    workshop_permission_codename = "add_workorderattachment"
+
+    def post(self, request, pk):
+        workorder = get_object_or_404(WorkOrder, pk=pk, workshop=self.workshop)
+        file = request.FILES.get("file_upload")
+
+        if file:
+            WorkOrderAttachment.objects.create(workorder=workorder, content=file.read(), content_name=file.name, content_type=file.content_type)
+
+        context = {
+            "workorder": workorder,
+            "attachment_form": WorkOrderAttachmentForm(workorder=workorder),
+        }
+
+        return render(request, "workorder/partials/customer_approvement_section.html", context)
+
+
+class ViewAttachmentView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkOrderAttachment
+    workshop_permission_codename = "view_workorderattachment"
+
+    def get(self, request, pk):
+        attachment = get_object_or_404(WorkOrderAttachment, pk=pk, workorder__workshop=self.workshop)
+        return HttpResponse(attachment.content, content_type=attachment.content_type)
+
+
+class DeleteAttachmentView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkOrderAttachment
+    workshop_permission_codename = "delete_workorderattachment"
+
+    def delete(self, request, pk):
+        attachment = get_object_or_404(WorkOrderAttachment, pk=pk, workorder__workshop=self.workshop)
+        workorder = attachment.workorder
+        attachment.delete()
+
+        context = {"workorder": workorder, "attachment_form": WorkOrderAttachmentForm()}
+        return render(request, "workorder/partials/customer_approvement_section.html", context)
