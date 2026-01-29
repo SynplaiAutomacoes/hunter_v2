@@ -100,29 +100,36 @@ class CustomerForm(AddressFormMixin, forms.ModelForm):
 
         self.helper.layout = Layout(
             Div(
-                HTML('<div x-data="{ tipo: \'PF\' }" class="col-span-12 grid grid-cols-1 lg:grid-cols-12 gap-4">'),
                 HTML("""
-                    <div class="col-span-12 mb-4">    
-                        <div class="flex items-center gap-2">
-                            <label class="flex items-center gap-2 cursor-pointer">
-                                <input type="checkbox" 
-                                    class="checkbox checkbox-primary"
-                                    :checked="tipo === 'PF'"
-                                    @change="tipo = 'PF'">
-                                <span class="font-medium">Pessoa Física</span>
-                            </label>
+                    <div
+                        x-data="{ tipo: $el.dataset.tipo || 'PF' }"
+                        data-tipo="{{ form.initial.customer_type|default_if_none:'PF' }}"
+                        class="col-span-12 grid grid-cols-1 lg:grid-cols-12 gap-4"
+                    >
+                """),
 
-                            <label class="flex items-center gap-2 cursor-pointer">
-                                <input type="checkbox"
-                                    class="checkbox checkbox-primary"
-                                    :checked="tipo === 'PJ'"
-                                    @change="tipo = 'PJ'">
-                                <span class="font-medium">Pessoa Jurídica</span>
-                            </label>
-                        </div>
-                        
-                        <input type="hidden" name="customer_type" :value="tipo">
-                    </div>
+                HTML("""
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input
+                            type="radio"
+                            class="radio radio-primary"
+                            value="PF"
+                            x-model="tipo"
+                        >
+                        <span class="font-medium">Pessoa Física</span>
+                    </label>
+    
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input
+                            type="radio"
+                            class="radio radio-primary"
+                            value="PJ"
+                            x-model="tipo"
+                        >
+                        <span class="font-medium">Pessoa Jurídica</span>
+                    </label>
+    
+                    <input type="hidden" name="customer_type" :value="tipo">
                 """),
 
                 HTML('<h3 class="text-xl font-bold col-span-12">Dados Gerais</h3>'),
