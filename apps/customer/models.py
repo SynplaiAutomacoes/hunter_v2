@@ -10,26 +10,57 @@ class Customer(TimeStampedModel, Address):
     workshop = models.ForeignKey(
         "workshops.Workshop", on_delete=models.CASCADE, related_name="customers"
     )
+
+    customer_type = models.CharField(
+        max_length=2,
+        choices=[
+            ("PF", "Pessoa Física"),
+            ("PJ", "Pessoa Jurídica"),
+        ],
+        default="PF"
+    )
+
+    # CAMPOS COMUNS
     name = models.CharField(verbose_name="Nome", max_length=255, null=False, blank=False)
-    cpf = BRCPFField(verbose_name="CPF", null=False, blank=False)
-    # TODO: Create specific field for RG
-    rg = models.CharField(verbose_name="RG", max_length=9, blank=True, null=True)
-    birth_date = models.DateField(verbose_name="Data de Nascimento", null=False, blank=False)
-    sex = models.CharField(verbose_name="Sexo", max_length=1, choices=SEX_CHOICES, blank=True, null=True)
+    cpf_or_cnpj = models.CharField(verbose_name="CPF/CNPJ", max_length=18, null=False, blank=False)
     phone = PhoneNumberField(verbose_name="Telefone", blank=True)
     email = models.EmailField(verbose_name="Email", blank=True, null=True)
     is_active = models.BooleanField(verbose_name="Ativo", default=True)
 
+    # CAMPOS PESSOA FISICA
+    rg = models.CharField(verbose_name="RG", max_length=9, blank=True, null=True)
+    birth_date = models.DateField(verbose_name="Data de Nascimento", null=True, blank=True)
+    sex = models.CharField(verbose_name="Sexo", max_length=1, choices=SEX_CHOICES, blank=True, null=True)
+
+    # CAMPOS PESSOA JURÍDICA
+    fantasy_name = models.CharField(verbose_name="Nome Fantasia", max_length=255, blank=True, null=True)
+    state_registration = models.CharField(verbose_name="Inscrição Estadual", max_length=255, blank=True, null=True)
+    municipal_registration = models.CharField(verbose_name="Inscrição Municipal", max_length=255, blank=True, null=True)
+    foundation_date = models.DateField(verbose_name="Data de Fundação", blank=True, null=True)
+
     @property
     def full_address(self) -> str:
         return f"{self.logradouro}, {self.numero} - {self.cidade}/{self.estado}"
+
+    @property
+    def cpf_or_cnpj_formatted(self):
+        value = ''.join(filter(str.isdigit, self.cpf_or_cnpj))
+
+        if len(value) == 11:  # CPF
+            return f"{value[:3]}.{value[3:6]}.{value[6:9]}-{value[9:]}"
+        elif len(value) == 14:  # CNPJ
+            return f"{value[:2]}.{value[2:5]}.{value[5:8]}/{value[8:12]}-{value[12:]}"
+        return self.cpf_or_cnpj
+      
+    def vehicles_count(self) -> str:
+        return str(self.vehicles.count())
 
     class Meta:
         verbose_name = "Cliente"
         verbose_name_plural = "Clientes"
         constraints = [
             models.UniqueConstraint(
-                fields=("workshop", "cpf"), name="unique_customer_cpf_per_workshop"
+                fields=("workshop", "cpf_or_cnpj"), name="unique_customer_document_per_workshop"
             )
         ]
 

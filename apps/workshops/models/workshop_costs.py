@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
+from babel.numbers import format_currency
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
@@ -56,7 +57,7 @@ class WorkshopCost(TimeStampedModel):
     productivity_average = models.DecimalField(
         verbose_name="Produtividade Média",
         max_digits=5,
-        decimal_places=2,
+        decimal_places=4,
         default=0.60,
         help_text="50% a 80%",
         validators=[MinValueValidator(0.5), MaxValueValidator(0.8)],
@@ -82,7 +83,7 @@ class WorkshopCost(TimeStampedModel):
         decimal_places=2,
         default=1.00,
         validators=[MinValueValidator(1.0), MaxValueValidator(1.5)],
-        help_text="1.0 a 1.2 para veículo popular, 1.2 a 1.4 para SUVs e 1.5 para premium, está relacionado ao risco da oficina.",
+        help_text="1,00 a 1,20 para veículo popular, 1,20 a 1,40 para SUVs e 1,50 para premium, está relacionado ao risco da oficina.",
         null=True,
         blank=True,
     )
@@ -103,7 +104,7 @@ class WorkshopCost(TimeStampedModel):
     total_monthly_costs = MoneyField(verbose_name="Total Custos Mensais", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
     profit_target = MoneyField(verbose_name="Meta de Lucro", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
     gross_revenue_target = MoneyField(verbose_name="Faturamento Bruto Meta", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
-    profitability_multiplier = models.DecimalField(verbose_name="Multiplicador Lucratividade", max_digits=10, decimal_places=4, default=0, null=True, blank=True)
+    profitability_multiplier = models.DecimalField(verbose_name="Multiplicador Lucratividade", max_digits=10, decimal_places=2, default=0, null=True, blank=True)
 
     @property
     def working_hours_month(self):
@@ -137,6 +138,31 @@ class WorkshopCost(TimeStampedModel):
 
     def __str__(self):
         return f"{self.get_month_display()}/{self.year}"
+
+    @property
+    def working_hours_per_month(self) -> Decimal:
+        work_hours_per_day = self.work_hours_per_day.total_seconds() / 3600
+        productivity_per_day = self.mechanic_quantity * Decimal(work_hours_per_day) * self.productivity_average
+
+        working_hours_per_month = productivity_per_day * self.work_days_per_month
+
+        return working_hours_per_month.quantize(Decimal("0.01"), ROUND_HALF_UP)
+
+    @property
+    def minimum_hourly_cost(self) -> str:
+        minimum_hourly_cost = self.total_monthly_costs.amount / self.working_hours_per_month
+
+        return format_currency(minimum_hourly_cost, "BRL", locale="pt_BR")
+
+    @property
+    def hourly_cost_value(self) -> str:
+        total_monthly_costs = self.total_monthly_costs.amount
+        profit_margin = self.profit_margin * 100
+        working_hours_per_month = self.working_hours_per_month
+
+        hourly_cost_value = ((total_monthly_costs / 100 * profit_margin) + total_monthly_costs) / working_hours_per_month
+
+        return format_currency(hourly_cost_value, "BRL", locale="pt_BR")
 
     def _quantize_money(self, value: Money) -> Money:
         amount = value.amount.quantize(Decimal("0.01"), ROUND_HALF_UP)
@@ -180,7 +206,7 @@ class WorkshopCost(TimeStampedModel):
         
         multiplier = (gross_revenue_target.amount / total_value.amount).quantize(Decimal('0.01'), ROUND_HALF_UP)
         
-        return multiplier
+        return multiplier.normalize()
     
     def calculate_all(self):
         total_value = self.calculate_total_value()

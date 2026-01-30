@@ -177,16 +177,19 @@
             if (mode === 'hours') return hh || '';
             if (mode === 'minutes') return mm || '';
             if (!hh && !mm) return '';
-            if (hh && !mm) return hh;
+            if (hh && !mm) return hh.length >= 2 ? `${hh}:` : hh;
             return `${hh}:${mm}`;
         },
 
         normalizeForPost(hh, mm, mode = 'hours_minutes') {
-            if (mode === 'hours' && hh) return `${hh}:00:00`;
-            if (mode === 'minutes' && mm) return `00:${mm}:00`;
+            const h = (hh || '').toString();
+            const m = (mm || '').toString();
 
-            if ((hh ?? '').length !== 2 || (mm ?? '').length !== 2) return '';
-            return `${hh}:${mm}:00`;
+            if (mode === 'hours') return h ? `${h.padStart(2, '0')}:00:00` : '';
+            if (mode === 'minutes') return m ? `00:${m.padStart(2, '0')}:00` : '';
+
+            if (!h && !m) return '';
+            return `${h.padStart(2, '0')}:${m.padStart(2, '0')}:00`;
         },
 
         initFromRaw(raw, mode = 'hours_minutes') {
@@ -253,6 +256,16 @@
             const n = parseFloat(value);
             if (Number.isNaN(n)) return '';
             return n.toFixed(places);
+        },
+
+        formatPtBr(value, places = 2) {
+            if (value === '' || value === null || value === undefined) return '';
+            const n = parseFloat(value);
+            if (Number.isNaN(n)) return '';
+            return n.toLocaleString('pt-BR', {
+                minimumFractionDigits: places,
+                maximumFractionDigits: places,
+            });
         }
     };
 
@@ -309,7 +322,7 @@
             return s;
         },
         // Exibição com separador decimal "." (sem agrupamento de milhar).
-        formatDotFromDotDecimal(dotDecimal, maxFractionDigits = 2) {
+        formatDotFromDotDecimal(dotDecimal, fractionDigits = 2) {
             if (!dotDecimal && dotDecimal !== 0) return '';
             const s = (dotDecimal ?? '').toString();
             if (!s) return '';
@@ -317,19 +330,19 @@
             if (Number.isNaN(n)) return '';
             return new Intl.NumberFormat('en-US', {
                 useGrouping: false,
-                minimumFractionDigits: 0,
-                maximumFractionDigits: maxFractionDigits,
+                minimumFractionDigits: fractionDigits,
+                maximumFractionDigits: fractionDigits,
             }).format(n);
         },
-        formatPtBrFromDotDecimal(dotDecimal, maxFractionDigits = 2) {
+        formatPtBrFromDotDecimal(dotDecimal, fractionDigits = 2) {
             if (!dotDecimal && dotDecimal !== 0) return '';
             const s = (dotDecimal ?? '').toString();
             if (!s) return '';
             const n = Number(s);
             if (Number.isNaN(n)) return '';
             return n.toLocaleString('pt-BR', {
-                minimumFractionDigits: 0,
-                maximumFractionDigits: maxFractionDigits,
+                minimumFractionDigits: fractionDigits,
+                maximumFractionDigits: fractionDigits,
             });
         },
         // Converte fração (0..1) -> % (0..100)
@@ -455,6 +468,19 @@
                     this.$refs.value.value = duration.normalizeForPost(hh, mm, this.mode);
                     e.target.value = duration.formatDisplay(hh, mm, this.mode);
                 },
+
+                handleBlur(e) {
+                    let { hh, mm } = duration.parse(e.target.value, this.mode);
+                    if (!hh && !mm) return;
+
+                    if (this.mode === 'hours_minutes' || !this.mode) {
+                        if (hh && !mm) mm = '00';
+                        if (!hh && mm) hh = '00';
+                    }
+
+                    this.$refs.value.value = duration.normalizeForPost(hh, mm, this.mode);
+                    e.target.value = duration.formatDisplay(hh, mm, this.mode);
+                }
             };
         },
         moneyInput(rawDotDecimal) {
@@ -509,9 +535,9 @@
 
                 init() {
                     if (this.rawValue && !isNaN(parseFloat(this.rawValue))) {
-                        const formatted = decimal.format(this.rawValue, this.places);
+                        const formatted = decimal.formatPtBr(this.rawValue, this.places);
                         this.$refs.display.value = formatted;
-                        this.$refs.value.value = formatted;
+                        this.$refs.value.value = decimal.format(this.rawValue, this.places);
                     }
                 },
 
@@ -519,8 +545,8 @@
                     let typed = e.target.value;
                     let cleaned = decimal.clean(typed);
 
-                    if (typed !== cleaned) {
-                        e.target.value = cleaned;
+                    if (typed !== cleaned && !typed.endsWith(',') && !typed.endsWith('.')) {
+                        e.target.value = cleaned.replace('.', ',');
                     }
 
                     this.$refs.value.value = cleaned;
@@ -546,19 +572,17 @@
                     if (this.min !== null && val < this.min) val = this.min;
                     if (this.max !== null && val > this.max) val = this.max;
 
-                    const finalStr = decimal.format(val, this.places);
-
-                    this.$refs.display.value = finalStr;
-                    this.$refs.value.value = finalStr;
+                    this.$refs.display.value = decimal.formatPtBr(val, this.places);
+                    this.$refs.value.value = decimal.format(val, this.places);
                 }
             };
         },
-        percentageInput(rawFraction, minPercent, maxPercent) {
+        percentageInput(rawFraction, minPercent, maxPercent, decimalPlaces) {
             return {
                 rawValue: (rawFraction ?? '').toString(),
                 minPercent: Number(minPercent ?? 0),
                 maxPercent: Number(maxPercent ?? 100),
-                maxDisplayFractionDigits: 2,
+                decimalPlaces: Number(decimalPlaces ?? 2),
                 maxParseFractionDigits: 6,
                 init() {
                     const p = percent.fractionToPercentValue(this.rawValue);
@@ -569,7 +593,7 @@
                     }
                     const clamped = percent.clamp(Number(p), this.minPercent, this.maxPercent);
                     this.$refs.value.value = percent.percentToFractionDotDecimal(clamped);
-                    this.$refs.display.value = percent.formatDotFromDotDecimal(clamped, this.maxDisplayFractionDigits);
+                    this.$refs.display.value = percent.formatPtBrFromDotDecimal(clamped, this.decimalPlaces);
                 },
                 handleInput(e) {
                     const typed = (e.target.value ?? '').toString();
@@ -577,7 +601,6 @@
 
                     if (!normalized) {
                         this.$refs.value.value = '';
-                        e.target.value = '';
                         return;
                     }
 
@@ -586,11 +609,21 @@
 
                     this.$refs.value.value = percent.percentToFractionDotDecimal(n);
 
-                    if (normalized.includes('.')) {
-                        const [i, f = ''] = normalized.split('.');
-                        e.target.value = i + '.' + f.slice(0, this.maxDisplayFractionDigits);
-                    } else {
-                        e.target.value = normalized;
+                    // Permite que o usuário digite o separador decimal sem forçar a formatação imediata
+                    // que poderia atrapalhar a digitação das casas decimais.
+                    if (typed.endsWith(',') || typed.endsWith('.')) {
+                        return;
+                    }
+
+                    // Se não estiver no meio da digitação do separador, limpamos caracteres inválidos
+                    // mas não aplicamos formatação de milhar ainda para não saltar o cursor.
+                    const [intPart, fracPart] = normalized.split('.');
+                    let display = intPart;
+                    if (fracPart !== undefined) {
+                        display += ',' + fracPart.slice(0, this.decimalPlaces);
+                    }
+                    if (typed !== display) {
+                        e.target.value = display;
                     }
                 },
                 handleBlur() {
@@ -607,9 +640,9 @@
                     );
 
                     this.$refs.value.value = percent.percentToFractionDotDecimal(clamped);
-                    this.$refs.display.value = percent.formatDotFromDotDecimal(
+                    this.$refs.display.value = percent.formatPtBrFromDotDecimal(
                         clamped,
-                        this.maxDisplayFractionDigits
+                        this.decimalPlaces
                     );
                 },
             };
