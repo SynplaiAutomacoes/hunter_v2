@@ -3,3 +3,38 @@
 {% block crud_title %}Editar Produto{% endblock %}
 {% block crud_subtitle %}Atualização de dados da peça.{% endblock %}
 {% block crud_back_url %}{% url 'catalog:product_list' %}{% endblock %}
+
+{% block crud_form %}
+
+<div x-data="{
+  activeTab: 'cadastro',
+  dirty: false,
+  switchTab(tab) {
+    if (this.dirty && tab !== 'cadastro') {
+      if (!confirm('Você tem alterações não salvas. Deseja descartar as alterações e sair desta aba?')) {
+        return;
+      }
+      this.dirty = false;
+    }
+    this.activeTab = tab;
+  }
+}">
+
+  <!-- ABAS -->
+    <div class="tabs tabs-lift">
+        <input type="radio" name="cadastro" class="tab" aria-label="Cadastro" checked="checked"/>
+        <input type="radio" name="atribuicao_kits" class="tab" aria-label="Atribuição a Kits"/>
+        <input type="radio" name="estoque" class="tab" aria-label="Estoque"/>
+        <input type="radio" name="historico" class="tab" aria-label="Histórico"/>
+        <input type="radio" name="movimentacao" class="tab" aria-label="Movimentação"/>
+    </div>
+
+
+{% crispy form %}
+
+</div>
+
+{% endblock %}
+
+
+
