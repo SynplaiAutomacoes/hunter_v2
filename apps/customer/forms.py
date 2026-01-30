@@ -305,9 +305,9 @@ class CustomerForm(AddressFormMixin, forms.ModelForm):
 class QuickCustomerForm(AddressFormMixin, forms.ModelForm):
     class Meta:
         model = Customer
-        fields = ["cpf","name","birth_date","cep","logradouro","numero","complemento","bairro","cidade","estado"]
+        fields = ["cpf_or_cnpj","name","birth_date","cep","logradouro","numero","complemento","bairro","cidade","estado"]
         widgets = {
-            "cpf": CPForCNPJInput(mode="cpf"),
+            "cpf_or_cnpj": CPForCNPJInput(mode="both"),
             "name": TextInput(),
             "birth_date": CalendarDateInput(),
         }
@@ -320,7 +320,7 @@ class QuickCustomerForm(AddressFormMixin, forms.ModelForm):
         self.helper.form_tag = False
         self.helper.layout = Layout(
             Div(
-                Field("cpf", wrapper_class="col-span-12"),
+                Field("cpf_or_cnpj", wrapper_class="col-span-12"),
                 Field("name", wrapper_class="col-span-12 lg:col-span-6"),
                 Field("birth_date", wrapper_class="col-span-12 lg:col-span-6"),
                 HTML('<div class="col-span-12 divider my-1"></div>'),
