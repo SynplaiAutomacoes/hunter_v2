@@ -702,16 +702,7 @@ class BudgetStep4Form(forms.ModelForm):
 
 
 class BudgetStep5Form(forms.ModelForm):
-    slider = forms.IntegerField(
-        required=False,
-        widget=forms.NumberInput(attrs={
-            "class": "range range-primary w-full",
-            "type": "range",
-            "min": "-100",
-            "max": "100",
-            "step": "5"
-        })
-    )
+    slider = forms.IntegerField(required=False, widget=forms.NumberInput(attrs={"class": "range range-primary w-full", "type": "range", "min": "-100", "max": "100", "step": "5"}))
 
     class Meta:
         model = Budget
@@ -736,25 +727,28 @@ class BudgetStep5Form(forms.ModelForm):
 
         if budget.pk:
             self.fields['slider'].initial = budget.slider
+            dados = budget.calculate_pricing_methods()
+
+        zerado = Money(0, 'BRL')
 
         # Custos
-        custo_pecas = Money(budget.items.aggregate(total=Sum(F("quantity") * F("product_cost_price")))["total"] or 0, 'BRL')
-        custo_frete_pecas = Money(0, 'BRL')
-        custo_servico_terceiros = Money(0, 'BRL')
-        custo_hora_mecanico = Money(0, 'BRL')
+        custo_pecas = dados.get('custo_pecas') or zerado
+        custo_frete_pecas = dados.get('custo_frete_pecas') or zerado
+        custo_servico_terceiros = dados.get('custo_servico_terceiro') or zerado
+        custo_hora_mecanico = dados.get('custo_hora_mecanico') or zerado
 
         # Valores Venda
-        valor_venda_pecas = budget.total_products_value
-        valor_venda_servico_terceiros = Money(0, 'BRL')
-        valor_venda_mao_obra = Money(0, 'BRL')
+        venda_pecas = dados.get('venda_pecas') or zerado
+        venda_servico_terceiros = dados.get('venda_servico_terceiro') or zerado
+        venda_mao_obra = dados.get('venda_mao_obra') or zerado
 
         # Extra
-        metodo_precificacao = "{nome}"
-        duracao_total = budget.total_duration_display
-        lucro_operacional = Money(0, 'BRL')
-        mlr = "0,00"
-        mlo = "0,00"
-        rentabilidade = 0
+        metodo_precificacao = dados.get('method_name') or ""
+        duracao_total = dados.get('duracao_total') or "00h 00m"
+        lucro_operacional = dados.get('lucro_operacional') or zerado
+        mlr = dados.get('mlr') or "0,00"
+        mlo = dados.get('mlo') or "0,00"
+        rentabilidade = dados.get('rentabilidade') or 0
 
         status_cor = "text-error" if rentabilidade < 60 else "text-warning" if (60 <= rentabilidade < 70) else "text-success"
         status_texto = "Ruim" if rentabilidade < 60 else "Médio" if (60 <= rentabilidade < 70) else "Bom"
@@ -862,7 +856,7 @@ class BudgetStep5Form(forms.ModelForm):
                                         </div>
                                         <div class="grid grid-cols-12 border bg-white overflow-hidden">
                                             <span class="col-span-8 p-2 bg-gray-50">Valor de Venda de Peças</span>
-                                            <span class="col-span-4 p-2 border-l text-left">{valor_venda_pecas}</span>
+                                            <span class="col-span-4 p-2 border-l text-left">{venda_pecas}</span>
                                         </div>
 
                                         <div class="grid grid-cols-12 border bg-white overflow-hidden">
@@ -876,7 +870,7 @@ class BudgetStep5Form(forms.ModelForm):
                                         </div>
                                         <div class="grid grid-cols-12 border bg-white overflow-hidden">
                                             <span class="col-span-8 p-2 bg-gray-50">Valor de Venda de Serviço de Terceiros</span>
-                                            <span class="col-span-4 p-2 border-l text-left">{valor_venda_servico_terceiros}</span>
+                                            <span class="col-span-4 p-2 border-l text-left">{venda_servico_terceiros}</span>
                                         </div>
 
                                         <div class="grid grid-cols-12 border bg-white overflow-hidden">
@@ -885,7 +879,7 @@ class BudgetStep5Form(forms.ModelForm):
                                         </div>
                                         <div class="grid grid-cols-12 border bg-white overflow-hidden">
                                             <span class="col-span-8 p-2 bg-gray-50">Valor de Venda de Mão de Obra</span>
-                                            <span class="col-span-4 p-2 border-l text-left">{valor_venda_mao_obra}</span>
+                                            <span class="col-span-4 p-2 border-l text-left">{venda_mao_obra}</span>
                                         </div>
                                         
                                         <div class="grid grid-cols-12 border bg-white overflow-hidden">
@@ -901,6 +895,15 @@ class BudgetStep5Form(forms.ModelForm):
                                         <div class="grid grid-cols-12 border bg-white overflow-hidden {status_cor.replace("text-", "border-")}">
                                             <span class="col-span-8 p-2 bg-gray-50">Rentabilidade</span>
                                             <span class="col-span-4 p-2 border-l text-left {status_cor}">{rentabilidade:.2f}% ({status_texto})</span>
+                                        </div>
+                                        
+                                        <div class="grid grid-cols-12 border bg-white overflow-hidden">
+                                            <span class="col-span-8 p-2 bg-gray-50">MLR</span>
+                                            <span class="col-span-4 p-2 border-l text-left">{mlr:.2f}</span>
+                                        </div>
+                                        <div class="grid grid-cols-12 border bg-white overflow-hidden">
+                                            <span class="col-span-8 p-2 bg-gray-50">MLO</span>
+                                            <span class="col-span-4 p-2 border-l text-left">{mlo:.2f}</span>
                                         </div>
                                     </div>
                                 """),

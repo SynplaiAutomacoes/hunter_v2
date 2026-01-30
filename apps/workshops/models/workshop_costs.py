@@ -2,13 +2,12 @@ from __future__ import annotations
 
 from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Self
 
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from djmoney.models.fields import MoneyField
-from moneyed import Money
+from djmoney.money import Money
 
 from apps.core.models import TimeStampedModel
 from apps.workshops.models.workshops import Workshop
@@ -113,29 +112,22 @@ class WorkshopCost(TimeStampedModel):
     @property
     def hourly_rate(self) -> Money:
         from decimal import ROUND_HALF_UP
+        vendas_mes = Decimal(self.work_days_per_month)
+        horas_dia = Decimal(self.work_hours_per_day.total_seconds()) / 3600
+        qtd_mecanicos = Decimal(self.mechanic_quantity)
+        produtividade = self.productivity_average
 
-        # Converte o DurationField work_hours_per_day para Decimal.
-        hours_per_day_decimal = Decimal(self.work_hours_per_day.total_seconds()) / Decimal(3600)
-
-        # Calcula as horas úteis reais do mês
-        effective_hours_month = Decimal(self.mechanic_quantity) * hours_per_day_decimal * Decimal(self.work_days_per_month) * self.productivity_average
-
-        # O total_monthly_costs já contempla impostos, taxas e coeficiente de risco (conforme definido no seu métdo 'calculate_total_monthly_costs')
-        total_geral = self.total_monthly_costs or Money(0, "BRL")
-
-        # Se não houver horas configuradas, evita divisão por zero
-        horas_uteis = effective_hours_month
+        horas_uteis = qtd_mecanicos * horas_dia * vendas_mes * produtividade
         if horas_uteis <= 0:
             return Money(0, "BRL")
 
-        # Cálculo da Margem de Lucro sobre o custo total
-        margem_lucro_percentual = self.profit_margin or Decimal(0)
-        valor_margem = total_geral * margem_lucro_percentual
+        total_custos_mensais = self.total_monthly_costs or Money(0, "BRL")
+        margem_percentual = self.profit_margin or Decimal(0)
+        valor_com_margem = total_custos_mensais * (1 + margem_percentual)
 
-        # Valor total a ser recuperado / horas disponíveis
-        resultado_amount = (total_geral + valor_margem).amount / horas_uteis
+        preco_hora = (valor_com_margem.amount / horas_dia).quantize(Decimal('0.01'), ROUND_HALF_UP)
 
-        return Money(resultado_amount.quantize(Decimal('0.01'), ROUND_HALF_UP), 'BRL')
+        return Money(preco_hora, 'BRL')
 
     class Meta:
         verbose_name = "Custo da Oficina"
