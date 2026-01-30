@@ -106,30 +106,6 @@ class WorkshopCost(TimeStampedModel):
     gross_revenue_target = MoneyField(verbose_name="Faturamento Bruto Meta", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
     profitability_multiplier = models.DecimalField(verbose_name="Multiplicador Lucratividade", max_digits=10, decimal_places=2, default=0, null=True, blank=True)
 
-    @property
-    def working_hours_month(self):
-        return self.work_hours_per_day * self.work_days_per_month
-
-    @property
-    def hourly_rate(self) -> Money:
-        from decimal import ROUND_HALF_UP
-        vendas_mes = Decimal(self.work_days_per_month)
-        horas_dia = Decimal(self.work_hours_per_day.total_seconds()) / 3600
-        qtd_mecanicos = Decimal(self.mechanic_quantity)
-        produtividade = self.productivity_average
-
-        horas_uteis = qtd_mecanicos * horas_dia * vendas_mes * produtividade
-        if horas_uteis <= 0:
-            return Money(0, "BRL")
-
-        total_custos_mensais = self.total_monthly_costs or Money(0, "BRL")
-        margem_percentual = self.profit_margin or Decimal(0)
-        valor_com_margem = total_custos_mensais * (1 + margem_percentual)
-
-        preco_hora = (valor_com_margem.amount / horas_dia).quantize(Decimal('0.01'), ROUND_HALF_UP)
-
-        return Money(preco_hora, 'BRL')
-
     class Meta:
         verbose_name = "Custo da Oficina"
         verbose_name_plural = "Custos da Oficina"
@@ -155,14 +131,14 @@ class WorkshopCost(TimeStampedModel):
         return format_currency(minimum_hourly_cost, "BRL", locale="pt_BR")
 
     @property
-    def hourly_cost_value(self) -> str:
+    def hourly_cost_value(self) -> Money:
         total_monthly_costs = self.total_monthly_costs.amount
         profit_margin = self.profit_margin * 100
         working_hours_per_month = self.working_hours_per_month
 
         hourly_cost_value = ((total_monthly_costs / 100 * profit_margin) + total_monthly_costs) / working_hours_per_month
 
-        return format_currency(hourly_cost_value, "BRL", locale="pt_BR")
+        return Money(hourly_cost_value, "BRL")
 
     def _quantize_money(self, value: Money) -> Money:
         amount = value.amount.quantize(Decimal("0.01"), ROUND_HALF_UP)

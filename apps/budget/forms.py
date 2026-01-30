@@ -706,10 +706,7 @@ class BudgetStep5Form(forms.ModelForm):
 
     class Meta:
         model = Budget
-        fields = [
-            "discount_value",
-            "slider"
-        ]
+        fields = ["discount_value", "slider"]
         widgets = {
             "discount_value": MoneyInput(),
         }
@@ -719,15 +716,34 @@ class BudgetStep5Form(forms.ModelForm):
         self.request = kwargs.pop("request", None)
         super().__init__(*args, **kwargs)
 
-        self.fields['slider'].label = ""
-        self.fields['slider'].help_text = ""
-        self.fields['discount_value'].required = False
+        self.fields["slider"].label = ""
+        self.fields["slider"].help_text = ""
+        self.fields["discount_value"].required = False
 
         budget = self.instance
 
         if budget.pk:
-            self.fields['slider'].initial = budget.slider
+            self.fields["slider"].initial = budget.slider
             dados = budget.calculate_pricing_methods()
+
+        mlr = dados.get("mlr")
+        mlo = dados.get("mlo")
+        mlr_html = ""
+        if mlr is not None:
+            mlr_html = f"""
+            <div class="grid grid-cols-12 border bg-white overflow-hidden">
+                <span class="col-span-8 p-2 bg-gray-50">MLR</span>
+                <span class="col-span-4 p-2 border-l text-left">{float(mlr):.2f}</span>
+            </div>
+            """
+        mlo_html = ""
+        if mlo is not None:
+            mlo_html = f"""
+            <div class="grid grid-cols-12 border bg-white overflow-hidden">
+                <span class="col-span-8 p-2 bg-gray-50">MLO</span>
+                <span class="col-span-4 p-2 border-l text-left">{float(mlo):.2f}</span>
+            </div>
+            """
 
         zerado = Money(0, 'BRL')
 
@@ -746,8 +762,6 @@ class BudgetStep5Form(forms.ModelForm):
         metodo_precificacao = dados.get('method_name') or ""
         duracao_total = dados.get('duracao_total') or "00h 00m"
         lucro_operacional = dados.get('lucro_operacional') or zerado
-        mlr = dados.get('mlr') or "0,00"
-        mlo = dados.get('mlo') or "0,00"
         rentabilidade = dados.get('rentabilidade') or 0
 
         status_cor = "text-error" if rentabilidade < 60 else "text-warning" if (60 <= rentabilidade < 70) else "text-success"
@@ -897,14 +911,8 @@ class BudgetStep5Form(forms.ModelForm):
                                             <span class="col-span-4 p-2 border-l text-left {status_cor}">{rentabilidade:.2f}% ({status_texto})</span>
                                         </div>
                                         
-                                        <div class="grid grid-cols-12 border bg-white overflow-hidden">
-                                            <span class="col-span-8 p-2 bg-gray-50">MLR</span>
-                                            <span class="col-span-4 p-2 border-l text-left">{mlr:.2f}</span>
-                                        </div>
-                                        <div class="grid grid-cols-12 border bg-white overflow-hidden">
-                                            <span class="col-span-8 p-2 bg-gray-50">MLO</span>
-                                            <span class="col-span-4 p-2 border-l text-left">{mlo:.2f}</span>
-                                        </div>
+                                        {mlr_html}
+                                        {mlo_html}
                                     </div>
                                 """),
                             ),

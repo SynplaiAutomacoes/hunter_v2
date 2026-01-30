@@ -17,7 +17,7 @@ from apps.workorder.models import WorkOrder
 from apps.workshops.models.monthly_costs import MonthlyCost
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from django.utils import timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 
 class BudgetStatus(models.TextChoices):
@@ -113,7 +113,7 @@ class Budget(TimeStampedModel):
         # Índices
         mlr = workshop_cost.profitability_multiplier
         duracao_total = Decimal(self.total_duration.total_seconds()) / Decimal(3600)
-        horas_uteis_mes = Decimal(workshop_cost.working_hours_month.total_seconds()) / Decimal(3600)
+        horas_uteis_mes = workshop_cost.working_hours_per_month
 
         # Custos
         custo_pecas = self.total_costs_products_value
@@ -131,19 +131,18 @@ class Budget(TimeStampedModel):
         subtracao_base_lucro = custo_pecas + custo_frete_pecas + custo_total_mao_obra + custo_servico_terceiro
 
         # MÉTOD0 TRADICIONAL
-        valor_hora_vendida_trad = workshop_cost.hourly_rate
+        valor_hora_vendida_trad = workshop_cost.hourly_cost_value
         venda_mao_obra_trad = valor_hora_vendida_trad * duracao_total
         valor_orcamento_trad = soma_base_orcamento + venda_mao_obra_trad
-        mlo_trad = valor_orcamento_trad.amount / divisor_mlo if divisor_mlo > 0 else 0
         lucro_operacional_trad = valor_orcamento_trad - subtracao_base_lucro
-        rentabilidade_trad = lucro_operacional_trad.amount / valor_orcamento_trad.amount if valor_orcamento_trad.amount > 0 else 0
+        rentabilidade_trad = Decimal(str(lucro_operacional_trad.amount / valor_orcamento_trad.amount)).quantize(Decimal("0.01"), ROUND_HALF_UP)
 
         # MÉTOD0 HUNTER
         venda_mao_obra_hun = self.total_services_value - venda_servico_terceiro
         valor_orcamento_hun = soma_base_orcamento + venda_mao_obra_hun
-        mlo_hun = valor_orcamento_hun.amount / divisor_mlo if divisor_mlo > 0 else 0
+        mlo = valor_orcamento_hun.amount / divisor_mlo if divisor_mlo > 0 else 0
         lucro_operacional_hun = valor_orcamento_hun - subtracao_base_lucro
-        rentabilidade_hun = lucro_operacional_hun.amount / valor_orcamento_hun.amount if valor_orcamento_hun.amount else 0
+        rentabilidade_hun = Decimal(str(lucro_operacional_hun.amount / valor_orcamento_hun.amount)).quantize(Decimal("0.01"), ROUND_HALF_UP)
 
         # Organização dos dados
         data_trad = {
@@ -154,12 +153,10 @@ class Budget(TimeStampedModel):
             "custo_hora_mecanico": custo_hora_mecanico,
             "duracao_total": self.total_duration_display,
             "lucro_operacional": lucro_operacional_trad,
-            "mlr": mlr,
             "venda_pecas": venda_pecas,
             "venda_servico_terceiro": venda_servico_terceiro,
             "venda_mao_obra": venda_mao_obra_trad,
             "rentabilidade": float(rentabilidade_trad * 100),
-            "mlo": mlo_trad,
             "valor_orcamento": valor_orcamento_trad,
         }
 
@@ -176,7 +173,7 @@ class Budget(TimeStampedModel):
             "venda_servico_terceiro": venda_servico_terceiro,
             "venda_mao_obra": venda_mao_obra_hun,
             "rentabilidade": float(rentabilidade_hun * 100),
-            "mlo": mlo_hun,
+            "mlo": mlo,
             "valor_orcamento": valor_orcamento_hun,
         }
 
