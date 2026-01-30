@@ -14,6 +14,66 @@ from djmoney.models.fields import MoneyField
 
 from apps.workorder.models import WorkOrder
 
+from apps.workshops.models.monthly_costs import MonthlyCost
+from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
+from django.utils import timezone
+from django.shortcuts import get_object_or_404
+from decimal import Decimal
+
+def metodo_hunter(budget, workshop):
+    custos_oficina = get_object_or_404(WorkshopCost, workshop=workshop, month=timezone.now().month, year=timezone.now().year)
+    custos_mensais = get_object_or_404(MonthlyCost, workshop=workshop, name__iexact="Salários mecânicos produtivos")
+    salario_mecanicos = get_object_or_404(WorkshopCostItem, workshop_cost=custos_oficina, monthly_cost=custos_mensais).amount
+
+    # Índices
+    mlr = custos_oficina.profitability_multiplier
+    duracao_total = Decimal(budget.total_duration.total_seconds()) / Decimal(3600)
+
+    # Custos
+    custo_pecas = budget.total_costs_products_value
+    custo_frete_pecas = Money(0, "BRL")
+    custo_servico_terceiro = budget.total_third_party_services_cost
+    custo_hora_mecanico = salario_mecanicos / custos_oficina.working_hours_month
+    custo_total_mao_obra = duracao_total * custo_hora_mecanico
+
+    # Valores de Venda
+    venda_servico_terceiro = budget.total_third_party_services_selling
+    venda_pecas = budget.total_products_value
+    venda_mao_obra = budget.total_services_value - venda_servico_terceiro
+
+    # Finais
+    valor_orcamento = venda_pecas + custo_frete_pecas + venda_mao_obra + venda_servico_terceiro
+    mlo = valor_orcamento.amount / (custo_pecas + custo_frete_pecas + custo_servico_terceiro + custo_total_mao_obra).amount
+    lucro_operacional = valor_orcamento - custo_pecas - custo_frete_pecas - custo_total_mao_obra - custo_servico_terceiro
+    rentabilidade = lucro_operacional.amount / valor_orcamento.amount
+
+
+def metodo_tradicional(budget, workshop):
+    custos_oficina = get_object_or_404(WorkshopCost, workshop=workshop, month=timezone.now().month, year=timezone.now().year)
+    custos_mensais = get_object_or_404(MonthlyCost, workshop=workshop, name__iexact="Salários mecânicos produtivos")
+    salario_mecanicos = get_object_or_404(WorkshopCostItem, workshop_cost=custos_oficina, monthly_cost=custos_mensais).amount
+
+    # Índices
+    duracao_total = Decimal(budget.total_duration.total_seconds()) / Decimal(3600)
+
+    # Custos
+    custo_pecas = budget.total_costs_products_value
+    custo_frete_pecas = Money(0, "BRL")
+    custo_hora_mecanico = salario_mecanicos / custos_oficina.working_hours_month
+    custo_total_mao_obra = duracao_total * custo_hora_mecanico
+    custo_servico_terceiro = budget.total_third_party_services_cost
+
+    # Valores de Venda
+    venda_pecas = budget.total_products_value
+    valor_hora_vendida = custos_oficina.hourly_rate
+    venda_mao_obra = valor_hora_vendida * duracao_total
+    venda_servico_terceiro = budget.total_third_party_services_selling
+
+    # Finais
+    valor_orcamento = venda_pecas + custo_frete_pecas + venda_mao_obra + venda_servico_terceiro
+    lucro_operacional = valor_orcamento - custo_pecas - custo_frete_pecas - custo_total_mao_obra - custo_servico_terceiro
+    rentabilidade = lucro_operacional.amount / valor_orcamento.amount
+
 
 class BudgetStatus(models.TextChoices):
     DRAFT = "draft", "Em Aberto"
@@ -108,9 +168,29 @@ class Budget(TimeStampedModel):
         return self.collaborator.name if self.collaborator else "Sistema"
 
     @property
+    def total_third_party_services_cost(self) -> Money:
+        total = self.items.filter(service__is_third_party=True).aggregate(total=Sum(F("quantity") * F("service_cost_price")))["total"] or 0
+        return Money(total, "BRL")
+
+    @property
+    def total_third_party_services_selling(self) -> Money:
+        total = self.items.filter(service__is_third_party=True).aggregate(total=Sum(F("quantity") * F("service_selling_price")))["total"] or 0
+        return Money(total, "BRL")
+
+    @property
+    def total_costs_products_value(self) -> Money:
+        total = self.items.aggregate(total=Sum(F("quantity") * F("product_cost_price")))["total"] or 0
+        return Money(total, 'BRL')
+
+    @property
     def total_products_value(self) -> Money:
         total = self.items.aggregate(total=Sum(F("quantity") * F("product_selling_price")))["total"] or 0
         return Money(total, 'BRL')
+
+    @property
+    def total_costs_services_value(self) -> Money:
+        total = self.items.aggregate(total=Sum(F("quantity") * F("service_cost_price")))["total"] or 0
+        return Money(total, "BRL")
 
     @property
     def total_services_value(self) -> Money:
@@ -126,8 +206,13 @@ class Budget(TimeStampedModel):
         return self.total_base_value - self.discount_value
 
     @property
+    def total_duration(self) -> timedelta:
+        total = self.items.aggregate(total=Sum(F("quantity") * F("duration"), output_field=DurationField()))["total"]
+        return total or timedelta()
+
+    @property
     def total_duration_display(self) -> str:
-        total_td = self.items.aggregate(total=Sum(F("quantity") * F("duration"), output_field=DurationField()))["total"]
+        total_td = self.total_duration
         if not total_td: return "00h 00m"
 
         ts = int(total_td.total_seconds())
