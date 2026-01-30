@@ -180,9 +180,6 @@ class Budget(TimeStampedModel):
             "valor_orcamento": valor_orcamento_hun,
         }
 
-        print(f"data_hun {data_hun}")
-        print(f"data_trad {data_trad}")
-
         return data_trad if rentabilidade_trad > rentabilidade_hun else data_hun
 
     @property
