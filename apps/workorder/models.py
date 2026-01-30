@@ -6,9 +6,15 @@ from djmoney.money import Money
 from apps.core.models import TimeStampedModel
 
 
+class WorkOrderStatus(models.TextChoices):
+    DRAFT = "draft", "Em Aberto"
+    APPROVED = "approved", "Aprovado"
+
+
 class WorkOrder(TimeStampedModel):
     workshop = models.ForeignKey( "workshops.Workshop", on_delete=models.CASCADE, related_name="workorders")
     budget = models.ForeignKey("budget.Budget", on_delete=models.CASCADE, related_name="workorders", help_text="Orçamento Aprovado vinculado à esta O.S.")
+    status = models.CharField(verbose_name="Status", max_length=20, choices=WorkOrderStatus.choices, default=WorkOrderStatus.DRAFT)
 
     class Meta:
         verbose_name = "Ordem de Serviço"

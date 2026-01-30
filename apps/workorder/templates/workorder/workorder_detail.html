@@ -5,7 +5,7 @@
 <div class="p-6 space-y-6">
     <div class="items-center">
         <h2 class="text-3xl font-bold text-base-content">Ordem de Serviço N°: {{ workorder.id }}</h2>
-        <p class="text-lg-content/70 mt-1">Status: <span class="uppercase font-bold budget budget-primary text-success">{{ workorder.budget.get_status_display }}</span></p>
+        <p class="text-lg-content/70 mt-1">Status: <span class="uppercase font-bold budget budget-primary text-success">{{ workorder.get_status_display }}</span></p>
     </div>
 
     <div role="tablist" class="tabs tabs-lifted w-full mt-8">

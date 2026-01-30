@@ -20,7 +20,6 @@ class BudgetStatus(models.TextChoices):
     APPROVED = "approved", "Aprovado"
     REJECTED = "rejected", "Rejeitado"
     CANCELLED = "cancelled", "Cancelado"
-    FINISHED = "finished", "Concluído"
 
 
 class Defect(models.Model):
