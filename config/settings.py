@@ -70,6 +70,7 @@ INSTALLED_APPS = [
     "apps.checklist",
     "apps.budget",
     "apps.customer",
+    "apps.workorder",
 ]
 
 MIDDLEWARE = [

@@ -1,0 +1,146 @@
+<div class="card-body">
+    <div class="flex w-full justify-end gap-2">
+        <button type="button" class="btn btn-primary btn-lg">
+            <span class="material-icons mr-2" aria-hidden="true">print</span>
+            Imprimir PDF
+        </button>
+    </div>
+    <div class="p-6">
+        <div id="pdf-iframe" class="p-4 border rounded-lg shadow-sm text-base">
+
+            <div class="flex justify-between items-start p-4 border-b border-gray-200">
+                <div>
+                    <h3 class="font-bold text-xl uppercase">{{workorder.workshop.name}}</h3>
+                    <p class="">CNPJ: {{workorder.workshop.cnpj|default:""}}</p>
+                    <p class="">RUA ENGENHEIRO JOSE VALTER SENG 140</p>
+                    <p class="">Telefone: (11) 98877-6655 / E-mail: hunter@hunterauto.com.br</p>
+                </div>
+                <div class="text-right">
+                    <h4 class="font-bold text-lg">ORDEM DE SERVIÇO</h4>
+                    <p class="text-2xl font-bold">{{workorder.id}}</p>
+                    <p class="">{{workorder.criado_em}}</p>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4 p-4 border-b border-gray-200">
+                <div>
+                    <h4 class="font-bold mb-2">CLIENTE</h4>
+                    <div class="grid grid-cols-2 gap-x-4 gap-y-1">
+                        <p><span class="font-medium">Código:</span> {{workorder.budget.customer.id}}</p>
+                        <p><span class="font-medium">Nome:</span> {{workorder.budget.customer.name}}</p>
+                        <p><span class="font-medium">CPF/CNPJ:</span> {{workorder.budget.customer.cpf}}</p>
+                        <p><span class="font-medium">Celular:</span> {{workorder.budget.customer.phone|default:""}}</p>
+                        <p class="col-span-2"><span class="font-medium">Endereço:</span> {{workorder.budget.customer.logradouro}}, {{workorder.budget.customer.numero}} / CEP: {{workorder.budget.customer.cep}}</p>
+                        <p class="col-span-2"><span class="font-medium">Email:</span> {{workorder.budget.customer.email|default:""}}</p>
+                    </div>
+                </div>
+                <div>
+                    <h4 class="font-bold mb-2">VEÍCULO</h4>
+                    <div class="grid grid-cols-2 gap-x-4 gap-y-1">
+                        <p><span class="font-medium">Placa:</span> {{ workorder.budget.vehicle.plate }}</p>
+                        <p><span class="font-medium">Ano/Fab:</span> {{ workorder.budget.vehicle.year_fabrication }}</p>
+                        <p><span class="font-medium">Ano/Mod:</span> {{ workorder.budget.vehicle.year_model }}</p>
+                        <p><span class="font-medium">Marca:</span> {{ workorder.budget.vehicle.brand }}</p>
+                        <p><span class="font-medium">Modelo:</span> {{ workorder.budget.vehicle.model }}</p>
+                        <p class="col-span-2"><span class="font-medium">Cor:</span> {{ workorder.budget.vehicle.color }}</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-4 border-b border-gray-200">
+                <h4 class="font-bold mb-1">PROBLEMAS/AVARIAS</h4>
+                <p class="italic">{{workorder.budget.technical_diagnosis|default:"N/A"}}</p>
+            </div>
+
+            <div class="p-4 border-b border-gray-200">
+                <h4 class="font-bold mb-2">PRODUTOS</h4>
+                <table class="w-full text-left">
+                    <thead>
+                        <tr class="border-b">
+                            <th class="p-2 font-semibold">Código</th>
+                            <th class="p-2 font-semibold">Nome</th>
+                            <th class="p-2 font-semibold">Descrição</th>
+                            <th class="p-2 font-semibold text-center">Qtd.</th>
+                            <th class="p-2 font-semibold">R$ Valor</th>
+                            <th class="p-2 font-semibold">R$ Total</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        {% for item in workorder.budget.items.all %}
+                            {% if item.product %}
+                            <tr>
+                                <td class="p-2">{{ item.product.code|default:"-" }}</td>
+                                <td class="p-2">{{ item.product.name }}</td>
+                                <td class="p-2">{{ item.product.description }}</td>
+                                <td class="p-2 text-center">{{ item.quantity }}</td>
+                                <td class="p-2">{{ item.product_selling_price }}</td>
+                                <td class="p-2 font-semibold">{{ item.total_price }}</td>
+                            </tr>
+                            {% endif %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+                <div class="text-right mt-2 font-bold uppercase">
+                    Total das peças: {{workorder.budget.total_products_value}}
+                </div>
+            </div>
+
+            <div class="p-4 border-b border-gray-200">
+                <h4 class="font-bold mb-2">SERVIÇOS</h4>
+                <table class="w-full text-left">
+                    <thead>
+                        <tr class="border-b">
+                            <th class="p-2 font-semibold">Descrição</th>
+                            <th class="p-2 font-semibold w-32">R$ Total</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        {% for item in workorder.budget.items.all %}
+                            {% if item.service %}
+                            <tr>
+                                <td class="p-2">{{ item.service.name }}</td>
+                                <td class="p-2 font-semibold">{{ item.total_price }}</td>
+                            </tr>
+                            {% endif %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+                <div class="text-right mt-2 font-bold uppercase">
+                    Total dos serviços: {{workorder.budget.total_services_value}}
+                </div>
+            </div>
+
+            <div class="p-4 grid grid-cols-2 gap-8 border-b border-gray-200">
+                <div>
+                    {% if workorder.payments.all %}
+                        <h4 class="font-bold mb-1">CONDIÇÕES DE PAGAMENTO</h4>
+                        {% for payment in workorder.payments.all %}
+                            <p class="text-sm">
+                                {{ payment.get_payment_method_display }} -
+                                {{ payment.installments_count }}x de {{ payment.total_paid }}
+                            </p>
+                        {% endfor %}
+                    {% endif %}
+                    <h4 class="font-bold mb-1">OBSERVAÇÕES</h4>
+                    <p class="text-sm">{{ workorder.workshop.pdf_observation|default:"Nenhuma observação." }}</p>
+                </div>
+                <div class="space-y-1">
+                    <p class="flex justify-between"><span>Total de Produtos:</span> <span>{{workorder.budget.total_products_value}}</span></p>
+                    <p class="flex justify-between"><span>Total de Serviços:</span> <span>{{workorder.budget.total_services_value}}</span></p>
+                    <p class="flex justify-between font-medium"><span>Desconto:</span> <span class="text-red-600">- {{workorder.budget.discount_value}}</span></p>
+                    <p class="flex justify-between font-bold text-lg mt-2 pt-2 border-t border-gray-300">
+                        <span>TOTAL GERAL:</span>
+                        <span>{{workorder.budget.total_budget_value}}</span>
+                    </p>
+                </div>
+            </div>
+
+            <div class="p-4 mt-12 text-center">
+                <div class="inline-block border-t border-gray-400 px-16 pt-2">
+                    <p class="font-semibold">{{workorder.budget.customer.name}}</p>
+                    <p class="text-xs italic">Assinatura do cliente ou pessoa autorizada</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

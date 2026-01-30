@@ -1,0 +1,11 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Ordens de Serviço{% endblock %}
+{% block crud_subtitle %}Por favor, selecione uma ordem de serviço para ver os detalhes.{% endblock %}
+
+{% block crud_table_wrapper_id %}workorder-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'workorder:workorder_list' %}{% endblock %}
+
+{% block crud_table %}
+    {% include 'workorder/partials/workorder_table.html' %}
+{% endblock %}
