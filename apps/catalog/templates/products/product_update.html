@@ -12,6 +12,11 @@
     {% include 'products/sections/product_kits_attribution.html' %}
 {% endblock %}
 
+{% block section_product_stock %}
+    {% include 'products/sections/product_stock.html' %}
+{% endblock %}
+
+
 {% block crud_form %}
     {% crispy form %}
 {% endblock %}
