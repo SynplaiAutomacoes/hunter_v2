@@ -47,6 +47,15 @@
                     </div>
                 </div>
             </div>
+
+            <!-- ABA DE HISTORICO -->
+            <div x-show="activeTab === 'historico'">
+                <div class="card bg-base-100 shadow-xl">
+                    <div class="card-body p-6 md:p-8">
+                        {% block section_product_history %}{% endblock %}
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
     {% endblock %}

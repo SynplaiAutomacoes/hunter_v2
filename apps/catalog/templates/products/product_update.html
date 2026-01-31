@@ -8,15 +8,22 @@
         {% include 'products/partials/product_tabs.html' %}
 {% endblock %}
 
+<!-- Aba de Informações do Produto (Cadastro) -->
+{% block crud_form %}
+    {% crispy form %}
+{% endblock %}
+
+<!-- Aba de Kits Atribuidos ao Produto -->
 {% block section_kit_attribution_content %}
     {% include 'products/sections/product_kits_attribution.html' %}
 {% endblock %}
 
+<!-- Aba do Estoque do Produto -->
 {% block section_product_stock %}
     {% include 'products/sections/product_stock.html' %}
 {% endblock %}
 
-
-{% block crud_form %}
-    {% crispy form %}
+<!-- Aba do Histórico do Produto -->
+{% block section_product_history %}
+    {% include 'products/sections/product_history.html' %}
 {% endblock %}
