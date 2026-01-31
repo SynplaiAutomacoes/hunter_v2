@@ -5,15 +5,15 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Self
 
 from babel.numbers import format_currency
-from django.core.validators import MinValueValidator, MaxValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from djmoney.models.fields import MoneyField
 from moneyed import Money
 
 from apps.core.models import TimeStampedModel
-from apps.workshops.models.workshops import Workshop
 from apps.workshops.models.monthly_costs import MonthlyCost
+from apps.workshops.models.workshops import Workshop
 
 
 class WorkshopCost(TimeStampedModel):
@@ -144,59 +144,60 @@ class WorkshopCost(TimeStampedModel):
     def _quantize_money(self, value: Money) -> Money:
         amount = value.amount.quantize(Decimal("0.01"), ROUND_HALF_UP)
         return Money(amount, value.currency)
-    
+
     def calculate_total_value(self) -> Money:
-        parts_purchase_cap = self.parts_purchase_cap or Money(0, 'BRL')
-        freight_cost = self.freight_cost or Money(0, 'BRL')
-        third_party_service_cap = self.third_party_service_cap or Money(0, 'BRL')
-        
+        parts_purchase_cap = self.parts_purchase_cap or Money(0, "BRL")
+        freight_cost = self.freight_cost or Money(0, "BRL")
+        third_party_service_cap = self.third_party_service_cap or Money(0, "BRL")
+
         total_value = parts_purchase_cap + freight_cost + third_party_service_cap
-        
+
         return self._quantize_money(total_value)
-    
+
     def calculate_total_monthly_costs(self, items=None) -> Money:
-        card_rate = self.card_rate * 100 or Decimal(0)
-        tax_rate = self.tax_rate * 100 or Decimal(0)
+        card_rate = (self.card_rate or Decimal(0)) * 100
+        tax_rate = (self.tax_rate or Decimal(0)) * 100
         risk_coefficient = self.risk_coefficient or Decimal(0)
-        commission_rate = self.commission_rate * 100 or Decimal(0)
-        
-        fixed_cost = Money(0, 'BRL')
-        
+        commission_rate = (self.commission_rate or Decimal(0)) * 100
+
+        fixed_cost = Money(0, "BRL")
+
         iterable_items = items if items is not None else self.items.all()
-        
+
         for item in iterable_items:
             fixed_cost += item.amount
-            
+
         total = ((fixed_cost / 100) * (card_rate + tax_rate + commission_rate) + fixed_cost) * risk_coefficient
-        
+
         return self._quantize_money(total)
-    
+
     def calculate_profit_target(self, total_monthly_costs: Money) -> Money:
-        return self._quantize_money(total_monthly_costs * Decimal('0.25'))
-        
+        return self._quantize_money(total_monthly_costs * Decimal("0.25"))
+
     def calculate_gross_revenue_target(self, total_monthly_costs: Money, profit_target: Money, total_value: Money) -> Money:
         return self._quantize_money(total_monthly_costs + profit_target + total_value)
-    
+
     def calculate_profitability_multiplier(self, gross_revenue_target: Money, total_value: Money) -> Decimal:
         if total_value.amount == 0:
-            return Decimal('0.00')
-        
-        multiplier = (gross_revenue_target.amount / total_value.amount).quantize(Decimal('0.01'), ROUND_HALF_UP)
-        
+            return Decimal("0.00")
+
+        multiplier = (gross_revenue_target.amount / total_value.amount).quantize(Decimal("0.01"), ROUND_HALF_UP)
+
         return multiplier.normalize()
-    
+
     def calculate_all(self):
         total_value = self.calculate_total_value()
         total_monthly_costs = self.calculate_total_monthly_costs()
         profit_target = self.calculate_profit_target(total_monthly_costs)
         gross_revenue_target = self.calculate_gross_revenue_target(total_monthly_costs, profit_target, total_value)
         profitability_multiplier = self.calculate_profitability_multiplier(gross_revenue_target, total_value)
-        
+
         self.total_value = total_value
         self.total_monthly_costs = total_monthly_costs
         self.profit_target = profit_target
         self.gross_revenue_target = gross_revenue_target
         self.profitability_multiplier = profitability_multiplier
+
 
 class WorkshopCostItem(models.Model):
     """
