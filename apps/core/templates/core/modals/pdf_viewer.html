@@ -1,0 +1,49 @@
+<div x-data="{ open: false, pdfUrl: '' }"
+     @open-pdf-modal.window="pdfUrl = $event.detail.url; open = true"
+     @keydown.escape.window="open = false"
+     class="relative z-50">
+
+    <div class="modal" :class="{ 'modal-open': open }" role="dialog" aria-modal="true">
+
+        <!-- bg-base-100 garante que o fundo das pontas arredondadas siga o tema -->
+        <div class="modal-box w-11/12 max-w-5xl h-[90vh] p-0 flex flex-col bg-base-100 overflow-hidden shadow-2xl rounded-box">
+
+            <!-- Header -->
+            <div class="flex justify-between items-center px-6 py-4 border-b border-base-300 bg-base-100">
+                <div>
+                    <h3 class="text-lg font-bold text-base-content">Visualizar Documento</h3>
+                    <p class="text-sm text-base-content/70">Pré-visualização do arquivo PDF gerado.</p>
+                </div>
+                <button @click="open = false" class="btn btn-sm btn-circle btn-ghost">✕</button>
+            </div>
+
+            <!-- Área do PDF -->
+            <div class="flex-grow relative bg-base-200">
+                <!-- Loading State -->
+                <div x-show="!pdfUrl" class="absolute inset-0 flex items-center justify-center text-base-content/50">
+                    <span class="loading loading-spinner loading-lg"></span>
+                </div>
+
+                <!-- Iframe -->
+                <iframe x-show="pdfUrl"
+                        :src="pdfUrl"
+                        class="w-full h-full border-none block bg-white"
+                        title="PDF Viewer">
+                </iframe>
+            </div>
+
+            <!-- Footer -->
+            <div class="modal-action px-6 py-4 bg-base-100 m-0 border-t border-base-300">
+                <button type="button" @click="open = false" class="btn btn-ghost">Fechar</button>
+                <a :href="pdfUrl" download class="btn btn-primary gap-2">
+                    <span class="material-icons text-sm">download</span> Baixar PDF
+                </a>
+            </div>
+        </div>
+
+        <!-- Backdrop -->
+        <form method="dialog" class="modal-backdrop bg-black/50">
+            <button @click="open = false" type="button" class="cursor-default">close</button>
+        </form>
+    </div>
+</div>

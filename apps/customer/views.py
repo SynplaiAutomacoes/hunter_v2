@@ -1,13 +1,18 @@
-from django.shortcuts import render
-from django.urls import reverse_lazy
-from django.views.generic import ListView, CreateView, UpdateView, DeleteView, TemplateView, DetailView
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.http import FileResponse, Http404, HttpResponse
+from django.urls import reverse_lazy
+from django.utils.decorators import method_decorator
+from django.views.decorators.clickjacking import xframe_options_exempt
+from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
+
+from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.workshops.mixin import WorkshopScopedMixin
-from apps.core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin
-from .models import Customer, Vehicle
-from .forms import CustomerForm, VehicleFormSet
+
 from ..core.tables import TableActionDefaults
 from ..core.templatetags.table_tags import TableColumn
+from ..core.utils import render_to_pdf
+from .forms import CustomerForm, VehicleFormSet
+from .models import Customer, Vehicle
 
 
 class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
@@ -21,10 +26,7 @@ class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
 
         context["fields"] = [
             TableColumn(Customer.name.field.verbose_name, attr=Customer.name.field.name),
-            TableColumn(
-                Customer.cpf_or_cnpj.field.verbose_name,
-                attr="cpf_or_cnpj_formatted"
-            ),
+            TableColumn(Customer.cpf_or_cnpj.field.verbose_name, attr="cpf_or_cnpj_formatted"),
             TableColumn("Endereço", attr="full_address"),
             TableColumn(Customer.is_active.field.verbose_name, attr=Customer.is_active.field.name),
         ]
@@ -35,6 +37,7 @@ class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
         ]
 
         return context
+
 
 class CustomerCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
     model = Customer
@@ -68,6 +71,7 @@ class CustomerCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
             vehicles.save()
             return super().form_valid(form)
         return self.render_to_response(self.get_context_data(form=form))
+
 
 class CustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
     model = Customer
@@ -110,6 +114,7 @@ class CustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
 
         return self.render_to_response(self.get_context_data(form=form))
 
+
 class CustomerHistoryListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = Customer
     template_name = "history/customer-history_list.html"
@@ -121,7 +126,7 @@ class CustomerHistoryListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempl
 
         context["fields"] = [
             TableColumn(Customer.name.field.verbose_name, attr=Customer.name.field.name),
-            TableColumn(Customer.cpf_or_cnpj.field.verbose_name, attr=Customer.cpf_or_cnpj.field.name),
+            TableColumn(Customer.cpf_or_cnpj.field.verbose_name, attr="cpf_or_cnpj_formatted"),
             TableColumn("Endereço", attr="full_address"),
             TableColumn("Qtd. Veículos", attr="vehicles_count"),
         ]
@@ -132,6 +137,7 @@ class CustomerHistoryListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempl
 
         return context
 
+
 class CustomerHistoryDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
     model = Customer
     template_name = "history/customer-history_detail.html"
@@ -139,7 +145,7 @@ class CustomerHistoryDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailV
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        
+
         context["vehicle_fields"] = [
             TableColumn(Vehicle.plate.field.verbose_name, attr=Vehicle.plate.field.name),
             TableColumn("Marca / Modelo", attr=lambda x: f"{x.brand} {x.model}"),
@@ -151,15 +157,17 @@ class CustomerHistoryDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailV
         context["vehicle_actions"] = [
             TableActionDefaults.view("customer:vehicle_history_detail"),
         ]
-        
+
         context["vehicles"] = self.object.vehicles.all()
 
         return context
+
 
 class VehicleHistoryDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
     model = Vehicle
     template_name = "history/vehicle-history_detail.html"
     context_object_name = "vehicle"
+
 
 class CustomerDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResponseMixin, DeleteView):
     model = Customer
