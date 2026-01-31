@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8"/>
+    <title>{% block title %}Documento{% endblock %}</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 1cm;
+        }
+
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 11px;
+            margin: 0;
+            padding: 0;
+            color: #000;
+        }
+
+        /* Layout Helpers for xhtml2pdf (Table-based) */
+        .layout-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 10px;
+        }
+
+        .layout-table td {
+            vertical-align: top;
+            padding: 0;
+        }
+
+        /* Header */
+        .header-info {
+            border-bottom: 1px solid #e5e7eb;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+
+        .company-title {
+            font-weight: bold;
+            font-size: 18px;
+            text-transform: uppercase;
+            margin: 0;
+        }
+
+        .doc-title {
+            font-weight: bold;
+            font-size: 14px;
+            text-transform: uppercase;
+            text-align: right;
+        }
+
+        .doc-number {
+            font-size: 24px;
+            font-weight: bold;
+            margin: 0;
+            text-align: right;
+        }
+
+        .doc-date {
+            font-size: 11px;
+            text-align: right;
+        }
+
+        /* Sections */
+        .section-block {
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .section-block.last {
+            border-bottom: none;
+        }
+
+        .section-title {
+            font-weight: bold;
+            font-size: 11px;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+            color: #000;
+        }
+
+        /* Key-Value Pairs */
+        .info-label {
+            color: #6b7280;
+            margin-right: 4px;
+        }
+
+        .info-value {
+            color: #000;
+        }
+
+        .info-row {
+            margin-bottom: 4px;
+        }
+
+        /* Data Tables */
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 10px;
+            margin-top: 5px;
+        }
+
+        .data-table th {
+            background-color: #f3f4f6;
+            padding: 6px;
+            border-bottom: 2px solid #e5e7eb;
+            text-align: left;
+            font-weight: bold;
+        }
+
+        .data-table td {
+            padding: 6px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .data-table tr.last td {
+            border-bottom: none;
+        }
+
+        /* Totals */
+        .totals-table {
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        .totals-table td {
+            padding: 3px 0;
+            text-align: right;
+        }
+
+        .total-label {
+            font-weight: normal;
+            margin-right: 10px;
+        }
+
+        .total-value {
+            font-weight: bold;
+        }
+
+        .grand-total {
+            font-size: 14px;
+            font-weight: bold;
+            border-top: 1px solid #d1d5db;
+            padding-top: 5px;
+            margin-top: 5px;
+        }
+
+        /* Footer / Signature */
+        .signature-area {
+            margin-top: 40px;
+            text-align: center;
+        }
+
+        .signature-line {
+            display: inline-block;
+            border-top: 1px solid #6b7280;
+            padding-top: 5px;
+            width: 60%;
+            margin: 0 auto;
+        }
+
+        .footer-info {
+            margin-top: 20px;
+            text-align: center;
+            font-size: 9px;
+            color: #6b7280;
+            border-top: 1px solid #e5e7eb;
+            padding-top: 10px;
+        }
+
+        /* Grid Simulation with Tables */
+        .col-2 {
+            width: 48%;
+        }
+
+        .gap {
+            width: 4%;
+        }
+    </style>
+    {% block extra_style %}{% endblock %}
+</head>
+<body>
+<div id="pdf-content">
+    <!-- Header Section -->
+    <table class="layout-table header-info">
+        <tr>
+            <td style="width: 60%;">
+                {% block company_info %}
+                    <h3 class="company-title">HUNTER SERVIÇOS AUTOMOTIVOS LTDA</h3>
+                    <p style="margin: 2px 0;">CNPJ: 53.843.712/0001-39</p>
+                    <p style="margin: 2px 0;">RUA ENGENHEIRO JOSE VALTER SENG, 144 - FERREIRA - SÃO PAULO/SP - 05623-020</p>
+                    <p style="margin: 2px 0;">Fone: 11 99999-9999</p>
+                {% endblock %}
+            </td>
+            <td style="width: 40%; vertical-align:top;" align="right">
+                {% block doc_header %}
+                    <h4 class="doc-title">DOCUMENTO</h4>
+                    <p class="doc-number">-</p>
+                    <p class="doc-date">{% now "d/m/Y" %}</p>
+                {% endblock %}
+            </td>
+        </tr>
+    </table>
+
+    {% block content %}{% endblock %}
+
+    <!-- Footer Section -->
+    {% block footer %}
+        <div class="footer-info">
+            {% block footer_content %}
+                <p>Gerado pelo sistema Hunter v2 em {% now "d/m/Y H:i" %}</p>
+            {% endblock %}
+        </div>
+    {% endblock %}
+</div>
+</body>
+</html>
