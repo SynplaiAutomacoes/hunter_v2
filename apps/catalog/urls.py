@@ -30,6 +30,8 @@ from apps.catalog.views.kits import (
     KitDeleteView,
     KitProductSearchView,
     KitServiceSearchView,
+    KitUpdateView,
+    KitsByProductHXView,
 )
 
 app_name = "catalog"
@@ -55,4 +57,5 @@ urlpatterns = [
     path("kits/<int:pk>/delete/", KitDeleteView.as_view(), name="kits_delete"),
     path("kits/products/search/", KitProductSearchView.as_view(), name="kits_product_search"),
     path("kits/services/search/", KitServiceSearchView.as_view(), name="kits_service_search"),
+    path("hx/kits-by-product/", KitsByProductHXView.as_view(), name="kits-by-product-hx"),
 ]

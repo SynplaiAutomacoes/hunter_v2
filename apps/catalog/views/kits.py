@@ -7,6 +7,7 @@ from django.shortcuts import render
 from django.urls import reverse_lazy
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
+from django.http import JsonResponse
 
 from apps.catalog.forms.kits import KitForm
 from apps.catalog.models.kits import Kit
@@ -154,5 +155,31 @@ class KitServiceSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "services": page_obj.object_list,
                 "page_obj": page_obj,
                 "query": query,
+            },
+        )
+
+class KitsByProductHXView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Kit
+    workshop_permission_codename = "view_kit"
+    def get(self, request, *args, **kwargs):
+        product_id = request.GET.get("product_id")
+
+        kits = (
+            Kit.objects
+            .filter(
+                workshop=self.workshop,
+                is_active=True,
+                products__id=product_id,
+            )
+            .distinct()
+            .order_by("name")
+        )
+
+        return render(
+            request,
+            "kits/partials/kits_related_to_products_list.html",
+            {
+                "kits_disponiveis": kits,
+                "kits_selecionados_ids": [],  # ajuste se houver edição
             },
         )
