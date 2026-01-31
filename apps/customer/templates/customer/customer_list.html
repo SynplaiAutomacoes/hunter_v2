@@ -9,8 +9,60 @@
 
 {% block crud_table_wrapper_id %}customer-table-wrapper{% endblock %}
 {% block crud_table_hx_get %}{% url 'customer:customer_list' %}{% endblock %}
+
 {% block crud_table_hx_trigger %}customer-table-refresh from:body{% endblock %}
 
 {% block crud_table %}
     {% include 'customer/partials/customer_table.html' %}
+
+    <div id="pdfModal" class="relative z-50 hidden" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <!-- Fundo escuro/backdrop -->
+        <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity backdrop-blur-sm"></div>
+
+        <div class="fixed inset-0 z-10 overflow-y-auto">
+            <div class="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0">
+                <div class="relative transform overflow-hidden rounded-lg bg-white text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-5xl h-[85vh] flex flex-col">
+
+                    <!-- Header do Modal -->
+                    <div class="bg-gray-50 px-4 py-3 sm:px-6 flex justify-between items-center border-b">
+                        <h3 class="text-lg font-medium leading-6 text-gray-900" id="modal-title">Visualizar PDF</h3>
+                        <button type="button" onclick="closePdfModal()" class="text-gray-400 hover:text-gray-500 focus:outline-none">
+                            <span class="sr-only">Fechar</span>
+                            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+
+                    <!-- Conteúdo: Iframe para o PDF -->
+                    <div class="flex-grow bg-gray-100 p-4 relative">
+                        <iframe id="pdfFrame" src="" class="w-full h-full border rounded shadow bg-white"></iframe>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block extra_js %}
+    {{ block.super }}
+    <script>
+        function openPdfModal(url) {
+            const modal = document.getElementById('pdfModal');
+            const iframe = document.getElementById('pdfFrame');
+            if (modal && iframe) {
+                iframe.src = url; // Define a URL do PDF (view django)
+                modal.classList.remove('hidden'); // Exibe o modal
+            }
+        }
+
+        function closePdfModal() {
+            const modal = document.getElementById('pdfModal');
+            const iframe = document.getElementById('pdfFrame');
+            if (modal && iframe) {
+                modal.classList.add('hidden'); // Oculta o modal
+                iframe.src = ''; // Limpa o src para não segurar memória/cache
+            }
+        }
+    </script>
 {% endblock %}

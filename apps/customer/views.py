@@ -1,4 +1,4 @@
-from django.shortcuts import render
+from django.http import FileResponse, Http404
 from django.urls import reverse_lazy
 from django.views.generic import ListView, CreateView, UpdateView, DeleteView, TemplateView, DetailView
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -8,6 +8,7 @@ from .models import Customer, Vehicle
 from .forms import CustomerForm, VehicleFormSet
 from ..core.tables import TableActionDefaults
 from ..core.templatetags.table_tags import TableColumn
+from ..core.utils import render_to_pdf
 
 
 class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
@@ -184,3 +185,22 @@ class AddVehicleFormView(LoginRequiredMixin, TemplateView):
 
         context["v_form"] = form
         return context
+
+class CustomerPDFView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
+    model = Customer
+
+    def get(self, request, *args, **kwargs):
+        self.object = self.get_object()
+
+        context = self.get_context_data(object=self.object)
+
+        pdf = render_to_pdf('customer/pdf/customer_pdf.html', context)
+
+        if pdf:
+            response = FileResponse(pdf, content_type='application/pdf')
+            filename = f"cliente_{self.object.pk}.pdf"
+
+            response['Content-Disposition'] = f'inline; filename="{filename}"'
+            return response
+
+        raise Http404("Erro ao gerar o PDF")
