@@ -1,0 +1,25 @@
+{% for kit in kits_disponiveis %}
+    <label
+        class="flex items-center gap-3 p-3 cursor-pointer
+               hover:bg-base-200 transition"
+        x-show="'{{ kit.name|lower }}'.includes(search.toLowerCase())"
+    >
+        <input
+            type="checkbox"
+            name="kits"
+            value="{{ kit.id }}"
+            class="checkbox checkbox-sm checkbox-primary"
+            {% if kit.id in kits_selecionados_ids %}
+                checked
+            {% endif %}
+        />
+
+        <span class="text-base-content">
+            {{ kit.name }}
+        </span>
+    </label>
+{% empty %}
+    <div class="p-4 text-sm text-base-content/60">
+        Nenhum kit contém este produto.
+    </div>
+{% endfor %}
