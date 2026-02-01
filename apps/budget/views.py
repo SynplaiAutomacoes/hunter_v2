@@ -237,12 +237,7 @@ def remove_item_from_budget(request, budget_id, item_id, item_type):
     workshop = get_active_workshop_or_404(request=request)
 
     item = get_object_or_404(BudgetItem, workshop=workshop, budget=budget, **{f"{item_type}_id": item_id})
-
-    if item.quantity > 1:
-        item.quantity -= 1
-        item.save()
-    else:
-        item.delete()
+    item.delete()
 
     response = HttpResponse()
     response["HX-Refresh"] = "true"
