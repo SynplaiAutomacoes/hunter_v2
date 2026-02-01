@@ -6,6 +6,7 @@ from django.http import HttpResponse
 from django.template.response import TemplateResponse
 from django.shortcuts import render
 import requests
+from django.views.generic import TemplateView
 
 
 class HtmxTemplateResponseMixin:
@@ -43,33 +44,41 @@ class HtmxDeleteResponseMixin:
         return super().form_valid(form)
 
 
-def cep_lookup(request):
-    cep = request.GET.get("cep", "").replace("-", "").replace(".", "")
-    updates = {
-        "id_logradouro": "",
-        "id_bairro": "",
-        "id_cidade": "",
-        "readonly": True
-    }
-    if len(cep) == 8:
-        try:
-            response = requests.get(f"https://viacep.com.br/ws/{cep}/json/", timeout=5)
-            data = response.json()
-            if "erro" not in data:
-                updates.update(
-                    {
-                        "id_logradouro": data.get("logradouro", ""),
-                        "id_bairro": data.get("bairro", ""),
-                        "id_cidade": data.get("localidade", ""),
-                        "readonly": False,
-                    }
-                )
-            else:
-                updates.update({"readonly": False})
-        except Exception:
-            updates.update({"readonly": False})
+class CEPLookupView(TemplateView):
+    template_name = "partials/address_fields.html"
 
-    return render(request, "partials/address_fields.html", {"updates": updates})
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+
+        cep = self.request.GET.get("cep", "").replace("-", "").replace(".", "")
+        updates = {
+            "id_logradouro": "",
+            "id_bairro": "",
+            "id_cidade": "",
+            "readonly": True
+        }
+
+        if len(cep) == 8:
+            try:
+                response = requests.get(f"https://viacep.com.br/ws/{cep}/json/", timeout=5)
+                data = response.json()
+
+                if "erro" not in data:
+                    updates.update(
+                        {
+                            "id_logradouro": data.get("logradouro", ""),
+                            "id_bairro": data.get("bairro", ""),
+                            "id_cidade": data.get("localidade", ""),
+                            "readonly": False,
+                        }
+                    )
+                else:
+                    updates["readonly"] = False
+            except Exception:
+                updates["readonly"] = False
+
+        context["updates"] = updates
+        return context
 
 
 class BaseModalFormView:

@@ -13,13 +13,13 @@ urlpatterns = [
     path("vehicle-detail/", views.VehicleDetailView.as_view(), name="vehicle-detail"),
     path("get-vehicles/", views.VehicleListView.as_view(), name="get-vehicles"),
 
-    path("selection/<int:budget_id>/<str:item_type>/", views.item_selection_modal, name="item_selection"),
-    path("<int:budget_id>/add-item/<int:item_id>/<str:item_type>/", views.add_item_to_budget, name="add_item_to_budget"),
-    path("<int:budget_id>/remove-item/<int:item_id>/<str:item_type>/", views.remove_item_from_budget, name="remove_item_from_budget"),
+    path("selection/<int:budget_id>/<str:item_type>/", views.ItemSelectionModalView.as_view(), name="item_selection"),
+    path("<int:budget_id>/add-item/<int:item_id>/<str:item_type>/", views.AddItemToBudgetView.as_view(), name="add_item_to_budget"),
+    path("<int:budget_id>/remove-item/<int:item_id>/<str:item_type>/", views.RemoveItemFromBudgetView.as_view(), name="remove_item_from_budget"),
 
-    path("update_slider/<int:budget_id>/", views.update_slider, name="update_slider"),
+    path("update_slider/<int:budget_id>/", views.UpdateSliderView.as_view(), name="update_slider"),
+    path("update-budget-discount/<int:budget_id>/", views.UpdateBudgetDiscountView.as_view(), name="update_budget_discount"),
+    path("update-status/<int:budget_id>/<str:status>", views.UpdateBudgetStatusView.as_view(), name="update_budget_status"),
 
-    path("update-budget-discount/<int:budget_id>/", views.update_budget_discount, name="update_budget_discount"),
-    path("save-observation/", views.save_observation, name="save_observation"),
-    path("update-status/<int:budget_id>/<str:status>", views.update_budget_status, name="update_budget_status"),
+    path("save-observation/", views.SaveObservationView.as_view(), name="save_observation"),
 ]

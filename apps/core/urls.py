@@ -4,5 +4,5 @@ from . import views
 app_name = "core"
 
 urlpatterns = [
-    path("cep-lookup/", views.cep_lookup, name="cep_lookup"),
+    path("cep-lookup/", views.CEPLookupView.as_view(), name="cep_lookup"),
 ]

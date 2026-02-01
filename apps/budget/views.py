@@ -8,7 +8,7 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect, render, get_object_or_404
 from django.urls import reverse, reverse_lazy
 from django.views import View
-from django.views.generic import ListView, CreateView, DeleteView
+from django.views.generic import ListView, CreateView, DeleteView, TemplateView
 
 from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
 from apps.budget.models import Budget, BudgetItem, BudgetStatus
@@ -211,100 +211,123 @@ class VehicleDetailView(View):
         return render(request, 'budget/partials/vehicle_resume.html', {'vehicle': vehicle})
 
 
-def item_selection_modal(request, budget_id, item_type):
-    budget = get_object_or_404(Budget, id=budget_id)
-    workshop = get_active_workshop_or_404(request=request)
+class ItemSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
+    model = Budget
+    template_name = "budget/partials/modal_item_list.html"
+    workshop_permission_codename = "add_budget"
 
-    if item_type == "product":
-        queryset = Product.objects.filter(workshop=workshop, is_active=True)
-        title = "Selecionar Produto"
-    elif item_type == "service":
-        queryset = Service.objects.filter(workshop=workshop, is_active=True)
-        title = "Selecionar Serviço"
-    else:
-        queryset = Kit.objects.filter(workshop=workshop, is_active=True)
-        title = "Selecionar Kit"
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        budget_id = self.kwargs.get("budget_id")
+        item_type = self.kwargs.get("item_type")
 
-    return render(request, "budget/partials/modal_item_list.html", {"items": queryset, "budget": budget, "item_type": item_type, "modal_title": title})
+        budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
 
+        map_config = {
+            "product": (Product, "Selecionar Produto"),
+            "service": (Service, "Selecionar Serviço"),
+            "kit": (Kit, "Selecionar Kit"),
+        }
 
-def add_item_to_budget(request, budget_id, item_id, item_type):
-    budget = get_object_or_404(Budget, id=budget_id)
-    workshop = get_active_workshop_or_404(request=request)
+        model_class, title = map_config.get(item_type, (Product, "Selecionar Item"))
+        queryset = model_class.objects.filter(workshop=self.workshop, is_active=True)
 
-    item, created = BudgetItem.objects.get_or_create(workshop=workshop, budget=budget, **{f"{item_type}_id": item_id}, defaults={"quantity": 1})
-
-    if not created:
-        item.quantity += 1
-        item.save()
-
-    response = HttpResponse()
-    response["HX-Refresh"] = "true"
-    return response
+        context.update({"items": queryset, "budget": budget, "item_type": item_type, "modal_title": title})
+        return context
 
 
-def remove_item_from_budget(request, budget_id, item_id, item_type):
-    budget = get_object_or_404(Budget, id=budget_id)
-    workshop = get_active_workshop_or_404(request=request)
+class AddItemToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "add_budget"
 
-    item = get_object_or_404(BudgetItem, workshop=workshop, budget=budget, **{f"{item_type}_id": item_id})
-    item.delete()
+    def post(self, request, *args, **kwargs):
+        budget = get_object_or_404(Budget, id=kwargs["budget_id"], workshop=self.workshop)
+        item_filter = {f"{kwargs['item_type']}_id": kwargs["item_id"]}
 
-    response = HttpResponse()
-    response["HX-Refresh"] = "true"
-    return response
+        item, created = BudgetItem.objects.get_or_create(workshop=self.workshop, budget=budget, **item_filter, defaults={"quantity": 1})
 
+        if not created:
+            item.quantity += 1
+            item.save()
 
-def update_budget_discount(request, budget_id):
-    workshop = get_active_workshop_or_404(request=request)
-    budget = get_object_or_404(Budget, pk=budget_id, workshop=workshop)
-
-    try:
-        budget.discount_value = Decimal(request.POST.get("discount_value_0", "0").replace(",", "."))
-        budget.save()
-    except (ValueError, TypeError):
-        pass
-
-    response = HttpResponse()
-    response["HX-Refresh"] = "true"
-    return response
-
-def save_observation(request):
-    workshop = get_active_workshop_or_404(request=request)
-
-    try:
-        data = json.loads(request.body)
-        observation = data.get("observation", "").strip()
-    except json.JSONDecodeError:
-        pass
-
-    workshop.pdf_observation = observation
-    workshop.save()
-
-    return JsonResponse({"success": True})
-
-def update_budget_status(request, budget_id, status):
-    workshop = get_active_workshop_or_404(request=request)
-    budget = get_object_or_404(Budget, id=budget_id, workshop=workshop)
-
-    if status == "cancel":
-        budget.status = BudgetStatus.CANCELLED
-    elif status == "approve":
-        budget.status = BudgetStatus.APPROVED
-    elif status == "reject":
-        budget.status = BudgetStatus.REJECTED
-
-    budget.save()
-
-    return JsonResponse({"success": True})
+        response = HttpResponse()
+        response["HX-Refresh"] = "true"
+        return response
 
 
-def update_slider(request, budget_id):
-    workshop = get_active_workshop_or_404(request=request)
-    budget = get_object_or_404(Budget, id=budget_id, workshop=workshop)
-    slider_value = request.POST.get("slider")
-    if slider_value is not None:
-        budget.slider = int(slider_value)
-        budget.save()
+class RemoveItemFromBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "add_budget"
 
-    return HttpResponse(status=204)
+    def post(self, request, *args, **kwargs):
+        item_filter = {f"{kwargs['item_type']}_id": kwargs["item_id"]}
+        item = get_object_or_404(BudgetItem, workshop=self.workshop, budget_id=kwargs["budget_id"], **item_filter)
+        item.delete()
+
+        response = HttpResponse()
+        response["HX-Refresh"] = "true"
+        return response
+
+
+class UpdateBudgetDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "add_budget"
+
+    def post(self, request, budget_id):
+        budget = get_object_or_404(Budget, pk=budget_id, workshop=self.workshop)
+        try:
+            val = request.POST.get("discount_value_0", "0").replace(",", ".")
+            budget.discount_value = Decimal(val)
+            budget.save()
+        except (ValueError, TypeError):
+            pass
+
+        return HttpResponse(headers={"HX-Refresh": "true"})
+
+
+class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "add_budget"
+
+    def post(self, request, budget_id, status):
+        budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
+
+        status_map = {
+            "cancel": BudgetStatus.CANCELLED,
+            "approve": BudgetStatus.APPROVED,
+            "reject": BudgetStatus.REJECTED,
+        }
+
+        if status in status_map:
+            budget.status = status_map[status]
+            budget.save()
+
+        return JsonResponse({"success": True})
+
+
+class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "add_budget"
+
+    def post(self, request, budget_id):
+        budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
+        slider_value = request.POST.get("slider")
+        if slider_value is not None:
+            budget.slider = int(slider_value)
+            budget.save()
+        return HttpResponse(status=204)
+
+
+class SaveObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "add_budget"
+
+    def post(self, request):
+        try:
+            data = json.loads(request.body)
+            observation = data.get("observation", "").strip()
+            self.workshop.pdf_observation = observation
+            self.workshop.save()
+            return JsonResponse({"success": True})
+        except (json.JSONDecodeError, AttributeError):
+            return JsonResponse({"success": False}, status=400)
