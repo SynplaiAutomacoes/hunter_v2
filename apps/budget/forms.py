@@ -33,8 +33,29 @@ class BudgetStep1Form(forms.ModelForm):
         self.request = kwargs.pop("request", None)
         super().__init__(*args, **kwargs)
 
-        self.fields["customer"].widget.attrs.update({"data-vehicle-url": reverse_lazy("budget:get-vehicles")})
-        self.fields["vehicle"].widget.attrs.update({":disabled": "!customerId", ":class": "{ 'cursor-not-allowed': !customerId }"})
+        self.fields["customer"].widget.attrs.update(
+            {
+                "x-model": "customerId",
+                "hx-get": reverse_lazy("budget:customer-detail"),
+                "hx-trigger": "change",
+                "hx-target": "#resumo-cliente",
+                "@change": "customerId = $el.value; vehicleId = ''; updateVehicleList($el.value);",
+            }
+        )
+
+        self.fields["vehicle"].widget.attrs.update(
+            {
+                "x-model": "vehicleId",
+                ":disabled": "!customerId",
+                ":class": "{ 'cursor-not-allowed': !customerId }",
+                "hx-get": reverse_lazy("budget:vehicle-detail"),
+                "hx-trigger": "change",
+                "hx-target": "#resumo-veiculo",
+                "hx-include": "[name='customer']",
+            }
+        )
+
+        self.fields["vehicle"].widget.attrs.update({"id": "id_vehicle"})
 
         # Preenchimento inicial (Campos não editáveis)
         if self.workshop:
@@ -65,93 +86,37 @@ class BudgetStep1Form(forms.ModelForm):
         self.helper.layout = Layout(
             HTML("""
             <script>
-                (function() {
-                    const getWidgetData = (name) => {
-                        const input = document.querySelector(`[name="${name}"]`);
-                        return input ? Alpine.$data(input.closest('[x-data]')) : null;
-                    };
-
-                    const updateVehicleOptions = async (customerId) => {
-                        const vehicleWidget = getWidgetData('vehicle');
-                        if (!vehicleWidget) return;
-
-                        // Limpa o estado atual do widget de veículo
-                        vehicleWidget.clear(); 
-                        const optionsList = vehicleWidget.$refs.options;
-
-                        // Remove apenas os itens de dados (mantém o "Limpar seleção")
-                        optionsList.querySelectorAll('li[data-value]').forEach(li => li.remove());
-
-                        if (!customerId) return;
-
-                        try {
-                            const response = await fetch(`/budget/get-vehicles/?customer=${customerId}`);
-                            const data = await response.json();
-
-                            data.forEach(v => {
-                                const li = document.createElement('li');
-                                li.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white group transition-colors';
-
-                                // Definimos os atributos que a função select() do seu widget já espera
-                                li.setAttribute('data-value', v.id);
-                                li.setAttribute('data-label', v.label);
-
-                                li.innerHTML = `<span class="block truncate">${v.label}</span>`;
-
-                                li.addEventListener('click', () => {
-                                    vehicleWidget.select(li);
-                                    const parentData = Alpine.$data(document.querySelector('#resumo-veiculo').closest('[x-data]'));
-                                    if (parentData) parentData.vehicleId = v.id;
-                                });
-
-                                optionsList.appendChild(li);
-                            });
-                        } catch (err) {
-                            console.error("Erro ao buscar veículos:", err);
-                        }
-                    };
-
-                    const handleFieldChange = (field, event) => {
-                        const val = event.target.value;
-                        const container = document.getElementById(field.resumoId);
-
-                        // Lógica específica para quando o Cliente muda
-                        if (field.name === 'customer') {
-                            updateVehicleOptions(val);
-                            const vResumo = document.getElementById('resumo-veiculo');
-                            if (vResumo) vResumo.innerHTML = '';
-                        }
-
-                        // Atualiza o resumo
-                        if (!val) {
-                            if (container) container.innerHTML = '';
-                            return;
-                        }
-
-                        fetch(`${field.detailUrl}?${field.name}=${val}`)
-                            .then(r => r.text())
-                            .then(html => { if (container) container.innerHTML = html; });
-                    };
-
-                    const initFormLogic = () => {
-                        const fields = [
-                            { name: 'customer', resumoId: 'resumo-cliente', detailUrl: '/budget/customer-detail/' },
-                            { name: 'vehicle',  resumoId: 'resumo-veiculo', detailUrl: '/budget/vehicle-detail/' }
-                        ];
-
-                        fields.forEach(field => {
-                            const el = document.querySelector(`[name="${field.name}"]`);
-                            if (el && !el.dataset.logicBound) {
-                                el.addEventListener('change', (e) => handleFieldChange(field, e));
-                                el.dataset.logicBound = "true"; // Evita duplicar eventos com HTMX
-                            }
-                        });
-                    };
-
-                    if (document.readyState === 'complete') initFormLogic();
-                    else window.addEventListener('load', initFormLogic);
-                    document.body.addEventListener('htmx:afterSettle', initFormLogic);
-                })();
+                async function updateVehicleList(customerId) {
+                    // 1. Busca os dados da sua VehicleListView (JSON)
+                    const response = await fetch(`/budget/get-vehicles/?customer=${customerId}`);
+                    const vehicles = await response.json();
+                    
+                    // 2. Localiza o Alpine Data do widget de veículo
+                    // 'id_vehicle' deve ser o ID do input hidden dentro do widget
+                    const vehicleEl = document.querySelector('[name="vehicle"]').closest('[x-data]');
+                    const vehicleData = Alpine.$data(vehicleEl);
+            
+                    // 3. Limpa o valor atual e as opções no DOM
+                    vehicleData.clear();
+                    const optionsUl = vehicleEl.querySelector('ul[role="listbox"]');
+                    
+                    // Remove todos os <li> que não sejam o "Limpar seleção"
+                    optionsUl.querySelectorAll('li[data-value]').forEach(li => li.remove());
+            
+                    // 4. Adiciona as novas opções dinamicamente
+                    vehicles.forEach(v => {
+                        const li = document.createElement('li');
+                        li.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white group transition-colors';
+                        li.setAttribute('data-value', v.id);
+                        li.setAttribute('data-label', v.label);
+                        li.innerHTML = `<span class="block truncate">${v.label}</span>`;
+                        
+                        // Adiciona o evento de clique que o seu widget espera
+                        li.addEventListener('click', () => vehicleData.select(li));
+                        
+                        optionsUl.appendChild(li);
+                    });
+                }
             </script>
             """),
             Div(
