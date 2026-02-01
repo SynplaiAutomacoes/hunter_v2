@@ -135,14 +135,14 @@ class Budget(TimeStampedModel):
         venda_mao_obra_trad = valor_hora_vendida_trad * duracao_total
         valor_orcamento_trad = soma_base_orcamento + venda_mao_obra_trad
         lucro_operacional_trad = valor_orcamento_trad - subtracao_base_lucro
-        rentabilidade_trad = Decimal(str(lucro_operacional_trad.amount / valor_orcamento_trad.amount)).quantize(Decimal("0.01"), ROUND_HALF_UP)
+        rentabilidade_trad = (Decimal(str(lucro_operacional_trad.amount / valor_orcamento_trad.amount)) * 100).quantize(Decimal("0.01"), ROUND_HALF_UP)
 
         # MÉTOD0 HUNTER
         venda_mao_obra_hun = self.total_services_value - venda_servico_terceiro
         valor_orcamento_hun = soma_base_orcamento + venda_mao_obra_hun
         mlo = valor_orcamento_hun.amount / divisor_mlo if divisor_mlo > 0 else 0
         lucro_operacional_hun = valor_orcamento_hun - subtracao_base_lucro
-        rentabilidade_hun = Decimal(str(lucro_operacional_hun.amount / valor_orcamento_hun.amount)).quantize(Decimal("0.01"), ROUND_HALF_UP)
+        rentabilidade_hun = (Decimal(str(lucro_operacional_hun.amount / valor_orcamento_hun.amount)) * 100).quantize(Decimal("0.01"), ROUND_HALF_UP)
 
         # Organização dos dados
         data_trad = {
@@ -156,7 +156,7 @@ class Budget(TimeStampedModel):
             "venda_pecas": venda_pecas,
             "venda_servico_terceiro": venda_servico_terceiro,
             "venda_mao_obra": venda_mao_obra_trad,
-            "rentabilidade": float(rentabilidade_trad * 100),
+            "rentabilidade": rentabilidade_trad,
             "valor_orcamento": valor_orcamento_trad,
         }
 
@@ -172,7 +172,7 @@ class Budget(TimeStampedModel):
             "venda_pecas": venda_pecas,
             "venda_servico_terceiro": venda_servico_terceiro,
             "venda_mao_obra": venda_mao_obra_hun,
-            "rentabilidade": float(rentabilidade_hun * 100),
+            "rentabilidade": rentabilidade_hun,
             "mlo": mlo,
             "valor_orcamento": valor_orcamento_hun,
         }
