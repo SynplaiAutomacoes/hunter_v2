@@ -1,6 +1,8 @@
 import json
+from django.utils import timezone
 from decimal import Decimal
 
+from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect, render, get_object_or_404
@@ -19,6 +21,7 @@ from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin
 from apps.customer.models import Customer, Vehicle
 from apps.workshops.mixin import WorkshopScopedMixin
+from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
 
@@ -58,6 +61,14 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
         {"title": "Método de Precificação", "form_class": BudgetStep5Form},
         {"title": "Revisão e Confirmação", "form_class": BudgetStep6Form},
     ]
+
+    def get(self, request, *args, **kwargs):
+        today = timezone.now()
+        if not WorkshopCost.objects.filter(workshop=self.workshop, month=today.month, year=today.year).exists():
+            messages.warning(request, "Cadastre um custo mensal da oficina para este mês antes de prosseguir.")
+            return redirect("budget:budget_list")
+
+        return super().get(request, *args, **kwargs)
 
     def get_template_names(self):
         if self.request.htmx:
