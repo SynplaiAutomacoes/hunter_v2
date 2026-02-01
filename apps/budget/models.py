@@ -101,10 +101,10 @@ class Budget(TimeStampedModel):
         verbose_name_plural = "Orçamentos"
 
     def calculate_pricing_methods(self):
-        today = timezone.now()
+        reference_date = self.criado_em if self.criado_em else timezone.now()
 
         try:
-            workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=today.month, year=today.year)
+            workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=reference_date.month, year=reference_date.year)
             mechanic_salary_obj = MonthlyCost.objects.get(workshop=self.workshop, name__iexact="Salários mecânicos produtivos")
             salario_mecanicos = WorkshopCostItem.objects.get(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_obj).amount
         except (WorkshopCost.DoesNotExist, MonthlyCost.DoesNotExist, WorkshopCostItem.DoesNotExist):
