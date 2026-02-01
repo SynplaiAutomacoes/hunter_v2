@@ -9,7 +9,7 @@
             type="button"
             class="btn btn-ghost btn-xs text-error"
             hx-post="{% url 'budget:remove_item_from_budget' budget.id item.kit.id 'kit' %}"
-            hx-confirm="Tem certeza que deseja diminuir a quantidade ou remover este kit?"
+            data-confirm="Deseja remover este kit?"
             hx-target="closest tr"
             hx-swap="outerHTML">
             <span class="material-icons text-sm">delete</span>

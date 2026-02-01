@@ -10,7 +10,7 @@
             type="button"
             class="btn btn-ghost btn-xs text-error"
             hx-post="{% url 'budget:remove_item_from_budget' budget.id item.product.id 'product' %}"
-            hx-confirm="Deseja remover uma unidade deste produto?"
+            data-confirm="Deseja remover este produto?"
             hx-target="closest tr"
             hx-swap="outerHTML">
             <span class="material-icons text-sm">delete</span>

@@ -1,7 +1,6 @@
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, HTML
 from django import forms
-from django.db.models import Sum, F
 from django.template.loader import render_to_string
 from django.urls import reverse_lazy, reverse
 from djmoney.money import Money
@@ -9,6 +8,7 @@ from djmoney.money import Money
 from apps.budget.models import Budget, Defect, BudgetImage
 from apps.checklist.models import Checklist
 from apps.collaborators.models import WorkshopCollaborator
+from apps.core.utils import alert_confirm_layout
 from apps.core.widgets import TextInput, SelectInput, CalendarDateInput, MoneyInput
 from apps.customer.models import Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
@@ -506,6 +506,7 @@ class BudgetStep4Form(forms.ModelForm):
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
+            alert_confirm_layout(),
             Div(
                 # Coluna Esquerda: Seleção
                 Div(
@@ -956,6 +957,7 @@ class BudgetStep6Form(forms.ModelForm):
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
+            alert_confirm_layout(),
             HTML("""<script>
                     function saveObservation(budgetId) {
                         const observation = document.getElementById('budget-observation').value;
@@ -973,8 +975,9 @@ class BudgetStep6Form(forms.ModelForm):
                         });
                     }
                     
-                    function updateBudgetStatus(budgetId, status) {
-                        if (!confirm('Deseja realmente posseguir?')) return;
+                    async function updateBudgetStatus(budgetId, status) {
+                        const confirmed = await customConfirm("Você tem certeza que deseja alterar o status deste orçamento?");
+                        if (!confirmed) return;
                     
                         fetch(`/budget/update-status/${budgetId}/${status}`, {
                             method: 'POST',
