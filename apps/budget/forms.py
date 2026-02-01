@@ -73,94 +73,86 @@ class BudgetStep1Form(forms.ModelForm):
             HTML("""
             <script>
                 (function() {
-                    const lastValues = {};
-                
-                    const updateVehicleSelect = (customerId) => {
-                        const vehicleInput = document.querySelector('[name="vehicle"]');
-                        if (!vehicleInput) return;
-                        const vehicleContainer = vehicleInput.closest('div');
-                        const optionsList = vehicleContainer.querySelector('[x-ref="options"]');
-                        if (!optionsList) return;
-                    
-                        // Limpa opções existentes (exceto o "Limpar seleção")
+                    const getWidgetData = (name) => {
+                        const input = document.querySelector(`[name="${name}"]`);
+                        return input ? Alpine.$data(input.closest('[x-data]')) : null;
+                    };
+
+                    const updateVehicleOptions = async (customerId) => {
+                        const vehicleWidget = getWidgetData('vehicle');
+                        if (!vehicleWidget) return;
+
+                        // Limpa o estado atual do widget de veículo
+                        vehicleWidget.clear(); 
+                        const optionsList = vehicleWidget.$refs.options;
+
+                        // Remove apenas os itens de dados (mantém o "Limpar seleção")
                         optionsList.querySelectorAll('li[data-value]').forEach(li => li.remove());
-                    
+
                         if (!customerId) return;
-                    
-                        fetch(`/budget/get-vehicles/?customer=${customerId}`)
-                            .then(response => response.json())
-                            .then(data => {
-                                data.forEach(v => {
-                                    const li = document.createElement('li');
-                                    li.setAttribute('data-value', v.id);
-                                    li.textContent = v.label;
-                                            li.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white group transition-colors';
-                    
-                                    li.addEventListener('click', () => {
-                                        vehicleInput.value = v.id;
-                                        if (window.Alpine) {
-                                            const data = Alpine.$data(vehicleInput.closest('[x-data]'));
-                                            if (data) data.vehicleId = v.id;
-                                        }
-                                        // ---------------------------
-                                    
-                                        const spanLabel = vehicleContainer.querySelector('button span:first-child');
-                                        if (spanLabel) spanLabel.textContent = v.label;
-                                    
-                                                vehicleInput.dispatchEvent(new Event('change', { bubbles: true }));
-                                        document.body.click();
-                                    });
-                    
-                                    optionsList.appendChild(li);
+
+                        try {
+                            const response = await fetch(`/budget/get-vehicles/?customer=${customerId}`);
+                            const data = await response.json();
+
+                            data.forEach(v => {
+                                const li = document.createElement('li');
+                                li.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white group transition-colors';
+
+                                // Definimos os atributos que a função select() do seu widget já espera
+                                li.setAttribute('data-value', v.id);
+                                li.setAttribute('data-label', v.label);
+
+                                li.innerHTML = `<span class="block truncate">${v.label}</span>`;
+
+                                li.addEventListener('click', () => {
+                                    vehicleWidget.select(li);
+                                    const parentData = Alpine.$data(document.querySelector('#resumo-veiculo').closest('[x-data]'));
+                                    if (parentData) parentData.vehicleId = v.id;
                                 });
+
+                                optionsList.appendChild(li);
                             });
+                        } catch (err) {
+                            console.error("Erro ao buscar veículos:", err);
+                        }
                     };
 
-                    const bindField = (field) => {
-                        const el = document.querySelector(`[name="${field.name}"]`);
-                        if (!el) return;
-                    
-                        el.addEventListener('change', (e) => {
-                            const val = e.target.value;
-                            
-                            if (field.name === 'customer') {
-                                const vInput = document.querySelector('[name="vehicle"]');
-                                if (vInput) {
-                                    const vehicleContainer = vInput.closest('div')
-                                    
-                                    vInput.value = '';
-                                    
-                                    const spanLabel = vehicleContainer.querySelector('button span:first-child');
-                                    if (spanLabel) {
-                                        spanLabel.textContent = 'Selecione...'; // Ou o termo exato que você usa
-                                    }
+                    const handleFieldChange = (field, event) => {
+                        const val = event.target.value;
+                        const container = document.getElementById(field.resumoId);
 
-                                    // Sincroniza com o Alpine.js SEMPRE, mesmo se for vazio
-                                    if (window.Alpine) {
-                                        const data = Alpine.$data(vInput.closest('[x-data]'));
-                                        if (data) data.vehicleId = '';
-                                    }
-                                }
-                                const vResumo = document.getElementById('resumo-veiculo');
-                                if (vResumo) vResumo.innerHTML = '';
-                                updateVehicleSelect(val);
-                            }
-                    
-                            if (!val) {
-                                document.getElementById(field.id).innerHTML = '';
-                                return; 
-                            }
-                    
-                            // Update resumo via fetch
-                            fetch(`${field.url}?${field.name}=${val}`)
-                                .then(r => r.text())
-                                .then(html => document.getElementById(field.id).innerHTML = html);
-                        });
+                        // Lógica específica para quando o Cliente muda
+                        if (field.name === 'customer') {
+                            updateVehicleOptions(val);
+                            const vResumo = document.getElementById('resumo-veiculo');
+                            if (vResumo) vResumo.innerHTML = '';
+                        }
+
+                        // Atualiza o resumo
+                        if (!val) {
+                            if (container) container.innerHTML = '';
+                            return;
+                        }
+
+                        fetch(`${field.detailUrl}?${field.name}=${val}`)
+                            .then(r => r.text())
+                            .then(html => { if (container) container.innerHTML = html; });
                     };
-                
+
                     const initFormLogic = () => {
-                        [{ name: 'customer', id: 'resumo-cliente', url: '/budget/customer-detail/' },
-                         { name: 'vehicle', id: 'resumo-veiculo', url: '/budget/vehicle-detail/' }].forEach(bindField);
+                        const fields = [
+                            { name: 'customer', resumoId: 'resumo-cliente', detailUrl: '/budget/customer-detail/' },
+                            { name: 'vehicle',  resumoId: 'resumo-veiculo', detailUrl: '/budget/vehicle-detail/' }
+                        ];
+
+                        fields.forEach(field => {
+                            const el = document.querySelector(`[name="${field.name}"]`);
+                            if (el && !el.dataset.logicBound) {
+                                el.addEventListener('change', (e) => handleFieldChange(field, e));
+                                el.dataset.logicBound = "true"; // Evita duplicar eventos com HTMX
+                            }
+                        });
                     };
 
                     if (document.readyState === 'complete') initFormLogic();
