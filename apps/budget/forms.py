@@ -23,7 +23,7 @@ class BudgetStep1Form(forms.ModelForm):
         fields = ["workshop", "cost_estimator", "entry_date", "customer", "vehicle", "current_km", "fuel_level"]
         widgets = {
             "entry_date": CalendarDateInput(),
-            "customer": SelectInput(attrs={"x-model": "customerId", "@change": "customerId = $el.value"}),
+            "customer": SelectInput(attrs={"x-model": "customerId", "@change": "customerId = $el.value; vehicleId = '';"}),
             "current_km": TextInput(),
             "fuel_level": TextInput(),
         }
@@ -34,6 +34,12 @@ class BudgetStep1Form(forms.ModelForm):
         super().__init__(*args, **kwargs)
         # No __init__ do BudgetStep1Form, adicione esta linha:
         self.fields["customer"].widget.attrs.update({"data-vehicle-url": reverse_lazy("budget:get-vehicles")})
+        self.fields["vehicle"].widget.attrs.update(
+            {
+                ":disabled": "!customerId",
+                ":class": "{ 'opacity-50 cursor-not-allowed': !customerId }",
+            }
+        )
 
         # Preenchimento inicial (Campos não editáveis)
         if self.workshop:
@@ -70,9 +76,9 @@ class BudgetStep1Form(forms.ModelForm):
                     const lastValues = {};
                 
                     const updateVehicleSelect = (customerId) => {
-                        const vehicleContainer = document.querySelector('[name="vehicle"]').closest('div'); // container do SelectInput
-                        if (!vehicleContainer) return;
-                    
+                        const vehicleInput = document.querySelector('[name="vehicle"]');
+                        if (!vehicleInput) return;
+                        const vehicleContainer = vehicleInput.closest('div');
                         const optionsList = vehicleContainer.querySelector('[x-ref="options"]');
                         if (!optionsList) return;
                     
@@ -81,55 +87,33 @@ class BudgetStep1Form(forms.ModelForm):
                     
                         if (!customerId) return;
                     
-                        const url = `/budget/get-vehicles/?customer=${customerId}`;
-                        fetch(url)
+                        fetch(`/budget/get-vehicles/?customer=${customerId}`)
                             .then(response => response.json())
                             .then(data => {
                                 data.forEach(v => {
                                     const li = document.createElement('li');
                                     li.setAttribute('data-value', v.id);
-                                    li.setAttribute('data-label', v.label);
-                                    li.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white group transition-colors';
                                     li.textContent = v.label;
+                                            li.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white group transition-colors';
                     
                                     li.addEventListener('click', () => {
-                                        const input = vehicleContainer.querySelector('input[name="vehicle"]');
-                                        input.value = v.id;
-                                    
-                                        // --- ADICIONE ESTA LINHA ---
-                                        // Isso garante que o Alpine.js atualize a variável interna vehicleId
+                                        vehicleInput.value = v.id;
                                         if (window.Alpine) {
-                                            const alpineData = Alpine.$data(input.closest('[x-data]'));
-                                            if (alpineData) alpineData.vehicleId = v.id;
+                                            const data = Alpine.$data(vehicleInput.closest('[x-data]'));
+                                            if (data) data.vehicleId = v.id;
                                         }
                                         // ---------------------------
                                     
                                         const spanLabel = vehicleContainer.querySelector('button span:first-child');
                                         if (spanLabel) spanLabel.textContent = v.label;
                                     
-                                        input.dispatchEvent(new Event('input', { bubbles: true }));
-                                        input.dispatchEvent(new Event('change', { bubbles: true }));
-                                        
+                                                vehicleInput.dispatchEvent(new Event('change', { bubbles: true }));
                                         document.body.click();
                                     });
                     
                                     optionsList.appendChild(li);
                                 });
-                            })
-                            .catch(err => console.error('Erro ao buscar veículos:', err));
-                    };
-            
-                    const updateResume = (name, value, targetId, urlBase) => {
-                        if (!value || lastValues[name] === value) return;
-                        lastValues[name] = value;
-                
-                        const container = document.getElementById(targetId);
-                        if (!container) return;
-
-                        fetch(`${urlBase}?${name}=${value}`)
-                            .then(r => r.text())
-                            .then(html => container.innerHTML = html)
-                            .catch(err => console.error('Erro ao carregar resumo:', err));
+                            });
                     };
 
                     const bindField = (field) => {
@@ -139,55 +123,48 @@ class BudgetStep1Form(forms.ModelForm):
                         el.addEventListener('change', (e) => {
                             const val = e.target.value;
                             
-                            // Sincroniza com o Alpine.js SEMPRE, mesmo se for vazio
-                            if (window.Alpine) {
-                                const alpineData = Alpine.$data(el.closest('[x-data]'));
-                                if (alpineData) {
-                                    if (field.name === 'customer') alpineData.customerId = val;
-                                    if (field.name === 'vehicle') alpineData.vehicleId = val;
+                            if (field.name === 'customer') {
+                                const vInput = document.querySelector('[name="vehicle"]');
+                                if (vInput) {
+                                    const vehicleContainer = vInput.closest('div')
+                                    
+                                    vInput.value = '';
+                                    
+                                    const spanLabel = vehicleContainer.querySelector('button span:first-child');
+                                    if (spanLabel) {
+                                        spanLabel.textContent = 'Selecione...'; // Ou o termo exato que você usa
+                                    }
+
+                                    // Sincroniza com o Alpine.js SEMPRE, mesmo se for vazio
+                                    if (window.Alpine) {
+                                        const data = Alpine.$data(vInput.closest('[x-data]'));
+                                        if (data) data.vehicleId = '';
+                                    }
                                 }
+                                const vResumo = document.getElementById('resumo-veiculo');
+                                if (vResumo) vResumo.innerHTML = '';
+                                updateVehicleSelect(val);
                             }
                     
-                            if (lastValues[field.name] === val) return;
-                            lastValues[field.name] = val;
-                    
-                            // Se o valor for vazio, limpa o resumo e para por aqui
                             if (!val) {
-                                const container = document.getElementById(field.id);
-                                if (container) container.innerHTML = '';
+                                document.getElementById(field.id).innerHTML = '';
                                 return; 
                             }
                     
-                            updateResume(field.name, val, field.id, field.url);
-                            
-                            if (field.name === 'customer') {
-                                updateVehicleSelect(val);
-                                const vResumo = document.getElementById('resumo-veiculo');
-                                if (vResumo) vResumo.innerHTML = '';
-                                
-                                const vehicleInput = document.querySelector('[name="vehicle"]');
-                                if (vehicleInput) {
-                                    vehicleInput.value = '';
-                                    vehicleInput.dispatchEvent(new Event('change', { bubbles: true }));
-                                }
-                            }
+                            // Update resumo via fetch
+                            fetch(`${field.url}?${field.name}=${val}`)
+                                .then(r => r.text())
+                                .then(html => document.getElementById(field.id).innerHTML = html);
                         });
                     };
                 
                     const initFormLogic = () => {
-                        [
-                            { name: 'customer', id: 'resumo-cliente', url: '/budget/customer-detail/' },
-                            { name: 'vehicle', id: 'resumo-veiculo', url: '/budget/vehicle-detail/' }
-                        ].forEach(bindField);
+                        [{ name: 'customer', id: 'resumo-cliente', url: '/budget/customer-detail/' },
+                         { name: 'vehicle', id: 'resumo-veiculo', url: '/budget/vehicle-detail/' }].forEach(bindField);
                     };
 
-                    // Tenta rodar imediatamente (para carregamento inicial da página)
-                    if (document.readyState === 'complete') {
-                        initFormLogic();
-                    } else {
-                        window.addEventListener('load', initFormLogic);
-                    }
-
+                    if (document.readyState === 'complete') initFormLogic();
+                    else window.addEventListener('load', initFormLogic);
                     document.body.addEventListener('htmx:afterSettle', initFormLogic);
                 })();
             </script>
@@ -212,30 +189,28 @@ class BudgetStep1Form(forms.ModelForm):
                         Div(
                             Div(
                                 Field("customer", wrapper_class="flex-1 mb-0"),
-                                HTML("""<button type="button" class="btn btn-circle mb-2 p-4" :class="customerId ? 'btn-warning' : 'btn-primary'"
-                                    @click="
-                                        const url = customerId ? `/customer/quick-update/${customerId}/` : '/customer/quick-create/';
-                                        htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
-                                        document.getElementById('form_modal').showModal();
-                                    ">
-                                    <span class="material-icons" x-text="customerId ? 'edit' : 'person_add'"></span>
-                                </button>"""),
+                                HTML("""<button type="button" class="btn btn-circle mb-2" :class="customerId ? 'btn-warning' : 'btn-primary'"
+                                                                @click="const url = customerId ? `/customer/quick-update/${customerId}/` : '/customer/quick-create/';
+                                                                        htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
+                                                                        document.getElementById('form_modal').showModal();">
+                                                                <span class="material-icons" x-text="customerId ? 'edit' : 'person_add'"></span>
+                                                            </button>"""),
                                 css_class="flex items-end gap-2 w-full",
                             ),
                             Div(
                                 Field("vehicle", wrapper_class="flex-1 mb-0"),
-                                HTML("""<button type="button" class="btn btn-circle mb-2 p-4" :class="!customerId ? 'btn-disabled opacity-50' : (vehicleId && vehicleId !== '' ? 'btn-warning' : 'btn-primary')" :disabled="!customerId"
-                                    @click="
-                                        const url = vehicleId ? `/customer/vehicle/quick-update/${vehicleId}/` : `/customer/vehicle/quick-create/?customer_id=${customerId}`;
-                                        htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
-                                        document.getElementById('form_modal').showModal();
-                                    ">
-                                    <span class="material-icons" x-text="(vehicleId && vehicleId !== '') ? 'edit' : 'directions_car_filled'"></span>
-                                </button>"""),
+                                HTML("""<button type="button" class="btn btn-circle mb-2" 
+                                                                :class="!customerId ? 'btn-disabled opacity-50' : (vehicleId ? 'btn-warning' : 'btn-primary')" 
+                                                                :disabled="!customerId"
+                                                                @click="const url = vehicleId ? `/customer/vehicle/quick-update/${vehicleId}/` : `/customer/vehicle/quick-create/?customer_id=${customerId}`;
+                                                                        htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
+                                                                        document.getElementById('form_modal').showModal();">
+                                                                <span class="material-icons" x-text="vehicleId ? 'edit' : 'directions_car_filled'"></span>
+                                                            </button>"""),
                                 css_class="flex items-end gap-2 w-full",
+                                **{":class": "{ 'pointer-events-none': !customerId }"},
                             ),
-                            x_data=f"""{{customerId: '{self.instance.customer.id if self.instance and self.instance.customer else ""}',
-                                       vehicleId: '{self.instance.vehicle.id if self.instance and self.instance.vehicle else ""}'}}""",
+                            x_data=f"{{ customerId: '{self.instance.customer.id if self.instance and self.instance.customer else ''}', vehicleId: '{self.instance.vehicle.id if self.instance and self.instance.vehicle else ''}' }}",
                             css_class="grid grid-cols-1 gap-2",
                         ),
                         css_class="mb-6",
