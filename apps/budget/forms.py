@@ -1141,11 +1141,6 @@ class BudgetStep6Form(forms.ModelForm):
                                     <span class="material-icons">engineering</span>
                                     Visualizar PDF Mecânico
                                 </button>
-
-                                <button type="button" class="btn btn-success gap-2 col-span-6">
-                                    <span class="material-icons">send</span>
-                                    Enviar orçamento para aprovação
-                                </button>
                                 
                             </div>
                             """),
