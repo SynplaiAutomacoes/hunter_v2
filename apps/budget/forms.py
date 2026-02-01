@@ -32,36 +32,29 @@ class BudgetStep1Form(forms.ModelForm):
         self.workshop = kwargs.pop("workshop", None)
         self.request = kwargs.pop("request", None)
         super().__init__(*args, **kwargs)
-        # No __init__ do BudgetStep1Form, adicione esta linha:
+
         self.fields["customer"].widget.attrs.update({"data-vehicle-url": reverse_lazy("budget:get-vehicles")})
-        self.fields["vehicle"].widget.attrs.update(
-            {
-                ":disabled": "!customerId",
-                ":class": "{ 'opacity-50 cursor-not-allowed': !customerId }",
-            }
-        )
+        self.fields["vehicle"].widget.attrs.update({":disabled": "!customerId", ":class": "{ 'cursor-not-allowed': !customerId }"})
 
         # Preenchimento inicial (Campos não editáveis)
         if self.workshop:
-            self.fields["workshop"].initial = self.workshop.name
+            workshop_name = self.workshop.name
+            self.fields["workshop"].initial = workshop_name
+            self.initial["workshop"] = workshop_name
             self.fields["customer"].queryset = self.fields["customer"].queryset.filter(workshop=self.workshop)
-            self.initial["workshop"] = self.workshop.name
 
-        if self.instance and self.instance.cost_estimator:
+        if self.instance:
             user = self.instance.cost_estimator
-            self.fields["cost_estimator"].initial = user.get_full_name() or user.username
-            self.initial["cost_estimator"] = user.get_full_name() or user.username
+            if user:
+                display_name = user.get_full_name() or user.username
+                self.fields["cost_estimator"].initial = display_name
+                self.initial["cost_estimator"] = display_name
 
-        if self.instance and self.instance.customer:
-            self.fields["vehicle"].queryset = self.instance.customer.vehicles.all()
-        elif self.data.get("customer"):
-            try:
-                customer_id = self.data.get("customer")
+            customer_id = self.data.get("customer") or (self.instance.customer_id if self.instance.customer else None)
+            if customer_id:
                 self.fields["vehicle"].queryset = Vehicle.objects.filter(customer_id=customer_id)
-            except (ValueError, TypeError):
-                self.fields["vehicle"].queryset = self.fields["vehicle"].queryset.none()
-        else:
-            self.fields["vehicle"].queryset = self.fields["vehicle"].queryset.none()
+            else:
+                self.fields["vehicle"].queryset = Vehicle.objects.none()
 
         if self.request and self.request.user:
             user = self.request.user
@@ -225,10 +218,10 @@ class BudgetStep1Form(forms.ModelForm):
                         HTML('<h2 class="text-2xl font-bold mb-4 pb-2">Resumo</h2>'),
                         # Cliente
                         HTML('<h4 class="text-lg font-bold mb-2">Cliente</h4>'),
-                        Div(id="resumo-cliente", css_class="mb-6 overflow-x-auto"),
+                        Div(HTML(render_to_string("budget/partials/customer_resume.html", {"customer": self.instance.customer})), id="resumo-cliente", css_class="mb-6 overflow-x-auto"),
                         # Veículo
                         HTML('<h4 class="text-lg font-bold mb-2">Veículo</h4>'),
-                        Div(id="resumo-veiculo", css_class="overflow-x-auto"),
+                        Div(HTML(render_to_string("budget/partials/vehicle_resume.html", {"vehicle": self.instance.vehicle})), id="resumo-veiculo", css_class="overflow-x-auto"),
                     ),
                     css_class="col-span-12 lg:col-span-5",
                 ),
