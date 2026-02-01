@@ -1,0 +1,7 @@
+<table class="table table-compact border rounded-none w-full">
+    <tr><th class="bg-base-200 w-1/3">Placa</th><td>{{ vehicle.license_plate|default:"-" }}</td></tr>
+    <tr><th class="bg-base-200">Marca</th><td>{{ vehicle.brand|default:"-" }}</td></tr>
+    <tr><th class="bg-base-200">Modelo</th><td>{{ vehicle.model|default:"-" }}</td></tr>
+    <tr><th class="bg-base-200">Ano Fab.</th><td>{{ vehicle.manufacturing_year|default:"-" }}</td></tr>
+    <tr><th class="bg-base-200">Ano Mod.</th><td>{{ vehicle.model_year|default:"-" }}</td></tr>
+</table>

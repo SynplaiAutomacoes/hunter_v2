@@ -1,0 +1,49 @@
+{% load crispy_forms_tags %}
+{% include 'navbar/stepper.html' %}
+
+<div class="flex items-center justify-between mb-6">
+    {% if current_step > 1 %}
+        {% if object.pk %}
+            {% url 'budget:budget_update' object.pk as back_url_base %}
+        {% else %}
+            {% url 'budget:budget_create' as back_url_base %}
+        {% endif %}
+
+        <button type="button"
+            hx-get="{{ back_url_base }}?step={{ current_step|add:-1 }}{% if object.pk %}&pk={{ object.pk }}{% endif %}"
+            hx-target="#budget-card-content"
+            hx-push-url="true"
+            class="btn btn-outline">
+            <span class="material-icons">arrow_back</span> Voltar
+        </button>
+    {% else %}
+        <div></div>
+    {% endif %}
+
+    <button type="submit" form="budget-form" class="btn btn-primary">
+        {% if current_step == steps_config|length %} Finalizar {% else %} Próxima Etapa {% endif %}
+    </button>
+</div>
+
+<div id="form-container">
+    <form id="budget-form"
+          hx-post="{{ request.path }}?step={{ current_step }}{% if object.pk %}&pk={{ object.pk }}{% endif %}"
+          hx-target="#budget-card-content"
+          hx-encoding="multipart/form-data"
+          enctype="multipart/form-data"
+          hx-swap="innerHTML">
+        {% csrf_token %}
+        {% crispy form %}
+
+        {% if step_formset %}
+            <div class="col-span-12 mt-6">
+                {{ step_formset.management_form }}
+                {% for inline_form in step_formset %}
+                    <div class="p-4 border rounded mb-2 bg-base-200/50">
+                        {% crispy inline_form %}
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    </form>
+</div>

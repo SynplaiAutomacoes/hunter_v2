@@ -1,0 +1,17 @@
+{% load crispy_forms_tags %}
+<form id="budget-form" hx-post="{{ request.get_full_path }}" hx-target="#form-container" hx-swap="innerHTML">
+    {% csrf_token %}
+    {% crispy form %}
+
+    {% if step_formset %}
+        <div class="col-span-12">
+            <h4 class="font-bold mb-4">Itens da Etapa</h4>
+            {{ step_formset.management_form }}
+            {% for inline_form in step_formset %}
+                <div class="p-4 border rounded mb-2">
+                    {% crispy inline_form %}
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+</form>

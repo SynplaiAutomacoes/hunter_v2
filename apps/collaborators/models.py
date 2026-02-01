@@ -112,4 +112,4 @@ class WorkshopCollaborator(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.name} ({self.workshop})"
+        return f"{self.name} ({self.get_collaborator_type_display()})"

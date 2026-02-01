@@ -2,14 +2,13 @@ from __future__ import annotations
 
 from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Self
 
 from babel.numbers import format_currency
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from djmoney.models.fields import MoneyField
-from moneyed import Money
+from djmoney.money import Money
 
 from apps.core.models import TimeStampedModel
 from apps.workshops.models.monthly_costs import MonthlyCost
@@ -132,14 +131,14 @@ class WorkshopCost(TimeStampedModel):
         return format_currency(minimum_hourly_cost, "BRL", locale="pt_BR")
 
     @property
-    def hourly_cost_value(self) -> str:
+    def hourly_cost_value(self) -> Money:
         total_monthly_costs = self.total_monthly_costs.amount
         profit_margin = self.profit_margin * 100
         working_hours_per_month = self.working_hours_per_month
 
         hourly_cost_value = ((total_monthly_costs / 100 * profit_margin) + total_monthly_costs) / working_hours_per_month
 
-        return format_currency(hourly_cost_value, "BRL", locale="pt_BR")
+        return Money(hourly_cost_value, "BRL")
 
     def _quantize_money(self, value: Money) -> Money:
         amount = value.amount.quantize(Decimal("0.01"), ROUND_HALF_UP)

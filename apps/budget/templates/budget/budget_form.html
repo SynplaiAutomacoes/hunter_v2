@@ -1,0 +1,20 @@
+{% extends 'crud/page.html' %}
+{% block crud_content %}
+
+    <div class="flex items-center justify-between gap-4">
+        <div>
+            <h1 class="text-3xl font-bold text-base-content">Novo Orçamento</h1>
+            <p class="text-base-content/70 mt-1">Crie um novo orçamento seguindo as etapas abaixo</p>
+        </div>
+    </div>
+
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body p-6 md:p-8" id="budget-card-content">
+            {% include 'budget/partials/budget_step_content.html' %}
+        </div>
+    </div>
+
+    <dialog id="form_modal" class="modal">
+        <div id="modal-container"></div>
+    </dialog>
+{% endblock %}

@@ -17,6 +17,7 @@ class Workshop(TimeStampedModel):
     )
     name = CharField(verbose_name="Nome", max_length=255, null=False, blank=False)
     cnpj = BRCNPJField(verbose_name="CNPJ", null=True, blank=True, unique=True)
+    pdf_observation = CharField(verbose_name="Observação", max_length=250, null=False, blank=False, default='')
     is_active = BooleanField(verbose_name="Ativa", default=True)
 
     def __str__(self):

@@ -68,7 +68,9 @@ INSTALLED_APPS = [
     "apps.suppliers",
     "apps.quote",
     "apps.checklist",
+    "apps.budget",
     "apps.customer",
+    "apps.workorder",
 ]
 
 MIDDLEWARE = [

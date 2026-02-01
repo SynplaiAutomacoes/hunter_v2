@@ -1,0 +1,53 @@
+<div class="card-body">
+    <h3 class="font-bold text-2xl pb-2 mb-2">Configuração das Formas de Pagamento</h3>
+    <h5 class="text-lg pb-2 mb-4">Adicione, edite e salve múltiplos planos de pagamento para esta ordem de serviço.</h5>
+
+    <form hx-post="{% url 'workorder:add_payment' workorder.pk %}"
+          hx-target="#payment-section"
+          hx-indicator="#payment-loader"
+          class="space-y-4">
+        {% csrf_token %}
+        <div id="payment-form-fields">
+            {% crispy payment_form %}
+        </div>
+    </form>
+
+    <div class="mt-6 overflow-x-auto">
+        <table class="table table-zebra w-full">
+            <thead>
+                <tr>
+                    <th>Forma de Pagamento</th>
+                    <th>Parcelas</th>
+                    <th>Valor Pago</th>
+                    <th class="text-center">Ações</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for payment in workorder.payments.all %}
+                    <tr>
+                        <td>{{ payment.get_payment_method_display }}</td>
+                        <td>{{ payment.installments_count }}x</td>
+                        <td>{{ payment.total_paid }}</td>
+
+                        <td class="text-center">
+                            <button class="btn btn-ghost btn-xs text-error"
+                                hx-delete="{% url 'workorder:delete_payment' payment.pk %}"
+                                hx-target="#payment-section"
+                                hx-confirm="Deseja remover esta forma de pagamento?"
+                                hx-indicator="#payment-loader">
+                                <span class="material-icons text-sm">delete</span>
+                            </button>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="4" class="text-center text-gray-500 italic py-4">
+                            Nenhuma forma de pagamento registrada.
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>

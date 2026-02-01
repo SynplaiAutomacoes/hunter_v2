@@ -25,6 +25,17 @@ class Service(TimeStampedModel):
     is_third_party = models.BooleanField(verbose_name="Serviço de Terceiro", default=False)
     is_active = models.BooleanField(verbose_name="Ativo", default=True)
 
+    @property
+    def duration_display(self):
+        if not self.duration:
+            return "00:00"
+
+        total_seconds = int(self.duration.total_seconds())
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+
+        return f"{hours:02d}h {minutes:02d}m"
+
     class Meta:
         verbose_name = "Serviço"
         verbose_name_plural = "Serviços"
