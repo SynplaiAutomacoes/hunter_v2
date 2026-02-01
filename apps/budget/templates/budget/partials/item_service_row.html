@@ -1,8 +1,8 @@
 <tr id="service-item-{{ item.service.id }}" {% if not is_full_render %}hx-swap-oob="true"{% endif %}>
     <td>{{ item.service.name }}</td>
     <td class="text-center">{{ item.quantity }}</td>
-    <td>{{ item.service.selling_price }}</td>
-    <td>{{ item.service.duration_display }}</td>
+    <td>{{ item.service_selling_price }}</td>
+    <td>{{ item.duration_display }}</td>
     <td class="font-bold">{{ item.total_price }}</td>
     {% if not step6 %}
     <td class="text-center">

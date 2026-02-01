@@ -304,6 +304,17 @@ class BudgetItem(TimeStampedModel):
         super().save(*args, **kwargs)
 
     @property
+    def duration_display(self):
+        if not self.duration:
+            return "00h 00m"
+
+        total_seconds = int(self.duration.total_seconds())
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+
+        return f"{hours:02d}h {minutes:02d}m"
+
+    @property
     def total_price(self):
         return (self.product_selling_price + self.service_selling_price) * self.quantity
 

@@ -1,7 +1,7 @@
 <tr id="product-item-{{ item.product.id }}" {% if not is_full_render %}hx-swap-oob="true"{% endif %}>
     <td>{{ item.product.name }}</td>
     <td class="text-center">{{ item.quantity }}</td>
-    <td>{{ item.product.selling_price }}</td>
+    <td>{{ item.product_selling_price }}</td>
     <td>-</td>
     <td class="font-bold">{{ item.total_price }}</td>
     {% if not step6 %}
