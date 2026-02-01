@@ -3,3 +3,32 @@
 {% block crud_title %}Editar Produto{% endblock %}
 {% block crud_subtitle %}Atualização de dados da peça.{% endblock %}
 {% block crud_back_url %}{% url 'catalog:product_list' %}{% endblock %}
+
+{% block crud_tabs_form %}
+        {% include 'products/partials/product_tabs.html' %}
+{% endblock %}
+
+<!-- Aba de Informações do Produto (Cadastro) -->
+{% block crud_form %}
+    {% crispy form %}
+{% endblock %}
+
+<!-- Aba de Kits Atribuidos ao Produto -->
+{% block section_kit_attribution_content %}
+    {% include 'products/sections/product_kits_attribution.html' %}
+{% endblock %}
+
+<!-- Aba do Estoque do Produto -->
+{% block section_product_stock %}
+    {% include 'products/sections/product_stock.html' %}
+{% endblock %}
+
+<!-- Aba do Histórico do Produto -->
+{% block section_product_history %}
+    {% include 'products/sections/product_history.html' %}
+{% endblock %}
+
+<!-- Aba do Movimentação do Produto -->
+{% block section_product_movement %}
+    {% include 'products/sections/product_movement.html' %}
+{% endblock %}

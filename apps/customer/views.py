@@ -1,13 +1,16 @@
 from django.shortcuts import get_object_or_404
-from django.urls import reverse_lazy
-from django.views.generic import ListView, CreateView, UpdateView, DeleteView, TemplateView, DetailView
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.urls import reverse_lazy
+from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
+
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin, BaseModalFormView
-from .models import Customer, Vehicle
-from .forms import CustomerForm, VehicleFormSet, QuickCustomerForm, QuickVehicleForm
+from .forms import QuickCustomerForm, QuickVehicleForm
+
 from ..core.tables import TableActionDefaults
 from ..core.templatetags.table_tags import TableColumn
+from .forms import CustomerForm, VehicleFormSet
+from .models import Customer, Vehicle
 
 
 class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
@@ -21,10 +24,7 @@ class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
 
         context["fields"] = [
             TableColumn(Customer.name.field.verbose_name, attr=Customer.name.field.name),
-            TableColumn(
-                Customer.cpf_or_cnpj.field.verbose_name,
-                attr="cpf_or_cnpj_formatted"
-            ),
+            TableColumn(Customer.cpf_or_cnpj.field.verbose_name, attr="cpf_or_cnpj_formatted"),
             TableColumn("Endereço", attr="full_address"),
             TableColumn(Customer.is_active.field.verbose_name, attr=Customer.is_active.field.name),
         ]
@@ -121,7 +121,7 @@ class CustomerHistoryListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempl
 
         context["fields"] = [
             TableColumn(Customer.name.field.verbose_name, attr=Customer.name.field.name),
-            TableColumn(Customer.cpf_or_cnpj.field.verbose_name, attr=Customer.cpf_or_cnpj.field.name),
+            TableColumn(Customer.cpf_or_cnpj.field.verbose_name, attr="cpf_or_cnpj_formatted"),
             TableColumn("Endereço", attr="full_address"),
             TableColumn("Qtd. Veículos", attr="vehicles_count"),
         ]

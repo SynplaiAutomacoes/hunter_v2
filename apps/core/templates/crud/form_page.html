@@ -1,6 +1,6 @@
-{% extends 'crud/page.html' %}
+    {% extends 'crud/page.html' %}
 
-{% block crud_content %}
+    {% block crud_content %}
 
     <div class="flex items-center justify-between gap-4">
         <div>
@@ -14,10 +14,57 @@
         </a>
     </div>
 
-    <div class="card bg-base-100 shadow-xl">
-        <div class="card-body p-6 md:p-8">
-            {% block crud_form %}{% crispy form %}{% endblock %}
+    <div class="crud-tabs-card mt-6">
+        <div x-data="{ activeTab: 'cadastro'}">
+            <div class="pl-2">
+                {% block crud_tabs_form %}{% endblock %}
+            </div>
+
+            <div x-show="activeTab === 'cadastro'">
+                <div class="card bg-base-100 shadow-xl">
+                    <div class="card-body p-6 md:p-8">
+                        {% block crud_form %}{% crispy form %}{% endblock %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- ÁREA DE EDIÇÃO DO PRODUTO -->
+
+            <!-- ABA DE KITS ATRIBUÍDOS (EDIÇÃO PRODUTO) -->
+            <div x-show="activeTab === 'atribuicao_kit'">
+                <div class="card bg-base-100 shadow-xl">
+                    <div class="card-body p-6 md:p-8">
+                        {% block section_kit_attribution_content %}{% endblock %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- ABA DE ESTOQUE -->
+            <div x-show="activeTab === 'estoque'">
+                <div class="card bg-base-100 shadow-xl">
+                    <div class="card-body p-6 md:p-8">
+                        {% block section_product_stock %}{% endblock %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- ABA DE HISTORICO -->
+            <div x-show="activeTab === 'historico'">
+                <div class="card bg-base-100 shadow-xl">
+                    <div class="card-body p-6 md:p-8">
+                        {% block section_product_history %}{% endblock %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- ABA DE HISTORICO -->
+            <div x-show="activeTab === 'movimentacao'">
+                <div class="card bg-base-100 shadow-xl">
+                    <div class="card-body p-6 md:p-8">
+                        {% block section_product_movement %}{% endblock %}
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
-
-{% endblock %}
+    {% endblock %}
