@@ -17,8 +17,9 @@ urlpatterns = [
     path("<int:budget_id>/add-item/<int:item_id>/<str:item_type>/", views.add_item_to_budget, name="add_item_to_budget"),
     path("<int:budget_id>/remove-item/<int:item_id>/<str:item_type>/", views.remove_item_from_budget, name="remove_item_from_budget"),
 
+    path("update_slider/<int:budget_id>/", views.update_slider, name="update_slider"),
+
     path("update-budget-discount/<int:budget_id>/", views.update_budget_discount, name="update_budget_discount"),
     path("save-observation/", views.save_observation, name="save_observation"),
     path("update-status/<int:budget_id>/<str:status>", views.update_budget_status, name="update_budget_status"),
-
 ]

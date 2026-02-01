@@ -286,3 +286,14 @@ def update_budget_status(request, budget_id, status):
     budget.save()
 
     return JsonResponse({"success": True})
+
+
+def update_slider(request, budget_id):
+    workshop = get_active_workshop_or_404(request=request)
+    budget = get_object_or_404(Budget, id=budget_id, workshop=workshop)
+    slider_value = request.POST.get("slider")
+    if slider_value is not None:
+        budget.slider = int(slider_value)
+        budget.save()
+
+    return HttpResponse(status=204)

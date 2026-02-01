@@ -719,15 +719,17 @@ class BudgetStep5Form(forms.ModelForm):
         self.fields["slider"].label = ""
         self.fields["slider"].help_text = ""
         self.fields["discount_value"].required = False
+        self.fields["slider"].widget.attrs.update({"hx-post": reverse("budget:update_slider", args=[self.instance.pk]), "hx-trigger": "change", "hx-swap": "none"})
 
         budget = self.instance
 
+        dados = {}
         if budget.pk:
             self.fields["slider"].initial = budget.slider
             dados = budget.calculate_pricing_methods()
 
-        mlr = dados.get("mlr")
-        mlo = dados.get("mlo")
+        mlr = dados.get("mlr", None)
+        mlo = dados.get("mlo", None)
         mlr_html = ""
         if mlr is not None:
             mlr_html = f"""
@@ -818,39 +820,63 @@ class BudgetStep5Form(forms.ModelForm):
                     (function () {{
                         function initSlider(root=document) {{
                             const slider = root.querySelector('input[name="slider"]');
-                            const labelPeca = root.querySelector('#val-peca');
-                            const labelMO = root.querySelector('#val-mo');
+                            const labelPecaPct = root.querySelector('#val-peca');
+                            const labelMOPct = root.querySelector('#val-mo');
                     
-                            if (!slider || !labelPeca || !labelMO) return;
+                            const displayVendaPecas = root.querySelector('#display-venda-pecas');
+                            const displayVendaMO = root.querySelector('#display-venda-mo');
                     
-                            const updateLabels = (val) => {{
-                                val = parseInt(val || 0);
+                            if (!slider || !labelPecaPct || !labelMOPct || !displayVendaPecas || !displayVendaMO) return;
                     
-                                if (val < 0) {{
-                                    labelPeca.textContent = Math.abs(val);
-                                    labelMO.textContent = 100-Math.abs(val);
-                                }} else if (val > 0) {{
-                                    labelMO.textContent = Math.abs(val);
-                                    labelPeca.textContent = 100-Math.abs(val);
-                                }} else {{
-                                    labelMO.textContent = 0;
-                                    labelPeca.textContent = 0;
-                                }}
+                            const basePeca = parseFloat(displayVendaPecas.dataset.baseVal.replace(',', '.'));
+                            const baseMO = parseFloat(displayVendaMO.dataset.baseVal.replace(',', '.'));
+                            const totalOriginal = basePeca + baseMO;
+                    
+                            const formatCurrency = (val) => {{
+                                return "R$ " + val.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
                             }};
                     
-                            updateLabels(slider.value);
+                            const updateValues = (val) => {{
+                                const sliderVal = parseInt(val || 0);
                     
+                                let pecaPctUI = 0;
+                                let moPctUI = 0;
+                    
+                                if (sliderVal < 0) {{
+                                    pecaPctUI = Math.abs(sliderVal);
+                                    moPctUI = 100 - Math.abs(sliderVal);
+                                }} else if (sliderVal > 0) {{
+                                    moPctUI = Math.abs(sliderVal);
+                                    pecaPctUI = 100 - Math.abs(sliderVal);
+                                }}
+                                
+                                labelPecaPct.textContent = pecaPctUI;
+                                labelMOPct.textContent = moPctUI;
+                    
+                                const _pecaPct = sliderVal < 0 ? Math.abs(sliderVal) / 100 : (sliderVal > 0 ? (100 - sliderVal) / 100 : 0);
+                                const _maoPct = sliderVal > 0 ? sliderVal / 100 : (sliderVal < 0 ? (100 - Math.abs(sliderVal)) / 100 : 0);
+                    
+                                let novoVendaPeca, novoVendaMO;
+                    
+                                if (sliderVal === 0) {{
+                                    novoVendaPeca = basePeca;
+                                    novoVendaMO = baseMO;
+                                }} else {{
+                                    novoVendaPeca = totalOriginal * _pecaPct;
+                                    novoVendaMO = totalOriginal * _maoPct;
+                                }}
+                                displayVendaPecas.textContent = formatCurrency(novoVendaPeca);
+                                displayVendaMO.textContent = formatCurrency(novoVendaMO);
+                            }};
+                            updateValues(slider.value);
                             if (!slider.dataset.bound) {{
-                                slider.addEventListener('input', e => updateLabels(e.target.value));
+                                slider.addEventListener('input', e => updateValues(e.target.value));
                                 slider.dataset.bound = "1";
                             }}
                         }}
                     
                         document.addEventListener('DOMContentLoaded', () => initSlider());
-                        document.body.addEventListener('htmx:afterSettle', (e) => {{
-                            initSlider(e.target);
-                        }});
-                    
+                        document.body.addEventListener('htmx:afterSettle', (e) => initSlider(e.target));
                     }})();
                 </script>"""),
             Div(
@@ -870,7 +896,7 @@ class BudgetStep5Form(forms.ModelForm):
                                         </div>
                                         <div class="grid grid-cols-12 border bg-white overflow-hidden">
                                             <span class="col-span-8 p-2 bg-gray-50">Valor de Venda de Peças</span>
-                                            <span class="col-span-4 p-2 border-l text-left">{venda_pecas}</span>
+                                            <span id="display-venda-pecas" class="col-span-4 p-2 border-l text-left" data-base-val="{venda_pecas.amount}">{venda_pecas}</span>
                                         </div>
 
                                         <div class="grid grid-cols-12 border bg-white overflow-hidden">
@@ -893,7 +919,7 @@ class BudgetStep5Form(forms.ModelForm):
                                         </div>
                                         <div class="grid grid-cols-12 border bg-white overflow-hidden">
                                             <span class="col-span-8 p-2 bg-gray-50">Valor de Venda de Mão de Obra</span>
-                                            <span class="col-span-4 p-2 border-l text-left">{venda_mao_obra}</span>
+                                            <span id="display-venda-mo" class="col-span-4 p-2 border-l text-left" data-base-val="{venda_mao_obra.amount}">{venda_mao_obra}</span>
                                         </div>
                                         
                                         <div class="grid grid-cols-12 border bg-white overflow-hidden">
