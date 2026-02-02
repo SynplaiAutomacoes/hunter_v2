@@ -112,13 +112,19 @@ class Budget(TimeStampedModel):
         verbose_name_plural = "Orçamentos"
 
     def calculate_pricing_methods(self):
-        reference_date = self.criado_em if self.criado_em else timezone.now()
+        try:
+            reference_date = self.criado_em if self.criado_em else timezone.now()
+            workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=reference_date.month, year=reference_date.year)
+        except WorkshopCost.DoesNotExist:
+            try:
+                workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=timezone.now().month, year=timezone.now().year)
+            except WorkshopCost.DoesNotExist:
+                return None
 
         try:
-            workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=reference_date.month, year=reference_date.year)
             mechanic_salary_obj = MonthlyCost.objects.get(workshop=self.workshop, name__iexact="Salários mecânicos produtivos")
             salario_mecanicos = WorkshopCostItem.objects.get(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_obj).amount
-        except (WorkshopCost.DoesNotExist, MonthlyCost.DoesNotExist, WorkshopCostItem.DoesNotExist):
+        except (MonthlyCost.DoesNotExist, WorkshopCostItem.DoesNotExist):
             return None
 
         # Índices
@@ -291,11 +297,17 @@ class BudgetItem(TimeStampedModel):
     kit = models.ForeignKey(Kit, on_delete=models.SET_NULL, null=True, blank=True)
 
     # Dados
+    description = models.CharField(verbose_name="Descrição", max_length=100, default="")
     quantity = models.PositiveIntegerField(verbose_name="Quantidade", default=1)
-    service_cost_price = MoneyField(verbose_name="Valor de Custo (Serviço)", max_digits=14, decimal_places=2, default=0)
-    product_cost_price = MoneyField(verbose_name="Valor de Custo (Produto)", max_digits=14, decimal_places=2, default=0)
-    service_selling_price = MoneyField(verbose_name="Valor de Venda (Serviço)", max_digits=14, decimal_places=2, default=0)
-    product_selling_price = MoneyField(verbose_name="Valor de Venda (Produto)", max_digits=14, decimal_places=2, default=0)
+
+    ## Produto
+    shipping = MoneyField(verbose_name="Frete", max_digits=14, decimal_places=2, default=0)
+    product_cost_price = MoneyField(verbose_name="Custo", max_digits=14, decimal_places=2, default=0)
+    product_selling_price = MoneyField(verbose_name="Valor de Venda", max_digits=14, decimal_places=2, default=0)
+
+    ## Serviço
+    service_cost_price = MoneyField(verbose_name="Custo", max_digits=14, decimal_places=2, default=0)
+    service_selling_price = MoneyField(verbose_name="Valor de Venda", max_digits=14, decimal_places=2, default=0)
     duration = models.DurationField(verbose_name="Duração", null=True, blank=True)
 
     def save(self, *args, **kwargs):
@@ -303,11 +315,13 @@ class BudgetItem(TimeStampedModel):
             if self.product:
                 self.product_cost_price = self.product.cost_price
                 self.product_selling_price = self.product.selling_price
+                self.description = self.product.name
 
             elif self.service:
                 self.service_cost_price = self.service.suggested_cost or Money(0, 'BRL')
                 self.service_selling_price = self.service.selling_price
                 self.duration = self.service.duration
+                self.description = self.service.name
 
             elif self.kit:
                 self.product_selling_price = sum((kp.product.selling_price * kp.quantity for kp in self.kit.kit_products.all()), Money(0, "BRL"))
@@ -317,6 +331,7 @@ class BudgetItem(TimeStampedModel):
                 self.service_cost_price = sum((ks.service.suggested_cost * ks.quantity for ks in self.kit.kit_services.all() if ks.service.suggested_cost), Money(0, "BRL"))
 
                 self.duration = sum((ks.service.duration for ks in self.kit.kit_services.all()), timedelta())
+                self.description = self.kit.name
 
         super().save(*args, **kwargs)
 
