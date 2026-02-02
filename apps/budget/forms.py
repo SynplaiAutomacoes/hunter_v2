@@ -3,6 +3,7 @@ from crispy_forms.layout import Layout, Div, Field, HTML
 from django import forms
 from django.template.loader import render_to_string
 from django.urls import reverse_lazy, reverse
+from django.utils import timezone
 from djmoney.money import Money
 
 from apps.budget.models import Budget, Defect, BudgetImage
@@ -25,7 +26,7 @@ class BudgetStep1Form(forms.ModelForm):
             "entry_date": CalendarDateInput(),
             "customer": SelectInput(attrs={"x-model": "customerId", "@change": "customerId = $el.value; vehicleId = '';"}),
             "current_km": TextInput(),
-            "fuel_level": TextInput(),
+            "fuel_level": SelectInput(),
         }
 
     def __init__(self, *args, **kwargs):
@@ -57,7 +58,7 @@ class BudgetStep1Form(forms.ModelForm):
 
         self.fields["vehicle"].widget.attrs.update({"id": "id_vehicle"})
 
-        # Preenchimento inicial (Campos não editáveis)
+        # Preenchimento inicial
         if self.workshop:
             workshop_name = self.workshop.name
             self.fields["workshop"].initial = workshop_name
@@ -76,6 +77,11 @@ class BudgetStep1Form(forms.ModelForm):
                 self.fields["vehicle"].queryset = Vehicle.objects.filter(customer_id=customer_id)
             else:
                 self.fields["vehicle"].queryset = Vehicle.objects.none()
+
+        if not self.instance.pk:
+            self.fields["entry_date"].initial = timezone.now().date()
+            self.fields["current_km"].initial = None
+            self.fields["fuel_level"].initial = None
 
         if self.request and self.request.user:
             user = self.request.user

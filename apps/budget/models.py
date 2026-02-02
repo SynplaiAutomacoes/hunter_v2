@@ -17,7 +17,7 @@ from apps.workorder.models import WorkOrder
 from apps.workshops.models.monthly_costs import MonthlyCost
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from django.utils import timezone
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 
 
 class BudgetStatus(models.TextChoices):
@@ -25,6 +25,17 @@ class BudgetStatus(models.TextChoices):
     APPROVED = "approved", "Aprovado"
     REJECTED = "rejected", "Rejeitado"
     CANCELLED = "cancelled", "Cancelado"
+
+
+class FuelLevel(models.IntegerChoices):
+    FULL = 8, "Cheio"
+    SEVEN_EIGHTHS = 7, "7/8"
+    THREE_QUARTERS = 6, "3/4"
+    ONE_HALF = 5, "1/2"
+    ONE_QUARTER = 4, "1/4"
+    ONE_EIGHTH = 3, "1/8"
+    RESERVE = 2, "Reserva"
+    EMPTY = 1, "Vazio"
 
 
 class Defect(models.Model):
@@ -62,7 +73,7 @@ class Budget(TimeStampedModel):
     technical_diagnosis = models.TextField(verbose_name="Observações Técnicas", blank=True, null=True)
     notes = models.TextField(verbose_name="Observações Complementares", blank=True, null=True)
     current_km = models.PositiveIntegerField(verbose_name="KM Atual", default=0)
-    fuel_level = models.PositiveIntegerField(verbose_name="Nível do Tanque", default=0)
+    fuel_level = models.PositiveIntegerField(verbose_name="Nível do Tanque", choices=FuelLevel.choices, default=FuelLevel.FULL)
     defect = models.ForeignKey(Defect, on_delete=models.SET_NULL, related_name="budgets", null=True)
 
     # Financeiro
@@ -135,14 +146,20 @@ class Budget(TimeStampedModel):
         venda_mao_obra_trad = valor_hora_vendida_trad * duracao_total
         valor_orcamento_trad = soma_base_orcamento + venda_mao_obra_trad
         lucro_operacional_trad = valor_orcamento_trad - subtracao_base_lucro
-        rentabilidade_trad = (Decimal(str(lucro_operacional_trad.amount / valor_orcamento_trad.amount)) * 100).quantize(Decimal("0.01"), ROUND_HALF_UP)
+        try:
+            rentabilidade_trad = (Decimal(str(lucro_operacional_trad.amount / valor_orcamento_trad.amount)) * 100).quantize(Decimal("0.01"), ROUND_HALF_UP)
+        except (InvalidOperation, ZeroDivisionError, AttributeError):
+            rentabilidade_trad = Decimal("0.00")
 
         # MÉTOD0 HUNTER
         venda_mao_obra_hun = self.total_services_value - venda_servico_terceiro
         valor_orcamento_hun = soma_base_orcamento + venda_mao_obra_hun
         mlo = valor_orcamento_hun.amount / divisor_mlo if divisor_mlo > 0 else 0
         lucro_operacional_hun = valor_orcamento_hun - subtracao_base_lucro
-        rentabilidade_hun = (Decimal(str(lucro_operacional_hun.amount / valor_orcamento_hun.amount)) * 100).quantize(Decimal("0.01"), ROUND_HALF_UP)
+        try:
+            rentabilidade_hun = (Decimal(str(lucro_operacional_hun.amount / valor_orcamento_hun.amount)) * 100).quantize(Decimal("0.01"), ROUND_HALF_UP)
+        except (InvalidOperation, ZeroDivisionError, AttributeError):
+            rentabilidade_hun = Decimal("0.00")
 
         # Organização dos dados
         data_trad = {
