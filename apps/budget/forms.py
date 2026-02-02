@@ -688,6 +688,7 @@ class BudgetStep5Form(forms.ModelForm):
         custo_frete_pecas = dados.get('custo_frete_pecas') or zerado
         custo_servico_terceiros = dados.get('custo_servico_terceiro') or zerado
         custo_hora_mecanico = dados.get('custo_hora_mecanico') or zerado
+        custo_total_mao_obra = dados.get('custo_total_mao_obra') or zerado
 
         # Valores Venda
         venda_pecas = dados.get('venda_pecas') or zerado
@@ -848,8 +849,8 @@ class BudgetStep5Form(forms.ModelForm):
                                         </div>
 
                                         <div class="grid grid-cols-12 border bg-white overflow-hidden">
-                                            <span class="col-span-8 p-2 bg-gray-50">Custo da Hora do Mecânico</span>
-                                            <span class="col-span-4 p-2 border-l text-left">{custo_hora_mecanico}</span>
+                                            <span class="col-span-8 p-2 bg-gray-50">Duração Total</span>
+                                            <span class="col-span-4 p-2 border-l text-left">{duracao_total}</span>
                                         </div>
                                         <div class="grid grid-cols-12 border bg-white overflow-hidden">
                                             <span class="col-span-8 p-2 bg-gray-50">Valor de Venda de Mão de Obra</span>
@@ -857,8 +858,14 @@ class BudgetStep5Form(forms.ModelForm):
                                         </div>
                                         
                                         <div class="grid grid-cols-12 border bg-white overflow-hidden">
-                                            <span class="col-span-8 p-2 bg-gray-50">Duração Total</span>
-                                            <span class="col-span-4 p-2 border-l text-left">{duracao_total}</span>
+                                            <span class="col-span-8 p-2 bg-gray-50">Custo da Hora do Mecânico</span>
+                                            <span class="col-span-4 p-2 border-l text-left">{custo_hora_mecanico}</span>
+                                        </div>
+                                        <div class="invisible md:visible"></div>
+                                        
+                                        <div class="grid grid-cols-12 border bg-white overflow-hidden">
+                                            <span class="col-span-8 p-2 bg-gray-50">Custo Total da Mão de Obra</span>
+                                            <span class="col-span-4 p-2 border-l text-left">{custo_total_mao_obra}</span>
                                         </div>
                                         <div class="invisible md:visible"></div>
 
