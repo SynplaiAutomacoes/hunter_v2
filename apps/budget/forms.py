@@ -3,13 +3,14 @@ from crispy_forms.layout import Layout, Div, Field, HTML
 from django import forms
 from django.template.loader import render_to_string
 from django.urls import reverse_lazy, reverse
+from django.utils import timezone
 from djmoney.money import Money
 
-from apps.budget.models import Budget, Defect, BudgetImage
+from apps.budget.models import Budget, Defect, BudgetImage, BudgetItem
 from apps.checklist.models import Checklist
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.utils import alert_confirm_layout
-from apps.core.widgets import TextInput, SelectInput, CalendarDateInput, MoneyInput
+from apps.core.widgets import TextInput, SelectInput, CalendarDateInput, MoneyInput, NumberInput, DurationInput
 from apps.customer.models import Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
 
@@ -25,7 +26,7 @@ class BudgetStep1Form(forms.ModelForm):
             "entry_date": CalendarDateInput(),
             "customer": SelectInput(attrs={"x-model": "customerId", "@change": "customerId = $el.value; vehicleId = '';"}),
             "current_km": TextInput(),
-            "fuel_level": TextInput(),
+            "fuel_level": SelectInput(),
         }
 
     def __init__(self, *args, **kwargs):
@@ -57,7 +58,7 @@ class BudgetStep1Form(forms.ModelForm):
 
         self.fields["vehicle"].widget.attrs.update({"id": "id_vehicle"})
 
-        # Preenchimento inicial (Campos não editáveis)
+        # Preenchimento inicial
         if self.workshop:
             workshop_name = self.workshop.name
             self.fields["workshop"].initial = workshop_name
@@ -76,6 +77,11 @@ class BudgetStep1Form(forms.ModelForm):
                 self.fields["vehicle"].queryset = Vehicle.objects.filter(customer_id=customer_id)
             else:
                 self.fields["vehicle"].queryset = Vehicle.objects.none()
+
+        if not self.instance.pk:
+            self.fields["entry_date"].initial = timezone.now().date()
+            self.fields["current_km"].initial = None
+            self.fields["fuel_level"].initial = None
 
         if self.request and self.request.user:
             user = self.request.user
@@ -523,8 +529,9 @@ class BudgetStep4Form(forms.ModelForm):
                                 <table class="table table-zebra w-full">
                                     <thead>
                                         <tr>
-                                            <th>NOME</th>
+                                            <th>DESCRIÇÃO</th>
                                             <th class="text-center">QTD.</th>
+                                            <th>CUSTO</th>
                                             <th>VALOR VENDA</th>
                                             <th>FRETE</th>
                                             <th>TOTAL</th>
@@ -552,8 +559,9 @@ class BudgetStep4Form(forms.ModelForm):
                                 <table class="table table-zebra w-full">
                                     <thead>
                                         <tr>
-                                            <th>NOME</th>
+                                            <th>DESCRIÇÃO</th>
                                             <th class="text-center">QTD.</th>
+                                            <th>CUSTO</th>
                                             <th>VALOR VENDA</th>
                                             <th>TEMPO</th>
                                             <th>TOTAL</th>
@@ -1005,6 +1013,7 @@ class BudgetStep6Form(forms.ModelForm):
                                                         <tr>
                                                             <th>NOME</th>
                                                             <th class="text-center">QTD.</th>
+                                                            <th>CUSTO</th>
                                                             <th>VALOR VENDA</th>
                                                             <th>FRETE</th>
                                                             <th>TOTAL</th>
@@ -1030,6 +1039,7 @@ class BudgetStep6Form(forms.ModelForm):
                                                         <tr>
                                                             <th>NOME</th>
                                                             <th class="text-center">QTD.</th>
+                                                            <th>CUSTO</th>
                                                             <th>VALOR VENDA</th>
                                                             <th>TEMPO</th>
                                                             <th>TOTAL</th>
@@ -1170,3 +1180,40 @@ class BudgetStep6Form(forms.ModelForm):
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch",
             ),
         )
+
+
+class BudgetItemEditForm(forms.ModelForm):
+    class Meta:
+        model = BudgetItem
+        fields = ["description", "quantity", "product_selling_price", "product_cost_price", "shipping", "service_selling_price", "service_cost_price", "duration"]
+
+        widgets = {
+            'description': TextInput(),
+            'quantity': NumberInput(),
+            'product_selling_price': MoneyInput(),
+            'product_cost_price': MoneyInput(),
+            'shipping': MoneyInput(),
+            'service_selling_price': MoneyInput(),
+            'service_cost_price': MoneyInput(),
+            'duration': DurationInput(),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        item = self.instance
+
+        if item.product:
+            self.fields.pop('service_selling_price')
+            self.fields.pop('service_cost_price')
+            self.fields.pop('duration')
+        elif item.service:
+            self.fields.pop('product_selling_price')
+            self.fields.pop('product_cost_price')
+            self.fields.pop('shipping')
+        elif item.kit:
+            self.fields.pop('service_selling_price')
+            self.fields.pop('service_cost_price')
+            self.fields.pop('duration')
+            self.fields.pop('product_selling_price')
+            self.fields.pop('product_cost_price')
+            self.fields.pop('shipping')

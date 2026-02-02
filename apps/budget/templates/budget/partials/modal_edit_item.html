@@ -1,0 +1,41 @@
+<div class="modal-box w-11/12 max-w-2xl">
+    <h3 class="font-bold text-lg mb-4">Editar Item: {{ item.description }}</h3>
+
+    <form hx-post="{% url 'budget:edit_item' budget_id item.pk %}"
+          hx-target="#{% if item.product %}product-item-{{ item.product.id }}{% else %}service-item-{{ item.service.id }}{% endif %}"
+          hx-swap="outerHTML"
+          onsubmit="form_modal.close()">
+        {% csrf_token %}
+
+        <div class="grid grid-cols-2 gap-4">
+            {% for field in form %}
+                <div class="form-control w-full">
+                    <label class="label">
+                        <span class="label-text">{{ field.label }}</span>
+                    </label>
+                    {{ field }}
+                    {% if field.errors %}
+                        <span class="text-error text-sm">{{ field.errors }}</span>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        </div>
+
+        <div class="modal-action">
+            <button type="button" class="btn" onclick="form_modal.close()">Cancelar</button>
+            <button type="button"
+                hx-post="{% url 'budget:edit_item' budget_id item.pk %}"
+                hx-target="#{% if item.product %}product-item-{{ item.product.id }}{% elif item.service %}service-item-{{ item.service.id }}{% else %}kit-item-{{ item.kit.id }}{% endif %}"                hx-swap="outerHTML"
+                hx-vals='{"action": "update_master"}'
+                hx-include="closest form"
+                class="btn">Atualizar Cadastro</button>
+
+        <button type="button"
+                hx-post="{% url 'budget:edit_item' budget_id item.pk %}"
+                hx-target="#{% if item.product %}product-item-{{ item.product.id }}{% elif item.service %}service-item-{{ item.service.id }}{% else %}kit-item-{{ item.kit.id }}{% endif %}"                hx-swap="outerHTML"
+                hx-vals='{"action": "save_only"}'
+                hx-include="closest form"
+                class="btn btn-primary">Salvar</button>
+        </div>
+    </form>
+</div>
