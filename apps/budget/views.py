@@ -38,7 +38,6 @@ class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespon
             TableColumn(Budget.vehicle.field.verbose_name, attr=Budget.vehicle.field.name),
             TableColumn(Budget.collaborator.field.verbose_name, attr="collaborator_name"),
             TableColumn(Budget.criado_em.field.verbose_name, attr=Budget.criado_em.field.name),
-            TableColumn(Budget.expiration_date.field.verbose_name, attr="expiration_date_display"),
             TableColumn("Valor Total", attr="total_budget_value"),
             TableColumn(Budget.status.field.verbose_name, attr="budget_status"),
         ]
