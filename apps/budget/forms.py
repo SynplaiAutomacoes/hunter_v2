@@ -93,6 +93,13 @@ class BudgetStep1Form(forms.ModelForm):
         self.helper.layout = Layout(
             HTML("""
             <script>
+                document.addEventListener('input', function (e) {
+                    if (e.target && e.target.name === 'current_km') {
+                        let value = e.target.value.replace(/\D/g, '');
+                        e.target.value = value.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+                    }
+                });
+                
                 async function updateVehicleList(customerId) {
                     // 1. Busca os dados da sua VehicleListView (JSON)
                     const response = await fetch(`/budget/get-vehicles/?customer=${customerId}`);
@@ -387,7 +394,7 @@ class BudgetStep3Form(forms.ModelForm):
                     ),
                     # Imagens
                     Div(
-                        HTML('<h3 class="text-2xl font-bold mb-4">Anexar Imagens</h3>'),
+                        HTML('<h3 class="text-2xl font-bold mb-4">Anexar Imagem</h3>'),
                         Field("image", label=False, wrapper_class="mb-0"),
                         css_class="mb-6",
                     ),
