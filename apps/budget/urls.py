@@ -16,6 +16,7 @@ urlpatterns = [
     path("selection/<int:budget_id>/<str:item_type>/", views.ItemSelectionModalView.as_view(), name="item_selection"),
     path("<int:budget_id>/add-item/<int:item_id>/<str:item_type>/", views.AddItemToBudgetView.as_view(), name="add_item_to_budget"),
     path("<int:budget_id>/remove-item/<int:item_id>/<str:item_type>/", views.RemoveItemFromBudgetView.as_view(), name="remove_item_from_budget"),
+    path('<int:budget_id>/item/<int:item_id>/edit/', views.BudgetItemUpdateView.as_view(), name='edit_item'),
 
     path("update_slider/<int:budget_id>/", views.UpdateSliderView.as_view(), name="update_slider"),
     path("update-budget-discount/<int:budget_id>/", views.UpdateBudgetDiscountView.as_view(), name="update_budget_discount"),

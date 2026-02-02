@@ -6,11 +6,11 @@ from django.urls import reverse_lazy, reverse
 from django.utils import timezone
 from djmoney.money import Money
 
-from apps.budget.models import Budget, Defect, BudgetImage
+from apps.budget.models import Budget, Defect, BudgetImage, BudgetItem
 from apps.checklist.models import Checklist
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.utils import alert_confirm_layout
-from apps.core.widgets import TextInput, SelectInput, CalendarDateInput, MoneyInput
+from apps.core.widgets import TextInput, SelectInput, CalendarDateInput, MoneyInput, NumberInput, DurationInput
 from apps.customer.models import Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
 
@@ -529,8 +529,9 @@ class BudgetStep4Form(forms.ModelForm):
                                 <table class="table table-zebra w-full">
                                     <thead>
                                         <tr>
-                                            <th>NOME</th>
+                                            <th>DESCRIÇÃO</th>
                                             <th class="text-center">QTD.</th>
+                                            <th>CUSTO</th>
                                             <th>VALOR VENDA</th>
                                             <th>FRETE</th>
                                             <th>TOTAL</th>
@@ -558,8 +559,9 @@ class BudgetStep4Form(forms.ModelForm):
                                 <table class="table table-zebra w-full">
                                     <thead>
                                         <tr>
-                                            <th>NOME</th>
+                                            <th>DESCRIÇÃO</th>
                                             <th class="text-center">QTD.</th>
+                                            <th>CUSTO</th>
                                             <th>VALOR VENDA</th>
                                             <th>TEMPO</th>
                                             <th>TOTAL</th>
@@ -1011,6 +1013,7 @@ class BudgetStep6Form(forms.ModelForm):
                                                         <tr>
                                                             <th>NOME</th>
                                                             <th class="text-center">QTD.</th>
+                                                            <th>CUSTO</th>
                                                             <th>VALOR VENDA</th>
                                                             <th>FRETE</th>
                                                             <th>TOTAL</th>
@@ -1036,6 +1039,7 @@ class BudgetStep6Form(forms.ModelForm):
                                                         <tr>
                                                             <th>NOME</th>
                                                             <th class="text-center">QTD.</th>
+                                                            <th>CUSTO</th>
                                                             <th>VALOR VENDA</th>
                                                             <th>TEMPO</th>
                                                             <th>TOTAL</th>
@@ -1176,3 +1180,40 @@ class BudgetStep6Form(forms.ModelForm):
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch",
             ),
         )
+
+
+class BudgetItemEditForm(forms.ModelForm):
+    class Meta:
+        model = BudgetItem
+        fields = ["description", "quantity", "product_selling_price", "product_cost_price", "shipping", "service_selling_price", "service_cost_price", "duration"]
+
+        widgets = {
+            'description': TextInput(),
+            'quantity': NumberInput(),
+            'product_selling_price': MoneyInput(),
+            'product_cost_price': MoneyInput(),
+            'shipping': MoneyInput(),
+            'service_selling_price': MoneyInput(),
+            'service_cost_price': MoneyInput(),
+            'duration': DurationInput(),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        item = self.instance
+
+        if item.product:
+            self.fields.pop('service_selling_price')
+            self.fields.pop('service_cost_price')
+            self.fields.pop('duration')
+        elif item.service:
+            self.fields.pop('product_selling_price')
+            self.fields.pop('product_cost_price')
+            self.fields.pop('shipping')
+        elif item.kit:
+            self.fields.pop('service_selling_price')
+            self.fields.pop('service_cost_price')
+            self.fields.pop('duration')
+            self.fields.pop('product_selling_price')
+            self.fields.pop('product_cost_price')
+            self.fields.pop('shipping')

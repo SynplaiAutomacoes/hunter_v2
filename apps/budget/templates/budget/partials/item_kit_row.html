@@ -4,7 +4,15 @@
     <td class="text-center">{{ item.kit.products.count }}</td>
     <td class="text-center">{{ item.kit.services.count }}</td>
     {% if not step6 %}
-    <td class="text-center">
+    <td class="text-center flex justify-center gap-1">
+        <button type="button"
+                class="btn btn-ghost btn-xs text-info"
+                hx-get="{% url 'budget:edit_item' budget.id item.pk %}"
+                hx-target="#modal-container"
+                onclick="form_modal.showModal()">
+            <span class="material-icons text-sm">edit</span>
+        </button>
+
         <button
             type="button"
             class="btn btn-ghost btn-xs text-error"

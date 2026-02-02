@@ -134,13 +134,13 @@ class Budget(TimeStampedModel):
 
         # Custos
         custo_pecas = self.total_costs_products_value
-        custo_frete_pecas = Money(0, "BRL")
+        custo_frete_pecas = self.total_products_shipping
         custo_servico_terceiro = self.total_third_party_services_cost
         custo_hora_mecanico = salario_mecanicos / horas_uteis_mes
         custo_total_mao_obra = duracao_total * custo_hora_mecanico
 
         # Valores de Venda
-        venda_pecas = self.total_products_value
+        venda_pecas = self.total_products_value - custo_frete_pecas
         venda_servico_terceiro = self.total_third_party_services_selling
 
         divisor_mlo = (custo_pecas + custo_frete_pecas + custo_servico_terceiro + custo_total_mao_obra).amount
@@ -203,8 +203,12 @@ class Budget(TimeStampedModel):
         return data_trad if rentabilidade_trad > rentabilidade_hun else data_hun
 
     @property
-    def expiration_date_display(self):
-        return self.expiration_date or ""
+    def total_duration_display(self) -> str:
+        total_td = self.total_duration
+        if not total_td: return "00h 00m"
+
+        ts = int(total_td.total_seconds())
+        return f"{ts // 3600:02d}h {(ts % 3600) // 60:02d}m"
 
     @property
     def budget_status(self):
@@ -213,6 +217,28 @@ class Budget(TimeStampedModel):
     @property
     def collaborator_name(self):
         return self.collaborator.name if self.collaborator else "Sistema"
+
+    ## Products
+    @property
+    def total_products_shipping(self) -> Money:
+        total = self.items.aggregate(total=Sum("shipping"))["total"] or 0
+        return Money(total, "BRL")
+
+    @property
+    def total_costs_products_value(self) -> Money:
+        total = self.items.aggregate(total=Sum(F("quantity") * F("product_cost_price")))["total"] or 0
+        return Money(total, 'BRL')
+
+    @property
+    def total_products_value(self) -> Money:
+        total = self.items.aggregate(total=Sum(F("quantity") * F("product_selling_price")))["total"] or 0
+        return Money(total, 'BRL') + self.total_products_shipping
+
+    ## Services
+    @property
+    def total_duration(self) -> timedelta:
+        total = self.items.aggregate(total=Sum(F("quantity") * F("duration"), output_field=DurationField()))["total"]
+        return total or timedelta()
 
     @property
     def total_third_party_services_cost(self) -> Money:
@@ -225,16 +251,6 @@ class Budget(TimeStampedModel):
         return Money(total, "BRL")
 
     @property
-    def total_costs_products_value(self) -> Money:
-        total = self.items.aggregate(total=Sum(F("quantity") * F("product_cost_price")))["total"] or 0
-        return Money(total, 'BRL')
-
-    @property
-    def total_products_value(self) -> Money:
-        total = self.items.aggregate(total=Sum(F("quantity") * F("product_selling_price")))["total"] or 0
-        return Money(total, 'BRL')
-
-    @property
     def total_costs_services_value(self) -> Money:
         total = self.items.aggregate(total=Sum(F("quantity") * F("service_cost_price")))["total"] or 0
         return Money(total, "BRL")
@@ -244,6 +260,7 @@ class Budget(TimeStampedModel):
         total = self.items.aggregate(total=Sum(F("quantity") * F("service_selling_price")))["total"] or 0
         return Money(total, "BRL")
 
+    ## Total
     @property
     def total_base_value(self) -> Money:
         data = self.calculate_pricing_methods()
@@ -254,19 +271,6 @@ class Budget(TimeStampedModel):
     @property
     def total_budget_value(self) -> Money:
         return self.total_base_value - self.discount_value
-
-    @property
-    def total_duration(self) -> timedelta:
-        total = self.items.aggregate(total=Sum(F("quantity") * F("duration"), output_field=DurationField()))["total"]
-        return total or timedelta()
-
-    @property
-    def total_duration_display(self) -> str:
-        total_td = self.total_duration
-        if not total_td: return "00h 00m"
-
-        ts = int(total_td.total_seconds())
-        return f"{ts // 3600:02d}h {(ts % 3600) // 60:02d}m"
 
     def __str__(self):
         return f"Budget #{self.id} - {self.customer}"
@@ -348,7 +352,7 @@ class BudgetItem(TimeStampedModel):
 
     @property
     def total_price(self):
-        return (self.product_selling_price + self.service_selling_price) * self.quantity
+        return ((self.product_selling_price + self.service_selling_price) * self.quantity) + self.shipping
 
 
     class Meta:
