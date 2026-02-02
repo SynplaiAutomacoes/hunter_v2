@@ -35,6 +35,7 @@ class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespon
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["fields"] = [
+            TableColumn("ID", attr="id"),
             TableColumn(Budget.customer.field.verbose_name, attr=Budget.customer.field.name),
             TableColumn(Budget.vehicle.field.verbose_name, attr=Budget.vehicle.field.name),
             TableColumn(Budget.collaborator.field.verbose_name, attr="collaborator_name"),
@@ -383,3 +384,13 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         elif item.kit:
             kit = item.kit
             kit.name = item.description
+
+
+class BudgetImageView(LoginRequiredMixin, View):
+    def get(self, request, pk):
+        from django.http import HttpResponse
+        from apps.budget.models import BudgetImage
+
+        image = get_object_or_404(BudgetImage, pk=pk)
+
+        return HttpResponse(image.content, content_type=image.content_type)

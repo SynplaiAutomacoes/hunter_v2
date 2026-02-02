@@ -23,4 +23,5 @@ urlpatterns = [
     path("update-status/<int:budget_id>/<str:status>", views.UpdateBudgetStatusView.as_view(), name="update_budget_status"),
 
     path("save-observation/", views.SaveObservationView.as_view(), name="save_observation"),
+    path("image-view/<int:pk>", views.BudgetImageView.as_view(), name="image_view"),
 ]
