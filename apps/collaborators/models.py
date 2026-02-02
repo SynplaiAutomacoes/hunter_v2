@@ -79,7 +79,7 @@ class WorkshopCollaborator(models.Model):
         max_digits=14,
         decimal_places=2,
         null=False,
-        blank=False,
+        blank=True,
     )
 
     admission_date = models.DateField(verbose_name="Data de Admissão", null=False, blank=False)
