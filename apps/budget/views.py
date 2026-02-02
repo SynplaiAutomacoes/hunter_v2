@@ -35,6 +35,7 @@ class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespon
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["fields"] = [
+            TableColumn("ID", attr="id"),
             TableColumn(Budget.customer.field.verbose_name, attr=Budget.customer.field.name),
             TableColumn(Budget.vehicle.field.verbose_name, attr=Budget.vehicle.field.name),
             TableColumn(Budget.collaborator.field.verbose_name, attr="collaborator_name"),
