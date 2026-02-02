@@ -384,3 +384,13 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         elif item.kit:
             kit = item.kit
             kit.name = item.description
+
+
+class BudgetImageView(LoginRequiredMixin, View):
+    def get(self, request, pk):
+        from django.http import HttpResponse
+        from apps.budget.models import BudgetImage
+
+        image = get_object_or_404(BudgetImage, pk=pk)
+
+        return HttpResponse(image.content, content_type=image.content_type)
