@@ -1,25 +1,25 @@
 from crispy_forms.helper import FormHelper
-from crispy_forms.layout import Layout, Div, Field, HTML
+from crispy_forms.layout import HTML, Div, Field, Layout
 from django import forms
 from django.template.loader import render_to_string
-from django.urls import reverse_lazy, reverse
+from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from djmoney.money import Money
 
-from apps.budget.models import Budget, Defect, BudgetImage, BudgetItem
+from apps.budget.models import Budget, BudgetImage, BudgetItem, Defect
 from apps.checklist.models import Checklist
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.utils import alert_confirm_layout
-from apps.core.widgets import TextInput, SelectInput, CalendarDateInput, MoneyInput, NumberInput, DurationInput, \
-    ImageInput
+from apps.core.widgets import CalendarDateInput, DurationInput, ImageInput, MoneyInput, NumberInput, SelectInput, TextInput
 from apps.customer.models import Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
 
 
 class BudgetStep1Form(forms.ModelForm):
     workshop = forms.CharField(label="Empresa", widget=TextInput(attrs={"readonly": "readonly"}), required=False)
-    cost_estimator = forms.CharField(label="Orçamentista",widget=TextInput(attrs={"readonly": "readonly"}), required=False)
-    vehicle = forms.ModelChoiceField(label="Veículo",  queryset=Vehicle.objects.none(), required=False, widget=SelectInput())
+    cost_estimator = forms.CharField(label="Orçamentista", widget=TextInput(attrs={"readonly": "readonly"}), required=False)
+    vehicle = forms.ModelChoiceField(label="Veículo", queryset=Vehicle.objects.none(), required=False, widget=SelectInput())
+
     class Meta:
         model = Budget
         fields = ["workshop", "cost_estimator", "entry_date", "customer", "vehicle", "current_km", "fuel_level"]
@@ -253,8 +253,7 @@ class BudgetStep2Form(forms.ModelForm):
                     max_value=10,
                     required=False,
                     initial=initial_value or 5,
-                    widget=forms.NumberInput(attrs={ "class": "range range-primary w-full", "type": "range", "step": "1", "min": "1", "max": "10", "oninput": f"document.getElementById('{display_id}').innerText = this.value" }
-                    ),
+                    widget=forms.NumberInput(attrs={"class": "range range-primary w-full", "type": "range", "step": "1", "min": "1", "max": "10", "oninput": f"document.getElementById('{display_id}').innerText = this.value"}),
                 )
                 self.fields[field_name].help_text = f'Valor selecionado: <span id="{display_id}" class="font-bold text-xs">{initial_value or 5}</span>'
             elif q.response_type == InvestigativeQuestion.ResponseType.MULTIPLE_CHOICE:
@@ -273,10 +272,7 @@ class BudgetStep2Form(forms.ModelForm):
             Div(
                 HTML('<h3 class="text-2xl font-bold col-span-12">Relato do Cliente</h3>'),
                 # Descrição do Problema
-                Div(
-                    Field("problem_description", wrapper_class="flex flex-col h-full", css_class="flex-1 !bg-transparent"),
-                    css_class="col-span-12 lg:col-span-6 flex flex-col"
-                ),
+                Div(Field("problem_description", wrapper_class="flex flex-col h-full", css_class="flex-1 !bg-transparent"), css_class="col-span-12 lg:col-span-6 flex flex-col"),
                 # Perguntas Investigativas
                 Div(
                     HTML('<h5 class="font-bold mb-2">Perguntas Investigativas</h5>'),
@@ -310,13 +306,9 @@ class BudgetStep3Form(forms.ModelForm):
 
     class Meta:
         model = Budget
-        fields = ["collaborator","technical_diagnosis"]
+        fields = ["collaborator", "technical_diagnosis"]
         widgets = {
-            "technical_diagnosis": forms.Textarea(attrs={
-                "rows": 10,
-                "placeholder": "Descreva detalhadamente as observações técnicas, diagnósticos preliminares, testes realizados...",
-                "class": "textarea textarea-bordered w-full !bg-transparent"
-            }),
+            "technical_diagnosis": forms.Textarea(attrs={"rows": 10, "placeholder": "Descreva detalhadamente as observações técnicas, diagnósticos preliminares, testes realizados...", "class": "textarea textarea-bordered w-full !bg-transparent"}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -333,6 +325,21 @@ class BudgetStep3Form(forms.ModelForm):
             if img_obj:
                 img_obj.url = reverse("budget:image_view", kwargs={"pk": img_obj.pk})
                 self.fields["image"].initial = img_obj
+
+        initial_collab_id = ""
+        if self.instance.pk and self.instance.collaborator:
+            initial_collab_id = self.instance.collaborator.id
+
+        self.fields["collaborator"].widget.attrs.update(
+            {
+                "x-model": "collaboratorId",
+                "hx-trigger": "collaboratorSaved from:body",
+                "hx-get": ".",
+                "hx-target": "#div_id_collaborator",
+                "hx-select": "#div_id_collaborator",
+                "hx-swap": "outerHTML",
+            }
+        )
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -355,6 +362,11 @@ class BudgetStep3Form(forms.ModelForm):
                         input.value = "";
                         input.focus();
                     }
+                    
+                    document.body.addEventListener('collaboratorSaved', function(evt) {
+                        const modal = document.getElementById('form_modal');
+                        if (modal) modal.close();
+                    });
                 </script>"""),
             Div(
                 # Coluna Esquerda
@@ -362,21 +374,40 @@ class BudgetStep3Form(forms.ModelForm):
                     # Diagnóstico Técnico
                     Div(
                         HTML('<h3 class="text-2xl font-bold mb-4">Diagnóstico Técnico</h3>'),
-                        Field("collaborator", label="Selecione o colaborador que realizará o serviço", wrapper_class="mb-6"),
+                        Div(
+                            Field("collaborator", label="Selecione o colaborador que realizará o serviço", wrapper_class="flex-1 mb-0"),
+                            HTML("""
+                            <button type="button" class="btn btn-circle mb-2"
+                                    :class="collaboratorId ? 'btn-warning' : 'btn-primary'"
+                                    @click="const url = collaboratorId ? `/collaborators/update/modal/${collaboratorId}/` : '/collaborators/create/modal/';
+                                    htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
+                                    document.getElementById('form_modal').showModal();">
+                                <span class="material-icons" x-text="collaboratorId ? 'edit' : 'person_add'"></span>
+                            </button>
+                            """),
+                            css_class="flex items-end gap-2 w-full mb-6",
+                            x_data=f"{{ collaboratorId: '{initial_collab_id}' }}",
+                        ),
                         #
                         HTML('<label class="block text-gray-700 font-bold mb-2">Adicione os defeitos encontrados durante a inspeção</label>'),
                         Div(id="defect-list-container", css_class="mb-4 p-4 border-2 border-dashed border-gray-200 rounded-lg min-h-[120px] flex flex-wrap content-start"),
-                        Div(Div(Field("new_defect", wrapper_class="mb-0"), css_class="flex-1"),
+                        Div(
+                            Div(Field("new_defect", wrapper_class="mb-0"), css_class="flex-1"),
                             HTML("""<button type="button" class="btn btn-primary ml-2" onclick="addDefectRow()">
-                                    Adicionar</button>"""), css_class="flex items-end mb-8"),
+                                    Adicionar</button>"""),
+                            css_class="flex items-end mb-8",
+                        ),
                         css_class="mb-8",
                     ),
                     # Checklist para Impressão
                     Div(
                         HTML('<h3 class="text-2xl font-bold mb-4">Checklist para Impressão</h3>'),
-                        Div(Div(Field("checklist", wrapper_class="mb-0"), css_class="flex-1"),
-                        HTML("""<button type="button" class="btn btn-primary ml-2">
-                                            Imprimir</button>"""), css_class="flex items-end mb-8"),
+                        Div(
+                            Div(Field("checklist", wrapper_class="mb-0"), css_class="flex-1"),
+                            HTML("""<button type="button" class="btn btn-primary ml-2">
+                                            Imprimir</button>"""),
+                            css_class="flex items-end mb-8",
+                        ),
                         css_class="mb-8",
                     ),
                     css_class="col-span-12 lg:col-span-5",
@@ -439,11 +470,7 @@ class BudgetStep3Form(forms.ModelForm):
             budget.defects.all().delete()
             for name in defect_names:
                 if name.strip():
-                    Defect.objects.create(
-                        workshop=self.workshop,
-                        budget=budget,
-                        name=name.strip()
-                    )
+                    Defect.objects.create(workshop=self.workshop, budget=budget, name=name.strip())
 
         should_clear = self.data.get(f"{self.prefix}-image-clear") if self.prefix else self.data.get("image-clear")
         new_image = self.cleaned_data.get("image")
@@ -452,13 +479,7 @@ class BudgetStep3Form(forms.ModelForm):
             budget.budget_image.all().delete()
         elif new_image and hasattr(new_image, "read"):
             budget.budget_image.all().delete()
-            BudgetImage.objects.create(
-                workshop=self.workshop,
-                budget=budget,
-                content=new_image.read(),
-                content_name=new_image.name,
-                content_type=getattr(new_image, 'content_type', 'image/jpeg')
-            )
+            BudgetImage.objects.create(workshop=self.workshop, budget=budget, content=new_image.read(), content_name=new_image.name, content_type=getattr(new_image, "content_type", "image/jpeg"))
 
         return budget
 
@@ -491,9 +512,12 @@ class BudgetStep4Form(forms.ModelForm):
                 if item.kit:
                     kits_html += render_to_string("budget/partials/item_kit_row.html", context)
 
-        if not products_html: products_html = '<tr><td colspan="6" class="text-center text-gray-400 py-4">Nenhum produto adicionado</td></tr>'
-        if not services_html: services_html = '<tr><td colspan="6" class="text-center text-gray-400 py-4">Nenhum serviço adicionado</td></tr>'
-        if not kits_html: kits_html = '<tr><td colspan="5" class="text-center text-gray-400 py-4">Nenhum kit adicionado</td></tr>'
+        if not products_html:
+            products_html = '<tr><td colspan="6" class="text-center text-gray-400 py-4">Nenhum produto adicionado</td></tr>'
+        if not services_html:
+            services_html = '<tr><td colspan="6" class="text-center text-gray-400 py-4">Nenhum serviço adicionado</td></tr>'
+        if not kits_html:
+            kits_html = '<tr><td colspan="5" class="text-center text-gray-400 py-4">Nenhum kit adicionado</td></tr>'
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -667,25 +691,25 @@ class BudgetStep5Form(forms.ModelForm):
             </div>
             """
 
-        zerado = Money(0, 'BRL')
+        zerado = Money(0, "BRL")
 
         # Custos
-        custo_pecas = dados.get('custo_pecas') or zerado
-        custo_frete_pecas = dados.get('custo_frete_pecas') or zerado
-        custo_servico_terceiros = dados.get('custo_servico_terceiro') or zerado
-        custo_hora_mecanico = dados.get('custo_hora_mecanico') or zerado
-        custo_total_mao_obra = dados.get('custo_total_mao_obra') or zerado
+        custo_pecas = dados.get("custo_pecas") or zerado
+        custo_frete_pecas = dados.get("custo_frete_pecas") or zerado
+        custo_servico_terceiros = dados.get("custo_servico_terceiro") or zerado
+        custo_hora_mecanico = dados.get("custo_hora_mecanico") or zerado
+        custo_total_mao_obra = dados.get("custo_total_mao_obra") or zerado
 
         # Valores Venda
-        venda_pecas = dados.get('venda_pecas') or zerado
-        venda_servico_terceiros = dados.get('venda_servico_terceiro') or zerado
-        venda_mao_obra = dados.get('venda_mao_obra') or zerado
+        venda_pecas = dados.get("venda_pecas") or zerado
+        venda_servico_terceiros = dados.get("venda_servico_terceiro") or zerado
+        venda_mao_obra = dados.get("venda_mao_obra") or zerado
 
         # Extra
-        metodo_precificacao = dados.get('method_name') or ""
-        duracao_total = dados.get('duracao_total') or "00h 00m"
-        lucro_operacional = dados.get('lucro_operacional') or zerado
-        rentabilidade = dados.get('rentabilidade') or 0
+        metodo_precificacao = dados.get("method_name") or ""
+        duracao_total = dados.get("duracao_total") or "00h 00m"
+        lucro_operacional = dados.get("lucro_operacional") or zerado
+        rentabilidade = dados.get("rentabilidade") or 0
 
         status_cor = "text-error" if rentabilidade < 60 else "text-warning" if (60 <= rentabilidade < 70) else "text-success"
         status_texto = "Ruim" if rentabilidade < 60 else "Médio" if (60 <= rentabilidade < 70) else "Bom"
@@ -951,9 +975,12 @@ class BudgetStep6Form(forms.ModelForm):
                 if item.kit:
                     kits_html += render_to_string("budget/partials/item_kit_row.html", context)
 
-        if not products_html: products_html = '<tr><td colspan="5" class="text-center text-gray-400 py-4">Nenhum produto adicionado</td></tr>'
-        if not services_html: services_html = '<tr><td colspan="5" class="text-center text-gray-400 py-4">Nenhum serviço adicionado</td></tr>'
-        if not kits_html: kits_html = '<tr><td colspan="4" class="text-center text-gray-400 py-4">Nenhum kit adicionado</td></tr>'
+        if not products_html:
+            products_html = '<tr><td colspan="5" class="text-center text-gray-400 py-4">Nenhum produto adicionado</td></tr>'
+        if not services_html:
+            services_html = '<tr><td colspan="5" class="text-center text-gray-400 py-4">Nenhum serviço adicionado</td></tr>'
+        if not kits_html:
+            kits_html = '<tr><td colspan="4" class="text-center text-gray-400 py-4">Nenhum kit adicionado</td></tr>'
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -1181,14 +1208,14 @@ class BudgetItemEditForm(forms.ModelForm):
         fields = ["description", "quantity", "product_selling_price", "product_cost_price", "shipping", "service_selling_price", "service_cost_price", "duration"]
 
         widgets = {
-            'description': TextInput(),
-            'quantity': NumberInput(),
-            'product_selling_price': MoneyInput(),
-            'product_cost_price': MoneyInput(),
-            'shipping': MoneyInput(),
-            'service_selling_price': MoneyInput(),
-            'service_cost_price': MoneyInput(),
-            'duration': DurationInput(),
+            "description": TextInput(),
+            "quantity": NumberInput(),
+            "product_selling_price": MoneyInput(),
+            "product_cost_price": MoneyInput(),
+            "shipping": MoneyInput(),
+            "service_selling_price": MoneyInput(),
+            "service_cost_price": MoneyInput(),
+            "duration": DurationInput(),
         }
 
     def __init__(self, *args, **kwargs):
@@ -1196,17 +1223,17 @@ class BudgetItemEditForm(forms.ModelForm):
         item = self.instance
 
         if item.product:
-            self.fields.pop('service_selling_price')
-            self.fields.pop('service_cost_price')
-            self.fields.pop('duration')
+            self.fields.pop("service_selling_price")
+            self.fields.pop("service_cost_price")
+            self.fields.pop("duration")
         elif item.service:
-            self.fields.pop('product_selling_price')
-            self.fields.pop('product_cost_price')
-            self.fields.pop('shipping')
+            self.fields.pop("product_selling_price")
+            self.fields.pop("product_cost_price")
+            self.fields.pop("shipping")
         elif item.kit:
-            self.fields.pop('service_selling_price')
-            self.fields.pop('service_cost_price')
-            self.fields.pop('duration')
-            self.fields.pop('product_selling_price')
-            self.fields.pop('product_cost_price')
-            self.fields.pop('shipping')
+            self.fields.pop("service_selling_price")
+            self.fields.pop("service_cost_price")
+            self.fields.pop("duration")
+            self.fields.pop("product_selling_price")
+            self.fields.pop("product_cost_price")
+            self.fields.pop("shipping")
