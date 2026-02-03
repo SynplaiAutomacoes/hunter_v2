@@ -13,18 +13,28 @@
     <div class="relative overflow-y-auto max-h-[70vh]">
         <table class="table table-zebra w-full border-separate border-spacing-0">
             <thead class="sticky top-0 z-20 bg-base-100">
-                <tr class="text-sm uppercase bg-base-200">
-                    {% if item_type == 'product' %}<th class="rounded-none">Código</th>{% endif %}
-                    {% if item_type == 'service' %}<th class="text-center">Duração</th>{% endif %}
-                    {% if item_type == 'kit' %}<th class="text-center">Nome</th>{% endif %}
-                    <th class="w-full">Descrição</th>
-                    {% if item_type != 'kit' %}<th class="whitespace-nowrap">Preço Venda</th>{% endif %}
-                    <th class="text-center rounded-none">Ação</th>
-                </tr>
+            <tr class="text-sm uppercase bg-base-200">
+                <th class="w-16">
+                    <input type="checkbox" id="select-all" class="checkbox checkbox-primary"/>
+                </th>
+                {% if item_type == 'product' %}
+                    <th class="rounded-none">Código</th>{% endif %}
+                {% if item_type == 'service' %}
+                    <th class="text-center">Duração</th>{% endif %}
+                {% if item_type == 'kit' %}
+                    <th class="text-center">Nome</th>{% endif %}
+                <th class="w-full">Descrição</th>
+                {% if item_type != 'kit' %}
+                    <th class="whitespace-nowrap">Preço Venda</th>{% endif %}
+            </tr>
             </thead>
             <tbody class="text-base">
-                {% for item in items %}
+            {% for item in items %}
                 <tr class="hover:bg-base-200/50 transition-colors">
+                    <td class="text-center">
+                        <input type="checkbox" name="selected_items" value="{{ item.id }}" class="checkbox checkbox-primary item-checkbox">
+                    </td>
+
                     {% if item_type == 'product' %}
                         <td class="font-mono text-sm whitespace-nowrap">{{ item.code }}</td>
                     {% endif %}
@@ -39,23 +49,15 @@
                         <td class="font-mono text-sm whitespace-nowrap">{{ item.name }}</td>
                     {% endif %}
 
-                    <td class="min-w-[300px]"><div class="font-bold">{{ item.name|default:item.description }}</div></td>
+                    <td class="min-w-[300px]">
+                        <div class="font-bold">{{ item.name|default:item.description }}</div>
+                    </td>
 
                     {% if item_type != 'kit' %}
                         <td class="whitespace-nowrap font-semibold">{{ item.selling_price }}</td>
                     {% endif %}
-
-                    <td class="text-center">
-                        <button class="btn btn-primary btn-sm px-6"
-                                hx-post="{% url 'budget:add_item_to_budget' budget.id item.id item_type %}"
-                                hx-target="#{{ item_type }}-list-body"
-                                hx-swap="beforeend"
-                                onclick="form_modal.close()">
-                            Adicionar
-                        </button>
-                    </td>
                 </tr>
-                {% empty %}
+            {% empty %}
                 <tr>
                     <td colspan="10" class="py-20 text-center">
                         <div class="flex flex-col items-center justify-center opacity-30">
@@ -64,12 +66,55 @@
                         </div>
                     </td>
                 </tr>
-                {% endfor %}
+            {% endfor %}
             </tbody>
         </table>
     </div>
 
-    <div class="p-4 border-t border-base-200 flex justify-end bg-base-50">
-          <button type="button" class="btn btn-ghost" onclick="form_modal.close()">Cancelar</button>
-      </div>
+    <div class="p-4 border-t border-base-200 flex justify-between items-center bg-base-50">
+        <span id="selection-counter" class="text-sm font-semibold">
+            0 itens selecionados
+        </span>
+
+        <div class="flex gap-2">
+            <button type="button" class="btn btn-ghost" onclick="form_modal.close()">Cancelar</button>
+
+            <button
+                    type="button"
+                    id="add-selected-btn"
+                    class="btn btn-primary"
+                    disabled
+                    hx-post="{% url 'budget:add_items_batch' budget.id item_type %}"
+                    hx-vals="js:{selected_ids: getSelectedIds()}"
+                    hx-target="#modal-container"
+                    hx-swap="innerHTML">
+                Adicionar Selecionados
+            </button>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            const selectAll = document.getElementById('select-all');
+            const itemCheckboxes = document.querySelectorAll('.item-checkbox');
+            const counter = document.getElementById('selection-counter');
+            const addBtn = document.getElementById('add-selected-btn');
+
+            function updateCounter() {
+                const cont = document.getElementById('.item-checkbox:checked').length;
+                counter.textContent = `${cont} ${cont === 1 ? 'Item' : 'Itens'} ${cont === 1 ? 'Selecionado' : 'Selecionados'}`;
+            };
+
+            selectAll?.addEventListener('change', (e) => {
+                itemCheckboxes.forEach(cb => cb.checked = e.target.checked);
+                updateCounter();
+            });
+
+            itemCheckboxes.forEach(cb => cb.addEventListener('change', updateCounter));
+
+            window.getSelectedIds = function () {
+                return Array.from(document.querySelectorAll('.item-checkbox:checked')).map(cb => cb.value);
+            };
+        })();
+    </script>
 </div>
