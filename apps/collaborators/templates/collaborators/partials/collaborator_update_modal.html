@@ -1,11 +1,9 @@
-{% load crispy_forms_tags %}
-
 <div class="modal-box w-11/12 max-w-4xl bg-base-100 relative">
     <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick="form_modal.close()">✕</button>
 
-    <h3 class="font-bold text-2xl mb-6 text-center">Adicionar Novo Colaborador</h3>
+    <h3 class="font-bold text-2xl mb-6 text-center">Editar Colaborador</h3>
 
-    <form hx-post="{% url 'collaborators:collaborator_create_modal' %}"
+    <form hx-post="{% url 'collaborators:collaborator_update_modal' form.instance.pk %}"
           hx-target="#modal-container"
           hx-swap="innerHTML"
           class="w-full">
@@ -15,7 +13,9 @@
 
         <div class="modal-action mt-6 flex justify-end gap-2">
             <button type="button" class="btn btn-ghost" onclick="form_modal.close()">Cancelar</button>
-            <button type="submit" class="btn btn-primary px-8">Salvar Colaborador</button>
+            <button type="submit" class="btn btn-primary px-8">
+                Salvar Alterações
+            </button>
         </div>
     </form>
 </div>

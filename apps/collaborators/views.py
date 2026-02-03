@@ -7,7 +7,7 @@ from django.http import HttpResponse, HttpResponseRedirect
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView, UpdateView
 
-from apps.collaborators.forms import WorkshopCollaboratorCreateForm, WorkshopCollaboratorUpdateForm
+from apps.collaborators.forms import WorkshopCollaboratorCreateForm, WorkshopCollaboratorModalForm, WorkshopCollaboratorUpdateForm
 from apps.collaborators.models import WorkshopCollaborator, WorkshopMember
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
@@ -177,15 +177,46 @@ class WorkshopCollaboratorDeleteView(LoginRequiredMixin, WorkshopScopedMixin, Ht
         return HttpResponseRedirect(self.get_success_url())
 
 
-class WorkshopCollaboratorModalView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
+class WorkshopCollaboratorModalCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
     model = WorkshopCollaborator
+    form_class = WorkshopCollaboratorModalForm
     template_name = "collaborators/partials/collaborator_create_modal.html"
-    workshop_permission_codename = "add_workshop"
 
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context["form"] = WorkshopCollaboratorCreateForm(
-            account=self.request.user.account,
-            workshop=self.workshop,
-        )
-        return context
+    def form_valid(self, form):
+        with transaction.atomic():
+            self.object = form.save(commit=False)
+            self.object.workshop = self.workshop
+
+            if self.object.salary is None:
+                self.object.salary = 0
+
+            self.object.save()
+
+        response = HttpResponse(status=204)
+        response["HX-Trigger"] = "collaboratorSaved"
+        return response
+
+
+class WorkshopCollaboratorModalUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
+    model = WorkshopCollaborator
+    form_class = WorkshopCollaboratorModalForm
+    template_name = "collaborators/partials/collaborator_update_modal.html"
+
+    def form_valid(self, form):
+        with transaction.atomic():
+            self.object = form.save(commit=False)
+
+            if self.object.salary is None:
+                self.object.salary = 0
+
+            self.object.save()
+
+            if self.object.user_id:
+                user = self.object.user
+                if self.object.email and user.email != self.object.email:
+                    user.email = self.object.email
+                    user.save(update_fields=["email"])
+
+        response = HttpResponse(status=204)
+        response["HX-Trigger"] = "collaboratorSaved"
+        return response

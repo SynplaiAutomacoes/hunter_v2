@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+from crispy_forms.helper import FormHelper
+from crispy_forms.layout import HTML, Div, Field, Layout, Submit
 from django import forms
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.db.models import CharField
 from django.urls import reverse
-
-from crispy_forms.helper import FormHelper
-from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 
 from apps.collaborators.models import WorkshopCollaborator, WorkshopMember
 from apps.core.widgets import (
@@ -16,11 +16,11 @@ from apps.core.widgets import (
     EmailInput,
     MoneyInput,
     PasswordInput,
+    PercentageInput,
     PhoneInput,
     RGInput,
     SelectInput,
     TextInput,
-    PercentageInput,
 )
 from apps.iam.models import WorkshopRole
 from apps.workshops.models.workshops import Workshop
@@ -261,3 +261,55 @@ class WorkshopCollaboratorCreateForm(BaseWorkshopCollaboratorForm):
 
 class WorkshopCollaboratorUpdateForm(BaseWorkshopCollaboratorForm):
     pass
+
+
+class WorkshopCollaboratorModalForm(forms.ModelForm):
+    class Meta:
+        model = WorkshopCollaborator
+        fields = ["name", "cpf", "email", "phone", "birth_date", "position", "collaborator_type", "admission_date", "salary"]
+        labels = {
+            "name": "Nome Completo",
+            "cpf": "CPF",
+            "email": "E-mail",
+            "phone": "Telefone",
+            "birth_date": "Data de Nascimento",
+            "position": "Cargo",
+            "collaborator_type": "Tipo",
+            "admission_date": "Data de Admissão",
+        }
+        widgets = {
+            "name": TextInput(attrs={"placeholder": "Nome do colaborador"}),
+            "cpf": CPForCNPJInput(mode="cpf"),
+            "email": EmailInput(),
+            "phone": PhoneInput(),
+            "birth_date": CalendarDateInput(),
+            "position": TextInput(attrs={"placeholder": "Ex: Mecânico Chefe"}),
+            "collaborator_type": SelectInput(),
+            "admission_date": CalendarDateInput(),
+        }
+
+    def __init__(self, *args, **kwargs):
+        # Removemos kwargs que não são do ModelForm se existirem
+        account = kwargs.pop("account", None)
+        workshop = kwargs.pop("workshop", None)
+
+        super().__init__(*args, **kwargs)
+
+        # O Salário não é obrigatório no form visual, fallback definido na View
+        self.fields["salary"].required = False
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout(
+            Div(
+                Field("name", wrapper_class="col-span-12"),
+                Field("cpf", wrapper_class="col-span-12 lg:col-span-6"),
+                Field("email", wrapper_class="col-span-12 lg:col-span-6"),
+                Field("phone", wrapper_class="col-span-12 lg:col-span-6"),
+                Field("birth_date", wrapper_class="col-span-12 lg:col-span-6"),
+                Field("position", wrapper_class="col-span-12 lg:col-span-6"),
+                Field("collaborator_type", wrapper_class="col-span-12 lg:col-span-6"),
+                Field("admission_date", wrapper_class="col-span-12 lg:col-span-6"),
+                css_class="grid grid-cols-1 lg:grid-cols-12 gap-x-4 gap-y-2",
+            )
+        )

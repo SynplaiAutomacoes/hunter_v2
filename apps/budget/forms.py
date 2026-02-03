@@ -353,6 +353,11 @@ class BudgetStep3Form(forms.ModelForm):
                         input.value = "";
                         input.focus();
                     }
+                    
+                    document.body.addEventListener('collaboratorSaved', function(evt) {
+                        const modal = document.getElementById('form_modal');
+                        if (modal) modal.close();
+                    });
                 </script>"""),
             Div(
                 # Coluna Esquerda
@@ -363,11 +368,11 @@ class BudgetStep3Form(forms.ModelForm):
                         Div(
                             Field("collaborator", label="Selecione o colaborador que realizará o serviço", wrapper_class="flex-1 mb-0"),
                             HTML("""
-                            <button type="button" class="btn btn-circle mb-2" 
-                            :class="collaboratorId ? 'btn-warning' : 'btn-primary'"
-                            @click="const url = collaboratorId ? `/collaborators/update/${collaboratorId}/` : '/collaborators/create/';
-                            htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
-                            document.getElementById('form_modal').showModal();">
+                            <button type="button" class="btn btn-circle mb-2"
+                                    :class="collaboratorId ? 'btn-warning' : 'btn-primary'"
+                                    @click="const url = collaboratorId ? `/collaborators/update/modal/${collaboratorId}/` : '/collaborators/create/modal/';
+                                    htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
+                                    document.getElementById('form_modal').showModal();">
                                 <span class="material-icons" x-text="collaboratorId ? 'edit' : 'person_add'"></span>
                             </button>
                             """),
