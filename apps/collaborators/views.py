@@ -180,3 +180,12 @@ class WorkshopCollaboratorDeleteView(LoginRequiredMixin, WorkshopScopedMixin, Ht
 class WorkshopCollaboratorModalView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     model = WorkshopCollaborator
     template_name = "collaborators/partials/collaborator_create_modal.html"
+    workshop_permission_codename = "add_workshop"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["form"] = WorkshopCollaboratorCreateForm(
+            account=self.request.user.account,
+            workshop=self.workshop,
+        )
+        return context
