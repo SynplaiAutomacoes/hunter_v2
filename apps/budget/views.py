@@ -241,31 +241,57 @@ class AddItemToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "add_budget"
 
     def post(self, request, *args, **kwargs):
-        budget = get_object_or_404(Budget, id=kwargs["budget_id"], workshop=self.workshop)
+        budget = get_object_or_404(
+            Budget,
+            id=kwargs["budget_id"],
+            workshop=self.workshop
+        )
+
         item_filter = {f"{kwargs['item_type']}_id": kwargs["item_id"]}
 
-        item, created = BudgetItem.objects.get_or_create(workshop=self.workshop, budget=budget, **item_filter, defaults={"quantity": 1})
+        item, created = BudgetItem.objects.get_or_create(
+            workshop=self.workshop,
+            budget=budget,
+            **item_filter,
+            defaults={"quantity": 1},
+        )
 
         if not created:
             item.quantity += 1
             item.save()
 
-        response = HttpResponse()
-        response["HX-Refresh"] = "true"
-        return response
+        success_url = f"{reverse('budget:budget_update', kwargs={'pk': budget.id})}?step={budget.current_step}"
 
+        response = HttpResponse()
+        response["HX-Redirect"] = success_url
+        return response
 
 class RemoveItemFromBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = Budget
     workshop_permission_codename = "add_budget"
 
     def post(self, request, *args, **kwargs):
+        budget = get_object_or_404(
+            Budget,
+            id=kwargs["budget_id"],
+            workshop=self.workshop
+        )
+
         item_filter = {f"{kwargs['item_type']}_id": kwargs["item_id"]}
-        item = get_object_or_404(BudgetItem, workshop=self.workshop, budget_id=kwargs["budget_id"], **item_filter)
+
+        item = get_object_or_404(
+            BudgetItem,
+            workshop=self.workshop,
+            budget=budget,
+            **item_filter
+        )
+
         item.delete()
 
+        success_url = f"{reverse('budget:budget_update', kwargs={'pk': budget.id})}?step={budget.current_step}"
+
         response = HttpResponse()
-        response["HX-Refresh"] = "true"
+        response["HX-Redirect"] = success_url
         return response
 
 

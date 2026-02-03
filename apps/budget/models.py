@@ -108,7 +108,10 @@ class Budget(TimeStampedModel):
             mechanic_salary_obj = MonthlyCost.objects.get(workshop=self.workshop, name__iexact="Salários mecânicos produtivos")
             salario_mecanicos = WorkshopCostItem.objects.get(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_obj).amount
         except (WorkshopCost.DoesNotExist, MonthlyCost.DoesNotExist, WorkshopCostItem.DoesNotExist):
-            return None
+            return {
+                "valor_orcamento": self.total_products_value + self.total_services_value,
+                "rentabilidade": Decimal("0.00"),
+            }
 
         # Índices
         mlr = workshop_cost.profitability_multiplier
@@ -135,14 +138,24 @@ class Budget(TimeStampedModel):
         venda_mao_obra_trad = valor_hora_vendida_trad * duracao_total
         valor_orcamento_trad = soma_base_orcamento + venda_mao_obra_trad
         lucro_operacional_trad = valor_orcamento_trad - subtracao_base_lucro
-        rentabilidade_trad = (Decimal(str(lucro_operacional_trad.amount / valor_orcamento_trad.amount)) * 100).quantize(Decimal("0.01"), ROUND_HALF_UP)
+        if valor_orcamento_trad.amount > 0:
+            rentabilidade_trad = (
+                    (lucro_operacional_trad.amount / valor_orcamento_trad.amount) * 100
+            ).quantize(Decimal("0.01"), ROUND_HALF_UP)
+        else:
+            rentabilidade_trad = Decimal("0.00")
 
         # MÉTOD0 HUNTER
         venda_mao_obra_hun = self.total_services_value - venda_servico_terceiro
         valor_orcamento_hun = soma_base_orcamento + venda_mao_obra_hun
         mlo = valor_orcamento_hun.amount / divisor_mlo if divisor_mlo > 0 else 0
         lucro_operacional_hun = valor_orcamento_hun - subtracao_base_lucro
-        rentabilidade_hun = (Decimal(str(lucro_operacional_hun.amount / valor_orcamento_hun.amount)) * 100).quantize(Decimal("0.01"), ROUND_HALF_UP)
+        if valor_orcamento_hun.amount > 0:
+            rentabilidade_hun = (
+                    (lucro_operacional_hun.amount / valor_orcamento_hun.amount) * 100
+            ).quantize(Decimal("0.01"), ROUND_HALF_UP)
+        else:
+            rentabilidade_hun = Decimal("0.00")
 
         # Organização dos dados
         data_trad = {
