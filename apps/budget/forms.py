@@ -3,13 +3,15 @@ from crispy_forms.layout import Layout, Div, Field, HTML
 from django import forms
 from django.template.loader import render_to_string
 from django.urls import reverse_lazy, reverse
+from django.utils import timezone
 from djmoney.money import Money
 
-from apps.budget.models import Budget, Defect, BudgetImage
+from apps.budget.models import Budget, Defect, BudgetImage, BudgetItem
 from apps.checklist.models import Checklist
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.utils import alert_confirm_layout
-from apps.core.widgets import TextInput, SelectInput, CalendarDateInput, MoneyInput
+from apps.core.widgets import TextInput, SelectInput, CalendarDateInput, MoneyInput, NumberInput, DurationInput, \
+    ImageInput
 from apps.customer.models import Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
 
@@ -25,7 +27,7 @@ class BudgetStep1Form(forms.ModelForm):
             "entry_date": CalendarDateInput(),
             "customer": SelectInput(attrs={"x-model": "customerId", "@change": "customerId = $el.value; vehicleId = '';"}),
             "current_km": TextInput(),
-            "fuel_level": TextInput(),
+            "fuel_level": SelectInput(),
         }
 
     def __init__(self, *args, **kwargs):
@@ -57,7 +59,7 @@ class BudgetStep1Form(forms.ModelForm):
 
         self.fields["vehicle"].widget.attrs.update({"id": "id_vehicle"})
 
-        # Preenchimento inicial (Campos não editáveis)
+        # Preenchimento inicial
         if self.workshop:
             workshop_name = self.workshop.name
             self.fields["workshop"].initial = workshop_name
@@ -77,6 +79,11 @@ class BudgetStep1Form(forms.ModelForm):
             else:
                 self.fields["vehicle"].queryset = Vehicle.objects.none()
 
+        if not self.instance.pk:
+            self.fields["entry_date"].initial = timezone.now().date()
+            self.fields["current_km"].initial = None
+            self.fields["fuel_level"].initial = None
+
         if self.request and self.request.user:
             user = self.request.user
             self.fields["cost_estimator"].initial = user.get_full_name() or user.username
@@ -86,6 +93,13 @@ class BudgetStep1Form(forms.ModelForm):
         self.helper.layout = Layout(
             HTML("""
             <script>
+                document.addEventListener('input', function (e) {
+                    if (e.target && e.target.name === 'current_km') {
+                        let value = e.target.value.replace(/\D/g, '');
+                        e.target.value = value.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+                    }
+                });
+                
                 async function updateVehicleList(customerId) {
                     // 1. Busca os dados da sua VehicleListView (JSON)
                     const response = await fetch(`/budget/get-vehicles/?customer=${customerId}`);
@@ -292,6 +306,7 @@ class BudgetStep3Form(forms.ModelForm):
     new_defect = forms.CharField(label=False, required=False, widget=TextInput(attrs={"id": "id_new_defect", "placeholder": "Digite um defeito e clique em Adicionar", "onkeypress": "if(event.keyCode==13){ event.preventDefault(); addDefectRow(); }"}))
     checklist = forms.ModelChoiceField(label="Selecione o Checklist", queryset=Checklist.objects.none(), required=False, widget=SelectInput())
     collaborator = forms.ModelChoiceField(label="Selecione o colaborador que realizará o serviço", required=True, queryset=WorkshopCollaborator.objects.none(), widget=SelectInput())
+    image = forms.ImageField(label=False, required=False, widget=ImageInput())
 
     class Meta:
         model = Budget
@@ -313,17 +328,11 @@ class BudgetStep3Form(forms.ModelForm):
             self.fields["collaborator"].queryset = WorkshopCollaborator.objects.filter(workshop=self.workshop, is_active=True)
             self.fields["checklist"].queryset = Checklist.objects.filter(workshop=self.workshop)
 
-        existing_file_html = ""
         if self.instance.pk:
-            img = self.instance.budget_image.first()
-            if img:
-                existing_file_html = f"""<div class="mb-4">
-                            <p class="text-sm font-medium text-gray-500 mb-2">Imagem atual:</p>
-                            <div class="badge badge-success gap-2 py-3">
-                                <span class="material-icons text-xs">attachment</span>
-                                {img.content_name}
-                            </div>
-                        </div>"""
+            img_obj = self.instance.budget_image.first()
+            if img_obj:
+                img_obj.url = reverse("budget:image_view", kwargs={"pk": img_obj.pk})
+                self.fields["image"].initial = img_obj
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -385,35 +394,8 @@ class BudgetStep3Form(forms.ModelForm):
                     ),
                     # Imagens
                     Div(
-                        HTML('<h3 class="text-2xl font-bold mb-4">Anexar Imagens</h3>'),
-                        HTML(existing_file_html),
-                        HTML("""
-                                        <div class="flex flex-col w-full gap-4">
-                                            <label class="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer hover:bg-base-200 transition-colors">
-                                                <div class="flex flex-col items-center justify-center pt-5 pb-6">
-                                                    <p class="mb-1 text-lg font-semibold text-gray-700">Clique para selecionar novas imagens</p>
-                                                    <p class="text-sm text-gray-400">JPG, PNG, GIF (máx. 5MB)</p>
-                                                    <div id="image-preview-container" class="flex flex-wrap gap-2 mt-2"></div>
-                                                </div>
-                                                <input type="file" id="image-input" name="budget_images" class="hidden" multiple accept="image/*" onchange="previewImages(this)" />
-                                            </label>
-                                        </div>
-                                        <script>
-                                            function previewImages(input) {
-                                                const container = document.getElementById('image-preview-container');
-                                                container.innerHTML = '';
-                                                if (input.files) {
-                                                    Array.from(input.files).forEach(file => {
-                                                        const html = `
-                                                            <div class="mt-2 badge badge-info gap-2 py-2">
-                                                                <span class="max-w-[150px] truncate">${file.name}</span>
-                                                            </div>`;
-                                                        container.insertAdjacentHTML('beforeend', html);
-                                                    });
-                                                }
-                                            }
-                                        </script>
-                                    """),
+                        HTML('<h3 class="text-2xl font-bold mb-4">Anexar Imagem</h3>'),
+                        Field("image", label=False, wrapper_class="mb-0"),
                         css_class="mb-6",
                     ),
                     css_class="col-span-12 lg:col-span-6",
@@ -463,10 +445,20 @@ class BudgetStep3Form(forms.ModelForm):
                         name=name.strip()
                     )
 
-        new_image = self.request.FILES.get("budget_images")
-        if new_image:
+        should_clear = self.data.get(f"{self.prefix}-image-clear") if self.prefix else self.data.get("image-clear")
+        new_image = self.cleaned_data.get("image")
+
+        if should_clear:
             budget.budget_image.all().delete()
-            BudgetImage.objects.create(workshop=self.workshop, budget=budget, content=new_image.read(), content_name=new_image.name, content_type=new_image.content_type)
+        elif new_image and hasattr(new_image, "read"):
+            budget.budget_image.all().delete()
+            BudgetImage.objects.create(
+                workshop=self.workshop,
+                budget=budget,
+                content=new_image.read(),
+                content_name=new_image.name,
+                content_type=getattr(new_image, 'content_type', 'image/jpeg')
+            )
 
         return budget
 
@@ -523,8 +515,9 @@ class BudgetStep4Form(forms.ModelForm):
                                 <table class="table table-zebra w-full">
                                     <thead>
                                         <tr>
-                                            <th>NOME</th>
+                                            <th>DESCRIÇÃO</th>
                                             <th class="text-center">QTD.</th>
+                                            <th>CUSTO</th>
                                             <th>VALOR VENDA</th>
                                             <th>FRETE</th>
                                             <th>TOTAL</th>
@@ -552,8 +545,9 @@ class BudgetStep4Form(forms.ModelForm):
                                 <table class="table table-zebra w-full">
                                     <thead>
                                         <tr>
-                                            <th>NOME</th>
+                                            <th>DESCRIÇÃO</th>
                                             <th class="text-center">QTD.</th>
+                                            <th>CUSTO</th>
                                             <th>VALOR VENDA</th>
                                             <th>TEMPO</th>
                                             <th>TOTAL</th>
@@ -680,6 +674,7 @@ class BudgetStep5Form(forms.ModelForm):
         custo_frete_pecas = dados.get('custo_frete_pecas') or zerado
         custo_servico_terceiros = dados.get('custo_servico_terceiro') or zerado
         custo_hora_mecanico = dados.get('custo_hora_mecanico') or zerado
+        custo_total_mao_obra = dados.get('custo_total_mao_obra') or zerado
 
         # Valores Venda
         venda_pecas = dados.get('venda_pecas') or zerado
@@ -840,8 +835,8 @@ class BudgetStep5Form(forms.ModelForm):
                                         </div>
 
                                         <div class="grid grid-cols-12 border bg-white overflow-hidden">
-                                            <span class="col-span-8 p-2 bg-gray-50">Custo da Hora do Mecânico</span>
-                                            <span class="col-span-4 p-2 border-l text-left">{custo_hora_mecanico}</span>
+                                            <span class="col-span-8 p-2 bg-gray-50">Duração Total</span>
+                                            <span class="col-span-4 p-2 border-l text-left">{duracao_total}</span>
                                         </div>
                                         <div class="grid grid-cols-12 border bg-white overflow-hidden">
                                             <span class="col-span-8 p-2 bg-gray-50">Valor de Venda de Mão de Obra</span>
@@ -849,8 +844,14 @@ class BudgetStep5Form(forms.ModelForm):
                                         </div>
                                         
                                         <div class="grid grid-cols-12 border bg-white overflow-hidden">
-                                            <span class="col-span-8 p-2 bg-gray-50">Duração Total</span>
-                                            <span class="col-span-4 p-2 border-l text-left">{duracao_total}</span>
+                                            <span class="col-span-8 p-2 bg-gray-50">Custo da Hora do Mecânico</span>
+                                            <span class="col-span-4 p-2 border-l text-left">{custo_hora_mecanico}</span>
+                                        </div>
+                                        <div class="invisible md:visible"></div>
+                                        
+                                        <div class="grid grid-cols-12 border bg-white overflow-hidden">
+                                            <span class="col-span-8 p-2 bg-gray-50">Custo Total da Mão de Obra</span>
+                                            <span class="col-span-4 p-2 border-l text-left">{custo_total_mao_obra}</span>
                                         </div>
                                         <div class="invisible md:visible"></div>
 
@@ -1005,6 +1006,7 @@ class BudgetStep6Form(forms.ModelForm):
                                                         <tr>
                                                             <th>NOME</th>
                                                             <th class="text-center">QTD.</th>
+                                                            <th>CUSTO</th>
                                                             <th>VALOR VENDA</th>
                                                             <th>FRETE</th>
                                                             <th>TOTAL</th>
@@ -1030,6 +1032,7 @@ class BudgetStep6Form(forms.ModelForm):
                                                         <tr>
                                                             <th>NOME</th>
                                                             <th class="text-center">QTD.</th>
+                                                            <th>CUSTO</th>
                                                             <th>VALOR VENDA</th>
                                                             <th>TEMPO</th>
                                                             <th>TOTAL</th>
@@ -1170,3 +1173,40 @@ class BudgetStep6Form(forms.ModelForm):
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch",
             ),
         )
+
+
+class BudgetItemEditForm(forms.ModelForm):
+    class Meta:
+        model = BudgetItem
+        fields = ["description", "quantity", "product_selling_price", "product_cost_price", "shipping", "service_selling_price", "service_cost_price", "duration"]
+
+        widgets = {
+            'description': TextInput(),
+            'quantity': NumberInput(),
+            'product_selling_price': MoneyInput(),
+            'product_cost_price': MoneyInput(),
+            'shipping': MoneyInput(),
+            'service_selling_price': MoneyInput(),
+            'service_cost_price': MoneyInput(),
+            'duration': DurationInput(),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        item = self.instance
+
+        if item.product:
+            self.fields.pop('service_selling_price')
+            self.fields.pop('service_cost_price')
+            self.fields.pop('duration')
+        elif item.service:
+            self.fields.pop('product_selling_price')
+            self.fields.pop('product_cost_price')
+            self.fields.pop('shipping')
+        elif item.kit:
+            self.fields.pop('service_selling_price')
+            self.fields.pop('service_cost_price')
+            self.fields.pop('duration')
+            self.fields.pop('product_selling_price')
+            self.fields.pop('product_cost_price')
+            self.fields.pop('shipping')

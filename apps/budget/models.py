@@ -17,7 +17,7 @@ from apps.workorder.models import WorkOrder
 from apps.workshops.models.monthly_costs import MonthlyCost
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from django.utils import timezone
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 
 
 class BudgetStatus(models.TextChoices):
@@ -25,6 +25,17 @@ class BudgetStatus(models.TextChoices):
     APPROVED = "approved", "Aprovado"
     REJECTED = "rejected", "Rejeitado"
     CANCELLED = "cancelled", "Cancelado"
+
+
+class FuelLevel(models.IntegerChoices):
+    FULL = 8, "Cheio"
+    SEVEN_EIGHTHS = 7, "7/8"
+    THREE_QUARTERS = 6, "3/4"
+    ONE_HALF = 5, "1/2"
+    ONE_QUARTER = 4, "1/4"
+    ONE_EIGHTH = 3, "1/8"
+    RESERVE = 2, "Reserva"
+    EMPTY = 1, "Vazio"
 
 
 class Defect(models.Model):
@@ -62,7 +73,7 @@ class Budget(TimeStampedModel):
     technical_diagnosis = models.TextField(verbose_name="Observações Técnicas", blank=True, null=True)
     notes = models.TextField(verbose_name="Observações Complementares", blank=True, null=True)
     current_km = models.PositiveIntegerField(verbose_name="KM Atual", default=0)
-    fuel_level = models.PositiveIntegerField(verbose_name="Nível do Tanque", default=0)
+    fuel_level = models.PositiveIntegerField(verbose_name="Nível do Tanque", choices=FuelLevel.choices, default=FuelLevel.FULL)
     defect = models.ForeignKey(Defect, on_delete=models.SET_NULL, related_name="budgets", null=True)
 
     # Financeiro
@@ -101,10 +112,16 @@ class Budget(TimeStampedModel):
         verbose_name_plural = "Orçamentos"
 
     def calculate_pricing_methods(self):
-        reference_date = self.criado_em if self.criado_em else timezone.now()
+        try:
+            reference_date = self.criado_em if self.criado_em else timezone.now()
+            workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=reference_date.month, year=reference_date.year)
+        except WorkshopCost.DoesNotExist:
+            try:
+                workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=timezone.now().month, year=timezone.now().year)
+            except WorkshopCost.DoesNotExist:
+                return None
 
         try:
-            workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=reference_date.month, year=reference_date.year)
             mechanic_salary_obj = MonthlyCost.objects.get(workshop=self.workshop, name__iexact="Salários mecânicos produtivos")
             salario_mecanicos = WorkshopCostItem.objects.get(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_obj).amount
         except (WorkshopCost.DoesNotExist, MonthlyCost.DoesNotExist, WorkshopCostItem.DoesNotExist):
@@ -120,13 +137,13 @@ class Budget(TimeStampedModel):
 
         # Custos
         custo_pecas = self.total_costs_products_value
-        custo_frete_pecas = Money(0, "BRL")
+        custo_frete_pecas = self.total_products_shipping
         custo_servico_terceiro = self.total_third_party_services_cost
         custo_hora_mecanico = salario_mecanicos / horas_uteis_mes
         custo_total_mao_obra = duracao_total * custo_hora_mecanico
 
         # Valores de Venda
-        venda_pecas = self.total_products_value
+        venda_pecas = self.total_products_value - custo_frete_pecas
         venda_servico_terceiro = self.total_third_party_services_selling
 
         divisor_mlo = (custo_pecas + custo_frete_pecas + custo_servico_terceiro + custo_total_mao_obra).amount
@@ -164,6 +181,7 @@ class Budget(TimeStampedModel):
             "custo_frete_pecas": custo_frete_pecas,
             "custo_servico_terceiro": custo_servico_terceiro,
             "custo_hora_mecanico": custo_hora_mecanico,
+            "custo_total_mao_obra": custo_total_mao_obra,
             "duracao_total": self.total_duration_display,
             "lucro_operacional": lucro_operacional_trad,
             "venda_pecas": venda_pecas,
@@ -179,6 +197,7 @@ class Budget(TimeStampedModel):
             "custo_frete_pecas": custo_frete_pecas,
             "custo_servico_terceiro": custo_servico_terceiro,
             "custo_hora_mecanico": custo_hora_mecanico,
+            "custo_total_mao_obra": custo_total_mao_obra,
             "duracao_total": self.total_duration_display,
             "lucro_operacional": lucro_operacional_hun,
             "mlr": mlr,
@@ -193,8 +212,12 @@ class Budget(TimeStampedModel):
         return data_trad if rentabilidade_trad > rentabilidade_hun else data_hun
 
     @property
-    def expiration_date_display(self):
-        return self.expiration_date or ""
+    def total_duration_display(self) -> str:
+        total_td = self.total_duration
+        if not total_td: return "00h 00m"
+
+        ts = int(total_td.total_seconds())
+        return f"{ts // 3600:02d}h {(ts % 3600) // 60:02d}m"
 
     @property
     def budget_status(self):
@@ -203,6 +226,28 @@ class Budget(TimeStampedModel):
     @property
     def collaborator_name(self):
         return self.collaborator.name if self.collaborator else "Sistema"
+
+    ## Products
+    @property
+    def total_products_shipping(self) -> Money:
+        total = self.items.aggregate(total=Sum("shipping"))["total"] or 0
+        return Money(total, "BRL")
+
+    @property
+    def total_costs_products_value(self) -> Money:
+        total = self.items.aggregate(total=Sum(F("quantity") * F("product_cost_price")))["total"] or 0
+        return Money(total, 'BRL')
+
+    @property
+    def total_products_value(self) -> Money:
+        total = self.items.aggregate(total=Sum(F("quantity") * F("product_selling_price")))["total"] or 0
+        return Money(total, 'BRL') + self.total_products_shipping
+
+    ## Services
+    @property
+    def total_duration(self) -> timedelta:
+        total = self.items.aggregate(total=Sum(F("quantity") * F("duration"), output_field=DurationField()))["total"]
+        return total or timedelta()
 
     @property
     def total_third_party_services_cost(self) -> Money:
@@ -215,16 +260,6 @@ class Budget(TimeStampedModel):
         return Money(total, "BRL")
 
     @property
-    def total_costs_products_value(self) -> Money:
-        total = self.items.aggregate(total=Sum(F("quantity") * F("product_cost_price")))["total"] or 0
-        return Money(total, 'BRL')
-
-    @property
-    def total_products_value(self) -> Money:
-        total = self.items.aggregate(total=Sum(F("quantity") * F("product_selling_price")))["total"] or 0
-        return Money(total, 'BRL')
-
-    @property
     def total_costs_services_value(self) -> Money:
         total = self.items.aggregate(total=Sum(F("quantity") * F("service_cost_price")))["total"] or 0
         return Money(total, "BRL")
@@ -234,6 +269,7 @@ class Budget(TimeStampedModel):
         total = self.items.aggregate(total=Sum(F("quantity") * F("service_selling_price")))["total"] or 0
         return Money(total, "BRL")
 
+    ## Total
     @property
     def total_base_value(self) -> Money:
         data = self.calculate_pricing_methods()
@@ -244,19 +280,6 @@ class Budget(TimeStampedModel):
     @property
     def total_budget_value(self) -> Money:
         return self.total_base_value - self.discount_value
-
-    @property
-    def total_duration(self) -> timedelta:
-        total = self.items.aggregate(total=Sum(F("quantity") * F("duration"), output_field=DurationField()))["total"]
-        return total or timedelta()
-
-    @property
-    def total_duration_display(self) -> str:
-        total_td = self.total_duration
-        if not total_td: return "00h 00m"
-
-        ts = int(total_td.total_seconds())
-        return f"{ts // 3600:02d}h {(ts % 3600) // 60:02d}m"
 
     def __str__(self):
         return f"Budget #{self.id} - {self.customer}"
@@ -287,11 +310,17 @@ class BudgetItem(TimeStampedModel):
     kit = models.ForeignKey(Kit, on_delete=models.SET_NULL, null=True, blank=True)
 
     # Dados
+    description = models.CharField(verbose_name="Descrição", max_length=100, default="")
     quantity = models.PositiveIntegerField(verbose_name="Quantidade", default=1)
-    service_cost_price = MoneyField(verbose_name="Valor de Custo (Serviço)", max_digits=14, decimal_places=2, default=0)
-    product_cost_price = MoneyField(verbose_name="Valor de Custo (Produto)", max_digits=14, decimal_places=2, default=0)
-    service_selling_price = MoneyField(verbose_name="Valor de Venda (Serviço)", max_digits=14, decimal_places=2, default=0)
-    product_selling_price = MoneyField(verbose_name="Valor de Venda (Produto)", max_digits=14, decimal_places=2, default=0)
+
+    ## Produto
+    shipping = MoneyField(verbose_name="Frete", max_digits=14, decimal_places=2, default=0)
+    product_cost_price = MoneyField(verbose_name="Custo", max_digits=14, decimal_places=2, default=0)
+    product_selling_price = MoneyField(verbose_name="Valor de Venda", max_digits=14, decimal_places=2, default=0)
+
+    ## Serviço
+    service_cost_price = MoneyField(verbose_name="Custo", max_digits=14, decimal_places=2, default=0)
+    service_selling_price = MoneyField(verbose_name="Valor de Venda", max_digits=14, decimal_places=2, default=0)
     duration = models.DurationField(verbose_name="Duração", null=True, blank=True)
 
     def save(self, *args, **kwargs):
@@ -299,11 +328,13 @@ class BudgetItem(TimeStampedModel):
             if self.product:
                 self.product_cost_price = self.product.cost_price
                 self.product_selling_price = self.product.selling_price
+                self.description = self.product.name
 
             elif self.service:
                 self.service_cost_price = self.service.suggested_cost or Money(0, 'BRL')
                 self.service_selling_price = self.service.selling_price
                 self.duration = self.service.duration
+                self.description = self.service.name
 
             elif self.kit:
                 self.product_selling_price = sum((kp.product.selling_price * kp.quantity for kp in self.kit.kit_products.all()), Money(0, "BRL"))
@@ -313,6 +344,7 @@ class BudgetItem(TimeStampedModel):
                 self.service_cost_price = sum((ks.service.suggested_cost * ks.quantity for ks in self.kit.kit_services.all() if ks.service.suggested_cost), Money(0, "BRL"))
 
                 self.duration = sum((ks.service.duration for ks in self.kit.kit_services.all()), timedelta())
+                self.description = self.kit.name
 
         super().save(*args, **kwargs)
 
@@ -329,7 +361,7 @@ class BudgetItem(TimeStampedModel):
 
     @property
     def total_price(self):
-        return (self.product_selling_price + self.service_selling_price) * self.quantity
+        return ((self.product_selling_price + self.service_selling_price) * self.quantity) + self.shipping
 
 
     class Meta:

@@ -1,11 +1,20 @@
 <tr id="product-item-{{ item.product.id }}" {% if not is_full_render %}hx-swap-oob="true"{% endif %}>
-    <td>{{ item.product.name }}</td>
+    <td>{{ item.description }}</td>
     <td class="text-center">{{ item.quantity }}</td>
+    <td>{{ item.product_cost_price }}</td>
     <td>{{ item.product_selling_price }}</td>
-    <td>-</td>
+    <td>{{ item.shipping}} </td>
     <td class="font-bold">{{ item.total_price }}</td>
     {% if not step6 %}
-    <td class="text-center">
+    <td class="text-center flex justify-center gap-1">
+        <button type="button"
+                class="btn btn-ghost btn-xs text-info"
+                hx-get="{% url 'budget:edit_item' budget.id item.pk %}"
+                hx-target="#modal-container"
+                onclick="form_modal.showModal()">
+            <span class="material-icons text-sm">edit</span>
+        </button>
+
         <button
             type="button"
             class="btn btn-ghost btn-xs text-error"

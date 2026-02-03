@@ -10,7 +10,8 @@ from django.urls import reverse, reverse_lazy
 from django.views import View
 from django.views.generic import ListView, CreateView, DeleteView, TemplateView
 
-from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
+from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form, \
+    BudgetItemEditForm
 from apps.budget.models import Budget, BudgetItem, BudgetStatus
 from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
@@ -34,11 +35,11 @@ class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespon
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["fields"] = [
+            TableColumn("ID", attr="id"),
             TableColumn(Budget.customer.field.verbose_name, attr=Budget.customer.field.name),
             TableColumn(Budget.vehicle.field.verbose_name, attr=Budget.vehicle.field.name),
             TableColumn(Budget.collaborator.field.verbose_name, attr="collaborator_name"),
             TableColumn(Budget.criado_em.field.verbose_name, attr=Budget.criado_em.field.name),
-            TableColumn(Budget.expiration_date.field.verbose_name, attr="expiration_date_display"),
             TableColumn("Valor Total", attr="total_budget_value"),
             TableColumn(Budget.status.field.verbose_name, attr="budget_status"),
         ]
@@ -357,3 +358,65 @@ class SaveObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return JsonResponse({"success": True})
         except (json.JSONDecodeError, AttributeError):
             return JsonResponse({"success": False}, status=400)
+
+
+class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = BudgetItem
+    workshop_permission_codename = "change_budgetitem"
+
+    def get(self, request, budget_id, item_id):
+        item = get_object_or_404(BudgetItem, pk=item_id, budget_id=budget_id)
+        form = BudgetItemEditForm(instance=item)
+        return render(request, "budget/partials/modal_edit_item.html", {"form": form, "item": item, "budget_id": budget_id})
+
+    def post(self, request, budget_id, item_id):
+        item = get_object_or_404(BudgetItem, pk=item_id, budget_id=budget_id)
+        form = BudgetItemEditForm(request.POST, instance=item)
+        if form.is_valid():
+            action = request.POST.get("action")
+            item = form.save()
+
+            if action == "update_master":
+                self.update_master_record(item)
+
+            context = {"item": item, "budget": item.budget, "is_full_render": False}
+            if item.product:
+                template = "budget/partials/item_product_row.html"
+            elif item.service:
+                template = "budget/partials/item_service_row.html"
+            else:
+                template = "budget/partials/item_kit_row.html"
+
+            response = render(request, template, context)
+            response["HX-Trigger"] = "update-summary"
+            return response
+
+        return render(request, "budget/partials/modal_edit_item.html", {"form": form, "item": item})
+
+    def update_master_record(self, item):
+        if item.product:
+            product = item.product
+            product.name = item.description
+            product.cost_price = item.product_cost_price
+            product.selling_price = item.product_selling_price
+            product.save()
+        elif item.service:
+            service = item.service
+            service.name = item.description
+            service.suggested_cost = item.service_cost_price
+            service.selling_price = item.service_selling_price
+            service.duration = item.duration
+            service.save()
+        elif item.kit:
+            kit = item.kit
+            kit.name = item.description
+
+
+class BudgetImageView(LoginRequiredMixin, View):
+    def get(self, request, pk):
+        from django.http import HttpResponse
+        from apps.budget.models import BudgetImage
+
+        image = get_object_or_404(BudgetImage, pk=pk)
+
+        return HttpResponse(image.content, content_type=image.content_type)
