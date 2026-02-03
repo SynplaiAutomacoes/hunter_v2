@@ -330,7 +330,16 @@ class BudgetStep3Form(forms.ModelForm):
         if self.instance.pk and self.instance.collaborator:
             initial_collab_id = self.instance.collaborator.id
 
-        self.fields["collaborator"].widget.attrs.update({"x-model": "collaboratorId"})
+        self.fields["collaborator"].widget.attrs.update(
+            {
+                "x-model": "collaboratorId",
+                "hx-trigger": "collaboratorSaved from:body",
+                "hx-get": ".",
+                "hx-target": "#div_id_collaborator",
+                "hx-select": "#div_id_collaborator",
+                "hx-swap": "outerHTML",
+            }
+        )
 
         self.helper = FormHelper()
         self.helper.form_tag = False
