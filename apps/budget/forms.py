@@ -1002,12 +1002,12 @@ class BudgetStep5Form(forms.ModelForm):
 
                                     <div class="grid grid-cols-12 border bg-white">
                                         <span class="col-span-8 p-2 bg-gray-50">MLO</span>
-                                        <span class="col-span-4 p-2 border-l">{float(mlo):.2f}</span>
+                                        <span class="col-span-4 p-2 border-l">0.00</span>
                                     </div>
 
                                     <div class="grid grid-cols-12 border bg-white">
                                         <span class="col-span-8 p-2 bg-gray-50">MLR</span>
-                                        <span class="col-span-4 p-2 border-l">{float(mlr):.2f}</span>
+                                        <span class="col-span-4 p-2 border-l">0.00</span>
                                     </div>
 
                                 </div>
@@ -1314,15 +1314,14 @@ class BudgetStep6Form(forms.ModelForm):
                         # PDF
                         Div(
                             HTML('<h4 class="font-bold text-lg mb-2 border-b-1 border-gray-300">PDF</h4>'),
-                            HTML("""
+                            HTML(f"""
                             <div class="flex flex-col gap-3 text-center grid grid-cols-12">
-                            
-                                <button type="button" class="btn btn-success gap-2 col-span-4">
+                                <button type="button" class="btn btn-success gap-2 col-span-4" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse('budget:visualizar_pdf', args=[budget.pk])}' }} }}))">
                                     <span class="material-icons">description</span>
                                     Visualizar PDF
                                 </button>
 
-                                <button type="button" class="btn btn-success gap-2 col-span-4">
+                                <button type="button" class="btn btn-success gap-2 col-span-4" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse('budget:visualizar_pdf_gestor', args=[budget.pk])}' }} }}))">
                                     <span class="material-icons">supervisor_account</span>
                                     Visualizar PDF Gestor
                                 </button>
@@ -1405,6 +1404,33 @@ class BudgetStep6Form(forms.ModelForm):
                 ),
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch",
             ),
+            HTML("""
+            <dialog id="pdfModal" class="modal" x-data="{ pdfUrl: '' }" @open-pdf-modal.window="pdfUrl = $event.detail.url; $el.showModal()">
+              <div class="modal-box max-w-5xl w-full h-[90vh] p-0 flex flex-col">
+                <div class="flex items-center justify-between px-6 py-4 border-b bg-base-200">
+                    <h3 class="text-xl font-bold flex items-center gap-2">
+                        <span class="material-icons">description</span> Visualização do PDF
+                    </h3>
+                    <div class="flex gap-2">
+                        <a :href="pdfUrl" download class="btn btn-sm btn-success gap-2">
+                            <span class="material-icons text-sm">download</span> Baixar PDF
+                        </a>
+                        <button type="button" class="btn btn-sm" onclick="document.getElementById('pdfModal').close()">
+                            <span class="material-icons text-sm">close</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="flex-1 bg-gray-100">
+                    <template x-if="pdfUrl">
+                        <iframe :src="pdfUrl" class="w-full h-full" frameborder="0"></iframe>
+                    </template>
+                </div>
+              </div>
+              <form method="dialog" class="modal-backdrop">
+                <button>close</button>
+              </form>
+            </dialog>"""),
             HTML("""
                 <dialog
                     id="kitModal"

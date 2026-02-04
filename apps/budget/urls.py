@@ -24,4 +24,7 @@ urlpatterns = [
 
     path("save-observation/", views.SaveObservationView.as_view(), name="save_observation"),
     path("image-view/<int:pk>", views.BudgetImageView.as_view(), name="image_view"),
+
+    path("visualizar_pdf/<int:pk>", views.visualizar_pdf, name="visualizar_pdf"),
+    path("visualizar_pdf_gestor/<int:pk>", views.visualizar_pdf_gestor, name="visualizar_pdf_gestor"),
 ]
