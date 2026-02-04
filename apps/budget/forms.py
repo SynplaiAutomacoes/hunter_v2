@@ -333,27 +333,22 @@ class BudgetStep3Form(forms.ModelForm):
         self.fields["collaborator"].widget.attrs.update(
             {
                 "x-model": "collaboratorId",
-                "hx-trigger": "collaboratorSaved from:body",
-                "hx-get": ".",
-                "hx-target": "#div_id_collaborator",
-                "hx-select": "#div_id_collaborator",
-                "hx-swap": "outerHTML",
             }
         )
 
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
-            HTML("""<script>
-                    function addDefectRow() {
+            HTML(f"""<script>
+                    function addDefectRow() {{
                         const input = document.getElementById('id_new_defect');
                         const container = document.getElementById('defect-list-container');
                         const text = input.value.trim();
                         if (text === "") return;
                         const id = 'new-' + Date.now();
-                        const html = `<div class="badge badge-lg badge-ghost gap-2 py-5 mb-2 mr-2 pr-1" id="defect-${id}">
-                                <input type="hidden" name="defects_list" value="${text}">
-                                <span class="font-medium">${text}</span>
+                        const html = `<div class="badge badge-lg badge-ghost gap-2 py-5 mb-2 mr-2 pr-1" id="defect-${{id}}">
+                                <input type="hidden" name="defects_list" value="${{text}}">
+                                <span class="font-medium">${{text}}</span>
                                 <button type="button" onclick="this.parentElement.remove()" class="btn btn-ghost btn-xs btn-circle text-error">
                                     X
                                 </button>
@@ -361,12 +356,49 @@ class BudgetStep3Form(forms.ModelForm):
                         container.insertAdjacentHTML('beforeend', html);
                         input.value = "";
                         input.focus();
-                    }
+                    }}
                     
-                    document.body.addEventListener('collaboratorSaved', function(evt) {
+                    document.body.addEventListener('collaboratorSaved', function(evt) {{
                         const modal = document.getElementById('form_modal');
                         if (modal) modal.close();
-                    });
+                        
+                        // Get current collaborator selection
+                        const selectElement = document.querySelector('#id_collaborator');
+                        const currentValue = selectElement ? selectElement.value : '';
+                        
+                        // Save to localStorage before refresh
+                        if (currentValue) {{
+                            localStorage.setItem('budget_step3_collaborator', currentValue);
+                        }}
+                        
+                        // Refresh the collaborator dropdown via HTMX
+                        const budgetId = {self.instance.pk if self.instance.pk else 'null'};
+                        if (budgetId) {{
+                            const savedId = localStorage.getItem('budget_step3_collaborator');
+                            const url = `/budget/${{budgetId}}/collaborator-field/` + (savedId ? `?selected=${{savedId}}` : '');
+                            
+                            htmx.ajax('GET', url, {{
+                                target: '#div_id_collaborator',
+                                swap: 'outerHTML'
+                            }}).then(() => {{
+                                // After refresh, update Alpine.js model with the saved value
+                                if (savedId) {{
+                                    setTimeout(() => {{
+                                        const alpineContainer = document.querySelector('[x-data*="collaboratorId"]');
+                                        if (alpineContainer && typeof Alpine !== 'undefined') {{
+                                            const alpineData = Alpine.$data(alpineContainer);
+                                            if (alpineData) {{
+                                                alpineData.collaboratorId = savedId;
+                                            }}
+                                        }}
+                                    }}, 100);
+                                }}
+                                
+                                // Clear localStorage after use
+                                localStorage.removeItem('budget_step3_collaborator');
+                            }});
+                        }}
+                    }});
                 </script>"""),
             Div(
                 # Coluna Esquerda
@@ -379,9 +411,11 @@ class BudgetStep3Form(forms.ModelForm):
                             HTML("""
                             <button type="button" class="btn btn-circle mb-2"
                                     :class="collaboratorId ? 'btn-warning' : 'btn-primary'"
-                                    @click="const url = collaboratorId ? `/collaborators/update/modal/${collaboratorId}/` : '/collaborators/create/modal/';
-                                    htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
-                                    document.getElementById('form_modal').showModal();">
+                                    @click="
+                                        localStorage.setItem('budget_step3_collaborator', collaboratorId || '');
+                                        const url = collaboratorId ? `/collaborators/update/modal/${collaboratorId}/` : '/collaborators/create/modal/';
+                                        htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
+                                        document.getElementById('form_modal').showModal();">
                                 <span class="material-icons" x-text="collaboratorId ? 'edit' : 'person_add'"></span>
                             </button>
                             """),

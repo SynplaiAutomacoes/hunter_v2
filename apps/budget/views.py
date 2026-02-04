@@ -451,7 +451,19 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
         # Recebe IDs dos checkboxes marcados
         selected_ids = request.POST.getlist("selected_items")
         if not selected_ids:
-            return HttpResponse("Nenhum item selecionado", status=400)
+            # Return error message in the modal container
+            error_html = """
+            <div class="modal-box w-11/12 max-w-md bg-base-100">
+                <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick="form_modal.close()">✕</button>
+                <div class="flex flex-col items-center justify-center py-8">
+                    <span class="material-icons text-warning text-6xl mb-4">warning</span>
+                    <h3 class="font-bold text-xl mb-2">Nenhum item selecionado</h3>
+                    <p class="text-base-content/70 mb-6">Por favor, selecione pelo menos um item para adicionar ao orçamento.</p>
+                    <button class="btn btn-primary" onclick="form_modal.close()">Entendi</button>
+                </div>
+            </div>
+            """
+            return HttpResponse(error_html)
 
         if item_type == 'kit':
             for item_id in selected_ids:
@@ -493,3 +505,28 @@ class BudgetSummaryView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def get(self, request, budget_id):
         budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
         return render(request, 'budget/partials/budget_summary.html', {'budget': budget})
+
+
+class BudgetStep3CollaboratorFieldView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    """Retorna apenas o campo de colaborador para refresh via HTMX após criar/editar colaborador."""
+    model = Budget
+    workshop_permission_codename = "change_budget"
+
+    def get(self, request, budget_id):
+        budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
+        form = BudgetStep3Form(instance=budget, workshop=self.workshop, request=request)
+
+        # Get the selected collaborator ID from query params (for restoration)
+        selected_id = request.GET.get('selected', '')
+        if selected_id:
+            form.fields['collaborator'].initial = selected_id
+
+        # Render the field using the template
+        context = {
+            'form': form,
+            'field': form['collaborator'],
+        }
+
+        return render(request, 'budget/partials/collaborator_field.html', context)
+
+

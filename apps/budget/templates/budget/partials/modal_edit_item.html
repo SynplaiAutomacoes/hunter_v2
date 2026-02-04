@@ -1,7 +1,7 @@
 {% load crispy_forms_tags %}
 
 <div class="modal-content-wrapper bg-base-100 p-6 rounded-lg">
-    <!-- Header with title and conditional buttons -->
+    <!-- Header with title and buttons -->
     <div class="mb-6">
         <div class="flex items-center justify-between gap-3">
             <!-- Left side - Icon and Title -->
@@ -10,16 +10,15 @@
                 <h3 class="font-bold text-2xl text-base-content">{{ item.description|truncatewords:8 }}</h3>
             </div>
 
-            <!-- Right side - Update Master button (only if NOT in queue) -->
-            {% if not in_queue %}
+            <!-- Right side - Update Master button (always visible) -->
             <button type="button"
                     class="btn btn-accent gap-2 js-update-master"
                     data-url="{% url 'budget:edit_item' budget_id item.pk %}"
-                    data-action="update_master">
+                    data-action="update_master"
+                    data-keep-modal-open="true">
                 <span class="material-icons text-sm">cloud_upload</span>
                 Atualizar Cadastro
             </button>
-            {% endif %}
         </div>
     </div>
 
@@ -125,6 +124,7 @@
                 const icon = updateButton.querySelector('.material-icons');
                 const originalIconContent = icon ? icon.textContent : '';
                 const form = document.getElementById('edit-item-form');
+                const keepModalOpen = updateButton.dataset.keepModalOpen === 'true';
 
                 // Remove any existing event listeners to prevent duplicates
                 const newButton = updateButton.cloneNode(true);
