@@ -70,27 +70,23 @@
         }
 
         window.saveAndNext = function () {
-            const form = document.querySelector('#current-item-form form');
-            if (!form) {
+            const saveBtn = document.querySelector('#current-item-form .btn-primary[hx-vals*="save_only"]');
+            if (!saveBtn) {
                 skipCurrentItem();
                 return;
             }
 
-            // Trigger HTMX submit do form
-            const submitBtn = form.querySelector('button[type="submit"], button[hx-post]');
-            if (submitBtn) {
-                htmx.trigger(submitBtn, 'click');
+            const listener = function(e) {
+                if (e.detail.xhr?.getResponseHeader('HX-Trigger')?.includes('update-summary')) {
+                    currentIndex++;
+                    loadNextItem();
+                    document.body.removeEventListener('htmx:afterSwap', listener);
+                }
+            };
 
-                // Aguarda resposta HTMX e avança
-                document.body.addEventListener('htmx:afterSwap', function onSwap(e) {
-                    if (e.detail.target.id === 'current-item-form' ||
-                            e.detail.xhr?.getResponseHeader('HX-Trigger')?.includes('update-summary')) {
-                        currentIndex++;
-                        loadNextItem();
-                        document.body.removeEventListener('htmx:afterSwap', onSwap);
-                    }
-                }, {once: true});
-            }
+            document.body.addEventListener('htmx:afterSwap', listener);
+
+            htmx.trigger(saveBtn, 'click');
         };
 
         window.skipCurrentItem = function () {
@@ -104,7 +100,6 @@
             htmx.trigger('#budget-card-content', 'budget-items-updated');
         };
 
-        // Inicializa
         updateProgress();
     })();
 </script>

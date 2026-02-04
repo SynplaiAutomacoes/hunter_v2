@@ -2,9 +2,9 @@
     <h3 class="font-bold text-lg mb-4">Editar Item: {{ item.description }}</h3>
 
     <form hx-post="{% url 'budget:edit_item' budget_id item.pk %}"
-          hx-target="#{% if item.product %}product-item-{{ item.product.id }}{% else %}service-item-{{ item.service.id }}{% endif %}"
-          hx-swap="outerHTML"
-          onsubmit="form_modal.close()">
+          hx-vals="{'action': 'save_only'}"
+          hx-target="#current-item-form"
+          hx-swap="none">
         {% csrf_token %}
 
         <div class="grid grid-cols-2 gap-4">
@@ -23,19 +23,26 @@
 
         <div class="modal-action">
             <button type="button" class="btn" onclick="form_modal.close()">Cancelar</button>
+
             <button type="button"
                 hx-post="{% url 'budget:edit_item' budget_id item.pk %}"
-                hx-target="#{% if item.product %}product-item-{{ item.product.id }}{% elif item.service %}service-item-{{ item.service.id }}{% else %}kit-item-{{ item.kit.id }}{% endif %}"                hx-swap="outerHTML"
                 hx-vals='{"action": "update_master"}'
                 hx-include="closest form"
-                class="btn">Atualizar Cadastro</button>
+                hx-target="body"
+                hx-swap="none"
+                class="btn">
+                Atualizar Cadastro
+            </button>
 
         <button type="button"
                 hx-post="{% url 'budget:edit_item' budget_id item.pk %}"
-                hx-target="#{% if item.product %}product-item-{{ item.product.id }}{% elif item.service %}service-item-{{ item.service.id }}{% else %}kit-item-{{ item.kit.id }}{% endif %}"                hx-swap="outerHTML"
+                hx-target="#{% if item.product %}product-item-{{ item.product.id }}{% elif item.service %}service-item-{{ item.service.id }}{% else %}kit-item-{{ item.kit.id }}{% endif %}"
+                hx-swap="outerHTML"
                 hx-vals='{"action": "save_only"}'
                 hx-include="closest form"
-                class="btn btn-primary">Salvar</button>
+                class="btn btn-primary">
+            Salvar
+        </button>
         </div>
     </form>
 </div>
