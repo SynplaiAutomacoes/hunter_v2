@@ -1,4 +1,4 @@
-<div class="modal-box w-screen max-w-[90vw] lg:max-w-6xl bg-base-100 shadow-2xl p-0 overflow-hidden">
+<div id="modal-item-list-container" class="modal-box w-screen max-w-[90vw] lg:max-w-6xl bg-base-100 shadow-2xl p-0 overflow-hidden">
 
     <div class="p-6 border-b border-base-200 flex justify-between items-center bg-base-50">
         <h3 class="font-bold text-2xl flex items-center gap-3">
@@ -11,6 +11,13 @@
     </div>
 
     <div class="relative overflow-y-auto max-h-[70vh]">
+            <div class="sticky top-0 z-30 bg-base-100 p-4 border-b border-base-200">
+                <label class="input input-bordered flex items-center gap-2 w-full max-w-md">
+                    <span class="material-icons">search</span>
+                    <input type="text" id="item-search" class="grow" placeholder="Pesquisar..." />
+                    <button type="button" id="clear-search" class="btn btn-ghost btn-xs" title="Limpar">✕</button>
+                </label>
+            </div>
         <table class="table table-zebra w-full border-separate border-spacing-0">
             <thead class="sticky top-0 z-20 bg-base-100">
             <tr class="text-sm uppercase bg-base-200">
@@ -127,16 +134,26 @@
 
 <script>
     (function () {
-        const selectAll = document.getElementById('select-all');
-        const itemCheckboxes = document.querySelectorAll('.item-checkbox:not([disabled])');
-        const counter = document.getElementById('selection-counter');
-        const addBtn = document.getElementById('add-selected-btn');
+        const modal = document.getElementById('modal-item-list-container');
+        const selectAll = modal.querySelector('#select-all');
+        const counter = modal.querySelector('#selection-counter');
+        const addBtn = modal.querySelector('#add-selected-btn');
+        const searchInput = modal.querySelector('#item-search');
+        const clearBtn = modal.querySelector('#clear-search');
 
         // Count already added items
-        const alreadyAdded = document.querySelectorAll('.item-checkbox[disabled]').length;
+        const alreadyAdded = modal.querySelectorAll('.item-checkbox[disabled]').length;
+
+        function visibleItemCheckboxes() {
+            return modal.querySelectorAll('tbody tr:not(.hidden) .item-checkbox:not([disabled])');
+        }
+
+        function allItemCheckboxes() {
+            return modal.querySelectorAll('.item-checkbox:not([disabled])');
+        }
 
         function updateCounter() {
-            const count = document.querySelectorAll('.item-checkbox:checked:not([disabled])').length;
+            const count = modal.querySelectorAll('.item-checkbox:checked:not([disabled])').length;
             const totalSelected = count + alreadyAdded;
 
             let text = '';
@@ -154,25 +171,59 @@
             addBtn.disabled = count === 0;
         }
 
+        function updateSelectAllState() {
+            const boxes = Array.from(visibleItemCheckboxes());
+            if (!selectAll) return;
+            if (boxes.length === 0) {
+                selectAll.checked = false;
+                selectAll.indeterminate = false;
+                return;
+            }
+            const allChecked = boxes.every(cb => cb.checked);
+            const someChecked = boxes.some(cb => cb.checked);
+            selectAll.checked = allChecked;
+            selectAll.indeterminate = someChecked && !allChecked;
+        }
+
         selectAll?.addEventListener('change', (e) => {
-            itemCheckboxes.forEach(cb => cb.checked = e.target.checked);
+            visibleItemCheckboxes().forEach(cb => cb.checked = e.target.checked);
             updateCounter();
+            updateSelectAllState();
         });
 
-        itemCheckboxes.forEach(cb => cb.addEventListener('change', () => {
+        allItemCheckboxes().forEach(cb => cb.addEventListener('change', () => {
             updateCounter();
-
-            // Update select all checkbox state
-            const allChecked = Array.from(itemCheckboxes).every(cb => cb.checked);
-            const someChecked = Array.from(itemCheckboxes).some(cb => cb.checked);
-
-            if (selectAll) {
-                selectAll.checked = allChecked;
-                selectAll.indeterminate = someChecked && !allChecked;
-            }
+            updateSelectAllState();
         }));
+
+        function normalize(str) {
+            return (str || '').toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        }
+
+        function filterRows(query) {
+            const q = normalize(query);
+            const rows = modal.querySelectorAll('tbody tr');
+            rows.forEach(row => {
+                // ignore placeholder/empty rows
+                const text = normalize(row.textContent);
+                const match = q === '' || text.includes(q);
+                row.classList.toggle('hidden', !match);
+            });
+            updateSelectAllState();
+        }
+
+        searchInput?.addEventListener('input', (e) => {
+            filterRows(e.target.value);
+        });
+
+        clearBtn?.addEventListener('click', () => {
+            if (searchInput) searchInput.value = '';
+            filterRows('');
+            searchInput?.focus();
+        });
 
         // Initial update
         updateCounter();
+        updateSelectAllState();
     })();
 </script>

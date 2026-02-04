@@ -1,29 +1,31 @@
 <tr id="service-item-{{ item.service.id }}" {% if not is_full_render %}hx-swap-oob="true"{% endif %}>
     <td>{{ item.description }}</td>
-    <td class="text-center">{{ item.quantity }}</td>
-    <td>{{ item.service_cost_price }}</td>
-    <td>{{ item.service_selling_price }}</td>
-    <td>{{ item.duration_display }}</td>
-    <td class="font-bold">{{ item.total_price }}</td>
+    <td class="text-center whitespace-nowrap">{{ item.quantity }}</td>
+    <td class="whitespace-nowrap">{{ item.service_cost_price }}</td>
+    <td class="whitespace-nowrap">{{ item.service_selling_price }}</td>
+    <td class="whitespace-nowrap">{{ item.duration_display }}</td>
+    <td class="font-bold whitespace-nowrap">{{ item.total_price }}</td>
     {% if not step6 %}
-    <td class="text-center flex justify-center gap-1">
-        <button type="button"
-                class="btn btn-ghost btn-xs text-info"
-                hx-get="{% url 'budget:edit_item' budget.id item.pk %}"
-                hx-target="#modal-container"
-                onclick="form_modal.showModal()">
-            <span class="material-icons text-sm">edit</span>
-        </button>
+    <td class="text-center whitespace-nowrap">
+        <div class="flex justify-center items-center gap-1">
+            <button type="button"
+                    class="btn btn-ghost btn-xs text-info"
+                    hx-get="{% url 'budget:edit_item' budget.id item.pk %}"
+                    hx-target="#modal-container"
+                    onclick="form_modal.showModal()">
+                <span class="material-icons text-sm">edit</span>
+            </button>
 
-        <button
-            type="button"
-            class="btn btn-ghost btn-xs text-error"
-            hx-post="{% url 'budget:remove_item_from_budget' budget.id item.service.id 'service' %}"
-            data-confirm="Deseja remover este serviço?"
-            hx-target="closest tr"
-            hx-swap="outerHTML">
-            <span class="material-icons text-sm">delete</span>
-        </button>
+            <button
+                type="button"
+                class="btn btn-ghost btn-xs text-error"
+                hx-post="{% url 'budget:remove_item_from_budget' budget.id item.service.id 'service' %}"
+                data-confirm="Deseja remover este serviço?"
+                hx-target="closest tr"
+                hx-swap="outerHTML">
+                <span class="material-icons text-sm">delete</span>
+            </button>
+        </div>
     </td>
     {% endif %}
 </tr>
