@@ -1251,7 +1251,7 @@ class BudgetItemEditForm(forms.ModelForm):
             "duration": DurationInput(),
         }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, budget_id=None, **kwargs):
         super().__init__(*args, **kwargs)
         item = self.instance
 
@@ -1263,6 +1263,16 @@ class BudgetItemEditForm(forms.ModelForm):
             self.fields.pop("product_selling_price")
             self.fields.pop("product_cost_price")
             self.fields.pop("shipping")
+
+            if budget_id:
+                self.fields["duration"].widget.attrs.update({
+                    "hx-post": reverse("budget:calculate_item", kwargs={"budget_id": budget_id, "item_id": item.id}),
+                    "hx-trigger": "keyup changed delay:200ms",
+                    "hx-target": "#div_id_service_cost_price",
+                    "hx-swap": "outerHTML",
+                    "hx-include": "closest form",
+                    "hx-indicator": "#calculation-indicator",
+                })
         elif item.kit:
             self.fields.pop("service_selling_price")
             self.fields.pop("service_cost_price")

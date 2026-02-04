@@ -1,0 +1,43 @@
+{% for field in form %}
+    {% with field_name=field.name|lower %}
+        <div id="div_id_{{ field.name }}" class="form-control w-full {% if 'description' in field_name or 'descri' in field_name %}md:col-span-2{% endif %}" {% if oob_fields and field.name in oob_fields %}hx-swap-oob="true"{% endif %}>
+            <label class="label">
+                <span class="label-text font-semibold flex items-center gap-2">
+                    <!-- Dynamic icon based on field name -->
+                    {% if 'description' in field_name or 'descri' in field_name %}
+                        <span class="material-icons text-sm">description</span>
+                    {% elif 'quant' in field_name %}
+                        <span class="material-icons text-sm">numbers</span>
+                    {% elif 'price' in field_name or 'venda' in field_name %}
+                        <span class="material-icons text-sm">payments</span>
+                    {% elif 'cost' in field_name or 'custo' in field_name %}
+                        <span class="material-icons text-sm">money_off</span>
+                    {% elif 'shipping' in field_name or 'frete' in field_name %}
+                        <span class="material-icons text-sm">local_shipping</span>
+                    {% elif 'duration' in field_name or 'tempo' in field_name %}
+                        <span class="material-icons text-sm">schedule</span>
+                    {% else %}
+                        <span class="material-icons text-sm">edit</span>
+                    {% endif %}
+
+                    {{ field.label }}
+
+                    {% if field.field.required %}
+                        <span class="text-error" title="Campo obrigatório">*</span>
+                    {% endif %}
+                </span>
+            </label>
+
+            {{ field }}
+
+            {% if field.errors %}
+                <label class="label">
+                    <span class="label-text-alt text-error flex items-center gap-1 animate-fade-in">
+                        <span class="material-icons text-xs">error</span>
+                        {{ field.errors.0 }}
+                    </span>
+                </label>
+            {% endif %}
+        </div>
+    {% endwith %}
+{% endfor %}

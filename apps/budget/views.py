@@ -1,5 +1,6 @@
 import json
-from decimal import Decimal
+from datetime import timedelta
+from decimal import ROUND_HALF_UP, Decimal
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -10,6 +11,7 @@ from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView
+from djmoney.money import Money
 
 from apps.budget.forms import BudgetItemEditForm, BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
 from apps.budget.models import Budget, BudgetItem, BudgetStatus
@@ -366,7 +368,7 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def get(self, request, budget_id, item_id):
         item = get_object_or_404(BudgetItem, pk=item_id, budget_id=budget_id)
-        form = BudgetItemEditForm(instance=item)
+        form = BudgetItemEditForm(instance=item, budget_id=budget_id)
         in_queue = request.GET.get('in_queue', 'false').lower() == 'true'
 
         context = {
@@ -379,7 +381,7 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id, item_id):
         item = get_object_or_404(BudgetItem, pk=item_id, budget_id=budget_id)
-        form = BudgetItemEditForm(request.POST, instance=item)
+        form = BudgetItemEditForm(request.POST, instance=item, budget_id=budget_id)
         if form.is_valid():
             action = request.POST.get("action")
             item = form.save()
@@ -428,6 +430,130 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         elif item.kit:
             kit = item.kit
             kit.name = item.description
+
+
+class BudgetItemCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = BudgetItem
+    workshop_permission_codename = "change_budgetitem"
+
+    def post(self, request, budget_id, item_id):
+        budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
+        item = get_object_or_404(BudgetItem, pk=item_id, budget_id=budget_id)
+
+        # Usamos o form para processar o valor da duração vindo do POST
+        form = BudgetItemEditForm(request.POST, instance=item, budget_id=budget_id)
+        
+        # Chamamos full_clean() para popular cleaned_data
+        try:
+            form.full_clean()
+        except Exception:
+            pass
+
+        cleaned_data = getattr(form, "cleaned_data", {})
+
+        # Tentamos obter a duração, mesmo que o form tenha outros erros
+        duration = cleaned_data.get("duration")
+        
+        # Se não estiver no cleaned_data (erro de validação), tentamos pegar o valor bruto
+        if duration is None:
+            raw_duration = request.POST.get("duration")
+            if raw_duration:
+                try:
+                    parts = [int(p) for p in raw_duration.split(":")]
+                    if len(parts) == 3:
+                        duration = timedelta(hours=parts[0], minutes=parts[1], seconds=parts[2])
+                    elif len(parts) == 2:
+                        duration = timedelta(hours=parts[0], minutes=parts[1])
+                    elif len(parts) == 1:
+                        duration = timedelta(hours=parts[0])
+                    else:
+                        duration = timedelta()
+                except (ValueError, TypeError):
+                    duration = timedelta()
+            else:
+                duration = timedelta()
+
+        # Lógica de busca do WorkshopCost (similar ao calculate_pricing_methods do modelo)
+        workshop_cost = None
+        workshop_cost_missing = False
+        try:
+            reference_date = budget.criado_em if budget.criado_em else timezone.now()
+            workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=reference_date.month, year=reference_date.year)
+        except WorkshopCost.DoesNotExist:
+            try:
+                workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=timezone.now().month, year=timezone.now().year)
+            except WorkshopCost.DoesNotExist:
+                workshop_cost_missing = True
+
+        duration_hours = Decimal(duration.total_seconds()) / Decimal(3600)
+
+        if workshop_cost:
+            min_hourly = workshop_cost.minimum_hourly_cost if workshop_cost.minimum_hourly_cost else Money(0, "BRL")
+            hourly_val = workshop_cost.hourly_cost_value if workshop_cost.hourly_cost_value else Money(0, "BRL")
+            service_cost_price = min_hourly * duration_hours
+            service_selling_price = hourly_val * duration_hours
+        else:
+            service_cost_price = Money(0, "BRL")
+            service_selling_price = Money(0, "BRL")
+
+        # Arredondamento
+        service_cost_price_amount = service_cost_price.amount.quantize(Decimal("0.01"), ROUND_HALF_UP)
+        service_selling_price_amount = service_selling_price.amount.quantize(Decimal("0.01"), ROUND_HALF_UP)
+
+        # Atualiza a instância com os novos valores calculados
+        item.service_cost_price = Money(service_cost_price_amount, "BRL")
+        item.service_selling_price = Money(service_selling_price_amount, "BRL")
+        if duration:
+            item.duration = duration
+
+        # Atualiza os dados do POST para refletir os novos preços no formulário bound
+        data = request.POST.copy()
+        
+        # No Django, campos MoneyField costumam usar o sufixo _0 para o valor numérico no POST
+        data["service_cost_price_0"] = str(service_cost_price_amount)
+        data["service_cost_price_1"] = "BRL"
+        data["service_selling_price_0"] = str(service_selling_price_amount)
+        data["service_selling_price_1"] = "BRL"
+        
+        # Garante que o valor da duração formatado também vá para o POST do novo form
+        if duration:
+            total_seconds = int(duration.total_seconds())
+            hours = total_seconds // 3600
+            minutes = (total_seconds % 3600) // 60
+            data["duration"] = f"{hours:02d}:{minutes:02d}"
+        
+        # Re-inicializa o formulário com os dados atualizados e a instância
+        form = BudgetItemEditForm(data, instance=item, budget_id=budget_id)
+        
+        # Apenas o campo de venda vai por OOB, o de custo é o target principal
+        oob_fields = ["service_selling_price"]
+
+        # Se houver erros no form (especialmente na duração), incluímos nos campos OOB 
+        # para que as mensagens de erro sejam exibidas no modal.
+        if form.errors:
+            for field_with_error in form.errors:
+                if field_with_error not in oob_fields:
+                    oob_fields.append(field_with_error)
+
+        context = {
+            "form": form,
+            "item": item,
+            "budget_id": budget_id,
+            "oob_fields": oob_fields,
+        }
+
+        response = render(request, "budget/partials/modal_edit_item_fields.html", context)
+
+        # Add toast error if WorkshopCost is missing
+        if workshop_cost_missing:
+            response["HX-Trigger"] = json.dumps({
+                "showToast": {
+                    "message": "Custo da oficina não cadastrado para o mês atual. Os valores não puderam ser calculados automaticamente.",
+                    "type": "error"
+                }
+            })
+
+        return response
 
 
 class BudgetImageView(LoginRequiredMixin, View):

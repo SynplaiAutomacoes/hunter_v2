@@ -1,0 +1,41 @@
+{% comment %}
+Template para retornar apenas os campos de custo/venda para atualização via HTMX
+O campo service_cost_price é o target principal, service_selling_price vai via OOB
+{% endcomment %}
+
+{% for field in form %}
+    {% if field.name == "service_cost_price" or field.name == "service_selling_price" %}
+        {% with field_name=field.name|lower %}
+            <div id="div_id_{{ field.name }}" class="form-control w-full" {% if oob_fields and field.name in oob_fields %}hx-swap-oob="true"{% endif %}>
+                <label class="label">
+                    <span class="label-text font-semibold flex items-center gap-2">
+                        {% if 'price' in field_name or 'venda' in field_name %}
+                            <span class="material-icons text-sm">payments</span>
+                        {% elif 'cost' in field_name or 'custo' in field_name %}
+                            <span class="material-icons text-sm">money_off</span>
+                        {% else %}
+                            <span class="material-icons text-sm">edit</span>
+                        {% endif %}
+
+                        {{ field.label }}
+
+                        {% if field.field.required %}
+                            <span class="text-error" title="Campo obrigatório">*</span>
+                        {% endif %}
+                    </span>
+                </label>
+
+                {{ field }}
+
+                {% if field.errors %}
+                    <label class="label">
+                        <span class="label-text-alt text-error flex items-center gap-1 animate-fade-in">
+                            <span class="material-icons text-xs">error</span>
+                            {{ field.errors.0 }}
+                        </span>
+                    </label>
+                {% endif %}
+            </div>
+        {% endwith %}
+    {% endif %}
+{% endfor %}
