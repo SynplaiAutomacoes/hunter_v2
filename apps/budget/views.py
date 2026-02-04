@@ -13,7 +13,7 @@ from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView
 from djmoney.money import Money
 
-from apps.budget.forms import BudgetItemEditForm, BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
+from apps.budget.forms import BudgetItemEditForm, BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form, LocalServiceForm, LocalProductForm
 from apps.budget.models import Budget, BudgetItem, BudgetStatus
 from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
@@ -298,6 +298,21 @@ class RemoveItemFromBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
         return response
 
 
+class RemoveBudgetItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    """Remove item do orçamento pelo item_id (funciona para itens locais e normais)"""
+    model = Budget
+    workshop_permission_codename = "add_budget"
+
+    def post(self, request, budget_id, item_id):
+        budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
+        item = get_object_or_404(BudgetItem, id=item_id, budget=budget, workshop=self.workshop)
+
+        item.delete()
+
+        # Retornar vazio para remover a linha da tabela
+        return HttpResponse(status=200)
+
+
 class UpdateBudgetDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = Budget
     workshop_permission_codename = "add_budget"
@@ -320,6 +335,15 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id, status):
         budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
+
+        # Validar se há itens locais ao tentar aprovar
+        if status == "approve":
+            local_items = budget.items.filter(is_local=True)
+            if local_items.exists():
+                return JsonResponse({
+                    "success": False,
+                    "error": "Não é possível aprovar. Existem itens sem cadastro que devem ser registrados antes de gerar a ordem de serviço."
+                }, status=400)
 
         status_map = {
             "cancel": BudgetStatus.CANCELLED,
@@ -397,9 +421,13 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 return response
 
             # Para action "save_only" - retorna HTML da linha atualizada
-            if item.product:
+            # Identificar tipo de item (incluindo locais)
+            is_local_product = item.is_local and (item.product_cost_price.amount > 0 or item.product_selling_price.amount > 0 or item.shipping.amount > 0)
+            is_local_service = item.is_local and (item.service_cost_price.amount > 0 or item.service_selling_price.amount > 0 or item.duration)
+
+            if item.product or is_local_product:
                 template = "budget/partials/item_product_row.html"
-            elif item.service:
+            elif item.service or is_local_service:
                 template = "budget/partials/item_service_row.html"
             else:
                 template = "budget/partials/item_kit_row.html"
@@ -408,7 +436,11 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
             row_html = render_to_string(template, context)
 
             response = HttpResponse(row_html)
-            response["HX-Trigger"] = "update-summary"
+            response["HX-Trigger"] = json.dumps({
+                "showToast": {"message": "Item atualizado com sucesso!", "type": "success"},
+                "update-summary": {},
+                "closeModal": True
+            })
             return response
 
         return render(request, "budget/partials/modal_edit_item.html", {"form": form, "item": item, "budget_id": budget_id})
@@ -659,4 +691,357 @@ class BudgetStep3CollaboratorFieldView(LoginRequiredMixin, WorkshopScopedMixin, 
 
         return render(request, 'budget/partials/collaborator_field.html', context)
 
+
+class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    """Modal para criar item local (produto ou serviço apenas neste orçamento)"""
+    model = Budget
+    workshop_permission_codename = "add_budget"
+
+    def get(self, request, budget_id, item_type):
+        budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
+
+        if item_type == "product":
+            form = LocalProductForm()
+            title = "Incluir Novo Produto Local"
+        elif item_type == "service":
+            form = LocalServiceForm(budget_id=budget_id)
+            title = "Incluir Novo Serviço Local"
+        else:
+            return HttpResponse("Tipo inválido", status=400)
+
+        context = {
+            "form": form,
+            "budget_id": budget_id,
+            "item_type": item_type,
+            "title": title,
+        }
+        return render(request, "budget/partials/modal_create_local_item.html", context)
+
+    def post(self, request, budget_id, item_type):
+        budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
+
+        if item_type == "product":
+            form = LocalProductForm(request.POST)
+        elif item_type == "service":
+            form = LocalServiceForm(request.POST, budget_id=budget_id)
+        else:
+            return HttpResponse("Tipo inválido", status=400)
+
+        if form.is_valid():
+            item = form.save(commit=False)
+            item.workshop = self.workshop
+            item.budget = budget
+            item.is_local = True
+            item.save()
+
+            # Retornar HTML da linha do item criado
+            if item_type == "product":
+                template = "budget/partials/item_product_row.html"
+            else:
+                template = "budget/partials/item_service_row.html"
+
+            context = {
+                "item": item,
+                "budget": budget,
+                "is_full_render": True
+            }
+
+            row_html = render_to_string(template, context)
+
+            # Fechar modal e adicionar linha na tabela
+            response = HttpResponse(row_html)
+            response["HX-Trigger"] = json.dumps({
+                "showToast": {
+                    "message": f"{'Produto' if item_type == 'product' else 'Serviço'} local criado com sucesso!",
+                    "type": "success"
+                },
+                "closeModal": True,
+                "update-summary": {}
+            })
+            return response
+
+        context = {
+            "form": form,
+            "budget_id": budget_id,
+            "item_type": item_type,
+            "title": f"Incluir Novo {'Produto' if item_type == 'product' else 'Serviço'} Local",
+        }
+        return render(request, "budget/partials/modal_create_local_item.html", context)
+
+
+class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    """Abre modal para cadastrar item local no banco de dados"""
+    model = Budget
+    workshop_permission_codename = "add_budget"
+
+    def get(self, request, budget_id, item_id):
+        from apps.budget.forms import QuickProductForm, QuickServiceForm
+
+        item = get_object_or_404(BudgetItem, id=item_id, budget_id=budget_id, workshop=self.workshop, is_local=True)
+
+        if item.product_cost_price.amount > 0 or item.product_selling_price.amount > 0:
+            # É um produto - usar formulário simplificado
+            initial = {
+                "name": item.description,
+                "cost_price": item.product_cost_price,
+                "selling_price": item.product_selling_price,
+                "code": f"TEMP-{item.id}",  # Código temporário
+                "unit": "UND",  # Unidade padrão
+            }
+            form = QuickProductForm(initial=initial, workshop=self.workshop)
+            title = "Cadastrar Produto no Banco de Dados"
+            item_type = "product"
+        else:
+            # É um serviço - usar formulário simplificado
+            initial = {
+                "name": item.description,
+                "selling_price": item.service_selling_price,
+                "duration": item.duration,
+            }
+            form = QuickServiceForm(initial=initial)
+            title = "Cadastrar Serviço no Banco de Dados"
+            item_type = "service"
+
+        context = {
+            "form": form,
+            "item": item,
+            "budget_id": budget_id,
+            "item_id": item_id,
+            "item_type": item_type,
+            "title": title,
+            "is_register_mode": True,  # Flag para identificar que é registro de item local
+        }
+        return render(request, "budget/partials/modal_quick_create.html", context)
+
+    def post(self, request, budget_id, item_id):
+        from apps.budget.forms import QuickProductForm, QuickServiceForm
+
+        item = get_object_or_404(BudgetItem, id=item_id, budget_id=budget_id, workshop=self.workshop, is_local=True)
+
+        if item.product_cost_price.amount > 0 or item.product_selling_price.amount > 0:
+            # Cadastrar produto
+            form = QuickProductForm(request.POST, workshop=self.workshop)
+
+            if form.is_valid():
+                product = form.save(commit=False)
+                product.workshop = self.workshop
+                product.save()
+
+                # Vincular ao budget item
+                item.product = product
+                item.is_local = False
+                item.save()
+
+                # Retornar a linha atualizada com OOB swap
+                context = {"item": item, "budget": item.budget, "is_full_render": False}
+                row_html = render_to_string("budget/partials/item_product_row.html", context)
+
+                response = HttpResponse(row_html)
+                response["HX-Trigger"] = json.dumps({
+                    "showToast": {"message": "Produto cadastrado com sucesso!", "type": "success"},
+                    "closeModal": True,
+                    "update-summary": {}
+                })
+                return response
+        else:
+            # Cadastrar serviço
+            form = QuickServiceForm(request.POST)
+
+            if form.is_valid():
+                service = form.save(commit=False)
+                service.workshop = self.workshop
+                service.save()
+
+                # Vincular ao budget item
+                item.service = service
+                item.is_local = False
+                item.save()
+
+                # Retornar a linha atualizada
+                context = {"item": item, "budget": item.budget, "is_full_render": False}
+                row_html = render_to_string("budget/partials/item_service_row.html", context)
+
+                response = HttpResponse(row_html)
+                response["HX-Trigger"] = json.dumps({
+                    "showToast": {"message": "Serviço cadastrado com sucesso!", "type": "success"},
+                    "closeModal": True,
+                    "update-summary": {}
+                })
+                return response
+
+        # Se form inválido, retorna com erros
+        item_type = "product" if item.product_cost_price.amount > 0 else "service"
+        context = {
+            "form": form,
+            "item": item,
+            "budget_id": budget_id,
+            "item_id": item_id,
+            "item_type": item_type,
+            "title": f"Cadastrar {'Produto' if item_type == 'product' else 'Serviço'} no Banco de Dados",
+            "is_register_mode": True,
+        }
+        return render(request, "budget/partials/modal_quick_create.html", context)
+
+
+class CalculateLocalServiceView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    """Calcular custos de serviço local baseado na duração"""
+    model = Budget
+    workshop_permission_codename = "add_budget"
+
+    def post(self, request, budget_id):
+        budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
+
+        # Parse duration
+        raw_duration = request.POST.get("duration", "")
+        duration = timedelta()
+
+        if raw_duration:
+            try:
+                parts = [int(p) for p in raw_duration.split(":")]
+                if len(parts) >= 2:
+                    duration = timedelta(hours=parts[0], minutes=parts[1])
+            except (ValueError, TypeError):
+                pass
+
+        # Buscar WorkshopCost
+        workshop_cost = None
+        workshop_cost_missing = False
+
+        try:
+            reference_date = budget.criado_em if budget.criado_em else timezone.now()
+            workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=reference_date.month, year=reference_date.year)
+        except WorkshopCost.DoesNotExist:
+            try:
+                workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=timezone.now().month, year=timezone.now().year)
+            except WorkshopCost.DoesNotExist:
+                workshop_cost_missing = True
+
+        # Calcular valores
+        duration_hours = Decimal(duration.total_seconds()) / Decimal(3600)
+
+        if workshop_cost:
+            min_hourly = workshop_cost.minimum_hourly_cost or Money(0, "BRL")
+            hourly_val = workshop_cost.hourly_cost_value or Money(0, "BRL")
+            service_cost_price = min_hourly * duration_hours
+            service_selling_price = hourly_val * duration_hours
+        else:
+            service_cost_price = Money(0, "BRL")
+            service_selling_price = Money(0, "BRL")
+
+        # Preparar form
+        data = request.POST.copy()
+        data["service_cost_price_0"] = str(service_cost_price.amount.quantize(Decimal("0.01"), ROUND_HALF_UP))
+        data["service_cost_price_1"] = "BRL"
+        data["service_selling_price_0"] = str(service_selling_price.amount.quantize(Decimal("0.01"), ROUND_HALF_UP))
+        data["service_selling_price_1"] = "BRL"
+
+        form = LocalServiceForm(data, budget_id=budget_id)
+
+        context = {
+            "form": form,
+            "budget_id": budget_id,
+            "oob_fields": ["service_selling_price"],
+        }
+
+        response = render(request, "budget/partials/modal_local_service_fields.html", context)
+
+        if workshop_cost_missing:
+            response["HX-Trigger"] = json.dumps({
+                "showToast": {
+                    "message": "Custo da oficina não cadastrado para o mês atual.",
+                    "type": "error"
+                }
+            })
+
+        return response
+
+
+class QuickCreateProductView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    """Cadastro rápido de produto com atualização automática da lista"""
+    model = Budget
+    workshop_permission_codename = "add_budget"
+
+    def get(self, request, budget_id, item_type):
+        from apps.budget.forms import QuickProductForm, QuickServiceForm
+
+        budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
+
+        if item_type == "product":
+            form = QuickProductForm(workshop=self.workshop)
+            title = "Cadastrar Novo Produto"
+        elif item_type == "service":
+            form = QuickServiceForm()
+            title = "Cadastrar Novo Serviço"
+        else:
+            return HttpResponse("Tipo inválido", status=400)
+
+        context = {
+            "form": form,
+            "budget_id": budget_id,
+            "item_type": item_type,
+            "title": title,
+        }
+        return render(request, "budget/partials/modal_quick_create.html", context)
+
+    def post(self, request, budget_id, item_type):
+        from apps.budget.forms import QuickProductForm, QuickServiceForm
+
+        budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
+
+        if item_type == "product":
+            form = QuickProductForm(request.POST, workshop=self.workshop)
+        elif item_type == "service":
+            form = QuickServiceForm(request.POST)
+        else:
+            return HttpResponse("Tipo inválido", status=400)
+
+        if form.is_valid():
+            item = form.save(commit=False)
+            item.workshop = self.workshop
+            item.save()
+
+            # Retornar a lista atualizada de itens
+            from apps.catalog.models.products import Product
+            from apps.catalog.models.services import Service
+
+            if item_type == "product":
+                model_class = Product
+            else:
+                model_class = Service
+
+            queryset = model_class.objects.filter(workshop=self.workshop, is_active=True)
+
+            # Get already added items
+            existing_items = set()
+            if item_type == "product":
+                existing_items = set(budget.items.filter(product__isnull=False).values_list('product_id', flat=True))
+            elif item_type == "service":
+                existing_items = set(budget.items.filter(service__isnull=False).values_list('service_id', flat=True))
+
+            context = {
+                "items": queryset,
+                "budget": budget,
+                "item_type": item_type,
+                "modal_title": f"Selecionar {'Produto' if item_type == 'product' else 'Serviço'}",
+                "existing_items": existing_items,
+                "newly_created_id": item.id,  # ID do item recém-criado
+            }
+
+            response = render(request, "budget/partials/modal_item_list.html", context)
+            response["HX-Trigger"] = json.dumps({
+                "showToast": {
+                    "message": f"{'Produto' if item_type == 'product' else 'Serviço'} cadastrado com sucesso!",
+                    "type": "success"
+                }
+            })
+            return response
+
+        # Se form inválido
+        context = {
+            "form": form,
+            "budget_id": budget_id,
+            "item_type": item_type,
+            "title": f"Cadastrar Novo {'Produto' if item_type == 'product' else 'Serviço'}",
+        }
+        return render(request, "budget/partials/modal_quick_create.html", context)
 

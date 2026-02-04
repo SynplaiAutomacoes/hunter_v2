@@ -1,0 +1,69 @@
+{% load crispy_forms_tags %}
+
+<div class="modal-content-wrapper bg-base-100 p-6 rounded-lg">
+    <div class="mb-6">
+        <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+                <span class="material-icons text-accent text-3xl">cloud_upload</span>
+                <h3 class="font-bold text-2xl text-base-content">{{ title }}</h3>
+            </div>
+        </div>
+
+        <div class="alert alert-warning mt-4">
+            <span class="material-icons">info</span>
+            <span>Este item está cadastrado apenas neste orçamento. Complete os dados obrigatórios para cadastrá-lo no banco de dados e poder aprovar o orçamento.</span>
+        </div>
+    </div>
+
+    <form hx-post="{% url 'budget:register_local_item' budget_id item_id %}"
+          hx-swap="none"
+          id="register-local-form"
+          class="space-y-4">
+        {% csrf_token %}
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {% for field in form %}
+                <div class="form-control w-full {% if field.name == 'name' or field.name == 'group' %}md:col-span-2{% endif %}">
+                    <label class="label">
+                        <span class="label-text font-semibold">{{ field.label }}</span>
+                        {% if field.field.required %}
+                            <span class="text-error">*</span>
+                        {% endif %}
+                    </label>
+                    {{ field }}
+                    {% if field.errors %}
+                        <label class="label">
+                            <span class="label-text-alt text-error">{{ field.errors.0 }}</span>
+                        </label>
+                    {% endif %}
+                    {% if field.help_text %}
+                        <label class="label">
+                            <span class="label-text-alt">{{ field.help_text }}</span>
+                        </label>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="flex justify-end gap-3">
+            <button type="button"
+                    class="btn btn-ghost"
+                    onclick="document.getElementById('form_modal').close()">
+                Cancelar
+            </button>
+
+            <button type="submit" class="btn btn-success gap-2">
+                <span class="material-icons text-sm">save</span>
+                Cadastrar no Banco
+            </button>
+        </div>
+    </form>
+</div>
+
+<script>
+    document.body.addEventListener('closeModal', function() {
+        document.getElementById('form_modal').close();
+    });
+</script>

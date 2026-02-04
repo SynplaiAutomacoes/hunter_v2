@@ -12,11 +12,37 @@
 
     <div class="relative overflow-y-auto max-h-[70vh]">
             <div class="sticky top-0 z-30 bg-base-100 p-4 border-b border-base-200">
-                <label class="input input-bordered flex items-center gap-2 w-full max-w-md">
-                    <span class="material-icons">search</span>
-                    <input type="text" id="item-search" class="grow" placeholder="Pesquisar..." />
-                    <button type="button" id="clear-search" class="btn btn-ghost btn-xs" title="Limpar">✕</button>
-                </label>
+                <div class="flex justify-between items-center mb-4">
+                    <label class="input input-bordered flex items-center gap-2 w-full max-w-md">
+                        <span class="material-icons">search</span>
+                        <input type="text" id="item-search" class="grow" placeholder="Pesquisar..." />
+                        <button type="button" id="clear-search" class="btn btn-ghost btn-xs" title="Limpar">✕</button>
+                    </label>
+
+                    {% if item_type != 'kit' %}
+                    <div class="flex gap-2">
+                        <button type="button"
+                                class="btn btn-outline btn-sm gap-2"
+                                hx-get="{% url 'budget:create_local_item' budget.id item_type %}"
+                                hx-target="#modal-container"
+                                hx-swap="innerHTML"
+                                onclick="form_modal.showModal()">
+                            <span class="material-icons text-sm">note_add</span>
+                            Incluir Novo Item
+                        </button>
+
+                        <button type="button"
+                                class="btn btn-primary btn-sm gap-2"
+                                hx-get="{% url 'budget:quick_create_item' budget.id item_type %}"
+                                hx-target="#modal-container"
+                                hx-swap="innerHTML"
+                                onclick="form_modal.showModal()">
+                            <span class="material-icons text-sm">add_circle</span>
+                            Cadastrar Novo
+                        </button>
+                    </div>
+                    {% endif %}
+                </div>
             </div>
         <table class="table table-zebra w-full border-separate border-spacing-0">
             <thead class="sticky top-0 z-20 bg-base-100">
@@ -225,5 +251,23 @@
         // Initial update
         updateCounter();
         updateSelectAllState();
+
+        // Destacar item recém-criado
+        {% if newly_created_id %}
+        const newlyCreatedCheckbox = modal.querySelector('input[value="{{ newly_created_id }}"]');
+        if (newlyCreatedCheckbox) {
+            const row = newlyCreatedCheckbox.closest('tr');
+            if (row) {
+                row.classList.add('bg-success', 'bg-opacity-20');
+                row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+                // Remover destaque após 3 segundos
+                setTimeout(() => {
+                    row.classList.remove('bg-success', 'bg-opacity-20');
+                    row.classList.add('transition-colors', 'duration-500');
+                }, 3000);
+            }
+        }
+        {% endif %}
     })();
 </script>

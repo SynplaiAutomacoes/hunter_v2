@@ -16,7 +16,8 @@
                 </div>
             </div>
 
-            <!-- Right side - Update Master button (always visible) -->
+            <!-- Right side - Update Master button (only if NOT local item) -->
+            {% if not item.is_local %}
             <button type="button"
                     class="btn btn-accent gap-2 js-update-master"
                     data-url="{% url 'budget:edit_item' budget_id item.pk %}"
@@ -25,6 +26,12 @@
                 <span class="material-icons text-sm">cloud_upload</span>
                 Atualizar Cadastro
             </button>
+            {% else %}
+            <div class="badge badge-warning gap-2 py-3 px-4">
+                <span class="material-icons text-sm">warning</span>
+                Item Local
+            </div>
+            {% endif %}
         </div>
     </div>
 
@@ -153,7 +160,7 @@
 
                 const newIcon = newButton.querySelector('.material-icons');
 
-                newButton.addEventListener('click', async function(e) {
+                newButton.addEventListener('click', function(e) {
                     e.preventDefault();
 
                     if (!form) {
@@ -176,41 +183,21 @@
                     const formData = new FormData(form);
                     formData.set('action', action);
 
-                    try {
-                        const response = await fetch(url, {
-                            method: 'POST',
-                            body: formData,
-                            headers: {
-                                'X-Requested-With': 'XMLHttpRequest',
-                                'HX-Request': 'true'
+                    // Trigger HTMX request with form data - let HTMX handle the response
+                    htmx.ajax('POST', url, {
+                        target: 'body',
+                        swap: 'none',
+                        values: Object.fromEntries(formData)
+                    }).finally(() => {
+                        // Reset button state after a short delay
+                        setTimeout(() => {
+                            if (newIcon) {
+                                newIcon.textContent = originalIconContent;
+                                newIcon.classList.remove('animate-spin');
                             }
-                        });
-
-                        if (response.ok) {
-                            // Close modal and trigger refresh
-                            const modal = document.getElementById('form_modal');
-                            if (modal) {
-                                modal.close();
-                            }
-
-                            // Trigger page reload to show changes
-                            setTimeout(() => {
-                                window.location.reload();
-                            }, 300);
-                        } else {
-                            throw new Error(`HTTP error! status: ${response.status}`);
-                        }
-                    } catch (error) {
-                        console.error('Error saving item:', error);
-                        alert('Erro ao salvar item. Tente novamente.');
-                    } finally {
-                        // Reset button state
-                        if (newIcon) {
-                            newIcon.textContent = originalIconContent;
-                            newIcon.classList.remove('animate-spin');
-                        }
-                        newButton.disabled = false;
-                    }
+                            newButton.disabled = false;
+                        }, 500);
+                    });
                 });
             },
 
@@ -229,6 +216,14 @@
         document.body.addEventListener('htmx:afterSwap', function(e) {
             if (e.detail.target.id === 'current-item-form' || e.detail.target.id === 'item-fields-container') {
                 ModalItemEditor.init();
+            }
+        });
+
+        // Listen for closeModal event from server
+        document.body.addEventListener('closeModal', function() {
+            const modal = document.getElementById('form_modal');
+            if (modal) {
+                modal.close();
             }
         });
     })();

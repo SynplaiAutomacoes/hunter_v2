@@ -1,0 +1,97 @@
+{% load crispy_forms_tags %}
+
+<div class="modal-content-wrapper bg-base-100 p-6 rounded-lg">
+    <div class="mb-6">
+        <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+                {% if is_register_mode %}
+                <span class="material-icons text-accent text-3xl">cloud_upload</span>
+                {% else %}
+                <span class="material-icons text-success text-3xl">add_circle</span>
+                {% endif %}
+                <h3 class="font-bold text-2xl text-base-content">{{ title }}</h3>
+            </div>
+        </div>
+
+        {% if is_register_mode %}
+        <div class="alert bg-accent/10 border-accent/20 mt-4">
+            <span class="material-icons text-accent">cloud_upload</span>
+            <div>
+                <p class="font-semibold">Cadastrando Item Local no Banco de Dados</p>
+                <p class="text-sm opacity-80">Complete os dados obrigatórios para disponibilizar este item para todos os orçamentos e poder aprovar.</p>
+            </div>
+        </div>
+        {% else %}
+        <div class="alert alert-info mt-4">
+            <span class="material-icons">info</span>
+            <span>Preencha apenas os campos obrigatórios. Você poderá completar os demais dados depois no cadastro completo.</span>
+        </div>
+        {% endif %}
+    </div>
+
+    <form {% if is_register_mode %}hx-post="{% url 'budget:register_local_item' budget_id item_id %}"
+          hx-swap="none"{% else %}hx-post="{% url 'budget:quick_create_item' budget_id item_type %}"
+          hx-target="#modal-item-list-container"
+          hx-swap="outerHTML"{% endif %}
+          id="quick-create-form"
+          class="space-y-4">
+        {% csrf_token %}
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {% for field in form %}
+                <div class="form-control w-full {% if field.name == 'name' or field.name == 'group' %}md:col-span-2{% endif %}">
+                    <label class="label">
+                        <span class="label-text font-semibold">
+                            {{ field.label }}
+                            {% if field.field.required %}
+                                <span class="text-error">*</span>
+                            {% endif %}
+                        </span>
+                    </label>
+                    {{ field }}
+                    {% if field.errors %}
+                        <label class="label">
+                            <span class="label-text-alt text-error">{{ field.errors.0 }}</span>
+                        </label>
+                    {% endif %}
+                    {% if field.help_text %}
+                        <label class="label">
+                            <span class="label-text-alt">{{ field.help_text }}</span>
+                        </label>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="flex justify-end gap-3">
+            <button type="button"
+                    class="btn btn-ghost"
+                    onclick="document.getElementById('form_modal').close()">
+                Cancelar
+            </button>
+
+            {% if is_register_mode %}
+            <button type="submit" class="btn btn-success gap-2">
+                <span class="material-icons text-sm">save</span>
+                Cadastrar no Banco
+            </button>
+            {% else %}
+            <button type="submit" class="btn btn-primary gap-2">
+                <span class="material-icons text-sm">save</span>
+                Cadastrar e Usar
+            </button>
+            {% endif %}
+        </div>
+    </form>
+</div>
+
+{% if is_register_mode %}
+<script>
+    document.body.addEventListener('closeModal', function() {
+        document.getElementById('form_modal').close();
+    });
+</script>
+{% endif %}
+
