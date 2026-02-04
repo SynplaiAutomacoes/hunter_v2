@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Orçamento de O.S. - Mecânico</title>
+    <style>
+        @page { size: A4; margin: 0; }
+        @media print {
+            body { background-color: white !important; padding: 0 !important; }
+            #pdf-content { border: none !important; box-shadow: none !important; width: 100% !important; max-width: none !important; }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 p-5 font-sans text-[11px] leading-tight text-gray-900">
+
+    <div id="pdf-content" class="max-w-[210mm] mx-auto bg-white border border-gray-200 rounded-lg shadow-sm p-4 text-[13px]">
+
+        <div class="flex justify-between items-start p-4 border-b border-gray-200">
+            <div>
+                <h3 class="text-[18px] font-bold uppercase m-0">HUNTER SERVIÇOS AUTOMOTIVOS LTDA</h3>
+                <p>CNPJ: 53.843.712/0001-39</p>
+                <p>RUA ENGENHEIRO JOSE VALTER SENG, 144 - FERREIRA - SÃO PAULO/SP - 05623-020</p>
+                <p>Fone: 55.522-0200</p>
+            </div>
+            <div class="text-right">
+                <h4 class="font-bold">ORDEM DE SERVIÇO</h4>
+                <p class="text-2xl font-bold leading-none m-0">#{{ budget.id }}</p>
+                <p class="text-[11px]">{{ budget.created|date:"d/m/Y H:i" }}</p>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 p-4 border-b border-gray-200">
+            <div>
+                <h4 class="font-bold mb-2 uppercase">Cliente</h4>
+                <div class="grid grid-cols-1 gap-1">
+                    <p><span class="text-gray-500">Nome:</span> {{ budget.customer.name|default:budget.customer }}</p>
+                </div>
+            </div>
+            <div>
+                <h4 class="font-bold mb-2 uppercase">Veículo</h4>
+                <div class="grid grid-cols-2 gap-x-4 gap-y-1">
+                    <p><span class="text-gray-500">Placa:</span> {{ budget.vehicle.plate }}</p>
+                    <p><span class="text-gray-500">Marca:</span> {{ budget.vehicle.brand }}</p>
+                    <p><span class="text-gray-500">Ano/Mod:</span> {{ budget.vehicle.year_model|default:"-" }}</p>
+                    <p><span class="text-gray-500">Ano/Fab:</span> {{ budget.vehicle.year_fabrication|default:"-" }}</p>
+                    <p><span class="text-gray-500">Cor:</span> {{ budget.vehicle.color|default:"-" }}</p>
+                    <p><span class="text-gray-500">Km-E:</span> {{ budget.current_km }}</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="p-4 border-b border-gray-200">
+            <h4 class="font-bold mb-2 uppercase">Reclamações/Problemas</h4>
+            <div class="space-y-2 italic">
+                <p><span class="text-gray-500">Relato principal do cliente:</span> {{ budget.problem_description|default:"Não informado." }}</p>
+                <p><span class="text-gray-500">Observações da Oficina:</span> {{ budget.technical_diagnosis|default:"Nenhuma observação técnica." }}</p>
+            </div>
+        </div>
+
+        <div class="p-4 border-b border-gray-200">
+            <h4 class="font-bold mb-2 uppercase">Produtos</h4>
+            <table class="w-full text-left border-collapse text-[12px] mt-2">
+                <thead>
+                    <tr class="bg-gray-100 border-b-2 border-gray-200">
+                        <th class="p-2 font-semibold w-[20%]">Referência</th>
+                        <th class="p-2 font-semibold w-[20%] text-center">Localização</th>
+                        <th class="p-2 font-semibold w-[15%] text-center">Quantidade</th>
+                        <th class="p-2 font-semibold">Descrição</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in budget.items.all %}
+                        {% if item.product %}
+                        <tr class="border-b border-gray-100">
+                            <td class="p-2">{{ item.product.code|default:"-" }}</td>
+                            <td class="p-2 text-center text-blue-700 font-mono">{{ item.product.location|default:"-" }}</td>
+                            <td class="p-2 text-center font-bold">{{ item.quantity }}</td>
+                            <td class="p-2 uppercase">{{ item.description }}</td>
+                        </tr>
+                        {% endif %}
+                    {% empty %}
+                        <tr><td colspan="4" class="p-4 text-center text-gray-400">Nenhum produto listado.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="p-4 border-b border-gray-200">
+            <h4 class="font-bold mb-2 uppercase text-gray-700">Serviços</h4>
+            <table class="w-full text-left border-collapse text-[12px] mt-2">
+                <thead>
+                    <tr class="bg-gray-100 border-b-2 border-gray-200">
+                        <th class="p-2 font-semibold w-[15%]">Quantidade</th>
+                        <th class="p-2 font-semibold">Descrição</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in budget.items.all %}
+                        {% if item.service %}
+                        <tr class="border-b border-gray-100">
+                            <td class="p-2 font-medium">{{ item.quantity }}</td>
+                            <td class="p-2">{{ item.description }}</td>
+                        </tr>
+                        {% endif %}
+                    {% empty %}
+                        <tr><td colspan="2" class="p-4 text-center text-gray-400 font-light">Nenhum serviço informado.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>

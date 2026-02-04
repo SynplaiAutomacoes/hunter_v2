@@ -26,6 +26,10 @@ urlpatterns = [
 
     path("save-observation/", views.SaveObservationView.as_view(), name="save_observation"),
     path("image-view/<int:pk>", views.BudgetImageView.as_view(), name="image_view"),
+
+    path("visualizar-pdf/<int:pk>", views.visualizar_pdf, name="visualizar_pdf"),
+    path("visualizar-pdf-gestor/<int:pk>", views.visualizar_pdf_gestor, name="visualizar_pdf_gestor"),
+    path("visualizar-pdf-mecanico/<int:pk>", views.visualizar_pdf_mecanico, name="visualizar_pdf_mecanico"),
     path("<int:budget_id>/add-items-batch/<str:item_type>/", views.AddItemsBatchToBudgetView.as_view(), name="add_items_batch"),
     path("<int:budget_id>/summary/", views.BudgetSummaryView.as_view(), name="budget_summary"),
     path("<int:budget_id>/collaborator-field/", views.BudgetStep3CollaboratorFieldView.as_view(), name="collaborator_field"),

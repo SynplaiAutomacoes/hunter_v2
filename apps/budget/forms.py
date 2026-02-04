@@ -6,6 +6,8 @@ from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from djmoney.money import Money
 
+from decimal import Decimal
+
 from apps.budget.models import Budget, BudgetImage, BudgetItem, Defect
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
@@ -685,7 +687,15 @@ class BudgetStep4Form(forms.ModelForm):
 
 
 class BudgetStep5Form(forms.ModelForm):
-    slider = forms.IntegerField(required=False, widget=forms.NumberInput(attrs={"class": "range range-primary w-full", "type": "range", "min": "-100", "max": "100", "step": "5"}))
+    slider = forms.IntegerField(
+        required=False,
+        widget=forms.NumberInput(
+            attrs={
+                "class": "w-full centered-range",
+                "type": "range",
+                "min": "-100",
+                "max": "100",
+                "step": "5"}))
 
     class Meta:
         model = Budget
@@ -702,7 +712,9 @@ class BudgetStep5Form(forms.ModelForm):
         self.fields["slider"].label = ""
         self.fields["slider"].help_text = ""
         self.fields["discount_value"].required = False
-        self.fields["slider"].widget.attrs.update({"hx-post": reverse("budget:update_slider", args=[self.instance.pk]), "hx-trigger": "change", "hx-swap": "none"})
+        self.fields["slider"].widget.attrs.update(
+            {"hx-post": reverse("budget:update_slider", args=[self.instance.pk]), "hx-trigger": "change",
+             "hx-swap": "none"})
 
         budget = self.instance
 
@@ -730,59 +742,123 @@ class BudgetStep5Form(forms.ModelForm):
             </div>
             """
 
-        zerado = Money(0, "BRL")
+        zerado = Money(0, 'BRL')
 
         # Custos
-        custo_pecas = dados.get("custo_pecas") or zerado
-        custo_frete_pecas = dados.get("custo_frete_pecas") or zerado
-        custo_servico_terceiros = dados.get("custo_servico_terceiro") or zerado
-        custo_hora_mecanico = dados.get("custo_hora_mecanico") or zerado
-        custo_total_mao_obra = dados.get("custo_total_mao_obra") or zerado
+        custo_pecas = dados.get('custo_pecas') or zerado
+        custo_frete_pecas = dados.get('custo_frete_pecas') or zerado
+        custo_servico_terceiros = dados.get('custo_servico_terceiro') or zerado
+        custo_hora_mecanico = dados.get('custo_hora_mecanico') or zerado
+
+        duracao_total = dados.get('duracao_total') or "00h 00m"
+
+        def parse_duracao_em_horas(duracao):
+            try:
+                h, m = duracao.replace("h", "").replace("m", "").split()
+                return Decimal(h) + (Decimal(m) / Decimal(60))
+            except Exception:
+                return Decimal("0")
+
+        duracao_em_horas = parse_duracao_em_horas(duracao_total)
+        custo_total_mao_obra = custo_hora_mecanico * duracao_em_horas
 
         # Valores Venda
-        venda_pecas = dados.get("venda_pecas") or zerado
-        venda_servico_terceiros = dados.get("venda_servico_terceiro") or zerado
-        venda_mao_obra = dados.get("venda_mao_obra") or zerado
+        venda_pecas = dados.get('venda_pecas') or zerado
+        venda_servico_terceiros = dados.get('venda_servico_terceiro') or zerado
+        venda_mao_obra = dados.get('venda_mao_obra') or zerado
 
         # Extra
-        metodo_precificacao = dados.get("method_name") or ""
-        duracao_total = dados.get("duracao_total") or "00h 00m"
-        lucro_operacional = dados.get("lucro_operacional") or zerado
-        rentabilidade = dados.get("rentabilidade") or 0
+        metodo_precificacao = dados.get('method_name') or ""
+        duracao_total = dados.get('duracao_total') or "00h 00m"
+        lucro_operacional = dados.get('lucro_operacional') or zerado
+        rentabilidade = dados.get('rentabilidade') or 0
 
-        status_cor = "text-error" if rentabilidade < 60 else "text-warning" if (60 <= rentabilidade < 70) else "text-success"
+        status_cor = "text-error" if rentabilidade < 60 else "text-warning" if (
+                    60 <= rentabilidade < 70) else "text-success"
         status_texto = "Ruim" if rentabilidade < 60 else "Médio" if (60 <= rentabilidade < 70) else "Bom"
 
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
-            HTML(f"""<script>
+            HTML(f"""
+            <style>
+                input[type="range"].centered-range {{
+                  -webkit-appearance: none;
+                  -moz-appearance: none;
+                  width: 100%;
+                  height: 8px;
+                  background: transparent;
+                }}
+
+                input[type="range"].centered-range::-webkit-slider-runnable-track {{
+                  height: 8px;
+                  border-radius: 999px;
+                  background: linear-gradient(
+                    to right,
+                    #e5e7eb var(--left),
+                    #2563eb var(--left),
+                    #2563eb var(--right),
+                    #e5e7eb var(--right)
+                  );
+                }}
+
+                input[type="range"].centered-range::-webkit-slider-thumb {{
+                  -webkit-appearance: none;
+                  width: 18px;
+                  height: 18px;
+                  background: #007bff;
+                  border-radius: 50%;
+                  margin-top: -5px;
+                  cursor: pointer;
+                }}
+
+                input[type="range"].centered-range::-moz-range-track {{
+                  height: 8px;
+                  border-radius: 999px;
+                  background: linear-gradient(
+                    to right,
+                    #e5e7eb var(--left),
+                    #2563eb var(--left),
+                    #2563eb var(--right),
+                    #e5e7eb var(--right)
+                  );
+                }}
+
+                input[type="range"].centered-range::-moz-range-thumb {{
+                  width: 18px;
+                  height: 18px;
+                  background: #007bff;
+                  border-radius: 50%;
+                  border: none;
+                }}
+            </style>
+            <script>
                     (function() {{
                         let timeout = null;
-                    
+
                         const performUpdate = (value) => {{
                             htmx.ajax('POST', '{{% url "budget:update_budget_discount" {self.instance.pk} %}}', {{
                                 values: {{ "discount_value_0": value }},
                                 swap: 'none'
                             }});
                         }};
-                    
+
                         const initDiscountObserver = () => {{
                             const hiddenInput = document.getElementById('id_discount_value_0');
                             if (!hiddenInput) return;
-                    
+
                             let lastValue = hiddenInput.value;
-                    
+
                             const handleChange = (newValue) => {{
                                 if (newValue === lastValue) return;
                                 lastValue = newValue;
-                    
+
                                 clearTimeout(timeout);
                                 timeout = setTimeout(() => {{
                                     performUpdate(newValue);
                                 }}, 800);
                             }};
-                    
+
                             const observer = new MutationObserver((mutations) => {{
                                 mutations.forEach((mutation) => {{
                                     if (mutation.attributeName === 'value') {{
@@ -790,77 +866,91 @@ class BudgetStep5Form(forms.ModelForm):
                                     }}
                                 }});
                             }});
-                    
+
                             observer.observe(hiddenInput, {{ attributes: true }});
-                    
+
                             hiddenInput.addEventListener('input', (e) => handleChange(e.target.value));
                             hiddenInput.addEventListener('change', (e) => handleChange(e.target.value));
                         }};
-                    
+
                         document.addEventListener('DOMContentLoaded', initDiscountObserver);
                         document.body.addEventListener('htmx:afterSettle', initDiscountObserver);
                     }})();
-                    
+
                     (function () {{
-                        function initSlider(root=document) {{
-                            const slider = root.querySelector('input[name="slider"]');
-                            const labelPecaPct = root.querySelector('#val-peca');
-                            const labelMOPct = root.querySelector('#val-mo');
+                        function initSlider() {{
+                            const slider = document.querySelector('input[name="slider"]');
+                            const labelPecaPct = document.getElementById('val-peca');
+                            const labelMOPct = document.getElementById('val-mo');
+                            const vendaPecaEl = document.getElementById('display-venda-pecas');
+                            const vendaMOEl = document.getElementById('display-venda-mo');
                     
-                            const displayVendaPecas = root.querySelector('#display-venda-pecas');
-                            const displayVendaMO = root.querySelector('#display-venda-mo');
+                            if (!slider || !vendaPecaEl || !vendaMOEl) return;
                     
-                            if (!slider || !labelPecaPct || !labelMOPct || !displayVendaPecas || !displayVendaMO) return;
+                            const basePeca = parseFloat(vendaPecaEl.dataset.baseVal);
+                            const baseMO = parseFloat(vendaMOEl.dataset.baseVal);
+                            const costPeca = parseFloat(vendaPecaEl.dataset.costVal);
+                            const costMO = parseFloat(vendaMOEl.dataset.costVal);
                     
-                            const basePeca = parseFloat(displayVendaPecas.dataset.baseVal.replace(',', '.'));
-                            const baseMO = parseFloat(displayVendaMO.dataset.baseVal.replace(',', '.'));
-                            const totalOriginal = basePeca + baseMO;
+                            const totalLucro = Math.max(
+                                (basePeca + baseMO) - (costPeca + costMO),
+                                0
+                            );
                     
-                            const formatCurrency = (val) => {{
-                                return "R$ " + val.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
-                            }};
+                            const format = (v) =>
+                                "R$ " + v.toLocaleString("pt-BR", {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }}
+);
                     
-                            const updateValues = (val) => {{
-                                const sliderVal = parseInt(val || 0);
+                            function updateFill(val) {{
+                                const min = -100;
+                                const max = 100;
+                                const center = 50;
+                                const percent = ((val - min) / (max - min)) * 100;
                     
-                                let pecaPctUI = 0;
-                                let moPctUI = 0;
-                    
-                                if (sliderVal < 0) {{
-                                    pecaPctUI = Math.abs(sliderVal);
-                                    moPctUI = 100 - Math.abs(sliderVal);
-                                }} else if (sliderVal > 0) {{
-                                    moPctUI = Math.abs(sliderVal);
-                                    pecaPctUI = 100 - Math.abs(sliderVal);
-                                }}
-                                
-                                labelPecaPct.textContent = pecaPctUI;
-                                labelMOPct.textContent = moPctUI;
-                    
-                                const _pecaPct = sliderVal < 0 ? Math.abs(sliderVal) / 100 : (sliderVal > 0 ? (100 - sliderVal) / 100 : 0);
-                                const _maoPct = sliderVal > 0 ? sliderVal / 100 : (sliderVal < 0 ? (100 - Math.abs(sliderVal)) / 100 : 0);
-                    
-                                let novoVendaPeca, novoVendaMO;
-                    
-                                if (sliderVal === 0) {{
-                                    novoVendaPeca = basePeca;
-                                    novoVendaMO = baseMO;
+                                if (val === 0) {{
+                                    slider.style.setProperty('--left', `${{center}}%`);
+                                    slider.style.setProperty('--right', `${{center}}%`);
+                                }} else if (val < 0) {{
+                                    slider.style.setProperty('--left', `${{percent}}%`);
+                                    slider.style.setProperty('--right', `${{center}}%`);
                                 }} else {{
-                                    novoVendaPeca = totalOriginal * _pecaPct;
-                                    novoVendaMO = totalOriginal * _maoPct;
+                                    slider.style.setProperty('--left', `${{center}}%`);
+                                    slider.style.setProperty('--right', `${{percent}}%`);
                                 }}
-                                displayVendaPecas.textContent = formatCurrency(novoVendaPeca);
-                                displayVendaMO.textContent = formatCurrency(novoVendaMO);
-                            }};
-                            updateValues(slider.value);
-                            if (!slider.dataset.bound) {{
-                                slider.addEventListener('input', e => updateValues(e.target.value));
-                                slider.dataset.bound = "1";
                             }}
+                    
+                            function update(val) {{
+                                val = parseInt(val || 0);
+                    
+                                let lucroPeca = 0;
+                                let lucroMO = 0;
+                    
+                                if (val < 0) {{
+                                    lucroPeca = totalLucro * Math.abs(val) / 100;
+                                    lucroMO = totalLucro - lucroPeca;
+                                }} else if (val > 0) {{
+                                    lucroMO = totalLucro * val / 100;
+                                    lucroPeca = totalLucro - lucroMO;
+                                }} else {{
+                                    lucroPeca = basePeca - costPeca;
+                                    lucroMO = baseMO - costMO;
+                                }}
+                    
+                                vendaPecaEl.textContent = format(costPeca + lucroPeca);
+                                vendaMOEl.textContent = format(costMO + lucroMO);
+                    
+                                labelPecaPct.textContent = val < 0 ? Math.abs(val) : 0;
+                                labelMOPct.textContent = val > 0 ? val : 0;
+                    
+                                updateFill(val);
+                            }}
+                    
+                            slider.addEventListener('input', e => update(e.target.value));
+                            update(slider.value || 0);
                         }}
                     
-                        document.addEventListener('DOMContentLoaded', () => initSlider());
-                        document.body.addEventListener('htmx:afterSettle', (e) => initSlider(e.target));
+                        document.addEventListener('DOMContentLoaded', initSlider);
+                        document.body.addEventListener('htmx:afterSettle', initSlider);
                     }})();
                 </script>"""),
             Div(
@@ -868,69 +958,99 @@ class BudgetStep5Form(forms.ModelForm):
                 # Coluna Esquerda
                 Div(
                     Div(
-                        HTML(f'<h3 class="text-3xl font-bold mb-2 border-b-3 border-[#007bff] text-[#222a2c] text-center">Método {metodo_precificacao}</h3>'),
+                        HTML(
+                            f'<h3 class="text-3xl font-bold mb-2 border-b-3 border-[#007bff] text-[#222a2c] text-center">Método {metodo_precificacao}</h3>'),
                         Div(
                             # Grid de Custos vs Vendas
                             Div(
                                 HTML(f"""
-                                    <div class="grid grid-cols-1 md:grid-cols-2 mt-7 gap-x-6 gap-y-2 text-base text-[#222a2c] font-semibold">
-                                        <div class="grid grid-cols-12 border bg-white overflow-hidden">
-                                            <span class="col-span-8 p-2 bg-gray-50">Custo de Peças</span>
-                                            <span class="col-span-4 p-2 border-l text-left">{custo_pecas}</span>
-                                        </div>
-                                        <div class="grid grid-cols-12 border bg-white overflow-hidden">
-                                            <span class="col-span-8 p-2 bg-gray-50">Valor de Venda de Peças</span>
-                                            <span id="display-venda-pecas" class="col-span-4 p-2 border-l text-left" data-base-val="{venda_pecas.amount}">{venda_pecas}</span>
-                                        </div>
+                                <div class="grid grid-cols-1 md:grid-cols-2 mt-7 gap-x-8 gap-y-3 text-base text-[#222a2c] font-semibold">
 
-                                        <div class="grid grid-cols-12 border bg-white overflow-hidden">
-                                            <span class="col-span-8 p-2 bg-gray-50">Custo de Frete de Peças</span>
-                                            <span class="col-span-4 p-2 border-l text-left">{custo_frete_pecas}</span>
-                                        </div>
-                                        <div class="invisible md:visible"></div>
-                                        <div class="grid grid-cols-12 border bg-white overflow-hidden">
-                                            <span class="col-span-8 p-2 bg-gray-50">Custo de Serviço de Terceiros</span>
-                                            <span class="col-span-4 p-2 border-l text-left">{custo_servico_terceiros}</span>
-                                        </div>
-                                        <div class="grid grid-cols-12 border bg-white overflow-hidden">
-                                            <span class="col-span-8 p-2 bg-gray-50">Valor de Venda de Serviço de Terceiros</span>
-                                            <span class="col-span-4 p-2 border-l text-left">{venda_servico_terceiros}</span>
-                                        </div>
-
-                                        <div class="grid grid-cols-12 border bg-white overflow-hidden">
-                                            <span class="col-span-8 p-2 bg-gray-50">Duração Total</span>
-                                            <span class="col-span-4 p-2 border-l text-left">{duracao_total}</span>
-                                        </div>
-                                        <div class="grid grid-cols-12 border bg-white overflow-hidden">
-                                            <span class="col-span-8 p-2 bg-gray-50">Valor de Venda de Mão de Obra</span>
-                                            <span id="display-venda-mo" class="col-span-4 p-2 border-l text-left" data-base-val="{venda_mao_obra.amount}">{venda_mao_obra}</span>
-                                        </div>
-                                        
-                                        <div class="grid grid-cols-12 border bg-white overflow-hidden">
-                                            <span class="col-span-8 p-2 bg-gray-50">Custo da Hora do Mecânico</span>
-                                            <span class="col-span-4 p-2 border-l text-left">{custo_hora_mecanico}</span>
-                                        </div>
-                                        <div class="invisible md:visible"></div>
-                                        
-                                        <div class="grid grid-cols-12 border bg-white overflow-hidden">
-                                            <span class="col-span-8 p-2 bg-gray-50">Custo Total da Mão de Obra</span>
-                                            <span class="col-span-4 p-2 border-l text-left">{custo_total_mao_obra}</span>
-                                        </div>
-                                        <div class="invisible md:visible"></div>
-
-                                        <div class="grid grid-cols-12 border bg-white overflow-hidden">
-                                            <span class="col-span-8 p-2 bg-gray-50">Lucro Operacional</span>
-                                            <span class="col-span-4 p-2 border-l text-left">{lucro_operacional}</span>
-                                        </div>
-                                        <div class="grid grid-cols-12 border bg-white overflow-hidden {status_cor.replace("text-", "border-")}">
-                                            <span class="col-span-8 p-2 bg-gray-50">Rentabilidade</span>
-                                            <span class="col-span-4 p-2 border-l text-left {status_cor}">{rentabilidade:.2f}% ({status_texto})</span>
-                                        </div>
-                                        
-                                        {mlr_html}
-                                        {mlo_html}
+                                    <!-- COLUNA ESQUERDA — CUSTOS -->
+                                    <div class="grid grid-cols-12 border bg-white">
+                                        <span class="col-span-8 p-2 bg-gray-50">Custo de Peças</span>
+                                        <span class="col-span-4 p-2 border-l">{custo_pecas}</span>
                                     </div>
-                                """),
+
+                                    <div class="grid grid-cols-12 border bg-white">
+                                        <span class="col-span-8 p-2 bg-gray-50">Valor de Venda de Peças</span>
+                                        <span id="display-venda-pecas"
+                                              class="col-span-4 p-2 border-l"
+                                              data-base-val="{venda_pecas.amount}"
+                                              data-cost-val="{custo_pecas.amount}">
+                                            {venda_pecas}
+                                        </span>
+                                    </div>
+
+                                    <div class="grid grid-cols-12 border bg-white">
+                                        <span class="col-span-8 p-2 bg-gray-50">Custo de Frete de Peças</span>
+                                        <span class="col-span-4 p-2 border-l">{custo_frete_pecas}</span>
+                                    </div>
+
+                                    <div class="grid grid-cols-12 border bg-white">
+                                        <span class="col-span-8 p-2 bg-gray-50">Valor de Venda de Serviço de Terceiros</span>
+                                        <span class="col-span-4 p-2 border-l">{venda_servico_terceiros}</span>
+                                    </div>
+
+                                    <div class="grid grid-cols-12 border bg-white">
+                                        <span class="col-span-8 p-2 bg-gray-50">Custo de Serviço de Terceiros</span>
+                                        <span class="col-span-4 p-2 border-l">{custo_servico_terceiros}</span>
+                                    </div>
+
+                                    <div class="grid grid-cols-12"></div>
+
+                                    <div class="grid grid-cols-12 border bg-white">
+                                        <span class="col-span-8 p-2 bg-gray-50">Custo da Hora do Mecânico</span>
+                                        <span class="col-span-4 p-2 border-l">{custo_hora_mecanico}</span>
+                                    </div>
+
+                                    <div class="grid grid-cols-12 border bg-white">
+                                        <span class="col-span-8 p-2 bg-gray-50">Valor de Venda de Mão de Obra</span>
+                                        <span id="display-venda-mo"
+                                              class="col-span-4 p-2 border-l"
+                                              data-base-val="{venda_mao_obra.amount}"
+                                              data-cost-val="{custo_total_mao_obra.amount}">
+                                            {venda_mao_obra}
+                                        </span>
+                                    </div>
+
+                                    <div class="grid grid-cols-12 border bg-white font-semibold">
+                                        <span class="col-span-8 p-2 bg-gray-50">Custo Total da Mão de Obra</span>
+                                        <span class="col-span-4 p-2 border-l">{custo_total_mao_obra}</span>
+                                    </div>
+
+                                    <div class="grid grid-cols-12 border bg-white">
+                                        <span class="col-span-8 p-2 bg-gray-50">Duração Total</span>
+                                        <span class="col-span-4 p-2 border-l">{duracao_total}</span>
+                                    </div>
+
+                                    <!-- RESULTADO (respiro visual) -->
+                                    <div class="md:col-span-2 h-2"></div>
+
+                                    <div class="grid grid-cols-12 border bg-white font-bold">
+                                        <span class="col-span-8 p-2 bg-gray-50">Lucro Operacional</span>
+                                        <span class="col-span-4 p-2 border-l">{lucro_operacional}</span>
+                                    </div>
+
+                                    <div class="grid grid-cols-12 border border-warning bg-white">
+                                        <span class="col-span-8 p-2 bg-gray-50">Rentabilidade</span>
+                                        <span class="col-span-4 p-2 border-l text-warning">
+                                            {rentabilidade:.2f}% ({status_texto})
+                                        </span>
+                                    </div>
+
+                                    <div class="grid grid-cols-12 border bg-white">
+                                        <span class="col-span-8 p-2 bg-gray-50">MLO</span>
+                                        <span class="col-span-4 p-2 border-l">0.00</span>
+                                    </div>
+
+                                    <div class="grid grid-cols-12 border bg-white">
+                                        <span class="col-span-8 p-2 bg-gray-50">MLR</span>
+                                        <span class="col-span-4 p-2 border-l">0.00</span>
+                                    </div>
+
+                                </div>
+                                """)
                             ),
                             css_class="h-full",
                         ),
@@ -950,17 +1070,32 @@ class BudgetStep5Form(forms.ModelForm):
                         # Slider
                         Div(
                             HTML('<h4 class="font-bold text-lg mb-2">Margem de Lucro</h4>'),
-                            Div(HTML('<span class="text-sm font-bold">Peça: <span id="val-peca">0</span>%</span>'), HTML('<span class="text-sm font-bold">Mão de Obra: <span id="val-mo">0</span>%</span>'), css_class="flex justify-between mb-1"),
-                            Field("slider", label=False, help_text=False, wrapper_class="mb-0"),
-                            HTML('<p class="text-sm text-gray-500 font-semibold italic">Deslize para a esquerda para aumentar Peça, ou para direita para aumentar Mão de obra</p>'),
+                            HTML("""
+                                <div class="flex justify-between mb-1">
+                                    <span class="text-sm font-bold">Peça: <span id="val-peca">0</span>%</span>
+                                    <span class="text-sm font-bold">Mão de Obra: <span id="val-mo">0</span>%</span>
+                                </div>
+                            """),
+                            Field(
+                                "slider",
+                                label=False,
+                                help_text=False,
+                                wrapper_class="w-full"
+                            ),
+                            HTML(
+                                '<p class="text-sm text-gray-500 font-semibold italic">Deslize para a esquerda para aumentar Peça, ou para direita para aumentar Mão de obra</p>'),
                             css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
                         ),
                         # Desconto
-                        Div(HTML('<h4 class="font-bold text-lg mb-2">Desconto</h4>'), Field("discount_value", wrapper_class="col-span-12 lg:col-span-4"), css_class="mb-8 p-4 bg-base-200/50 rounded-lg"),
+                        Div(HTML('<h4 class="font-bold text-lg mb-2">Desconto</h4>'),
+                            Field("discount_value", wrapper_class="col-span-12 lg:col-span-4"),
+                            css_class="mb-8 p-4 bg-base-200/50 rounded-lg"),
                         # Valor Final
                         Div(
-                            HTML('<h4 class="font-bold text-lg mb-2 text-center border-b-1 border-gray-300">Valor Final</h4>'),
-                            HTML('<h5 class="font-semibold text-lg mb-2 text-center">Valor do Orçamento com desconto aplicado:</h5>'),
+                            HTML(
+                                '<h4 class="font-bold text-lg mb-2 text-center border-b-1 border-gray-300">Valor Final</h4>'),
+                            HTML(
+                                '<h5 class="font-semibold text-lg mb-2 text-center">Valor do Orçamento com desconto aplicado:</h5>'),
                             HTML(f"""<div class="space-y-3">
                                         <div class="flex justify-between text-xl font-semibold">
                                             <span>Subtotal:</span>
@@ -1022,7 +1157,13 @@ class BudgetStep6Form(forms.ModelForm):
         if not services_html:
             services_html = '<tr><td colspan="5" class="text-center text-gray-400 py-4">Nenhum serviço adicionado</td></tr>'
         if not kits_html:
-            kits_html = '<tr><td colspan="4" class="text-center text-gray-400 py-4">Nenhum kit adicionado</td></tr>'
+            kits_html = """
+                <tr>
+                    <td colspan="5" class="text-center text-gray-400 py-4">
+                        Nenhum kit adicionado
+                    </td>
+                </tr>
+            """
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -1055,6 +1196,70 @@ class BudgetStep6Form(forms.ModelForm):
                         }).then(() => {
                             window.location.href = "{% url 'budget:budget_list' %}";
                         });
+                    }
+                    
+                    function openKitModal(button) {
+                        const modal = document.getElementById('kitModal');
+                    
+                        const title = document.getElementById('kit-modal-title');
+                        const productsList = document.getElementById('kit-modal-products');
+                        const servicesList = document.getElementById('kit-modal-services');
+                    
+                        const productsCount = document.getElementById('kit-products-count');
+                        const servicesCount = document.getElementById('kit-services-count');
+                    
+                        const productsCountSide = document.getElementById('kit-products-count-side');
+                        const servicesCountSide = document.getElementById('kit-services-count-side');
+                    
+                        title.textContent = button.dataset.kitName;
+                    
+                        productsList.innerHTML = '';
+                        servicesList.innerHTML = '';
+                    
+                        const products = button.dataset.kitProductsList
+                            .split('|').map(i => i.trim()).filter(Boolean);
+                    
+                        const services = button.dataset.kitServicesList
+                            .split('|').map(i => i.trim()).filter(Boolean);
+                    
+                        productsCount.textContent = products.length;
+                        servicesCount.textContent = services.length;
+                    
+                        productsCountSide.textContent = products.length;
+                        servicesCountSide.textContent = services.length;
+                    
+                        products.forEach(s => {
+                            const li = document.createElement('li');
+                            li.className = "flex items-start gap-3";
+                            li.innerHTML = `
+                              <span class="material-icons text-info text-sm mt-0.5 flex-shrink-0">circle</span>
+                              <span class="break-words break-all whitespace-normal">
+                                ${s}
+                              </span>
+                            `;
+                            productsList.appendChild(li);
+                        });
+                    
+                        services.forEach(s => {
+                            const li = document.createElement('li');
+                            li.className = "flex items-start gap-3";
+                            li.innerHTML = `
+                              <span class="material-icons text-info text-sm mt-0.5 flex-shrink-0">circle</span>
+                              <span class="break-words break-all whitespace-normal">
+                                ${s}
+                              </span>
+                            `;
+                            servicesList.appendChild(li);
+                        });
+                    
+                        modal.showModal();
+                    }
+                    
+                    function closeKitModal() {
+                        const modal = document.getElementById('kitModal');
+                        if (modal) {
+                            modal.close();
+                        }
                     }
             </script>"""),
             Div(
@@ -1129,6 +1334,7 @@ class BudgetStep6Form(forms.ModelForm):
                                                             <th class="text-center">QTD.</th>
                                                             <th class="text-center">PRODUTOS</th>
                                                             <th class="text-center">SERVIÇOS</th>
+                                                            <th class="text-center">AÇÕES</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody id="kit-list-body">
@@ -1150,20 +1356,19 @@ class BudgetStep6Form(forms.ModelForm):
                         # PDF
                         Div(
                             HTML('<h4 class="font-bold text-lg mb-2 border-b-1 border-gray-300">PDF</h4>'),
-                            HTML("""
+                            HTML(f"""
                             <div class="flex flex-col gap-3 text-center grid grid-cols-12">
-                            
-                                <button type="button" class="btn btn-success gap-2 col-span-4">
+                                <button type="button" class="btn btn-success gap-2 col-span-4" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse('budget:visualizar_pdf', args=[budget.pk])}' }} }}))">
                                     <span class="material-icons">description</span>
                                     Visualizar PDF
                                 </button>
 
-                                <button type="button" class="btn btn-success gap-2 col-span-4">
+                                <button type="button" class="btn btn-success gap-2 col-span-4" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse('budget:visualizar_pdf_gestor', args=[budget.pk])}' }} }}))">
                                     <span class="material-icons">supervisor_account</span>
                                     Visualizar PDF Gestor
                                 </button>
 
-                                <button type="button" class="btn btn-success gap-2 col-span-4">
+                                <button type="button" class="btn btn-success gap-2 col-span-4" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse('budget:visualizar_pdf_mecanico', args=[budget.pk])}' }} }}))">
                                     <span class="material-icons">engineering</span>
                                     Visualizar PDF Mecânico
                                 </button>
@@ -1241,6 +1446,151 @@ class BudgetStep6Form(forms.ModelForm):
                 ),
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch",
             ),
+            HTML("""
+            <dialog id="pdfModal" class="modal" x-data="{ pdfUrl: '' }" @open-pdf-modal.window="pdfUrl = $event.detail.url; $el.showModal()">
+              <div class="modal-box max-w-5xl w-full h-[90vh] p-0 flex flex-col">
+                <div class="flex items-center justify-between px-6 py-4 border-b bg-base-200">
+                    <h3 class="text-xl font-bold flex items-center gap-2">
+                        <span class="material-icons">description</span> Visualização do PDF
+                    </h3>
+                    <div class="flex gap-2">
+                        <button type="button" 
+                                class="btn btn-sm btn-success gap-2"
+                                onclick="const frame = document.querySelector('#pdfModal iframe'); frame.contentWindow.focus(); frame.contentWindow.print();">
+                            <span class="material-icons text-sm">download</span> Baixar PDF
+                        </button>
+                        <button type="button" class="btn btn-sm" onclick="document.getElementById('pdfModal').close()">
+                            <span class="material-icons text-sm">close</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="flex-1 bg-gray-100">
+                    <template x-if="pdfUrl">
+                        <iframe :src="pdfUrl" class="w-full h-full" frameborder="0"></iframe>
+                    </template>
+                </div>
+              </div>
+              <form method="dialog" class="modal-backdrop">
+                <button>close</button>
+              </form>
+            </dialog>"""),
+            HTML("""
+                <dialog
+                    id="kitModal"
+                    class="modal"
+                    onclick="if(event.target === this) closeKitModal()"
+                >
+                  <div class="modal-box max-w-5xl w-full max-h-[75vh] p-0 flex flex-col">
+                
+                    <!-- HEADER -->
+                    <div class="flex items-center justify-between px-8 py-5 border-b bg-base-200">
+                        <div class="flex items-center gap-4">
+                            <div class="p-3 rounded-lg bg-primary/10">
+                                <span class="material-icons text-primary text-3xl">inventory_2</span>
+                            </div>
+                
+                            <div>
+                                <h3 class="text-2xl font-bold leading-tight" id="kit-modal-title"></h3>
+                                <span class="badge badge-primary badge-outline mt-1">
+                                    Kit de Serviços
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                
+                    <!-- BODY -->
+                    <div class="p-8 grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 overflow-y-auto">
+                
+                        <!-- PRODUTOS (CARD VERTICAL) -->
+                        <div class="card bg-base-100 shadow-md border lg:col-span-1">
+                            <div class="card-body gap-4">
+                                <div class="flex items-center justify-between">
+                                    <h4 class="font-semibold text-base flex items-center gap-2">
+                                        <span class="material-icons text-info">build</span>
+                                        Produtos
+                                    </h4>
+                                    <span id="kit-products-count" class="badge badge-info"></span>
+                                </div>
+                
+                                <div class="divider my-1"></div>
+                
+                                <ul
+                                    id="kit-modal-products"
+                                    class="flex flex-col gap-3 text-sm
+                                         max-h-64 overflow-y-auto pr-2
+                                         overflow-x-hidden"
+                                ></ul>
+                            </div>
+                        </div>
+                
+                        <!-- SERVIÇOS (CARD VERTICAL) -->
+                        <div class="card bg-base-100 shadow-md border lg:col-span-1">
+                            <div class="card-body gap-4">
+                                <div class="flex items-center justify-between">
+                                    <h4 class="font-semibold text-base flex items-center gap-2">
+                                        <span class="material-icons text-success">engineering</span>
+                                        Serviços
+                                    </h4>
+                                    <span id="kit-services-count" class="badge badge-success"></span>
+                                </div>
+                
+                                <div class="divider my-1"></div>
+                
+                                <ul
+                                    id="kit-modal-services"
+                                    class="flex flex-col gap-3 text-sm
+                                         max-h-64 overflow-y-auto pr-2
+                                         overflow-x-hidden"
+                                ></ul>
+                            </div>
+                        </div>
+                
+                        <!-- COLUNA DE CONTEXTO (PROFISSIONAL) -->
+                        <div class="card bg-base-200/60 border lg:col-span-1">
+                            <div class="card-body gap-4">
+                                <h4 class="font-semibold text-base">
+                                    Informações do Kit
+                                </h4>
+                
+                                <div class="flex flex-col gap-3 text-sm text-base-content/80">
+                                    <div class="flex justify-between">
+                                        <span>Total de Produtos</span>
+                                        <strong id="kit-products-count-side"></strong>
+                                    </div>
+                
+                                    <div class="flex justify-between">
+                                        <span>Total de Serviços</span>
+                                        <strong id="kit-services-count-side"></strong>
+                                    </div>
+                                </div>
+                
+                                <div class="divider"></div>
+                
+                                <p class="text-xs text-base-content/60 leading-relaxed">
+                                    Este kit agrupa produtos e serviços vinculados ao orçamento,
+                                    facilitando a visualização e conferência antes da aprovação.
+                                </p>
+                            </div>
+                        </div>
+                
+                    </div>
+                
+                    <!-- FOOTER -->
+                    <div class="flex justify-end px-8 py-5 border-t bg-base-200">
+                        <button
+                            type="button"
+                            class="btn btn-primary"
+                            onclick="closeKitModal()"
+                        >
+                            <span class="material-icons text-sm">close</span>
+                            Fechar
+                        </button>
+                    </div>
+                
+                  </div>
+                </dialog>
+            """),
         )
 
 

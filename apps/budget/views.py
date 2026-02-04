@@ -472,7 +472,7 @@ class BudgetItemCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         # Usamos o form para processar o valor da duração vindo do POST
         form = BudgetItemEditForm(request.POST, instance=item, budget_id=budget_id)
-        
+
         # Chamamos full_clean() para popular cleaned_data
         try:
             form.full_clean()
@@ -483,7 +483,7 @@ class BudgetItemCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         # Tentamos obter a duração, mesmo que o form tenha outros erros
         duration = cleaned_data.get("duration")
-        
+
         # Se não estiver no cleaned_data (erro de validação), tentamos pegar o valor bruto
         if duration is None:
             raw_duration = request.POST.get("duration")
@@ -532,27 +532,27 @@ class BudgetItemCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         # Atualiza os dados do POST para refletir os novos preços no formulário bound
         data = request.POST.copy()
-        
+
         # No Django, campos MoneyField costumam usar o sufixo _0 para o valor numérico no POST
         data["service_cost_price_0"] = str(service_cost_price_amount)
         data["service_cost_price_1"] = "BRL"
         data["service_selling_price_0"] = str(service_selling_price_amount)
         data["service_selling_price_1"] = "BRL"
-        
+
         # Garante que o valor da duração formatado também vá para o POST do novo form
         if duration:
             total_seconds = int(duration.total_seconds())
             hours = total_seconds // 3600
             minutes = (total_seconds % 3600) // 60
             data["duration"] = f"{hours:02d}:{minutes:02d}"
-        
+
         # Re-inicializa o formulário com os dados atualizados e a instância
         form = BudgetItemEditForm(data, instance=item, budget_id=budget_id)
-        
+
         # Apenas o campo de venda vai por OOB, o de custo é o target principal
         oob_fields = ["service_selling_price"]
 
-        # Se houver erros no form (especialmente na duração), incluímos nos campos OOB 
+        # Se houver erros no form (especialmente na duração), incluímos nos campos OOB
         # para que as mensagens de erro sejam exibidas no modal.
         if form.errors:
             for field_with_error in form.errors:
@@ -589,6 +589,75 @@ class BudgetImageView(LoginRequiredMixin, View):
         image = get_object_or_404(BudgetImage, pk=pk)
 
         return HttpResponse(image.content, content_type=image.content_type)
+
+from django.views.decorators.clickjacking import xframe_options_exempt
+from djmoney.money import Money
+@xframe_options_exempt
+def visualizar_pdf(request, pk):
+    budget = get_object_or_404(Budget, pk=pk)
+    itens_all = BudgetItem.objects.filter(budget=budget)
+    produtos = itens_all.filter(product__isnull=False)
+    servicos = itens_all.filter(service__isnull=False)
+    workshop = get_active_workshop_or_404(request)
+
+    context = {
+        'budget': budget,
+        'produtos': produtos,
+        'servicos': servicos,
+        'total_produtos': budget.total_products_value,
+        'total_servicos': budget.total_services_value,
+        'desconto': budget.discount_value,
+        'total_geral': budget.total_budget_value,
+        'observacao': workshop.pdf_observation
+    }
+
+    return render(request, 'budget/partials/pdf/visualizarPDF.html', context)
+
+
+@xframe_options_exempt
+def visualizar_pdf_gestor(request, pk):
+    budget = get_object_or_404(Budget, pk=pk)
+    itens_all = BudgetItem.objects.filter(budget=budget)
+    produtos = itens_all.filter(product__isnull=False)
+    servicos = itens_all.filter(service__isnull=False)
+    workshop = get_active_workshop_or_404(request)
+
+    total_profit_product_value = Money(0, 'BRL')
+    for p in produtos:
+        total_profit_product_value += p.profit_value
+
+    total_profit_service_value = Money(0, 'BRL')
+    for s in servicos:
+        total_profit_service_value += s.profit_value
+
+    context = {
+        'budget': budget,
+        'produtos': produtos,
+        'servicos': servicos,
+        'observacao': workshop.pdf_observation,
+        'total_profit_product_value': total_profit_product_value,
+        'total_profit_service_value': total_profit_service_value
+    }
+
+    return render(request, 'budget/partials/pdf/visualizarPDFGestor.html', context)
+
+
+@xframe_options_exempt
+def visualizar_pdf_mecanico(request, pk):
+    budget = get_object_or_404(Budget, pk=pk)
+    itens_all = BudgetItem.objects.filter(budget=budget)
+    produtos = itens_all.filter(product__isnull=False)
+    servicos = itens_all.filter(service__isnull=False)
+    workshop = get_active_workshop_or_404(request)
+
+    context = {
+        'budget': budget,
+        'produtos': produtos,
+        'servicos': servicos,
+        'observacao': workshop.pdf_observation
+    }
+
+    return render(request, 'budget/partials/pdf/visualizarPDFMecanico.html', context)
 
 
 class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
