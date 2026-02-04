@@ -6,6 +6,8 @@ from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from djmoney.money import Money
 
+from decimal import Decimal
+
 from apps.budget.models import Budget, BudgetImage, BudgetItem, Defect
 from apps.checklist.models import Checklist
 from apps.collaborators.models import WorkshopCollaborator
@@ -646,7 +648,15 @@ class BudgetStep4Form(forms.ModelForm):
 
 
 class BudgetStep5Form(forms.ModelForm):
-    slider = forms.IntegerField(required=False, widget=forms.NumberInput(attrs={"class": "range range-primary w-full", "type": "range", "min": "-100", "max": "100", "step": "5"}))
+    slider = forms.IntegerField(
+        required=False,
+        widget=forms.NumberInput(
+            attrs={
+                "class": "w-full centered-range",
+                "type": "range",
+                "min": "-100",
+                "max": "100",
+                "step": "5"}))
 
     class Meta:
         model = Budget
@@ -663,7 +673,9 @@ class BudgetStep5Form(forms.ModelForm):
         self.fields["slider"].label = ""
         self.fields["slider"].help_text = ""
         self.fields["discount_value"].required = False
-        self.fields["slider"].widget.attrs.update({"hx-post": reverse("budget:update_slider", args=[self.instance.pk]), "hx-trigger": "change", "hx-swap": "none"})
+        self.fields["slider"].widget.attrs.update(
+            {"hx-post": reverse("budget:update_slider", args=[self.instance.pk]), "hx-trigger": "change",
+             "hx-swap": "none"})
 
         budget = self.instance
 
@@ -691,59 +703,123 @@ class BudgetStep5Form(forms.ModelForm):
             </div>
             """
 
-        zerado = Money(0, "BRL")
+        zerado = Money(0, 'BRL')
 
         # Custos
-        custo_pecas = dados.get("custo_pecas") or zerado
-        custo_frete_pecas = dados.get("custo_frete_pecas") or zerado
-        custo_servico_terceiros = dados.get("custo_servico_terceiro") or zerado
-        custo_hora_mecanico = dados.get("custo_hora_mecanico") or zerado
-        custo_total_mao_obra = dados.get("custo_total_mao_obra") or zerado
+        custo_pecas = dados.get('custo_pecas') or zerado
+        custo_frete_pecas = dados.get('custo_frete_pecas') or zerado
+        custo_servico_terceiros = dados.get('custo_servico_terceiro') or zerado
+        custo_hora_mecanico = dados.get('custo_hora_mecanico') or zerado
+
+        duracao_total = dados.get('duracao_total') or "00h 00m"
+
+        def parse_duracao_em_horas(duracao):
+            try:
+                h, m = duracao.replace("h", "").replace("m", "").split()
+                return Decimal(h) + (Decimal(m) / Decimal(60))
+            except Exception:
+                return Decimal("0")
+
+        duracao_em_horas = parse_duracao_em_horas(duracao_total)
+        custo_total_mao_obra = custo_hora_mecanico * duracao_em_horas
 
         # Valores Venda
-        venda_pecas = dados.get("venda_pecas") or zerado
-        venda_servico_terceiros = dados.get("venda_servico_terceiro") or zerado
-        venda_mao_obra = dados.get("venda_mao_obra") or zerado
+        venda_pecas = dados.get('venda_pecas') or zerado
+        venda_servico_terceiros = dados.get('venda_servico_terceiro') or zerado
+        venda_mao_obra = dados.get('venda_mao_obra') or zerado
 
         # Extra
-        metodo_precificacao = dados.get("method_name") or ""
-        duracao_total = dados.get("duracao_total") or "00h 00m"
-        lucro_operacional = dados.get("lucro_operacional") or zerado
-        rentabilidade = dados.get("rentabilidade") or 0
+        metodo_precificacao = dados.get('method_name') or ""
+        duracao_total = dados.get('duracao_total') or "00h 00m"
+        lucro_operacional = dados.get('lucro_operacional') or zerado
+        rentabilidade = dados.get('rentabilidade') or 0
 
-        status_cor = "text-error" if rentabilidade < 60 else "text-warning" if (60 <= rentabilidade < 70) else "text-success"
+        status_cor = "text-error" if rentabilidade < 60 else "text-warning" if (
+                    60 <= rentabilidade < 70) else "text-success"
         status_texto = "Ruim" if rentabilidade < 60 else "Médio" if (60 <= rentabilidade < 70) else "Bom"
 
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
-            HTML(f"""<script>
+            HTML(f"""
+            <style>
+                input[type="range"].centered-range {{
+                  -webkit-appearance: none;
+                  -moz-appearance: none;
+                  width: 100%;
+                  height: 8px;
+                  background: transparent;
+                }}
+
+                input[type="range"].centered-range::-webkit-slider-runnable-track {{
+                  height: 8px;
+                  border-radius: 999px;
+                  background: linear-gradient(
+                    to right,
+                    #e5e7eb var(--left),
+                    #2563eb var(--left),
+                    #2563eb var(--right),
+                    #e5e7eb var(--right)
+                  );
+                }}
+
+                input[type="range"].centered-range::-webkit-slider-thumb {{
+                  -webkit-appearance: none;
+                  width: 18px;
+                  height: 18px;
+                  background: #007bff;
+                  border-radius: 50%;
+                  margin-top: -5px;
+                  cursor: pointer;
+                }}
+
+                input[type="range"].centered-range::-moz-range-track {{
+                  height: 8px;
+                  border-radius: 999px;
+                  background: linear-gradient(
+                    to right,
+                    #e5e7eb var(--left),
+                    #2563eb var(--left),
+                    #2563eb var(--right),
+                    #e5e7eb var(--right)
+                  );
+                }}
+
+                input[type="range"].centered-range::-moz-range-thumb {{
+                  width: 18px;
+                  height: 18px;
+                  background: #007bff;
+                  border-radius: 50%;
+                  border: none;
+                }}
+            </style>
+            <script>
                     (function() {{
                         let timeout = null;
-                    
+
                         const performUpdate = (value) => {{
                             htmx.ajax('POST', '{{% url "budget:update_budget_discount" {self.instance.pk} %}}', {{
                                 values: {{ "discount_value_0": value }},
                                 swap: 'none'
                             }});
                         }};
-                    
+
                         const initDiscountObserver = () => {{
                             const hiddenInput = document.getElementById('id_discount_value_0');
                             if (!hiddenInput) return;
-                    
+
                             let lastValue = hiddenInput.value;
-                    
+
                             const handleChange = (newValue) => {{
                                 if (newValue === lastValue) return;
                                 lastValue = newValue;
-                    
+
                                 clearTimeout(timeout);
                                 timeout = setTimeout(() => {{
                                     performUpdate(newValue);
                                 }}, 800);
                             }};
-                    
+
                             const observer = new MutationObserver((mutations) => {{
                                 mutations.forEach((mutation) => {{
                                     if (mutation.attributeName === 'value') {{
@@ -751,77 +827,91 @@ class BudgetStep5Form(forms.ModelForm):
                                     }}
                                 }});
                             }});
-                    
+
                             observer.observe(hiddenInput, {{ attributes: true }});
-                    
+
                             hiddenInput.addEventListener('input', (e) => handleChange(e.target.value));
                             hiddenInput.addEventListener('change', (e) => handleChange(e.target.value));
                         }};
-                    
+
                         document.addEventListener('DOMContentLoaded', initDiscountObserver);
                         document.body.addEventListener('htmx:afterSettle', initDiscountObserver);
                     }})();
-                    
+
                     (function () {{
-                        function initSlider(root=document) {{
-                            const slider = root.querySelector('input[name="slider"]');
-                            const labelPecaPct = root.querySelector('#val-peca');
-                            const labelMOPct = root.querySelector('#val-mo');
+                        function initSlider() {{
+                            const slider = document.querySelector('input[name="slider"]');
+                            const labelPecaPct = document.getElementById('val-peca');
+                            const labelMOPct = document.getElementById('val-mo');
+                            const vendaPecaEl = document.getElementById('display-venda-pecas');
+                            const vendaMOEl = document.getElementById('display-venda-mo');
                     
-                            const displayVendaPecas = root.querySelector('#display-venda-pecas');
-                            const displayVendaMO = root.querySelector('#display-venda-mo');
+                            if (!slider || !vendaPecaEl || !vendaMOEl) return;
                     
-                            if (!slider || !labelPecaPct || !labelMOPct || !displayVendaPecas || !displayVendaMO) return;
+                            const basePeca = parseFloat(vendaPecaEl.dataset.baseVal);
+                            const baseMO = parseFloat(vendaMOEl.dataset.baseVal);
+                            const costPeca = parseFloat(vendaPecaEl.dataset.costVal);
+                            const costMO = parseFloat(vendaMOEl.dataset.costVal);
                     
-                            const basePeca = parseFloat(displayVendaPecas.dataset.baseVal.replace(',', '.'));
-                            const baseMO = parseFloat(displayVendaMO.dataset.baseVal.replace(',', '.'));
-                            const totalOriginal = basePeca + baseMO;
+                            const totalLucro = Math.max(
+                                (basePeca + baseMO) - (costPeca + costMO),
+                                0
+                            );
                     
-                            const formatCurrency = (val) => {{
-                                return "R$ " + val.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
-                            }};
+                            const format = (v) =>
+                                "R$ " + v.toLocaleString("pt-BR", {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }}
+);
                     
-                            const updateValues = (val) => {{
-                                const sliderVal = parseInt(val || 0);
+                            function updateFill(val) {{
+                                const min = -100;
+                                const max = 100;
+                                const center = 50;
+                                const percent = ((val - min) / (max - min)) * 100;
                     
-                                let pecaPctUI = 0;
-                                let moPctUI = 0;
-                    
-                                if (sliderVal < 0) {{
-                                    pecaPctUI = Math.abs(sliderVal);
-                                    moPctUI = 100 - Math.abs(sliderVal);
-                                }} else if (sliderVal > 0) {{
-                                    moPctUI = Math.abs(sliderVal);
-                                    pecaPctUI = 100 - Math.abs(sliderVal);
-                                }}
-                                
-                                labelPecaPct.textContent = pecaPctUI;
-                                labelMOPct.textContent = moPctUI;
-                    
-                                const _pecaPct = sliderVal < 0 ? Math.abs(sliderVal) / 100 : (sliderVal > 0 ? (100 - sliderVal) / 100 : 0);
-                                const _maoPct = sliderVal > 0 ? sliderVal / 100 : (sliderVal < 0 ? (100 - Math.abs(sliderVal)) / 100 : 0);
-                    
-                                let novoVendaPeca, novoVendaMO;
-                    
-                                if (sliderVal === 0) {{
-                                    novoVendaPeca = basePeca;
-                                    novoVendaMO = baseMO;
+                                if (val === 0) {{
+                                    slider.style.setProperty('--left', `${{center}}%`);
+                                    slider.style.setProperty('--right', `${{center}}%`);
+                                }} else if (val < 0) {{
+                                    slider.style.setProperty('--left', `${{percent}}%`);
+                                    slider.style.setProperty('--right', `${{center}}%`);
                                 }} else {{
-                                    novoVendaPeca = totalOriginal * _pecaPct;
-                                    novoVendaMO = totalOriginal * _maoPct;
+                                    slider.style.setProperty('--left', `${{center}}%`);
+                                    slider.style.setProperty('--right', `${{percent}}%`);
                                 }}
-                                displayVendaPecas.textContent = formatCurrency(novoVendaPeca);
-                                displayVendaMO.textContent = formatCurrency(novoVendaMO);
-                            }};
-                            updateValues(slider.value);
-                            if (!slider.dataset.bound) {{
-                                slider.addEventListener('input', e => updateValues(e.target.value));
-                                slider.dataset.bound = "1";
                             }}
+                    
+                            function update(val) {{
+                                val = parseInt(val || 0);
+                    
+                                let lucroPeca = 0;
+                                let lucroMO = 0;
+                    
+                                if (val < 0) {{
+                                    lucroPeca = totalLucro * Math.abs(val) / 100;
+                                    lucroMO = totalLucro - lucroPeca;
+                                }} else if (val > 0) {{
+                                    lucroMO = totalLucro * val / 100;
+                                    lucroPeca = totalLucro - lucroMO;
+                                }} else {{
+                                    lucroPeca = basePeca - costPeca;
+                                    lucroMO = baseMO - costMO;
+                                }}
+                    
+                                vendaPecaEl.textContent = format(costPeca + lucroPeca);
+                                vendaMOEl.textContent = format(costMO + lucroMO);
+                    
+                                labelPecaPct.textContent = val < 0 ? Math.abs(val) : 0;
+                                labelMOPct.textContent = val > 0 ? val : 0;
+                    
+                                updateFill(val);
+                            }}
+                    
+                            slider.addEventListener('input', e => update(e.target.value));
+                            update(slider.value || 0);
                         }}
                     
-                        document.addEventListener('DOMContentLoaded', () => initSlider());
-                        document.body.addEventListener('htmx:afterSettle', (e) => initSlider(e.target));
+                        document.addEventListener('DOMContentLoaded', initSlider);
+                        document.body.addEventListener('htmx:afterSettle', initSlider);
                     }})();
                 </script>"""),
             Div(
@@ -829,26 +919,37 @@ class BudgetStep5Form(forms.ModelForm):
                 # Coluna Esquerda
                 Div(
                     Div(
-                        HTML(f'<h3 class="text-3xl font-bold mb-2 border-b-3 border-[#007bff] text-[#222a2c] text-center">Método {metodo_precificacao}</h3>'),
+                        HTML(
+                            f'<h3 class="text-3xl font-bold mb-2 border-b-3 border-[#007bff] text-[#222a2c] text-center">Método {metodo_precificacao}</h3>'),
                         Div(
                             # Grid de Custos vs Vendas
                             Div(
                                 HTML(f"""
                                     <div class="grid grid-cols-1 md:grid-cols-2 mt-7 gap-x-6 gap-y-2 text-base text-[#222a2c] font-semibold">
+
+                                        <!-- PEÇAS -->
                                         <div class="grid grid-cols-12 border bg-white overflow-hidden">
                                             <span class="col-span-8 p-2 bg-gray-50">Custo de Peças</span>
                                             <span class="col-span-4 p-2 border-l text-left">{custo_pecas}</span>
                                         </div>
                                         <div class="grid grid-cols-12 border bg-white overflow-hidden">
                                             <span class="col-span-8 p-2 bg-gray-50">Valor de Venda de Peças</span>
-                                            <span id="display-venda-pecas" class="col-span-4 p-2 border-l text-left" data-base-val="{venda_pecas.amount}">{venda_pecas}</span>
+                                            <span id="display-venda-pecas"
+                                                  class="col-span-4 p-2 border-l text-left"
+                                                  data-base-val="{venda_pecas.amount}"
+                                                  data-cost-val="{custo_pecas.amount}">
+                                                {venda_pecas}
+                                            </span>
                                         </div>
-
+                                    
+                                        <!-- FRETE -->
                                         <div class="grid grid-cols-12 border bg-white overflow-hidden">
                                             <span class="col-span-8 p-2 bg-gray-50">Custo de Frete de Peças</span>
                                             <span class="col-span-4 p-2 border-l text-left">{custo_frete_pecas}</span>
                                         </div>
                                         <div class="invisible md:visible"></div>
+                                    
+                                        <!-- SERVIÇO DE TERCEIROS -->
                                         <div class="grid grid-cols-12 border bg-white overflow-hidden">
                                             <span class="col-span-8 p-2 bg-gray-50">Custo de Serviço de Terceiros</span>
                                             <span class="col-span-4 p-2 border-l text-left">{custo_servico_terceiros}</span>
@@ -857,39 +958,47 @@ class BudgetStep5Form(forms.ModelForm):
                                             <span class="col-span-8 p-2 bg-gray-50">Valor de Venda de Serviço de Terceiros</span>
                                             <span class="col-span-4 p-2 border-l text-left">{venda_servico_terceiros}</span>
                                         </div>
-
-                                        <div class="grid grid-cols-12 border bg-white overflow-hidden">
-                                            <span class="col-span-8 p-2 bg-gray-50">Duração Total</span>
-                                            <span class="col-span-4 p-2 border-l text-left">{duracao_total}</span>
-                                        </div>
-                                        <div class="grid grid-cols-12 border bg-white overflow-hidden">
-                                            <span class="col-span-8 p-2 bg-gray-50">Valor de Venda de Mão de Obra</span>
-                                            <span id="display-venda-mo" class="col-span-4 p-2 border-l text-left" data-base-val="{venda_mao_obra.amount}">{venda_mao_obra}</span>
-                                        </div>
-                                        
+                                    
+                                        <!-- MÃO DE OBRA -->
                                         <div class="grid grid-cols-12 border bg-white overflow-hidden">
                                             <span class="col-span-8 p-2 bg-gray-50">Custo da Hora do Mecânico</span>
                                             <span class="col-span-4 p-2 border-l text-left">{custo_hora_mecanico}</span>
                                         </div>
-                                        <div class="invisible md:visible"></div>
-                                        
                                         <div class="grid grid-cols-12 border bg-white overflow-hidden">
                                             <span class="col-span-8 p-2 bg-gray-50">Custo Total da Mão de Obra</span>
                                             <span class="col-span-4 p-2 border-l text-left">{custo_total_mao_obra}</span>
                                         </div>
-                                        <div class="invisible md:visible"></div>
-
+                                    
+                                        <div class="grid grid-cols-12 border bg-white overflow-hidden">
+                                            <span class="col-span-8 p-2 bg-gray-50">Valor de Venda de Mão de Obra</span>
+                                            <span id="display-venda-mo"
+                                                  class="col-span-4 p-2 border-l text-left"
+                                                  data-base-val="{venda_mao_obra.amount}"
+                                                  data-cost-val="{custo_total_mao_obra.amount}">
+                                                {venda_mao_obra}
+                                            </span>
+                                        </div>
+                                        <div class="grid grid-cols-12 border bg-white overflow-hidden">
+                                            <span class="col-span-8 p-2 bg-gray-50">Duração Total</span>
+                                            <span class="col-span-4 p-2 border-l text-left">{duracao_total}</span>
+                                        </div>
+                                    
+                                        <!-- RESULTADO -->
                                         <div class="grid grid-cols-12 border bg-white overflow-hidden">
                                             <span class="col-span-8 p-2 bg-gray-50">Lucro Operacional</span>
                                             <span class="col-span-4 p-2 border-l text-left">{lucro_operacional}</span>
                                         </div>
                                         <div class="grid grid-cols-12 border bg-white overflow-hidden {status_cor.replace("text-", "border-")}">
                                             <span class="col-span-8 p-2 bg-gray-50">Rentabilidade</span>
-                                            <span class="col-span-4 p-2 border-l text-left {status_cor}">{rentabilidade:.2f}% ({status_texto})</span>
+                                            <span class="col-span-4 p-2 border-l text-left {status_cor}">
+                                                {rentabilidade:.2f}% ({status_texto})
+                                            </span>
                                         </div>
-                                        
-                                        {mlr_html}
+                                    
+                                        <!-- INDICADORES -->
                                         {mlo_html}
+                                        {mlr_html}
+                                    
                                     </div>
                                 """),
                             ),
@@ -911,17 +1020,32 @@ class BudgetStep5Form(forms.ModelForm):
                         # Slider
                         Div(
                             HTML('<h4 class="font-bold text-lg mb-2">Margem de Lucro</h4>'),
-                            Div(HTML('<span class="text-sm font-bold">Peça: <span id="val-peca">0</span>%</span>'), HTML('<span class="text-sm font-bold">Mão de Obra: <span id="val-mo">0</span>%</span>'), css_class="flex justify-between mb-1"),
-                            Field("slider", label=False, help_text=False, wrapper_class="mb-0"),
-                            HTML('<p class="text-sm text-gray-500 font-semibold italic">Deslize para a esquerda para aumentar Peça, ou para direita para aumentar Mão de obra</p>'),
+                            HTML("""
+                                <div class="flex justify-between mb-1">
+                                    <span class="text-sm font-bold">Peça: <span id="val-peca">0</span>%</span>
+                                    <span class="text-sm font-bold">Mão de Obra: <span id="val-mo">0</span>%</span>
+                                </div>
+                            """),
+                            Field(
+                                "slider",
+                                label=False,
+                                help_text=False,
+                                wrapper_class="w-full"
+                            ),
+                            HTML(
+                                '<p class="text-sm text-gray-500 font-semibold italic">Deslize para a esquerda para aumentar Peça, ou para direita para aumentar Mão de obra</p>'),
                             css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
                         ),
                         # Desconto
-                        Div(HTML('<h4 class="font-bold text-lg mb-2">Desconto</h4>'), Field("discount_value", wrapper_class="col-span-12 lg:col-span-4"), css_class="mb-8 p-4 bg-base-200/50 rounded-lg"),
+                        Div(HTML('<h4 class="font-bold text-lg mb-2">Desconto</h4>'),
+                            Field("discount_value", wrapper_class="col-span-12 lg:col-span-4"),
+                            css_class="mb-8 p-4 bg-base-200/50 rounded-lg"),
                         # Valor Final
                         Div(
-                            HTML('<h4 class="font-bold text-lg mb-2 text-center border-b-1 border-gray-300">Valor Final</h4>'),
-                            HTML('<h5 class="font-semibold text-lg mb-2 text-center">Valor do Orçamento com desconto aplicado:</h5>'),
+                            HTML(
+                                '<h4 class="font-bold text-lg mb-2 text-center border-b-1 border-gray-300">Valor Final</h4>'),
+                            HTML(
+                                '<h5 class="font-semibold text-lg mb-2 text-center">Valor do Orçamento com desconto aplicado:</h5>'),
                             HTML(f"""<div class="space-y-3">
                                         <div class="flex justify-between text-xl font-semibold">
                                             <span>Subtotal:</span>
