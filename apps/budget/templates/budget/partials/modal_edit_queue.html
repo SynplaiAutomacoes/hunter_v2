@@ -1,105 +1,449 @@
-<div class="modal-box w-11/12 max-w-3xl"
-     data-items-id="{{ items_id|join:',' }}"
+<div class="modal-box w-2xl max-w-6xl bg-base-100 p-0 overflow-hidden"
+     data-item-ids="{{ item_ids|join:',' }}"
      data-current-index="0"
-     data-budget-id="{{ budget_id }}"
+     data-budget-id="{{ budget.id }}"
      data-item-type="{{ item_type }}"
      id="edit-queue-modal">
 
-    <div id="current-item-form">
-        <!-- Carrega o primeiro item da fila -->
-        <div hx-get="{% url 'budget:edit_item' budget.id item_ids.0 %}"
-             hx-trigger="load"
-             hx-target="#current-item-form"
-             hx-swap="innerHtml">
-            <div class="loading loading-spinner loading-lg"></div>
+    <!-- Header -->
+    <div class="bg-gradient-to-r from-primary to-primary-focus p-6 text-primary-content">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <span class="material-icons text-3xl">edit_note</span>
+                <div>
+                    <h3 class="text-2xl font-bold">Edição em Fila</h3>
+                    <p class="text-sm opacity-90 mt-1">Configure cada item adicionado</p>
+                </div>
+            </div>
+            <div class="badge badge-lg badge-accent gap-2">
+                <span class="material-icons text-sm">inventory_2</span>
+                <span id="current-item-num">1</span> / {{ total_items }}
+            </div>
         </div>
     </div>
 
-    <div class="modal-action flex flex-col gap-4 mt-6">
-        <div class="w-full">
-            <div class="flex justify-between text-sm font-semibold mb-2">
-                <span>Item <span id="current-item-num">1</span> de {{ total_items }}</span>
-                <span>Restam <span id="remaining-items">{{ total_items|add:'-1' }}</span></span>
+    <!-- Progress Bar with Steps -->
+    <div class="px-6 pt-4 pb-2 bg-base-50">
+        <div class="flex justify-between items-center mb-2">
+            <span class="text-sm font-semibold text-base-content/70">
+                <span class="material-icons text-xs align-middle">schedule</span>
+                Restam <span id="remaining-items" class="text-primary font-bold">{{ total_items|add:'-1' }}</span> item(ns)
+            </span>
+            <span class="text-xs text-base-content/50" id="current-item-name">Carregando...</span>
+        </div>
+        <progress id="progress-bar" class="progress progress-primary w-full h-3 transition-all duration-300" value="1" max="{{ total_items }}"></progress>
+    </div>
+
+    <div class="divider m-0"></div>
+
+    <!-- Body - Form Container -->
+    <div class="p-6 min-h-[400px] max-h-[60vh] overflow-y-auto" id="current-item-form-container">
+        <div id="current-item-form" class="transition-opacity duration-300">
+            <!-- Skeleton Loading -->
+            <div class="space-y-4" id="skeleton-loader">
+                <div class="skeleton h-12 w-full"></div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="skeleton h-16 w-full"></div>
+                    <div class="skeleton h-16 w-full"></div>
+                    <div class="skeleton h-16 w-full"></div>
+                    <div class="skeleton h-16 w-full"></div>
+                </div>
             </div>
-            <progress id="progress-bar" class="progress progress-primary w-full" value="1" max="{{ total_items }}"></progress>
+
+            <!-- Load first item -->
+            <div hx-get="{% url 'budget:edit_item' budget.id item_ids.0 %}?in_queue=true"
+                 hx-trigger="load"
+                 hx-target="#current-item-form"
+                 hx-swap="innerHTML transition:true"
+                 class="hidden">
+            </div>
+        </div>
+    </div>
+
+    <div class="divider m-0"></div>
+
+    <!-- Footer - Actions -->
+    <div class="p-6 bg-base-50">
+        <div class="flex justify-between items-center gap-3">
+            <button type="button"
+                    class="btn btn-outline btn-sm gap-2"
+                    onclick="window.queueEditor.resetProgress()"
+                    title="Recomeçar do início">
+                <span class="material-icons text-sm">restart_alt</span>
+                Reiniciar
+            </button>
+
+            <div class="flex gap-2">
+                <button type="button"
+                        class="btn btn-ghost gap-2"
+                        onclick="window.queueEditor.skipCurrentItem()"
+                        title="Pular sem salvar (Shift+Enter)">
+                    <span class="material-icons">skip_next</span>
+                    Pular
+                </button>
+
+                <button type="button"
+                        id="save-and-next-btn"
+                        class="btn btn-primary gap-2"
+                        onclick="window.queueEditor.saveAndNext()"
+                        title="Salvar e ir para próximo (Enter)">
+                    <span class="material-icons">save</span>
+                    Salvar e Próximo
+                    <span class="loading loading-spinner loading-xs hidden" id="save-spinner"></span>
+                </button>
+
+                <button type="button"
+                        id="finish-btn"
+                        class="btn btn-success gap-2 hidden"
+                        onclick="window.queueEditor.finishQueue()">
+                    <span class="material-icons">check_circle</span>
+                    Finalizar
+                </button>
+            </div>
         </div>
 
-        <div class="flex justify-end gap-2">
-            <button type="button" class="btn btn-ghost" onclick="skipCurrentItem()">Pular</button>
-            <button type="button" id="save-and-next-btn" class="btn btn-primary" onclick="saveAndNext()">Salvar e Próximo</button>
-            <button type="button" id="finish-btn" class="btn btn-success" onclick="finishQueue()">Finalizar</button>
+        <!-- Keyboard shortcuts hint -->
+        <div class="text-xs text-base-content/50 mt-3 flex gap-4 justify-end">
+            <span><kbd class="kbd kbd-xs">Enter</kbd> Salvar</span>
+            <span><kbd class="kbd kbd-xs">Shift</kbd>+<kbd class="kbd kbd-xs">Enter</kbd> Pular</span>
+            <span><kbd class="kbd kbd-xs">Esc</kbd> Fechar</span>
         </div>
     </div>
 </div>
 
+
 <script>
+    // Queue Editor - Global scope for reusability
     (function () {
-        const container = document.getElementById('edit-queue-container');
-        const itemIds = container.dataset.itemIds.split(',').map(id => parseInt(id));
-        const budgetId = container.dataset.budgetId;
-        let currentIndex = 0;
+        const STORAGE_KEY = 'budget_queue_progress';
 
-        function updateProgress() {
-            const currentNum = currentIndex + 1;
-            const remaining = itemIds.length - currentIndex - 1;
-
-            document.getElementById('current-item-num').textContent = currentNum;
-            document.getElementById('remaining-items').textContent = remaining;
-            document.getElementById('progress-bar').value = currentNum;
-
-            // Mostrar botão "Finalizar" no último item
-            if (currentIndex === itemIds.length - 1) {
-                document.getElementById('save-and-next-btn').style.display = 'none';
-                document.getElementById('finish-btn').style.display = 'block';
-            }
-        }
-
-        function loadNextItem() {
-            if (currentIndex >= itemIds.length) {
-                finishQueue();
-                return;
-            }
-
-            const itemId = itemIds[currentIndex];
-            const url = `/budget/${budgetId}/item/${itemId}/edit/`;
-
-            htmx.ajax('GET', url, {
-                target: '#current-item-form',
-                swap: 'innerHTML'
-            }).then(() => updateProgress());
-        }
-
-        window.saveAndNext = function () {
-            const saveBtn = document.querySelector('#current-item-form .btn-primary[hx-vals*="save_only"]');
-            if (!saveBtn) {
-                skipCurrentItem();
-                return;
-            }
-
-            const listener = function(e) {
-                if (e.detail.xhr?.getResponseHeader('HX-Trigger')?.includes('update-summary')) {
-                    currentIndex++;
-                    loadNextItem();
-                    document.body.removeEventListener('htmx:afterSwap', listener);
+        class QueueEditor {
+            constructor() {
+                this.container = document.getElementById('edit-queue-modal');
+                if (!this.container) {
+                    console.error('Queue modal container not found');
+                    return;
                 }
-            };
 
-            document.body.addEventListener('htmx:afterSwap', listener);
+                this.itemIds = this.container.dataset.itemIds.split(',').map(id => parseInt(id));
+                this.budgetId = this.container.dataset.budgetId;
+                this.itemType = this.container.dataset.itemType;
+                this.currentIndex = 0;
+                this.isSaving = false;
 
-            htmx.trigger(saveBtn, 'click');
-        };
+                this.initElements();
+                this.loadProgress();
+                this.setupKeyboardShortcuts();
+                this.setupEventListeners();
+                this.updateProgress();
+            }
 
-        window.skipCurrentItem = function () {
-            currentIndex++;
-            loadNextItem();
-        };
+            initElements() {
+                this.currentItemNumEl = document.getElementById('current-item-num');
+                this.remainingItemsEl = document.getElementById('remaining-items');
+                this.progressBarEl = document.getElementById('progress-bar');
+                this.currentItemNameEl = document.getElementById('current-item-name');
+                this.saveNextBtn = document.getElementById('save-and-next-btn');
+                this.finishBtn = document.getElementById('finish-btn');
+                this.saveSpinner = document.getElementById('save-spinner');
+                this.formContainer = document.getElementById('current-item-form');
+                this.skeletonLoader = document.getElementById('skeleton-loader');
+            }
 
-        window.finishQueue = function () {
-            form_modal.close();
-            // Trigger refresh das tabelas via evento
-            htmx.trigger('#budget-card-content', 'budget-items-updated');
-        };
+            loadProgress() {
+                const saved = localStorage.getItem(STORAGE_KEY);
+                if (saved) {
+                    try {
+                        const data = JSON.parse(saved);
+                        if (data.budgetId === this.budgetId &&
+                            data.itemIds.join(',') === this.itemIds.join(',') &&
+                            data.currentIndex < this.itemIds.length) {
 
-        updateProgress();
+                            const shouldResume = confirm(
+                                `Você tem progresso salvo (${data.currentIndex + 1}/${this.itemIds.length} itens).\n` +
+                                'Deseja continuar de onde parou?'
+                            );
+
+                            if (shouldResume) {
+                                this.currentIndex = data.currentIndex;
+                                this.updateProgress();
+                                if (this.currentIndex > 0) {
+                                    this.loadNextItem();
+                                }
+                            } else {
+                                this.clearProgress();
+                            }
+                        } else {
+                            this.clearProgress();
+                        }
+                    } catch (e) {
+                        console.error('Error loading progress:', e);
+                        this.clearProgress();
+                    }
+                }
+            }
+
+            saveProgress() {
+                const data = {
+                    budgetId: this.budgetId,
+                    itemIds: this.itemIds,
+                    currentIndex: this.currentIndex,
+                    timestamp: Date.now()
+                };
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+            }
+
+            clearProgress() {
+                localStorage.removeItem(STORAGE_KEY);
+            }
+
+            setupKeyboardShortcuts() {
+                document.addEventListener('keydown', (e) => {
+                    // Don't trigger if user is typing in an input
+                    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+                        // Allow Enter in form to save
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            this.saveAndNext();
+                        }
+                        return;
+                    }
+
+                    if (e.key === 'Escape') {
+                        this.finishQueue();
+                    } else if (e.key === 'Enter' && e.shiftKey) {
+                        e.preventDefault();
+                        this.skipCurrentItem();
+                    } else if (e.key === 'Enter') {
+                        e.preventDefault();
+                        this.saveAndNext();
+                    }
+                });
+            }
+
+            setupEventListeners() {
+                // Listen for HTMX events
+                document.body.addEventListener('htmx:beforeRequest', (e) => {
+                    if (e.detail.target.id === 'current-item-form') {
+                        this.showSkeleton();
+                    }
+                });
+
+                document.body.addEventListener('htmx:afterSwap', (e) => {
+                    if (e.detail.target.id === 'current-item-form') {
+                        this.hideSkeleton();
+                        this.animateFormEntry();
+                        this.updateCurrentItemName();
+                    }
+                });
+
+                document.body.addEventListener('htmx:afterRequest', (e) => {
+                    if (e.detail.failed) {
+                        this.showToast('Erro ao carregar item. Tente novamente.', 'error');
+                    }
+                });
+            }
+
+            showSkeleton() {
+                if (this.skeletonLoader) {
+                    this.skeletonLoader.classList.remove('hidden');
+                }
+                if (this.formContainer) {
+                    this.formContainer.style.opacity = '0';
+                }
+            }
+
+            hideSkeleton() {
+                if (this.skeletonLoader) {
+                    this.skeletonLoader.classList.add('hidden');
+                }
+                if (this.formContainer) {
+                    setTimeout(() => {
+                        this.formContainer.style.opacity = '1';
+                    }, 50);
+                }
+            }
+
+            animateFormEntry() {
+                const form = this.formContainer?.querySelector('form');
+                if (form) {
+                    form.classList.add('animate-fade-in');
+                    setTimeout(() => form.classList.remove('animate-fade-in'), 300);
+                }
+            }
+
+            updateCurrentItemName() {
+                const titleEl = this.formContainer?.querySelector('h3');
+                if (titleEl && this.currentItemNameEl) {
+                    const itemName = titleEl.textContent.replace('Editar Item:', '').trim();
+                    this.currentItemNameEl.textContent = itemName;
+                }
+            }
+
+            updateProgress() {
+                const currentNum = this.currentIndex + 1;
+                const remaining = this.itemIds.length - currentNum;
+
+                if (this.currentItemNumEl) this.currentItemNumEl.textContent = currentNum;
+                if (this.remainingItemsEl) this.remainingItemsEl.textContent = remaining;
+                if (this.progressBarEl) this.progressBarEl.value = currentNum;
+
+                // Show "Finalizar" button on last item
+                const isLastItem = this.currentIndex === this.itemIds.length - 1;
+                if (this.saveNextBtn && this.finishBtn) {
+                    this.saveNextBtn.classList.toggle('hidden', isLastItem);
+                    this.finishBtn.classList.toggle('hidden', !isLastItem);
+                }
+
+                this.saveProgress();
+            }
+
+            loadNextItem() {
+                if (this.currentIndex >= this.itemIds.length) {
+                    this.finishQueue();
+                    return;
+                }
+
+                const itemId = this.itemIds[this.currentIndex];
+                const url = `/budget/${this.budgetId}/item/${itemId}/edit/?in_queue=true`;
+
+                htmx.ajax('GET', url, {
+                    target: '#current-item-form',
+                    swap: 'innerHTML transition:true'
+                }).then(() => {
+                    this.updateProgress();
+                }).catch((error) => {
+                    console.error('Error loading item:', error);
+                    this.showToast('Erro ao carregar próximo item', 'error');
+                });
+            }
+
+            async saveAndNext() {
+                if (this.isSaving) return;
+
+                // Find the save button in current form
+                const saveBtn = this.formContainer?.querySelector('[hx-vals*="save_only"]');
+                if (!saveBtn) {
+                    this.showToast('Formulário não encontrado', 'warning');
+                    this.skipCurrentItem();
+                    return;
+                }
+
+                this.isSaving = true;
+                this.setLoadingState(true);
+
+                // Listen for successful save
+                const listener = (e) => {
+                    const trigger = e.detail.xhr?.getResponseHeader('HX-Trigger');
+                    if (trigger && trigger.includes('update-summary')) {
+                        this.isSaving = false;
+                        this.setLoadingState(false);
+                        this.showToast('Item salvo com sucesso!', 'success');
+
+                        // Move to next item
+                        this.currentIndex++;
+                        this.loadNextItem();
+
+                        document.body.removeEventListener('htmx:afterSwap', listener);
+                    }
+                };
+
+                // Timeout fallback
+                const timeout = setTimeout(() => {
+                    document.body.removeEventListener('htmx:afterSwap', listener);
+                    this.isSaving = false;
+                    this.setLoadingState(false);
+                }, 5000);
+
+                document.body.addEventListener('htmx:afterSwap', listener);
+
+                // Trigger the save
+                htmx.trigger(saveBtn, 'click');
+            }
+
+            skipCurrentItem() {
+                if (this.isSaving) return;
+
+                this.currentIndex++;
+                this.loadNextItem();
+                this.showToast('Item pulado', 'info');
+            }
+
+            resetProgress() {
+                if (confirm('Deseja realmente recomeçar do início? O progresso atual será perdido.')) {
+                    this.currentIndex = 0;
+                    this.clearProgress();
+                    this.loadNextItem();
+                    this.showToast('Progresso reiniciado', 'info');
+                }
+            }
+
+            finishQueue() {
+                this.clearProgress();
+                this.showToast('Edição em fila concluída! 🎉', 'success');
+
+                // Close modal
+                const modal = document.getElementById('form_modal');
+                if (modal) {
+                    modal.close();
+                }
+
+                // Refresh the page to show updated items
+                setTimeout(() => {
+                    window.location.reload();
+                }, 500);
+            }
+
+            setLoadingState(loading) {
+                if (this.saveNextBtn) {
+                    this.saveNextBtn.disabled = loading;
+                }
+                if (this.saveSpinner) {
+                    this.saveSpinner.classList.toggle('hidden', !loading);
+                }
+            }
+
+            showToast(message, type = 'info') {
+                // Simple toast notification using browser alert for now
+                // Can be replaced with a proper toast library
+                console.log(`[${type.toUpperCase()}] ${message}`);
+
+                // Dispatch custom event for toast
+                const event = new CustomEvent('showToast', {
+                    detail: { message, type }
+                });
+                document.body.dispatchEvent(event);
+            }
+        }
+
+        // Initialize when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+                window.queueEditor = new QueueEditor();
+            });
+        } else {
+            window.queueEditor = new QueueEditor();
+        }
     })();
 </script>
+
+<!-- Add CSS for animations -->
+<style>
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .animate-fade-in {
+        animation: fadeIn 0.3s ease-out;
+    }
+
+    #progress-bar {
+        transition: all 0.3s ease-out;
+    }
+
+    #current-item-form {
+        transition: opacity 0.2s ease-in-out;
+    }
+</style>
+

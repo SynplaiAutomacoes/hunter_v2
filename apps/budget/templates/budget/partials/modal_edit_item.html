@@ -1,48 +1,165 @@
-<div class="modal-box w-11/12 max-w-2xl">
-    <h3 class="font-bold text-lg mb-4">Editar Item: {{ item.description }}</h3>
+{% load crispy_forms_tags %}
+
+<div class="modal-content-wrapper">
+    <!-- Header with icon and title -->
+    <div class="mb-6">
+        <div class="flex items-center gap-3 mb-2">
+            <span class="material-icons text-primary text-3xl">edit</span>
+            <h3 class="font-bold text-2xl text-base-content">{{ item.description|truncatewords:8 }}</h3>
+        </div>
+        <p class="text-sm text-base-content/60 ml-11">
+            Configure os detalhes do item para este orçamento
+        </p>
+    </div>
 
     <form hx-post="{% url 'budget:edit_item' budget_id item.pk %}"
           hx-vals="{'action': 'save_only'}"
           hx-target="#current-item-form"
-          hx-swap="none">
+          hx-swap="none"
+          id="edit-item-form"
+          class="space-y-4">
         {% csrf_token %}
 
-        <div class="grid grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             {% for field in form %}
-                <div class="form-control w-full">
+                <div class="form-control w-full {% if 'description' in field.name or 'descri' in field.name %}md:col-span-2{% endif %}">
                     <label class="label">
-                        <span class="label-text">{{ field.label }}</span>
+                        <span class="label-text font-semibold flex items-center gap-2">
+                            {% if 'description' in field.name or 'descri' in field.name %}
+                                <span class="material-icons text-sm">description</span>
+                            {% elif 'quant' in field.name %}
+                                <span class="material-icons text-sm">numbers</span>
+                            {% elif 'price' in field.name or 'venda' in field.name %}
+                                <span class="material-icons text-sm">payments</span>
+                            {% elif 'cost' in field.name or 'custo' in field.name %}
+                                <span class="material-icons text-sm">money_off</span>
+                            {% elif 'shipping' in field.name or 'frete' in field.name %}
+                                <span class="material-icons text-sm">local_shipping</span>
+                            {% elif 'duration' in field.name or 'tempo' in field.name %}
+                                <span class="material-icons text-sm">schedule</span>
+                            {% else %}
+                                <span class="material-icons text-sm">info</span>
+                            {% endif %}
+                            {{ field.label }}
+                            {% if field.field.required %}
+                                <span class="text-error">*</span>
+                            {% endif %}
+                        </span>
                     </label>
                     {{ field }}
                     {% if field.errors %}
-                        <span class="text-error text-sm">{{ field.errors }}</span>
+                        <label class="label">
+                            <span class="label-text-alt text-error flex items-center gap-1">
+                                <span class="material-icons text-xs">error</span>
+                                {{ field.errors.0 }}
+                            </span>
+                        </label>
+                    {% endif %}
+                    {% if field.help_text %}
+                        <label class="label">
+                            <span class="label-text-alt text-base-content/50">{{ field.help_text }}</span>
+                        </label>
                     {% endif %}
                 </div>
             {% endfor %}
         </div>
 
-        <div class="modal-action">
-            <button type="button" class="btn" onclick="form_modal.close()">Cancelar</button>
+        <div class="divider"></div>
 
+        <div class="flex flex-col sm:flex-row justify-between items-center gap-3 pt-2">
+            <!-- Left side - Cancel -->
             <button type="button"
-                hx-post="{% url 'budget:edit_item' budget_id item.pk %}"
-                hx-vals='{"action": "update_master"}'
-                hx-include="closest form"
-                hx-target="body"
-                hx-swap="none"
-                class="btn">
-                Atualizar Cadastro
+                    class="btn btn-ghost gap-2 w-full sm:w-auto order-3 sm:order-1"
+                    onclick="form_modal.close()">
+                <span class="material-icons text-sm">close</span>
+                Cancelar
             </button>
 
-        <button type="button"
-                hx-post="{% url 'budget:edit_item' budget_id item.pk %}"
-                hx-target="#{% if item.product %}product-item-{{ item.product.id }}{% elif item.service %}service-item-{{ item.service.id }}{% else %}kit-item-{{ item.kit.id }}{% endif %}"
-                hx-swap="outerHTML"
-                hx-vals='{"action": "save_only"}'
-                hx-include="closest form"
-                class="btn btn-primary">
-            Salvar
-        </button>
+            <!-- Right side - Action buttons -->
+            <div class="flex flex-col sm:flex-row gap-2 w-full sm:w-auto order-1 sm:order-2">
+                <button type="button"
+                        hx-post="{% url 'budget:edit_item' budget_id item.pk %}"
+                        hx-vals='{"action": "update_master"}'
+                        hx-include="closest form"
+                        hx-target="body"
+                        hx-swap="none"
+                        class="btn btn-accent gap-2 w-full sm:w-auto tooltip tooltip-top"
+                        data-tip="Atualiza permanentemente no catálogo">
+                    <span class="material-icons text-sm">cloud_upload</span>
+                    Atualizar Cadastro
+                </button>
+
+                <button type="button"
+                        hx-post="{% url 'budget:edit_item' budget_id item.pk %}"
+                        hx-target="#{% if item.product %}product-item-{{ item.product.id }}{% elif item.service %}service-item-{{ item.service.id }}{% else %}kit-item-{{ item.kit.id }}{% endif %}"
+                        hx-swap="outerHTML"
+                        hx-vals='{"action": "save_only"}'
+                        hx-include="closest form"
+                        class="btn btn-primary gap-2 w-full sm:w-auto tooltip tooltip-top"
+                        data-tip="Salva apenas neste orçamento">
+                    <span class="material-icons text-sm">save</span>
+                    Salvar
+                </button>
+            </div>
+        </div>
+
+        <!-- Help text -->
+        <div class="alert alert-info mt-4">
+            <span class="material-icons text-lg">info</span>
+            <div class="text-xs">
+                <p class="font-semibold mb-1">Diferença entre Salvar e Atualizar Cadastro:</p>
+                <ul class="list-disc list-inside space-y-1">
+                    <li><strong>Salvar:</strong> Altera apenas neste orçamento</li>
+                    <li><strong>Atualizar Cadastro:</strong> Salvar dados de forma definitiva no sistema</li>
+                </ul>
+            </div>
         </div>
     </form>
 </div>
+
+<script>
+    (function() {
+        const firstInput = document.querySelector('#edit-item-form input:not([type="hidden"]), #edit-item-form select, #edit-item-form textarea');
+        if (firstInput) {
+            setTimeout(() => firstInput.focus(), 100);
+        }
+
+        // Add loading state to save buttons
+        const saveButtons = document.querySelectorAll('#edit-item-form [hx-post]');
+        saveButtons.forEach(btn => {
+            btn.addEventListener('click', function() {
+                const icon = this.querySelector('.material-icons');
+                if (icon) {
+                    const originalIcon = icon.textContent;
+                    icon.textContent = 'hourglass_empty';
+                    icon.classList.add('animate-spin');
+
+                    setTimeout(() => {
+                        icon.textContent = originalIcon;
+                        icon.classList.remove('animate-spin');
+                    }, 2000);
+                }
+            });
+        });
+    })();
+</script>
+
+<style>
+    .animate-spin {
+        animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+
+    /* Improve input focus states */
+    #edit-item-form input:focus,
+    #edit-item-form select:focus,
+    #edit-item-form textarea:focus {
+        outline: 2px solid oklch(var(--p));
+        outline-offset: 2px;
+    }
+</style>
+
