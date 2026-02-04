@@ -445,3 +445,11 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
         }
 
         return render(request, "budget/partials/modal_edit_queue.html", context)
+
+
+class BudgetSummaryView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    """Retorna apenas o partial do resumo do orçamento para atualização via HTMX."""
+
+    def get(self, request, budget_id):
+        budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
+        return render(request, 'budget/partials/budget_summary.html', {'budget': budget})

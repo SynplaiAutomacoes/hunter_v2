@@ -24,4 +24,6 @@ urlpatterns = [
 
     path("save-observation/", views.SaveObservationView.as_view(), name="save_observation"),
     path("image-view/<int:pk>", views.BudgetImageView.as_view(), name="image_view"),
+    path("<int:budget_id>/add-items-batch/<str:item_type>/", views.AddItemsBatchToBudgetView.as_view(), name="add_items_batch"),
+    path("<int:budget_id>/summary/", views.BudgetSummaryView.as_view(), name="budget_summary"),
 ]

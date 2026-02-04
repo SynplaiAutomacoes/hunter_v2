@@ -625,12 +625,9 @@ class BudgetStep4Form(forms.ModelForm):
                     Div(
                         HTML('<h2 class="text-2xl font-bold mb-4 mt-8">Resumo</h2>'),
                         Div(
-                            Div(HTML(f"<span>Total Produtos</span><span>{budget.total_products_value}</span>"), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
-                            Div(HTML(f"<span>Total Serviços</span><span>{budget.total_services_value}</span>"), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
-                            Div(HTML(f"<span>Total Frete</span><span>R$ 0,00</span>"), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
-                            Div(HTML(f"<span>Tempo Total</span><span>{budget.total_duration_display}</span>"), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
-                            Div(HTML(f'<span class="font-bold">Total Geral</span><span class="font-bold">{budget.total_base_value}</span>'), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
+                            HTML(render_to_string("budget/partials/budget_summary.html", {"budget": budget})),
                             css_class="sticky top-4",
+                            css_id="budget-summary",
                         ),
                         css_class="p-6 h-fit text-lg",
                     ),
@@ -638,6 +635,21 @@ class BudgetStep4Form(forms.ModelForm):
                 ),
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
             ),
+        )
+
+        # Adicionar listener para atualizar resumo dinamicamente
+        self.helper.layout.append(
+            HTML(f"""
+            <script>
+            document.body.addEventListener('update-summary', function() {{
+                // Recarrega apenas a coluna de resumo via HTMX
+                htmx.ajax('GET', '{reverse("budget:budget_summary", kwargs={"budget_id": budget.pk})}', {{
+                    target: '#budget-summary',
+                    swap: 'innerHTML'
+                }});
+            }});
+            </script>
+            """)
         )
 
     def save(self, commit=True):
