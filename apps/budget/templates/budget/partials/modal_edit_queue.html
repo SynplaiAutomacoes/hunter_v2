@@ -1,9 +1,16 @@
-<div class="modal-box w-2xl max-w-6xl bg-base-100 p-0 overflow-hidden"
+<div class="modal-box w-11/12 max-w-6xl bg-base-100 p-0 overflow-hidden relative"
      data-item-ids="{{ item_ids|join:',' }}"
      data-current-index="0"
      data-budget-id="{{ budget.id }}"
      data-item-type="{{ item_type }}"
      id="edit-queue-modal">
+
+    <!-- Cancel button in top right corner -->
+    <button type="button"
+            class="btn btn-sm btn-circle btn-ghost absolute top-2 right-2 z-20 text-primary-content hover:bg-primary-content/20"
+            onclick="window.queueEditor.finishQueue()">
+        ✕
+    </button>
 
     <!-- Header -->
     <div class="bg-gradient-to-r from-primary to-primary-focus p-6 text-primary-content">

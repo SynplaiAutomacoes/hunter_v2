@@ -1,15 +1,27 @@
 {% load crispy_forms_tags %}
 
-<div class="modal-content-wrapper">
-    <!-- Header with icon and title -->
+<div class="modal-content-wrapper relative">
+    <!-- Header with title and Update button -->
     <div class="mb-6">
-        <div class="flex items-center gap-3 mb-2">
-            <span class="material-icons text-primary text-3xl">edit</span>
-            <h3 class="font-bold text-2xl text-base-content">{{ item.description|truncatewords:8 }}</h3>
+        <div class="flex items-center justify-between gap-3">
+            <!-- Left side - Icon and Title -->
+            <div class="flex items-center gap-3">
+                <span class="material-icons text-primary text-3xl">edit</span>
+                <h3 class="font-bold text-2xl text-base-content">{{ item.description|truncatewords:8 }}</h3>
+            </div>
+
+            <!-- Right side - Update Master button -->
+            <button type="button"
+                    hx-post="{% url 'budget:edit_item' budget_id item.pk %}"
+                    hx-vals='{"action": "update_master"}'
+                    hx-include="#edit-item-form"
+                    hx-target="body"
+                    hx-swap="none"
+                    class="btn btn-accent gap-2">
+                <span class="material-icons text-sm">cloud_upload</span>
+                Atualizar Cadastro
+            </button>
         </div>
-        <p class="text-sm text-base-content/60 ml-11">
-            Configure os detalhes do item para este orçamento
-        </p>
     </div>
 
     <form hx-post="{% url 'budget:edit_item' budget_id item.pk %}"
@@ -55,64 +67,8 @@
                             </span>
                         </label>
                     {% endif %}
-                    {% if field.help_text %}
-                        <label class="label">
-                            <span class="label-text-alt text-base-content/50">{{ field.help_text }}</span>
-                        </label>
-                    {% endif %}
                 </div>
             {% endfor %}
-        </div>
-
-        <div class="divider"></div>
-
-        <div class="flex flex-col sm:flex-row justify-between items-center gap-3 pt-2">
-            <!-- Left side - Cancel -->
-            <button type="button"
-                    class="btn btn-ghost gap-2 w-full sm:w-auto order-3 sm:order-1"
-                    onclick="form_modal.close()">
-                <span class="material-icons text-sm">close</span>
-                Cancelar
-            </button>
-
-            <!-- Right side - Action buttons -->
-            <div class="flex flex-col sm:flex-row gap-2 w-full sm:w-auto order-1 sm:order-2">
-                <button type="button"
-                        hx-post="{% url 'budget:edit_item' budget_id item.pk %}"
-                        hx-vals='{"action": "update_master"}'
-                        hx-include="closest form"
-                        hx-target="body"
-                        hx-swap="none"
-                        class="btn btn-accent gap-2 w-full sm:w-auto tooltip tooltip-top"
-                        data-tip="Atualiza permanentemente no catálogo">
-                    <span class="material-icons text-sm">cloud_upload</span>
-                    Atualizar Cadastro
-                </button>
-
-                <button type="button"
-                        hx-post="{% url 'budget:edit_item' budget_id item.pk %}"
-                        hx-target="#{% if item.product %}product-item-{{ item.product.id }}{% elif item.service %}service-item-{{ item.service.id }}{% else %}kit-item-{{ item.kit.id }}{% endif %}"
-                        hx-swap="outerHTML"
-                        hx-vals='{"action": "save_only"}'
-                        hx-include="closest form"
-                        class="btn btn-primary gap-2 w-full sm:w-auto tooltip tooltip-top"
-                        data-tip="Salva apenas neste orçamento">
-                    <span class="material-icons text-sm">save</span>
-                    Salvar
-                </button>
-            </div>
-        </div>
-
-        <!-- Help text -->
-        <div class="alert alert-info mt-4">
-            <span class="material-icons text-lg">info</span>
-            <div class="text-xs">
-                <p class="font-semibold mb-1">Diferença entre Salvar e Atualizar Cadastro:</p>
-                <ul class="list-disc list-inside space-y-1">
-                    <li><strong>Salvar:</strong> Altera apenas neste orçamento</li>
-                    <li><strong>Atualizar Cadastro:</strong> Salvar dados de forma definitiva no sistema</li>
-                </ul>
-            </div>
         </div>
     </form>
 </div>
@@ -124,10 +80,9 @@
             setTimeout(() => firstInput.focus(), 100);
         }
 
-        // Add loading state to save buttons
-        const saveButtons = document.querySelectorAll('#edit-item-form [hx-post]');
-        saveButtons.forEach(btn => {
-            btn.addEventListener('click', function() {
+        const updateButton = document.querySelector('[hx-vals*="update_master"]');
+        if (updateButton) {
+            updateButton.addEventListener('click', function() {
                 const icon = this.querySelector('.material-icons');
                 if (icon) {
                     const originalIcon = icon.textContent;
@@ -140,7 +95,7 @@
                     }, 2000);
                 }
             });
-        });
+        }
     })();
 </script>
 
