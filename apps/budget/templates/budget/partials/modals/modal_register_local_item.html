@@ -1,20 +1,20 @@
+{% extends "budget/partials/modals/base.html" %}
 {% load crispy_forms_tags %}
 
-<div class="modal-content-wrapper bg-base-100 p-6 rounded-lg">
-    <div class="mb-6">
-        <div class="flex items-center justify-between gap-3">
-            <div class="flex items-center gap-3">
-                <span class="material-icons text-accent text-3xl">cloud_upload</span>
-                <h3 class="font-bold text-2xl text-base-content">{{ title }}</h3>
-            </div>
-        </div>
+{% block modal_icon %}
+<span class="material-icons text-accent text-3xl">cloud_upload</span>
+{% endblock %}
 
-        <div class="alert alert-warning mt-4">
-            <span class="material-icons">info</span>
-            <span>Este item está cadastrado apenas neste orçamento. Complete os dados obrigatórios para cadastrá-lo no banco de dados e poder aprovar o orçamento.</span>
-        </div>
-    </div>
+{% block modal_title %}{{ title }}{% endblock %}
 
+{% block modal_alert %}
+<div class="alert alert-warning mt-4">
+    <span class="material-icons">info</span>
+    <span>Este item está cadastrado apenas neste orçamento. Complete os dados obrigatórios para cadastrá-lo no banco de dados e poder aprovar o orçamento.</span>
+</div>
+{% endblock %}
+
+{% block modal_content %}
     <form hx-post="{% url 'budget:register_local_item' budget_id item_id %}"
           hx-swap="none"
           id="register-local-form"
@@ -60,10 +60,4 @@
             </button>
         </div>
     </form>
-</div>
-
-<script>
-    document.body.addEventListener('closeModal', function() {
-        document.getElementById('form_modal').close();
-    });
-</script>
+{% endblock %}

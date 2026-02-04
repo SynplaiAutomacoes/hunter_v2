@@ -1,4 +1,4 @@
-<tr id="product-item-{% if item.product %}{{ item.product.id }}{% else %}local-{{ item.id }}{% endif %}" {% if not is_full_render %}hx-swap-oob="true"{% endif %}>
+<tr id="budget-item-{{ item.id }}" {% if not is_full_render %}hx-swap-oob="true"{% endif %}>
     <td>
         <div class="flex items-center justify-between gap-2">
             <div class="flex items-center gap-2">

@@ -200,10 +200,10 @@ class BudgetStep1Form(forms.ModelForm):
                         HTML('<h2 class="text-2xl font-bold mb-4 pb-2">Resumo</h2>'),
                         # Cliente
                         HTML('<h4 class="text-lg font-bold mb-2">Cliente</h4>'),
-                        Div(HTML(render_to_string("budget/partials/customer_resume.html", {"customer": self.instance.customer})), id="resumo-cliente", css_class="mb-6 overflow-x-auto"),
+                        Div(HTML(render_to_string("budget/partials/components/customer_resume.html", {"customer": self.instance.customer})), id="resumo-cliente", css_class="mb-6 overflow-x-auto"),
                         # Veículo
                         HTML('<h4 class="text-lg font-bold mb-2">Veículo</h4>'),
-                        Div(HTML(render_to_string("budget/partials/vehicle_resume.html", {"vehicle": self.instance.vehicle})), id="resumo-veiculo", css_class="overflow-x-auto"),
+                        Div(HTML(render_to_string("budget/partials/components/vehicle_resume.html", {"vehicle": self.instance.vehicle})), id="resumo-veiculo", css_class="overflow-x-auto"),
                     ),
                     css_class="col-span-12 lg:col-span-5",
                 ),
@@ -410,7 +410,7 @@ class BudgetStep3Form(forms.ModelForm):
                     Div(
                         HTML('<h3 class="text-2xl font-bold mb-4">Diagnóstico Técnico</h3>'),
                         HTML(f'''
-                            {{% include "budget/partials/collaborator_field.html" with field=form.collaborator initial_collab_id="{initial_collab_id}" %}}
+                            {{% include "budget/partials/components/collaborator_field.html" with field=form.collaborator initial_collab_id="{initial_collab_id}" %}}
                         '''),
                         #
                         HTML('<label class="block text-gray-700 font-bold mb-2">Adicione os defeitos encontrados durante a inspeção</label>'),
@@ -531,13 +531,13 @@ class BudgetStep4Form(forms.ModelForm):
                 context = {"item": item, "budget": budget, "is_full_render": True}
                 # Produto: item.product existe OU é local com custo/venda de produto preenchido
                 if item.product or (item.is_local and (item.product_cost_price.amount > 0 or item.product_selling_price.amount > 0 or item.shipping.amount > 0)):
-                    products_html += render_to_string("budget/partials/item_product_row.html", context)
+                    products_html += render_to_string("budget/partials/items/item_product_row.html", context)
                 # Serviço: item.service existe OU é local com custo/venda de serviço preenchido ou duração
                 elif item.service or (item.is_local and (item.service_cost_price.amount > 0 or item.service_selling_price.amount > 0 or item.duration)):
-                    services_html += render_to_string("budget/partials/item_service_row.html", context)
+                    services_html += render_to_string("budget/partials/items/item_service_row.html", context)
                 # Kit
                 elif item.kit:
-                    kits_html += render_to_string("budget/partials/item_kit_row.html", context)
+                    kits_html += render_to_string("budget/partials/items/item_kit_row.html", context)
 
         if not products_html:
             products_html = '<tr><td colspan="6" class="text-center text-gray-400 py-4">Nenhum produto adicionado</td></tr>'
@@ -652,7 +652,7 @@ class BudgetStep4Form(forms.ModelForm):
                     Div(
                         HTML('<h2 class="text-2xl font-bold mb-4 mt-8">Resumo</h2>'),
                         Div(
-                            HTML(render_to_string("budget/partials/budget_summary.html", {"budget": budget})),
+                            HTML(render_to_string("budget/partials/components/budget_summary.html", {"budget": budget})),
                             css_class="sticky top-4",
                             css_id="budget-summary",
                         ),
@@ -1009,13 +1009,13 @@ class BudgetStep6Form(forms.ModelForm):
                 context = {"item": item, "budget": budget, "is_full_render": True, "step6": True}
                 # Produto: item.product existe OU é local com custo/venda de produto preenchido
                 if item.product or (item.is_local and (item.product_cost_price.amount > 0 or item.product_selling_price.amount > 0 or item.shipping.amount > 0)):
-                    products_html += render_to_string("budget/partials/item_product_row.html", context)
+                    products_html += render_to_string("budget/partials/items/item_product_row.html", context)
                 # Serviço: item.service existe OU é local com custo/venda de serviço preenchido ou duração
                 elif item.service or (item.is_local and (item.service_cost_price.amount > 0 or item.service_selling_price.amount > 0 or item.duration)):
-                    services_html += render_to_string("budget/partials/item_service_row.html", context)
+                    services_html += render_to_string("budget/partials/items/item_service_row.html", context)
                 # Kit
                 elif item.kit:
-                    kits_html += render_to_string("budget/partials/item_kit_row.html", context)
+                    kits_html += render_to_string("budget/partials/items/item_kit_row.html", context)
 
         if not products_html:
             products_html = '<tr><td colspan="5" class="text-center text-gray-400 py-4">Nenhum produto adicionado</td></tr>'
@@ -1397,5 +1397,6 @@ class QuickServiceForm(forms.ModelForm):
         self.fields["name"].label = "Nome do Serviço"
         self.fields["duration"].label = "Duração"
         self.fields["selling_price"].label = "Valor de Venda"
+
 
 

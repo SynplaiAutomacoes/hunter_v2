@@ -15,6 +15,8 @@ from djmoney.money import Money
 
 from apps.budget.forms import BudgetItemEditForm, BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form, LocalServiceForm, LocalProductForm
 from apps.budget.models import Budget, BudgetItem, BudgetStatus
+from apps.budget.utils import HtmxResponseHelper
+from apps.budget.fields import DurationField
 from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
@@ -186,7 +188,7 @@ class CustomerDetailView(View):
         customer = None
         if customer_id:
             customer = get_object_or_404(Customer, id=customer_id)
-        return render(request, "budget/partials/customer_resume.html", {"customer": customer})
+        return render(request, "budget/partials/components/customer_resume.html", {"customer": customer})
 
 
 class VehicleListView(View):
@@ -208,12 +210,12 @@ class VehicleDetailView(View):
         vehicle = None
         if vehicle_id:
             vehicle = get_object_or_404(Vehicle, id=vehicle_id)
-        return render(request, "budget/partials/vehicle_resume.html", {"vehicle": vehicle})
+        return render(request, "budget/partials/components/vehicle_resume.html", {"vehicle": vehicle})
 
 
 class ItemSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     model = Budget
-    template_name = "budget/partials/modal_item_list.html"
+    template_name = "budget/partials/modals/modal_item_list.html"
     workshop_permission_codename = "add_budget"
 
     def get_context_data(self, **kwargs):
@@ -401,7 +403,7 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
             "budget_id": budget_id,
             "in_queue": in_queue
         }
-        return render(request, "budget/partials/modal_edit_item.html", context)
+        return render(request, "budget/partials/modals/modal_edit_item.html", context)
 
     def post(self, request, budget_id, item_id):
         item = get_object_or_404(BudgetItem, pk=item_id, budget_id=budget_id)
@@ -412,13 +414,10 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
             if action == "update_master":
                 self.update_master_record(item)
-                # Notificações via toast, sem swap de conteúdo
-                response = HttpResponse()
-                response["HX-Trigger"] = json.dumps({
-                    "showToast": {"message": "Cadastro atualizado com sucesso.", "type": "success"},
-                    "update-summary": {}
-                })
-                return response
+                return HtmxResponseHelper.success(
+                    "Cadastro atualizado com sucesso.",
+                    update_summary=True
+                )
 
             # Para action "save_only" - retorna HTML da linha atualizada
             # Identificar tipo de item (incluindo locais)
@@ -426,24 +425,23 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
             is_local_service = item.is_local and (item.service_cost_price.amount > 0 or item.service_selling_price.amount > 0 or item.duration)
 
             if item.product or is_local_product:
-                template = "budget/partials/item_product_row.html"
+                template = "budget/partials/items/item_product_row.html"
             elif item.service or is_local_service:
-                template = "budget/partials/item_service_row.html"
+                template = "budget/partials/items/item_service_row.html"
             else:
-                template = "budget/partials/item_kit_row.html"
+                template = "budget/partials/items/item_kit_row.html"
 
             context = {"item": item, "budget": item.budget, "is_full_render": False}
             row_html = render_to_string(template, context)
 
-            response = HttpResponse(row_html)
-            response["HX-Trigger"] = json.dumps({
-                "showToast": {"message": "Item atualizado com sucesso!", "type": "success"},
-                "update-summary": {},
-                "closeModal": True
-            })
-            return response
+            return HtmxResponseHelper.success(
+                "Item atualizado com sucesso!",
+                close_modal=True,
+                update_summary=True,
+                content=row_html
+            )
 
-        return render(request, "budget/partials/modal_edit_item.html", {"form": form, "item": item, "budget_id": budget_id})
+        return render(request, "budget/partials/modals/modal_edit_item.html", {"form": form, "item": item, "budget_id": budget_id})
 
     def update_master_record(self, item):
         if item.product:
@@ -491,15 +489,9 @@ class BudgetItemCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
             raw_duration = request.POST.get("duration")
             if raw_duration:
                 try:
-                    parts = [int(p) for p in raw_duration.split(":")]
-                    if len(parts) == 3:
-                        duration = timedelta(hours=parts[0], minutes=parts[1], seconds=parts[2])
-                    elif len(parts) == 2:
-                        duration = timedelta(hours=parts[0], minutes=parts[1])
-                    elif len(parts) == 1:
-                        duration = timedelta(hours=parts[0])
-                    else:
-                        duration = timedelta()
+                    duration = DurationField.parse_duration(raw_duration)
+                except Exception:
+                    duration = timedelta()
                 except (ValueError, TypeError):
                     duration = timedelta()
             else:
@@ -574,7 +566,7 @@ class BudgetItemCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
             "oob_fields": oob_fields,
         }
 
-        response = render(request, "budget/partials/modal_edit_item_fields.html", context)
+        response = render(request, "budget/partials/modals/modal_edit_item_fields.html", context)
 
         # Add toast error if WorkshopCost is missing
         if workshop_cost_missing:
@@ -652,7 +644,7 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
             "current_index": 0,
         }
 
-        return render(request, "budget/partials/modal_edit_queue.html", context)
+        return render(request, "budget/partials/modals/modal_edit_queue.html", context)
 
 
 class BudgetSummaryView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -662,7 +654,7 @@ class BudgetSummaryView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def get(self, request, budget_id):
         budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
-        return render(request, 'budget/partials/budget_summary.html', {'budget': budget})
+        return render(request, 'budget/partials/components/budget_summary.html', {'budget': budget})
 
 
 class BudgetStep3CollaboratorFieldView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -689,7 +681,7 @@ class BudgetStep3CollaboratorFieldView(LoginRequiredMixin, WorkshopScopedMixin, 
             'initial_collab_id': initial_collab_id,
         }
 
-        return render(request, 'budget/partials/collaborator_field.html', context)
+        return render(request, 'budget/partials/components/collaborator_field.html', context)
 
 
 class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -715,7 +707,7 @@ class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
             "item_type": item_type,
             "title": title,
         }
-        return render(request, "budget/partials/modal_create_local_item.html", context)
+        return render(request, "budget/partials/modals/modal_create_local_item.html", context)
 
     def post(self, request, budget_id, item_type):
         budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
@@ -736,9 +728,9 @@ class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
             # Retornar HTML da linha do item criado
             if item_type == "product":
-                template = "budget/partials/item_product_row.html"
+                template = "budget/partials/items/item_product_row.html"
             else:
-                template = "budget/partials/item_service_row.html"
+                template = "budget/partials/items/item_service_row.html"
 
             context = {
                 "item": item,
@@ -749,16 +741,12 @@ class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
             row_html = render_to_string(template, context)
 
             # Fechar modal e adicionar linha na tabela
-            response = HttpResponse(row_html)
-            response["HX-Trigger"] = json.dumps({
-                "showToast": {
-                    "message": f"{'Produto' if item_type == 'product' else 'Serviço'} local criado com sucesso!",
-                    "type": "success"
-                },
-                "closeModal": True,
-                "update-summary": {}
-            })
-            return response
+            return HtmxResponseHelper.success(
+                f"{'Produto' if item_type == 'product' else 'Serviço'} local criado com sucesso!",
+                close_modal=True,
+                update_summary=True,
+                content=row_html
+            )
 
         context = {
             "form": form,
@@ -766,7 +754,8 @@ class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
             "item_type": item_type,
             "title": f"Incluir Novo {'Produto' if item_type == 'product' else 'Serviço'} Local",
         }
-        return render(request, "budget/partials/modal_create_local_item.html", context)
+        return render(request, "budget/partials/modals/modal_create_local_item.html", context)
+
 
 
 class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -811,7 +800,7 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
             "title": title,
             "is_register_mode": True,  # Flag para identificar que é registro de item local
         }
-        return render(request, "budget/partials/modal_quick_create.html", context)
+        return render(request, "budget/partials/modals/modal_quick_create.html", context)
 
     def post(self, request, budget_id, item_id):
         from apps.budget.forms import QuickProductForm, QuickServiceForm
@@ -834,15 +823,14 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
                 # Retornar a linha atualizada com OOB swap
                 context = {"item": item, "budget": item.budget, "is_full_render": False}
-                row_html = render_to_string("budget/partials/item_product_row.html", context)
+                row_html = render_to_string("budget/partials/items/item_product_row.html", context)
 
-                response = HttpResponse(row_html)
-                response["HX-Trigger"] = json.dumps({
-                    "showToast": {"message": "Produto cadastrado com sucesso!", "type": "success"},
-                    "closeModal": True,
-                    "update-summary": {}
-                })
-                return response
+                return HtmxResponseHelper.success(
+                    "Produto cadastrado com sucesso!",
+                    close_modal=True,
+                    update_summary=True,
+                    content=row_html
+                )
         else:
             # Cadastrar serviço
             form = QuickServiceForm(request.POST)
@@ -859,15 +847,14 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
                 # Retornar a linha atualizada
                 context = {"item": item, "budget": item.budget, "is_full_render": False}
-                row_html = render_to_string("budget/partials/item_service_row.html", context)
+                row_html = render_to_string("budget/partials/items/item_service_row.html", context)
 
-                response = HttpResponse(row_html)
-                response["HX-Trigger"] = json.dumps({
-                    "showToast": {"message": "Serviço cadastrado com sucesso!", "type": "success"},
-                    "closeModal": True,
-                    "update-summary": {}
-                })
-                return response
+                return HtmxResponseHelper.success(
+                    "Serviço cadastrado com sucesso!",
+                    close_modal=True,
+                    update_summary=True,
+                    content=row_html
+                )
 
         # Se form inválido, retorna com erros
         item_type = "product" if item.product_cost_price.amount > 0 else "service"
@@ -880,7 +867,7 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
             "title": f"Cadastrar {'Produto' if item_type == 'product' else 'Serviço'} no Banco de Dados",
             "is_register_mode": True,
         }
-        return render(request, "budget/partials/modal_quick_create.html", context)
+        return render(request, "budget/partials/modals/modal_quick_create.html", context)
 
 
 class CalculateLocalServiceView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -897,10 +884,8 @@ class CalculateLocalServiceView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         if raw_duration:
             try:
-                parts = [int(p) for p in raw_duration.split(":")]
-                if len(parts) >= 2:
-                    duration = timedelta(hours=parts[0], minutes=parts[1])
-            except (ValueError, TypeError):
+                duration = DurationField.parse_duration(raw_duration) or timedelta()
+            except Exception:
                 pass
 
         # Buscar WorkshopCost
@@ -943,7 +928,7 @@ class CalculateLocalServiceView(LoginRequiredMixin, WorkshopScopedMixin, View):
             "oob_fields": ["service_selling_price"],
         }
 
-        response = render(request, "budget/partials/modal_local_service_fields.html", context)
+        response = render(request, "budget/partials/modals/modal_local_service_fields.html", context)
 
         if workshop_cost_missing:
             response["HX-Trigger"] = json.dumps({
@@ -981,7 +966,7 @@ class QuickCreateProductView(LoginRequiredMixin, WorkshopScopedMixin, View):
             "item_type": item_type,
             "title": title,
         }
-        return render(request, "budget/partials/modal_quick_create.html", context)
+        return render(request, "budget/partials/modals/modal_quick_create.html", context)
 
     def post(self, request, budget_id, item_type):
         from apps.budget.forms import QuickProductForm, QuickServiceForm
@@ -1027,14 +1012,16 @@ class QuickCreateProductView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "newly_created_id": item.id,  # ID do item recém-criado
             }
 
-            response = render(request, "budget/partials/modal_item_list.html", context)
-            response["HX-Trigger"] = json.dumps({
-                "showToast": {
-                    "message": f"{'Produto' if item_type == 'product' else 'Serviço'} cadastrado com sucesso!",
-                    "type": "success"
+            return HtmxResponseHelper.render_and_trigger(
+                "budget/partials/modals/modal_item_list.html",
+                context,
+                {
+                    "showToast": {
+                        "message": f"{'Produto' if item_type == 'product' else 'Serviço'} cadastrado com sucesso!",
+                        "type": "success"
+                    }
                 }
-            })
-            return response
+            )
 
         # Se form inválido
         context = {
@@ -1043,5 +1030,5 @@ class QuickCreateProductView(LoginRequiredMixin, WorkshopScopedMixin, View):
             "item_type": item_type,
             "title": f"Cadastrar Novo {'Produto' if item_type == 'product' else 'Serviço'}",
         }
-        return render(request, "budget/partials/modal_quick_create.html", context)
+        return render(request, "budget/partials/modals/modal_quick_create.html", context)
 

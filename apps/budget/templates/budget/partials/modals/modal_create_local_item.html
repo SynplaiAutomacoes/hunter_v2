@@ -1,0 +1,245 @@
+{% extends "budget/partials/modals/base.html" %}
+{% load crispy_forms_tags %}
+
+{% block modal_icon %}
+<span class="material-icons text-primary text-3xl">note_add</span>
+{% endblock %}
+
+{% block modal_title %}{{ title }}{% endblock %}
+
+{% block modal_title_extra %}
+<div id="calculation-indicator" class="htmx-indicator flex items-center gap-2 px-3 py-1 bg-info/10 text-info rounded-full text-sm animate-pulse">
+    <span class="material-icons text-sm animate-spin">sync</span>
+    <span>Calculando...</span>
+</div>
+{% endblock %}
+
+{% block modal_alert %}
+<div class="alert alert-warning mt-4">
+    <span class="material-icons">info</span>
+    <span>Este item será criado apenas neste orçamento. Para aprovar o orçamento, você precisará cadastrá-lo no banco de dados.</span>
+</div>
+{% endblock %}
+
+{% block modal_content %}
+    <form hx-post="{% url 'budget:create_local_item' budget_id item_type %}"
+          hx-target="{% if item_type == 'product' %}#product-list-body{% else %}#service-list-body{% endif %}"
+          hx-swap="beforeend"
+          id="local-item-form"
+          class="space-y-4">
+        {% csrf_token %}
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="local-item-fields-container">
+            {% for field in form %}
+                <div id="div_id_{{ field.name }}" class="form-control w-full {% if field.name == 'description' %}md:col-span-2{% endif %}">
+                    <label class="label">
+                        <span class="label-text font-semibold">{{ field.label }}</span>
+                        {% if field.field.required %}
+                            <span class="text-error">*</span>
+                        {% endif %}
+                    </label>
+                    {{ field }}
+                    {% if field.errors %}
+                        <label class="label">
+                            <span class="label-text-alt text-error">{{ field.errors.0 }}</span>
+                        </label>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="flex justify-end gap-3">
+            <button type="button"
+                    class="btn btn-ghost"
+                    onclick="document.getElementById('form_modal').close()">
+                Cancelar
+            </button>
+
+            <button type="submit"
+                    class="btn btn-primary gap-2"
+                    id="submit-local-item"
+                    hx-indicator="#submit-local-item .htmx-indicator">
+                <span class="material-icons text-sm htmx-indicator" style="display: none;">
+                    <span class="loading loading-spinner loading-sm"></span>
+                </span>
+                <span class="material-icons text-sm normal-icon">save</span>
+                <span class="button-text">Salvar Item Local</span>
+            </button>
+        </div>
+    </form>
+{% endblock %}
+
+{% block modal_scripts %}
+{{ block.super }}
+<script>
+    // Sistema de feedback visual e debug para criação de item local
+    (function() {
+        const form = document.getElementById('local-item-form');
+        const submitBtn = document.getElementById('submit-local-item');
+
+        if (!form || !submitBtn) {
+            console.error('❌ Elementos do formulário não encontrados:', { form, submitBtn });
+            return;
+        }
+
+        console.log('✅ Modal de item local inicializado');
+
+        // Antes da requisição
+        form.addEventListener('htmx:beforeRequest', function(evt) {
+            console.log('📤 Enviando requisição...', evt.detail);
+
+            // Verificar se o target existe (pegar a string do atributo, não o objeto DOM)
+            const targetSelector = form.getAttribute('hx-target');
+            if (targetSelector) {
+                const targetElement = document.querySelector(targetSelector);
+                console.log('🎯 Target selector:', targetSelector);
+                console.log('🎯 Target element exists?', !!targetElement, targetElement);
+
+                if (!targetElement) {
+                    console.error('❌ ERRO: Target não encontrado na página!', targetSelector);
+                    console.log('💡 Elementos tbody disponíveis:', document.querySelectorAll('tbody'));
+                }
+            }
+
+            submitBtn.disabled = true;
+            submitBtn.classList.add('loading');
+
+            // Esconder ícone normal e mostrar loading
+            const normalIcon = submitBtn.querySelector('.normal-icon');
+            const loadingIcon = submitBtn.querySelector('.htmx-indicator');
+            if (normalIcon) normalIcon.style.display = 'none';
+            if (loadingIcon) loadingIcon.style.display = 'inline-block';
+        });
+
+        // Após requisição (sucesso ou erro)
+        form.addEventListener('htmx:afterRequest', function(evt) {
+            console.log('📥 Resposta recebida:', evt.detail);
+            console.log('📥 Status:', evt.detail.xhr.status);
+            console.log('📥 Response headers:', evt.detail.xhr.getAllResponseHeaders());
+
+            submitBtn.disabled = false;
+            submitBtn.classList.remove('loading');
+
+            // Restaurar ícone normal
+            const normalIcon = submitBtn.querySelector('.normal-icon');
+            const loadingIcon = submitBtn.querySelector('.htmx-indicator');
+            if (normalIcon) normalIcon.style.display = 'inline-block';
+            if (loadingIcon) loadingIcon.style.display = 'none';
+
+            // Log apenas para debug - eventos serão processados em afterSwap GLOBAL
+            const triggerHeader = evt.detail.xhr.getResponseHeader('HX-Trigger-After-Swap') ||
+                                 evt.detail.xhr.getResponseHeader('HX-Trigger');
+            if (triggerHeader) {
+                console.log('🎯 HX-Trigger recebido (será processado após swap):', triggerHeader);
+            }
+        });
+
+        // Erro na requisição HTTP
+        form.addEventListener('htmx:responseError', function(evt) {
+            console.error('❌ Erro HTTP:', evt.detail);
+            submitBtn.disabled = false;
+            submitBtn.classList.remove('loading');
+
+            const normalIcon = submitBtn.querySelector('.normal-icon');
+            const loadingIcon = submitBtn.querySelector('.htmx-indicator');
+            if (normalIcon) normalIcon.style.display = 'inline-block';
+            if (loadingIcon) loadingIcon.style.display = 'none';
+
+            alert('Erro ao salvar o item. Por favor, verifique os dados e tente novamente.\n\nDetalhes: ' + (evt.detail.xhr?.status || 'Erro desconhecido'));
+        });
+
+        // Erro no processamento (ex: erro de validação)
+        form.addEventListener('htmx:sendError', function(evt) {
+            console.error('❌ Erro ao enviar:', evt.detail);
+            submitBtn.disabled = false;
+            submitBtn.classList.remove('loading');
+            alert('Erro de conexão. Verifique sua internet e tente novamente.');
+        });
+
+        // Validação antes de enviar
+        form.addEventListener('submit', function(evt) {
+            console.log('📋 Validando formulário...');
+
+            // Verificar se campos obrigatórios estão preenchidos
+            const requiredFields = form.querySelectorAll('[required]');
+            let hasError = false;
+
+            requiredFields.forEach(field => {
+                if (!field.value || field.value.trim() === '') {
+                    hasError = true;
+                    field.classList.add('input-error', 'border-error');
+                    console.warn('⚠️ Campo obrigatório vazio:', field.name);
+                } else {
+                    field.classList.remove('input-error', 'border-error');
+                }
+            });
+
+            if (hasError) {
+                evt.preventDefault();
+                alert('Por favor, preencha todos os campos obrigatórios.');
+                return false;
+            }
+        });
+
+        // Debug: mostrar dados do form antes de enviar
+        form.addEventListener('htmx:configRequest', function(evt) {
+            console.log('🔍 Dados sendo enviados:', evt.detail.parameters);
+        });
+    })();
+
+    // IMPORTANTE: Listener GLOBAL para afterSwap porque o evento pode ser disparado
+    // no elemento target (tbody) e não no form
+    document.body.addEventListener('htmx:afterSwap', function(evt) {
+        // Verificar se é o nosso form que disparou
+        const form = document.getElementById('local-item-form');
+        if (!form) return; // Modal já foi fechado
+
+        // Verificar se o target é um dos nossos (product-list-body ou service-list-body)
+        const targetId = evt.detail.target?.id;
+        if (targetId === 'product-list-body' || targetId === 'service-list-body') {
+            console.log('✅ SWAP COMPLETADO - Item adicionado à tabela!', evt.detail);
+            console.log('✅ Target:', evt.detail.target);
+            console.log('✅ Target ID:', targetId);
+
+            // IMPORTANTE: Processar triggers APÓS o swap
+            const xhr = evt.detail.xhr;
+            if (!xhr) {
+                console.warn('⚠️ XHR não disponível no evento afterSwap');
+                return;
+            }
+
+            const triggerHeader = xhr.getResponseHeader('HX-Trigger-After-Swap') ||
+                                 xhr.getResponseHeader('HX-Trigger');
+
+            if (triggerHeader) {
+                console.log('🎯 Processando triggers após swap:', triggerHeader);
+                try {
+                    const triggers = JSON.parse(triggerHeader);
+
+                    // Pequeno delay para garantir que o DOM foi renderizado
+                    setTimeout(() => {
+                        if (triggers['update-summary']) {
+                            console.log('🔄 Disparando update-summary após swap...');
+                            document.body.dispatchEvent(new CustomEvent('update-summary', { detail: triggers }));
+                        }
+                        if (triggers.closeModal) {
+                            console.log('🚪 Disparando closeModal após swap...');
+                            document.body.dispatchEvent(new CustomEvent('closeModal', { detail: triggers }));
+                        }
+                        if (triggers.showToast) {
+                            console.log('💬 Toast após swap:', triggers.showToast.message);
+                        }
+                    }, 50); // 50ms delay para garantir renderização
+                } catch (e) {
+                    console.error('❌ Erro ao processar triggers após swap:', e);
+                }
+            } else {
+                console.warn('⚠️ Nenhum trigger header encontrado após swap');
+            }
+        }
+    });
+</script>
+{% endblock %}
+
