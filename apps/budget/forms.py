@@ -1412,9 +1412,11 @@ class BudgetStep6Form(forms.ModelForm):
                         <span class="material-icons">description</span> Visualização do PDF
                     </h3>
                     <div class="flex gap-2">
-                        <a :href="pdfUrl" download class="btn btn-sm btn-success gap-2">
+                        <button type="button" 
+                                class="btn btn-sm btn-success gap-2"
+                                onclick="const frame = document.querySelector('#pdfModal iframe'); frame.contentWindow.focus(); frame.contentWindow.print();">
                             <span class="material-icons text-sm">download</span> Baixar PDF
-                        </a>
+                        </button>
                         <button type="button" class="btn btn-sm" onclick="document.getElementById('pdfModal').close()">
                             <span class="material-icons text-sm">close</span>
                         </button>

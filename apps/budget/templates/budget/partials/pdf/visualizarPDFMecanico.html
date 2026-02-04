@@ -91,7 +91,7 @@
             <table class="w-full text-left border-collapse text-[12px] mt-2">
                 <thead>
                     <tr class="bg-gray-100 border-b-2 border-gray-200">
-                        <th class="p-2 font-semibold w-[15%] text-center">Quantidade</th>
+                        <th class="p-2 font-semibold w-[15%]">Quantidade</th>
                         <th class="p-2 font-semibold">Descrição</th>
                     </tr>
                 </thead>
@@ -99,7 +99,7 @@
                     {% for item in budget.items.all %}
                         {% if item.service %}
                         <tr class="border-b border-gray-100">
-                            <td class="p-2 text-center font-medium">{{ item.quantity }}</td>
+                            <td class="p-2 font-medium">{{ item.quantity }}</td>
                             <td class="p-2">{{ item.description }}</td>
                         </tr>
                         {% endif %}

@@ -68,7 +68,7 @@
                 <thead>
                     <tr class="bg-gray-100 border-b-2 border-gray-200">
                         <th class="p-2 font-semibold">Descrição</th>
-                        <th class="p-2 font-semibold text-center">Qtd</th>
+                        <th class="p-2 font-semibold text-center">Quantidade</th>
                         <th class="p-2 font-semibold text-right">Valor Unitário</th>
                         <th class="p-2 font-semibold text-right">Frete</th>
                         <th class="p-2 font-semibold text-right">Total</th>
@@ -102,7 +102,7 @@
                 <thead>
                     <tr class="bg-gray-100 border-b-2 border-gray-200">
                         <th class="p-2 font-semibold">Descrição</th>
-                        <th class="p-2 font-semibold text-right">Quantidade</th>
+                        <th class="p-2 font-semibold text-center">Quantidade</th>
                         <th class="p-2 font-semibold text-right">Valor Unitário</th>
                         <th class="p-2 font-semibold text-right">Valor Total</th>
                         <th class="p-2 font-semibold text-right">Custo</th>
@@ -113,7 +113,7 @@
                     {% for s in servicos %}
                     <tr class="border-b border-gray-100">
                         <td class="p-2">{{ s.description }}</td>
-                        <td class="p-2 text-right">{{ s.quantity }}</td>
+                        <td class="p-2 text-center">{{ s.quantity }}</td>
                         <td class="p-2 text-right">{{ s.unit_price }}</td>
                         <td class="p-2 text-right">{{ s.total_price }}</td>
                         <td class="p-2 text-right font-bold">{{ s.service_cost_price }}</td>
