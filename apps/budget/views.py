@@ -428,6 +428,19 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if not selected_ids:
             return HttpResponse("Nenhum item selecionado", status=400)
 
+        if item_type == 'kit':
+            for item_id in selected_ids:
+                BudgetItem.objects.get_or_create(
+                    workshop=self.workshop,
+                    budget=budget,
+                    kit_id=item_id,
+                    defaults={"quantity": 1}
+                )
+
+            response = HttpResponse()
+            response["HX-Trigger"] = "budget-items-updated"
+            return response
+
         created_items = []
         for item_id in selected_ids:
             item_filter = {f"{item_type}_id": item_id}
