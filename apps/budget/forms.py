@@ -560,7 +560,7 @@ class BudgetStep4Form(forms.ModelForm):
                                 <table class="table table-zebra w-full">
                                     <thead>
                                         <tr>
-                                            <th>DESCRIÇÃO</th>
+                                            <th class="w-full">DESCRIÇÃO</th>
                                             <th class="text-center">QTD.</th>
                                             <th>CUSTO</th>
                                             <th>VALOR VENDA</th>
@@ -590,7 +590,7 @@ class BudgetStep4Form(forms.ModelForm):
                                 <table class="table table-zebra w-full">
                                     <thead>
                                         <tr>
-                                            <th>DESCRIÇÃO</th>
+                                            <th class="w-full">DESCRIÇÃO</th>
                                             <th class="text-center">QTD.</th>
                                             <th>CUSTO</th>
                                             <th>VALOR VENDA</th>
@@ -620,7 +620,7 @@ class BudgetStep4Form(forms.ModelForm):
                                 <table class="table table-compact w-full">
                                     <thead>
                                         <tr>
-                                            <th>NOME</th>
+                                            <th class="w-full">NOME</th>
                                             <th class="text-center">QTD.</th>
                                             <th class="text-center">PRODUTOS</th>
                                             <th class="text-center">SERVIÇOS</th>
