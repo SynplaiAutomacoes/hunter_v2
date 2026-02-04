@@ -1,0 +1,110 @@
+<div class="modal-box w-11/12 max-w-3xl"
+     data-items-id="{{ items_id|join:',' }}"
+     data-current-index="0"
+     data-budget-id="{{ budget_id }}"
+     data-item-type="{{ item_type }}"
+     id="edit-queue-modal">
+
+    <div id="current-item-form">
+        <!-- Carrega o primeiro item da fila -->
+        <div hx-get="{% url 'budget:edit_item' budget.id item_ids.0 %}"
+             hx-trigger="load"
+             hx-target="#current-item-form"
+             hx-swap="innerHtml">
+            <div class="loading loading-spinner loading-lg"></div>
+        </div>
+    </div>
+
+    <div class="modal-action flex flex-col gap-4 mt-6">
+        <div class="w-full">
+            <div class="flex justify-between text-sm font-semibold mb-2">
+                <span>Item <span id="current-item-num">1</span> de {{ total_items }}</span>
+                <span>Restam <span id="remaining-items">{{ total_items|add:'-1' }}</span></span>
+            </div>
+            <progress id="progress-bar" class="progress progress-primary w-full" value="1" max="{{ total_items }}"></progress>
+        </div>
+
+        <div class="flex justify-end gap-2">
+            <button type="button" class="btn btn-ghost" onclick="skipCurrentItem()">Pular</button>
+            <button type="button" id="save-and-next-btn" class="btn btn-primary" onclick="saveAndNext()">Salvar e Próximo</button>
+            <button type="button" id="finish-btn" class="btn btn-success" onclick="finishQueue()">Finalizar</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    (function () {
+        const container = document.getElementById('edit-queue-container');
+        const itemIds = container.dataset.itemIds.split(',').map(id => parseInt(id));
+        const budgetId = container.dataset.budgetId;
+        let currentIndex = 0;
+
+        function updateProgress() {
+            const currentNum = currentIndex + 1;
+            const remaining = itemIds.length - currentIndex - 1;
+
+            document.getElementById('current-item-num').textContent = currentNum;
+            document.getElementById('remaining-items').textContent = remaining;
+            document.getElementById('progress-bar').value = currentNum;
+
+            // Mostrar botão "Finalizar" no último item
+            if (currentIndex === itemIds.length - 1) {
+                document.getElementById('save-and-next-btn').style.display = 'none';
+                document.getElementById('finish-btn').style.display = 'block';
+            }
+        }
+
+        function loadNextItem() {
+            if (currentIndex >= itemIds.length) {
+                finishQueue();
+                return;
+            }
+
+            const itemId = itemIds[currentIndex];
+            const url = `/budget/${budgetId}/item/${itemId}/edit/`;
+
+            htmx.ajax('GET', url, {
+                target: '#current-item-form',
+                swap: 'innerHTML'
+            }).then(() => updateProgress());
+        }
+
+        window.saveAndNext = function () {
+            const form = document.querySelector('#current-item-form form');
+            if (!form) {
+                skipCurrentItem();
+                return;
+            }
+
+            // Trigger HTMX submit do form
+            const submitBtn = form.querySelector('button[type="submit"], button[hx-post]');
+            if (submitBtn) {
+                htmx.trigger(submitBtn, 'click');
+
+                // Aguarda resposta HTMX e avança
+                document.body.addEventListener('htmx:afterSwap', function onSwap(e) {
+                    if (e.detail.target.id === 'current-item-form' ||
+                            e.detail.xhr?.getResponseHeader('HX-Trigger')?.includes('update-summary')) {
+                        currentIndex++;
+                        loadNextItem();
+                        document.body.removeEventListener('htmx:afterSwap', onSwap);
+                    }
+                }, {once: true});
+            }
+        };
+
+        window.skipCurrentItem = function () {
+            currentIndex++;
+            loadNextItem();
+        };
+
+        window.finishQueue = function () {
+            form_modal.close();
+            // Trigger refresh das tabelas via evento
+            htmx.trigger('#budget-card-content', 'budget-items-updated');
+        };
+
+        // Inicializa
+        updateProgress();
+    })();
+</script>
