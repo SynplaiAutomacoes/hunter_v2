@@ -1,17 +1,16 @@
 import json
-from django.utils import timezone
 from decimal import Decimal
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse, JsonResponse
-from django.shortcuts import redirect, render, get_object_or_404
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
+from django.utils import timezone
 from django.views import View
-from django.views.generic import ListView, CreateView, DeleteView, TemplateView
+from django.views.generic import CreateView, DeleteView, ListView, TemplateView
 
-from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form, \
-    BudgetItemEditForm
+from apps.budget.forms import BudgetItemEditForm, BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
 from apps.budget.models import Budget, BudgetItem, BudgetStatus
 from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
@@ -19,7 +18,7 @@ from apps.catalog.models.services import Service
 from apps.core.forms import MultiStepFormMixin
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin
+from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.customer.models import Customer, Vehicle
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.models.workshop_costs import WorkshopCost
@@ -98,7 +97,7 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
         current_step = self.get_current_step()
         if self.object.current_step < current_step + 1:
             self.object.current_step = current_step + 1
-            self.object.save(update_fields=['current_step'])
+            self.object.save(update_fields=["current_step"])
 
         if current_step < len(self.steps_definition):
             next_step = current_step + 1
@@ -180,7 +179,7 @@ class BudgetDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteRespon
 
 class CustomerDetailView(View):
     def get(self, request, *args, **kwargs):
-        customer_id = request.GET.get('customer')
+        customer_id = request.GET.get("customer")
         customer = None
         if customer_id:
             customer = get_object_or_404(Customer, id=customer_id)
@@ -195,21 +194,18 @@ class VehicleListView(View):
         if customer_id:
             vehicles = Vehicle.objects.filter(customer_id=customer_id)
 
-        data = [
-            {"id": v.id, "label": str(v)}
-            for v in vehicles
-        ]
+        data = [{"id": v.id, "label": str(v)} for v in vehicles]
 
         return JsonResponse(data, safe=False)
 
 
 class VehicleDetailView(View):
     def get(self, request, *args, **kwargs):
-        vehicle_id = request.GET.get('vehicle')
+        vehicle_id = request.GET.get("vehicle")
         vehicle = None
         if vehicle_id:
             vehicle = get_object_or_404(Vehicle, id=vehicle_id)
-        return render(request, 'budget/partials/vehicle_resume.html', {'vehicle': vehicle})
+        return render(request, "budget/partials/vehicle_resume.html", {"vehicle": vehicle})
 
 
 class ItemSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
@@ -242,11 +238,7 @@ class AddItemToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "add_budget"
 
     def post(self, request, *args, **kwargs):
-        budget = get_object_or_404(
-            Budget,
-            id=kwargs["budget_id"],
-            workshop=self.workshop
-        )
+        budget = get_object_or_404(Budget, id=kwargs["budget_id"], workshop=self.workshop)
 
         item_filter = {f"{kwargs['item_type']}_id": kwargs["item_id"]}
 
@@ -267,25 +259,17 @@ class AddItemToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
         response["HX-Redirect"] = success_url
         return response
 
+
 class RemoveItemFromBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = Budget
     workshop_permission_codename = "add_budget"
 
     def post(self, request, *args, **kwargs):
-        budget = get_object_or_404(
-            Budget,
-            id=kwargs["budget_id"],
-            workshop=self.workshop
-        )
+        budget = get_object_or_404(Budget, id=kwargs["budget_id"], workshop=self.workshop)
 
         item_filter = {f"{kwargs['item_type']}_id": kwargs["item_id"]}
 
-        item = get_object_or_404(
-            BudgetItem,
-            workshop=self.workshop,
-            budget=budget,
-            **item_filter
-        )
+        item = get_object_or_404(BudgetItem, workshop=self.workshop, budget=budget, **item_filter)
 
         item.delete()
 
@@ -415,8 +399,39 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 class BudgetImageView(LoginRequiredMixin, View):
     def get(self, request, pk):
         from django.http import HttpResponse
+
         from apps.budget.models import BudgetImage
 
         image = get_object_or_404(BudgetImage, pk=pk)
 
         return HttpResponse(image.content, content_type=image.content_type)
+
+
+class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "add_budget"
+
+    def post(self, request, budget_id, item_type):
+        budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
+
+        selected_ids = request.POST.getlist("selected_ids[]")
+        if not selected_ids:
+            return HttpResponse("Nenhum item selecionado", status=400)
+
+        created_items = []
+        for item_id in selected_ids:
+            item_filter = {f"{item_type}_id": item_id}
+
+            budget_item, created = BudgetItem.objects.get_or_create(workshop=self.workshop, budget=budget, **item_filter, defaults={"quantity": 1})
+
+            created_items.append(budget_item.id)
+
+        context = {
+            "budget": budget,
+            "item_type": item_type,
+            "item_ids": created_items,
+            "total_items": len(created_items),
+            "current_index": 0,
+        }
+
+        return render(request, "budget/partials/modal_edit_queue.html", context)
