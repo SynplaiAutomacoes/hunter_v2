@@ -424,7 +424,8 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def post(self, request, budget_id, item_type):
         budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
 
-        selected_ids = request.POST.getlist("selected_ids[]")
+        # Recebe IDs dos checkboxes marcados
+        selected_ids = request.POST.getlist("selected_items")
         if not selected_ids:
             return HttpResponse("Nenhum item selecionado", status=400)
 

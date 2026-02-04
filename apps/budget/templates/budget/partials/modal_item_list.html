@@ -85,36 +85,33 @@
                     class="btn btn-primary"
                     disabled
                     hx-post="{% url 'budget:add_items_batch' budget.id item_type %}"
-                    hx-vals="js:{selected_ids: getSelectedIds()}"
                     hx-target="#modal-container"
-                    hx-swap="innerHTML">
+                    hx-swap="innerHTML"
+                    hx-include="[name='selected_items']:checked">
                 Adicionar Selecionados
             </button>
         </div>
     </div>
-
-    <script>
-        (function () {
-            const selectAll = document.getElementById('select-all');
-            const itemCheckboxes = document.querySelectorAll('.item-checkbox');
-            const counter = document.getElementById('selection-counter');
-            const addBtn = document.getElementById('add-selected-btn');
-
-            function updateCounter() {
-                const cont = document.getElementById('.item-checkbox:checked').length;
-                counter.textContent = `${cont} ${cont === 1 ? 'Item' : 'Itens'} ${cont === 1 ? 'Selecionado' : 'Selecionados'}`;
-            };
-
-            selectAll?.addEventListener('change', (e) => {
-                itemCheckboxes.forEach(cb => cb.checked = e.target.checked);
-                updateCounter();
-            });
-
-            itemCheckboxes.forEach(cb => cb.addEventListener('change', updateCounter));
-
-            window.getSelectedIds = function () {
-                return Array.from(document.querySelectorAll('.item-checkbox:checked')).map(cb => cb.value);
-            };
-        })();
-    </script>
 </div>
+
+<script>
+    (function () {
+        const selectAll = document.getElementById('select-all');
+        const itemCheckboxes = document.querySelectorAll('.item-checkbox');
+        const counter = document.getElementById('selection-counter');
+        const addBtn = document.getElementById('add-selected-btn');
+
+        function updateCounter() {
+            const count = document.querySelectorAll('.item-checkbox:checked').length;
+            counter.textContent = `${count} ${count === 1 ? 'Item' : 'Itens'} ${count === 1 ? 'Selecionado' : 'Selecionados'}`;
+            addBtn.disabled = count === 0;
+        }
+
+        selectAll?.addEventListener('change', (e) => {
+            itemCheckboxes.forEach(cb => cb.checked = e.target.checked);
+            updateCounter();
+        });
+
+        itemCheckboxes.forEach(cb => cb.addEventListener('change', updateCounter));
+    })();
+</script>
