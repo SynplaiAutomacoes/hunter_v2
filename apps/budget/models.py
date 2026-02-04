@@ -227,6 +227,11 @@ class Budget(TimeStampedModel):
     def collaborator_name(self):
         return self.collaborator.name if self.collaborator else "Sistema"
 
+    @property
+    def rentability(self) -> Money:
+        data = self.calculate_pricing_methods()
+        return data["rentabilidade"]
+
     ## Products
     @property
     def total_products_shipping(self) -> Money:
@@ -363,6 +368,13 @@ class BudgetItem(TimeStampedModel):
     def total_price(self):
         return ((self.product_selling_price + self.service_selling_price) * self.quantity) + self.shipping
 
+    @property
+    def unit_price(self):
+        return Money((self.product_selling_price + self.service_selling_price).amount / self.quantity, 'BRL')
+
+    @property
+    def profit_value(self):
+        return Money((self.product_selling_price.amount + self.service_selling_price.amount) - (self.product_cost_price.amount + self.service_cost_price.amount), 'BRL')
 
     class Meta:
         verbose_name = "Item do Orçamento"
