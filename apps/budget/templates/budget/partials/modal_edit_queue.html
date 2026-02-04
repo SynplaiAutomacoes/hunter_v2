@@ -8,7 +8,7 @@
     <!-- Cancel button in top right corner -->
     <button type="button"
             class="btn btn-sm btn-circle btn-ghost absolute top-2 right-2 z-20 text-primary-content hover:bg-primary-content/20"
-            onclick="window.queueEditor.finishQueue()">
+            onclick="window.queueEditor.cancelQueue()">
         ✕
     </button>
 
@@ -102,9 +102,9 @@
                 <button type="button"
                         id="finish-btn"
                         class="btn btn-success gap-2 hidden"
-                        onclick="window.queueEditor.finishQueue()">
+                        onclick="window.queueEditor.saveAndFinish()">
                     <span class="material-icons">check_circle</span>
-                    Finalizar
+                    Salvar e Finalizar
                 </button>
             </div>
         </div>
@@ -118,8 +118,8 @@
     </div>
 </div>
 
-
 <script>
+
     // Queue Editor - Global scope for reusability
     (function () {
         const STORAGE_KEY = 'budget_queue_progress';
@@ -245,8 +245,10 @@
                 });
 
                 document.body.addEventListener('htmx:afterRequest', (e) => {
-                    if (e.detail.failed) {
-                        this.showToast('Erro ao carregar item. Tente novamente.', 'error');
+                    if (e.detail.target.id === 'current-item-form') {
+                        this.hideSkeleton();
+                        this.animateFormEntry();
+                        this.updateCurrentItemName();
                     }
                 });
             }
@@ -328,9 +330,8 @@
             async saveAndNext() {
                 if (this.isSaving) return;
 
-                // Find the save button in current form
-                const saveBtn = this.formContainer?.querySelector('[hx-vals*="save_only"]');
-                if (!saveBtn) {
+                const form = this.formContainer?.querySelector('#edit-item-form');
+                if (!form) {
                     this.showToast('Formulário não encontrado', 'warning');
                     this.skipCurrentItem();
                     return;
@@ -339,33 +340,45 @@
                 this.isSaving = true;
                 this.setLoadingState(true);
 
-                // Listen for successful save
-                const listener = (e) => {
-                    const trigger = e.detail.xhr?.getResponseHeader('HX-Trigger');
-                    if (trigger && trigger.includes('update-summary')) {
-                        this.isSaving = false;
-                        this.setLoadingState(false);
-                        this.showToast('Item salvo com sucesso!', 'success');
+                const formData = new FormData(form);
+                formData.set('action', 'save_only');
 
-                        // Move to next item
-                        this.currentIndex++;
-                        this.loadNextItem();
+                const url = form.getAttribute('hx-post');
 
-                        document.body.removeEventListener('htmx:afterSwap', listener);
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        body: formData,
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'HX-Request': 'true',
+                            'HX-Target': 'current-item-form'
+                        }
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
                     }
-                };
 
-                // Timeout fallback
-                const timeout = setTimeout(() => {
-                    document.body.removeEventListener('htmx:afterSwap', listener);
+                    await response.text();
+
+                    // Small delay to ensure database commit
+                    await new Promise(resolve => setTimeout(resolve, 200));
+
                     this.isSaving = false;
                     this.setLoadingState(false);
-                }, 5000);
+                    this.showToast('Item salvo com sucesso!', 'success');
 
-                document.body.addEventListener('htmx:afterSwap', listener);
+                    this.currentIndex++;
+                    this.loadNextItem();
 
-                // Trigger the save
-                htmx.trigger(saveBtn, 'click');
+                } catch (error) {
+                    console.error('Error saving item:', error);
+
+                    this.isSaving = false;
+                    this.setLoadingState(false);
+                    this.showToast('Erro ao salvar item', 'error');
+                }
             }
 
             skipCurrentItem() {
@@ -385,9 +398,15 @@
                 }
             }
 
+            async saveAndFinish() {
+                // Save the current (last) item first
+                await this.saveAndNext();
+
+                // loadNextItem will call finishQueue automatically
+            }
+
             finishQueue() {
                 this.clearProgress();
-                this.showToast('Edição em fila concluída! 🎉', 'success');
 
                 // Close modal
                 const modal = document.getElementById('form_modal');
@@ -395,10 +414,24 @@
                     modal.close();
                 }
 
-                // Refresh the page to show updated items
+                // Show success message
+                this.showToast('Edição em fila concluída! 🎉', 'success');
+
+                // Wait to ensure all requests are processed
                 setTimeout(() => {
                     window.location.reload();
-                }, 500);
+                }, 800);
+            }
+
+            cancelQueue() {
+                this.clearProgress();
+                this.showToast('Edição em fila cancelada.', 'info');
+
+                // Close modal
+                const modal = document.getElementById('form_modal');
+                if (modal) {
+                    modal.close();
+                }
             }
 
             setLoadingState(loading) {
@@ -411,9 +444,6 @@
             }
 
             showToast(message, type = 'info') {
-                // Simple toast notification using browser alert for now
-                // Can be replaced with a proper toast library
-                console.log(`[${type.toUpperCase()}] ${message}`);
 
                 // Dispatch custom event for toast
                 const event = new CustomEvent('showToast', {

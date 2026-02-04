@@ -230,7 +230,22 @@ class ItemSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, TemplateVi
         model_class, title = map_config.get(item_type, (Product, "Selecionar Item"))
         queryset = model_class.objects.filter(workshop=self.workshop, is_active=True)
 
-        context.update({"items": queryset, "budget": budget, "item_type": item_type, "modal_title": title})
+        # Get already added items to mark them as selected
+        existing_items = set()
+        if item_type == "product":
+            existing_items = set(budget.items.filter(product__isnull=False).values_list('product_id', flat=True))
+        elif item_type == "service":
+            existing_items = set(budget.items.filter(service__isnull=False).values_list('service_id', flat=True))
+        elif item_type == "kit":
+            existing_items = set(budget.items.filter(kit__isnull=False).values_list('kit_id', flat=True))
+
+        context.update({
+            "items": queryset,
+            "budget": budget,
+            "item_type": item_type,
+            "modal_title": title,
+            "existing_items": existing_items
+        })
         return context
 
 
@@ -371,6 +386,7 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 })
                 return response
 
+            # Para action "save_only" - retorna HTML da linha atualizada
             if item.product:
                 template = "budget/partials/item_product_row.html"
             elif item.service:
@@ -381,11 +397,11 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
             context = {"item": item, "budget": item.budget, "is_full_render": False}
             row_html = render_to_string(template, context)
 
-            response = render(row_html)
+            response = HttpResponse(row_html)
             response["HX-Trigger"] = "update-summary"
             return response
 
-        return render(request, "budget/partials/modal_edit_item.html", {"form": form, "item": item})
+        return render(request, "budget/partials/modal_edit_item.html", {"form": form, "item": item, "budget_id": budget_id})
 
     def update_master_record(self, item):
         if item.product:
@@ -463,6 +479,8 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
 class BudgetSummaryView(LoginRequiredMixin, WorkshopScopedMixin, View):
     """Retorna apenas o partial do resumo do orçamento para atualização via HTMX."""
+    model = Budget
+    workshop_permission_codename = "view_budget"
 
     def get(self, request, budget_id):
         budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)

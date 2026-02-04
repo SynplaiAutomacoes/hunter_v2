@@ -1,6 +1,6 @@
 {% load crispy_forms_tags %}
 
-<div class="modal-content-wrapper relative">
+<div class="modal-content-wrapper bg-base-100 p-6 rounded-lg">
     <!-- Header with title and Update button -->
     <div class="mb-6">
         <div class="flex items-center justify-between gap-3">
@@ -12,12 +12,9 @@
 
             <!-- Right side - Update Master button -->
             <button type="button"
-                    hx-post="{% url 'budget:edit_item' budget_id item.pk %}"
-                    hx-vals='{"action": "update_master"}'
-                    hx-include="#edit-item-form"
-                    hx-target="body"
-                    hx-swap="none"
-                    class="btn btn-accent gap-2">
+                    class="btn btn-accent gap-2 js-update-master"
+                    data-url="{% url 'budget:edit_item' budget_id item.pk %}"
+                    data-action="update_master">
                 <span class="material-icons text-sm">cloud_upload</span>
                 Atualizar Cadastro
             </button>
@@ -25,49 +22,55 @@
     </div>
 
     <form hx-post="{% url 'budget:edit_item' budget_id item.pk %}"
-          hx-vals="{'action': 'save_only'}"
           hx-target="#current-item-form"
           hx-swap="none"
           id="edit-item-form"
-          class="space-y-4">
+          class="space-y-4 js-save-form">
         {% csrf_token %}
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             {% for field in form %}
-                <div class="form-control w-full {% if 'description' in field.name or 'descri' in field.name %}md:col-span-2{% endif %}">
-                    <label class="label">
-                        <span class="label-text font-semibold flex items-center gap-2">
-                            {% if 'description' in field.name or 'descri' in field.name %}
-                                <span class="material-icons text-sm">description</span>
-                            {% elif 'quant' in field.name %}
-                                <span class="material-icons text-sm">numbers</span>
-                            {% elif 'price' in field.name or 'venda' in field.name %}
-                                <span class="material-icons text-sm">payments</span>
-                            {% elif 'cost' in field.name or 'custo' in field.name %}
-                                <span class="material-icons text-sm">money_off</span>
-                            {% elif 'shipping' in field.name or 'frete' in field.name %}
-                                <span class="material-icons text-sm">local_shipping</span>
-                            {% elif 'duration' in field.name or 'tempo' in field.name %}
-                                <span class="material-icons text-sm">schedule</span>
-                            {% else %}
-                                <span class="material-icons text-sm">info</span>
-                            {% endif %}
-                            {{ field.label }}
-                            {% if field.field.required %}
-                                <span class="text-error">*</span>
-                            {% endif %}
-                        </span>
-                    </label>
-                    {{ field }}
-                    {% if field.errors %}
+                {% with field_name=field.name|lower %}
+                    <div class="form-control w-full {% if 'description' in field_name or 'descri' in field_name %}md:col-span-2{% endif %}">
                         <label class="label">
-                            <span class="label-text-alt text-error flex items-center gap-1">
-                                <span class="material-icons text-xs">error</span>
-                                {{ field.errors.0 }}
+                            <span class="label-text font-semibold flex items-center gap-2">
+                                <!-- Dynamic icon based on field name -->
+                                {% if 'description' in field_name or 'descri' in field_name %}
+                                    <span class="material-icons text-sm">description</span>
+                                {% elif 'quant' in field_name %}
+                                    <span class="material-icons text-sm">numbers</span>
+                                {% elif 'price' in field_name or 'venda' in field_name %}
+                                    <span class="material-icons text-sm">payments</span>
+                                {% elif 'cost' in field_name or 'custo' in field_name %}
+                                    <span class="material-icons text-sm">money_off</span>
+                                {% elif 'shipping' in field_name or 'frete' in field_name %}
+                                    <span class="material-icons text-sm">local_shipping</span>
+                                {% elif 'duration' in field_name or 'tempo' in field_name %}
+                                    <span class="material-icons text-sm">schedule</span>
+                                {% else %}
+                                    <span class="material-icons text-sm">edit</span>
+                                {% endif %}
+
+                                {{ field.label }}
+
+                                {% if field.field.required %}
+                                    <span class="text-error" title="Campo obrigatório">*</span>
+                                {% endif %}
                             </span>
                         </label>
-                    {% endif %}
-                </div>
+
+                        {{ field }}
+
+                        {% if field.errors %}
+                            <label class="label">
+                                <span class="label-text-alt text-error flex items-center gap-1 animate-fade-in">
+                                    <span class="material-icons text-xs">error</span>
+                                    {{ field.errors.0 }}
+                                </span>
+                            </label>
+                        {% endif %}
+                    </div>
+                {% endwith %}
             {% endfor %}
         </div>
     </form>
@@ -75,46 +78,136 @@
 
 <script>
     (function() {
-        const firstInput = document.querySelector('#edit-item-form input:not([type="hidden"]), #edit-item-form select, #edit-item-form textarea');
-        if (firstInput) {
-            setTimeout(() => firstInput.focus(), 100);
-        }
+        'use strict';
 
-        const updateButton = document.querySelector('[hx-vals*="update_master"]');
-        if (updateButton) {
-            updateButton.addEventListener('click', function() {
-                const icon = this.querySelector('.material-icons');
-                if (icon) {
-                    const originalIcon = icon.textContent;
-                    icon.textContent = 'hourglass_empty';
-                    icon.classList.add('animate-spin');
+        const ModalItemEditor = {
+            // Auto-focus first input field
+            focusFirstInput() {
+                const firstInput = document.querySelector(
+                    '#edit-item-form input:not([type="hidden"]):not([disabled]), ' +
+                    '#edit-item-form select:not([disabled]), ' +
+                    '#edit-item-form textarea:not([disabled])'
+                );
 
-                    setTimeout(() => {
-                        icon.textContent = originalIcon;
-                        icon.classList.remove('animate-spin');
-                    }, 2000);
+                if (firstInput) {
+                    setTimeout(() => firstInput.focus(), 100);
                 }
-            });
-        }
+            },
+
+            // Handle update master button with loading state
+            setupUpdateMasterButton() {
+                const updateButton = document.querySelector('.js-update-master');
+
+                if (!updateButton) return;
+
+                const icon = updateButton.querySelector('.material-icons');
+                const originalIconContent = icon ? icon.textContent : '';
+                const form = document.getElementById('edit-item-form');
+
+                // Remove any existing event listeners to prevent duplicates
+                const newButton = updateButton.cloneNode(true);
+                updateButton.parentNode.replaceChild(newButton, updateButton);
+
+                const newIcon = newButton.querySelector('.material-icons');
+
+                newButton.addEventListener('click', function(e) {
+                    e.preventDefault();
+
+                    if (!form) {
+                        console.error('Form not found');
+                        return;
+                    }
+
+                    const url = this.dataset.url;
+                    const action = this.dataset.action;
+
+                    // Show loading state
+                    if (newIcon) {
+                        newIcon.textContent = 'hourglass_empty';
+                        newIcon.classList.add('animate-spin');
+                    }
+
+                    newButton.disabled = true;
+
+                    // Get form data including CSRF token
+                    const formData = new FormData(form);
+                    formData.set('action', action); // Use set to ensure it's the correct action
+
+                    // Trigger HTMX request with form data
+                    htmx.ajax('POST', url, {
+                        target: 'body',
+                        swap: 'none',
+                        values: Object.fromEntries(formData)
+                    }).finally(() => {
+                        // Reset button state after a short delay
+                        setTimeout(() => {
+                            if (newIcon) {
+                                newIcon.textContent = originalIconContent;
+                                newIcon.classList.remove('animate-spin');
+                            }
+                            newButton.disabled = false;
+                        }, 500);
+                    });
+                });
+            },
+
+            // Initialize all functionality
+            init() {
+                this.focusFirstInput();
+                this.setupUpdateMasterButton();
+            }
+        };
+
+        // Initialize on page load
+        ModalItemEditor.init();
+
+        // Re-initialize on HTMX content swap
+        document.body.addEventListener('htmx:afterSwap', function(e) {
+            if (e.detail.target.id === 'current-item-form') {
+                ModalItemEditor.init();
+            }
+        });
     })();
 </script>
 
 <style>
-    .animate-spin {
-        animation: spin 1s linear infinite;
-    }
-
+    /* Spin animation for loading state */
     @keyframes spin {
         from { transform: rotate(0deg); }
         to { transform: rotate(360deg); }
     }
 
-    /* Improve input focus states */
+    .animate-spin {
+        animation: spin 1s linear infinite;
+    }
+
+    /* Fade-in animation for error messages */
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(-4px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .animate-fade-in {
+        animation: fadeIn 0.3s ease-out;
+    }
+
+    /* Enhanced focus states for form inputs */
     #edit-item-form input:focus,
     #edit-item-form select:focus,
     #edit-item-form textarea:focus {
-        outline: 2px solid oklch(var(--p));
+        outline: 2px solid hsl(var(--p) / 0.5);
         outline-offset: 2px;
+        transition: outline 0.2s ease-in-out;
+    }
+
+    /* Smooth transitions for form controls */
+    .form-control {
+        transition: opacity 0.2s ease-in-out;
     }
 </style>
-

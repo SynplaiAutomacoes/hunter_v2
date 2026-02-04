@@ -30,27 +30,58 @@
             </thead>
             <tbody class="text-base">
             {% for item in items %}
+                {% if item.id in existing_items %}
+                <tr class="bg-success/10 hover:bg-success/20 transition-colors">
+                    <td class="text-center">
+                        <input type="checkbox"
+                               name="selected_items"
+                               value="{{ item.id }}"
+                               class="checkbox checkbox-success item-checkbox"
+                               checked
+                               disabled
+                               title="Item já adicionado ao orçamento">
+                    </td>
+                {% else %}
                 <tr class="hover:bg-base-200/50 transition-colors">
                     <td class="text-center">
-                        <input type="checkbox" name="selected_items" value="{{ item.id }}" class="checkbox checkbox-primary item-checkbox">
+                        <input type="checkbox"
+                               name="selected_items"
+                               value="{{ item.id }}"
+                               class="checkbox checkbox-primary item-checkbox">
                     </td>
+                {% endif %}
 
                     {% if item_type == 'product' %}
-                        <td class="font-mono text-sm whitespace-nowrap">{{ item.code }}</td>
+                        <td class="font-mono text-sm whitespace-nowrap">
+                            {{ item.code }}
+                            {% if item.id in existing_items %}
+                                <span class="badge badge-success badge-xs ml-2">✓ Adicionado</span>
+                            {% endif %}
+                        </td>
                     {% endif %}
 
                     {% if item_type == 'service' %}
                         <td class="text-center whitespace-nowrap">
                             <span class="badge badge-ghost">{{ item.duration_display }}</span>
+                            {% if item.id in existing_items %}
+                                <span class="badge badge-success badge-xs ml-2">✓</span>
+                            {% endif %}
                         </td>
                     {% endif %}
 
                     {% if item_type == 'kit' %}
-                        <td class="font-mono text-sm whitespace-nowrap">{{ item.name }}</td>
+                        <td class="font-mono text-sm whitespace-nowrap">
+                            {{ item.name }}
+                            {% if item.id in existing_items %}
+                                <span class="badge badge-success badge-xs ml-2">✓ Adicionado</span>
+                            {% endif %}
+                        </td>
                     {% endif %}
 
                     <td class="min-w-[300px]">
-                        <div class="font-bold">{{ item.name|default:item.description }}</div>
+                        <div class="font-bold {% if item.id in existing_items %}text-success{% endif %}">
+                            {{ item.name|default:item.description }}
+                        </div>
                     </td>
 
                     {% if item_type != 'kit' %}
@@ -97,13 +128,29 @@
 <script>
     (function () {
         const selectAll = document.getElementById('select-all');
-        const itemCheckboxes = document.querySelectorAll('.item-checkbox');
+        const itemCheckboxes = document.querySelectorAll('.item-checkbox:not([disabled])');
         const counter = document.getElementById('selection-counter');
         const addBtn = document.getElementById('add-selected-btn');
 
+        // Count already added items
+        const alreadyAdded = document.querySelectorAll('.item-checkbox[disabled]').length;
+
         function updateCounter() {
-            const count = document.querySelectorAll('.item-checkbox:checked').length;
-            counter.textContent = `${count} ${count === 1 ? 'Item' : 'Itens'} ${count === 1 ? 'Selecionado' : 'Selecionados'}`;
+            const count = document.querySelectorAll('.item-checkbox:checked:not([disabled])').length;
+            const totalSelected = count + alreadyAdded;
+
+            let text = '';
+            if (count > 0 && alreadyAdded > 0) {
+                text = `${count} novo(s) + ${alreadyAdded} já adicionado(s) = ${totalSelected} total`;
+            } else if (count > 0) {
+                text = `${count} ${count === 1 ? 'item' : 'itens'} ${count === 1 ? 'selecionado' : 'selecionados'}`;
+            } else if (alreadyAdded > 0) {
+                text = `${alreadyAdded} ${alreadyAdded === 1 ? 'item já adicionado' : 'itens já adicionados'}`;
+            } else {
+                text = '0 itens selecionados';
+            }
+
+            counter.textContent = text;
             addBtn.disabled = count === 0;
         }
 
@@ -112,6 +159,20 @@
             updateCounter();
         });
 
-        itemCheckboxes.forEach(cb => cb.addEventListener('change', updateCounter));
+        itemCheckboxes.forEach(cb => cb.addEventListener('change', () => {
+            updateCounter();
+
+            // Update select all checkbox state
+            const allChecked = Array.from(itemCheckboxes).every(cb => cb.checked);
+            const someChecked = Array.from(itemCheckboxes).some(cb => cb.checked);
+
+            if (selectAll) {
+                selectAll.checked = allChecked;
+                selectAll.indeterminate = someChecked && !allChecked;
+            }
+        }));
+
+        // Initial update
+        updateCounter();
     })();
 </script>
