@@ -4,7 +4,7 @@
     <td class="text-center">{{ item.kit.products.count }}</td>
     <td class="text-center">{{ item.kit.services.count }}</td>
     {% if not step6 %}
-    <td class="text-center flex justify-center gap-1">
+    <td class="text-center whitespace-nowrap">
         <button type="button"
                 class="btn btn-ghost btn-xs text-info"
                 hx-get="{% url 'budget:edit_item' budget.id item.pk %}"

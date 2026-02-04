@@ -378,7 +378,7 @@ class BudgetStep3Form(forms.ModelForm):
                             const url = `/budget/${{budgetId}}/collaborator-field/` + (savedId ? `?selected=${{savedId}}` : '');
                             
                             htmx.ajax('GET', url, {{
-                                target: '#div_id_collaborator',
+                                target: '#collaborator-field-container',
                                 swap: 'outerHTML'
                             }}).then(() => {{
                                 // After refresh, update Alpine.js model with the saved value
@@ -406,22 +406,9 @@ class BudgetStep3Form(forms.ModelForm):
                     # Diagnóstico Técnico
                     Div(
                         HTML('<h3 class="text-2xl font-bold mb-4">Diagnóstico Técnico</h3>'),
-                        Div(
-                            Field("collaborator", label="Selecione o colaborador que realizará o serviço", wrapper_class="flex-1 mb-0"),
-                            HTML("""
-                            <button type="button" class="btn btn-circle mb-2"
-                                    :class="collaboratorId ? 'btn-warning' : 'btn-primary'"
-                                    @click="
-                                        localStorage.setItem('budget_step3_collaborator', collaboratorId || '');
-                                        const url = collaboratorId ? `/collaborators/update/modal/${collaboratorId}/` : '/collaborators/create/modal/';
-                                        htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
-                                        document.getElementById('form_modal').showModal();">
-                                <span class="material-icons" x-text="collaboratorId ? 'edit' : 'person_add'"></span>
-                            </button>
-                            """),
-                            css_class="flex items-end gap-2 w-full mb-6",
-                            x_data=f"{{ collaboratorId: '{initial_collab_id}' }}",
-                        ),
+                        HTML(f'''
+                            {{% include "budget/partials/collaborator_field.html" with field=form.collaborator initial_collab_id="{initial_collab_id}" %}}
+                        '''),
                         #
                         HTML('<label class="block text-gray-700 font-bold mb-2">Adicione os defeitos encontrados durante a inspeção</label>'),
                         Div(id="defect-list-container", css_class="mb-4 p-4 border-2 border-dashed border-gray-200 rounded-lg min-h-[120px] flex flex-wrap content-start"),

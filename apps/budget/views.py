@@ -521,10 +521,14 @@ class BudgetStep3CollaboratorFieldView(LoginRequiredMixin, WorkshopScopedMixin, 
         if selected_id:
             form.fields['collaborator'].initial = selected_id
 
+        # Determine initial collaborator ID for Alpine.js x-data
+        initial_collab_id = selected_id or (budget.collaborator.id if budget.collaborator else '')
+
         # Render the field using the template
         context = {
             'form': form,
             'field': form['collaborator'],
+            'initial_collab_id': initial_collab_id,
         }
 
         return render(request, 'budget/partials/collaborator_field.html', context)
