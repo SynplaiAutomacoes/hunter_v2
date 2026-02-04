@@ -1326,7 +1326,7 @@ class BudgetStep6Form(forms.ModelForm):
                                     Visualizar PDF Gestor
                                 </button>
 
-                                <button type="button" class="btn btn-success gap-2 col-span-4">
+                                <button type="button" class="btn btn-success gap-2 col-span-4" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse('budget:visualizar_pdf_mecanico', args=[budget.pk])}' }} }}))">
                                     <span class="material-icons">engineering</span>
                                     Visualizar PDF Mecânico
                                 </button>

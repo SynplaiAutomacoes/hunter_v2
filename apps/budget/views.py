@@ -471,3 +471,21 @@ def visualizar_pdf_gestor(request, pk):
     }
 
     return render(request, 'budget/partials/pdf/visualizarPDFGestor.html', context)
+
+
+@xframe_options_exempt
+def visualizar_pdf_mecanico(request, pk):
+    budget = get_object_or_404(Budget, pk=pk)
+    itens_all = BudgetItem.objects.filter(budget=budget)
+    produtos = itens_all.filter(product__isnull=False)
+    servicos = itens_all.filter(service__isnull=False)
+    workshop = get_active_workshop_or_404(request)
+
+    context = {
+        'budget': budget,
+        'produtos': produtos,
+        'servicos': servicos,
+        'observacao': workshop.pdf_observation
+    }
+
+    return render(request, 'budget/partials/pdf/visualizarPDFMecanico.html', context)
