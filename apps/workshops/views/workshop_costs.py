@@ -6,7 +6,7 @@ from django.shortcuts import render
 from django.urls import reverse_lazy
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
-from moneyed import Money
+from djmoney.money import Money
 
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
@@ -115,6 +115,8 @@ class WorkshopCostCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         instance.profit_target = profit_target
         instance.gross_revenue_target = gross_revenue_target
         instance.profitability_multiplier = profitability_multiplier
+
+        instance.calculate_monthly_costs()
 
         response_form = WorkshopCostForm(instance=instance, workshop=self.workshop)
 

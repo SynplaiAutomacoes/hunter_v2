@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
-from babel.numbers import format_currency
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
@@ -45,7 +44,7 @@ class WorkshopCost(TimeStampedModel):
     work_hours_per_day = models.DurationField(
         verbose_name="Horas de trabalho/dia",
         validators=[MinValueValidator(timedelta()), MaxValueValidator(timedelta(hours=24))],
-        default=8,
+        default=timedelta(hours=8),
         help_text="Máximo 24h",
     )
     work_days_per_month = models.IntegerField(
@@ -105,6 +104,9 @@ class WorkshopCost(TimeStampedModel):
     profit_target = MoneyField(verbose_name="Meta de Lucro", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
     gross_revenue_target = MoneyField(verbose_name="Faturamento Bruto Meta", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
     profitability_multiplier = models.DecimalField(verbose_name="Multiplicador Lucratividade", max_digits=10, decimal_places=2, default=0, null=True, blank=True)
+    working_hours_per_month = models.DecimalField(verbose_name="Horas úteis/mês", max_digits=10, decimal_places=2, default=0, null=True, blank=True)
+    minimum_hourly_cost = MoneyField(verbose_name="Custo Hora Mínimo", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
+    hourly_cost_value = MoneyField(verbose_name="Valor Sua Hora", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
 
     class Meta:
         verbose_name = "Custo da Oficina"
@@ -115,30 +117,39 @@ class WorkshopCost(TimeStampedModel):
     def __str__(self):
         return f"{self.get_month_display()}/{self.year}"
 
-    @property
-    def working_hours_per_month(self) -> Decimal:
-        work_hours_per_day = self.work_hours_per_day.total_seconds() / 3600
-        productivity_per_day = self.mechanic_quantity * Decimal(work_hours_per_day) * self.productivity_average
+    def calculate_working_hours_per_month(self) -> Decimal:
+        if not self.work_hours_per_day:
+            return Decimal("0.00")
 
-        working_hours_per_month = productivity_per_day * self.work_days_per_month
-
+        work_hours_per_day = Decimal(self.work_hours_per_day.total_seconds()) / Decimal("3600")
+        productivity_per_day = Decimal(self.mechanic_quantity or 0) * work_hours_per_day * (self.productivity_average or Decimal("0"))
+        
+        working_hours_per_month = productivity_per_day * Decimal(self.work_days_per_month or 0)
         return working_hours_per_month.quantize(Decimal("0.01"), ROUND_HALF_UP)
 
-    @property
-    def minimum_hourly_cost(self) -> str:
-        minimum_hourly_cost = self.total_monthly_costs.amount / self.working_hours_per_month
+    def calculate_minimum_hourly_cost(self) -> Money:
+        working_hours = self.working_hours_per_month or Decimal("0")
+        if working_hours == 0:
+            return Money(0, "BRL")
 
-        return format_currency(minimum_hourly_cost, "BRL", locale="pt_BR")
+        total_monthly_costs = self.total_monthly_costs or Money(0, "BRL")
+        amount = total_monthly_costs.amount / working_hours
+        return self._quantize_money(Money(amount, "BRL"))
 
-    @property
-    def hourly_cost_value(self) -> Money:
-        total_monthly_costs = self.total_monthly_costs.amount
-        profit_margin = self.profit_margin * 100
-        working_hours_per_month = self.working_hours_per_month
+    def calculate_hourly_cost_value(self) -> Money:
+        working_hours = self.working_hours_per_month or Decimal("0")
+        if working_hours == 0:
+            return Money(0, "BRL")
 
-        hourly_cost_value = ((total_monthly_costs / 100 * profit_margin) + total_monthly_costs) / working_hours_per_month
+        total_monthly_costs = self.total_monthly_costs or Money(0, "BRL")
+        profit_margin = (self.profit_margin or Decimal(0)) * 100
+        amount = ((total_monthly_costs.amount / 100 * profit_margin) + total_monthly_costs.amount) / working_hours
+        return self._quantize_money(Money(amount, "BRL"))
 
-        return Money(hourly_cost_value, "BRL")
+    def calculate_monthly_costs(self) -> None:
+        self.working_hours_per_month = self.calculate_working_hours_per_month()
+        self.minimum_hourly_cost = self.calculate_minimum_hourly_cost()
+        self.hourly_cost_value = self.calculate_hourly_cost_value()
 
     def _quantize_money(self, value: Money) -> Money:
         amount = value.amount.quantize(Decimal("0.01"), ROUND_HALF_UP)
@@ -156,7 +167,7 @@ class WorkshopCost(TimeStampedModel):
     def calculate_total_monthly_costs(self, items=None) -> Money:
         card_rate = (self.card_rate or Decimal(0)) * 100
         tax_rate = (self.tax_rate or Decimal(0)) * 100
-        risk_coefficient = self.risk_coefficient or Decimal(0)
+        risk_coefficient = self.risk_coefficient if self.risk_coefficient is not None else Decimal(1)
         commission_rate = (self.commission_rate or Decimal(0)) * 100
 
         fixed_cost = Money(0, "BRL")
@@ -196,6 +207,8 @@ class WorkshopCost(TimeStampedModel):
         self.profit_target = profit_target
         self.gross_revenue_target = gross_revenue_target
         self.profitability_multiplier = profitability_multiplier
+
+        self.calculate_monthly_costs()
 
 
 class WorkshopCostItem(models.Model):
