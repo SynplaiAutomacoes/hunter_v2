@@ -33,21 +33,25 @@
         <div class="grid grid-cols-2 gap-4 p-4 border-b border-gray-200">
             <div>
                 <h4 class="font-bold mb-2 uppercase">Cliente</h4>
-                <div class="grid grid-cols-1 gap-1">
+                <div class="grid grid-cols-2 gap-x-4 gap-y-1">
                     <p><span class="text-gray-500">Nome:</span> {{ budget.customer.name|default:budget.customer }}</p>
                     <p><span class="text-gray-500">CPF/CNPJ:</span> {{ budget.customer.cpf_or_cnpj|default:"-" }}</p>
-                    <p><span class="text-gray-500">Endereço:</span> {{ budget.customer.cidade|default:"-" }} / {{ budget.customer.bairro|default:"-" }}</p>
+                    <p><span class="text-gray-500">Endereço:</span> {{ budget.customer.estado|default:"-" }}, {{ budget.customer.logradouro|default:"-" }},{{ budget.customer.numero|default:"-" }}</p>
                     <p><span class="text-gray-500">Telefone:</span> {{ budget.customer.phone|default:"-" }}</p>
+                    <p><span class="text-gray-500">Bairro:</span> {{ budget.customer.bairro|default:"-" }}</p>
+                    <p><span class="text-gray-500">Cidade:</span> {{ budget.customer.cidade|default:"-" }}</p>
+                    <p><span class="text-gray-500">CEP:</span> {{ budget.customer.cep|default:"-" }}</p>
                 </div>
             </div>
             <div>
                 <h4 class="font-bold mb-2 uppercase">Veículo</h4>
-                <div class="grid grid-cols-1 gap-1">
+                <div class="grid grid-cols-2 gap-x-4 gap-y-1">
                     <p><span class="text-gray-500">Placa:</span> {{ budget.vehicle.plate }}</p>
                     <p><span class="text-gray-500">Marca:</span> {{ budget.vehicle.brand }}</p>
                     <p><span class="text-gray-500">Ano/Mod:</span> {{ budget.vehicle.year_model|default:"-" }}</p>
                     <p><span class="text-gray-500">Ano/Fab:</span> {{ budget.vehicle.year_fabrication|default:"-" }}</p>
                     <p><span class="text-gray-500">Cor:</span> {{ budget.vehicle.color|default:"-" }}</p>
+                    <p><span class="text-gray-500">Chassi:</span> {{ budget.vehicle.chassi|default:"-" }}</p>
                 </div>
             </div>
         </div>
