@@ -367,7 +367,15 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def get(self, request, budget_id, item_id):
         item = get_object_or_404(BudgetItem, pk=item_id, budget_id=budget_id)
         form = BudgetItemEditForm(instance=item)
-        return render(request, "budget/partials/modal_edit_item.html", {"form": form, "item": item, "budget_id": budget_id})
+        in_queue = request.GET.get('in_queue', 'false').lower() == 'true'
+
+        context = {
+            "form": form,
+            "item": item,
+            "budget_id": budget_id,
+            "in_queue": in_queue
+        }
+        return render(request, "budget/partials/modal_edit_item.html", context)
 
     def post(self, request, budget_id, item_id):
         item = get_object_or_404(BudgetItem, pk=item_id, budget_id=budget_id)

@@ -71,42 +71,32 @@
 
     <!-- Footer - Actions -->
     <div class="p-6 bg-base-50">
-        <div class="flex justify-between items-center gap-3">
+        <div class="flex justify-end items-center gap-3">
             <button type="button"
-                    class="btn btn-outline btn-sm gap-2"
-                    onclick="window.queueEditor.resetProgress()"
-                    title="Recomeçar do início">
-                <span class="material-icons text-sm">restart_alt</span>
-                Reiniciar
+                    class="btn btn-ghost gap-2"
+                    onclick="window.queueEditor.skipCurrentItem()"
+                    title="Pular sem salvar (Shift+Enter)">
+                <span class="material-icons">skip_next</span>
+                Pular
             </button>
 
-            <div class="flex gap-2">
-                <button type="button"
-                        class="btn btn-ghost gap-2"
-                        onclick="window.queueEditor.skipCurrentItem()"
-                        title="Pular sem salvar (Shift+Enter)">
-                    <span class="material-icons">skip_next</span>
-                    Pular
-                </button>
+            <button type="button"
+                    id="save-and-next-btn"
+                    class="btn btn-primary gap-2"
+                    onclick="window.queueEditor.saveAndNext()"
+                    title="Salvar e ir para próximo (Enter)">
+                <span class="material-icons">save</span>
+                Salvar e Próximo
+                <span class="loading loading-spinner loading-xs hidden" id="save-spinner"></span>
+            </button>
 
-                <button type="button"
-                        id="save-and-next-btn"
-                        class="btn btn-primary gap-2"
-                        onclick="window.queueEditor.saveAndNext()"
-                        title="Salvar e ir para próximo (Enter)">
-                    <span class="material-icons">save</span>
-                    Salvar e Próximo
-                    <span class="loading loading-spinner loading-xs hidden" id="save-spinner"></span>
-                </button>
-
-                <button type="button"
-                        id="finish-btn"
-                        class="btn btn-success gap-2 hidden"
-                        onclick="window.queueEditor.saveAndFinish()">
-                    <span class="material-icons">check_circle</span>
-                    Salvar e Finalizar
-                </button>
-            </div>
+            <button type="button"
+                    id="finish-btn"
+                    class="btn btn-success gap-2 hidden"
+                    onclick="window.queueEditor.saveAndFinish()">
+                <span class="material-icons">check_circle</span>
+                Salvar e Finalizar
+            </button>
         </div>
 
         <!-- Keyboard shortcuts hint -->
@@ -122,8 +112,6 @@
 
     // Queue Editor - Global scope for reusability
     (function () {
-        const STORAGE_KEY = 'budget_queue_progress';
-
         class QueueEditor {
             constructor() {
                 this.container = document.getElementById('edit-queue-modal');
@@ -139,7 +127,6 @@
                 this.isSaving = false;
 
                 this.initElements();
-                this.loadProgress();
                 this.setupKeyboardShortcuts();
                 this.setupEventListeners();
                 this.updateProgress();
@@ -157,52 +144,6 @@
                 this.skeletonLoader = document.getElementById('skeleton-loader');
             }
 
-            loadProgress() {
-                const saved = localStorage.getItem(STORAGE_KEY);
-                if (saved) {
-                    try {
-                        const data = JSON.parse(saved);
-                        if (data.budgetId === this.budgetId &&
-                            data.itemIds.join(',') === this.itemIds.join(',') &&
-                            data.currentIndex < this.itemIds.length) {
-
-                            const shouldResume = confirm(
-                                `Você tem progresso salvo (${data.currentIndex + 1}/${this.itemIds.length} itens).\n` +
-                                'Deseja continuar de onde parou?'
-                            );
-
-                            if (shouldResume) {
-                                this.currentIndex = data.currentIndex;
-                                this.updateProgress();
-                                if (this.currentIndex > 0) {
-                                    this.loadNextItem();
-                                }
-                            } else {
-                                this.clearProgress();
-                            }
-                        } else {
-                            this.clearProgress();
-                        }
-                    } catch (e) {
-                        console.error('Error loading progress:', e);
-                        this.clearProgress();
-                    }
-                }
-            }
-
-            saveProgress() {
-                const data = {
-                    budgetId: this.budgetId,
-                    itemIds: this.itemIds,
-                    currentIndex: this.currentIndex,
-                    timestamp: Date.now()
-                };
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-            }
-
-            clearProgress() {
-                localStorage.removeItem(STORAGE_KEY);
-            }
 
             setupKeyboardShortcuts() {
                 document.addEventListener('keydown', (e) => {
@@ -303,8 +244,6 @@
                     this.saveNextBtn.classList.toggle('hidden', isLastItem);
                     this.finishBtn.classList.toggle('hidden', !isLastItem);
                 }
-
-                this.saveProgress();
             }
 
             loadNextItem() {
@@ -389,14 +328,6 @@
                 this.showToast('Item pulado', 'info');
             }
 
-            resetProgress() {
-                if (confirm('Deseja realmente recomeçar do início? O progresso atual será perdido.')) {
-                    this.currentIndex = 0;
-                    this.clearProgress();
-                    this.loadNextItem();
-                    this.showToast('Progresso reiniciado', 'info');
-                }
-            }
 
             async saveAndFinish() {
                 // Save the current (last) item first
@@ -406,7 +337,6 @@
             }
 
             finishQueue() {
-                this.clearProgress();
 
                 // Close modal
                 const modal = document.getElementById('form_modal');
@@ -424,7 +354,6 @@
             }
 
             cancelQueue() {
-                this.clearProgress();
                 this.showToast('Edição em fila cancelada.', 'info');
 
                 // Close modal

@@ -1,7 +1,7 @@
 {% load crispy_forms_tags %}
 
 <div class="modal-content-wrapper bg-base-100 p-6 rounded-lg">
-    <!-- Header with title and Update button -->
+    <!-- Header with title and conditional buttons -->
     <div class="mb-6">
         <div class="flex items-center justify-between gap-3">
             <!-- Left side - Icon and Title -->
@@ -10,7 +10,8 @@
                 <h3 class="font-bold text-2xl text-base-content">{{ item.description|truncatewords:8 }}</h3>
             </div>
 
-            <!-- Right side - Update Master button -->
+            <!-- Right side - Update Master button (only if NOT in queue) -->
+            {% if not in_queue %}
             <button type="button"
                     class="btn btn-accent gap-2 js-update-master"
                     data-url="{% url 'budget:edit_item' budget_id item.pk %}"
@@ -18,6 +19,7 @@
                 <span class="material-icons text-sm">cloud_upload</span>
                 Atualizar Cadastro
             </button>
+            {% endif %}
         </div>
     </div>
 
@@ -74,6 +76,26 @@
             {% endfor %}
         </div>
     </form>
+
+    <!-- Action buttons (only if NOT in queue) -->
+    {% if not in_queue %}
+    <div class="mt-6 pt-6 border-t border-base-200 flex justify-end gap-3">
+        <button type="button"
+                class="btn btn-ghost"
+                onclick="document.getElementById('form_modal').close()">
+            <span class="material-icons text-sm">close</span>
+            Cancelar
+        </button>
+
+        <button type="button"
+                class="btn btn-primary gap-2 js-save-local"
+                data-url="{% url 'budget:edit_item' budget_id item.pk %}"
+                data-action="save_only">
+            <span class="material-icons text-sm">save</span>
+            Salvar
+        </button>
+    </div>
+    {% endif %}
 </div>
 
 <script>
@@ -151,10 +173,88 @@
                 });
             },
 
+            // Handle save local button with loading state
+            setupSaveLocalButton() {
+                const saveButton = document.querySelector('.js-save-local');
+
+                if (!saveButton) return;
+
+                const icon = saveButton.querySelector('.material-icons');
+                const originalIconContent = icon ? icon.textContent : '';
+                const form = document.getElementById('edit-item-form');
+
+                // Remove any existing event listeners
+                const newButton = saveButton.cloneNode(true);
+                saveButton.parentNode.replaceChild(newButton, saveButton);
+
+                const newIcon = newButton.querySelector('.material-icons');
+
+                newButton.addEventListener('click', async function(e) {
+                    e.preventDefault();
+
+                    if (!form) {
+                        console.error('Form not found');
+                        return;
+                    }
+
+                    const url = this.dataset.url;
+                    const action = this.dataset.action;
+
+                    // Show loading state
+                    if (newIcon) {
+                        newIcon.textContent = 'hourglass_empty';
+                        newIcon.classList.add('animate-spin');
+                    }
+
+                    newButton.disabled = true;
+
+                    // Get form data including CSRF token
+                    const formData = new FormData(form);
+                    formData.set('action', action);
+
+                    try {
+                        const response = await fetch(url, {
+                            method: 'POST',
+                            body: formData,
+                            headers: {
+                                'X-Requested-With': 'XMLHttpRequest',
+                                'HX-Request': 'true'
+                            }
+                        });
+
+                        if (response.ok) {
+                            // Close modal and trigger refresh
+                            const modal = document.getElementById('form_modal');
+                            if (modal) {
+                                modal.close();
+                            }
+
+                            // Trigger page reload to show changes
+                            setTimeout(() => {
+                                window.location.reload();
+                            }, 300);
+                        } else {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+                    } catch (error) {
+                        console.error('Error saving item:', error);
+                        alert('Erro ao salvar item. Tente novamente.');
+                    } finally {
+                        // Reset button state
+                        if (newIcon) {
+                            newIcon.textContent = originalIconContent;
+                            newIcon.classList.remove('animate-spin');
+                        }
+                        newButton.disabled = false;
+                    }
+                });
+            },
+
             // Initialize all functionality
             init() {
                 this.focusFirstInput();
                 this.setupUpdateMasterButton();
+                this.setupSaveLocalButton();
             }
         };
 
