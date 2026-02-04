@@ -1115,7 +1115,13 @@ class BudgetStep6Form(forms.ModelForm):
         if not services_html:
             services_html = '<tr><td colspan="5" class="text-center text-gray-400 py-4">Nenhum serviço adicionado</td></tr>'
         if not kits_html:
-            kits_html = '<tr><td colspan="4" class="text-center text-gray-400 py-4">Nenhum kit adicionado</td></tr>'
+            kits_html = """
+                <tr>
+                    <td colspan="5" class="text-center text-gray-400 py-4">
+                        Nenhum kit adicionado
+                    </td>
+                </tr>
+            """
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -1148,6 +1154,70 @@ class BudgetStep6Form(forms.ModelForm):
                         }).then(() => {
                             window.location.href = "{% url 'budget:budget_list' %}";
                         });
+                    }
+                    
+                    function openKitModal(button) {
+                        const modal = document.getElementById('kitModal');
+                    
+                        const title = document.getElementById('kit-modal-title');
+                        const productsList = document.getElementById('kit-modal-products');
+                        const servicesList = document.getElementById('kit-modal-services');
+                    
+                        const productsCount = document.getElementById('kit-products-count');
+                        const servicesCount = document.getElementById('kit-services-count');
+                    
+                        const productsCountSide = document.getElementById('kit-products-count-side');
+                        const servicesCountSide = document.getElementById('kit-services-count-side');
+                    
+                        title.textContent = button.dataset.kitName;
+                    
+                        productsList.innerHTML = '';
+                        servicesList.innerHTML = '';
+                    
+                        const products = button.dataset.kitProductsList
+                            .split('|').map(i => i.trim()).filter(Boolean);
+                    
+                        const services = button.dataset.kitServicesList
+                            .split('|').map(i => i.trim()).filter(Boolean);
+                    
+                        productsCount.textContent = products.length;
+                        servicesCount.textContent = services.length;
+                    
+                        productsCountSide.textContent = products.length;
+                        servicesCountSide.textContent = services.length;
+                    
+                        products.forEach(s => {
+                            const li = document.createElement('li');
+                            li.className = "flex items-start gap-3";
+                            li.innerHTML = `
+                              <span class="material-icons text-info text-sm mt-0.5 flex-shrink-0">circle</span>
+                              <span class="break-words break-all whitespace-normal">
+                                ${s}
+                              </span>
+                            `;
+                            productsList.appendChild(li);
+                        });
+                    
+                        services.forEach(s => {
+                            const li = document.createElement('li');
+                            li.className = "flex items-start gap-3";
+                            li.innerHTML = `
+                              <span class="material-icons text-info text-sm mt-0.5 flex-shrink-0">circle</span>
+                              <span class="break-words break-all whitespace-normal">
+                                ${s}
+                              </span>
+                            `;
+                            servicesList.appendChild(li);
+                        });
+                    
+                        modal.showModal();
+                    }
+                    
+                    function closeKitModal() {
+                        const modal = document.getElementById('kitModal');
+                        if (modal) {
+                            modal.close();
+                        }
                     }
             </script>"""),
             Div(
@@ -1222,6 +1292,7 @@ class BudgetStep6Form(forms.ModelForm):
                                                             <th class="text-center">QTD.</th>
                                                             <th class="text-center">PRODUTOS</th>
                                                             <th class="text-center">SERVIÇOS</th>
+                                                            <th class="text-center">AÇÕES</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody id="kit-list-body">
@@ -1334,6 +1405,122 @@ class BudgetStep6Form(forms.ModelForm):
                 ),
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch",
             ),
+            HTML("""
+                <dialog
+                    id="kitModal"
+                    class="modal"
+                    onclick="if(event.target === this) closeKitModal()"
+                >
+                  <div class="modal-box max-w-5xl w-full max-h-[75vh] p-0 flex flex-col">
+                
+                    <!-- HEADER -->
+                    <div class="flex items-center justify-between px-8 py-5 border-b bg-base-200">
+                        <div class="flex items-center gap-4">
+                            <div class="p-3 rounded-lg bg-primary/10">
+                                <span class="material-icons text-primary text-3xl">inventory_2</span>
+                            </div>
+                
+                            <div>
+                                <h3 class="text-2xl font-bold leading-tight" id="kit-modal-title"></h3>
+                                <span class="badge badge-primary badge-outline mt-1">
+                                    Kit de Serviços
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                
+                    <!-- BODY -->
+                    <div class="p-8 grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 overflow-y-auto">
+                
+                        <!-- PRODUTOS (CARD VERTICAL) -->
+                        <div class="card bg-base-100 shadow-md border lg:col-span-1">
+                            <div class="card-body gap-4">
+                                <div class="flex items-center justify-between">
+                                    <h4 class="font-semibold text-base flex items-center gap-2">
+                                        <span class="material-icons text-info">build</span>
+                                        Produtos
+                                    </h4>
+                                    <span id="kit-products-count" class="badge badge-info"></span>
+                                </div>
+                
+                                <div class="divider my-1"></div>
+                
+                                <ul
+                                    id="kit-modal-products"
+                                    class="flex flex-col gap-3 text-sm
+                                         max-h-64 overflow-y-auto pr-2
+                                         overflow-x-hidden"
+                                ></ul>
+                            </div>
+                        </div>
+                
+                        <!-- SERVIÇOS (CARD VERTICAL) -->
+                        <div class="card bg-base-100 shadow-md border lg:col-span-1">
+                            <div class="card-body gap-4">
+                                <div class="flex items-center justify-between">
+                                    <h4 class="font-semibold text-base flex items-center gap-2">
+                                        <span class="material-icons text-success">engineering</span>
+                                        Serviços
+                                    </h4>
+                                    <span id="kit-services-count" class="badge badge-success"></span>
+                                </div>
+                
+                                <div class="divider my-1"></div>
+                
+                                <ul
+                                    id="kit-modal-services"
+                                    class="flex flex-col gap-3 text-sm
+                                         max-h-64 overflow-y-auto pr-2
+                                         overflow-x-hidden"
+                                ></ul>
+                            </div>
+                        </div>
+                
+                        <!-- COLUNA DE CONTEXTO (PROFISSIONAL) -->
+                        <div class="card bg-base-200/60 border lg:col-span-1">
+                            <div class="card-body gap-4">
+                                <h4 class="font-semibold text-base">
+                                    Informações do Kit
+                                </h4>
+                
+                                <div class="flex flex-col gap-3 text-sm text-base-content/80">
+                                    <div class="flex justify-between">
+                                        <span>Total de Produtos</span>
+                                        <strong id="kit-products-count-side"></strong>
+                                    </div>
+                
+                                    <div class="flex justify-between">
+                                        <span>Total de Serviços</span>
+                                        <strong id="kit-services-count-side"></strong>
+                                    </div>
+                                </div>
+                
+                                <div class="divider"></div>
+                
+                                <p class="text-xs text-base-content/60 leading-relaxed">
+                                    Este kit agrupa produtos e serviços vinculados ao orçamento,
+                                    facilitando a visualização e conferência antes da aprovação.
+                                </p>
+                            </div>
+                        </div>
+                
+                    </div>
+                
+                    <!-- FOOTER -->
+                    <div class="flex justify-end px-8 py-5 border-t bg-base-200">
+                        <button
+                            type="button"
+                            class="btn btn-primary"
+                            onclick="closeKitModal()"
+                        >
+                            <span class="material-icons text-sm">close</span>
+                            Fechar
+                        </button>
+                    </div>
+                
+                  </div>
+                </dialog>
+            """),
         )
 
 

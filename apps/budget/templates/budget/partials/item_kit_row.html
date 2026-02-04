@@ -1,27 +1,45 @@
-<tr id="kit-item-{{ item.kit.id }}" {% if not is_full_render %}hx-swap-oob="true"{% endif %}>
+<tr id="kit-item-{{ item.kit.id }}"
+    {% if not is_full_render %}hx-swap-oob="true"{% endif %}>
+
     <td>{{ item.kit.name }}</td>
     <td class="text-center">{{ item.quantity }}</td>
     <td class="text-center">{{ item.kit.products.count }}</td>
     <td class="text-center">{{ item.kit.services.count }}</td>
-    {% if not step6 %}
-    <td class="text-center flex justify-center gap-1">
-        <button type="button"
-                class="btn btn-ghost btn-xs text-info"
-                hx-get="{% url 'budget:edit_item' budget.id item.pk %}"
-                hx-target="#modal-container"
-                onclick="form_modal.showModal()">
-            <span class="material-icons text-sm">edit</span>
-        </button>
 
-        <button
-            type="button"
-            class="btn btn-ghost btn-xs text-error"
-            hx-post="{% url 'budget:remove_item_from_budget' budget.id item.kit.id 'kit' %}"
-            data-confirm="Deseja remover este kit?"
-            hx-target="closest tr"
-            hx-swap="outerHTML">
-            <span class="material-icons text-sm">delete</span>
-        </button>
+    <!-- AÇÕES -->
+    <td class="text-center">
+        {% if step6 %}
+            <!-- BOTÃO VISUALIZAR (OLHO) -->
+            <button
+                type="button"
+                class="btn btn-ghost btn-xs"
+                onclick="openKitModal(this)"
+                data-kit-name="{{ item.kit.name }}"
+                data-kit-products-list="{% for p in item.kit.products.all %}{{ p.name }}{% if not forloop.last %} | {% endif %}{% endfor %}"
+                data-kit-services-list="{% for s in item.kit.services.all %}{{ s.name }}{% if not forloop.last %} | {% endif %}{% endfor %}"
+            >
+                <span class="material-icons text-sm">visibility</span>
+            </button>
+        {% else %}
+            <!-- EDITAR -->
+            <button type="button"
+                    class="btn btn-ghost btn-xs text-info"
+                    hx-get="{% url 'budget:edit_item' budget.id item.pk %}"
+                    hx-target="#modal-container"
+                    onclick="form_modal.showModal()">
+                <span class="material-icons text-sm">edit</span>
+            </button>
+
+            <!-- REMOVER -->
+            <button
+                type="button"
+                class="btn btn-ghost btn-xs text-error"
+                hx-post="{% url 'budget:remove_item_from_budget' budget.id item.kit.id 'kit' %}"
+                data-confirm="Deseja remover este kit?"
+                hx-target="closest tr"
+                hx-swap="outerHTML">
+                <span class="material-icons text-sm">delete</span>
+            </button>
+        {% endif %}
     </td>
-    {% endif %}
 </tr>
