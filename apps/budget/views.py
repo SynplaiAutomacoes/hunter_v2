@@ -5,6 +5,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views import View
@@ -362,8 +363,14 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
             if action == "update_master":
                 self.update_master_record(item)
+                # Notificações via toast, sem swap de conteúdo
+                response = HttpResponse()
+                response["HX-Trigger"] = json.dumps({
+                    "showToast": {"message": "Cadastro atualizado com sucesso.", "type": "success"},
+                    "update-summary": {}
+                })
+                return response
 
-            context = {"item": item, "budget": item.budget, "is_full_render": False}
             if item.product:
                 template = "budget/partials/item_product_row.html"
             elif item.service:
@@ -371,7 +378,10 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
             else:
                 template = "budget/partials/item_kit_row.html"
 
-            response = render(request, template, context)
+            context = {"item": item, "budget": item.budget, "is_full_render": False}
+            row_html = render_to_string(template, context)
+
+            response = render(row_html)
             response["HX-Trigger"] = "update-summary"
             return response
 
