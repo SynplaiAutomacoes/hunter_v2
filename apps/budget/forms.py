@@ -839,23 +839,35 @@ class BudgetStep5Form(forms.ModelForm):
                     }})();
 
                     (function () {{
-                        function initSlider(root = document) {{
+                        function initSlider() {{
                             const slider = document.querySelector('input[name="slider"]');
                             const labelPecaPct = document.getElementById('val-peca');
                             const labelMOPct = document.getElementById('val-mo');
-                            const displayVendaPecas = document.getElementById('display-venda-pecas');
-                            const displayVendaMO = document.getElementById('display-venda-mo');
-
-                            if (!slider || !labelPecaPct || !labelMOPct || !displayVendaPecas || !displayVendaMO) return;
-
-                            const updateFill = () => {{
-                                const min = parseInt(slider.min);
-                                const max = parseInt(slider.max);
-                                const val = parseInt(slider.value);
-
-                                const center = (0 - min) / (max - min) * 100;
-                                const percent = (val - min) / (max - min) * 100;
-
+                            const vendaPecaEl = document.getElementById('display-venda-pecas');
+                            const vendaMOEl = document.getElementById('display-venda-mo');
+                    
+                            if (!slider || !vendaPecaEl || !vendaMOEl) return;
+                    
+                            const basePeca = parseFloat(vendaPecaEl.dataset.baseVal);
+                            const baseMO = parseFloat(vendaMOEl.dataset.baseVal);
+                            const costPeca = parseFloat(vendaPecaEl.dataset.costVal);
+                            const costMO = parseFloat(vendaMOEl.dataset.costVal);
+                    
+                            const totalLucro = Math.max(
+                                (basePeca + baseMO) - (costPeca + costMO),
+                                0
+                            );
+                    
+                            const format = (v) =>
+                                "R$ " + v.toLocaleString("pt-BR", {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }}
+);
+                    
+                            function updateFill(val) {{
+                                const min = -100;
+                                const max = 100;
+                                const center = 50;
+                                const percent = ((val - min) / (max - min)) * 100;
+                    
                                 if (val === 0) {{
                                     slider.style.setProperty('--left', `${{center}}%`);
                                     slider.style.setProperty('--right', `${{center}}%`);
@@ -866,65 +878,40 @@ class BudgetStep5Form(forms.ModelForm):
                                     slider.style.setProperty('--left', `${{center}}%`);
                                     slider.style.setProperty('--right', `${{percent}}%`);
                                 }}
-                            }};
-
-                            const basePeca = parseFloat(displayVendaPecas.dataset.baseVal.replace(',', '.'));
-                            const baseMO = parseFloat(displayVendaMO.dataset.baseVal.replace(',', '.'));
-                            const totalOriginal = basePeca + baseMO;
-
-                            const formatCurrency = (val) => {{
-                                return "R$ " + val.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
-                            }};
-
-                            const updateValues = (val) => {{
-                                const sliderVal = parseInt(val || 0);
-
-                                let pecaPctUI = 0;
-                                let moPctUI = 0;
-
-                                if (sliderVal < 0) {{
-                                    pecaPctUI = Math.abs(sliderVal);
-                                    moPctUI = 0;
-                                }} else if (sliderVal > 0) {{
-                                    moPctUI = sliderVal;
-                                    pecaPctUI = 0;
-                                }}
-
-                                labelPecaPct.textContent = pecaPctUI;
-                                labelMOPct.textContent = moPctUI;
-
-                                const _pecaPct = sliderVal < 0
-                                    ? Math.abs(sliderVal) / 100
-                                    : (sliderVal > 0 ? (100 - sliderVal) / 100 : 0);
-
-                                const _maoPct = sliderVal > 0
-                                    ? sliderVal / 100
-                                    : (sliderVal < 0 ? (100 - Math.abs(sliderVal)) / 100 : 0);
-
-                                let novoVendaPeca, novoVendaMO;
-
-                                if (sliderVal === 0) {{
-                                    novoVendaPeca = basePeca;
-                                    novoVendaMO = baseMO;
-                                }} else {{
-                                    novoVendaPeca = totalOriginal * _pecaPct;
-                                    novoVendaMO = totalOriginal * _maoPct;
-                                }}
-                                displayVendaPecas.textContent = formatCurrency(novoVendaPeca);
-                                displayVendaMO.textContent = formatCurrency(novoVendaMO);
-
-                                updateFill();
-                            }};
-                            updateValues(slider.value);
-                            updateFill();
-                            if (!slider.dataset.bound) {{
-                                slider.addEventListener('input', e => updateValues(e.target.value));
-                                slider.dataset.bound = "1";
                             }}
+                    
+                            function update(val) {{
+                                val = parseInt(val || 0);
+                    
+                                let lucroPeca = 0;
+                                let lucroMO = 0;
+                    
+                                if (val < 0) {{
+                                    lucroPeca = totalLucro * Math.abs(val) / 100;
+                                    lucroMO = totalLucro - lucroPeca;
+                                }} else if (val > 0) {{
+                                    lucroMO = totalLucro * val / 100;
+                                    lucroPeca = totalLucro - lucroMO;
+                                }} else {{
+                                    lucroPeca = basePeca - costPeca;
+                                    lucroMO = baseMO - costMO;
+                                }}
+                    
+                                vendaPecaEl.textContent = format(costPeca + lucroPeca);
+                                vendaMOEl.textContent = format(costMO + lucroMO);
+                    
+                                labelPecaPct.textContent = val < 0 ? Math.abs(val) : 0;
+                                labelMOPct.textContent = val > 0 ? val : 0;
+                    
+                                updateFill(val);
+                            }}
+                    
+                            slider.addEventListener('input', e => update(e.target.value));
+                            update(slider.value || 0);
                         }}
-
-                        document.addEventListener('DOMContentLoaded', () => initSlider());
-                        document.body.addEventListener('htmx:afterSettle', (e) => initSlider(e.target));
+                    
+                        document.addEventListener('DOMContentLoaded', initSlider);
+                        document.body.addEventListener('htmx:afterSettle', initSlider);
                     }})();
                 </script>"""),
             Div(
@@ -949,7 +936,8 @@ class BudgetStep5Form(forms.ModelForm):
                                             <span class="col-span-8 p-2 bg-gray-50">Valor de Venda de Peças</span>
                                             <span id="display-venda-pecas"
                                                   class="col-span-4 p-2 border-l text-left"
-                                                  data-base-val="{venda_pecas.amount}">
+                                                  data-base-val="{venda_pecas.amount}"
+                                                  data-cost-val="{custo_pecas.amount}">
                                                 {venda_pecas}
                                             </span>
                                         </div>
@@ -985,7 +973,8 @@ class BudgetStep5Form(forms.ModelForm):
                                             <span class="col-span-8 p-2 bg-gray-50">Valor de Venda de Mão de Obra</span>
                                             <span id="display-venda-mo"
                                                   class="col-span-4 p-2 border-l text-left"
-                                                  data-base-val="{venda_mao_obra.amount}">
+                                                  data-base-val="{venda_mao_obra.amount}"
+                                                  data-cost-val="{custo_total_mao_obra.amount}">
                                                 {venda_mao_obra}
                                             </span>
                                         </div>
