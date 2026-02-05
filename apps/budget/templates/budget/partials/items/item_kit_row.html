@@ -1,11 +1,27 @@
-<tr id="kit-item-{{ item.kit.id }}" {% if not is_full_render %}hx-swap-oob="true"{% endif %}>
+<tr id="budget-item-{{ item.id }}"
+    {% if not is_full_render %}hx-swap-oob="true"{% endif %}>
+
     <td>{{ item.kit.name }}</td>
-    <td class="text-center whitespace-nowrap">{{ item.quantity }}</td>
-    <td class="text-center whitespace-nowrap">{{ item.kit.products.count }}</td>
-    <td class="text-center whitespace-nowrap">{{ item.kit.services.count }}</td>
-    {% if not step6 %}
-    <td class="text-center whitespace-nowrap">
-        <div class="flex justify-center items-center gap-1">
+    <td class="text-center">{{ item.quantity }}</td>
+    <td class="text-center">{{ item.kit.products.count }}</td>
+    <td class="text-center">{{ item.kit.services.count }}</td>
+
+    <!-- AÇÕES -->
+    <td class="text-center">
+        {% if step6 %}
+            <!-- BOTÃO VISUALIZAR (OLHO) -->
+            <button
+                type="button"
+                class="btn btn-ghost btn-xs"
+                onclick="openKitModal(this)"
+                data-kit-name="{{ item.kit.name }}"
+                data-kit-products-list="{% for p in item.kit.products.all %}{{ p.name }}{% if not forloop.last %} | {% endif %}{% endfor %}"
+                data-kit-services-list="{% for s in item.kit.services.all %}{{ s.name }}{% if not forloop.last %} | {% endif %}{% endfor %}"
+            >
+                <span class="material-icons text-sm">visibility</span>
+            </button>
+        {% else %}
+            <!-- EDITAR -->
             <button type="button"
                     class="btn btn-ghost btn-xs text-info"
                     hx-get="{% url 'budget:edit_item' budget.id item.pk %}"
@@ -14,6 +30,7 @@
                 <span class="material-icons text-sm">edit</span>
             </button>
 
+            <!-- REMOVER -->
             <button
                 type="button"
                 class="btn btn-ghost btn-xs text-error"
@@ -23,7 +40,6 @@
                 hx-swap="outerHTML">
                 <span class="material-icons text-sm">delete</span>
             </button>
-        </div>
+        {% endif %}
     </td>
-    {% endif %}
 </tr>
