@@ -135,6 +135,12 @@ class Budget(TimeStampedModel):
         duracao_total = Decimal(self.total_duration.total_seconds()) / Decimal(3600)
         horas_uteis_mes = workshop_cost.working_hours_per_month
 
+        if not horas_uteis_mes or horas_uteis_mes == 0:
+            return {
+                "valor_orcamento": self.total_products_value + self.total_services_value,
+                "rentabilidade": Decimal("0.00"),
+            }
+
         # Custos
         custo_pecas = self.total_costs_products_value
         custo_frete_pecas = self.total_products_shipping
@@ -371,6 +377,8 @@ class BudgetItem(TimeStampedModel):
 
     @property
     def unit_price(self):
+        if self.quantity == 0:
+            return Money(0, 'BRL')
         return Money((self.product_selling_price + self.service_selling_price).amount / self.quantity, 'BRL')
 
     @property
