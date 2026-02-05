@@ -44,7 +44,7 @@
                                 <input type="number"
                                        class="input input-sm input-bordered w-20 text-center product-qty"
                                        value="{{ product.quantity }}"
-                                       min="1"
+                                       min="0"
                                        data-field="quantity"
                                        onchange="calculateProductTotal(this)" />
                             </td>
@@ -109,7 +109,7 @@
                                 <input type="number"
                                        class="input input-sm input-bordered w-20 text-center service-qty"
                                        value="{{ service.quantity }}"
-                                       min="1"
+                                       min="0"
                                        data-field="quantity"
                                        onchange="calculateServiceTotal(this)" />
                             </td>
@@ -118,16 +118,14 @@
                                        class="input input-sm input-bordered w-full service-cost"
                                        value="{{ service.cost.amount }}"
                                        data-field="cost"
-                                       readonly
-                                       class="bg-base-200" />
+                                       onchange="calculateServiceTotal(this)" />
                             </td>
                             <td>
                                 <input type="text"
                                        class="input input-sm input-bordered w-full service-price"
                                        value="{{ service.price.amount }}"
                                        data-field="price"
-                                       readonly
-                                       class="bg-base-200" />
+                                       onchange="calculateServiceTotal(this)" />
                             </td>
                             <td>
                                 <input type="text"
@@ -185,10 +183,19 @@
         }).format(num);
     }
 
-    // Parse currency input
+    // Parse currency input - handles Brazilian format (123,45) and US format (123.45)
     function parseCurrency(str) {
         if (!str) return 0;
-        return parseFloat(str.toString().replace(/[^\d,-]/g, '').replace(',', '.')) || 0;
+        let value = str.toString().trim();
+        // Remove R$ and whitespace
+        value = value.replace(/R\$\s*/g, '');
+        // If has comma, it's Brazilian format: remove dots (thousands) and replace comma with period
+        if (value.includes(',')) {
+            value = value.replace(/\./g, '').replace(',', '.');
+        }
+        // Remove any remaining non-numeric characters except period
+        value = value.replace(/[^\d.]/g, '');
+        return parseFloat(value) || 0;
     }
 
     // Calculate product total
@@ -261,9 +268,10 @@
 
         // Collect products data
         document.querySelectorAll('#products-table-body tr[data-product-id]').forEach(row => {
+            const qty = parseInt(row.querySelector('.product-qty').value);
             products.push({
                 id: row.dataset.productId,
-                quantity: parseInt(row.querySelector('.product-qty').value) || 1,
+                quantity: isNaN(qty) ? 0 : qty,
                 cost: parseCurrency(row.querySelector('.product-cost').value),
                 price: parseCurrency(row.querySelector('.product-price').value),
                 shipping: parseCurrency(row.querySelector('.product-shipping').value)
@@ -272,9 +280,10 @@
 
         // Collect services data
         document.querySelectorAll('#services-table-body tr[data-service-id]').forEach(row => {
+            const qty = parseInt(row.querySelector('.service-qty').value);
             services.push({
                 id: row.dataset.serviceId,
-                quantity: parseInt(row.querySelector('.service-qty').value) || 1,
+                quantity: isNaN(qty) ? 0 : qty,
                 cost: parseCurrency(row.querySelector('.service-cost').value),
                 price: parseCurrency(row.querySelector('.service-price').value),
                 duration: row.querySelector('.service-duration').value

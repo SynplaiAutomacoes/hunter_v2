@@ -721,6 +721,8 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
         services_json = request.POST.get('services', '[]')
         services_data = json.loads(services_json)
 
+        print(f"DEBUG Kit Edit: Saving {len(products_data)} products and {len(services_data)} services for budget_item #{item.id}")
+
         for service_data in services_data:
             service_id = service_data.get('id')
             service = get_object_or_404(Service, id=service_id)
@@ -752,17 +754,29 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 }
             )
 
-        # Redirect back to step 4
-        return HttpResponse(headers={"HX-Redirect": f"/budget/{budget_id}/edit/?step=4"})
+            print(f"DEBUG: Saved service override - {service.name}: qtd={override.quantity}, price={override.service_selling_price}, duration={override.duration}")
+
+        # Force recalculation by accessing total_price
+        total = item.total_price
+        print(f"DEBUG: Kit total calculated: {total}")
+
+        # Redirect with full page reload (not HTMX)
+        import time
+        timestamp = int(time.time())
+        response = HttpResponse()
+        response["HX-Redirect"] = f"/budget/{budget_id}/edit/?step=4&_t={timestamp}"
+        response["HX-Refresh"] = "true"  # Force full page refresh
+        return response
 
 
 class CalculateKitServiceView(LoginRequiredMixin, WorkshopScopedMixin, View):
     """Calcula custo e preço de um serviço baseado na duração (para edição de kit)"""
     model = Budget
-    workshop_permission_codename = "change_budgetitem"
+    workshop_permission_codename = "add_budget"
 
     def post(self, request, budget_id):
         from datetime import timedelta
+        from decimal import Decimal
 
         service_id = request.POST.get('service_id')
         duration_str = request.POST.get('duration', '00:00:00')
@@ -779,11 +793,14 @@ class CalculateKitServiceView(LoginRequiredMixin, WorkshopScopedMixin, View):
         except (ValueError, IndexError):
             return JsonResponse({'error': 'Invalid duration format'}, status=400)
 
-        if not duration:
+        if not duration or duration.total_seconds() == 0:
             return JsonResponse({'error': 'Duration is required'}, status=400)
 
         # Get service
-        service = get_object_or_404(Service, id=service_id)
+        try:
+            service = get_object_or_404(Service, id=service_id)
+        except:
+            return JsonResponse({'error': 'Service not found'}, status=404)
 
         # Calculate pricing using existing logic
         try:
@@ -796,27 +813,32 @@ class CalculateKitServiceView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 year=timezone.now().year
             ).first()
 
-            if workshop_cost:
+            if workshop_cost and workshop_cost.minimum_hourly_cost:
                 # Calculate based on duration and hourly cost
-                hours_decimal = Decimal(duration.total_seconds()) / Decimal(3600)
-                cost = workshop_cost.minimum_hourly_cost.amount * hours_decimal
+                hours_decimal = Decimal(str(duration.total_seconds())) / Decimal('3600')
+                cost = float(workshop_cost.minimum_hourly_cost.amount) * float(hours_decimal)
 
                 # Apply markup from slider (if exists)
                 slider_value = budget.slider if hasattr(budget, 'slider') else 50
-                markup_percentage = Decimal(slider_value) / Decimal(100)
-                price = cost * (Decimal(1) + markup_percentage)
+                markup_percentage = Decimal(str(slider_value)) / Decimal('100')
+                price = cost * float(Decimal('1') + markup_percentage)
 
                 return JsonResponse({
-                    'cost': float(cost),
-                    'price': float(price)
+                    'cost': round(cost, 2),
+                    'price': round(price, 2)
                 })
             else:
                 # Fallback to service defaults
+                cost_val = float(service.suggested_cost.amount) if service.suggested_cost else 0
+                price_val = float(service.selling_price.amount) if service.selling_price else 0
+
                 return JsonResponse({
-                    'cost': float(service.suggested_cost.amount),
-                    'price': float(service.selling_price.amount)
+                    'cost': cost_val,
+                    'price': price_val
                 })
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             return JsonResponse({'error': str(e)}, status=500)
 
 
