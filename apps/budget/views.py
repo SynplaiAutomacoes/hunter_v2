@@ -311,8 +311,25 @@ class RemoveBudgetItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         item.delete()
 
-        # Retornar vazio para remover a linha da tabela
-        return HttpResponse(status=200)
+        # Extract step from referer URL to stay on current step
+        from urllib.parse import urlparse, parse_qs
+        referer = request.META.get('HTTP_REFERER', '')
+        current_step = budget.current_step
+
+        if referer:
+            parsed = urlparse(referer)
+            query_params = parse_qs(parsed.query)
+            if 'step' in query_params:
+                try:
+                    current_step = int(query_params['step'][0])
+                except (ValueError, IndexError):
+                    pass
+
+        success_url = f"{reverse('budget:budget_update', kwargs={'pk': budget.id})}?step={current_step}"
+
+        response = HttpResponse()
+        response["HX-Redirect"] = success_url
+        return response
 
 
 class UpdateBudgetDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):

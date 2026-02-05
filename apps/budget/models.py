@@ -292,6 +292,11 @@ class Budget(TimeStampedModel):
     def total_budget_value(self) -> Money:
         return self.total_base_value - self.discount_value
 
+    @property
+    def ordered_images(self):
+        """Returns budget images ordered by upload date (oldest first)"""
+        return self.budget_image.all()
+
     def __str__(self):
         return f"Budget #{self.id} - {self.customer}"
 
@@ -306,6 +311,7 @@ class BudgetImage(TimeStampedModel):
     class Meta:
         verbose_name = "Imagem do Orçamento"
         verbose_name_plural = "Imagens do Orçamento"
+        ordering = ['criado_em']
 
     def __str__(self):
         return f"Image #{self.id} from Budget: {self.budget}"
