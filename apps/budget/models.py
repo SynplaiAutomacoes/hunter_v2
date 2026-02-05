@@ -292,6 +292,10 @@ class Budget(TimeStampedModel):
     def total_budget_value(self) -> Money:
         return self.total_base_value - self.discount_value
 
+    @property
+    def has_local_items(self):
+        return self.items.filter(is_local=True).exists()
+
     def __str__(self):
         return f"Budget #{self.id} - {self.customer}"
 
