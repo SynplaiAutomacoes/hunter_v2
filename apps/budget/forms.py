@@ -1721,9 +1721,27 @@ class BudgetItemEditForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         item = self.instance
 
+        # Se for kit, remover todos os campos de edição (kits usam modal próprio)
+        if item.kit:
+            fields_to_remove = ["service_selling_price", "service_cost_price", "duration",
+                              "product_selling_price", "product_cost_price", "shipping"]
+            for field in fields_to_remove:
+                if field in self.fields:
+                    self.fields.pop(field)
+            return
+
         # Identificar tipo de item local pelos valores preenchidos
-        is_local_product = item.is_local and (item.product_cost_price.amount > 0 or item.product_selling_price.amount > 0 or item.shipping.amount > 0)
-        is_local_service = item.is_local and (item.service_cost_price.amount > 0 or item.service_selling_price.amount > 0 or item.duration)
+        # Verificar se campos Money existem antes de acessar .amount
+        is_local_product = item.is_local and (
+            (item.product_cost_price and item.product_cost_price.amount > 0) or
+            (item.product_selling_price and item.product_selling_price.amount > 0) or
+            (item.shipping and item.shipping.amount > 0)
+        )
+        is_local_service = item.is_local and (
+            (item.service_cost_price and item.service_cost_price.amount > 0) or
+            (item.service_selling_price and item.service_selling_price.amount > 0) or
+            item.duration
+        )
 
         if item.product or is_local_product:
             self.fields.pop("service_selling_price")
@@ -1743,14 +1761,6 @@ class BudgetItemEditForm(forms.ModelForm):
                     "hx-include": "closest form",
                     "hx-indicator": "#calculation-indicator",
                 })
-        elif item.kit:
-            self.fields.pop("service_selling_price")
-            self.fields.pop("service_cost_price")
-            self.fields.pop("duration")
-            self.fields.pop("product_selling_price")
-            self.fields.pop("product_cost_price")
-            self.fields.pop("shipping")
-            self.fields.pop("shipping")
 
 
 class LocalProductForm(forms.ModelForm):

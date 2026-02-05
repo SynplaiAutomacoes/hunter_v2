@@ -25,7 +25,7 @@
                 <!-- EDITAR -->
                 <button type="button"
                         class="btn btn-ghost btn-xs text-info"
-                        hx-get="{% url 'budget:edit_item' budget.id item.pk %}"
+                        hx-get="{% url 'budget:edit_kit' budget.id item.pk %}"
                         hx-target="#modal-container"
                         onclick="form_modal.showModal()">
                     <span class="material-icons text-sm">edit</span>

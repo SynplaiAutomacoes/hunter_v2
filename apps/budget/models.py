@@ -393,3 +393,51 @@ class BudgetItem(TimeStampedModel):
 
     class Meta:
         verbose_name = "Item do Orçamento"
+        verbose_name_plural = "Itens do Orçamento"
+
+
+class BudgetKitItemOverride(TimeStampedModel):
+    """Armazena modificações de itens do kit específicas para este orçamento"""
+    workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="kit_overrides")
+    budget_item = models.ForeignKey(BudgetItem, on_delete=models.CASCADE, related_name="kit_overrides")
+
+    # Referência ao item original do kit (um dos dois deve estar preenchido)
+    product = models.ForeignKey(Product, null=True, blank=True, on_delete=models.CASCADE)
+    service = models.ForeignKey(Service, null=True, blank=True, on_delete=models.CASCADE)
+
+    # Campos editáveis
+    quantity = models.PositiveIntegerField(verbose_name="Quantidade", default=1)
+
+    # Campos de Produto
+    product_cost_price = MoneyField(verbose_name="Custo do Produto", max_digits=14, decimal_places=2, default=0, default_currency='BRL')
+    product_selling_price = MoneyField(verbose_name="Preço de Venda do Produto", max_digits=14, decimal_places=2, default=0, default_currency='BRL')
+    shipping = MoneyField(verbose_name="Frete", max_digits=14, decimal_places=2, default=0, default_currency='BRL')
+
+    # Campos de Serviço
+    service_cost_price = MoneyField(verbose_name="Custo do Serviço", max_digits=14, decimal_places=2, default=0, default_currency='BRL')
+    service_selling_price = MoneyField(verbose_name="Preço de Venda do Serviço", max_digits=14, decimal_places=2, default=0, default_currency='BRL')
+    duration = models.DurationField(verbose_name="Duração", null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Override de Item do Kit"
+        verbose_name_plural = "Overrides de Itens do Kit"
+        # Garantir que não haja duplicatas
+        constraints = [
+            models.UniqueConstraint(
+                fields=['budget_item', 'product'],
+                condition=models.Q(product__isnull=False),
+                name='unique_budget_kit_product'
+            ),
+            models.UniqueConstraint(
+                fields=['budget_item', 'service'],
+                condition=models.Q(service__isnull=False),
+                name='unique_budget_kit_service'
+            ),
+        ]
+
+    def __str__(self):
+        if self.product:
+            return f"Override: {self.product.name} - Budget #{self.budget_item.budget_id}"
+        elif self.service:
+            return f"Override: {self.service.name} - Budget #{self.budget_item.budget_id}"
+        return f"Override #{self.id}"
