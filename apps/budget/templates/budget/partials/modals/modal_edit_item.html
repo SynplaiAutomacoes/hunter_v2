@@ -3,33 +3,35 @@
 <div class="modal-content-wrapper bg-base-100 p-6 rounded-lg">
     <!-- Header with title and buttons -->
     <div class="mb-6">
-        <div class="flex items-center justify-between gap-3">
+        <div class="flex items-center justify-between gap-3 flex-nowrap">
             <!-- Left side - Icon and Title -->
-            <div class="flex items-center gap-3">
-                <span class="material-icons text-primary text-3xl">edit</span>
-                <h3 class="font-bold text-2xl text-base-content">{{ item.description|truncatewords:8 }}</h3>
-                
+            <div class="flex items-center gap-3 flex-1 min-w-0">
+                <span class="material-icons text-primary text-3xl flex-shrink-0">edit</span>
+                <h3 class="font-bold text-xl text-base-content truncate">{{ item.description|truncatewords:6 }}</h3>
+
                 <!-- Calculation Indicator -->
-                <div id="calculation-indicator" class="htmx-indicator flex items-center gap-2 px-3 py-1 bg-info/10 text-info rounded-full text-sm animate-pulse">
+                <div id="calculation-indicator" class="htmx-indicator flex items-center gap-2 px-3 py-1 bg-info/10 text-info rounded-full text-sm animate-pulse flex-shrink-0">
                     <span class="material-icons text-sm animate-spin">sync</span>
-                    <span>Calculando...</span>
+                    <span class="hidden md:inline">Calculando...</span>
                 </div>
             </div>
 
             <!-- Right side - Update Master button (only if NOT local item) -->
             {% if not item.is_local %}
             <button type="button"
-                    class="btn btn-accent gap-2 js-update-master"
+                    class="btn btn-accent btn-sm gap-2 js-update-master flex-shrink-0 whitespace-nowrap"
                     data-url="{% url 'budget:edit_item' budget_id item.pk %}"
                     data-action="update_master"
                     data-keep-modal-open="true">
                 <span class="material-icons text-sm">cloud_upload</span>
-                Atualizar Cadastro
+                <span class="hidden sm:inline">Atualizar Cadastro</span>
+                <span class="sm:hidden">Atualizar</span>
             </button>
             {% else %}
-            <div class="badge badge-warning gap-2 py-3 px-4">
+            <div class="badge badge-warning gap-2 py-3 px-4 flex-shrink-0">
                 <span class="material-icons text-sm">warning</span>
-                Item Local
+                <span class="hidden sm:inline">Item Local</span>
+                <span class="sm:hidden">Local</span>
             </div>
             {% endif %}
         </div>
@@ -92,18 +94,18 @@
 
                 if (!updateButton) return;
 
+                // Check if already initialized to prevent duplicate setup
+                if (updateButton.dataset.initialized === 'true') {
+                    return;
+                }
+
+                updateButton.dataset.initialized = 'true';
+
                 const icon = updateButton.querySelector('.material-icons');
                 const originalIconContent = icon ? icon.textContent : '';
                 const form = document.getElementById('edit-item-form');
-                const keepModalOpen = updateButton.dataset.keepModalOpen === 'true';
 
-                // Remove any existing event listeners to prevent duplicates
-                const newButton = updateButton.cloneNode(true);
-                updateButton.parentNode.replaceChild(newButton, updateButton);
-
-                const newIcon = newButton.querySelector('.material-icons');
-
-                newButton.addEventListener('click', function(e) {
+                updateButton.addEventListener('click', function(e) {
                     e.preventDefault();
 
                     if (!form) {
@@ -111,20 +113,23 @@
                         return;
                     }
 
+                    // Prevent double-click
+                    if (this.disabled) return;
+
                     const url = this.dataset.url;
                     const action = this.dataset.action;
 
                     // Show loading state
-                    if (newIcon) {
-                        newIcon.textContent = 'hourglass_empty';
-                        newIcon.classList.add('animate-spin');
+                    if (icon) {
+                        icon.textContent = 'hourglass_empty';
+                        icon.classList.add('animate-spin');
                     }
 
-                    newButton.disabled = true;
+                    this.disabled = true;
 
                     // Get form data including CSRF token
                     const formData = new FormData(form);
-                    formData.set('action', action); // Use set to ensure it's the correct action
+                    formData.set('action', action);
 
                     // Trigger HTMX request with form data
                     htmx.ajax('POST', url, {
@@ -134,11 +139,11 @@
                     }).finally(() => {
                         // Reset button state after a short delay
                         setTimeout(() => {
-                            if (newIcon) {
-                                newIcon.textContent = originalIconContent;
-                                newIcon.classList.remove('animate-spin');
+                            if (icon) {
+                                icon.textContent = originalIconContent;
+                                icon.classList.remove('animate-spin');
                             }
-                            newButton.disabled = false;
+                            updateButton.disabled = false;
                         }, 500);
                     });
                 });
@@ -150,17 +155,18 @@
 
                 if (!saveButton) return;
 
+                // Check if already initialized to prevent duplicate setup
+                if (saveButton.dataset.initialized === 'true') {
+                    return;
+                }
+
+                saveButton.dataset.initialized = 'true';
+
                 const icon = saveButton.querySelector('.material-icons');
                 const originalIconContent = icon ? icon.textContent : '';
                 const form = document.getElementById('edit-item-form');
 
-                // Remove any existing event listeners
-                const newButton = saveButton.cloneNode(true);
-                saveButton.parentNode.replaceChild(newButton, saveButton);
-
-                const newIcon = newButton.querySelector('.material-icons');
-
-                newButton.addEventListener('click', function(e) {
+                saveButton.addEventListener('click', function(e) {
                     e.preventDefault();
 
                     if (!form) {
@@ -168,16 +174,19 @@
                         return;
                     }
 
+                    // Prevent double-click
+                    if (this.disabled) return;
+
                     const url = this.dataset.url;
                     const action = this.dataset.action;
 
                     // Show loading state
-                    if (newIcon) {
-                        newIcon.textContent = 'hourglass_empty';
-                        newIcon.classList.add('animate-spin');
+                    if (icon) {
+                        icon.textContent = 'hourglass_empty';
+                        icon.classList.add('animate-spin');
                     }
 
-                    newButton.disabled = true;
+                    this.disabled = true;
 
                     // Get form data including CSRF token
                     const formData = new FormData(form);
@@ -191,11 +200,11 @@
                     }).finally(() => {
                         // Reset button state after a short delay
                         setTimeout(() => {
-                            if (newIcon) {
-                                newIcon.textContent = originalIconContent;
-                                newIcon.classList.remove('animate-spin');
+                            if (icon) {
+                                icon.textContent = originalIconContent;
+                                icon.classList.remove('animate-spin');
                             }
-                            newButton.disabled = false;
+                            saveButton.disabled = false;
                         }, 500);
                     });
                 });

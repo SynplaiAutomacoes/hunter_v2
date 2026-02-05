@@ -15,9 +15,26 @@ from apps.catalog.models.services import Service
 from apps.checklist.models import Checklist
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.utils import alert_confirm_layout
-from apps.core.widgets import CalendarDateInput, DurationInput, ImageInput, MoneyInput, NumberInput, SelectInput, TextInput
+from apps.core.widgets import CalendarDateInput, DurationInput, MoneyInput, NumberInput, SelectInput, TextInput
 from apps.customer.models import Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
+
+
+class MultipleFileInput(forms.FileInput):
+    """Custom widget to support multiple file uploads with preview"""
+    allow_multiple_selected = True
+    template_name = "widgets/multiple_image_input.html"
+
+    def __init__(self, attrs=None):
+        if attrs is None:
+            attrs = {}
+        attrs['multiple'] = True
+        super().__init__(attrs)
+
+    def value_from_datadict(self, data, files, name):
+        if hasattr(files, 'getlist'):
+            return files.getlist(name)
+        return files.get(name)
 
 
 class BudgetStep1Form(forms.ModelForm):
@@ -96,7 +113,7 @@ class BudgetStep1Form(forms.ModelForm):
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
-            HTML("""
+            HTML(r"""
             <script>
                 document.addEventListener('input', function (e) {
                     if (e.target && e.target.name === 'current_km') {
@@ -307,7 +324,7 @@ class BudgetStep3Form(forms.ModelForm):
     new_defect = forms.CharField(label=False, required=False, widget=TextInput(attrs={"id": "id_new_defect", "placeholder": "Digite um defeito e clique em Adicionar", "onkeypress": "if(event.keyCode==13){ event.preventDefault(); addDefectRow(); }"}))
     checklist = forms.ModelChoiceField(label="Selecione o Checklist", queryset=Checklist.objects.none(), required=False, widget=SelectInput())
     collaborator = forms.ModelChoiceField(label="Selecione o colaborador que realizará o serviço", required=True, queryset=WorkshopCollaborator.objects.none(), widget=SelectInput())
-    image = forms.ImageField(label=False, required=False, widget=ImageInput())
+    images = forms.FileField(label=False, required=False, widget=MultipleFileInput(attrs={'accept': 'image/*', 'class': 'file-input file-input-bordered w-full'}))
 
     class Meta:
         model = Budget
@@ -451,8 +468,10 @@ class BudgetStep3Form(forms.ModelForm):
                     ),
                     # Imagens
                     Div(
-                        HTML('<h3 class="text-2xl font-bold mb-4">Anexar Imagem</h3>'),
-                        Field("image", label=False, wrapper_class="mb-0"),
+                        HTML('<h3 class="text-2xl font-bold mb-4">Anexar Imagens</h3>'),
+                        HTML('<div id="existing-images-container" class="grid grid-cols-2 gap-4 mb-4"></div>'),
+                        Field("images", label=False, wrapper_class="mb-0"),
+                        HTML('<p class="text-sm text-gray-500 mt-2">Você pode selecionar múltiplas imagens. Máximo de 10 imagens por orçamento.</p>'),
                         css_class="mb-6",
                     ),
                     css_class="col-span-12 lg:col-span-6",
@@ -485,6 +504,69 @@ class BudgetStep3Form(forms.ModelForm):
                     """)
                 )
 
+            # Inject existing images with delete buttons
+            existing_images = self.instance.ordered_images
+            if existing_images.exists():
+                import base64
+                images_html = []
+                for img in existing_images:
+                    if img.content:
+                        img_data = base64.b64encode(img.content).decode('utf-8')
+                        img_src = f"data:{img.content_type or 'image/jpeg'};base64,{img_data}"
+                        img_name = img.content_name or f"Imagem {img.id}"
+                        images_html.append(f"""
+                        <div class="relative border-2 border-gray-200 rounded-lg p-2 hover:border-primary transition-colors" id="image-{img.id}">
+                            <img src="{img_src}" alt="{img_name}" class="w-full h-32 object-cover rounded mb-2">
+                            <input type="hidden" name="images_to_delete" value="" id="delete-flag-{img.id}">
+                            <button type="button" 
+                                    onclick="document.getElementById('delete-flag-{img.id}').value='{img.id}'; document.getElementById('image-{img.id}').classList.add('opacity-50', 'line-through'); this.disabled=true; this.textContent='Será excluída';"
+                                    class="btn btn-xs btn-error w-full gap-1"
+                                    title="Marcar para exclusão">
+                                <span class="material-icons text-xs">delete</span>
+                                Remover
+                            </button>
+                        </div>
+                        """)
+
+                images_json = "".join(images_html)
+                self.helper.layout.append(
+                    HTML(f"""
+                    <script>
+                        document.getElementById('existing-images-container').innerHTML = `{images_json}`;
+                    </script>
+                    """)
+                )
+
+    def clean(self):
+        cleaned_data = super().clean()
+
+        # Validate images if uploaded
+        if self.files:
+            new_images = self.files.getlist("images")
+            if new_images:
+                # Check file extensions
+                allowed_extensions = ['jpg', 'jpeg', 'png', 'gif']
+                for img in new_images:
+                    ext = img.name.split('.')[-1].lower() if '.' in img.name else ''
+                    if ext not in allowed_extensions:
+                        raise forms.ValidationError(f"Formato de arquivo '{img.name}' não permitido. Use: {', '.join(allowed_extensions)}")
+
+                    # Check file size (10MB max)
+                    if img.size > 10 * 1024 * 1024:
+                        raise forms.ValidationError(f"Imagem '{img.name}' excede o tamanho máximo de 10MB ({(img.size / 1024 / 1024):.2f}MB).")
+
+                # Check total count if instance exists
+                if self.instance and self.instance.pk:
+                    existing_count = self.instance.budget_image.count()
+                    images_to_delete = self.data.getlist("images_to_delete")
+                    delete_count = len([img_id for img_id in images_to_delete if img_id.strip()])
+                    final_count = existing_count - delete_count + len(new_images)
+
+                    if final_count > 10:
+                        raise forms.ValidationError(f"Máximo de 10 imagens permitido. Você terá {final_count} imagens após esta operação.")
+
+        return cleaned_data
+
     def save(self, commit=True):
         budget = super().save(commit=commit)
 
@@ -498,14 +580,39 @@ class BudgetStep3Form(forms.ModelForm):
                 if name.strip():
                     Defect.objects.create(workshop=self.workshop, budget=budget, name=name.strip())
 
-        should_clear = self.data.get(f"{self.prefix}-image-clear") if self.prefix else self.data.get("image-clear")
-        new_image = self.cleaned_data.get("image")
+        # Handle image deletion - delete specific images marked for deletion
+        images_to_delete = self.request.POST.getlist("images_to_delete")
+        if images_to_delete:
+            # Filter out empty strings
+            image_ids = [img_id for img_id in images_to_delete if img_id.strip()]
+            if image_ids:
+                BudgetImage.objects.filter(id__in=image_ids, budget=budget).delete()
 
-        if should_clear:
-            budget.budget_image.all().delete()
-        elif new_image and hasattr(new_image, "read"):
-            budget.budget_image.all().delete()
-            BudgetImage.objects.create(workshop=self.workshop, budget=budget, content=new_image.read(), content_name=new_image.name, content_type=getattr(new_image, "content_type", "image/jpeg"))
+        # Handle new images upload - append to existing images
+        new_images = self.request.FILES.getlist("images")
+        if new_images:
+            # Check total images limit (existing + new)
+            existing_count = budget.budget_image.count()
+            total_count = existing_count + len(new_images)
+
+            if total_count > 10:
+                from django.core.exceptions import ValidationError
+                raise ValidationError(f"Máximo de 10 imagens permitido. Você tem {existing_count} imagens e está tentando adicionar {len(new_images)}.")
+
+            for new_image in new_images:
+                if new_image and hasattr(new_image, "read"):
+                    # Validate file size (10MB max)
+                    if new_image.size > 10 * 1024 * 1024:
+                        from django.core.exceptions import ValidationError
+                        raise ValidationError(f"Imagem '{new_image.name}' excede o tamanho máximo de 10MB.")
+
+                    BudgetImage.objects.create(
+                        workshop=self.workshop,
+                        budget=budget,
+                        content=new_image.read(),
+                        content_name=new_image.name,
+                        content_type=getattr(new_image, "content_type", "image/jpeg")
+                    )
 
         return budget
 
@@ -1632,9 +1739,27 @@ class BudgetItemEditForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         item = self.instance
 
+        # Se for kit, remover todos os campos de edição (kits usam modal próprio)
+        if item.kit:
+            fields_to_remove = ["service_selling_price", "service_cost_price", "duration",
+                              "product_selling_price", "product_cost_price", "shipping"]
+            for field in fields_to_remove:
+                if field in self.fields:
+                    self.fields.pop(field)
+            return
+
         # Identificar tipo de item local pelos valores preenchidos
-        is_local_product = item.is_local and (item.product_cost_price.amount > 0 or item.product_selling_price.amount > 0 or item.shipping.amount > 0)
-        is_local_service = item.is_local and (item.service_cost_price.amount > 0 or item.service_selling_price.amount > 0 or item.duration)
+        # Verificar se campos Money existem antes de acessar .amount
+        is_local_product = item.is_local and (
+            (item.product_cost_price and item.product_cost_price.amount > 0) or
+            (item.product_selling_price and item.product_selling_price.amount > 0) or
+            (item.shipping and item.shipping.amount > 0)
+        )
+        is_local_service = item.is_local and (
+            (item.service_cost_price and item.service_cost_price.amount > 0) or
+            (item.service_selling_price and item.service_selling_price.amount > 0) or
+            item.duration
+        )
 
         if item.product or is_local_product:
             self.fields.pop("service_selling_price")
@@ -1654,14 +1779,6 @@ class BudgetItemEditForm(forms.ModelForm):
                     "hx-include": "closest form",
                     "hx-indicator": "#calculation-indicator",
                 })
-        elif item.kit:
-            self.fields.pop("service_selling_price")
-            self.fields.pop("service_cost_price")
-            self.fields.pop("duration")
-            self.fields.pop("product_selling_price")
-            self.fields.pop("product_cost_price")
-            self.fields.pop("shipping")
-            self.fields.pop("shipping")
 
 
 class LocalProductForm(forms.ModelForm):

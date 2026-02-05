@@ -251,14 +251,30 @@ class Budget(TimeStampedModel):
 
     @property
     def total_products_value(self) -> Money:
-        total = self.items.aggregate(total=Sum(F("quantity") * F("product_selling_price")))["total"] or 0
-        return Money(total, 'BRL') + self.total_products_shipping
+        """Calculate total products value considering kit overrides"""
+        total = Money(0, 'BRL')
+        for item in self.items.all():
+            if item.product:
+                # Standard product: (price * quantity) + shipping
+                total += (item.product_selling_price * item.quantity) + item.shipping
+            elif item.kit:
+                # Kit: only products portion
+                total += item.get_kit_products_total()
+        return total
 
     ## Services
     @property
     def total_duration(self) -> timedelta:
-        total = self.items.aggregate(total=Sum(F("quantity") * F("duration"), output_field=DurationField()))["total"]
-        return total or timedelta()
+        """Calculate total duration considering kit service overrides"""
+        total = timedelta(0)
+        for item in self.items.all():
+            if item.service and item.duration:
+                # Standard service: duration * quantity
+                total += item.duration * item.quantity
+            elif item.kit:
+                # Kit: get services duration with overrides
+                total += item.get_kit_services_duration()
+        return total
 
     @property
     def total_third_party_services_cost(self) -> Money:
@@ -277,8 +293,16 @@ class Budget(TimeStampedModel):
 
     @property
     def total_services_value(self) -> Money:
-        total = self.items.aggregate(total=Sum(F("quantity") * F("service_selling_price")))["total"] or 0
-        return Money(total, "BRL")
+        """Calculate total services value considering kit overrides"""
+        total = Money(0, 'BRL')
+        for item in self.items.all():
+            if item.service:
+                # Standard service: price * quantity
+                total += item.service_selling_price * item.quantity
+            elif item.kit:
+                # Kit: only services portion
+                total += item.get_kit_services_total()
+        return total
 
     ## Total
     @property
@@ -296,6 +320,11 @@ class Budget(TimeStampedModel):
     def has_local_items(self):
         return self.items.filter(is_local=True).exists()
 
+    @property
+    def ordered_images(self):
+        """Returns budget images ordered by upload date (oldest first)"""
+        return self.budget_image.all()
+
     def __str__(self):
         return f"Budget #{self.id} - {self.customer}"
 
@@ -310,6 +339,7 @@ class BudgetImage(TimeStampedModel):
     class Meta:
         verbose_name = "Imagem do Orçamento"
         verbose_name_plural = "Imagens do Orçamento"
+        ordering = ['criado_em']
 
     def __str__(self):
         return f"Image #{self.id} from Budget: {self.budget}"
@@ -377,7 +407,103 @@ class BudgetItem(TimeStampedModel):
 
     @property
     def total_price(self):
+        # Se for kit, calcular com base nos overrides
+        if self.kit:
+            return self.get_kit_total_with_overrides()
         return ((self.product_selling_price + self.service_selling_price) * self.quantity) + self.shipping
+
+    def get_kit_total_with_overrides(self):
+        """Calcula o total do kit considerando os overrides
+
+        Total = (Soma total de produtos) + (Soma total de serviços)
+        Produto total = (preço * quantidade do produto) + frete
+        Serviço total = preço * quantidade do serviço
+
+        Depois multiplica pela quantidade de kits no orçamento
+        """
+        if not self.kit:
+            return Money(0, 'BRL')
+
+        total_produtos = Money(0, 'BRL')
+        total_servicos = Money(0, 'BRL')
+
+        # Calcular total dos produtos: (preço * qtd) + frete para cada produto
+        for product in self.kit.products.all():
+            override = self.kit_overrides.filter(product=product).first()
+            if override:
+                # Usar valores do override
+                produto_subtotal = (override.product_selling_price * override.quantity) + override.shipping
+            else:
+                # Usar valores originais do produto
+                produto_subtotal = (product.selling_price * 1) + Money(0, 'BRL')
+            total_produtos += produto_subtotal
+
+        # Calcular total dos serviços: preço * qtd para cada serviço
+        for service in self.kit.services.all():
+            override = self.kit_overrides.filter(service=service).first()
+            if override:
+                # Usar valores do override
+                servico_subtotal = override.service_selling_price * override.quantity
+            else:
+                # Usar valores originais do serviço
+                servico_subtotal = service.selling_price * 1
+            total_servicos += servico_subtotal
+
+        # Total do kit = soma de produtos + soma de serviços
+        total_kit = total_produtos + total_servicos
+
+        # Multiplicar pela quantidade de kits no orçamento
+        return total_kit * self.quantity
+
+    def get_kit_products_total(self):
+        """Retorna apenas o total de produtos do kit (para resumo separado)"""
+        if not self.kit:
+            return Money(0, 'BRL')
+
+        total_produtos = Money(0, 'BRL')
+        for product in self.kit.products.all():
+            override = self.kit_overrides.filter(product=product).first()
+            if override:
+                produto_subtotal = (override.product_selling_price * override.quantity) + override.shipping
+            else:
+                produto_subtotal = (product.selling_price * 1) + Money(0, 'BRL')
+            total_produtos += produto_subtotal
+
+        return total_produtos * self.quantity
+
+    def get_kit_services_total(self):
+        """Retorna apenas o total de serviços do kit (para resumo separado)"""
+        if not self.kit:
+            return Money(0, 'BRL')
+
+        total_servicos = Money(0, 'BRL')
+        for service in self.kit.services.all():
+            override = self.kit_overrides.filter(service=service).first()
+            if override:
+                servico_subtotal = override.service_selling_price * override.quantity
+            else:
+                servico_subtotal = service.selling_price * 1
+            total_servicos += servico_subtotal
+
+        return total_servicos * self.quantity
+
+    def get_kit_services_duration(self):
+        """Retorna a duração total dos serviços do kit"""
+        if not self.kit:
+            return timedelta(0)
+
+        total_duration = timedelta(0)
+        for service in self.kit.services.all():
+            override = self.kit_overrides.filter(service=service).first()
+            if override and override.duration:
+                # Usar duração do override × quantidade do serviço
+                total_duration += override.duration * override.quantity
+            elif service.duration:
+                # Usar duração original × 1
+                total_duration += service.duration * 1
+
+        # Multiplicar pela quantidade de kits no orçamento
+        return total_duration * self.quantity
 
     @property
     def unit_price(self):
@@ -391,3 +517,51 @@ class BudgetItem(TimeStampedModel):
 
     class Meta:
         verbose_name = "Item do Orçamento"
+        verbose_name_plural = "Itens do Orçamento"
+
+
+class BudgetKitItemOverride(TimeStampedModel):
+    """Armazena modificações de itens do kit específicas para este orçamento"""
+    workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="kit_overrides")
+    budget_item = models.ForeignKey(BudgetItem, on_delete=models.CASCADE, related_name="kit_overrides")
+
+    # Referência ao item original do kit (um dos dois deve estar preenchido)
+    product = models.ForeignKey(Product, null=True, blank=True, on_delete=models.CASCADE)
+    service = models.ForeignKey(Service, null=True, blank=True, on_delete=models.CASCADE)
+
+    # Campos editáveis
+    quantity = models.IntegerField(verbose_name="Quantidade", default=1, validators=[MinValueValidator(0)])
+
+    # Campos de Produto
+    product_cost_price = MoneyField(verbose_name="Custo do Produto", max_digits=14, decimal_places=2, default=0, default_currency='BRL')
+    product_selling_price = MoneyField(verbose_name="Preço de Venda do Produto", max_digits=14, decimal_places=2, default=0, default_currency='BRL')
+    shipping = MoneyField(verbose_name="Frete", max_digits=14, decimal_places=2, default=0, default_currency='BRL')
+
+    # Campos de Serviço
+    service_cost_price = MoneyField(verbose_name="Custo do Serviço", max_digits=14, decimal_places=2, default=0, default_currency='BRL')
+    service_selling_price = MoneyField(verbose_name="Preço de Venda do Serviço", max_digits=14, decimal_places=2, default=0, default_currency='BRL')
+    duration = models.DurationField(verbose_name="Duração", null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Override de Item do Kit"
+        verbose_name_plural = "Overrides de Itens do Kit"
+        # Garantir que não haja duplicatas
+        constraints = [
+            models.UniqueConstraint(
+                fields=['budget_item', 'product'],
+                condition=models.Q(product__isnull=False),
+                name='unique_budget_kit_product'
+            ),
+            models.UniqueConstraint(
+                fields=['budget_item', 'service'],
+                condition=models.Q(service__isnull=False),
+                name='unique_budget_kit_service'
+            ),
+        ]
+
+    def __str__(self):
+        if self.product:
+            return f"Override: {self.product.name} - Budget #{self.budget_item.budget_id}"
+        elif self.service:
+            return f"Override: {self.service.name} - Budget #{self.budget_item.budget_id}"
+        return f"Override #{self.id}"
