@@ -1132,6 +1132,7 @@ class BudgetStep6Form(forms.ModelForm):
         super().__init__(*args, **kwargs)
 
         budget = self.instance
+        has_local_items = budget.items.filter(is_local=True).exists() if budget.pk else False
 
         saved_observation = ""
         if self.workshop:
@@ -1270,7 +1271,6 @@ class BudgetStep6Form(forms.ModelForm):
                 # Coluna Esquerda
                 Div(
                     HTML('<div class="border-t-2 mb-4 mt-0"></div>'),
-                    HTML('<h2 class="text-lg font-semibold mb-6">Revise os dados e confirme o orçamento</h2>'),
                     # Seção de Produtos
                     Div(
                         Div(
@@ -1429,7 +1429,22 @@ class BudgetStep6Form(forms.ModelForm):
                                     Cancelar Orçamento
                                 </button>
 
-                                <button type="button" class="btn btn-success gap-2 col-span-4" onclick="updateBudgetStatus({budget.pk}, 'approve')">
+                                <button
+                                    type="button"
+                                    class="btn gap-2 col-span-4
+                                           {{% if form.instance.has_local_items %}}
+                                               btn-disabled cursor-not-allowed
+                                           {{% else %}}
+                                               btn-success
+                                           {{% endif %}}"
+                                    {{% if not form.instance.has_local_items %}}
+                                        onclick="updateBudgetStatus({{{{ form.instance.pk }}}}, 'approve')"
+                                    {{% endif %}}
+                                    {{% if form.instance.has_local_items %}}
+                                        disabled
+                                        title="Existem itens não cadastrados no sistema"
+                                    {{% endif %}}
+                                >
                                     <span class="material-icons">check_circle</span>
                                     Aprovar Orçamento
                                 </button>
