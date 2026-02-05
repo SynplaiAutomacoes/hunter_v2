@@ -1,0 +1,38 @@
+{% load crispy_forms_tags %}
+
+<div class="modal-content-wrapper bg-base-100 p-6 rounded-lg max-h-[80vh] overflow-y-auto">
+    <div class="mb-6">
+        <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+                <span class="material-icons text-primary text-3xl">cloud_upload</span>
+                <h3 class="font-bold text-2xl text-base-content">{{ title }}</h3>
+            </div>
+        </div>
+
+        <div class="alert alert-info mt-4">
+            <span class="material-icons">info</span>
+            <span>Preencha os dados para cadastrar este item no banco de dados. Após o cadastro, o item estará disponível para todos os orçamentos.</span>
+        </div>
+    </div>
+
+    <form hx-post="{{ url }}"
+          hx-target="this"
+          hx-swap="outerHTML"
+          enctype="multipart/form-data"
+          id="register-item-form">
+        {% csrf_token %}
+
+        {% crispy form %}
+
+    </form>
+</div>
+
+<script>
+    document.body.addEventListener('closeModal', function() {
+        document.getElementById('form_modal').close();
+    });
+
+    document.body.addEventListener('refreshPage', function() {
+        setTimeout(() => window.location.reload(), 300);
+    });
+</script>

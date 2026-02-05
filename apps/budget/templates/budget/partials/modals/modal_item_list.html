@@ -1,0 +1,273 @@
+<div id="modal-item-list-container" class="modal-box w-screen max-w-[90vw] lg:max-w-6xl bg-base-100 shadow-2xl p-0 overflow-hidden">
+
+    <div class="p-6 border-b border-base-200 flex justify-between items-center bg-base-50">
+        <h3 class="font-bold text-2xl flex items-center gap-3">
+            <span class="material-icons">
+                {% if item_type == 'product' %}inventory_2{% else %}build{% endif %}
+            </span>
+            {{ modal_title }}
+        </h3>
+        <button type="button" class="btn btn-sm btn-circle btn-ghost" onclick="form_modal.close()">✕</button>
+    </div>
+
+    <div class="relative overflow-y-auto max-h-[70vh]">
+            <div class="sticky top-0 z-30 bg-base-100 p-4 border-b border-base-200">
+                <div class="flex justify-between items-center mb-4">
+                    <label class="input input-bordered flex items-center gap-2 w-full max-w-md">
+                        <span class="material-icons">search</span>
+                        <input type="text" id="item-search" class="grow" placeholder="Pesquisar..." />
+                        <button type="button" id="clear-search" class="btn btn-ghost btn-xs" title="Limpar">✕</button>
+                    </label>
+
+                    {% if item_type != 'kit' %}
+                    <div class="flex gap-2">
+                        <button type="button"
+                                class="btn btn-outline btn-sm gap-2"
+                                hx-get="{% url 'budget:create_local_item' budget.id item_type %}"
+                                hx-target="#modal-container"
+                                hx-swap="innerHTML"
+                                onclick="form_modal.showModal()">
+                            <span class="material-icons text-sm">note_add</span>
+                            Incluir Novo Item
+                        </button>
+
+                        <button type="button"
+                                class="btn btn-primary btn-sm gap-2"
+                                hx-get="{% url 'budget:quick_create_item' budget.id item_type %}"
+                                hx-target="#modal-container"
+                                hx-swap="innerHTML"
+                                onclick="form_modal.showModal()">
+                            <span class="material-icons text-sm">add_circle</span>
+                            Cadastrar Novo
+                        </button>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        <table class="table table-zebra w-full border-separate border-spacing-0">
+            <thead class="sticky top-0 z-20 bg-base-100">
+            <tr class="text-sm uppercase bg-base-200">
+                <th class="w-16">
+                    <input type="checkbox" id="select-all" class="checkbox checkbox-primary"/>
+                </th>
+                {% if item_type == 'product' %}
+                    <th class="rounded-none">Código</th>{% endif %}
+                {% if item_type == 'service' %}
+                    <th class="text-center">Duração</th>{% endif %}
+                {% if item_type == 'kit' %}
+                    <th class="text-center">Nome</th>{% endif %}
+                <th class="w-full">Descrição</th>
+                {% if item_type != 'kit' %}
+                    <th class="whitespace-nowrap">Preço Venda</th>{% endif %}
+            </tr>
+            </thead>
+            <tbody class="text-base">
+            {% for item in items %}
+                {% if item.id in existing_items %}
+                <tr class="bg-success/10 hover:bg-success/20 transition-colors">
+                    <td class="text-center">
+                        <input type="checkbox"
+                               name="selected_items"
+                               value="{{ item.id }}"
+                               class="checkbox checkbox-success item-checkbox"
+                               checked
+                               disabled
+                               title="Item já adicionado ao orçamento">
+                    </td>
+                {% else %}
+                <tr class="hover:bg-base-200/50 transition-colors">
+                    <td class="text-center">
+                        <input type="checkbox"
+                               name="selected_items"
+                               value="{{ item.id }}"
+                               class="checkbox checkbox-primary item-checkbox">
+                    </td>
+                {% endif %}
+
+                    {% if item_type == 'product' %}
+                        <td class="font-mono text-sm whitespace-nowrap">
+                            {{ item.code }}
+                            {% if item.id in existing_items %}
+                                <span class="badge badge-success badge-xs ml-2">✓ Adicionado</span>
+                            {% endif %}
+                        </td>
+                    {% endif %}
+
+                    {% if item_type == 'service' %}
+                        <td class="text-center whitespace-nowrap">
+                            <span class="badge badge-ghost">{{ item.duration_display }}</span>
+                            {% if item.id in existing_items %}
+                                <span class="badge badge-success badge-xs ml-2">✓</span>
+                            {% endif %}
+                        </td>
+                    {% endif %}
+
+                    {% if item_type == 'kit' %}
+                        <td class="font-mono text-sm whitespace-nowrap">
+                            {{ item.name }}
+                            {% if item.id in existing_items %}
+                                <span class="badge badge-success badge-xs ml-2">✓ Adicionado</span>
+                            {% endif %}
+                        </td>
+                    {% endif %}
+
+                    <td class="min-w-[300px]">
+                        <div class="font-bold {% if item.id in existing_items %}text-success{% endif %}">
+                            {{ item.name|default:item.description }}
+                        </div>
+                    </td>
+
+                    {% if item_type != 'kit' %}
+                        <td class="whitespace-nowrap font-semibold">{{ item.selling_price }}</td>
+                    {% endif %}
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="10" class="py-20 text-center">
+                        <div class="flex flex-col items-center justify-center opacity-30">
+                            <span class="material-icons text-6xl">search_off</span>
+                            <p class="text-xl font-semibold mt-4">Nenhum item encontrado</p>
+                        </div>
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="p-4 border-t border-base-200 flex justify-between items-center bg-base-50">
+        <span id="selection-counter" class="text-sm font-semibold">
+            0 itens selecionados
+        </span>
+
+        <div class="flex gap-2">
+            <button type="button" class="btn btn-ghost" onclick="form_modal.close()">Cancelar</button>
+
+            <button
+                    type="button"
+                    id="add-selected-btn"
+                    class="btn btn-primary"
+                    disabled
+                    hx-post="{% url 'budget:add_items_batch' budget.id item_type %}"
+                    hx-target="#modal-container"
+                    hx-swap="innerHTML"
+                    hx-include="[name='selected_items']:checked">
+                Adicionar Selecionados
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    (function () {
+        const modal = document.getElementById('modal-item-list-container');
+        const selectAll = modal.querySelector('#select-all');
+        const counter = modal.querySelector('#selection-counter');
+        const addBtn = modal.querySelector('#add-selected-btn');
+        const searchInput = modal.querySelector('#item-search');
+        const clearBtn = modal.querySelector('#clear-search');
+
+        // Count already added items
+        const alreadyAdded = modal.querySelectorAll('.item-checkbox[disabled]').length;
+
+        function visibleItemCheckboxes() {
+            return modal.querySelectorAll('tbody tr:not(.hidden) .item-checkbox:not([disabled])');
+        }
+
+        function allItemCheckboxes() {
+            return modal.querySelectorAll('.item-checkbox:not([disabled])');
+        }
+
+        function updateCounter() {
+            const count = modal.querySelectorAll('.item-checkbox:checked:not([disabled])').length;
+            const totalSelected = count + alreadyAdded;
+
+            let text = '';
+            if (count > 0 && alreadyAdded > 0) {
+                text = `${count} novo(s) + ${alreadyAdded} já adicionado(s) = ${totalSelected} total`;
+            } else if (count > 0) {
+                text = `${count} ${count === 1 ? 'item' : 'itens'} ${count === 1 ? 'selecionado' : 'selecionados'}`;
+            } else if (alreadyAdded > 0) {
+                text = `${alreadyAdded} ${alreadyAdded === 1 ? 'item já adicionado' : 'itens já adicionados'}`;
+            } else {
+                text = '0 itens selecionados';
+            }
+
+            counter.textContent = text;
+            addBtn.disabled = count === 0;
+        }
+
+        function updateSelectAllState() {
+            const boxes = Array.from(visibleItemCheckboxes());
+            if (!selectAll) return;
+            if (boxes.length === 0) {
+                selectAll.checked = false;
+                selectAll.indeterminate = false;
+                return;
+            }
+            const allChecked = boxes.every(cb => cb.checked);
+            const someChecked = boxes.some(cb => cb.checked);
+            selectAll.checked = allChecked;
+            selectAll.indeterminate = someChecked && !allChecked;
+        }
+
+        selectAll?.addEventListener('change', (e) => {
+            visibleItemCheckboxes().forEach(cb => cb.checked = e.target.checked);
+            updateCounter();
+            updateSelectAllState();
+        });
+
+        allItemCheckboxes().forEach(cb => cb.addEventListener('change', () => {
+            updateCounter();
+            updateSelectAllState();
+        }));
+
+        function normalize(str) {
+            return (str || '').toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        }
+
+        function filterRows(query) {
+            const q = normalize(query);
+            const rows = modal.querySelectorAll('tbody tr');
+            rows.forEach(row => {
+                // ignore placeholder/empty rows
+                const text = normalize(row.textContent);
+                const match = q === '' || text.includes(q);
+                row.classList.toggle('hidden', !match);
+            });
+            updateSelectAllState();
+        }
+
+        searchInput?.addEventListener('input', (e) => {
+            filterRows(e.target.value);
+        });
+
+        clearBtn?.addEventListener('click', () => {
+            if (searchInput) searchInput.value = '';
+            filterRows('');
+            searchInput?.focus();
+        });
+
+        // Initial update
+        updateCounter();
+        updateSelectAllState();
+
+        // Destacar item recém-criado
+        {% if newly_created_id %}
+        const newlyCreatedCheckbox = modal.querySelector('input[value="{{ newly_created_id }}"]');
+        if (newlyCreatedCheckbox) {
+            const row = newlyCreatedCheckbox.closest('tr');
+            if (row) {
+                row.classList.add('bg-success', 'bg-opacity-20');
+                row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+                // Remover destaque após 3 segundos
+                setTimeout(() => {
+                    row.classList.remove('bg-success', 'bg-opacity-20');
+                    row.classList.add('transition-colors', 'duration-500');
+                }, 3000);
+            }
+        }
+        {% endif %}
+    })();
+</script>

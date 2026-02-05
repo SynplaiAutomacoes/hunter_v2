@@ -1,0 +1,45 @@
+{% comment %}
+Base template for modal dialogs in the budget app.
+Provides consistent structure with customizable blocks.
+{% endcomment %}
+
+<div class="modal-content-wrapper bg-base-100 p-6 rounded-lg{% block modal_wrapper_classes %}{% endblock %}">
+    {# Header Section #}
+    <div class="mb-6">
+        <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+                {% block modal_icon %}
+                <span class="material-icons text-primary text-3xl">info</span>
+                {% endblock %}
+
+                <h3 class="font-bold text-2xl text-base-content">
+                    {% block modal_title %}Modal Title{% endblock %}
+                </h3>
+
+                {% block modal_title_extra %}{% endblock %}
+            </div>
+
+            {% block modal_header_actions %}{% endblock %}
+        </div>
+
+        {% block modal_alert %}
+        {# Optional alert/info section below title #}
+        {% endblock %}
+    </div>
+
+    {% block modal_content %}
+    {# Main modal content goes here #}
+    {% endblock %}
+</div>
+
+{% block modal_scripts %}
+{# JavaScript specific to this modal #}
+<script>
+    document.body.addEventListener('closeModal', function() {
+        const modal = document.getElementById('form_modal');
+        if (modal) {
+            modal.close();
+        }
+    });
+</script>
+{% endblock %}

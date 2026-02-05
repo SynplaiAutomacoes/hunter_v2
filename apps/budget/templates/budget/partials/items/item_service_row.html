@@ -1,0 +1,57 @@
+<tr id="budget-item-{{ item.id }}" {% if not is_full_render %}hx-swap-oob="true"{% endif %}>
+    <td>
+        <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+                {{ item.description }}
+                {% if item.is_local %}
+                    <span class="tooltip" data-tip="⚠️ Item cadastrado apenas neste orçamento. Cadastre no banco de dados para poder aprovar o orçamento.">
+                        <span class="material-icons text-warning" style="font-size: 18px;">warning</span>
+                    </span>
+                {% endif %}
+            </div>
+            {% if item.is_local %}
+                <button type="button"
+                        class="btn btn-xs btn-ghost tooltip"
+                        data-tip="Cadastrar no banco de dados"
+                        hx-get="{% url 'budget:register_local_item' budget.id item.id %}"
+                        hx-target="#modal-container"
+                        hx-swap="innerHTML"
+                        onclick="form_modal.showModal()">
+                    <span class="material-icons text-accent" style="font-size: 16px;">cloud_upload</span>
+                </button>
+            {% endif %}
+        </div>
+    </td>
+    <td class="text-center whitespace-nowrap">{{ item.quantity }}</td>
+    <td class="whitespace-nowrap">{{ item.service_cost_price }}</td>
+    <td class="whitespace-nowrap">{{ item.service_selling_price }}</td>
+    <td class="whitespace-nowrap">{{ item.duration_display }}</td>
+    <td class="font-bold whitespace-nowrap">{{ item.total_price }}</td>
+    {% if not step6 %}
+    <td class="text-center whitespace-nowrap">
+        <div class="flex justify-center items-center gap-1">
+            <button type="button"
+                    class="btn btn-ghost btn-xs text-info"
+                    hx-get="{% url 'budget:edit_item' budget.id item.pk %}"
+                    hx-target="#modal-container"
+                    onclick="form_modal.showModal()">
+                <span class="material-icons text-sm">edit</span>
+            </button>
+
+            <button
+                type="button"
+                class="btn btn-ghost btn-xs text-error"
+                {% if item.is_local %}
+                hx-post="{% url 'budget:remove_budget_item' budget.id item.id %}"
+                {% else %}
+                hx-post="{% url 'budget:remove_item_from_budget' budget.id item.service.id 'service' %}"
+                {% endif %}
+                data-confirm="Deseja remover este serviço?"
+                hx-target="closest tr"
+                hx-swap="outerHTML">
+                <span class="material-icons text-sm">delete</span>
+            </button>
+        </div>
+    </td>
+    {% endif %}
+</tr>

@@ -9,6 +9,9 @@ from djmoney.money import Money
 from decimal import Decimal
 
 from apps.budget.models import Budget, BudgetImage, BudgetItem, Defect
+from apps.catalog.models.groups import CatalogGroup
+from apps.catalog.models.products import Product
+from apps.catalog.models.services import Service
 from apps.checklist.models import Checklist
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.utils import alert_confirm_layout
@@ -199,10 +202,10 @@ class BudgetStep1Form(forms.ModelForm):
                         HTML('<h2 class="text-2xl font-bold mb-4 pb-2">Resumo</h2>'),
                         # Cliente
                         HTML('<h4 class="text-lg font-bold mb-2">Cliente</h4>'),
-                        Div(HTML(render_to_string("budget/partials/customer_resume.html", {"customer": self.instance.customer})), id="resumo-cliente", css_class="mb-6 overflow-x-auto"),
+                        Div(HTML(render_to_string("budget/partials/components/customer_resume.html", {"customer": self.instance.customer})), id="resumo-cliente", css_class="mb-6 overflow-x-auto"),
                         # Veículo
                         HTML('<h4 class="text-lg font-bold mb-2">Veículo</h4>'),
-                        Div(HTML(render_to_string("budget/partials/vehicle_resume.html", {"vehicle": self.instance.vehicle})), id="resumo-veiculo", css_class="overflow-x-auto"),
+                        Div(HTML(render_to_string("budget/partials/components/vehicle_resume.html", {"vehicle": self.instance.vehicle})), id="resumo-veiculo", css_class="overflow-x-auto"),
                     ),
                     css_class="col-span-12 lg:col-span-5",
                 ),
@@ -335,27 +338,22 @@ class BudgetStep3Form(forms.ModelForm):
         self.fields["collaborator"].widget.attrs.update(
             {
                 "x-model": "collaboratorId",
-                "hx-trigger": "collaboratorSaved from:body",
-                "hx-get": ".",
-                "hx-target": "#div_id_collaborator",
-                "hx-select": "#div_id_collaborator",
-                "hx-swap": "outerHTML",
             }
         )
 
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
-            HTML("""<script>
-                    function addDefectRow() {
+            HTML(f"""<script>
+                    function addDefectRow() {{
                         const input = document.getElementById('id_new_defect');
                         const container = document.getElementById('defect-list-container');
                         const text = input.value.trim();
                         if (text === "") return;
                         const id = 'new-' + Date.now();
-                        const html = `<div class="badge badge-lg badge-ghost gap-2 py-5 mb-2 mr-2 pr-1" id="defect-${id}">
-                                <input type="hidden" name="defects_list" value="${text}">
-                                <span class="font-medium">${text}</span>
+                        const html = `<div class="badge badge-lg badge-ghost gap-2 py-5 mb-2 mr-2 pr-1" id="defect-${{id}}">
+                                <input type="hidden" name="defects_list" value="${{text}}">
+                                <span class="font-medium">${{text}}</span>
                                 <button type="button" onclick="this.parentElement.remove()" class="btn btn-ghost btn-xs btn-circle text-error">
                                     X
                                 </button>
@@ -363,12 +361,49 @@ class BudgetStep3Form(forms.ModelForm):
                         container.insertAdjacentHTML('beforeend', html);
                         input.value = "";
                         input.focus();
-                    }
+                    }}
                     
-                    document.body.addEventListener('collaboratorSaved', function(evt) {
+                    document.body.addEventListener('collaboratorSaved', function(evt) {{
                         const modal = document.getElementById('form_modal');
                         if (modal) modal.close();
-                    });
+                        
+                        // Get current collaborator selection
+                        const selectElement = document.querySelector('#id_collaborator');
+                        const currentValue = selectElement ? selectElement.value : '';
+                        
+                        // Save to localStorage before refresh
+                        if (currentValue) {{
+                            localStorage.setItem('budget_step3_collaborator', currentValue);
+                        }}
+                        
+                        // Refresh the collaborator dropdown via HTMX
+                        const budgetId = {self.instance.pk if self.instance.pk else 'null'};
+                        if (budgetId) {{
+                            const savedId = localStorage.getItem('budget_step3_collaborator');
+                            const url = `/budget/${{budgetId}}/collaborator-field/` + (savedId ? `?selected=${{savedId}}` : '');
+                            
+                            htmx.ajax('GET', url, {{
+                                target: '#collaborator-field-container',
+                                swap: 'outerHTML'
+                            }}).then(() => {{
+                                // After refresh, update Alpine.js model with the saved value
+                                if (savedId) {{
+                                    setTimeout(() => {{
+                                        const alpineContainer = document.querySelector('[x-data*="collaboratorId"]');
+                                        if (alpineContainer && typeof Alpine !== 'undefined') {{
+                                            const alpineData = Alpine.$data(alpineContainer);
+                                            if (alpineData) {{
+                                                alpineData.collaboratorId = savedId;
+                                            }}
+                                        }}
+                                    }}, 100);
+                                }}
+                                
+                                // Clear localStorage after use
+                                localStorage.removeItem('budget_step3_collaborator');
+                            }});
+                        }}
+                    }});
                 </script>"""),
             Div(
                 # Coluna Esquerda
@@ -376,20 +411,9 @@ class BudgetStep3Form(forms.ModelForm):
                     # Diagnóstico Técnico
                     Div(
                         HTML('<h3 class="text-2xl font-bold mb-4">Diagnóstico Técnico</h3>'),
-                        Div(
-                            Field("collaborator", label="Selecione o colaborador que realizará o serviço", wrapper_class="flex-1 mb-0"),
-                            HTML("""
-                            <button type="button" class="btn btn-circle mb-2"
-                                    :class="collaboratorId ? 'btn-warning' : 'btn-primary'"
-                                    @click="const url = collaboratorId ? `/collaborators/update/modal/${collaboratorId}/` : '/collaborators/create/modal/';
-                                    htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
-                                    document.getElementById('form_modal').showModal();">
-                                <span class="material-icons" x-text="collaboratorId ? 'edit' : 'person_add'"></span>
-                            </button>
-                            """),
-                            css_class="flex items-end gap-2 w-full mb-6",
-                            x_data=f"{{ collaboratorId: '{initial_collab_id}' }}",
-                        ),
+                        HTML(f'''
+                            {{% include "budget/partials/components/collaborator_field.html" with field=form.collaborator initial_collab_id="{initial_collab_id}" %}}
+                        '''),
                         #
                         HTML('<label class="block text-gray-700 font-bold mb-2">Adicione os defeitos encontrados durante a inspeção</label>'),
                         Div(id="defect-list-container", css_class="mb-4 p-4 border-2 border-dashed border-gray-200 rounded-lg min-h-[120px] flex flex-wrap content-start"),
@@ -507,12 +531,15 @@ class BudgetStep4Form(forms.ModelForm):
             items = budget.items.all()
             for item in items:
                 context = {"item": item, "budget": budget, "is_full_render": True}
-                if item.product:
-                    products_html += render_to_string("budget/partials/item_product_row.html", context)
-                if item.service:
-                    services_html += render_to_string("budget/partials/item_service_row.html", context)
-                if item.kit:
-                    kits_html += render_to_string("budget/partials/item_kit_row.html", context)
+                # Produto: item.product existe OU é local com custo/venda de produto preenchido
+                if item.product or (item.is_local and (item.product_cost_price.amount > 0 or item.product_selling_price.amount > 0 or item.shipping.amount > 0)):
+                    products_html += render_to_string("budget/partials/items/item_product_row.html", context)
+                # Serviço: item.service existe OU é local com custo/venda de serviço preenchido ou duração
+                elif item.service or (item.is_local and (item.service_cost_price.amount > 0 or item.service_selling_price.amount > 0 or item.duration)):
+                    services_html += render_to_string("budget/partials/items/item_service_row.html", context)
+                # Kit
+                elif item.kit:
+                    kits_html += render_to_string("budget/partials/items/item_kit_row.html", context)
 
         if not products_html:
             products_html = '<tr><td colspan="6" class="text-center text-gray-400 py-4">Nenhum produto adicionado</td></tr>'
@@ -541,7 +568,7 @@ class BudgetStep4Form(forms.ModelForm):
                                 <table class="table table-zebra w-full">
                                     <thead>
                                         <tr>
-                                            <th>DESCRIÇÃO</th>
+                                            <th class="w-full">DESCRIÇÃO</th>
                                             <th class="text-center">QTD.</th>
                                             <th>CUSTO</th>
                                             <th>VALOR VENDA</th>
@@ -571,7 +598,7 @@ class BudgetStep4Form(forms.ModelForm):
                                 <table class="table table-zebra w-full">
                                     <thead>
                                         <tr>
-                                            <th>DESCRIÇÃO</th>
+                                            <th class="w-full">DESCRIÇÃO</th>
                                             <th class="text-center">QTD.</th>
                                             <th>CUSTO</th>
                                             <th>VALOR VENDA</th>
@@ -601,7 +628,7 @@ class BudgetStep4Form(forms.ModelForm):
                                 <table class="table table-compact w-full">
                                     <thead>
                                         <tr>
-                                            <th>NOME</th>
+                                            <th class="w-full">NOME</th>
                                             <th class="text-center">QTD.</th>
                                             <th class="text-center">PRODUTOS</th>
                                             <th class="text-center">SERVIÇOS</th>
@@ -627,12 +654,9 @@ class BudgetStep4Form(forms.ModelForm):
                     Div(
                         HTML('<h2 class="text-2xl font-bold mb-4 mt-8">Resumo</h2>'),
                         Div(
-                            Div(HTML(f"<span>Total Produtos</span><span>{budget.total_products_value}</span>"), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
-                            Div(HTML(f"<span>Total Serviços</span><span>{budget.total_services_value}</span>"), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
-                            Div(HTML(f"<span>Total Frete</span><span>R$ 0,00</span>"), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
-                            Div(HTML(f"<span>Tempo Total</span><span>{budget.total_duration_display}</span>"), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
-                            Div(HTML(f'<span class="font-bold">Total Geral</span><span class="font-bold">{budget.total_base_value}</span>'), css_class="border rounded-xl flex justify-between items-center p-3 rounded mb-2"),
+                            HTML(render_to_string("budget/partials/components/budget_summary.html", {"budget": budget})),
                             css_class="sticky top-4",
+                            css_id="budget-summary",
                         ),
                         css_class="p-6 h-fit text-lg",
                     ),
@@ -640,6 +664,21 @@ class BudgetStep4Form(forms.ModelForm):
                 ),
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
             ),
+        )
+
+        # Adicionar listener para atualizar resumo dinamicamente
+        self.helper.layout.append(
+            HTML(f"""
+            <script>
+            document.body.addEventListener('update-summary', function() {{
+                // Recarrega apenas a coluna de resumo via HTMX
+                htmx.ajax('GET', '{reverse("budget:budget_summary", kwargs={"budget_id": budget.pk})}', {{
+                    target: '#budget-summary',
+                    swap: 'innerHTML'
+                }});
+            }});
+            </script>
+            """)
         )
 
     def save(self, commit=True):
@@ -1103,12 +1142,15 @@ class BudgetStep6Form(forms.ModelForm):
             items = budget.items.all()
             for item in items:
                 context = {"item": item, "budget": budget, "is_full_render": True, "step6": True}
-                if item.product:
-                    products_html += render_to_string("budget/partials/item_product_row.html", context)
-                if item.service:
-                    services_html += render_to_string("budget/partials/item_service_row.html", context)
-                if item.kit:
-                    kits_html += render_to_string("budget/partials/item_kit_row.html", context)
+                # Produto: item.product existe OU é local com custo/venda de produto preenchido
+                if item.product or (item.is_local and (item.product_cost_price.amount > 0 or item.product_selling_price.amount > 0 or item.shipping.amount > 0)):
+                    products_html += render_to_string("budget/partials/items/item_product_row.html", context)
+                # Serviço: item.service existe OU é local com custo/venda de serviço preenchido ou duração
+                elif item.service or (item.is_local and (item.service_cost_price.amount > 0 or item.service_selling_price.amount > 0 or item.duration)):
+                    services_html += render_to_string("budget/partials/items/item_service_row.html", context)
+                # Kit
+                elif item.kit:
+                    kits_html += render_to_string("budget/partials/items/item_kit_row.html", context)
 
         if not products_html:
             products_html = '<tr><td colspan="5" class="text-center text-gray-400 py-4">Nenhum produto adicionado</td></tr>'
@@ -1568,18 +1610,32 @@ class BudgetItemEditForm(forms.ModelForm):
             "duration": DurationInput(),
         }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, budget_id=None, **kwargs):
         super().__init__(*args, **kwargs)
         item = self.instance
 
-        if item.product:
+        # Identificar tipo de item local pelos valores preenchidos
+        is_local_product = item.is_local and (item.product_cost_price.amount > 0 or item.product_selling_price.amount > 0 or item.shipping.amount > 0)
+        is_local_service = item.is_local and (item.service_cost_price.amount > 0 or item.service_selling_price.amount > 0 or item.duration)
+
+        if item.product or is_local_product:
             self.fields.pop("service_selling_price")
             self.fields.pop("service_cost_price")
             self.fields.pop("duration")
-        elif item.service:
+        elif item.service or is_local_service:
             self.fields.pop("product_selling_price")
             self.fields.pop("product_cost_price")
             self.fields.pop("shipping")
+
+            if budget_id:
+                self.fields["duration"].widget.attrs.update({
+                    "hx-post": reverse("budget:calculate_item", kwargs={"budget_id": budget_id, "item_id": item.id}),
+                    "hx-trigger": "keyup changed delay:200ms",
+                    "hx-target": "#div_id_service_cost_price",
+                    "hx-swap": "outerHTML",
+                    "hx-include": "closest form",
+                    "hx-indicator": "#calculation-indicator",
+                })
         elif item.kit:
             self.fields.pop("service_selling_price")
             self.fields.pop("service_cost_price")
@@ -1587,3 +1643,110 @@ class BudgetItemEditForm(forms.ModelForm):
             self.fields.pop("product_selling_price")
             self.fields.pop("product_cost_price")
             self.fields.pop("shipping")
+            self.fields.pop("shipping")
+
+
+class LocalProductForm(forms.ModelForm):
+    class Meta:
+        model = BudgetItem
+        fields = ["description", "quantity", "product_cost_price", "product_selling_price", "shipping"]
+        widgets = {
+            "description": TextInput(attrs={"placeholder": "Ex: Parafuso XPTO"}),
+            "quantity": NumberInput(),
+            "product_cost_price": MoneyInput(),
+            "product_selling_price": MoneyInput(),
+            "shipping": MoneyInput(),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["description"].label = "Descrição"
+        self.fields["quantity"].label = "Quantidade"
+        self.fields["product_cost_price"].label = "Custo"
+        self.fields["product_selling_price"].label = "Valor de Venda"
+        self.fields["shipping"].label = "Frete"
+
+
+class LocalServiceForm(forms.ModelForm):
+    class Meta:
+        model = BudgetItem
+        fields = ["description", "quantity", "service_cost_price", "service_selling_price", "duration"]
+        widgets = {
+            "description": TextInput(attrs={"placeholder": "Ex: Serviço Especial Ferrari"}),
+            "quantity": NumberInput(),
+            "service_cost_price": MoneyInput(),
+            "service_selling_price": MoneyInput(),
+            "duration": DurationInput(),
+        }
+
+    def __init__(self, *args, budget_id=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["description"].label = "Descrição"
+        self.fields["quantity"].label = "Quantidade"
+        self.fields["service_cost_price"].label = "Custo"
+        self.fields["service_selling_price"].label = "Valor de Venda"
+        self.fields["duration"].label = "Duração"
+
+        # Adicionar cálculo automático
+        if budget_id and not self.instance.pk:
+            self.fields["duration"].widget.attrs.update({
+                "hx-post": reverse("budget:calculate_local_service", kwargs={"budget_id": budget_id}),
+                "hx-trigger": "keyup changed delay:200ms",
+                "hx-target": "#div_id_service_cost_price",
+                "hx-swap": "outerHTML",
+                "hx-include": "closest form",
+                "hx-indicator": "#calculation-indicator",
+            })
+
+
+class QuickProductForm(forms.ModelForm):
+    """Formulário simplificado para cadastro rápido de produtos (apenas campos obrigatórios)"""
+    class Meta:
+        model = Product
+        fields = ["code", "unit", "name", "group", "cost_price", "selling_price"]
+        widgets = {
+            "code": TextInput(attrs={"placeholder": "Ex: P001"}),
+            "name": TextInput(attrs={"placeholder": "Ex: Filtro de Óleo"}),
+            "unit": SelectInput(),
+            "group": SelectInput(),
+            "cost_price": MoneyInput(),
+            "selling_price": MoneyInput(),
+        }
+
+    def __init__(self, *args, workshop=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.workshop = workshop
+
+        if workshop:
+            self.fields["group"].queryset = CatalogGroup.objects.filter(workshop=workshop)
+
+        # Labels
+        self.fields["code"].label = "Código"
+        self.fields["name"].label = "Nome do Produto"
+        self.fields["unit"].label = "Unidade"
+        self.fields["group"].label = "Grupo"
+        self.fields["cost_price"].label = "Custo"
+        self.fields["selling_price"].label = "Valor de Venda"
+
+
+class QuickServiceForm(forms.ModelForm):
+    """Formulário simplificado para cadastro rápido de serviços (apenas campos obrigatórios)"""
+    class Meta:
+        model = Service
+        fields = ["name", "duration", "selling_price"]
+        widgets = {
+            "name": TextInput(attrs={"placeholder": "Ex: Troca de Óleo"}),
+            "duration": DurationInput(),
+            "selling_price": MoneyInput(),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # Labels
+        self.fields["name"].label = "Nome do Serviço"
+        self.fields["duration"].label = "Duração"
+        self.fields["selling_price"].label = "Valor de Venda"
+
+
+

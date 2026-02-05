@@ -16,7 +16,9 @@ urlpatterns = [
     path("selection/<int:budget_id>/<str:item_type>/", views.ItemSelectionModalView.as_view(), name="item_selection"),
     path("<int:budget_id>/add-item/<int:item_id>/<str:item_type>/", views.AddItemToBudgetView.as_view(), name="add_item_to_budget"),
     path("<int:budget_id>/remove-item/<int:item_id>/<str:item_type>/", views.RemoveItemFromBudgetView.as_view(), name="remove_item_from_budget"),
+    path('<int:budget_id>/remove-budget-item/<int:item_id>/', views.RemoveBudgetItemView.as_view(), name='remove_budget_item'),
     path('<int:budget_id>/item/<int:item_id>/edit/', views.BudgetItemUpdateView.as_view(), name='edit_item'),
+    path('<int:budget_id>/item/<int:item_id>/calculate/', views.BudgetItemCalculateView.as_view(), name='calculate_item'),
 
     path("update_slider/<int:budget_id>/", views.UpdateSliderView.as_view(), name="update_slider"),
     path("update-budget-discount/<int:budget_id>/", views.UpdateBudgetDiscountView.as_view(), name="update_budget_discount"),
@@ -28,4 +30,13 @@ urlpatterns = [
     path("visualizar-pdf/<int:pk>", views.visualizar_pdf, name="visualizar_pdf"),
     path("visualizar-pdf-gestor/<int:pk>", views.visualizar_pdf_gestor, name="visualizar_pdf_gestor"),
     path("visualizar-pdf-mecanico/<int:pk>", views.visualizar_pdf_mecanico, name="visualizar_pdf_mecanico"),
+    path("<int:budget_id>/add-items-batch/<str:item_type>/", views.AddItemsBatchToBudgetView.as_view(), name="add_items_batch"),
+    path("<int:budget_id>/summary/", views.BudgetSummaryView.as_view(), name="budget_summary"),
+    path("<int:budget_id>/collaborator-field/", views.BudgetStep3CollaboratorFieldView.as_view(), name="collaborator_field"),
+
+    # Local items URLs
+    path('<int:budget_id>/create-local/<str:item_type>/', views.CreateLocalItemView.as_view(), name='create_local_item'),
+    path('<int:budget_id>/register-local/<int:item_id>/', views.RegisterLocalItemView.as_view(), name='register_local_item'),
+    path('<int:budget_id>/calculate-local-service/', views.CalculateLocalServiceView.as_view(), name='calculate_local_service'),
+    path('<int:budget_id>/quick-create/<str:item_type>/', views.QuickCreateProductView.as_view(), name='quick_create_item'),
 ]

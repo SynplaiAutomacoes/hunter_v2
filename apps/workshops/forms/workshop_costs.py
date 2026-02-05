@@ -205,5 +205,10 @@ class WorkshopCostForm(forms.ModelForm):
                 amount = self.cleaned_data.get(field_name)
 
                 if amount is not None:
-                    WorkshopCostItem.objects.update_or_create(workshop_cost=instance, monthly_cost=cost, defaults={"amount": amount})
+                    WorkshopCostItem.objects.update_or_create(
+                        workshop_cost=instance, monthly_cost=cost, defaults={"amount": amount}
+                    )
+
+            instance.calculate_all()
+            instance.save()
         return instance
