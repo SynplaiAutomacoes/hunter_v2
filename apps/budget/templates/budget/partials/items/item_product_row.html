@@ -1,4 +1,6 @@
-<tr id="budget-item-{{ item.id }}" {% if not is_full_render %}hx-swap-oob="true"{% endif %}>
+<tr id="budget-item-{{ item.id }}"
+    class="{% if item.is_local %}bg-warning/20{% endif %}"
+    {% if not is_full_render %}hx-swap-oob="true"{% endif %}>
     <td>
         <div class="flex items-center justify-between gap-2">
             <div class="flex items-center gap-2">
@@ -25,7 +27,7 @@
     <td class="text-center whitespace-nowrap">{{ item.quantity }}</td>
     <td class="whitespace-nowrap">{{ item.product_cost_price }}</td>
     <td class="whitespace-nowrap">{{ item.product_selling_price }}</td>
-    <td class="whitespace-nowrap">{{ item.shipping}} </td>
+    <td class="whitespace-nowrap">{{ item.shipping }} </td>
     <td class="font-bold whitespace-nowrap">{{ item.total_price }}</td>
     {% if not step6 %}
     <td class="text-center whitespace-nowrap">
