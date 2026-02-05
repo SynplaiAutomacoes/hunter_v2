@@ -49,7 +49,6 @@ class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespon
         ]
         context["actions"] = [
             TableActionDefaults.edit("budget:budget_update"),
-            TableActionDefaults.delete("budget:budget_delete"),
         ]
         return context
 
