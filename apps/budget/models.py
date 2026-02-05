@@ -317,6 +317,10 @@ class Budget(TimeStampedModel):
         return self.total_base_value - self.discount_value
 
     @property
+    def has_local_items(self):
+        return self.items.filter(is_local=True).exists()
+
+    @property
     def ordered_images(self):
         """Returns budget images ordered by upload date (oldest first)"""
         return self.budget_image.all()

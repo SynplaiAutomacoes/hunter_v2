@@ -48,7 +48,6 @@ class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespon
         ]
         context["actions"] = [
             TableActionDefaults.edit("budget:budget_update"),
-            TableActionDefaults.delete("budget:budget_delete"),
         ]
         return context
 
@@ -1161,12 +1160,15 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 context = {"item": item, "budget": item.budget, "is_full_render": False}
                 row_html = render_to_string("budget/partials/items/item_product_row.html", context)
 
-                return HtmxResponseHelper.success(
+                response = HtmxResponseHelper.success(
                     "Produto cadastrado com sucesso!",
                     close_modal=True,
                     update_summary=True,
                     content=row_html
                 )
+                response["HX-Refresh"] = "true"
+                return response
+
         else:
             # Cadastrar serviço
             form = QuickServiceForm(request.POST)
@@ -1185,12 +1187,14 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 context = {"item": item, "budget": item.budget, "is_full_render": False}
                 row_html = render_to_string("budget/partials/items/item_service_row.html", context)
 
-                return HtmxResponseHelper.success(
+                response = HtmxResponseHelper.success(
                     "Serviço cadastrado com sucesso!",
                     close_modal=True,
                     update_summary=True,
                     content=row_html
                 )
+                response["HX-Refresh"] = "true"
+                return response
 
         # Se form inválido, retorna com erros
         item_type = "product" if item.product_cost_price.amount > 0 else "service"
