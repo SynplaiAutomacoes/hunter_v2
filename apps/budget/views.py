@@ -11,7 +11,6 @@ from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView
-from djmoney.money import Money
 
 from apps.budget.forms import BudgetItemEditForm, BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form, LocalServiceForm, LocalProductForm
 from apps.budget.models import Budget, BudgetItem, BudgetStatus
@@ -293,7 +292,20 @@ class RemoveItemFromBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         item.delete()
 
-        success_url = f"{reverse('budget:budget_update', kwargs={'pk': budget.id})}?step={budget.current_step}"
+        from urllib.parse import urlparse, parse_qs
+        referer = request.META.get('HTTP_REFERER', '')
+        current_step = budget.current_step
+
+        if referer:
+            parsed = urlparse(referer)
+            query_params = parse_qs(parsed.query)
+            if 'step' in query_params:
+                try:
+                    current_step = int(query_params['step'][0])
+                except (ValueError, IndexError):
+                    pass
+
+        success_url = f"{reverse('budget:budget_update', kwargs={'pk': budget.id})}?step={current_step}"
 
         response = HttpResponse()
         response["HX-Redirect"] = success_url
@@ -710,8 +722,23 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     defaults={"quantity": 1}
                 )
 
+            # Extract step from referer URL to stay on current step
+            from urllib.parse import urlparse, parse_qs
+            referer = request.META.get('HTTP_REFERER', '')
+            current_step = budget.current_step
+
+            if referer:
+                parsed = urlparse(referer)
+                query_params = parse_qs(parsed.query)
+                if 'step' in query_params:
+                    try:
+                        current_step = int(query_params['step'][0])
+                    except (ValueError, IndexError):
+                        pass
+
+            success_url = f"{reverse('budget:budget_update', kwargs={'pk': budget.id})}?step={current_step}"
             response = HttpResponse()
-            response["HX-Trigger"] = "budget-items-updated"
+            response["HX-Redirect"] = success_url
             return response
 
         created_items = []
