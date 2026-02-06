@@ -8,6 +8,10 @@
     {% else %}
         {% if cell.value == None %}
             None
+
+        {% elif cell.format == "status_badge" %}
+            <span class="badge {{ cell.value.class }} badge-sm">{{ cell.value.text }}</span>
+
         {% elif cell.format %}
             <span
                 data-hf="{{ cell.format }}"

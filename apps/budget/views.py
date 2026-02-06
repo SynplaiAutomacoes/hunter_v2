@@ -44,7 +44,7 @@ class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespon
             TableColumn(Budget.collaborator.field.verbose_name, attr="collaborator_name"),
             TableColumn(Budget.criado_em.field.verbose_name, attr=Budget.criado_em.field.name),
             TableColumn("Valor Total", attr="total_budget_value"),
-            TableColumn(Budget.status.field.verbose_name, attr="budget_status"),
+            TableColumn(Budget.status.field.verbose_name, attr="budget_status_badge", format="status_badge"),
         ]
         context["actions"] = [
             TableActionDefaults.edit("budget:budget_update"),
