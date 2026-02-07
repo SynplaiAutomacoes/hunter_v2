@@ -482,6 +482,25 @@ class BudgetStep3Form(forms.ModelForm):
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
             ),
         )
+        self.helper.layout.append(
+            HTML(
+                """
+                <style>
+                    [data-theme="dark"] #vehicle-images-slots [id^="slot-"] {
+                        background-color: rgb(31 41 55 / 0.75) !important;
+                        border-color: rgb(75 85 99) !important;
+                    }
+                    [data-theme="dark"] #vehicle-images-slots [id^="slot-"] p {
+                        color: rgb(229 231 235) !important;
+                    }
+                    [data-theme="dark"] #additional-images-container [id^="additional-image-"] {
+                        background-color: rgb(31 41 55 / 0.75) !important;
+                        border-color: rgb(75 85 99) !important;
+                    }
+                </style>
+                """
+            )
+        )
 
         if self.instance.pk:
             existing_defects = self.instance.defects.all()
@@ -514,10 +533,10 @@ class BudgetStep3Form(forms.ModelForm):
                 images_by_type = {}
                 additional_images = []
                 for existing_image in existing_images_list:
-                    if existing_image.image_type == BudgetImageType.ADDITIONAL:
-                        additional_images.append(existing_image)
-                    elif existing_image.content and existing_image.image_type not in images_by_type:
+                    if existing_image.image_type in SLOT_IMAGE_TYPES and existing_image.content and existing_image.image_type not in images_by_type:
                         images_by_type[existing_image.image_type] = existing_image
+                    elif existing_image.content:
+                        additional_images.append(existing_image)
 
                 # Define slots layout
                 slots_config = SLOT_LAYOUT_CONFIG
@@ -905,14 +924,14 @@ class BudgetStep3Form(forms.ModelForm):
 
         if self.instance and self.instance.pk:
             existing_images = self.instance.budget_image.all()
-            existing_additional_count = existing_images.filter(image_type=BudgetImageType.ADDITIONAL).count()
+            existing_additional_count = existing_images.exclude(image_type__in=SLOT_IMAGE_TYPES).count()
 
             additional_delete_ids = [img_id for img_id in self.request.POST.getlist("images_to_delete") if img_id.strip()]
-            additional_delete_count = existing_images.filter(id__in=additional_delete_ids, image_type=BudgetImageType.ADDITIONAL).count()
+            additional_delete_count = existing_images.filter(id__in=additional_delete_ids).exclude(image_type__in=SLOT_IMAGE_TYPES).count()
 
-            current_slot_types = set(existing_images.exclude(image_type=BudgetImageType.ADDITIONAL).values_list("image_type", flat=True))
+            current_slot_types = set(existing_images.filter(image_type__in=SLOT_IMAGE_TYPES).values_list("image_type", flat=True))
             slot_delete_ids = [img_id for img_id in self.request.POST.getlist("slot_to_delete") if img_id.strip()]
-            slot_types_to_delete = set(existing_images.filter(id__in=slot_delete_ids).exclude(image_type=BudgetImageType.ADDITIONAL).values_list("image_type", flat=True))
+            slot_types_to_delete = set(existing_images.filter(id__in=slot_delete_ids, image_type__in=SLOT_IMAGE_TYPES).values_list("image_type", flat=True))
 
             final_slot_types = (current_slot_types - slot_types_to_delete) | uploaded_slot_types
             final_additional_count = existing_additional_count - additional_delete_count + len(new_additional_images)
@@ -943,7 +962,7 @@ class BudgetStep3Form(forms.ModelForm):
         if slots_to_delete:
             image_ids = [img_id for img_id in slots_to_delete if img_id.strip()]
             if image_ids:
-                BudgetImage.objects.filter(id__in=image_ids, budget=budget).exclude(image_type=BudgetImageType.ADDITIONAL).delete()
+                BudgetImage.objects.filter(id__in=image_ids, budget=budget, image_type__in=SLOT_IMAGE_TYPES).delete()
 
         # Handle slot image uploads (update or create)
         slot_uploads = []
@@ -968,7 +987,7 @@ class BudgetStep3Form(forms.ModelForm):
         if images_to_delete:
             image_ids = [img_id for img_id in images_to_delete if img_id.strip()]
             if image_ids:
-                BudgetImage.objects.filter(id__in=image_ids, budget=budget, image_type=BudgetImageType.ADDITIONAL).delete()
+                BudgetImage.objects.filter(id__in=image_ids, budget=budget).exclude(image_type__in=SLOT_IMAGE_TYPES).delete()
 
         # Handle new additional images upload
         new_images = self.request.FILES.getlist("images")
