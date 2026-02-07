@@ -3,6 +3,7 @@
      data-current-index="0"
      data-budget-id="{{ budget.id }}"
      data-item-type="{{ item_type }}"
+     data-current-step="{{ current_step }}"
      id="edit-queue-modal">
 
     <!-- Cancel button in top right corner -->
@@ -123,6 +124,7 @@
                 this.itemIds = this.container.dataset.itemIds.split(',').map(id => parseInt(id));
                 this.budgetId = this.container.dataset.budgetId;
                 this.itemType = this.container.dataset.itemType;
+                this.currentStep = this.container.dataset.currentStep || '4';
                 this.currentIndex = 0;
                 this.isSaving = false;
 
@@ -347,9 +349,9 @@
                 // Show success message
                 this.showToast('Edição em fila concluída! 🎉', 'success');
 
-                // Wait to ensure all requests are processed
+                // Redirect to correct step instead of simple reload
                 setTimeout(() => {
-                    window.location.reload();
+                    window.location.href = `/budget/${this.budgetId}/edit/?step=${this.currentStep}`;
                 }, 800);
             }
 

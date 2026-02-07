@@ -22,6 +22,11 @@ from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 
 class BudgetStatus(models.TextChoices):
     DRAFT = "draft", "Em Aberto"
+    WAITING_CLIENT = "waiting_client", "Aguardando Relato do Cliente"
+    WAITING_DIAGNOSIS = "waiting_diagnosis", "Aguardando Diagnóstico"
+    WAITING_ITEMS = "waiting_items", "Aguardando Itens"
+    WAITING_PRICING = "waiting_pricing", "Aguardando Precificação"
+    WAITING_REVIEW = "waiting_review", "Aguardando Revisão"
     APPROVED = "approved", "Aprovado"
     REJECTED = "rejected", "Rejeitado"
     CANCELLED = "cancelled", "Cancelado"
@@ -251,28 +256,22 @@ class Budget(TimeStampedModel):
 
     @property
     def total_products_value(self) -> Money:
-        """Calculate total products value considering kit overrides"""
         total = Money(0, 'BRL')
         for item in self.items.all():
             if item.product:
-                # Standard product: (price * quantity) + shipping
                 total += (item.product_selling_price * item.quantity) + item.shipping
             elif item.kit:
-                # Kit: only products portion
                 total += item.get_kit_products_total()
         return total
 
     ## Services
     @property
     def total_duration(self) -> timedelta:
-        """Calculate total duration considering kit service overrides"""
         total = timedelta(0)
         for item in self.items.all():
             if item.service and item.duration:
-                # Standard service: duration * quantity
                 total += item.duration * item.quantity
             elif item.kit:
-                # Kit: get services duration with overrides
                 total += item.get_kit_services_duration()
         return total
 
@@ -293,16 +292,32 @@ class Budget(TimeStampedModel):
 
     @property
     def total_services_value(self) -> Money:
-        """Calculate total services value considering kit overrides"""
         total = Money(0, 'BRL')
         for item in self.items.all():
             if item.service:
-                # Standard service: price * quantity
                 total += item.service_selling_price * item.quantity
             elif item.kit:
-                # Kit: only services portion
                 total += item.get_kit_services_total()
         return total
+
+    @property
+    def budget_status_badge(self):
+        status_color = {
+            BudgetStatus.DRAFT: "badge-soft badge-ghost",
+            BudgetStatus.WAITING_CLIENT: "badge-soft badge-warning",
+            BudgetStatus.WAITING_DIAGNOSIS: "badge-soft badge-warning",
+            BudgetStatus.WAITING_ITEMS: "badge-soft badge-warning",
+            BudgetStatus.WAITING_PRICING: "badge-soft badge-info",
+            BudgetStatus.WAITING_REVIEW: "badge-soft badge-info",
+            BudgetStatus.APPROVED: "badge-success",
+            BudgetStatus.REJECTED: "badge-error",
+            BudgetStatus.CANCELLED: "badge-soft badge-error",
+        }
+
+        return {
+            "text": BudgetStatus(self.status).label,
+            "class": status_color.get(self.status, "badge-ghost")
+        }
 
     ## Total
     @property
@@ -496,13 +511,10 @@ class BudgetItem(TimeStampedModel):
         for service in self.kit.services.all():
             override = self.kit_overrides.filter(service=service).first()
             if override and override.duration:
-                # Usar duração do override × quantidade do serviço
                 total_duration += override.duration * override.quantity
             elif service.duration:
-                # Usar duração original × 1
                 total_duration += service.duration * 1
 
-        # Multiplicar pela quantidade de kits no orçamento
         return total_duration * self.quantity
 
     @property
