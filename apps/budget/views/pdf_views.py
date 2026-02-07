@@ -1,10 +1,12 @@
 from django.shortcuts import get_object_or_404, render
+from django.views.decorators.clickjacking import xframe_options_exempt
 from djmoney.money import Money
 
 from apps.budget.models import Budget, BudgetItem
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
 
+@xframe_options_exempt
 def visualizar_pdf(request, pk):
     workshop = get_active_workshop_or_404(request)
     budget = get_object_or_404(Budget, pk=pk, workshop=workshop)
@@ -17,6 +19,7 @@ def visualizar_pdf(request, pk):
     return render(request, "budget/partials/pdf/visualizarPDF.html", context)
 
 
+@xframe_options_exempt
 def visualizar_pdf_gestor(request, pk):
     workshop = get_active_workshop_or_404(request)
     budget = get_object_or_404(Budget, pk=pk, workshop=workshop)
@@ -37,6 +40,7 @@ def visualizar_pdf_gestor(request, pk):
     return render(request, "budget/partials/pdf/visualizarPDFGestor.html", context)
 
 
+@xframe_options_exempt
 def visualizar_pdf_mecanico(request, pk):
     workshop = get_active_workshop_or_404(request)
     budget = get_object_or_404(Budget, pk=pk, workshop=workshop)
