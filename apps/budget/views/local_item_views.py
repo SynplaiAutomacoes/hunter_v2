@@ -1,4 +1,17 @@
-from .shared import *
+import json
+from decimal import ROUND_HALF_UP, Decimal
+
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.http import HttpResponse
+from django.shortcuts import render
+from django.template.loader import render_to_string
+from django.views import View
+
+from apps.budget.forms import LocalProductForm, LocalServiceForm
+from apps.budget.models import Budget
+from apps.budget.utils import HtmxResponseHelper
+from apps.workshops.mixin import WorkshopScopedMixin
+
 from .shared import _calculate_service_prices, _get_budget_for_workshop, _get_budget_item_for_workshop, _get_budget_workshop_cost, _local_item_kind, _parse_duration_from_string, reset_steps_after_step_4
 
 

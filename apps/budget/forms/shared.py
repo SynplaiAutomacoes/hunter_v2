@@ -1,22 +1,5 @@
-from crispy_forms.helper import FormHelper
-from crispy_forms.layout import HTML, Div, Field, Layout
 from django import forms
-from django.forms import Select
 from django.template.loader import render_to_string
-from django.urls import reverse, reverse_lazy
-from django.utils import timezone
-from django.utils.safestring import mark_safe
-
-from apps.budget.models import Budget, BudgetItem, BudgetImage, Defect
-from apps.checklist.models import Checklist
-from apps.catalog.models.groups import CatalogGroup
-from apps.catalog.models.products import Product
-from apps.catalog.models.services import Service
-from apps.collaborators.models import WorkshopCollaborator
-from apps.core.widgets import CalendarDateInput, DurationInput, MoneyInput, NumberInput, SelectInput, TextInput
-from apps.core.utils import alert_confirm_layout
-from apps.customer.models import Vehicle
-from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
 
 MAX_BUDGET_IMAGES = 10
 MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024

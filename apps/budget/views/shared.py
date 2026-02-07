@@ -1,38 +1,20 @@
-import json
 import logging
 from datetime import timedelta
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from urllib.parse import parse_qs, urlparse
 
-from django.contrib import messages
-from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import Http404, HttpResponse, JsonResponse
-from django.shortcuts import get_object_or_404, redirect, render
-from django.template.loader import render_to_string
-from django.urls import reverse, reverse_lazy
+from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
+from django.urls import reverse
 from django.utils import timezone
-from django.views import View
-from django.views.decorators.clickjacking import xframe_options_exempt
-from django.views.generic import CreateView, DeleteView, ListView, TemplateView
 from djmoney.money import Money
 
-from apps.budget.forms import BudgetItemEditForm, BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form, LocalServiceForm, LocalProductForm
 from apps.budget.models import Budget, BudgetItem, BudgetStatus
-from apps.budget.utils import HtmxResponseHelper
 from apps.budget.fields import DurationField
-from apps.catalog.models.kits import Kit
-from apps.catalog.models.products import Product
-from apps.catalog.models.services import Service
-from apps.core.forms import MultiStepFormMixin
-from apps.core.tables import TableActionDefaults
-from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
-from apps.customer.models import Customer, Vehicle
-from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.models.workshop_costs import WorkshopCost
-from apps.workshops.util.workshops import get_active_workshop_or_404
 
 logger = logging.getLogger(__name__)
+
 
 def _get_budget_for_workshop(workshop, budget_id):
     return get_object_or_404(Budget, id=budget_id, workshop=workshop)
@@ -65,8 +47,9 @@ def _budget_update_url(budget_id, step):
     return f"{reverse('budget:budget_update', kwargs={'pk': budget_id})}?step={step}"
 
 
-def _step_redirect_response(request, budget):
-    current_step = _get_current_step_from_referer(request, budget.current_step)
+def _step_redirect_response(request, budget, fallback_step=None):
+    base_step = fallback_step if fallback_step is not None else budget.current_step
+    current_step = _get_current_step_from_referer(request, base_step)
     response = HttpResponse()
     response["HX-Redirect"] = _budget_update_url(budget.id, current_step)
     return response

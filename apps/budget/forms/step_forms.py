@@ -1,5 +1,22 @@
-from .shared import *
-from .shared import _render_budget_items_rows, _validate_uploaded_images
+from decimal import Decimal
+
+from crispy_forms.helper import FormHelper
+from crispy_forms.layout import HTML, Div, Field, Layout
+from django import forms
+from django.template.loader import render_to_string
+from django.urls import reverse, reverse_lazy
+from django.utils import timezone
+from djmoney.money import Money
+
+from apps.budget.models import Budget, BudgetImage, Defect
+from apps.checklist.models import Checklist
+from apps.collaborators.models import WorkshopCollaborator
+from apps.core.utils import alert_confirm_layout
+from apps.core.widgets import CalendarDateInput, MoneyInput, NumberInput, SelectInput, TextInput
+from apps.customer.models import Vehicle
+from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
+
+from .shared import MAX_BUDGET_IMAGES, _render_budget_items_rows, _validate_uploaded_images
 from .widgets import MultipleFileInput
 
 
@@ -749,25 +766,6 @@ class BudgetStep5Form(forms.ModelForm):
             self.fields["slider"].initial = budget.slider
             dados = budget.calculate_pricing_methods()
 
-        mlr = dados.get("mlr", None)
-        mlo = dados.get("mlo", None)
-        mlr_html = ""
-        if mlr is not None:
-            mlr_html = f"""
-            <div class="grid grid-cols-12 border bg-white overflow-hidden">
-                <span class="col-span-8 p-2 bg-gray-50">MLR</span>
-                <span class="col-span-4 p-2 border-l text-left">{float(mlr):.2f}</span>
-            </div>
-            """
-        mlo_html = ""
-        if mlo is not None:
-            mlo_html = f"""
-            <div class="grid grid-cols-12 border bg-white overflow-hidden">
-                <span class="col-span-8 p-2 bg-gray-50">MLO</span>
-                <span class="col-span-4 p-2 border-l text-left">{float(mlo):.2f}</span>
-            </div>
-            """
-
         zerado = Money(0, "BRL")
 
         # Custos
@@ -799,7 +797,6 @@ class BudgetStep5Form(forms.ModelForm):
         lucro_operacional = dados.get("lucro_operacional") or zerado
         rentabilidade = dados.get("rentabilidade") or 0
 
-        status_cor = "text-error" if rentabilidade < 60 else "text-warning" if (60 <= rentabilidade < 70) else "text-success"
         status_texto = "Ruim" if rentabilidade < 60 else "Médio" if (60 <= rentabilidade < 70) else "Bom"
 
         self.helper = FormHelper()
@@ -1146,8 +1143,6 @@ class BudgetStep6Form(forms.ModelForm):
         super().__init__(*args, **kwargs)
 
         budget = self.instance
-        has_local_items = budget.items.filter(is_local=True).exists() if budget.pk else False
-
         saved_observation = ""
         if self.workshop:
             saved_observation = self.workshop.pdf_observation or ""

@@ -1,4 +1,8 @@
-from .shared import *
+from django.http import JsonResponse
+from django.shortcuts import get_object_or_404, render
+from django.views import View
+
+from apps.customer.models import Customer, Vehicle
 
 
 class CustomerDetailView(View):

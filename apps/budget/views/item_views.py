@@ -1,5 +1,21 @@
-from .shared import *
-from .shared import _budget_item_row_template, _calculate_service_prices, _get_budget_for_workshop, _get_budget_item_for_workshop, _get_budget_workshop_cost, _get_current_step_from_referer, _parse_duration_from_string, _step_redirect_response, reset_steps_after_step_4
+import json
+from decimal import ROUND_HALF_UP, Decimal
+
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.http import HttpResponse
+from django.shortcuts import get_object_or_404, render
+from django.views import View
+from django.views.generic import TemplateView
+from djmoney.money import Money
+
+from apps.budget.forms import BudgetItemEditForm, BudgetStep3Form
+from apps.budget.models import Budget, BudgetItem
+from apps.catalog.models.kits import Kit
+from apps.catalog.models.products import Product
+from apps.catalog.models.services import Service
+from apps.workshops.mixin import WorkshopScopedMixin
+
+from .shared import _calculate_service_prices, _get_budget_for_workshop, _get_budget_item_for_workshop, _get_budget_workshop_cost, _get_current_step_from_referer, _parse_duration_from_string, _step_redirect_response, logger, reset_steps_after_step_4
 
 
 class ItemSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
@@ -59,7 +75,7 @@ class AddItemToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
         # Reset etapas 5 e 6 após modificar a etapa 4
         reset_steps_after_step_4(budget)
 
-        return _step_redirect_response(request, budget)
+        return _step_redirect_response(request, budget, fallback_step=4)
 
 
 class RemoveItemFromBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -78,7 +94,7 @@ class RemoveItemFromBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
         # Reset etapas 5 e 6 após modificar a etapa 4
         reset_steps_after_step_4(budget)
 
-        return _step_redirect_response(request, budget)
+        return _step_redirect_response(request, budget, fallback_step=4)
 
 
 class RemoveBudgetItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -96,7 +112,7 @@ class RemoveBudgetItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
         # Reset etapas 5 e 6 após modificar a etapa 4
         reset_steps_after_step_4(budget)
 
-        return _step_redirect_response(request, budget)
+        return _step_redirect_response(request, budget, fallback_step=4)
 
 
 class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -124,15 +140,10 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
             if action == "update_master":
                 self.update_master_record(item)
-                return HtmxResponseHelper.success("Cadastro atualizado com sucesso.", update_summary=True)
 
-            # Para action "save_only" - retorna HTML da linha atualizada
-            template = _budget_item_row_template(item)
-
-            context = {"item": item, "budget": budget, "is_full_render": False}
-            row_html = render_to_string(template, context)
-
-            return HtmxResponseHelper.success("Item atualizado com sucesso!", close_modal=True, update_summary=True, content=row_html)
+            # Mantém o mesmo comportamento de create/delete: recarrega etapa atual
+            # para refletir imediatamente o reset das etapas 5 e 6.
+            return _step_redirect_response(request, budget, fallback_step=4)
 
         return render(request, "budget/partials/modals/modal_edit_item.html", {"form": form, "item": item, "budget_id": budget_id})
 
@@ -284,7 +295,7 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
             # Reset etapas 5 e 6 após modificar a etapa 4
             reset_steps_after_step_4(budget)
 
-            return _step_redirect_response(request, budget)
+            return _step_redirect_response(request, budget, fallback_step=4)
 
         created_items = []
         for item_id in selected_ids:

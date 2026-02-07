@@ -1,4 +1,12 @@
-from .shared import *
+from django import forms
+from django.urls import reverse
+
+from apps.budget.models import BudgetItem
+from apps.catalog.models.groups import CatalogGroup
+from apps.catalog.models.products import Product
+from apps.catalog.models.services import Service
+from apps.core.widgets import DurationInput, MoneyInput, NumberInput, SelectInput, TextInput
+
 from .shared import _budget_item_type
 
 

@@ -1,4 +1,8 @@
-from .shared import *
+from django.shortcuts import get_object_or_404, render
+from djmoney.money import Money
+
+from apps.budget.models import Budget, BudgetItem
+from apps.workshops.util.workshops import get_active_workshop_or_404
 
 
 def visualizar_pdf(request, pk):
