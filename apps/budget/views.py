@@ -349,7 +349,7 @@ class ItemSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, TemplateVi
         budget_id = self.kwargs.get("budget_id")
         item_type = self.kwargs.get("item_type")
 
-        budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
+        budget = _get_budget_for_workshop(self.workshop, budget_id)
 
         map_config = {
             "product": (Product, "Selecionar Produto"),
