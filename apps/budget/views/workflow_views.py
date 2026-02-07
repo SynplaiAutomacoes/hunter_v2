@@ -1,12 +1,240 @@
-from .legacy import BudgetCreateView, BudgetDeleteView, BudgetListView, BudgetUpdateView, SaveObservationView, UpdateBudgetDiscountView, UpdateBudgetStatusView, UpdateSliderView
+from .shared import *
+from .shared import _get_budget_for_workshop, reset_steps_after_step_4
 
-__all__ = [
-    "BudgetListView",
-    "BudgetCreateView",
-    "BudgetUpdateView",
-    "BudgetDeleteView",
-    "UpdateBudgetDiscountView",
-    "UpdateBudgetStatusView",
-    "UpdateSliderView",
-    "SaveObservationView",
-]
+
+class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
+    model = Budget
+    template_name = "budget/budget_list.html"
+    context_object_name = "budget"
+    htmx_template_name = "budget/partials/budget_table.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["fields"] = [
+            TableColumn("ID", attr="id"),
+            TableColumn(Budget.customer.field.verbose_name, attr=Budget.customer.field.name),
+            TableColumn(Budget.vehicle.field.verbose_name, attr=Budget.vehicle.field.name),
+            TableColumn(Budget.collaborator.field.verbose_name, attr="collaborator_name"),
+            TableColumn(Budget.criado_em.field.verbose_name, attr=Budget.criado_em.field.name),
+            TableColumn("Valor Total", attr="total_budget_value"),
+            TableColumn(Budget.status.field.verbose_name, attr="budget_status_badge", format="status_badge"),
+        ]
+        context["actions"] = [
+            TableActionDefaults.edit("budget:budget_update"),
+        ]
+        return context
+
+
+class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixin, CreateView):
+    model = Budget
+    template_name = "budget/budget_form.html"
+
+    steps_definition = [
+        {"title": "Dados do Cliente", "form_class": BudgetStep1Form, "status": BudgetStatus.WAITING_CLIENT, "auto_apply": True},
+        {"title": "Relato do Cliente", "form_class": BudgetStep2Form, "status": BudgetStatus.WAITING_DIAGNOSIS, "auto_apply": True},
+        {"title": "Diagnóstico", "form_class": BudgetStep3Form, "status": BudgetStatus.WAITING_ITEMS, "auto_apply": True},
+        {"title": "Peças e Serviços", "form_class": BudgetStep4Form, "status": BudgetStatus.WAITING_PRICING, "auto_apply": True},
+        {"title": "Método de Precificação", "form_class": BudgetStep5Form, "status": BudgetStatus.WAITING_REVIEW, "auto_apply": True},
+        {"title": "Revisão e Confirmação", "form_class": BudgetStep6Form, "auto_apply": False},
+    ]
+
+    def get(self, request, *args, **kwargs):
+        today = timezone.now()
+        if not WorkshopCost.objects.filter(workshop=self.workshop, month=today.month, year=today.year).exists():
+            messages.warning(request, "Cadastre um custo mensal da oficina para este mês antes de prosseguir.")
+            return redirect("budget:budget_list")
+
+        return super().get(request, *args, **kwargs)
+
+    def get_template_names(self):
+        if self.request.htmx:
+            return ["budget/partials/budget_step_content.html"]
+        return [self.template_name]
+
+    def get_object(self, queryset=None):
+        pk = self.kwargs.get("pk") or self.request.GET.get("pk")
+        if pk:
+            return Budget.objects.get(pk=pk, workshop=self.workshop)
+        return None
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["request"] = self.request
+        kwargs["workshop"] = self.workshop
+        kwargs["instance"] = self.get_object()
+        return kwargs
+
+    def form_valid(self, form):
+        form.instance.workshop = self.workshop
+        form.instance.cost_estimator = self.request.user
+
+        self.object = form.save()  # Salva o progresso atual
+
+        # Aplicar status automático configurado para esta etapa (se houver)
+        try:
+            self.apply_step_status(budget=self.object, current_step=self.get_current_step(), actor=self.request.user)
+        except Exception:
+            logger.exception("Falha ao aplicar status automatico no create do budget", extra={"budget_id": self.object.pk})
+
+        current_step = self.get_current_step()
+        if self.object.current_step < current_step + 1:
+            self.object.current_step = current_step + 1
+            self.object.save(update_fields=["current_step"])
+
+        if current_step < len(self.steps_definition):
+            next_step = current_step + 1
+            success_url = f"{reverse('budget:budget_create')}?step={next_step}&pk={self.object.pk}"
+
+            if self.request.htmx:
+                response = redirect(success_url)
+                response["HX-Push-Url"] = success_url
+                return response
+
+            return redirect(success_url)
+
+        return super().form_valid(form)
+
+
+class BudgetUpdateView(BudgetCreateView):
+    def get(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        step_na_url = int(request.GET.get("step", 0))
+
+        if not step_na_url:
+            target_step = self.object.current_step
+            return redirect(f"{reverse('budget:budget_update', kwargs={'pk': self.object.pk})}?step={target_step}")
+
+        return super().get(request, *args, **kwargs)
+
+    def dispatch(self, request, *args, **kwargs):
+        # Ensure workshop is available before budget_object access.
+        # MultiStepFormMixin.budget_object calls self.get_object(), which needs self.workshop.
+        self.workshop = get_active_workshop_or_404(request)
+        if not self.budget_object:
+            return redirect("budget:budget_list")
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_object(self, queryset=None):
+        pk = self.kwargs.get("pk")
+        if pk:
+            return Budget.objects.get(pk=pk, workshop=self.workshop)
+        return super().get_object()
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["is_update"] = True
+        return context
+
+    def form_valid(self, form):
+        # Mantemos a lógica de salvar o workshop e colaborador
+        form.instance.workshop = self.workshop
+        form.instance.cost_estimator = self.request.user
+        self.object = form.save()
+
+        # Aplicar status automático configurado para esta etapa (se houver)
+        try:
+            self.apply_step_status(budget=self.object, current_step=self.get_current_step(), actor=self.request.user, isUpdate=True)
+        except Exception:
+            logger.exception("Falha ao aplicar status automatico no update do budget", extra={"budget_id": self.object.pk})
+
+        current_step = self.get_current_step()
+
+        # Lógica de progressão de etapa (opcional em Update, mas útil se ele puder avançar)
+        if self.object.current_step < current_step + 1:
+            self.object.current_step = current_step + 1
+            self.object.save(update_fields=["current_step"])
+
+        if current_step < len(self.steps_definition):
+            next_step = current_step + 1
+            # Importante: Apontamos para budget_update para manter o contexto de edição
+            success_url = f"{reverse('budget:budget_update', kwargs={'pk': self.object.pk})}?step={next_step}"
+
+            if self.request.htmx:
+                response = redirect(success_url)
+                response["HX-Push-Url"] = success_url
+                return response
+
+            return redirect(success_url)
+
+        # Se for o último passo, volta para a lista
+        return redirect(reverse("budget:budget_list"))
+
+
+class BudgetDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResponseMixin, DeleteView):
+    model = Budget
+    success_url = reverse_lazy("budget:budget_list")
+
+    htmx_template_name = "budget/partials/budget_delete_modal.html"
+    htmx_trigger = "budget-table-refresh"
+
+
+class UpdateBudgetDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "add_budget"
+
+    def post(self, request, budget_id):
+        budget = _get_budget_for_workshop(self.workshop, budget_id)
+        try:
+            val = request.POST.get("discount_value_0", "0").replace(",", ".")
+            budget.discount_value = Decimal(val)
+            budget.save()
+        except (ValueError, TypeError):
+            logger.warning("Valor de desconto invalido recebido", extra={"budget_id": budget_id, "raw_discount": request.POST.get("discount_value_0")})
+
+        return HttpResponse(headers={"HX-Refresh": "true"})
+
+
+class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "add_budget"
+
+    def post(self, request, budget_id, status):
+        budget = _get_budget_for_workshop(self.workshop, budget_id)
+
+        reset_steps_after_step_4(budget)
+
+        # Validar se há itens locais ao tentar aprovar
+        if status == "approve":
+            local_items = budget.items.filter(is_local=True)
+            if local_items.exists():
+                return JsonResponse({"success": False, "error": "Não é possível aprovar. Existem itens sem cadastro que devem ser registrados antes de gerar a ordem de serviço."}, status=400)
+
+        status_map = {
+            "cancel": BudgetStatus.CANCELLED,
+            "approve": BudgetStatus.APPROVED,
+            "reject": BudgetStatus.REJECTED,
+        }
+
+        if status in status_map:
+            budget.status = status_map[status]
+            budget.save()
+
+        return JsonResponse({"success": True})
+
+
+class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "add_budget"
+
+    def post(self, request, budget_id):
+        budget = _get_budget_for_workshop(self.workshop, budget_id)
+        slider_value = request.POST.get("slider")
+        if slider_value is not None:
+            budget.slider = int(slider_value)
+            budget.save()
+        return HttpResponse(status=204)
+
+
+class SaveObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "add_budget"
+
+    def post(self, request):
+        try:
+            data = json.loads(request.body)
+            observation = data.get("observation", "").strip()
+            self.workshop.pdf_observation = observation
+            self.workshop.save()
+            return JsonResponse({"success": True})
+        except (json.JSONDecodeError, AttributeError):
+            return JsonResponse({"success": False}, status=400)
