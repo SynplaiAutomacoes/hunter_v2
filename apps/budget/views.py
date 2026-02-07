@@ -57,12 +57,12 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
     template_name = "budget/budget_form.html"
 
     steps_definition = [
-        {"title": "Dados do Cliente", "form_class": BudgetStep1Form},
-        {"title": "Relato do Cliente", "form_class": BudgetStep2Form},
-        {"title": "Diagnóstico", "form_class": BudgetStep3Form},
-        {"title": "Peças e Serviços", "form_class": BudgetStep4Form},
-        {"title": "Método de Precificação", "form_class": BudgetStep5Form},
-        {"title": "Revisão e Confirmação", "form_class": BudgetStep6Form},
+        {"title": "Dados do Cliente", "form_class": BudgetStep1Form, "status": BudgetStatus.WAITING_CLIENT, "auto_apply": True},
+        {"title": "Relato do Cliente", "form_class": BudgetStep2Form, "status": BudgetStatus.WAITING_DIAGNOSIS, "auto_apply": True},
+        {"title": "Diagnóstico", "form_class": BudgetStep3Form, "status": BudgetStatus.WAITING_ITEMS, "auto_apply": True},
+        {"title": "Peças e Serviços", "form_class": BudgetStep4Form, "status": BudgetStatus.WAITING_PRICING, "auto_apply": True},
+        {"title": "Método de Precificação", "form_class": BudgetStep5Form, "status": BudgetStatus.WAITING_REVIEW, "auto_apply": True},
+        {"title": "Revisão e Confirmação", "form_class": BudgetStep6Form, "auto_apply": False},
     ]
 
     def get(self, request, *args, **kwargs):
@@ -96,6 +96,13 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
         form.instance.cost_estimator = self.request.user
 
         self.object = form.save()  # Salva o progresso atual
+
+        # Aplicar status automático configurado para esta etapa (se houver)
+        try:
+            self.apply_step_status(budget=self.object, current_step=self.get_current_step(), actor=self.request.user)
+        except Exception as e:
+            print(f"Status error: {e}")
+            pass
 
         current_step = self.get_current_step()
         if self.object.current_step < current_step + 1:
@@ -148,6 +155,12 @@ class BudgetUpdateView(BudgetCreateView):
         form.instance.workshop = self.workshop
         form.instance.cost_estimator = self.request.user
         self.object = form.save()
+
+        # Aplicar status automático configurado para esta etapa (se houver)
+        try:
+            self.apply_step_status(budget=self.object, current_step=self.get_current_step(), actor=self.request.user)
+        except Exception:
+            pass
 
         current_step = self.get_current_step()
 
@@ -271,7 +284,21 @@ class AddItemToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
             item.quantity += 1
             item.save()
 
-        success_url = f"{reverse('budget:budget_update', kwargs={'pk': budget.id})}?step={budget.current_step}"
+        # Extract step from referer URL to stay on current step
+        from urllib.parse import urlparse, parse_qs
+        referer = request.META.get('HTTP_REFERER', '')
+        current_step = budget.current_step
+
+        if referer:
+            parsed = urlparse(referer)
+            query_params = parse_qs(parsed.query)
+            if 'step' in query_params:
+                try:
+                    current_step = int(query_params['step'][0])
+                except (ValueError, IndexError):
+                    pass
+
+        success_url = f"{reverse('budget:budget_update', kwargs={'pk': budget.id})}?step={current_step}"
 
         response = HttpResponse()
         response["HX-Redirect"] = success_url
@@ -971,12 +998,27 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
             created_items.append(budget_item.id)
 
+        # Extract step from referer URL to stay on current step
+        from urllib.parse import urlparse, parse_qs
+        referer = request.META.get('HTTP_REFERER', '')
+        current_step = budget.current_step
+
+        if referer:
+            parsed = urlparse(referer)
+            query_params = parse_qs(parsed.query)
+            if 'step' in query_params:
+                try:
+                    current_step = int(query_params['step'][0])
+                except (ValueError, IndexError):
+                    pass
+
         context = {
             "budget": budget,
             "item_type": item_type,
             "item_ids": created_items,
             "total_items": len(created_items),
             "current_index": 0,
+            "current_step": current_step,
         }
 
         return render(request, "budget/partials/modals/modal_edit_queue.html", context)
