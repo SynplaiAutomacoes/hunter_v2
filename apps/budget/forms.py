@@ -20,19 +20,89 @@ from apps.customer.models import Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
 
 
+MAX_BUDGET_IMAGES = 10
+MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024
+ALLOWED_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "gif"}
+
+
+def _is_local_product_item(item):
+    return item.is_local and ((item.product_cost_price and item.product_cost_price.amount > 0) or (item.product_selling_price and item.product_selling_price.amount > 0) or (item.shipping and item.shipping.amount > 0))
+
+
+def _is_local_service_item(item):
+    return item.is_local and ((item.service_cost_price and item.service_cost_price.amount > 0) or (item.service_selling_price and item.service_selling_price.amount > 0) or item.duration)
+
+
+def _budget_item_type(item):
+    if item.product or _is_local_product_item(item):
+        return "product"
+    if item.service or _is_local_service_item(item):
+        return "service"
+    if item.kit:
+        return "kit"
+    return "unknown"
+
+
+def _empty_rows(step6=False):
+    product_colspan = 5 if step6 else 6
+    service_colspan = 5 if step6 else 6
+    return {
+        "product": f'<tr><td colspan="{product_colspan}" class="text-center text-gray-400 py-4">Nenhum produto adicionado</td></tr>',
+        "service": f'<tr><td colspan="{service_colspan}" class="text-center text-gray-400 py-4">Nenhum serviço adicionado</td></tr>',
+        "kit": '<tr><td colspan="5" class="text-center text-gray-400 py-4">Nenhum kit adicionado</td></tr>',
+    }
+
+
+def _render_budget_items_rows(budget, step6=False):
+    rows = {"product": "", "service": "", "kit": ""}
+
+    if budget.pk:
+        for item in budget.items.all():
+            item_type = _budget_item_type(item)
+            context = {"item": item, "budget": budget, "is_full_render": True, "step6": step6}
+            if item_type == "product":
+                rows["product"] += render_to_string("budget/partials/items/item_product_row.html", context)
+            elif item_type == "service":
+                rows["service"] += render_to_string("budget/partials/items/item_service_row.html", context)
+            elif item_type == "kit":
+                rows["kit"] += render_to_string("budget/partials/items/item_kit_row.html", context)
+
+    placeholders = _empty_rows(step6=step6)
+    for key, placeholder in placeholders.items():
+        if not rows[key]:
+            rows[key] = placeholder
+
+    return rows
+
+
+def _validate_uploaded_images(images):
+    for image in images:
+        image_name = getattr(image, "name", "") or ""
+        extension = image_name.split(".")[-1].lower() if "." in image_name else ""
+        if extension not in ALLOWED_IMAGE_EXTENSIONS:
+            allowed = ", ".join(sorted(ALLOWED_IMAGE_EXTENSIONS))
+            raise forms.ValidationError(f"Formato de arquivo '{image_name}' não permitido. Use: {allowed}")
+
+        image_size = int(getattr(image, "size", 0) or 0)
+        if image_size > MAX_IMAGE_SIZE_BYTES:
+            size_mb = image_size / 1024 / 1024
+            raise forms.ValidationError(f"Imagem '{image_name}' excede o tamanho máximo de 10MB ({size_mb:.2f}MB).")
+
+
 class MultipleFileInput(forms.FileInput):
     """Custom widget to support multiple file uploads with preview"""
+
     allow_multiple_selected = True
     template_name = "widgets/multiple_image_input.html"
 
     def __init__(self, attrs=None):
         if attrs is None:
             attrs = {}
-        attrs['multiple'] = True
+        attrs["multiple"] = True
         super().__init__(attrs)
 
     def value_from_datadict(self, data, files, name):
-        if hasattr(files, 'getlist'):
+        if hasattr(files, "getlist"):
             return files.getlist(name)
         return files.get(name)
 
@@ -324,7 +394,7 @@ class BudgetStep3Form(forms.ModelForm):
     new_defect = forms.CharField(label=False, required=False, widget=TextInput(attrs={"id": "id_new_defect", "placeholder": "Digite um defeito e clique em Adicionar", "onkeypress": "if(event.keyCode==13){ event.preventDefault(); addDefectRow(); }"}))
     checklist = forms.ModelChoiceField(label="Selecione o Checklist", queryset=Checklist.objects.none(), required=False, widget=SelectInput())
     collaborator = forms.ModelChoiceField(label="Selecione o colaborador que realizará o serviço", required=True, queryset=WorkshopCollaborator.objects.none(), widget=SelectInput())
-    images = forms.FileField(label=False, required=False, widget=MultipleFileInput(attrs={'accept': 'image/*', 'class': 'file-input file-input-bordered w-full'}))
+    images = forms.FileField(label=False, required=False, widget=MultipleFileInput(attrs={"accept": "image/*", "class": "file-input file-input-bordered w-full"}))
 
     class Meta:
         model = Budget
@@ -394,7 +464,7 @@ class BudgetStep3Form(forms.ModelForm):
                         }}
                         
                         // Refresh the collaborator dropdown via HTMX
-                        const budgetId = {self.instance.pk if self.instance.pk else 'null'};
+                        const budgetId = {self.instance.pk if self.instance.pk else "null"};
                         if (budgetId) {{
                             const savedId = localStorage.getItem('budget_step3_collaborator');
                             const url = `/budget/${{budgetId}}/collaborator-field/` + (savedId ? `?selected=${{savedId}}` : '');
@@ -508,10 +578,11 @@ class BudgetStep3Form(forms.ModelForm):
             existing_images = self.instance.ordered_images
             if existing_images.exists():
                 import base64
+
                 images_html = []
                 for img in existing_images:
                     if img.content:
-                        img_data = base64.b64encode(img.content).decode('utf-8')
+                        img_data = base64.b64encode(img.content).decode("utf-8")
                         img_src = f"data:{img.content_type or 'image/jpeg'};base64,{img_data}"
                         img_name = img.content_name or f"Imagem {img.id}"
                         images_html.append(f"""
@@ -544,26 +615,17 @@ class BudgetStep3Form(forms.ModelForm):
         if self.files:
             new_images = self.files.getlist("images")
             if new_images:
-                # Check file extensions
-                allowed_extensions = ['jpg', 'jpeg', 'png', 'gif']
-                for img in new_images:
-                    ext = img.name.split('.')[-1].lower() if '.' in img.name else ''
-                    if ext not in allowed_extensions:
-                        raise forms.ValidationError(f"Formato de arquivo '{img.name}' não permitido. Use: {', '.join(allowed_extensions)}")
-
-                    # Check file size (10MB max)
-                    if img.size > 10 * 1024 * 1024:
-                        raise forms.ValidationError(f"Imagem '{img.name}' excede o tamanho máximo de 10MB ({(img.size / 1024 / 1024):.2f}MB).")
+                _validate_uploaded_images(new_images)
 
                 # Check total count if instance exists
                 if self.instance and self.instance.pk:
                     existing_count = self.instance.budget_image.count()
-                    images_to_delete = self.data.getlist("images_to_delete")
+                    images_to_delete = self.request.POST.getlist("images_to_delete")
                     delete_count = len([img_id for img_id in images_to_delete if img_id.strip()])
                     final_count = existing_count - delete_count + len(new_images)
 
-                    if final_count > 10:
-                        raise forms.ValidationError(f"Máximo de 10 imagens permitido. Você terá {final_count} imagens após esta operação.")
+                    if final_count > MAX_BUDGET_IMAGES:
+                        raise forms.ValidationError(f"Máximo de {MAX_BUDGET_IMAGES} imagens permitido. Você terá {final_count} imagens após esta operação.")
 
         return cleaned_data
 
@@ -595,24 +657,16 @@ class BudgetStep3Form(forms.ModelForm):
             existing_count = budget.budget_image.count()
             total_count = existing_count + len(new_images)
 
-            if total_count > 10:
+            if total_count > MAX_BUDGET_IMAGES:
                 from django.core.exceptions import ValidationError
-                raise ValidationError(f"Máximo de 10 imagens permitido. Você tem {existing_count} imagens e está tentando adicionar {len(new_images)}.")
+
+                raise ValidationError(f"Máximo de {MAX_BUDGET_IMAGES} imagens permitido. Você tem {existing_count} imagens e está tentando adicionar {len(new_images)}.")
+
+            _validate_uploaded_images(new_images)
 
             for new_image in new_images:
                 if new_image and hasattr(new_image, "read"):
-                    # Validate file size (10MB max)
-                    if new_image.size > 10 * 1024 * 1024:
-                        from django.core.exceptions import ValidationError
-                        raise ValidationError(f"Imagem '{new_image.name}' excede o tamanho máximo de 10MB.")
-
-                    BudgetImage.objects.create(
-                        workshop=self.workshop,
-                        budget=budget,
-                        content=new_image.read(),
-                        content_name=new_image.name,
-                        content_type=getattr(new_image, "content_type", "image/jpeg")
-                    )
+                    BudgetImage.objects.create(workshop=self.workshop, budget=budget, content=new_image.read(), content_name=new_image.name, content_type=getattr(new_image, "content_type", "image/jpeg"))
 
         return budget
 
@@ -629,31 +683,10 @@ class BudgetStep4Form(forms.ModelForm):
         super().__init__(*args, **kwargs)
 
         budget = self.instance
-
-        products_html = ""
-        services_html = ""
-        kits_html = ""
-
-        if budget.pk:
-            items = budget.items.all()
-            for item in items:
-                context = {"item": item, "budget": budget, "is_full_render": True}
-                # Produto: item.product existe OU é local com custo/venda de produto preenchido
-                if item.product or (item.is_local and (item.product_cost_price.amount > 0 or item.product_selling_price.amount > 0 or item.shipping.amount > 0)):
-                    products_html += render_to_string("budget/partials/items/item_product_row.html", context)
-                # Serviço: item.service existe OU é local com custo/venda de serviço preenchido ou duração
-                elif item.service or (item.is_local and (item.service_cost_price.amount > 0 or item.service_selling_price.amount > 0 or item.duration)):
-                    services_html += render_to_string("budget/partials/items/item_service_row.html", context)
-                # Kit
-                elif item.kit:
-                    kits_html += render_to_string("budget/partials/items/item_kit_row.html", context)
-
-        if not products_html:
-            products_html = '<tr><td colspan="6" class="text-center text-gray-400 py-4">Nenhum produto adicionado</td></tr>'
-        if not services_html:
-            services_html = '<tr><td colspan="6" class="text-center text-gray-400 py-4">Nenhum serviço adicionado</td></tr>'
-        if not kits_html:
-            kits_html = '<tr><td colspan="5" class="text-center text-gray-400 py-4">Nenhum kit adicionado</td></tr>'
+        rows = _render_budget_items_rows(budget, step6=False)
+        products_html = rows["product"]
+        services_html = rows["service"]
+        kits_html = rows["kit"]
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -794,15 +827,7 @@ class BudgetStep4Form(forms.ModelForm):
 
 
 class BudgetStep5Form(forms.ModelForm):
-    slider = forms.IntegerField(
-        required=False,
-        widget=forms.NumberInput(
-            attrs={
-                "class": "w-full centered-range",
-                "type": "range",
-                "min": "-100",
-                "max": "100",
-                "step": "5"}))
+    slider = forms.IntegerField(required=False, widget=forms.NumberInput(attrs={"class": "w-full centered-range", "type": "range", "min": "-100", "max": "100", "step": "5"}))
 
     class Meta:
         model = Budget
@@ -819,9 +844,7 @@ class BudgetStep5Form(forms.ModelForm):
         self.fields["slider"].label = ""
         self.fields["slider"].help_text = ""
         self.fields["discount_value"].required = False
-        self.fields["slider"].widget.attrs.update(
-            {"hx-post": reverse("budget:update_slider", args=[self.instance.pk]), "hx-trigger": "change",
-             "hx-swap": "none"})
+        self.fields["slider"].widget.attrs.update({"hx-post": reverse("budget:update_slider", args=[self.instance.pk]), "hx-trigger": "change", "hx-swap": "none"})
 
         budget = self.instance
 
@@ -849,15 +872,15 @@ class BudgetStep5Form(forms.ModelForm):
             </div>
             """
 
-        zerado = Money(0, 'BRL')
+        zerado = Money(0, "BRL")
 
         # Custos
-        custo_pecas = dados.get('custo_pecas') or zerado
-        custo_frete_pecas = dados.get('custo_frete_pecas') or zerado
-        custo_servico_terceiros = dados.get('custo_servico_terceiro') or zerado
-        custo_hora_mecanico = dados.get('custo_hora_mecanico') or zerado
+        custo_pecas = dados.get("custo_pecas") or zerado
+        custo_frete_pecas = dados.get("custo_frete_pecas") or zerado
+        custo_servico_terceiros = dados.get("custo_servico_terceiro") or zerado
+        custo_hora_mecanico = dados.get("custo_hora_mecanico") or zerado
 
-        duracao_total = dados.get('duracao_total') or "00h 00m"
+        duracao_total = dados.get("duracao_total") or "00h 00m"
 
         def parse_duracao_em_horas(duracao):
             try:
@@ -870,18 +893,17 @@ class BudgetStep5Form(forms.ModelForm):
         custo_total_mao_obra = custo_hora_mecanico * duracao_em_horas
 
         # Valores Venda
-        venda_pecas = dados.get('venda_pecas') or zerado
-        venda_servico_terceiros = dados.get('venda_servico_terceiro') or zerado
-        venda_mao_obra = dados.get('venda_mao_obra') or zerado
+        venda_pecas = dados.get("venda_pecas") or zerado
+        venda_servico_terceiros = dados.get("venda_servico_terceiro") or zerado
+        venda_mao_obra = dados.get("venda_mao_obra") or zerado
 
         # Extra
-        metodo_precificacao = dados.get('method_name') or ""
-        duracao_total = dados.get('duracao_total') or "00h 00m"
-        lucro_operacional = dados.get('lucro_operacional') or zerado
-        rentabilidade = dados.get('rentabilidade') or 0
+        metodo_precificacao = dados.get("method_name") or ""
+        duracao_total = dados.get("duracao_total") or "00h 00m"
+        lucro_operacional = dados.get("lucro_operacional") or zerado
+        rentabilidade = dados.get("rentabilidade") or 0
 
-        status_cor = "text-error" if rentabilidade < 60 else "text-warning" if (
-                    60 <= rentabilidade < 70) else "text-success"
+        status_cor = "text-error" if rentabilidade < 60 else "text-warning" if (60 <= rentabilidade < 70) else "text-success"
         status_texto = "Ruim" if rentabilidade < 60 else "Médio" if (60 <= rentabilidade < 70) else "Bom"
 
         self.helper = FormHelper()
@@ -1067,8 +1089,7 @@ class BudgetStep5Form(forms.ModelForm):
                 # Coluna Esquerda
                 Div(
                     Div(
-                        HTML(
-                            f'<h3 class="text-3xl font-bold mb-2 border-b-3 border-[#007bff] text-[#222a2c] text-center">Método {metodo_precificacao}</h3>'),
+                        HTML(f'<h3 class="text-3xl font-bold mb-2 border-b-3 border-[#007bff] text-[#222a2c] text-center">Método {metodo_precificacao}</h3>'),
                         Div(
                             # Grid de Custos vs Vendas
                             Div(
@@ -1186,26 +1207,16 @@ class BudgetStep5Form(forms.ModelForm):
                                     <span class="text-sm font-bold">Mão de Obra: <span id="val-mo">0</span>%</span>
                                 </div>
                             """),
-                            Field(
-                                "slider",
-                                label=False,
-                                help_text=False,
-                                wrapper_class="w-full"
-                            ),
-                            HTML(
-                                '<p class="text-sm text-gray-500 font-semibold italic">Deslize para a esquerda para aumentar Peça, ou para direita para aumentar Mão de obra</p>'),
+                            Field("slider", label=False, help_text=False, wrapper_class="w-full"),
+                            HTML('<p class="text-sm text-gray-500 font-semibold italic">Deslize para a esquerda para aumentar Peça, ou para direita para aumentar Mão de obra</p>'),
                             css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
                         ),
                         # Desconto
-                        Div(HTML('<h4 class="font-bold text-lg mb-2">Desconto</h4>'),
-                            Field("discount_value", wrapper_class="col-span-12 lg:col-span-4"),
-                            css_class="mb-8 p-4 bg-base-200/50 rounded-lg"),
+                        Div(HTML('<h4 class="font-bold text-lg mb-2">Desconto</h4>'), Field("discount_value", wrapper_class="col-span-12 lg:col-span-4"), css_class="mb-8 p-4 bg-base-200/50 rounded-lg"),
                         # Valor Final
                         Div(
-                            HTML(
-                                '<h4 class="font-bold text-lg mb-2 text-center border-b-1 border-gray-300">Valor Final</h4>'),
-                            HTML(
-                                '<h5 class="font-semibold text-lg mb-2 text-center">Valor do Orçamento com desconto aplicado:</h5>'),
+                            HTML('<h4 class="font-bold text-lg mb-2 text-center border-b-1 border-gray-300">Valor Final</h4>'),
+                            HTML('<h5 class="font-semibold text-lg mb-2 text-center">Valor do Orçamento com desconto aplicado:</h5>'),
                             HTML(f"""<div class="space-y-3">
                                         <div class="flex justify-between text-xl font-semibold">
                                             <span>Subtotal:</span>
@@ -1245,36 +1256,10 @@ class BudgetStep6Form(forms.ModelForm):
         if self.workshop:
             saved_observation = self.workshop.pdf_observation or ""
 
-        products_html = ""
-        services_html = ""
-        kits_html = ""
-
-        if budget.pk:
-            items = budget.items.all()
-            for item in items:
-                context = {"item": item, "budget": budget, "is_full_render": True, "step6": True}
-                # Produto: item.product existe OU é local com custo/venda de produto preenchido
-                if item.product or (item.is_local and (item.product_cost_price.amount > 0 or item.product_selling_price.amount > 0 or item.shipping.amount > 0)):
-                    products_html += render_to_string("budget/partials/items/item_product_row.html", context)
-                # Serviço: item.service existe OU é local com custo/venda de serviço preenchido ou duração
-                elif item.service or (item.is_local and (item.service_cost_price.amount > 0 or item.service_selling_price.amount > 0 or item.duration)):
-                    services_html += render_to_string("budget/partials/items/item_service_row.html", context)
-                # Kit
-                elif item.kit:
-                    kits_html += render_to_string("budget/partials/items/item_kit_row.html", context)
-
-        if not products_html:
-            products_html = '<tr><td colspan="5" class="text-center text-gray-400 py-4">Nenhum produto adicionado</td></tr>'
-        if not services_html:
-            services_html = '<tr><td colspan="5" class="text-center text-gray-400 py-4">Nenhum serviço adicionado</td></tr>'
-        if not kits_html:
-            kits_html = """
-                <tr>
-                    <td colspan="5" class="text-center text-gray-400 py-4">
-                        Nenhum kit adicionado
-                    </td>
-                </tr>
-            """
+        rows = _render_budget_items_rows(budget, step6=True)
+        products_html = rows["product"]
+        services_html = rows["service"]
+        kits_html = rows["kit"]
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -1468,17 +1453,17 @@ class BudgetStep6Form(forms.ModelForm):
                             HTML('<h4 class="font-bold text-lg mb-2 border-b-1 border-gray-300">PDF</h4>'),
                             HTML(f"""
                             <div class="flex flex-col gap-3 text-center grid grid-cols-12">
-                                <button type="button" class="btn btn-success gap-2 col-span-4" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse('budget:visualizar_pdf', args=[budget.pk])}' }} }}))">
+                                <button type="button" class="btn btn-success gap-2 col-span-4" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse("budget:visualizar_pdf", args=[budget.pk])}' }} }}))">
                                     <span class="material-icons">description</span>
                                     Visualizar PDF
                                 </button>
 
-                                <button type="button" class="btn btn-success gap-2 col-span-4" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse('budget:visualizar_pdf_gestor', args=[budget.pk])}' }} }}))">
+                                <button type="button" class="btn btn-success gap-2 col-span-4" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse("budget:visualizar_pdf_gestor", args=[budget.pk])}' }} }}))">
                                     <span class="material-icons">supervisor_account</span>
                                     Visualizar PDF Gestor
                                 </button>
 
-                                <button type="button" class="btn btn-success gap-2 col-span-4" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse('budget:visualizar_pdf_mecanico', args=[budget.pk])}' }} }}))">
+                                <button type="button" class="btn btn-success gap-2 col-span-4" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse("budget:visualizar_pdf_mecanico", args=[budget.pk])}' }} }}))">
                                     <span class="material-icons">engineering</span>
                                     Visualizar PDF Mecânico
                                 </button>
@@ -1741,44 +1726,34 @@ class BudgetItemEditForm(forms.ModelForm):
 
         # Se for kit, remover todos os campos de edição (kits usam modal próprio)
         if item.kit:
-            fields_to_remove = ["service_selling_price", "service_cost_price", "duration",
-                              "product_selling_price", "product_cost_price", "shipping"]
+            fields_to_remove = ["service_selling_price", "service_cost_price", "duration", "product_selling_price", "product_cost_price", "shipping"]
             for field in fields_to_remove:
                 if field in self.fields:
                     self.fields.pop(field)
             return
 
-        # Identificar tipo de item local pelos valores preenchidos
-        # Verificar se campos Money existem antes de acessar .amount
-        is_local_product = item.is_local and (
-            (item.product_cost_price and item.product_cost_price.amount > 0) or
-            (item.product_selling_price and item.product_selling_price.amount > 0) or
-            (item.shipping and item.shipping.amount > 0)
-        )
-        is_local_service = item.is_local and (
-            (item.service_cost_price and item.service_cost_price.amount > 0) or
-            (item.service_selling_price and item.service_selling_price.amount > 0) or
-            item.duration
-        )
+        item_type = _budget_item_type(item)
 
-        if item.product or is_local_product:
+        if item_type == "product":
             self.fields.pop("service_selling_price")
             self.fields.pop("service_cost_price")
             self.fields.pop("duration")
-        elif item.service or is_local_service:
+        elif item_type == "service":
             self.fields.pop("product_selling_price")
             self.fields.pop("product_cost_price")
             self.fields.pop("shipping")
 
             if budget_id:
-                self.fields["duration"].widget.attrs.update({
-                    "hx-post": reverse("budget:calculate_item", kwargs={"budget_id": budget_id, "item_id": item.id}),
-                    "hx-trigger": "keyup changed delay:200ms",
-                    "hx-target": "#div_id_service_cost_price",
-                    "hx-swap": "outerHTML",
-                    "hx-include": "closest form",
-                    "hx-indicator": "#calculation-indicator",
-                })
+                self.fields["duration"].widget.attrs.update(
+                    {
+                        "hx-post": reverse("budget:calculate_item", kwargs={"budget_id": budget_id, "item_id": item.id}),
+                        "hx-trigger": "keyup changed delay:200ms",
+                        "hx-target": "#div_id_service_cost_price",
+                        "hx-swap": "outerHTML",
+                        "hx-include": "closest form",
+                        "hx-indicator": "#calculation-indicator",
+                    }
+                )
 
 
 class LocalProductForm(forms.ModelForm):
@@ -1824,18 +1799,21 @@ class LocalServiceForm(forms.ModelForm):
 
         # Adicionar cálculo automático
         if budget_id and not self.instance.pk:
-            self.fields["duration"].widget.attrs.update({
-                "hx-post": reverse("budget:calculate_local_service", kwargs={"budget_id": budget_id}),
-                "hx-trigger": "keyup changed delay:200ms",
-                "hx-target": "#div_id_service_cost_price",
-                "hx-swap": "outerHTML",
-                "hx-include": "closest form",
-                "hx-indicator": "#calculation-indicator",
-            })
+            self.fields["duration"].widget.attrs.update(
+                {
+                    "hx-post": reverse("budget:calculate_local_service", kwargs={"budget_id": budget_id}),
+                    "hx-trigger": "keyup changed delay:200ms",
+                    "hx-target": "#div_id_service_cost_price",
+                    "hx-swap": "outerHTML",
+                    "hx-include": "closest form",
+                    "hx-indicator": "#calculation-indicator",
+                }
+            )
 
 
 class QuickProductForm(forms.ModelForm):
     """Formulário simplificado para cadastro rápido de produtos (apenas campos obrigatórios)"""
+
     class Meta:
         model = Product
         fields = ["code", "unit", "name", "group", "cost_price", "selling_price"]
@@ -1866,6 +1844,7 @@ class QuickProductForm(forms.ModelForm):
 
 class QuickServiceForm(forms.ModelForm):
     """Formulário simplificado para cadastro rápido de serviços (apenas campos obrigatórios)"""
+
     class Meta:
         model = Service
         fields = ["name", "duration", "selling_price"]
@@ -1882,6 +1861,3 @@ class QuickServiceForm(forms.ModelForm):
         self.fields["name"].label = "Nome do Serviço"
         self.fields["duration"].label = "Duração"
         self.fields["selling_price"].label = "Valor de Venda"
-
-
-

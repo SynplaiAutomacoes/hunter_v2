@@ -1,6 +1,8 @@
 import json
+import logging
 from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
+from urllib.parse import parse_qs, urlparse
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -10,7 +12,9 @@ from django.template.loader import render_to_string
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views import View
+from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView
+from djmoney.money import Money
 
 from apps.budget.forms import BudgetItemEditForm, BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form, LocalServiceForm, LocalProductForm
 from apps.budget.models import Budget, BudgetItem, BudgetStatus
@@ -29,6 +33,95 @@ from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
 
+logger = logging.getLogger(__name__)
+
+
+def _get_budget_for_workshop(workshop, budget_id):
+    return get_object_or_404(Budget, id=budget_id, workshop=workshop)
+
+
+def _get_budget_item_for_workshop(workshop, budget_id, item_id, **extra_filters):
+    return get_object_or_404(
+        BudgetItem,
+        id=item_id,
+        budget_id=budget_id,
+        workshop=workshop,
+        **extra_filters,
+    )
+
+
+def _get_current_step_from_referer(request, fallback_step):
+    referer = request.META.get("HTTP_REFERER", "")
+    if not referer:
+        return fallback_step
+
+    parsed = urlparse(referer)
+    query_params = parse_qs(parsed.query)
+    try:
+        return int(query_params.get("step", [fallback_step])[0])
+    except (TypeError, ValueError, IndexError):
+        return fallback_step
+
+
+def _budget_update_url(budget_id, step):
+    return f"{reverse('budget:budget_update', kwargs={'pk': budget_id})}?step={step}"
+
+
+def _step_redirect_response(request, budget):
+    current_step = _get_current_step_from_referer(request, budget.current_step)
+    response = HttpResponse()
+    response["HX-Redirect"] = _budget_update_url(budget.id, current_step)
+    return response
+
+
+def _parse_duration_from_string(raw_duration):
+    if not raw_duration:
+        return timedelta()
+    try:
+        return DurationField.parse_duration(raw_duration) or timedelta()
+    except (TypeError, ValueError):
+        return timedelta()
+
+
+def _get_budget_workshop_cost(budget, workshop):
+    try:
+        reference_date = budget.criado_em if budget.criado_em else timezone.now()
+        return (
+            WorkshopCost.objects.get(workshop=workshop, month=reference_date.month, year=reference_date.year),
+            False,
+        )
+    except WorkshopCost.DoesNotExist:
+        try:
+            return (
+                WorkshopCost.objects.get(workshop=workshop, month=timezone.now().month, year=timezone.now().year),
+                False,
+            )
+        except WorkshopCost.DoesNotExist:
+            return None, True
+
+
+def _calculate_service_prices(duration, workshop_cost):
+    duration_hours = Decimal(duration.total_seconds()) / Decimal(3600)
+
+    if workshop_cost:
+        min_hourly = workshop_cost.minimum_hourly_cost or Money(0, "BRL")
+        hourly_val = workshop_cost.hourly_cost_value or Money(0, "BRL")
+        return min_hourly * duration_hours, hourly_val * duration_hours
+
+    return Money(0, "BRL"), Money(0, "BRL")
+
+
+def _budget_item_row_template(item):
+    is_local_product = item.is_local and (item.product_cost_price.amount > 0 or item.product_selling_price.amount > 0 or item.shipping.amount > 0)
+    is_local_service = item.is_local and (item.service_cost_price.amount > 0 or item.service_selling_price.amount > 0 or item.duration)
+
+    if item.product or is_local_product:
+        return "budget/partials/items/item_product_row.html"
+    if item.service or is_local_service:
+        return "budget/partials/items/item_service_row.html"
+    return "budget/partials/items/item_kit_row.html"
+
+
 def reset_steps_after_step_4(budget):
     """
     Reseta completamente as etapas 5 e 6 quando a etapa 4 é modificada.
@@ -42,9 +135,9 @@ def reset_steps_after_step_4(budget):
     if budget.current_step > 4:
         budget.current_step = 4
         budget.slider = 0
-        budget.discount_value = Money(0, 'BRL')
-        budget.save(update_fields=['current_step', 'slider', 'discount_value'])
+        budget.discount_value = Money(0, "BRL")
         budget.status = BudgetStatus.WAITING_PRICING
+        budget.save(update_fields=["current_step", "slider", "discount_value", "status"])
 
 
 class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
@@ -118,9 +211,8 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
         # Aplicar status automático configurado para esta etapa (se houver)
         try:
             self.apply_step_status(budget=self.object, current_step=self.get_current_step(), actor=self.request.user)
-        except Exception as e:
-            print(f"Status error: {e}")
-            pass
+        except Exception:
+            logger.exception("Falha ao aplicar status automatico no create do budget", extra={"budget_id": self.object.pk})
 
         current_step = self.get_current_step()
         if self.object.current_step < current_step + 1:
@@ -160,7 +252,7 @@ class BudgetUpdateView(BudgetCreateView):
     def get_object(self, queryset=None):
         pk = self.kwargs.get("pk")
         if pk:
-            return Budget.objects.get(pk=pk)
+            return Budget.objects.get(pk=pk, workshop=self.workshop)
         return super().get_object()
 
     def get_context_data(self, **kwargs):
@@ -178,7 +270,7 @@ class BudgetUpdateView(BudgetCreateView):
         try:
             self.apply_step_status(budget=self.object, current_step=self.get_current_step(), actor=self.request.user, isUpdate=True)
         except Exception:
-            pass
+            logger.exception("Falha ao aplicar status automatico no update do budget", extra={"budget_id": self.object.pk})
 
         current_step = self.get_current_step()
 
@@ -266,19 +358,13 @@ class ItemSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, TemplateVi
         # Get already added items to mark them as selected
         existing_items = set()
         if item_type == "product":
-            existing_items = set(budget.items.filter(product__isnull=False).values_list('product_id', flat=True))
+            existing_items = set(budget.items.filter(product__isnull=False).values_list("product_id", flat=True))
         elif item_type == "service":
-            existing_items = set(budget.items.filter(service__isnull=False).values_list('service_id', flat=True))
+            existing_items = set(budget.items.filter(service__isnull=False).values_list("service_id", flat=True))
         elif item_type == "kit":
-            existing_items = set(budget.items.filter(kit__isnull=False).values_list('kit_id', flat=True))
+            existing_items = set(budget.items.filter(kit__isnull=False).values_list("kit_id", flat=True))
 
-        context.update({
-            "items": queryset,
-            "budget": budget,
-            "item_type": item_type,
-            "modal_title": title,
-            "existing_items": existing_items
-        })
+        context.update({"items": queryset, "budget": budget, "item_type": item_type, "modal_title": title, "existing_items": existing_items})
         return context
 
 
@@ -287,7 +373,7 @@ class AddItemToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "add_budget"
 
     def post(self, request, *args, **kwargs):
-        budget = get_object_or_404(Budget, id=kwargs["budget_id"], workshop=self.workshop)
+        budget = _get_budget_for_workshop(self.workshop, kwargs["budget_id"])
 
         item_filter = {f"{kwargs['item_type']}_id": kwargs["item_id"]}
 
@@ -305,25 +391,7 @@ class AddItemToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
         # Reset etapas 5 e 6 após modificar a etapa 4
         reset_steps_after_step_4(budget)
 
-        # Extract step from referer URL to stay on current step
-        from urllib.parse import urlparse, parse_qs
-        referer = request.META.get('HTTP_REFERER', '')
-        current_step = budget.current_step
-
-        if referer:
-            parsed = urlparse(referer)
-            query_params = parse_qs(parsed.query)
-            if 'step' in query_params:
-                try:
-                    current_step = int(query_params['step'][0])
-                except (ValueError, IndexError):
-                    pass
-
-        success_url = f"{reverse('budget:budget_update', kwargs={'pk': budget.id})}?step={current_step}"
-
-        response = HttpResponse()
-        response["HX-Redirect"] = success_url
-        return response
+        return _step_redirect_response(request, budget)
 
 
 class RemoveItemFromBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -331,7 +399,7 @@ class RemoveItemFromBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "add_budget"
 
     def post(self, request, *args, **kwargs):
-        budget = get_object_or_404(Budget, id=kwargs["budget_id"], workshop=self.workshop)
+        budget = _get_budget_for_workshop(self.workshop, kwargs["budget_id"])
 
         item_filter = {f"{kwargs['item_type']}_id": kwargs["item_id"]}
 
@@ -342,59 +410,25 @@ class RemoveItemFromBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
         # Reset etapas 5 e 6 após modificar a etapa 4
         reset_steps_after_step_4(budget)
 
-        from urllib.parse import urlparse, parse_qs
-        referer = request.META.get('HTTP_REFERER', '')
-        current_step = budget.current_step
-
-        if referer:
-            parsed = urlparse(referer)
-            query_params = parse_qs(parsed.query)
-            if 'step' in query_params:
-                try:
-                    current_step = int(query_params['step'][0])
-                except (ValueError, IndexError):
-                    pass
-
-        success_url = f"{reverse('budget:budget_update', kwargs={'pk': budget.id})}?step={current_step}"
-
-        response = HttpResponse()
-        response["HX-Redirect"] = success_url
-        return response
+        return _step_redirect_response(request, budget)
 
 
 class RemoveBudgetItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
     """Remove item do orçamento pelo item_id (funciona para itens locais e normais)"""
+
     model = Budget
     workshop_permission_codename = "add_budget"
 
     def post(self, request, budget_id, item_id):
-        budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
-        item = get_object_or_404(BudgetItem, id=item_id, budget=budget, workshop=self.workshop)
+        budget = _get_budget_for_workshop(self.workshop, budget_id)
+        item = _get_budget_item_for_workshop(self.workshop, budget_id, item_id)
 
         item.delete()
 
         # Reset etapas 5 e 6 após modificar a etapa 4
         reset_steps_after_step_4(budget)
 
-        # Extract step from referer URL to stay on current step
-        from urllib.parse import urlparse, parse_qs
-        referer = request.META.get('HTTP_REFERER', '')
-        current_step = budget.current_step
-
-        if referer:
-            parsed = urlparse(referer)
-            query_params = parse_qs(parsed.query)
-            if 'step' in query_params:
-                try:
-                    current_step = int(query_params['step'][0])
-                except (ValueError, IndexError):
-                    pass
-
-        success_url = f"{reverse('budget:budget_update', kwargs={'pk': budget.id})}?step={current_step}"
-
-        response = HttpResponse()
-        response["HX-Redirect"] = success_url
-        return response
+        return _step_redirect_response(request, budget)
 
 
 class UpdateBudgetDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -426,10 +460,7 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if status == "approve":
             local_items = budget.items.filter(is_local=True)
             if local_items.exists():
-                return JsonResponse({
-                    "success": False,
-                    "error": "Não é possível aprovar. Existem itens sem cadastro que devem ser registrados antes de gerar a ordem de serviço."
-                }, status=400)
+                return JsonResponse({"success": False, "error": "Não é possível aprovar. Existem itens sem cadastro que devem ser registrados antes de gerar a ordem de serviço."}, status=400)
 
         status_map = {
             "cancel": BudgetStatus.CANCELLED,
@@ -477,20 +508,15 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "change_budgetitem"
 
     def get(self, request, budget_id, item_id):
-        item = get_object_or_404(BudgetItem, pk=item_id, budget_id=budget_id)
+        item = _get_budget_item_for_workshop(self.workshop, budget_id, item_id)
         form = BudgetItemEditForm(instance=item, budget_id=budget_id)
-        in_queue = request.GET.get('in_queue', 'false').lower() == 'true'
+        in_queue = request.GET.get("in_queue", "false").lower() == "true"
 
-        context = {
-            "form": form,
-            "item": item,
-            "budget_id": budget_id,
-            "in_queue": in_queue
-        }
+        context = {"form": form, "item": item, "budget_id": budget_id, "in_queue": in_queue}
         return render(request, "budget/partials/modals/modal_edit_item.html", context)
 
     def post(self, request, budget_id, item_id):
-        item = get_object_or_404(BudgetItem, pk=item_id, budget_id=budget_id)
+        item = _get_budget_item_for_workshop(self.workshop, budget_id, item_id)
         form = BudgetItemEditForm(request.POST, instance=item, budget_id=budget_id)
         if form.is_valid():
             action = request.POST.get("action")
@@ -501,32 +527,15 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
             if action == "update_master":
                 self.update_master_record(item)
-                return HtmxResponseHelper.success(
-                    "Cadastro atualizado com sucesso.",
-                    update_summary=True
-                )
+                return HtmxResponseHelper.success("Cadastro atualizado com sucesso.", update_summary=True)
 
             # Para action "save_only" - retorna HTML da linha atualizada
-            # ...existing code...
-            is_local_product = item.is_local and (item.product_cost_price.amount > 0 or item.product_selling_price.amount > 0 or item.shipping.amount > 0)
-            is_local_service = item.is_local and (item.service_cost_price.amount > 0 or item.service_selling_price.amount > 0 or item.duration)
-
-            if item.product or is_local_product:
-                template = "budget/partials/items/item_product_row.html"
-            elif item.service or is_local_service:
-                template = "budget/partials/items/item_service_row.html"
-            else:
-                template = "budget/partials/items/item_kit_row.html"
+            template = _budget_item_row_template(item)
 
             context = {"item": item, "budget": item.budget, "is_full_render": False}
             row_html = render_to_string(template, context)
 
-            return HtmxResponseHelper.success(
-                "Item atualizado com sucesso!",
-                close_modal=True,
-                update_summary=True,
-                content=row_html
-            )
+            return HtmxResponseHelper.success("Item atualizado com sucesso!", close_modal=True, update_summary=True, content=row_html)
 
         return render(request, "budget/partials/modals/modal_edit_item.html", {"form": form, "item": item, "budget_id": budget_id})
 
@@ -554,8 +563,8 @@ class BudgetItemCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "change_budgetitem"
 
     def post(self, request, budget_id, item_id):
-        budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
-        item = get_object_or_404(BudgetItem, pk=item_id, budget_id=budget_id)
+        budget = _get_budget_for_workshop(self.workshop, budget_id)
+        item = _get_budget_item_for_workshop(self.workshop, budget_id, item_id)
 
         # Usamos o form para processar o valor da duração vindo do POST
         form = BudgetItemEditForm(request.POST, instance=item, budget_id=budget_id)
@@ -564,7 +573,7 @@ class BudgetItemCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         try:
             form.full_clean()
         except Exception:
-            pass
+            logger.exception("Falha ao executar full_clean no calculo de item", extra={"budget_id": budget_id, "item_id": item_id})
 
         cleaned_data = getattr(form, "cleaned_data", {})
 
@@ -574,38 +583,11 @@ class BudgetItemCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         # Se não estiver no cleaned_data (erro de validação), tentamos pegar o valor bruto
         if duration is None:
             raw_duration = request.POST.get("duration")
-            if raw_duration:
-                try:
-                    duration = DurationField.parse_duration(raw_duration)
-                except Exception:
-                    duration = timedelta()
-                except (ValueError, TypeError):
-                    duration = timedelta()
-            else:
-                duration = timedelta()
+            duration = _parse_duration_from_string(raw_duration)
 
         # Lógica de busca do WorkshopCost (similar ao calculate_pricing_methods do modelo)
-        workshop_cost = None
-        workshop_cost_missing = False
-        try:
-            reference_date = budget.criado_em if budget.criado_em else timezone.now()
-            workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=reference_date.month, year=reference_date.year)
-        except WorkshopCost.DoesNotExist:
-            try:
-                workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=timezone.now().month, year=timezone.now().year)
-            except WorkshopCost.DoesNotExist:
-                workshop_cost_missing = True
-
-        duration_hours = Decimal(duration.total_seconds()) / Decimal(3600)
-
-        if workshop_cost:
-            min_hourly = workshop_cost.minimum_hourly_cost if workshop_cost.minimum_hourly_cost else Money(0, "BRL")
-            hourly_val = workshop_cost.hourly_cost_value if workshop_cost.hourly_cost_value else Money(0, "BRL")
-            service_cost_price = min_hourly * duration_hours
-            service_selling_price = hourly_val * duration_hours
-        else:
-            service_cost_price = Money(0, "BRL")
-            service_selling_price = Money(0, "BRL")
+        workshop_cost, workshop_cost_missing = _get_budget_workshop_cost(budget, self.workshop)
+        service_cost_price, service_selling_price = _calculate_service_prices(duration, workshop_cost)
 
         # Arredondamento
         service_cost_price_amount = service_cost_price.amount.quantize(Decimal("0.01"), ROUND_HALF_UP)
@@ -657,29 +639,26 @@ class BudgetItemCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         # Add toast error if WorkshopCost is missing
         if workshop_cost_missing:
-            response["HX-Trigger"] = json.dumps({
-                "showToast": {
-                    "message": "Custo da oficina não cadastrado para o mês atual. Os valores não puderam ser calculados automaticamente.",
-                    "type": "error"
-                }
-            })
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": "Custo da oficina não cadastrado para o mês atual. Os valores não puderam ser calculados automaticamente.", "type": "error"}})
 
         return response
 
 
-class BudgetImageView(LoginRequiredMixin, View):
-    def get(self, request, pk):
-        from django.http import HttpResponse
+class BudgetImageView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "view_budget"
 
+    def get(self, request, pk):
         from apps.budget.models import BudgetImage
 
-        image = get_object_or_404(BudgetImage, pk=pk)
+        image = get_object_or_404(BudgetImage, pk=pk, workshop=self.workshop)
 
         return HttpResponse(image.content, content_type=image.content_type)
 
 
 class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
     """View para editar itens de um kit no contexto deste orçamento"""
+
     model = BudgetItem
     workshop_permission_codename = "change_budgetitem"
 
@@ -692,27 +671,23 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
         # Buscar produtos do kit com overrides
         kit_products = []
         for product in item.kit.products.all():
-            override = BudgetKitItemOverride.objects.filter(
-                budget_item=item,
-                product=product
-            ).first()
+            override = BudgetKitItemOverride.objects.filter(budget_item=item, product=product).first()
 
-            kit_products.append({
-                'id': product.id,
-                'name': product.name,
-                'quantity': override.quantity if override else 1,
-                'cost': override.product_cost_price if override else product.cost_price,
-                'price': override.product_selling_price if override else product.selling_price,
-                'shipping': override.shipping if override else Money(0, 'BRL'),
-            })
+            kit_products.append(
+                {
+                    "id": product.id,
+                    "name": product.name,
+                    "quantity": override.quantity if override else 1,
+                    "cost": override.product_cost_price if override else product.cost_price,
+                    "price": override.product_selling_price if override else product.selling_price,
+                    "shipping": override.shipping if override else Money(0, "BRL"),
+                }
+            )
 
         # Buscar serviços do kit com overrides
         kit_services = []
         for service in item.kit.services.all():
-            override = BudgetKitItemOverride.objects.filter(
-                budget_item=item,
-                service=service
-            ).first()
+            override = BudgetKitItemOverride.objects.filter(budget_item=item, service=service).first()
 
             # Format duration as HH:MM:SS
             duration_str = ""
@@ -730,22 +705,24 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 seconds = total_seconds % 60
                 duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
-            kit_services.append({
-                'id': service.id,
-                'name': service.name,
-                'quantity': override.quantity if override else 1,
-                'cost': override.service_cost_price if override else service.suggested_cost,
-                'price': override.service_selling_price if override else service.selling_price,
-                'duration': duration_str,
-            })
+            kit_services.append(
+                {
+                    "id": service.id,
+                    "name": service.name,
+                    "quantity": override.quantity if override else 1,
+                    "cost": override.service_cost_price if override else service.suggested_cost,
+                    "price": override.service_selling_price if override else service.selling_price,
+                    "duration": duration_str,
+                }
+            )
 
         context = {
-            'item': item,
-            'kit_products': kit_products,
-            'kit_services': kit_services,
+            "item": item,
+            "kit_products": kit_products,
+            "kit_services": kit_services,
         }
 
-        return render(request, 'budget/partials/modals/modal_edit_kit.html', context)
+        return render(request, "budget/partials/modals/modal_edit_kit.html", context)
 
     def post(self, request, budget_id, item_id):
         from apps.budget.models import BudgetKitItemOverride
@@ -755,12 +732,12 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
         item = get_object_or_404(BudgetItem, id=item_id, budget=budget, kit__isnull=False)
 
         # Parse products data
-        products_json = request.POST.get('products', '[]')
+        products_json = request.POST.get("products", "[]")
         products_data = json.loads(products_json)
 
         for product_data in products_data:
-            product_id = product_data.get('id')
-            product = get_object_or_404(Product, id=product_id)
+            product_id = product_data.get("id")
+            product = get_object_or_404(Product, id=product_id, workshop=self.workshop)
 
             # Create or update override
             override, created = BudgetKitItemOverride.objects.update_or_create(
@@ -768,29 +745,32 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 budget_item=item,
                 product=product,
                 defaults={
-                    'quantity': int(product_data.get('quantity', 1)),
-                    'product_cost_price': Money(Decimal(str(product_data.get('cost', 0))), 'BRL'),
-                    'product_selling_price': Money(Decimal(str(product_data.get('price', 0))), 'BRL'),
-                    'shipping': Money(Decimal(str(product_data.get('shipping', 0))), 'BRL'),
-                }
+                    "quantity": int(product_data.get("quantity", 1)),
+                    "product_cost_price": Money(Decimal(str(product_data.get("cost", 0))), "BRL"),
+                    "product_selling_price": Money(Decimal(str(product_data.get("price", 0))), "BRL"),
+                    "shipping": Money(Decimal(str(product_data.get("shipping", 0))), "BRL"),
+                },
             )
 
         # Parse services data
-        services_json = request.POST.get('services', '[]')
+        services_json = request.POST.get("services", "[]")
         services_data = json.loads(services_json)
 
-        print(f"DEBUG Kit Edit: Saving {len(products_data)} products and {len(services_data)} services for budget_item #{item.id}")
+        logger.debug(
+            "Salvando overrides de kit",
+            extra={"budget_item_id": item.id, "products_count": len(products_data), "services_count": len(services_data)},
+        )
 
         for service_data in services_data:
-            service_id = service_data.get('id')
-            service = get_object_or_404(Service, id=service_id)
+            service_id = service_data.get("id")
+            service = get_object_or_404(Service, id=service_id, workshop=self.workshop)
 
             # Parse duration string (HH:MM:SS)
-            duration_str = service_data.get('duration', '00:00:00')
+            duration_str = service_data.get("duration", "00:00:00")
             duration = None
             if duration_str:
                 try:
-                    parts = duration_str.split(':')
+                    parts = duration_str.split(":")
                     if len(parts) == 3:
                         hours = int(parts[0])
                         minutes = int(parts[1])
@@ -805,24 +785,31 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 budget_item=item,
                 service=service,
                 defaults={
-                    'quantity': int(service_data.get('quantity', 1)),
-                    'service_cost_price': Money(Decimal(str(service_data.get('cost', 0))), 'BRL'),
-                    'service_selling_price': Money(Decimal(str(service_data.get('price', 0))), 'BRL'),
-                    'duration': duration,
-                }
+                    "quantity": int(service_data.get("quantity", 1)),
+                    "service_cost_price": Money(Decimal(str(service_data.get("cost", 0))), "BRL"),
+                    "service_selling_price": Money(Decimal(str(service_data.get("price", 0))), "BRL"),
+                    "duration": duration,
+                },
             )
 
-            print(f"DEBUG: Saved service override - {service.name}: qtd={override.quantity}, price={override.service_selling_price}, duration={override.duration}")
+            logger.debug(
+                "Override de servico salvo",
+                extra={
+                    "service_id": service.id,
+                    "quantity": override.quantity,
+                    "duration": str(override.duration) if override.duration else "",
+                },
+            )
 
         # Reset etapas 5 e 6 após modificar a etapa 4
         reset_steps_after_step_4(budget)
 
         # Force recalculation by accessing total_price
-        total = item.total_price
-        print(f"DEBUG: Kit total calculated: {total}")
+        _ = item.total_price
 
         # Redirect with full page reload (not HTMX)
         import time
+
         timestamp = int(time.time())
         response = HttpResponse()
         response["HX-Redirect"] = f"/budget/{budget_id}/edit/?step=4&_t={timestamp}"
@@ -832,6 +819,7 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
 class CalculateKitServiceView(LoginRequiredMixin, WorkshopScopedMixin, View):
     """Calcula custo e preço de um serviço baseado na duração (para edição de kit)"""
+
     model = Budget
     workshop_permission_codename = "add_budget"
 
@@ -839,138 +827,104 @@ class CalculateKitServiceView(LoginRequiredMixin, WorkshopScopedMixin, View):
         from datetime import timedelta
         from decimal import Decimal
 
-        service_id = request.POST.get('service_id')
-        duration_str = request.POST.get('duration', '00:00:00')
+        service_id = request.POST.get("service_id")
+        duration_str = request.POST.get("duration", "00:00:00")
 
         # Parse duration
         duration = None
         try:
-            parts = duration_str.split(':')
+            parts = duration_str.split(":")
             if len(parts) == 3:
                 hours = int(parts[0])
                 minutes = int(parts[1])
                 seconds = int(parts[2])
                 duration = timedelta(hours=hours, minutes=minutes, seconds=seconds)
         except (ValueError, IndexError):
-            return JsonResponse({'error': 'Invalid duration format'}, status=400)
+            return JsonResponse({"error": "Invalid duration format"}, status=400)
 
         if not duration or duration.total_seconds() == 0:
-            return JsonResponse({'error': 'Duration is required'}, status=400)
+            return JsonResponse({"error": "Duration is required"}, status=400)
 
         # Get service
         try:
-            service = get_object_or_404(Service, id=service_id)
-        except:
-            return JsonResponse({'error': 'Service not found'}, status=404)
+            service = get_object_or_404(Service, id=service_id, workshop=self.workshop)
+        except Exception:
+            return JsonResponse({"error": "Service not found"}, status=404)
 
         # Calculate pricing using existing logic
         try:
             budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
 
             # Try to get WorkshopCost for calculation
-            workshop_cost = WorkshopCost.objects.filter(
-                workshop=self.workshop,
-                month=timezone.now().month,
-                year=timezone.now().year
-            ).first()
+            workshop_cost = WorkshopCost.objects.filter(workshop=self.workshop, month=timezone.now().month, year=timezone.now().year).first()
 
             if workshop_cost and workshop_cost.minimum_hourly_cost:
                 # Calculate based on duration and hourly cost
-                hours_decimal = Decimal(str(duration.total_seconds())) / Decimal('3600')
+                hours_decimal = Decimal(str(duration.total_seconds())) / Decimal("3600")
                 cost = float(workshop_cost.minimum_hourly_cost.amount) * float(hours_decimal)
 
                 # Apply markup from slider (if exists)
-                slider_value = budget.slider if hasattr(budget, 'slider') else 50
-                markup_percentage = Decimal(str(slider_value)) / Decimal('100')
-                price = cost * float(Decimal('1') + markup_percentage)
+                slider_value = budget.slider if hasattr(budget, "slider") else 50
+                markup_percentage = Decimal(str(slider_value)) / Decimal("100")
+                price = cost * float(Decimal("1") + markup_percentage)
 
-                return JsonResponse({
-                    'cost': round(cost, 2),
-                    'price': round(price, 2)
-                })
+                return JsonResponse({"cost": round(cost, 2), "price": round(price, 2)})
             else:
                 # Fallback to service defaults
                 cost_val = float(service.suggested_cost.amount) if service.suggested_cost else 0
                 price_val = float(service.selling_price.amount) if service.selling_price else 0
 
-                return JsonResponse({
-                    'cost': cost_val,
-                    'price': price_val
-                })
+                return JsonResponse({"cost": cost_val, "price": price_val})
         except Exception as e:
-            import traceback
-            traceback.print_exc()
-            return JsonResponse({'error': str(e)}, status=500)
+            logger.exception("Erro ao calcular servico de kit", extra={"budget_id": budget_id, "service_id": service_id})
+            return JsonResponse({"error": str(e)}, status=500)
 
 
-from django.views.decorators.clickjacking import xframe_options_exempt
-from djmoney.money import Money
 @xframe_options_exempt
 def visualizar_pdf(request, pk):
-    budget = get_object_or_404(Budget, pk=pk)
+    workshop = get_active_workshop_or_404(request)
+    budget = get_object_or_404(Budget, pk=pk, workshop=workshop)
     itens_all = BudgetItem.objects.filter(budget=budget)
     produtos = itens_all.filter(product__isnull=False)
     servicos = itens_all.filter(service__isnull=False)
-    workshop = get_active_workshop_or_404(request)
 
-    context = {
-        'budget': budget,
-        'produtos': produtos,
-        'servicos': servicos,
-        'total_produtos': budget.total_products_value,
-        'total_servicos': budget.total_services_value,
-        'desconto': budget.discount_value,
-        'total_geral': budget.total_budget_value,
-        'observacao': workshop.pdf_observation
-    }
+    context = {"budget": budget, "produtos": produtos, "servicos": servicos, "total_produtos": budget.total_products_value, "total_servicos": budget.total_services_value, "desconto": budget.discount_value, "total_geral": budget.total_budget_value, "observacao": workshop.pdf_observation}
 
-    return render(request, 'budget/partials/pdf/visualizarPDF.html', context)
+    return render(request, "budget/partials/pdf/visualizarPDF.html", context)
 
 
 @xframe_options_exempt
 def visualizar_pdf_gestor(request, pk):
-    budget = get_object_or_404(Budget, pk=pk)
+    workshop = get_active_workshop_or_404(request)
+    budget = get_object_or_404(Budget, pk=pk, workshop=workshop)
     itens_all = BudgetItem.objects.filter(budget=budget)
     produtos = itens_all.filter(product__isnull=False)
     servicos = itens_all.filter(service__isnull=False)
-    workshop = get_active_workshop_or_404(request)
 
-    total_profit_product_value = Money(0, 'BRL')
+    total_profit_product_value = Money(0, "BRL")
     for p in produtos:
         total_profit_product_value += p.profit_value
 
-    total_profit_service_value = Money(0, 'BRL')
+    total_profit_service_value = Money(0, "BRL")
     for s in servicos:
         total_profit_service_value += s.profit_value
 
-    context = {
-        'budget': budget,
-        'produtos': produtos,
-        'servicos': servicos,
-        'observacao': workshop.pdf_observation,
-        'total_profit_product_value': total_profit_product_value,
-        'total_profit_service_value': total_profit_service_value
-    }
+    context = {"budget": budget, "produtos": produtos, "servicos": servicos, "observacao": workshop.pdf_observation, "total_profit_product_value": total_profit_product_value, "total_profit_service_value": total_profit_service_value}
 
-    return render(request, 'budget/partials/pdf/visualizarPDFGestor.html', context)
+    return render(request, "budget/partials/pdf/visualizarPDFGestor.html", context)
 
 
 @xframe_options_exempt
 def visualizar_pdf_mecanico(request, pk):
-    budget = get_object_or_404(Budget, pk=pk)
+    workshop = get_active_workshop_or_404(request)
+    budget = get_object_or_404(Budget, pk=pk, workshop=workshop)
     itens_all = BudgetItem.objects.filter(budget=budget)
     produtos = itens_all.filter(product__isnull=False)
     servicos = itens_all.filter(service__isnull=False)
-    workshop = get_active_workshop_or_404(request)
 
-    context = {
-        'budget': budget,
-        'produtos': produtos,
-        'servicos': servicos,
-        'observacao': workshop.pdf_observation
-    }
+    context = {"budget": budget, "produtos": produtos, "servicos": servicos, "observacao": workshop.pdf_observation}
 
-    return render(request, 'budget/partials/pdf/visualizarPDFMecanico.html', context)
+    return render(request, "budget/partials/pdf/visualizarPDFMecanico.html", context)
 
 
 class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -978,7 +932,7 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "add_budget"
 
     def post(self, request, budget_id, item_type):
-        budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
+        budget = _get_budget_for_workshop(self.workshop, budget_id)
 
         # Recebe IDs dos checkboxes marcados
         selected_ids = request.POST.getlist("selected_items")
@@ -997,36 +951,14 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
             """
             return HttpResponse(error_html)
 
-        if item_type == 'kit':
+        if item_type == "kit":
             for item_id in selected_ids:
-                BudgetItem.objects.get_or_create(
-                    workshop=self.workshop,
-                    budget=budget,
-                    kit_id=item_id,
-                    defaults={"quantity": 1}
-                )
+                BudgetItem.objects.get_or_create(workshop=self.workshop, budget=budget, kit_id=item_id, defaults={"quantity": 1})
 
             # Reset etapas 5 e 6 após modificar a etapa 4
             reset_steps_after_step_4(budget)
 
-            # Extract step from referer URL to stay on current step
-            from urllib.parse import urlparse, parse_qs
-            referer = request.META.get('HTTP_REFERER', '')
-            current_step = budget.current_step
-
-            if referer:
-                parsed = urlparse(referer)
-                query_params = parse_qs(parsed.query)
-                if 'step' in query_params:
-                    try:
-                        current_step = int(query_params['step'][0])
-                    except (ValueError, IndexError):
-                        pass
-
-            success_url = f"{reverse('budget:budget_update', kwargs={'pk': budget.id})}?step={current_step}"
-            response = HttpResponse()
-            response["HX-Redirect"] = success_url
-            return response
+            return _step_redirect_response(request, budget)
 
         created_items = []
         for item_id in selected_ids:
@@ -1039,19 +971,7 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
         # Reset etapas 5 e 6 após modificar a etapa 4
         reset_steps_after_step_4(budget)
 
-        # Extract step from referer URL to stay on current step
-        from urllib.parse import urlparse, parse_qs
-        referer = request.META.get('HTTP_REFERER', '')
-        current_step = budget.current_step
-
-        if referer:
-            parsed = urlparse(referer)
-            query_params = parse_qs(parsed.query)
-            if 'step' in query_params:
-                try:
-                    current_step = int(query_params['step'][0])
-                except (ValueError, IndexError):
-                    pass
+        current_step = _get_current_step_from_referer(request, budget.current_step)
 
         context = {
             "budget": budget,
@@ -1067,16 +987,18 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
 class BudgetSummaryView(LoginRequiredMixin, WorkshopScopedMixin, View):
     """Retorna apenas o partial do resumo do orçamento para atualização via HTMX."""
+
     model = Budget
     workshop_permission_codename = "view_budget"
 
     def get(self, request, budget_id):
         budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
-        return render(request, 'budget/partials/components/budget_summary.html', {'budget': budget})
+        return render(request, "budget/partials/components/budget_summary.html", {"budget": budget})
 
 
 class BudgetStep3CollaboratorFieldView(LoginRequiredMixin, WorkshopScopedMixin, View):
     """Retorna apenas o campo de colaborador para refresh via HTMX após criar/editar colaborador."""
+
     model = Budget
     workshop_permission_codename = "change_budget"
 
@@ -1085,30 +1007,31 @@ class BudgetStep3CollaboratorFieldView(LoginRequiredMixin, WorkshopScopedMixin, 
         form = BudgetStep3Form(instance=budget, workshop=self.workshop, request=request)
 
         # Get the selected collaborator ID from query params (for restoration)
-        selected_id = request.GET.get('selected', '')
+        selected_id = request.GET.get("selected", "")
         if selected_id:
-            form.fields['collaborator'].initial = selected_id
+            form.fields["collaborator"].initial = selected_id
 
         # Determine initial collaborator ID for Alpine.js x-data
-        initial_collab_id = selected_id or (budget.collaborator.id if budget.collaborator else '')
+        initial_collab_id = selected_id or (budget.collaborator.id if budget.collaborator else "")
 
         # Render the field using the template
         context = {
-            'form': form,
-            'field': form['collaborator'],
-            'initial_collab_id': initial_collab_id,
+            "form": form,
+            "field": form["collaborator"],
+            "initial_collab_id": initial_collab_id,
         }
 
-        return render(request, 'budget/partials/components/collaborator_field.html', context)
+        return render(request, "budget/partials/components/collaborator_field.html", context)
 
 
 class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
     """Modal para criar item local (produto ou serviço apenas neste orçamento)"""
+
     model = Budget
     workshop_permission_codename = "add_budget"
 
     def get(self, request, budget_id, item_type):
-        budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
+        _get_budget_for_workshop(self.workshop, budget_id)
 
         if item_type == "product":
             form = LocalProductForm()
@@ -1153,21 +1076,12 @@ class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
             else:
                 template = "budget/partials/items/item_service_row.html"
 
-            context = {
-                "item": item,
-                "budget": budget,
-                "is_full_render": True
-            }
+            context = {"item": item, "budget": budget, "is_full_render": True}
 
             row_html = render_to_string(template, context)
 
             # Fechar modal e adicionar linha na tabela
-            return HtmxResponseHelper.success(
-                f"{'Produto' if item_type == 'product' else 'Serviço'} local criado com sucesso!",
-                close_modal=True,
-                update_summary=True,
-                content=row_html
-            )
+            return HtmxResponseHelper.success(f"{'Produto' if item_type == 'product' else 'Serviço'} local criado com sucesso!", close_modal=True, update_summary=True, content=row_html)
 
         context = {
             "form": form,
@@ -1178,9 +1092,9 @@ class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
         return render(request, "budget/partials/modals/modal_create_local_item.html", context)
 
 
-
 class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
     """Abre modal para cadastrar item local no banco de dados"""
+
     model = Budget
     workshop_permission_codename = "add_budget"
 
@@ -1246,12 +1160,7 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 context = {"item": item, "budget": item.budget, "is_full_render": False}
                 row_html = render_to_string("budget/partials/items/item_product_row.html", context)
 
-                response = HtmxResponseHelper.success(
-                    "Produto cadastrado com sucesso!",
-                    close_modal=True,
-                    update_summary=True,
-                    content=row_html
-                )
+                response = HtmxResponseHelper.success("Produto cadastrado com sucesso!", close_modal=True, update_summary=True, content=row_html)
                 response["HX-Refresh"] = "true"
                 return response
 
@@ -1273,12 +1182,7 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 context = {"item": item, "budget": item.budget, "is_full_render": False}
                 row_html = render_to_string("budget/partials/items/item_service_row.html", context)
 
-                response = HtmxResponseHelper.success(
-                    "Serviço cadastrado com sucesso!",
-                    close_modal=True,
-                    update_summary=True,
-                    content=row_html
-                )
+                response = HtmxResponseHelper.success("Serviço cadastrado com sucesso!", close_modal=True, update_summary=True, content=row_html)
                 response["HX-Refresh"] = "true"
                 return response
 
@@ -1298,46 +1202,15 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
 class CalculateLocalServiceView(LoginRequiredMixin, WorkshopScopedMixin, View):
     """Calcular custos de serviço local baseado na duração"""
+
     model = Budget
     workshop_permission_codename = "add_budget"
 
     def post(self, request, budget_id):
-        budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
-
-        # Parse duration
-        raw_duration = request.POST.get("duration", "")
-        duration = timedelta()
-
-        if raw_duration:
-            try:
-                duration = DurationField.parse_duration(raw_duration) or timedelta()
-            except Exception:
-                pass
-
-        # Buscar WorkshopCost
-        workshop_cost = None
-        workshop_cost_missing = False
-
-        try:
-            reference_date = budget.criado_em if budget.criado_em else timezone.now()
-            workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=reference_date.month, year=reference_date.year)
-        except WorkshopCost.DoesNotExist:
-            try:
-                workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=timezone.now().month, year=timezone.now().year)
-            except WorkshopCost.DoesNotExist:
-                workshop_cost_missing = True
-
-        # Calcular valores
-        duration_hours = Decimal(duration.total_seconds()) / Decimal(3600)
-
-        if workshop_cost:
-            min_hourly = workshop_cost.minimum_hourly_cost or Money(0, "BRL")
-            hourly_val = workshop_cost.hourly_cost_value or Money(0, "BRL")
-            service_cost_price = min_hourly * duration_hours
-            service_selling_price = hourly_val * duration_hours
-        else:
-            service_cost_price = Money(0, "BRL")
-            service_selling_price = Money(0, "BRL")
+        budget = _get_budget_for_workshop(self.workshop, budget_id)
+        duration = _parse_duration_from_string(request.POST.get("duration", ""))
+        workshop_cost, workshop_cost_missing = _get_budget_workshop_cost(budget, self.workshop)
+        service_cost_price, service_selling_price = _calculate_service_prices(duration, workshop_cost)
 
         # Preparar form
         data = request.POST.copy()
@@ -1357,25 +1230,21 @@ class CalculateLocalServiceView(LoginRequiredMixin, WorkshopScopedMixin, View):
         response = render(request, "budget/partials/modals/modal_local_service_fields.html", context)
 
         if workshop_cost_missing:
-            response["HX-Trigger"] = json.dumps({
-                "showToast": {
-                    "message": "Custo da oficina não cadastrado para o mês atual.",
-                    "type": "error"
-                }
-            })
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": "Custo da oficina não cadastrado para o mês atual.", "type": "error"}})
 
         return response
 
 
 class QuickCreateProductView(LoginRequiredMixin, WorkshopScopedMixin, View):
     """Cadastro rápido de produto com atualização automática da lista"""
+
     model = Budget
     workshop_permission_codename = "add_budget"
 
     def get(self, request, budget_id, item_type):
         from apps.budget.forms import QuickProductForm, QuickServiceForm
 
-        budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
+        _get_budget_for_workshop(self.workshop, budget_id)
 
         if item_type == "product":
             form = QuickProductForm(workshop=self.workshop)
@@ -1425,9 +1294,9 @@ class QuickCreateProductView(LoginRequiredMixin, WorkshopScopedMixin, View):
             # Get already added items
             existing_items = set()
             if item_type == "product":
-                existing_items = set(budget.items.filter(product__isnull=False).values_list('product_id', flat=True))
+                existing_items = set(budget.items.filter(product__isnull=False).values_list("product_id", flat=True))
             elif item_type == "service":
-                existing_items = set(budget.items.filter(service__isnull=False).values_list('service_id', flat=True))
+                existing_items = set(budget.items.filter(service__isnull=False).values_list("service_id", flat=True))
 
             context = {
                 "items": queryset,
@@ -1438,16 +1307,7 @@ class QuickCreateProductView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "newly_created_id": item.id,  # ID do item recém-criado
             }
 
-            return HtmxResponseHelper.render_and_trigger(
-                "budget/partials/modals/modal_item_list.html",
-                context,
-                {
-                    "showToast": {
-                        "message": f"{'Produto' if item_type == 'product' else 'Serviço'} cadastrado com sucesso!",
-                        "type": "success"
-                    }
-                }
-            )
+            return HtmxResponseHelper.render_and_trigger("budget/partials/modals/modal_item_list.html", context, {"showToast": {"message": f"{'Produto' if item_type == 'product' else 'Serviço'} cadastrado com sucesso!", "type": "success"}})
 
         # Se form inválido
         context = {
@@ -1457,4 +1317,3 @@ class QuickCreateProductView(LoginRequiredMixin, WorkshopScopedMixin, View):
             "title": f"Cadastrar Novo {'Produto' if item_type == 'product' else 'Serviço'}",
         }
         return render(request, "budget/partials/modals/modal_quick_create.html", context)
-
