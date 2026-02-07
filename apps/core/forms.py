@@ -115,7 +115,7 @@ class MultiStepFormMixin:
             context["step_formset"] = step_config["formset_class"](instance=self.object, data=self.request.POST if self.request.method == "POST" else None)
         return context
 
-    def apply_step_status(self, budget=None, current_step=None, actor=None):
+    def apply_step_status(self, budget=None, current_step=None, actor=None, isUpdate=False):
         """
         Aplica automaticamente o status configurado para a etapa atual, se houver.
 
@@ -125,6 +125,7 @@ class MultiStepFormMixin:
         - Não rebaixa status terminal (ex.: approved, rejected, cancelled).
         - Valida que o status alvo pertence a `BudgetStatus`.
         - Faz a alteração de forma atômica e salva apenas o campo de status.
+        - Em update, não altera a badge caso seja anterior a etapa 4
 
         Retorna True se uma alteração foi aplicada, False caso contrário.
         """
@@ -145,6 +146,10 @@ class MultiStepFormMixin:
         desired = step_config.get('status', None)
 
         if not auto_apply or not desired:
+            return False
+
+        if isUpdate and current_step < 4:
+            # Em updates, não rebaixa a badge caso seja anterior a etapa 4
             return False
 
         # Normalize desired status to a string value
