@@ -22,10 +22,11 @@ from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 
 class BudgetStatus(models.TextChoices):
     DRAFT = "draft", "Em Aberto"
+    WAITING_DIAGNOSIS = "waiting_diagnosis", "Aguardando Diagnóstico"
     APPROVED = "approved", "Aprovado"
     REJECTED = "rejected", "Rejeitado"
     CANCELLED = "cancelled", "Cancelado"
-    WAITING = "waiting", "Aguardando Peças e Serviços"
+    WAITING_STOCK = "waiting", "Aguardando Peças e Serviços"
 
 
 class FuelLevel(models.IntegerChoices):
@@ -299,11 +300,12 @@ class Budget(TimeStampedModel):
     @property
     def budget_status_badge(self):
         status_color = {
-            BudgetStatus.DRAFT: "badge-ghost",
+            BudgetStatus.DRAFT: "badge-soft badge-ghost",
+            BudgetStatus.WAITING_DIAGNOSIS: "badge-soft badge-warning",
             BudgetStatus.APPROVED: "badge-success",
             BudgetStatus.REJECTED: "badge-error",
-            BudgetStatus.CANCELLED: "badge-warning",
-            BudgetStatus.WAITING: "badge-info",
+            BudgetStatus.CANCELLED: "badge-soft badge-error",
+            BudgetStatus.WAITING_STOCK: "badge-soft badge-info",
         }
 
         return {
