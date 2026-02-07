@@ -158,7 +158,7 @@ class BudgetUpdateView(BudgetCreateView):
 
         # Aplicar status automático configurado para esta etapa (se houver)
         try:
-            self.apply_step_status(budget=self.object, current_step=self.get_current_step(), actor=self.request.user)
+            self.apply_step_status(budget=self.object, current_step=self.get_current_step(), actor=self.request.user, isUpdate=True)
         except Exception:
             pass
 
