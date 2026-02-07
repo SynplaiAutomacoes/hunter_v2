@@ -29,6 +29,24 @@ from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
 
+def reset_steps_after_step_4(budget):
+    """
+    Reseta completamente as etapas 5 e 6 quando a etapa 4 é modificada.
+    Limpa todos os campos de precificação e força o usuário a reconfigurar.
+
+    Campos resetados:
+    - current_step: volta para 4
+    - slider: volta para 0
+    - discount_value: volta para 0.00
+    """
+    if budget.current_step > 4:
+        budget.current_step = 4
+        budget.slider = 0
+        budget.discount_value = Money(0, 'BRL')
+        budget.save(update_fields=['current_step', 'slider', 'discount_value'])
+        budget.status = BudgetStatus.WAITING_PRICING
+
+
 class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = Budget
     template_name = "budget/budget_list.html"
@@ -284,6 +302,9 @@ class AddItemToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
             item.quantity += 1
             item.save()
 
+        # Reset etapas 5 e 6 após modificar a etapa 4
+        reset_steps_after_step_4(budget)
+
         # Extract step from referer URL to stay on current step
         from urllib.parse import urlparse, parse_qs
         referer = request.META.get('HTTP_REFERER', '')
@@ -318,6 +339,9 @@ class RemoveItemFromBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         item.delete()
 
+        # Reset etapas 5 e 6 após modificar a etapa 4
+        reset_steps_after_step_4(budget)
+
         from urllib.parse import urlparse, parse_qs
         referer = request.META.get('HTTP_REFERER', '')
         current_step = budget.current_step
@@ -348,6 +372,9 @@ class RemoveBudgetItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
         item = get_object_or_404(BudgetItem, id=item_id, budget=budget, workshop=self.workshop)
 
         item.delete()
+
+        # Reset etapas 5 e 6 após modificar a etapa 4
+        reset_steps_after_step_4(budget)
 
         # Extract step from referer URL to stay on current step
         from urllib.parse import urlparse, parse_qs
@@ -392,6 +419,8 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id, status):
         budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
+
+        reset_steps_after_step_4(budget)
 
         # Validar se há itens locais ao tentar aprovar
         if status == "approve":
@@ -467,6 +496,9 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
             action = request.POST.get("action")
             item = form.save()
 
+            # Reset etapas 5 e 6 após modificar a etapa 4
+            reset_steps_after_step_4(item.budget)
+
             if action == "update_master":
                 self.update_master_record(item)
                 return HtmxResponseHelper.success(
@@ -475,7 +507,7 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 )
 
             # Para action "save_only" - retorna HTML da linha atualizada
-            # Identificar tipo de item (incluindo locais)
+            # ...existing code...
             is_local_product = item.is_local and (item.product_cost_price.amount > 0 or item.product_selling_price.amount > 0 or item.shipping.amount > 0)
             is_local_service = item.is_local and (item.service_cost_price.amount > 0 or item.service_selling_price.amount > 0 or item.duration)
 
@@ -782,6 +814,9 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
             print(f"DEBUG: Saved service override - {service.name}: qtd={override.quantity}, price={override.service_selling_price}, duration={override.duration}")
 
+        # Reset etapas 5 e 6 após modificar a etapa 4
+        reset_steps_after_step_4(budget)
+
         # Force recalculation by accessing total_price
         total = item.total_price
         print(f"DEBUG: Kit total calculated: {total}")
@@ -971,6 +1006,9 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     defaults={"quantity": 1}
                 )
 
+            # Reset etapas 5 e 6 após modificar a etapa 4
+            reset_steps_after_step_4(budget)
+
             # Extract step from referer URL to stay on current step
             from urllib.parse import urlparse, parse_qs
             referer = request.META.get('HTTP_REFERER', '')
@@ -997,6 +1035,9 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
             budget_item, created = BudgetItem.objects.get_or_create(workshop=self.workshop, budget=budget, **item_filter, defaults={"quantity": 1})
 
             created_items.append(budget_item.id)
+
+        # Reset etapas 5 e 6 após modificar a etapa 4
+        reset_steps_after_step_4(budget)
 
         # Extract step from referer URL to stay on current step
         from urllib.parse import urlparse, parse_qs
@@ -1102,6 +1143,9 @@ class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
             item.budget = budget
             item.is_local = True
             item.save()
+
+            # Reset etapas 5 e 6 após modificar a etapa 4
+            reset_steps_after_step_4(budget)
 
             # Retornar HTML da linha do item criado
             if item_type == "product":
