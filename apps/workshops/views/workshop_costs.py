@@ -37,6 +37,7 @@ class WorkshopCostListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplate
 
         context["actions"] = [
             TableActionDefaults.edit("workshops:workshop_cost_update"),
+            TableActionDefaults.copy("workshops:workshop_cost_copy"),
             TableActionDefaults.delete("workshops:workshop_cost_delete"),
         ]
 
@@ -60,6 +61,57 @@ class WorkshopCostUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView
     form_class = WorkshopCostForm
     template_name = "workshop_costs/workshop_cost_update.html"
     success_url = reverse_lazy("workshops:workshop_cost_list")
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["workshop"] = self.workshop
+        return kwargs
+
+
+class WorkshopCostCopyView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
+    model = WorkshopCost
+    form_class = WorkshopCostForm
+    template_name = "workshop_costs/workshop_cost_create.html"
+    success_url = reverse_lazy("workshops:workshop_cost_list")
+
+    def get_initial(self):
+        initial = super().get_initial()
+        original_instance = self.get_object()
+
+        # Referência
+        initial['month'] = original_instance.month
+        initial['year'] = original_instance.year
+
+        # Mecânicos
+        initial['mechanic_quantity'] = original_instance.mechanic_quantity
+        initial['work_hours_per_day'] = original_instance.work_hours_per_day
+        initial['working_hours_per_month'] = original_instance.working_hours_per_month
+        initial['productivity_average'] = original_instance.productivity_average
+
+        # Taxas
+        initial['card_rate'] = original_instance.card_rate
+        initial['tax_rate'] = original_instance.tax_rate
+        initial['profit_margin'] = original_instance.profit_margin
+        initial['commission_rate'] = original_instance.commission_rate
+        initial['risk_coefficient'] = original_instance.risk_coefficient
+
+        # Metas Inputs
+        initial['parts_purchase_cap'] = original_instance.parts_purchase_cap
+        initial['freight_cost'] = original_instance.freight_cost
+        initial['third_party_service_cap'] = original_instance.third_party_service_cap
+
+        for item in original_instance.items.all():
+            field_name = f"cost_item_{item.monthly_cost_id}"
+            initial[field_name] = item.amount
+
+        # Calculados (Readonly)
+        initial['total_value'] = original_instance.total_value
+        initial['total_monthly_costs'] = original_instance.total_monthly_costs
+        initial['profit_target'] = original_instance.profit_target
+        initial['gross_revenue_target'] = original_instance.gross_revenue_target
+        initial['profitability_multiplier'] = original_instance.profitability_multiplier
+
+        return initial
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
