@@ -233,6 +233,19 @@
             if (mode === 'negative') return '-' + digits;
             return sign + digits;
         },
+
+        // Formata número inteiro com separador de milhares (pt-BR)
+        formatInteger(v) {
+            if (!v || v === '-') return v;
+            const normalized = this.normalize(v, 'positive');
+            if (!normalized || normalized === '-') return '';
+
+            // Converte para número e formata com separador de milhares
+            const num = parseInt(normalized, 10);
+            if (isNaN(num)) return '';
+
+            return num.toLocaleString('pt-BR');
+        },
     };
 
     const decimal = {
@@ -505,12 +518,14 @@
                 init() {
                     const n = number.normalize(this.rawValue, this.mode);
                     this.$refs.value.value = (n === '-') ? '' : n;
-                    this.$refs.display.value = n;
+                    // Formata o display inicial
+                    this.$refs.display.value = number.formatInteger(n);
                 },
                 handleInput(e) {
                     const n = number.normalize(e.target.value, this.mode);
                     this.$refs.value.value = (n === '-') ? '' : n;
-                    e.target.value = n;
+                    // Formata o display durante a digitação
+                    e.target.value = number.formatInteger(n);
                 },
             };
         },

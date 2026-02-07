@@ -48,7 +48,7 @@ class BudgetStep1Form(forms.ModelForm):
         widgets = {
             "entry_date": CalendarDateInput(),
             "customer": SelectInput(attrs={"x-model": "customerId", "@change": "customerId = $el.value; vehicleId = '';"}),
-            "current_km": TextInput(),
+            "current_km": NumberInput(),
             "fuel_level": SelectInput(),
         }
 
