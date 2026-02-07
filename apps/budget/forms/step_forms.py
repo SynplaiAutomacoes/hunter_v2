@@ -1,3 +1,4 @@
+import base64
 from decimal import Decimal
 
 from crispy_forms.helper import FormHelper
@@ -8,7 +9,7 @@ from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from djmoney.money import Money
 
-from apps.budget.models import Budget, BudgetImage, Defect
+from apps.budget.models import Budget, BudgetImage, BudgetImageType, Defect
 from apps.checklist.models import Checklist
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.utils import alert_confirm_layout
@@ -18,6 +19,29 @@ from apps.quote.models.investigative_questions import InvestigativeQuestion, Inv
 
 from .shared import MAX_BUDGET_IMAGES, _render_budget_items_rows, _validate_uploaded_images
 from .widgets import MultipleFileInput
+
+
+SLOT_IMAGE_TYPES = [
+    BudgetImageType.PRINCIPAL,
+    BudgetImageType.FRONTAL,
+    BudgetImageType.TRASEIRA,
+    BudgetImageType.DIREITA,
+    BudgetImageType.ESQUERDA,
+    BudgetImageType.PAINEL,
+    BudgetImageType.CHASSI,
+    BudgetImageType.MOTOR,
+]
+
+SLOT_LAYOUT_CONFIG = [
+    {"type": BudgetImageType.PRINCIPAL, "label": "Principal", "full_width": True},
+    {"type": BudgetImageType.FRONTAL, "label": "Frontal", "full_width": False},
+    {"type": BudgetImageType.TRASEIRA, "label": "Traseira", "full_width": False},
+    {"type": BudgetImageType.DIREITA, "label": "Direita", "full_width": False},
+    {"type": BudgetImageType.ESQUERDA, "label": "Esquerda", "full_width": False},
+    {"type": BudgetImageType.PAINEL, "label": "Painel", "full_width": True},
+    {"type": BudgetImageType.CHASSI, "label": "Chassi", "full_width": True},
+    {"type": BudgetImageType.MOTOR, "label": "Motor", "full_width": True},
+]
 
 
 class BudgetStep1Form(forms.ModelForm):
@@ -325,12 +349,6 @@ class BudgetStep3Form(forms.ModelForm):
             self.fields["collaborator"].queryset = WorkshopCollaborator.objects.filter(workshop=self.workshop, is_active=True)
             self.fields["checklist"].queryset = Checklist.objects.filter(workshop=self.workshop)
 
-        if self.instance.pk:
-            img_obj = self.instance.budget_image.first()
-            if img_obj:
-                img_obj.url = reverse("budget:image_view", kwargs={"pk": img_obj.pk})
-                self.fields["image"].initial = img_obj
-
         initial_collab_id = ""
         if self.instance.pk and self.instance.collaborator:
             initial_collab_id = self.instance.collaborator.id
@@ -492,42 +510,39 @@ class BudgetStep3Form(forms.ModelForm):
             # Inject existing images organized by type (slots + additional)
             existing_images = self.instance.ordered_images
             if existing_images.exists():
-                import base64
-                from apps.budget.models import BudgetImageType
+                existing_images_list = list(existing_images)
+                images_by_type = {}
+                additional_images = []
+                for existing_image in existing_images_list:
+                    if existing_image.image_type == BudgetImageType.ADDITIONAL:
+                        additional_images.append(existing_image)
+                    elif existing_image.content and existing_image.image_type not in images_by_type:
+                        images_by_type[existing_image.image_type] = existing_image
 
                 # Define slots layout
-                slots_config = [
-                    {'type': BudgetImageType.PRINCIPAL, 'label': 'Principal', 'full_width': True},
-                    {'type': BudgetImageType.FRONTAL, 'label': 'Frontal', 'full_width': False},
-                    {'type': BudgetImageType.TRASEIRA, 'label': 'Traseira', 'full_width': False},
-                    {'type': BudgetImageType.DIREITA, 'label': 'Direita', 'full_width': False},
-                    {'type': BudgetImageType.ESQUERDA, 'label': 'Esquerda', 'full_width': False},
-                    {'type': BudgetImageType.PAINEL, 'label': 'Painel', 'full_width': True},
-                    {'type': BudgetImageType.CHASSI, 'label': 'Chassi', 'full_width': True},
-                    {'type': BudgetImageType.MOTOR, 'label': 'Motor', 'full_width': True},
-                ]
+                slots_config = SLOT_LAYOUT_CONFIG
 
                 # Build slots HTML
                 slots_html = []
 
                 # Principal (full width)
                 slot = slots_config[0]
-                img = existing_images.filter(image_type=slot['type']).first()
+                img = images_by_type.get(slot["type"])
                 if img and img.content:
                     img_data = base64.b64encode(img.content).decode("utf-8")
                     img_src = f"data:{img.content_type or 'image/jpeg'};base64,{img_data}"
                     slots_html.append(f"""
                     <div class="mb-4">
                         <div class="relative border-2 border-gray-300 rounded-lg p-4 bg-white hover:border-primary transition-colors cursor-pointer group" 
-                             id="slot-{slot['type']}"
-                             onclick="document.getElementById('file-input-{slot['type']}').click()">
-                            <img src="{img_src}" alt="{slot['label']}" class="w-full h-48 object-contain rounded mb-2">
-                            <p class="text-center text-sm font-semibold text-gray-600">{slot['label']}</p>
-                            <input type="file" id="file-input-{slot['type']}" name="image_{slot['type']}" accept="image/*" class="hidden" 
-                                   onchange="previewSlotImage('{slot['type']}', this)">
-                            <input type="hidden" id="delete-slot-{slot['type']}" name="slot_to_delete" value="">
+                             id="slot-{slot["type"]}"
+                             onclick="document.getElementById('file-input-{slot["type"]}').click()">
+                            <img src="{img_src}" alt="{slot["label"]}" class="w-full h-48 object-contain rounded mb-2">
+                            <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
+                            <input type="file" id="file-input-{slot["type"]}" name="image_{slot["type"]}" accept="image/*" class="hidden" 
+                                   onchange="previewSlotImage('{slot["type"]}', this)">
+                            <input type="hidden" id="delete-slot-{slot["type"]}" name="slot_to_delete" value="">
                             <button type="button" 
-                                    onclick="event.stopPropagation(); deleteSlotImage('{slot['type']}', '{img.id}')"
+                                    onclick="event.stopPropagation(); deleteSlotImage('{slot["type"]}', '{img.id}')"
                                     class="absolute top-2 right-2 btn btn-xs btn-error gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                 <span class="material-icons text-xs">delete</span>
                             </button>
@@ -538,15 +553,15 @@ class BudgetStep3Form(forms.ModelForm):
                     slots_html.append(f"""
                     <div class="mb-4">
                         <div class="relative border-2 border-dashed border-gray-300 rounded-lg p-4 bg-gray-50 hover:bg-gray-100 hover:border-primary transition-all cursor-pointer" 
-                             id="slot-{slot['type']}"
-                             onclick="document.getElementById('file-input-{slot['type']}').click()">
+                             id="slot-{slot["type"]}"
+                             onclick="document.getElementById('file-input-{slot["type"]}').click()">
                             <div class="flex flex-col items-center justify-center h-48">
                                 <span class="material-icons text-6xl text-gray-400 mb-2">add_photo_alternate</span>
-                                <p class="text-center text-sm font-semibold text-gray-600">{slot['label']}</p>
+                                <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
                                 <p class="text-center text-xs text-gray-400 mt-1">Clique para adicionar</p>
                             </div>
-                            <input type="file" id="file-input-{slot['type']}" name="image_{slot['type']}" accept="image/*" class="hidden" 
-                                   onchange="previewSlotImage('{slot['type']}', this)">
+                            <input type="file" id="file-input-{slot["type"]}" name="image_{slot["type"]}" accept="image/*" class="hidden" 
+                                   onchange="previewSlotImage('{slot["type"]}', this)">
                         </div>
                     </div>
                     """)
@@ -554,21 +569,21 @@ class BudgetStep3Form(forms.ModelForm):
                 # Two columns for Frontal/Traseira
                 slots_html.append('<div class="grid grid-cols-2 gap-4 mb-4">')
                 for slot in slots_config[1:3]:
-                    img = existing_images.filter(image_type=slot['type']).first()
+                    img = images_by_type.get(slot["type"])
                     if img and img.content:
                         img_data = base64.b64encode(img.content).decode("utf-8")
                         img_src = f"data:{img.content_type or 'image/jpeg'};base64,{img_data}"
                         slots_html.append(f"""
                         <div class="relative border-2 border-gray-300 rounded-lg p-3 bg-white hover:border-primary transition-colors cursor-pointer group" 
-                             id="slot-{slot['type']}"
-                             onclick="document.getElementById('file-input-{slot['type']}').click()">
-                            <img src="{img_src}" alt="{slot['label']}" class="w-full h-32 object-contain rounded mb-2">
-                            <p class="text-center text-sm font-semibold text-gray-600">{slot['label']}</p>
-                            <input type="file" id="file-input-{slot['type']}" name="image_{slot['type']}" accept="image/*" class="hidden" 
-                                   onchange="previewSlotImage('{slot['type']}', this)">
-                            <input type="hidden" id="delete-slot-{slot['type']}" name="slot_to_delete" value="">
+                             id="slot-{slot["type"]}"
+                             onclick="document.getElementById('file-input-{slot["type"]}').click()">
+                            <img src="{img_src}" alt="{slot["label"]}" class="w-full h-32 object-contain rounded mb-2">
+                            <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
+                            <input type="file" id="file-input-{slot["type"]}" name="image_{slot["type"]}" accept="image/*" class="hidden" 
+                                   onchange="previewSlotImage('{slot["type"]}', this)">
+                            <input type="hidden" id="delete-slot-{slot["type"]}" name="slot_to_delete" value="">
                             <button type="button" 
-                                    onclick="event.stopPropagation(); deleteSlotImage('{slot['type']}', '{img.id}')"
+                                    onclick="event.stopPropagation(); deleteSlotImage('{slot["type"]}', '{img.id}')"
                                     class="absolute top-2 right-2 btn btn-xs btn-error gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                 <span class="material-icons text-xs">delete</span>
                             </button>
@@ -577,37 +592,37 @@ class BudgetStep3Form(forms.ModelForm):
                     else:
                         slots_html.append(f"""
                         <div class="relative border-2 border-dashed border-gray-300 rounded-lg p-3 bg-gray-50 hover:bg-gray-100 hover:border-primary transition-all cursor-pointer" 
-                             id="slot-{slot['type']}"
-                             onclick="document.getElementById('file-input-{slot['type']}').click()">
+                             id="slot-{slot["type"]}"
+                             onclick="document.getElementById('file-input-{slot["type"]}').click()">
                             <div class="flex flex-col items-center justify-center h-32">
                                 <span class="material-icons text-4xl text-gray-400 mb-1">add_photo_alternate</span>
-                                <p class="text-center text-sm font-semibold text-gray-600">{slot['label']}</p>
+                                <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
                                 <p class="text-center text-xs text-gray-400">Clique para adicionar</p>
                             </div>
-                            <input type="file" id="file-input-{slot['type']}" name="image_{slot['type']}" accept="image/*" class="hidden" 
-                                   onchange="previewSlotImage('{slot['type']}', this)">
+                            <input type="file" id="file-input-{slot["type"]}" name="image_{slot["type"]}" accept="image/*" class="hidden" 
+                                   onchange="previewSlotImage('{slot["type"]}', this)">
                         </div>
                         """)
-                slots_html.append('</div>')
+                slots_html.append("</div>")
 
                 # Two columns for Direita/Esquerda
                 slots_html.append('<div class="grid grid-cols-2 gap-4 mb-4">')
                 for slot in slots_config[3:5]:
-                    img = existing_images.filter(image_type=slot['type']).first()
+                    img = images_by_type.get(slot["type"])
                     if img and img.content:
                         img_data = base64.b64encode(img.content).decode("utf-8")
                         img_src = f"data:{img.content_type or 'image/jpeg'};base64,{img_data}"
                         slots_html.append(f"""
                         <div class="relative border-2 border-gray-300 rounded-lg p-3 bg-white hover:border-primary transition-colors cursor-pointer group" 
-                             id="slot-{slot['type']}"
-                             onclick="document.getElementById('file-input-{slot['type']}').click()">
-                            <img src="{img_src}" alt="{slot['label']}" class="w-full h-32 object-contain rounded mb-2">
-                            <p class="text-center text-sm font-semibold text-gray-600">{slot['label']}</p>
-                            <input type="file" id="file-input-{slot['type']}" name="image_{slot['type']}" accept="image/*" class="hidden" 
-                                   onchange="previewSlotImage('{slot['type']}', this)">
-                            <input type="hidden" id="delete-slot-{slot['type']}" name="slot_to_delete" value="">
+                             id="slot-{slot["type"]}"
+                             onclick="document.getElementById('file-input-{slot["type"]}').click()">
+                            <img src="{img_src}" alt="{slot["label"]}" class="w-full h-32 object-contain rounded mb-2">
+                            <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
+                            <input type="file" id="file-input-{slot["type"]}" name="image_{slot["type"]}" accept="image/*" class="hidden" 
+                                   onchange="previewSlotImage('{slot["type"]}', this)">
+                            <input type="hidden" id="delete-slot-{slot["type"]}" name="slot_to_delete" value="">
                             <button type="button" 
-                                    onclick="event.stopPropagation(); deleteSlotImage('{slot['type']}', '{img.id}')"
+                                    onclick="event.stopPropagation(); deleteSlotImage('{slot["type"]}', '{img.id}')"
                                     class="absolute top-2 right-2 btn btn-xs btn-error gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                 <span class="material-icons text-xs">delete</span>
                             </button>
@@ -616,37 +631,37 @@ class BudgetStep3Form(forms.ModelForm):
                     else:
                         slots_html.append(f"""
                         <div class="relative border-2 border-dashed border-gray-300 rounded-lg p-3 bg-gray-50 hover:bg-gray-100 hover:border-primary transition-all cursor-pointer" 
-                             id="slot-{slot['type']}"
-                             onclick="document.getElementById('file-input-{slot['type']}').click()">
+                             id="slot-{slot["type"]}"
+                             onclick="document.getElementById('file-input-{slot["type"]}').click()">
                             <div class="flex flex-col items-center justify-center h-32">
                                 <span class="material-icons text-4xl text-gray-400 mb-1">add_photo_alternate</span>
-                                <p class="text-center text-sm font-semibold text-gray-600">{slot['label']}</p>
+                                <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
                                 <p class="text-center text-xs text-gray-400">Clique para adicionar</p>
                             </div>
-                            <input type="file" id="file-input-{slot['type']}" name="image_{slot['type']}" accept="image/*" class="hidden" 
-                                   onchange="previewSlotImage('{slot['type']}', this)">
+                            <input type="file" id="file-input-{slot["type"]}" name="image_{slot["type"]}" accept="image/*" class="hidden" 
+                                   onchange="previewSlotImage('{slot["type"]}', this)">
                         </div>
                         """)
-                slots_html.append('</div>')
+                slots_html.append("</div>")
 
                 # Full width for Painel, Chassi, Motor
                 for slot in slots_config[5:]:
-                    img = existing_images.filter(image_type=slot['type']).first()
+                    img = images_by_type.get(slot["type"])
                     if img and img.content:
                         img_data = base64.b64encode(img.content).decode("utf-8")
                         img_src = f"data:{img.content_type or 'image/jpeg'};base64,{img_data}"
                         slots_html.append(f"""
                         <div class="mb-4">
                             <div class="relative border-2 border-gray-300 rounded-lg p-4 bg-white hover:border-primary transition-colors cursor-pointer group" 
-                                 id="slot-{slot['type']}"
-                                 onclick="document.getElementById('file-input-{slot['type']}').click()">
-                                <img src="{img_src}" alt="{slot['label']}" class="w-full h-40 object-contain rounded mb-2">
-                                <p class="text-center text-sm font-semibold text-gray-600">{slot['label']}</p>
-                                <input type="file" id="file-input-{slot['type']}" name="image_{slot['type']}" accept="image/*" class="hidden" 
-                                       onchange="previewSlotImage('{slot['type']}', this)">
-                                <input type="hidden" id="delete-slot-{slot['type']}" name="slot_to_delete" value="">
+                                 id="slot-{slot["type"]}"
+                                 onclick="document.getElementById('file-input-{slot["type"]}').click()">
+                                <img src="{img_src}" alt="{slot["label"]}" class="w-full h-40 object-contain rounded mb-2">
+                                <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
+                                <input type="file" id="file-input-{slot["type"]}" name="image_{slot["type"]}" accept="image/*" class="hidden" 
+                                       onchange="previewSlotImage('{slot["type"]}', this)">
+                                <input type="hidden" id="delete-slot-{slot["type"]}" name="slot_to_delete" value="">
                                 <button type="button" 
-                                        onclick="event.stopPropagation(); deleteSlotImage('{slot['type']}', '{img.id}')"
+                                        onclick="event.stopPropagation(); deleteSlotImage('{slot["type"]}', '{img.id}')"
                                         class="absolute top-2 right-2 btn btn-xs btn-error gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                     <span class="material-icons text-xs">delete</span>
                                 </button>
@@ -657,22 +672,22 @@ class BudgetStep3Form(forms.ModelForm):
                         slots_html.append(f"""
                         <div class="mb-4">
                             <div class="relative border-2 border-dashed border-gray-300 rounded-lg p-4 bg-gray-50 hover:bg-gray-100 hover:border-primary transition-all cursor-pointer" 
-                                 id="slot-{slot['type']}"
-                                 onclick="document.getElementById('file-input-{slot['type']}').click()">
+                                 id="slot-{slot["type"]}"
+                                 onclick="document.getElementById('file-input-{slot["type"]}').click()">
                                 <div class="flex flex-col items-center justify-center h-40">
                                     <span class="material-icons text-5xl text-gray-400 mb-2">add_photo_alternate</span>
-                                    <p class="text-center text-sm font-semibold text-gray-600">{slot['label']}</p>
+                                    <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
                                     <p class="text-center text-xs text-gray-400 mt-1">Clique para adicionar</p>
                                 </div>
-                                <input type="file" id="file-input-{slot['type']}" name="image_{slot['type']}" accept="image/*" class="hidden" 
-                                       onchange="previewSlotImage('{slot['type']}', this)">
+                                <input type="file" id="file-input-{slot["type"]}" name="image_{slot["type"]}" accept="image/*" class="hidden" 
+                                       onchange="previewSlotImage('{slot["type"]}', this)">
                             </div>
                         </div>
                         """)
 
                 # Additional images (type=ADDITIONAL)
                 additional_images_html = []
-                for img in existing_images.filter(image_type=BudgetImageType.ADDITIONAL):
+                for img in additional_images:
                     if img.content:
                         img_data = base64.b64encode(img.content).decode("utf-8")
                         img_src = f"data:{img.content_type or 'image/jpeg'};base64,{img_data}"
@@ -717,6 +732,7 @@ class BudgetStep3Form(forms.ModelForm):
                                     `;
                                     slotDiv.classList.remove('border-dashed', 'bg-gray-50', 'hover:bg-gray-100');
                                     slotDiv.classList.add('border-gray-300', 'bg-white');
+                                    slotDiv.classList.remove('opacity-50');
                                     
                                     // Re-attach the input element
                                     slotDiv.appendChild(input);
@@ -743,8 +759,9 @@ class BudgetStep3Form(forms.ModelForm):
                                 <div class="flex flex-col items-center justify-center h-32">
                                     <span class="material-icons text-4xl text-gray-400 mb-1">add_photo_alternate</span>
                                     <p class="text-center text-sm font-semibold text-gray-600">${{label}}</p>
-                                    <p class="text-center text-xs text-error">Será removida</p>
+                                    <p class="text-center text-xs text-error">Será removida (clique para substituir)</p>
                                 </div>
+                                <input type="file" id="file-input-${{slotType}}" name="image_${{slotType}}" accept="image/*" class="hidden" onchange="previewSlotImage('${{slotType}}', this)">
                             `;
                             slotDiv.appendChild(deleteInput);
                         }}
@@ -753,18 +770,7 @@ class BudgetStep3Form(forms.ModelForm):
                 )
             else:
                 # No existing images, show empty slots
-                from apps.budget.models import BudgetImageType
-
-                slots_config = [
-                    {'type': BudgetImageType.PRINCIPAL, 'label': 'Principal', 'full_width': True},
-                    {'type': BudgetImageType.FRONTAL, 'label': 'Frontal', 'full_width': False},
-                    {'type': BudgetImageType.TRASEIRA, 'label': 'Traseira', 'full_width': False},
-                    {'type': BudgetImageType.DIREITA, 'label': 'Direita', 'full_width': False},
-                    {'type': BudgetImageType.ESQUERDA, 'label': 'Esquerda', 'full_width': False},
-                    {'type': BudgetImageType.PAINEL, 'label': 'Painel', 'full_width': True},
-                    {'type': BudgetImageType.CHASSI, 'label': 'Chassi', 'full_width': True},
-                    {'type': BudgetImageType.MOTOR, 'label': 'Motor', 'full_width': True},
-                ]
+                slots_config = SLOT_LAYOUT_CONFIG
 
                 slots_html = []
 
@@ -773,15 +779,15 @@ class BudgetStep3Form(forms.ModelForm):
                 slots_html.append(f"""
                 <div class="mb-4">
                     <div class="relative border-2 border-dashed border-gray-300 rounded-lg p-4 bg-gray-50 hover:bg-gray-100 hover:border-primary transition-all cursor-pointer" 
-                         id="slot-{slot['type']}"
-                         onclick="document.getElementById('file-input-{slot['type']}').click()">
+                         id="slot-{slot["type"]}"
+                         onclick="document.getElementById('file-input-{slot["type"]}').click()">
                         <div class="flex flex-col items-center justify-center h-48">
                             <span class="material-icons text-6xl text-gray-400 mb-2">add_photo_alternate</span>
-                            <p class="text-center text-sm font-semibold text-gray-600">{slot['label']}</p>
+                            <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
                             <p class="text-center text-xs text-gray-400 mt-1">Clique para adicionar</p>
                         </div>
-                        <input type="file" id="file-input-{slot['type']}" name="image_{slot['type']}" accept="image/*" class="hidden" 
-                               onchange="previewSlotImage('{slot['type']}', this)">
+                        <input type="file" id="file-input-{slot["type"]}" name="image_{slot["type"]}" accept="image/*" class="hidden" 
+                               onchange="previewSlotImage('{slot["type"]}', this)">
                     </div>
                 </div>
                 """)
@@ -791,50 +797,50 @@ class BudgetStep3Form(forms.ModelForm):
                 for slot in slots_config[1:3]:
                     slots_html.append(f"""
                     <div class="relative border-2 border-dashed border-gray-300 rounded-lg p-3 bg-gray-50 hover:bg-gray-100 hover:border-primary transition-all cursor-pointer" 
-                         id="slot-{slot['type']}"
-                         onclick="document.getElementById('file-input-{slot['type']}').click()">
+                         id="slot-{slot["type"]}"
+                         onclick="document.getElementById('file-input-{slot["type"]}').click()">
                         <div class="flex flex-col items-center justify-center h-32">
                             <span class="material-icons text-4xl text-gray-400 mb-1">add_photo_alternate</span>
-                            <p class="text-center text-sm font-semibold text-gray-600">{slot['label']}</p>
+                            <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
                             <p class="text-center text-xs text-gray-400">Clique para adicionar</p>
                         </div>
-                        <input type="file" id="file-input-{slot['type']}" name="image_{slot['type']}" accept="image/*" class="hidden" 
-                               onchange="previewSlotImage('{slot['type']}', this)">
+                        <input type="file" id="file-input-{slot["type"]}" name="image_{slot["type"]}" accept="image/*" class="hidden" 
+                               onchange="previewSlotImage('{slot["type"]}', this)">
                     </div>
                     """)
-                slots_html.append('</div>')
+                slots_html.append("</div>")
 
                 slots_html.append('<div class="grid grid-cols-2 gap-4 mb-4">')
                 for slot in slots_config[3:5]:
                     slots_html.append(f"""
                     <div class="relative border-2 border-dashed border-gray-300 rounded-lg p-3 bg-gray-50 hover:bg-gray-100 hover:border-primary transition-all cursor-pointer" 
-                         id="slot-{slot['type']}"
-                         onclick="document.getElementById('file-input-{slot['type']}').click()">
+                         id="slot-{slot["type"]}"
+                         onclick="document.getElementById('file-input-{slot["type"]}').click()">
                         <div class="flex flex-col items-center justify-center h-32">
                             <span class="material-icons text-4xl text-gray-400 mb-1">add_photo_alternate</span>
-                            <p class="text-center text-sm font-semibold text-gray-600">{slot['label']}</p>
+                            <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
                             <p class="text-center text-xs text-gray-400">Clique para adicionar</p>
                         </div>
-                        <input type="file" id="file-input-{slot['type']}" name="image_{slot['type']}" accept="image/*" class="hidden" 
-                               onchange="previewSlotImage('{slot['type']}', this)">
+                        <input type="file" id="file-input-{slot["type"]}" name="image_{slot["type"]}" accept="image/*" class="hidden" 
+                               onchange="previewSlotImage('{slot["type"]}', this)">
                     </div>
                     """)
-                slots_html.append('</div>')
+                slots_html.append("</div>")
 
                 # Full width for remaining
                 for slot in slots_config[5:]:
                     slots_html.append(f"""
                     <div class="mb-4">
                         <div class="relative border-2 border-dashed border-gray-300 rounded-lg p-4 bg-gray-50 hover:bg-gray-100 hover:border-primary transition-all cursor-pointer" 
-                             id="slot-{slot['type']}"
-                             onclick="document.getElementById('file-input-{slot['type']}').click()">
+                             id="slot-{slot["type"]}"
+                             onclick="document.getElementById('file-input-{slot["type"]}').click()">
                             <div class="flex flex-col items-center justify-center h-40">
                                 <span class="material-icons text-5xl text-gray-400 mb-2">add_photo_alternate</span>
-                                <p class="text-center text-sm font-semibold text-gray-600">{slot['label']}</p>
+                                <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
                                 <p class="text-center text-xs text-gray-400 mt-1">Clique para adicionar</p>
                             </div>
-                            <input type="file" id="file-input-{slot['type']}" name="image_{slot['type']}" accept="image/*" class="hidden" 
-                                   onchange="previewSlotImage('{slot['type']}', this)">
+                            <input type="file" id="file-input-{slot["type"]}" name="image_{slot["type"]}" accept="image/*" class="hidden" 
+                                   onchange="previewSlotImage('{slot["type"]}', this)">
                         </div>
                     </div>
                     """)
@@ -864,6 +870,7 @@ class BudgetStep3Form(forms.ModelForm):
                                     `;
                                     slotDiv.classList.remove('border-dashed', 'bg-gray-50', 'hover:bg-gray-100');
                                     slotDiv.classList.add('border-gray-300', 'bg-white');
+                                    slotDiv.classList.remove('opacity-50');
                                     
                                     // Re-attach the input element
                                     slotDiv.appendChild(input);
@@ -878,21 +885,43 @@ class BudgetStep3Form(forms.ModelForm):
     def clean(self):
         cleaned_data = super().clean()
 
-        # Validate images if uploaded
-        if self.files:
-            new_images = self.files.getlist("images")
-            if new_images:
-                _validate_uploaded_images(new_images)
+        if not self.files:
+            return cleaned_data
 
-                # Check total count if instance exists
-                if self.instance and self.instance.pk:
-                    existing_count = self.instance.budget_image.count()
-                    images_to_delete = self.request.POST.getlist("images_to_delete")
-                    delete_count = len([img_id for img_id in images_to_delete if img_id.strip()])
-                    final_count = existing_count - delete_count + len(new_images)
+        new_additional_images = self.files.getlist("images")
+        if new_additional_images:
+            _validate_uploaded_images(new_additional_images)
 
-                    if final_count > MAX_BUDGET_IMAGES:
-                        raise forms.ValidationError(f"Máximo de {MAX_BUDGET_IMAGES} imagens permitido. Você terá {final_count} imagens após esta operação.")
+        uploaded_slot_files = []
+        uploaded_slot_types = set()
+        for slot_type in SLOT_IMAGE_TYPES:
+            uploaded_file = self.files.get(f"image_{slot_type}")
+            if uploaded_file:
+                uploaded_slot_files.append(uploaded_file)
+                uploaded_slot_types.add(slot_type)
+
+        if uploaded_slot_files:
+            _validate_uploaded_images(uploaded_slot_files)
+
+        if self.instance and self.instance.pk:
+            existing_images = self.instance.budget_image.all()
+            existing_additional_count = existing_images.filter(image_type=BudgetImageType.ADDITIONAL).count()
+
+            additional_delete_ids = [img_id for img_id in self.request.POST.getlist("images_to_delete") if img_id.strip()]
+            additional_delete_count = existing_images.filter(id__in=additional_delete_ids, image_type=BudgetImageType.ADDITIONAL).count()
+
+            current_slot_types = set(existing_images.exclude(image_type=BudgetImageType.ADDITIONAL).values_list("image_type", flat=True))
+            slot_delete_ids = [img_id for img_id in self.request.POST.getlist("slot_to_delete") if img_id.strip()]
+            slot_types_to_delete = set(existing_images.filter(id__in=slot_delete_ids).exclude(image_type=BudgetImageType.ADDITIONAL).values_list("image_type", flat=True))
+
+            final_slot_types = (current_slot_types - slot_types_to_delete) | uploaded_slot_types
+            final_additional_count = existing_additional_count - additional_delete_count + len(new_additional_images)
+            final_count = len(final_slot_types) + final_additional_count
+        else:
+            final_count = len(uploaded_slot_types) + len(new_additional_images)
+
+        if final_count > MAX_BUDGET_IMAGES:
+            raise forms.ValidationError(f"Máximo de {MAX_BUDGET_IMAGES} imagens permitido. Você terá {final_count} imagens após esta operação.")
 
         return cleaned_data
 
@@ -914,39 +943,25 @@ class BudgetStep3Form(forms.ModelForm):
         if slots_to_delete:
             image_ids = [img_id for img_id in slots_to_delete if img_id.strip()]
             if image_ids:
-                BudgetImage.objects.filter(id__in=image_ids, budget=budget).delete()
+                BudgetImage.objects.filter(id__in=image_ids, budget=budget).exclude(image_type=BudgetImageType.ADDITIONAL).delete()
 
         # Handle slot image uploads (update or create)
-        from apps.budget.models import BudgetImageType
-
-        slot_types = [
-            BudgetImageType.PRINCIPAL,
-            BudgetImageType.FRONTAL,
-            BudgetImageType.TRASEIRA,
-            BudgetImageType.DIREITA,
-            BudgetImageType.ESQUERDA,
-            BudgetImageType.PAINEL,
-            BudgetImageType.CHASSI,
-            BudgetImageType.MOTOR,
-        ]
-
-        for slot_type in slot_types:
+        slot_uploads = []
+        for slot_type in SLOT_IMAGE_TYPES:
             file_key = f"image_{slot_type}"
             if file_key in self.request.FILES:
                 uploaded_file = self.request.FILES[file_key]
                 if uploaded_file:
-                    # Delete existing image of this type if exists (should be handled by unique constraint)
-                    BudgetImage.objects.filter(budget=budget, image_type=slot_type).delete()
+                    slot_uploads.append((slot_type, uploaded_file))
 
-                    # Create new image
-                    BudgetImage.objects.create(
-                        workshop=self.workshop,
-                        budget=budget,
-                        content=uploaded_file.read(),
-                        content_name=uploaded_file.name,
-                        content_type=getattr(uploaded_file, "content_type", "image/jpeg"),
-                        image_type=slot_type
-                    )
+        if slot_uploads:
+            _validate_uploaded_images([uploaded_file for _, uploaded_file in slot_uploads])
+            for slot_type, uploaded_file in slot_uploads:
+                # Delete existing image of this type if exists (should be handled by unique constraint)
+                BudgetImage.objects.filter(budget=budget, image_type=slot_type).delete()
+
+                # Create new image
+                BudgetImage.objects.create(workshop=self.workshop, budget=budget, content=uploaded_file.read(), content_name=uploaded_file.name, content_type=getattr(uploaded_file, "content_type", "image/jpeg"), image_type=slot_type)
 
         # Handle additional image deletion
         images_to_delete = self.request.POST.getlist("images_to_delete")
@@ -962,14 +977,7 @@ class BudgetStep3Form(forms.ModelForm):
 
             for new_image in new_images:
                 if new_image and hasattr(new_image, "read"):
-                    BudgetImage.objects.create(
-                        workshop=self.workshop,
-                        budget=budget,
-                        content=new_image.read(),
-                        content_name=new_image.name,
-                        content_type=getattr(new_image, "content_type", "image/jpeg"),
-                        image_type=BudgetImageType.ADDITIONAL
-                    )
+                    BudgetImage.objects.create(workshop=self.workshop, budget=budget, content=new_image.read(), content_name=new_image.name, content_type=getattr(new_image, "content_type", "image/jpeg"), image_type=BudgetImageType.ADDITIONAL)
 
         return budget
 
