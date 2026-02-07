@@ -6,7 +6,7 @@ from urllib.parse import parse_qs, urlparse
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import HttpResponse, JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse, reverse_lazy
@@ -120,6 +120,11 @@ def _budget_item_row_template(item):
     if item.service or is_local_service:
         return "budget/partials/items/item_service_row.html"
     return "budget/partials/items/item_kit_row.html"
+
+
+def _local_item_kind(item):
+    is_product = item.product_cost_price.amount > 0 or item.product_selling_price.amount > 0
+    return "product" if is_product else "service"
 
 
 def reset_steps_after_step_4(budget):
@@ -436,13 +441,13 @@ class UpdateBudgetDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "add_budget"
 
     def post(self, request, budget_id):
-        budget = get_object_or_404(Budget, pk=budget_id, workshop=self.workshop)
+        budget = _get_budget_for_workshop(self.workshop, budget_id)
         try:
             val = request.POST.get("discount_value_0", "0").replace(",", ".")
             budget.discount_value = Decimal(val)
             budget.save()
         except (ValueError, TypeError):
-            pass
+            logger.warning("Valor de desconto invalido recebido", extra={"budget_id": budget_id, "raw_discount": request.POST.get("discount_value_0")})
 
         return HttpResponse(headers={"HX-Refresh": "true"})
 
@@ -452,7 +457,7 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "add_budget"
 
     def post(self, request, budget_id, status):
-        budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
+        budget = _get_budget_for_workshop(self.workshop, budget_id)
 
         reset_steps_after_step_4(budget)
 
@@ -480,7 +485,7 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "add_budget"
 
     def post(self, request, budget_id):
-        budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
+        budget = _get_budget_for_workshop(self.workshop, budget_id)
         slider_value = request.POST.get("slider")
         if slider_value is not None:
             budget.slider = int(slider_value)
@@ -665,8 +670,8 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def get(self, request, budget_id, item_id):
         from apps.budget.models import BudgetKitItemOverride
 
-        budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
-        item = get_object_or_404(BudgetItem, id=item_id, budget=budget, kit__isnull=False)
+        _get_budget_for_workshop(self.workshop, budget_id)
+        item = _get_budget_item_for_workshop(self.workshop, budget_id, item_id, kit__isnull=False)
 
         # Buscar produtos do kit com overrides
         kit_products = []
@@ -728,8 +733,8 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
         from apps.budget.models import BudgetKitItemOverride
         from datetime import timedelta
 
-        budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
-        item = get_object_or_404(BudgetItem, id=item_id, budget=budget, kit__isnull=False)
+        budget = _get_budget_for_workshop(self.workshop, budget_id)
+        item = _get_budget_item_for_workshop(self.workshop, budget_id, item_id, kit__isnull=False)
 
         # Parse products data
         products_json = request.POST.get("products", "[]")
@@ -848,12 +853,12 @@ class CalculateKitServiceView(LoginRequiredMixin, WorkshopScopedMixin, View):
         # Get service
         try:
             service = get_object_or_404(Service, id=service_id, workshop=self.workshop)
-        except Exception:
+        except Http404:
             return JsonResponse({"error": "Service not found"}, status=404)
 
         # Calculate pricing using existing logic
         try:
-            budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
+            budget = _get_budget_for_workshop(self.workshop, budget_id)
 
             # Try to get WorkshopCost for calculation
             workshop_cost = WorkshopCost.objects.filter(workshop=self.workshop, month=timezone.now().month, year=timezone.now().year).first()
@@ -992,7 +997,7 @@ class BudgetSummaryView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "view_budget"
 
     def get(self, request, budget_id):
-        budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
+        budget = _get_budget_for_workshop(self.workshop, budget_id)
         return render(request, "budget/partials/components/budget_summary.html", {"budget": budget})
 
 
@@ -1003,7 +1008,7 @@ class BudgetStep3CollaboratorFieldView(LoginRequiredMixin, WorkshopScopedMixin, 
     workshop_permission_codename = "change_budget"
 
     def get(self, request, budget_id):
-        budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
+        budget = _get_budget_for_workshop(self.workshop, budget_id)
         form = BudgetStep3Form(instance=budget, workshop=self.workshop, request=request)
 
         # Get the selected collaborator ID from query params (for restoration)
@@ -1051,7 +1056,7 @@ class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
         return render(request, "budget/partials/modals/modal_create_local_item.html", context)
 
     def post(self, request, budget_id, item_type):
-        budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
+        budget = _get_budget_for_workshop(self.workshop, budget_id)
 
         if item_type == "product":
             form = LocalProductForm(request.POST)
@@ -1101,9 +1106,10 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def get(self, request, budget_id, item_id):
         from apps.budget.forms import QuickProductForm, QuickServiceForm
 
-        item = get_object_or_404(BudgetItem, id=item_id, budget_id=budget_id, workshop=self.workshop, is_local=True)
+        item = _get_budget_item_for_workshop(self.workshop, budget_id, item_id, is_local=True)
+        item_type = _local_item_kind(item)
 
-        if item.product_cost_price.amount > 0 or item.product_selling_price.amount > 0:
+        if item_type == "product":
             # É um produto - usar formulário simplificado
             initial = {
                 "name": item.description,
@@ -1140,9 +1146,10 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def post(self, request, budget_id, item_id):
         from apps.budget.forms import QuickProductForm, QuickServiceForm
 
-        item = get_object_or_404(BudgetItem, id=item_id, budget_id=budget_id, workshop=self.workshop, is_local=True)
+        item = _get_budget_item_for_workshop(self.workshop, budget_id, item_id, is_local=True)
+        item_type = _local_item_kind(item)
 
-        if item.product_cost_price.amount > 0 or item.product_selling_price.amount > 0:
+        if item_type == "product":
             # Cadastrar produto
             form = QuickProductForm(request.POST, workshop=self.workshop)
 
@@ -1187,7 +1194,6 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 return response
 
         # Se form inválido, retorna com erros
-        item_type = "product" if item.product_cost_price.amount > 0 else "service"
         context = {
             "form": form,
             "item": item,
@@ -1266,7 +1272,7 @@ class QuickCreateProductView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def post(self, request, budget_id, item_type):
         from apps.budget.forms import QuickProductForm, QuickServiceForm
 
-        budget = get_object_or_404(Budget, id=budget_id, workshop=self.workshop)
+        budget = _get_budget_for_workshop(self.workshop, budget_id)
 
         if item_type == "product":
             form = QuickProductForm(request.POST, workshop=self.workshop)
