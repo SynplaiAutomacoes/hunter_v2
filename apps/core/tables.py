@@ -37,3 +37,14 @@ class TableActionDefaults:
             aria_label="Visualizar registro",
             **overrides,
         )
+
+    @staticmethod
+    def copy(url_name: str, **overrides) -> TableAction:
+        return TableAction(
+            url_name=url_name,
+            label="Copiar",
+            icon="content_copy",
+            a_class="btn-table-copy",
+            aria_label="Copiar registro",
+            **overrides,
+        )

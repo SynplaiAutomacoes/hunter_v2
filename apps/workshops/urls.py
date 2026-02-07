@@ -21,6 +21,7 @@ from apps.workshops.views.workshop_costs import (
     WorkshopCostCreateView,
     WorkshopCostUpdateView,
     WorkshopCostDeleteView,
+    WorkshopCostCopyView,
 )
 
 app_name = "workshops"
@@ -38,6 +39,7 @@ urlpatterns = [
     path("workshops_costs/", WorkshopCostListView.as_view(), name="workshop_cost_list"),
     path("workshops_costs/create/", WorkshopCostCreateView.as_view(), name="workshop_cost_create"),
     path("workshops_costs/<int:pk>/edit/", WorkshopCostUpdateView.as_view(), name="workshop_cost_update"),
+    path("copy/<int:pk>/", WorkshopCostCopyView.as_view(), name="workshop_cost_copy"),
     path("workshops_costs/<int:pk>/delete/", WorkshopCostDeleteView.as_view(), name="workshop_cost_delete"),
     path("workshops_costs/calculate/", WorkshopCostCalculateView.as_view(), name="workshop_cost_calculate"),
 ]
