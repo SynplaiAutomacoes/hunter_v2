@@ -205,7 +205,7 @@
         const price = parseCurrency(row.querySelector('.product-price').value);
         const shipping = parseCurrency(row.querySelector('.product-shipping').value);
 
-        const total = (price * qty) + shipping;
+        const total = qty > 0 ? (price * qty) + shipping : 0;
         row.querySelector('.product-total').textContent = formatCurrency(total);
     };
 
