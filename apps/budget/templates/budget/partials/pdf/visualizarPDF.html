@@ -83,6 +83,9 @@
                     {% empty %}
                     <tr><td colspan="4" class="p-4 text-center text-gray-400">Nenhum produto listado.</td></tr>
                     {% endfor %}
+                    <tr class="bg-gray-50 border-t-2 border-gray-200">
+                        <td colspan="4" class="p-2 text-right font-bold">TOTAL DAS PEÇAS ACIMA: {{ total_produtos }}</td>
+                    </tr>
                 </tbody>
             </table>
         </div>
@@ -99,11 +102,13 @@
                     {% for s in servicos %}
                     <tr class="border-b border-gray-100">
                         <td class="p-2 font-medium">{{ s.description }}</td>
-                        <td class="p-2 text-right">{{ s.service_selling_price }}</td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="2" class="p-4 text-center text-gray-400">Nenhum serviço informado.</td></tr>
+                    <tr><td colspan="1" class="p-4 text-center text-gray-400">Nenhum serviço informado.</td></tr>
                     {% endfor %}
+                    <tr class="bg-gray-50 border-t-2 border-gray-200">
+                        <td class="p-2 text-right font-bold">TOTAL DOS SERVIÇOS ACIMA: {{ total_servicos }}</td>
+                    </tr>
                 </tbody>
             </table>
         </div>
