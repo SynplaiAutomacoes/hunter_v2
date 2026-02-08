@@ -31,6 +31,13 @@ class BudgetStatus(models.TextChoices):
     CANCELLED = "cancelled", "Cancelado"
 
 
+class SignatureStatus(models.TextChoices):
+    NOT_SENT = "not_sent", "Não Enviado"
+    SENDING = "sending", "Enviando"
+    SENT = "sent", "Enviado"
+    FAILED = "failed", "Falha no Envio"
+
+
 class FuelLevel(models.IntegerChoices):
     FULL = 8, "Cheio"
     SEVEN_EIGHTHS = 7, "7/8"
@@ -89,6 +96,13 @@ class Budget(TimeStampedModel):
     cancellation_reason = models.CharField(verbose_name="Motivo do Cancelamento", max_length=255, blank=True, null=True)
     current_step = models.PositiveSmallIntegerField(verbose_name="Etapa Atual", default=1)
 
+    # Token SuperSign
+    signature_token_version = models.PositiveIntegerField(verbose_name="ID do PDF do Orçamento", default=1)
+    signature_token_active = models.BooleanField(verbose_name="Token de Assinatura Ativo", default=True)
+    signature_request_status = models.CharField(max_length=30, choices=SignatureStatus.choices, default=SignatureStatus.NOT_SENT)
+    signature_external_id = models.CharField(max_length=255, blank=True, null=True)
+    signature_sent_at = models.DateTimeField(blank=True, null=True)
+
     def save(self, *args, **kwargs):
         is_new = self.pk is None
 
@@ -104,6 +118,10 @@ class Budget(TimeStampedModel):
                     budget=self,
                     defaults={"workshop": self.workshop},
                 )
+
+            if self.status == BudgetStatus.APPROVED or self.status == BudgetStatus.REJECTED or self.status == BudgetStatus.CANCELLED:
+                self.signature_token_active = False
+                super().save(update_fields=["signature_token_active"])
 
         super().save(*args, **kwargs)
 
@@ -212,6 +230,29 @@ class Budget(TimeStampedModel):
         }
 
         return data_trad if rentabilidade_trad > rentabilidade_hun else data_hun
+
+    def revoke_signature_token(self) -> None:
+        self.signature_token_active = False
+        self.save(update_fields=["signature_token_active"])
+
+    def regenerate_signature_token(self) -> None:
+        self.signature_token_version += 1
+        self.signature_token_active = True
+        self.save(update_fields=["signature_token_version", "signature_token_active"])
+
+    def mark_signature_sending(self) -> None:
+        self.signature_request_status = SignatureStatus.SENDING
+        self.save(update_fields=["signature_request_status"])
+
+    def mark_signature_sent(self, external_id: str) -> None:
+        self.signature_request_status = SignatureStatus.SENT
+        self.signature_external_id = external_id
+        self.signature_sent_at = timezone.now()
+        self.save(update_fields=["signature_request_status", "signature_external_id", "signature_sent_at"])
+
+    def mark_signature_failed(self) -> None:
+        self.signature_request_status = SignatureStatus.FAILED
+        self.save(update_fields=["signature_request_status"])
 
     @property
     def total_duration_display(self) -> str:
