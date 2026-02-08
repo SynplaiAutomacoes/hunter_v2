@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Any
 
 from django.db import models, transaction
 from django.core.validators import MinValueValidator, MaxValueValidator
@@ -453,6 +454,62 @@ class BudgetItem(TimeStampedModel):
         minutes = (total_seconds % 3600) // 60
 
         return f"{hours:02d}h {minutes:02d}m"
+
+    def _get_kit_override_maps(self) -> tuple[dict[int, "BudgetKitItemOverride"], dict[int, "BudgetKitItemOverride"]]:
+        product_overrides: dict[int, "BudgetKitItemOverride"] = {}
+        service_overrides: dict[int, "BudgetKitItemOverride"] = {}
+
+        for override in self.kit_overrides.select_related("product", "service"):
+            if override.product_id:
+                product_overrides[override.product_id] = override
+            if override.service_id:
+                service_overrides[override.service_id] = override
+
+        return product_overrides, service_overrides
+
+    @property
+    def effective_kit_products(self) -> list[dict[str, Any]]:
+        if not self.kit:
+            return []
+
+        product_overrides, _ = self._get_kit_override_maps()
+        products: list[dict[str, Any]] = []
+
+        for kit_product in self.kit.kit_products.select_related("product").all():
+            override = product_overrides.get(kit_product.product_id)
+            quantity = override.quantity if override else kit_product.quantity
+            if quantity <= 0:
+                continue
+
+            products.append({"id": kit_product.product_id, "name": kit_product.product.name, "quantity": quantity})
+
+        return products
+
+    @property
+    def effective_kit_services(self) -> list[dict[str, Any]]:
+        if not self.kit:
+            return []
+
+        _, service_overrides = self._get_kit_override_maps()
+        services: list[dict[str, Any]] = []
+
+        for kit_service in self.kit.kit_services.select_related("service").all():
+            override = service_overrides.get(kit_service.service_id)
+            quantity = override.quantity if override else kit_service.quantity
+            if quantity <= 0:
+                continue
+
+            services.append({"id": kit_service.service_id, "name": kit_service.service.name, "quantity": quantity})
+
+        return services
+
+    @property
+    def effective_kit_products_count(self) -> int:
+        return len(self.effective_kit_products)
+
+    @property
+    def effective_kit_services_count(self) -> int:
+        return len(self.effective_kit_services)
 
     @property
     def total_price(self):

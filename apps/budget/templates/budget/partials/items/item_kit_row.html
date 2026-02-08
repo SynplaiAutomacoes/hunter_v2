@@ -3,8 +3,8 @@
 
     <td>{{ item.kit.name }}</td>
     <td class="text-center">{{ item.quantity }}</td>
-    <td class="text-center">{{ item.kit.products.count }}</td>
-    <td class="text-center">{{ item.kit.services.count }}</td>
+    <td class="text-center">{{ item.effective_kit_products_count }}</td>
+    <td class="text-center">{{ item.effective_kit_services_count }}</td>
 
     <!-- AÇÕES -->
     <td class="text-center">
@@ -15,8 +15,8 @@
                 class="btn btn-ghost btn-xs"
                 onclick="openKitModal(this)"
                 data-kit-name="{{ item.kit.name }}"
-                data-kit-products-list="{% for p in item.kit.products.all %}{{ p.name }}{% if not forloop.last %} | {% endif %}{% endfor %}"
-                data-kit-services-list="{% for s in item.kit.services.all %}{{ s.name }}{% if not forloop.last %} | {% endif %}{% endfor %}"
+                data-kit-products-list="{% for p in item.effective_kit_products %}{{ p.name }}{% if not forloop.last %} | {% endif %}{% endfor %}"
+                data-kit-services-list="{% for s in item.effective_kit_services %}{{ s.name }}{% if not forloop.last %} | {% endif %}{% endfor %}"
             >
                 <span class="material-icons text-sm">visibility</span>
             </button>
