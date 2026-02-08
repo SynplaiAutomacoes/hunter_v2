@@ -590,7 +590,7 @@ class BudgetStep3Form(forms.ModelForm):
                              id="slot-{slot["type"]}"
                              onclick="document.getElementById('file-input-{slot["type"]}').click()">
                             <div class="flex flex-col items-center justify-center h-48">
-                                <img src="{placeholder_src}" alt="Placeholder {slot["label"]}" class="w-full h-32 object-contain rounded mb-2 opacity-70">
+                                <img src="{placeholder_src}" alt="Placeholder {slot["label"]}" class="w-full h-32 object-contain rounded mb-2 opacity-40">
                                 <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
                                 <p class="text-center text-xs text-gray-400 mt-1">Clique para adicionar</p>
                             </div>
@@ -630,7 +630,7 @@ class BudgetStep3Form(forms.ModelForm):
                              id="slot-{slot["type"]}"
                              onclick="document.getElementById('file-input-{slot["type"]}').click()">
                             <div class="flex flex-col items-center justify-center h-32">
-                                <img src="{placeholder_src}" alt="Placeholder {slot["label"]}" class="w-full h-16 object-contain rounded mb-1 opacity-70">
+                                <img src="{placeholder_src}" alt="Placeholder {slot["label"]}" class="w-full h-16 object-contain rounded mb-1 opacity-40">
                                 <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
                                 <p class="text-center text-xs text-gray-400">Clique para adicionar</p>
                             </div>
@@ -670,7 +670,7 @@ class BudgetStep3Form(forms.ModelForm):
                              id="slot-{slot["type"]}"
                              onclick="document.getElementById('file-input-{slot["type"]}').click()">
                             <div class="flex flex-col items-center justify-center h-32">
-                                <img src="{placeholder_src}" alt="Placeholder {slot["label"]}" class="w-full h-16 object-contain rounded mb-1 opacity-70">
+                                <img src="{placeholder_src}" alt="Placeholder {slot["label"]}" class="w-full h-16 object-contain rounded mb-1 opacity-40">
                                 <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
                                 <p class="text-center text-xs text-gray-400">Clique para adicionar</p>
                             </div>
@@ -712,7 +712,7 @@ class BudgetStep3Form(forms.ModelForm):
                                  id="slot-{slot["type"]}"
                                  onclick="document.getElementById('file-input-{slot["type"]}').click()">
                                 <div class="flex flex-col items-center justify-center h-40">
-                                    <img src="{placeholder_src}" alt="Placeholder {slot["label"]}" class="w-full h-24 object-contain rounded mb-2 opacity-70">
+                                    <img src="{placeholder_src}" alt="Placeholder {slot["label"]}" class="w-full h-24 object-contain rounded mb-2 opacity-40">
                                     <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
                                     <p class="text-center text-xs text-gray-400 mt-1">Clique para adicionar</p>
                                 </div>
@@ -803,7 +803,7 @@ class BudgetStep3Form(forms.ModelForm):
                             const placeholderSrc = slotPlaceholders[slotType] || '';
                             slotDiv.innerHTML = `
                                 <div class="flex flex-col items-center justify-center ${{height}}">
-                                    <img src="${{placeholderSrc}}" alt="Placeholder ${{label}}" class="w-full h-16 object-contain rounded mb-1 opacity-70">
+                                    <img src="${{placeholderSrc}}" alt="Placeholder ${{label}}" class="w-full h-16 object-contain rounded mb-1 opacity-40">
                                     <p class="text-center text-sm font-semibold text-gray-600">${{label}}</p>
                                     <p class="text-center text-xs text-error">Será removida (clique para substituir)</p>
                                 </div>
@@ -829,7 +829,7 @@ class BudgetStep3Form(forms.ModelForm):
                          id="slot-{slot["type"]}"
                          onclick="document.getElementById('file-input-{slot["type"]}').click()">
                         <div class="flex flex-col items-center justify-center h-48">
-                            <img src="{placeholder_src}" alt="Placeholder {slot["label"]}" class="w-full h-32 object-contain rounded mb-2 opacity-70">
+                            <img src="{placeholder_src}" alt="Placeholder {slot["label"]}" class="w-full h-32 object-contain rounded mb-2 opacity-40">
                             <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
                             <p class="text-center text-xs text-gray-400 mt-1">Clique para adicionar</p>
                         </div>
@@ -848,7 +848,7 @@ class BudgetStep3Form(forms.ModelForm):
                          id="slot-{slot["type"]}"
                          onclick="document.getElementById('file-input-{slot["type"]}').click()">
                         <div class="flex flex-col items-center justify-center h-32">
-                            <img src="{placeholder_src}" alt="Placeholder {slot["label"]}" class="w-full h-16 object-contain rounded mb-1 opacity-70">
+                            <img src="{placeholder_src}" alt="Placeholder {slot["label"]}" class="w-full h-16 object-contain rounded mb-1 opacity-40">
                             <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
                             <p class="text-center text-xs text-gray-400">Clique para adicionar</p>
                         </div>
@@ -866,7 +866,7 @@ class BudgetStep3Form(forms.ModelForm):
                          id="slot-{slot["type"]}"
                          onclick="document.getElementById('file-input-{slot["type"]}').click()">
                         <div class="flex flex-col items-center justify-center h-32">
-                            <img src="{placeholder_src}" alt="Placeholder {slot["label"]}" class="w-full h-16 object-contain rounded mb-1 opacity-70">
+                            <img src="{placeholder_src}" alt="Placeholder {slot["label"]}" class="w-full h-16 object-contain rounded mb-1 opacity-40">
                             <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
                             <p class="text-center text-xs text-gray-400">Clique para adicionar</p>
                         </div>
@@ -885,7 +885,7 @@ class BudgetStep3Form(forms.ModelForm):
                              id="slot-{slot["type"]}"
                              onclick="document.getElementById('file-input-{slot["type"]}').click()">
                             <div class="flex flex-col items-center justify-center h-40">
-                                <img src="{placeholder_src}" alt="Placeholder {slot["label"]}" class="w-full h-24 object-contain rounded mb-2 opacity-70">
+                                <img src="{placeholder_src}" alt="Placeholder {slot["label"]}" class="w-full h-24 object-contain rounded mb-2 opacity-40">
                                 <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
                                 <p class="text-center text-xs text-gray-400 mt-1">Clique para adicionar</p>
                             </div>
