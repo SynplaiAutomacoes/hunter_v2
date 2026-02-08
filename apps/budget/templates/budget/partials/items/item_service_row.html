@@ -4,7 +4,7 @@
             <div class="flex items-center gap-2">
                 {{ item.description }}
                 {% if item.is_local %}
-                    <span class="tooltip" data-tip="⚠️ Item cadastrado apenas neste orçamento. Cadastre no banco de dados para poder aprovar o orçamento.">
+                    <span class="tooltip tooltip-right" data-tip="Item disponível somente neste orçamento. Cadastre-o para prosseguir com a aprovação do orçamento.">
                         <span class="material-icons text-warning" style="font-size: 18px;">warning</span>
                     </span>
                 {% endif %}

@@ -1089,7 +1089,7 @@ class BudgetStep4Form(forms.ModelForm):
                                     </tbody>
                                 </table>
                             """),
-                            css_class="overflow-x-auto mb-8 rounded-lg shadow-md shadow-gray-300/50",
+                            css_class="overflow-x-auto lg:overflow-visible mb-8 rounded-lg shadow-md shadow-gray-300/50",
                         ),
                         css_class="mb-10",
                     ),
@@ -1119,7 +1119,7 @@ class BudgetStep4Form(forms.ModelForm):
                                     </tbody>
                                 </table>
                             """),
-                            css_class="overflow-x-auto mb-8 rounded-lg shadow-md shadow-gray-300/50",
+                            css_class="overflow-x-auto lg:overflow-visible mb-8 rounded-lg shadow-md shadow-gray-300/50",
                         ),
                         css_class="mb-10",
                     ),
@@ -1147,7 +1147,7 @@ class BudgetStep4Form(forms.ModelForm):
                                     </tbody>
                                 </table>
                             """),
-                            css_class="overflow-x-auto mb-4 rounded-lg shadow-md shadow-gray-300/50",
+                            css_class="overflow-x-auto lg:overflow-visible mb-4 rounded-lg shadow-md shadow-gray-300/50",
                         ),
                         css_class="mb-6",
                     ),
@@ -1612,7 +1612,6 @@ class BudgetStep6Form(forms.ModelForm):
         self.helper.form_tag = False
 
         self.helper.layout = Layout(
-
             # =========================
             # CSS utilitário obrigatório
             # =========================
@@ -1621,9 +1620,7 @@ class BudgetStep6Form(forms.ModelForm):
                 .table-fixed { table-layout: fixed; }
             </style>
             """),
-
             alert_confirm_layout(),
-
             # =========================
             # SCRIPTS (mantidos do código original)
             # =========================
@@ -1722,28 +1719,22 @@ class BudgetStep6Form(forms.ModelForm):
                 }
             </script>
             """),
-
             # =========================
             # TÍTULO
             # =========================
             Div(
                 HTML('<h3 class="text-2xl font-bold col-span-12">Revisão e Confirmação</h3>'),
             ),
-
             # =========================
             # GRID PRINCIPAL
             # =========================
             Div(
-
                 # ===== COLUNA ESQUERDA =====
                 Div(
-
                     HTML('<div class="border-t-2 mb-6"></div>'),
-
                     # -------- PRODUTOS --------
                     Div(
                         HTML('<h3 class="text-xl font-semibold text-gray-700 mb-4">Peças Selecionadas</h3>'),
-
                         HTML(f"""
                         <div class="overflow-x-auto lg:overflow-visible mb-10 rounded-lg shadow-md shadow-gray-300/50">
                           <table class="table table-zebra table-fixed w-full">
@@ -1764,11 +1755,9 @@ class BudgetStep6Form(forms.ModelForm):
                         </div>
                         """),
                     ),
-
                     # -------- SERVIÇOS --------
                     Div(
                         HTML('<h3 class="text-xl font-semibold text-gray-700 mb-4">Serviços Selecionados</h3>'),
-
                         HTML(f"""
                         <div class="overflow-x-auto lg:overflow-visible mb-10 rounded-lg shadow-md shadow-gray-300/50">
                             <table class="table table-zebra table-fixed w-full">
@@ -1807,11 +1796,9 @@ class BudgetStep6Form(forms.ModelForm):
                         </div>
                         """),
                     ),
-
                     # -------- KITS --------
                     Div(
                         HTML('<h3 class="text-xl font-semibold text-gray-700 mb-4">Kits Selecionados</h3>'),
-
                         HTML(f"""
                         <div class="overflow-x-auto lg:overflow-visible mb-6 rounded-lg shadow-md shadow-gray-300/50">
                             <table class="table table-compact table-fixed w-full">
@@ -1847,15 +1834,11 @@ class BudgetStep6Form(forms.ModelForm):
                         </div>
                         """),
                     ),
-
                     css_class="col-span-12 lg:col-span-5",
                 ),
-
                 Div(css_class="hidden lg:block lg:col-span-1"),
-
                 # ===== COLUNA DIREITA =====
                 Div(
-
                     # -------- PDF (RESTORED 1:1) --------
                     Div(
                         HTML('<h4 class="font-bold text-lg mb-2 border-b">PDF</h4>'),
@@ -1879,7 +1862,6 @@ class BudgetStep6Form(forms.ModelForm):
                         """),
                         css_class="p-4 bg-base-200/50 rounded-lg",
                     ),
-
                     # -------- OBSERVAÇÃO --------
                     Div(
                         HTML('<h4 class="font-bold text-lg mb-2 border-b">Observação</h4>'),
@@ -1916,7 +1898,6 @@ class BudgetStep6Form(forms.ModelForm):
                         """),
                         css_class="p-4 bg-base-200/50 rounded-lg",
                     ),
-
                     # -------- APROVAÇÃO --------
                     Div(
                         HTML('<h4 class="font-bold text-lg mb-2 border-b">Aprovação</h4>'),
@@ -1952,13 +1933,10 @@ class BudgetStep6Form(forms.ModelForm):
                         """),
                         css_class="p-4 bg-base-200/50 rounded-lg",
                     ),
-
                     css_class="col-span-12 lg:col-span-6 sticky top-4",
                 ),
-
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-8",
             ),
-
             # =========================
             # MODAL DE PDF (RESTAURADO)
             # =========================
@@ -2010,7 +1988,6 @@ class BudgetStep6Form(forms.ModelForm):
               </form>
             </dialog>
             """),
-
             HTML("""
                 <dialog
                     id="kitModal"
@@ -2128,5 +2105,3 @@ class BudgetStep6Form(forms.ModelForm):
                 </dialog>
             """),
         )
-
-
