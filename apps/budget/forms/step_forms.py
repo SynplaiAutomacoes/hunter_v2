@@ -1072,24 +1072,26 @@ class BudgetStep4Form(forms.ModelForm):
                         ),
                         Div(
                             HTML(f"""
-                                <table class="table table-zebra w-full">
-                                    <thead>
-                                        <tr>
-                                            <th class="w-full">DESCRIÇÃO</th>
-                                            <th class="text-center">QTD.</th>
-                                            <th>CUSTO</th>
-                                            <th>VALOR VENDA</th>
-                                            <th>FRETE</th>
-                                            <th>TOTAL</th>
-                                            <th class="text-center">AÇÕES</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="product-list-body">
-                                        {products_html}
-                                    </tbody>
-                                </table>
+                                <div class="overflow-x-auto">
+                                    <table class="table table-zebra w-full">
+                                        <thead class="bg-primary text-primary-content">
+                                            <tr>
+                                                <th class="w-full">DESCRIÇÃO</th>
+                                                <th class="text-center">QTD.</th>
+                                                <th>CUSTO</th>
+                                                <th>VALOR VENDA</th>
+                                                <th>FRETE</th>
+                                                <th>TOTAL</th>
+                                                <th class="text-center">AÇÕES</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="product-list-body">
+                                            {products_html}
+                                        </tbody>
+                                    </table>
+                                </div>
                             """),
-                            css_class="overflow-x-auto lg:overflow-visible mb-8 rounded-lg shadow-md shadow-gray-300/50",
+                            css_class="mb-8 rounded-lg shadow-md shadow-gray-300/50 overflow-hidden",
                         ),
                         css_class="mb-10",
                     ),
@@ -1102,24 +1104,26 @@ class BudgetStep4Form(forms.ModelForm):
                         ),
                         Div(
                             HTML(f"""
-                                <table class="table table-zebra w-full">
-                                    <thead>
-                                        <tr>
-                                            <th class="w-full">DESCRIÇÃO</th>
-                                            <th class="text-center">QTD.</th>
-                                            <th>CUSTO</th>
-                                            <th>VALOR VENDA</th>
-                                            <th>TEMPO</th>
-                                            <th>TOTAL</th>
-                                            <th class="text-center">AÇÕES</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="service-list-body">
-                                        {services_html}
-                                    </tbody>
-                                </table>
+                                <div class="overflow-x-auto">
+                                    <table class="table table-zebra w-full">
+                                        <thead class="bg-primary text-primary-content">
+                                            <tr>
+                                                <th class="w-full">DESCRIÇÃO</th>
+                                                <th class="text-center">QTD.</th>
+                                                <th>CUSTO</th>
+                                                <th>VALOR VENDA</th>
+                                                <th>TEMPO</th>
+                                                <th>TOTAL</th>
+                                                <th class="text-center">AÇÕES</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="service-list-body">
+                                            {services_html}
+                                        </tbody>
+                                    </table>
+                                </div>
                             """),
-                            css_class="overflow-x-auto lg:overflow-visible mb-8 rounded-lg shadow-md shadow-gray-300/50",
+                            css_class="mb-8 rounded-lg shadow-md shadow-gray-300/50 overflow-hidden",
                         ),
                         css_class="mb-10",
                     ),
@@ -1132,22 +1136,24 @@ class BudgetStep4Form(forms.ModelForm):
                         ),
                         Div(
                             HTML(f"""
-                                <table class="table table-compact w-full">
-                                    <thead>
-                                        <tr>
-                                            <th class="w-full">NOME</th>
-                                            <th class="text-center">QTD.</th>
-                                            <th class="text-center">PRODUTOS</th>
-                                            <th class="text-center">SERVIÇOS</th>
-                                            <th class="text-center">AÇÕES</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="kit-list-body">
-                                        {kits_html}
-                                    </tbody>
-                                </table>
+                                <div class="overflow-x-auto">
+                                    <table class="table table-compact w-full">
+                                        <thead class="bg-primary text-primary-content">
+                                            <tr>
+                                                <th class="w-full">NOME</th>
+                                                <th class="text-center">QTD.</th>
+                                                <th class="text-center">PRODUTOS</th>
+                                                <th class="text-center">SERVIÇOS</th>
+                                                <th class="text-center">AÇÕES</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="kit-list-body">
+                                            {kits_html}
+                                        </tbody>
+                                    </table>
+                                </div>
                             """),
-                            css_class="overflow-x-auto lg:overflow-visible mb-4 rounded-lg shadow-md shadow-gray-300/50",
+                            css_class="mb-4 rounded-lg shadow-md shadow-gray-300/50 overflow-hidden",
                         ),
                         css_class="mb-6",
                     ),
@@ -1736,22 +1742,24 @@ class BudgetStep6Form(forms.ModelForm):
                     Div(
                         HTML('<h3 class="text-xl font-semibold text-gray-700 mb-4">Peças Selecionadas</h3>'),
                         HTML(f"""
-                        <div class="overflow-x-auto lg:overflow-visible mb-10 rounded-lg shadow-md shadow-gray-300/50">
-                          <table class="table table-zebra table-fixed w-full">
-                            <thead class="text-white bg-primary">
-                              <tr>
-                                <th class="w-[32%]">NOME</th>
-                                <th class="w-[8%] text-center">QTD.</th>
-                                <th class="w-[14%]">CUSTO</th>
-                                <th class="w-[16%]">VALOR</th>
-                                <th class="w-[12%]">FRETE</th>
-                                <th class="w-[18%]">TOTAL</th>
-                              </tr>
-                            </thead>
-                            <tbody id="product-list-body">
-                              {products_html}
-                            </tbody>
-                          </table>
+                        <div class="mb-10 rounded-lg shadow-md shadow-gray-300/50 overflow-hidden">
+                          <div class="overflow-x-auto">
+                            <table class="table table-zebra table-fixed w-full">
+                              <thead class="bg-primary text-primary-content">
+                                <tr>
+                                  <th class="w-[32%]">NOME</th>
+                                  <th class="w-[8%] text-center">QTD.</th>
+                                  <th class="w-[14%]">CUSTO</th>
+                                  <th class="w-[16%]">VALOR</th>
+                                  <th class="w-[12%]">FRETE</th>
+                                  <th class="w-[18%]">TOTAL</th>
+                                </tr>
+                              </thead>
+                              <tbody id="product-list-body">
+                                {products_html}
+                              </tbody>
+                            </table>
+                          </div>
                         </div>
                         """),
                     ),
@@ -1759,40 +1767,42 @@ class BudgetStep6Form(forms.ModelForm):
                     Div(
                         HTML('<h3 class="text-xl font-semibold text-gray-700 mb-4">Serviços Selecionados</h3>'),
                         HTML(f"""
-                        <div class="overflow-x-auto lg:overflow-visible mb-10 rounded-lg shadow-md shadow-gray-300/50">
-                            <table class="table table-zebra table-fixed w-full">
-                                <thead class="text-white bg-primary">
-                                    <tr>
-                                        <th class="w-[32%] whitespace-nowrap text-left">
-                                            NOME
-                                        </th>
-                                        
-                                        <th class="w-[8%] whitespace-nowrap text-center">
-                                            QTD.
-                                        </th>
-                                        
-                                        <th class="w-[14%] whitespace-nowrap text-right">
-                                            CUSTO
-                                        </th>
-                                        
-                                        <th class="w-[16%] whitespace-nowrap text-right">
-                                            VALOR
-                                        </th>
-                                        
-                                        <th class="w-[10%] whitespace-nowrap text-center">
-                                            TEMPO
-                                        </th>
-                                        
-                                        <th class="w-[20%] whitespace-nowrap text-right">
-                                            TOTAL
-                                        </th>
-                                    </tr>
-                                    </thead>
-                            
-                                <tbody id = "service-list-body">
-                                    {services_html}
-                                </tbody>
-                            </table>
+                        <div class="mb-10 rounded-lg shadow-md shadow-gray-300/50 overflow-hidden">
+                            <div class="overflow-x-auto">
+                                <table class="table table-zebra table-fixed w-full">
+                                    <thead class="bg-primary text-primary-content">
+                                        <tr>
+                                            <th class="w-[32%] whitespace-nowrap text-left">
+                                                NOME
+                                            </th>
+                                            
+                                            <th class="w-[8%] whitespace-nowrap text-center">
+                                                QTD.
+                                            </th>
+                                            
+                                            <th class="w-[14%] whitespace-nowrap text-right">
+                                                CUSTO
+                                            </th>
+                                            
+                                            <th class="w-[16%] whitespace-nowrap text-right">
+                                                VALOR
+                                            </th>
+                                            
+                                            <th class="w-[10%] whitespace-nowrap text-center">
+                                                TEMPO
+                                            </th>
+                                            
+                                            <th class="w-[20%] whitespace-nowrap text-right">
+                                                TOTAL
+                                            </th>
+                                        </tr>
+                                        </thead>
+                                
+                                    <tbody id = "service-list-body">
+                                        {services_html}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                         """),
                     ),
@@ -1800,36 +1810,38 @@ class BudgetStep6Form(forms.ModelForm):
                     Div(
                         HTML('<h3 class="text-xl font-semibold text-gray-700 mb-4">Kits Selecionados</h3>'),
                         HTML(f"""
-                        <div class="overflow-x-auto lg:overflow-visible mb-6 rounded-lg shadow-md shadow-gray-300/50">
-                            <table class="table table-compact table-fixed w-full">
-                                <thead class="text-white bg-primary">
-                                    <tr>
-                                        <th class="w-[40%] whitespace-nowrap text-left">
-                                        NOME
-                                        </th>
-                                    
-                                        <th class="w-[10%] whitespace-nowrap text-center">
-                                        QTD.
-                                        </th>
-                                    
-                                        <th class="w-[15%] whitespace-nowrap text-center">
-                                        PRODUTOS
-                                        </th>
-                                    
-                                        <th class="w-[15%] whitespace-nowrap text-center">
-                                        SERVIÇOS
-                                        </th>
-                                    
-                                        <th class="w-[20%] whitespace-nowrap text-center">
-                                        AÇÕES
-                                        </th>
-                                    </tr>
-                                </thead>
-                            
-                                <tbody id="kit-list-body">
-                                {kits_html}
-                                </tbody>
-                            </table>
+                        <div class="mb-6 rounded-lg shadow-md shadow-gray-300/50 overflow-hidden">
+                            <div class="overflow-x-auto">
+                                <table class="table table-compact table-fixed w-full">
+                                    <thead class="bg-primary text-primary-content">
+                                        <tr>
+                                            <th class="w-[40%] whitespace-nowrap text-left">
+                                            NOME
+                                            </th>
+                                        
+                                            <th class="w-[10%] whitespace-nowrap text-center">
+                                            QTD.
+                                            </th>
+                                        
+                                            <th class="w-[15%] whitespace-nowrap text-center">
+                                            PRODUTOS
+                                            </th>
+                                        
+                                            <th class="w-[15%] whitespace-nowrap text-center">
+                                            SERVIÇOS
+                                            </th>
+                                        
+                                            <th class="w-[20%] whitespace-nowrap text-center">
+                                            AÇÕES
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                
+                                    <tbody id="kit-list-body">
+                                    {kits_html}
+                                    </tbody>
+                                </table>
+                            </div>
 
                         </div>
                         """),
