@@ -1,3 +1,4 @@
+{% load format_tags %}
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -19,9 +20,9 @@
         <div class="flex justify-between items-start p-4 border-b border-gray-200">
             <div>
                 <h3 class="text-[18px] font-bold uppercase m-0">{{ budget.workshop.name }}</h3>
-                <p>CNPJ: {{ budget.workshop.cnpj|default:"-" }}</p>
+                <p>CNPJ: {{ budget.workshop.cnpj|cnpj_br|default:"-" }}</p>
                 <p>{{ budget.workshop.address|default:"-" }}</p>
-                <p>Fone: {{ budget.workshop.phone|default:"-" }}</p>
+                <p>Fone: {{ budget.workshop.phone|phone_br|default:"-" }}</p>
             </div>
             <div class="text-right">
                 <h4 class="font-bold">ORDEM DE SERVIÇO</h4>

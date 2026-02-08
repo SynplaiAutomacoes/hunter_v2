@@ -1,3 +1,4 @@
+{% load format_tags %}
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -190,9 +191,9 @@
             <td style="width: 60%;">
                 {% block company_info %}
                     <h3 class="company-title">{{ workshop.name|default:budget.workshop.name|default:workorder.workshop.name|default:"-" }}</h3>
-                    <p style="margin: 2px 0;">CNPJ: {{ workshop.cnpj|default:budget.workshop.cnpj|default:workorder.workshop.cnpj|default:"-" }}</p>
+                    <p style="margin: 2px 0;">CNPJ: {{ workshop.cnpj|default:budget.workshop.cnpj|default:workorder.workshop.cnpj|cnpj_br|default:"-" }}</p>
                     <p style="margin: 2px 0;">{{ workshop.address|default:budget.workshop.address|default:workorder.workshop.address|default:"-" }}</p>
-                    <p style="margin: 2px 0;">Fone: {{ workshop.phone|default:budget.workshop.phone|default:workorder.workshop.phone|default:"-" }}</p>
+                    <p style="margin: 2px 0;">Fone: {{ workshop.phone|default:budget.workshop.phone|default:workorder.workshop.phone|phone_br|default:"-" }}</p>
                 {% endblock %}
             </td>
             <td style="width: 40%; vertical-align:top;" align="right">
