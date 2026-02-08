@@ -15,6 +15,15 @@ class WorkOrder(TimeStampedModel):
     workshop = models.ForeignKey( "workshops.Workshop", on_delete=models.CASCADE, related_name="workorders")
     budget = models.ForeignKey("budget.Budget", on_delete=models.CASCADE, related_name="workorders", help_text="Orçamento Aprovado vinculado à esta O.S.")
     status = models.CharField(verbose_name="Status", max_length=20, choices=WorkOrderStatus.choices, default=WorkOrderStatus.DRAFT)
+    
+    @property
+    def workorder_status_badge(self):
+        status_color = {
+            WorkOrderStatus.DRAFT: "badge-soft badge-ghost",
+            WorkOrderStatus.APPROVED: "badge-success",
+        }
+
+        return {"text": WorkOrderStatus(self.status).label, "class": status_color.get(self.status, "badge-ghost")}
 
     class Meta:
         verbose_name = "Ordem de Serviço"

@@ -28,7 +28,7 @@ class WorkOrderListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRes
             TableColumn(WorkOrder.criado_em.field.verbose_name, attr=WorkOrder.criado_em.field.name),
             TableColumn("Veículo", attr="budget.vehicle"),
             TableColumn("Valor Total", attr="budget.total_budget_value"),
-            TableColumn("Status", attr="get_status_display"),
+            TableColumn("Status", attr="workorder_status_badge", format="status_badge"),
         ]
 
         context["actions"] = [
