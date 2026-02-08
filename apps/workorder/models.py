@@ -21,13 +21,6 @@ class WorkOrder(TimeStampedModel):
         status_color = {
             WorkOrderStatus.DRAFT: "badge-soft badge-ghost",
             WorkOrderStatus.APPROVED: "badge-success",
-            # BudgetStatus.WAITING_DIAGNOSIS: "badge-soft badge-warning",
-            # BudgetStatus.WAITING_ITEMS: "badge-soft badge-warning",
-            # BudgetStatus.WAITING_PRICING: "badge-soft badge-info",
-            # BudgetStatus.WAITING_REVIEW: "badge-soft badge-info",
-            # BudgetStatus.APPROVED: "badge-success",
-            # BudgetStatus.REJECTED: "badge-error",
-            # BudgetStatus.CANCELLED: "badge-soft badge-error",
         }
 
         return {"text": WorkOrderStatus(self.status).label, "class": status_color.get(self.status, "badge-ghost")}
