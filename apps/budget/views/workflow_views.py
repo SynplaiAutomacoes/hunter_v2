@@ -196,7 +196,7 @@ class UpdateBudgetDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def post(self, request, budget_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
         try:
-            val = request.POST.get("discount_value_0", "0").replace(",", ".")
+            val = request.POST.get("discount_value_0", "0").replace(",", ".") or "0"
             budget.discount_value = Decimal(val)
             budget.save()
         except (ValueError, TypeError):

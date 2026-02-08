@@ -1258,6 +1258,8 @@ class BudgetStep5Form(forms.ModelForm):
         rentabilidade = dados.get("rentabilidade") or 0
 
         status_texto = "Ruim" if rentabilidade < 60 else "Médio" if (60 <= rentabilidade < 70) else "Bom"
+        discount_amount = budget.discount_value.amount if budget.discount_value else Decimal("0")
+        discount_display = budget.discount_value if discount_amount != Decimal("0") else Money(0, "BRL")
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -1286,11 +1288,11 @@ class BudgetStep5Form(forms.ModelForm):
 
                 input[type="range"].centered-range::-webkit-slider-thumb {{
                   -webkit-appearance: none;
-                  width: 18px;
-                  height: 18px;
+                  width: 24px;
+                  height: 24px;
                   background: #007bff;
                   border-radius: 50%;
-                  margin-top: -5px;
+                  margin-top: -8px;
                   cursor: pointer;
                 }}
 
@@ -1307,8 +1309,8 @@ class BudgetStep5Form(forms.ModelForm):
                 }}
 
                 input[type="range"].centered-range::-moz-range-thumb {{
-                  width: 18px;
-                  height: 18px;
+                  width: 24px;
+                  height: 24px;
                   background: #007bff;
                   border-radius: 50%;
                   border: none;
@@ -1573,7 +1575,11 @@ class BudgetStep5Form(forms.ModelForm):
                             HTML(f"""<div class="space-y-3">
                                         <div class="flex justify-between text-xl font-semibold">
                                             <span>Subtotal:</span>
-                                            <span class="line-through">{budget.total_base_value}</span>
+                                            <span>{budget.total_base_value}</span>
+                                        </div>
+                                        <div class="flex justify-between text-xl font-semibold">
+                                            <span>Desconto:</span>
+                                            <span>{discount_display}</span>
                                         </div>
                                         <div class="flex justify-between text-xl font-black">
                                             <span>Valor Final:</span>
