@@ -1585,6 +1585,15 @@ class BudgetStep5Form(forms.ModelForm):
         )
 
 
+from crispy_forms.helper import FormHelper
+from crispy_forms.layout import Layout, Div, HTML
+from django import forms
+
+from apps.budget.models import Budget
+from apps.core.utils import alert_confirm_layout
+from django.urls import reverse
+
+
 class BudgetStep6Form(forms.ModelForm):
     class Meta:
         model = Budget
@@ -1597,10 +1606,12 @@ class BudgetStep6Form(forms.ModelForm):
         super().__init__(*args, **kwargs)
 
         budget = self.instance
+
         saved_observation = ""
         if self.workshop:
             saved_observation = self.workshop.pdf_observation or ""
 
+        # Renderização das linhas
         rows = _render_budget_items_rows(budget, step6=True)
         products_html = rows["product"]
         services_html = rows["service"]
@@ -1608,442 +1619,227 @@ class BudgetStep6Form(forms.ModelForm):
 
         self.helper = FormHelper()
         self.helper.form_tag = False
+
         self.helper.layout = Layout(
-            alert_confirm_layout(),
-            HTML("""<script>
-                    function saveObservation(budgetId) {
-                        const observation = document.getElementById('budget-observation').value;
-                    
-                        fetch('/budget/save-observation/', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-CSRFToken': '{{ csrf_token }}'
-                            },
-                            body: JSON.stringify({
-                                budget_id: budgetId,
-                                observation: observation,
-                            })
-                        });
-                    }
-                    
-                    async function updateBudgetStatus(budgetId, status) {
-                        const confirmed = await customConfirm("Você tem certeza que deseja alterar o status deste orçamento?");
-                        if (!confirmed) return;
-                    
-                        fetch(`/budget/update-status/${budgetId}/${status}`, {
-                            method: 'POST',
-                            headers: { 'X-CSRFToken': '{{ csrf_token }}' }
-                        }).then(() => {
-                            window.location.href = "{% url 'budget:budget_list' %}";
-                        });
-                    }
-                    
-                    function openKitModal(button) {
-                        const modal = document.getElementById('kitModal');
-                    
-                        const title = document.getElementById('kit-modal-title');
-                        const productsList = document.getElementById('kit-modal-products');
-                        const servicesList = document.getElementById('kit-modal-services');
-                    
-                        const productsCount = document.getElementById('kit-products-count');
-                        const servicesCount = document.getElementById('kit-services-count');
-                    
-                        const productsCountSide = document.getElementById('kit-products-count-side');
-                        const servicesCountSide = document.getElementById('kit-services-count-side');
-                    
-                        title.textContent = button.dataset.kitName;
-                    
-                        productsList.innerHTML = '';
-                        servicesList.innerHTML = '';
-                    
-                        const products = button.dataset.kitProductsList
-                            .split('|').map(i => i.trim()).filter(Boolean);
-                    
-                        const services = button.dataset.kitServicesList
-                            .split('|').map(i => i.trim()).filter(Boolean);
-                    
-                        productsCount.textContent = products.length;
-                        servicesCount.textContent = services.length;
-                    
-                        productsCountSide.textContent = products.length;
-                        servicesCountSide.textContent = services.length;
-                    
-                        products.forEach(s => {
-                            const li = document.createElement('li');
-                            li.className = "flex items-start gap-3";
-                            li.innerHTML = `
-                              <span class="material-icons text-info text-sm mt-0.5 flex-shrink-0">circle</span>
-                              <span class="break-words break-all whitespace-normal">
-                                ${s}
-                              </span>
-                            `;
-                            productsList.appendChild(li);
-                        });
-                    
-                        services.forEach(s => {
-                            const li = document.createElement('li');
-                            li.className = "flex items-start gap-3";
-                            li.innerHTML = `
-                              <span class="material-icons text-info text-sm mt-0.5 flex-shrink-0">circle</span>
-                              <span class="break-words break-all whitespace-normal">
-                                ${s}
-                              </span>
-                            `;
-                            servicesList.appendChild(li);
-                        });
-                    
-                        modal.showModal();
-                    }
-                    
-                    function closeKitModal() {
-                        const modal = document.getElementById('kitModal');
-                        if (modal) {
-                            modal.close();
-                        }
-                    }
-            </script>"""),
-            Div(
-                HTML('<h3 class="text-2xl font-bold col-span-12">Revisão e Confirmação</h3>'),
-                # Coluna Esquerda
-                Div(
-                    HTML('<div class="border-t-2 mb-4 mt-0"></div>'),
-                    # Seção de Produtos
-                    Div(
-                        Div(
-                            HTML('<h3 class="text-xl font-semibold text-gray-700">Peças Selecionadas</h3>'),
-                            css_class="flex justify-between items-center mb-4",
-                        ),
-                        Div(
-                            HTML(f"""<table class="table table-zebra w-full">
-                                                    <thead class="text-white bg-primary">
-                                                        <tr>
-                                                            <th>NOME</th>
-                                                            <th class="text-center">QTD.</th>
-                                                            <th>CUSTO</th>
-                                                            <th>VALOR VENDA</th>
-                                                            <th>FRETE</th>
-                                                            <th>TOTAL</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody id="product-list-body">
-                                                        {products_html}
-                                                    </tbody>
-                                                </table>"""),
-                            css_class="overflow-x-auto mb-8 rounded-lg shadow-md shadow-gray-300/50",
-                        ),
-                        css_class="mb-10",
-                    ),
-                    # Seção de Serviços
-                    Div(
-                        Div(
-                            HTML('<h3 class="text-xl font-semibold text-gray-700">Serviços Selecionados</h3>'),
-                            css_class="flex justify-between items-center mb-4",
-                        ),
-                        Div(
-                            HTML(f"""<table class="table table-zebra w-full">
-                                                    <thead class="text-white bg-primary">
-                                                        <tr>
-                                                            <th>NOME</th>
-                                                            <th class="text-center">QTD.</th>
-                                                            <th>CUSTO</th>
-                                                            <th>VALOR VENDA</th>
-                                                            <th>TEMPO</th>
-                                                            <th>TOTAL</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody id="service-list-body">
-                                                        {services_html}
-                                                    </tbody>
-                                                </table>"""),
-                            css_class="overflow-x-auto mb-8 rounded-lg shadow-md shadow-gray-300/50",
-                        ),
-                        css_class="mb-10",
-                    ),
-                    # Seção de Kits
-                    Div(
-                        Div(
-                            HTML('<h3 class="text-xl font-semibold text-gray-700">Kits Selecionados</h3>'),
-                            css_class="flex justify-between items-center mb-4",
-                        ),
-                        Div(
-                            HTML(f"""<table class="table table-compact w-full">
-                                                    <thead class="text-white bg-primary">
-                                                        <tr>
-                                                            <th>NOME</th>
-                                                            <th class="text-center">QTD.</th>
-                                                            <th class="text-center">PRODUTOS</th>
-                                                            <th class="text-center">SERVIÇOS</th>
-                                                            <th class="text-center">AÇÕES</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody id="kit-list-body">
-                                                        {kits_html}
-                                                    </tbody>
-                                                </table>"""),
-                            css_class="overflow-x-auto mb-4 rounded-lg shadow-md shadow-gray-300/50",
-                        ),
-                        css_class="mb-6",
-                    ),
-                    css_class="col-span-12 lg:col-span-5",
-                ),
-                #
-                Div(css_class="hidden lg:block lg:col-span-1"),
-                #
-                # Coluna Direita
-                Div(
-                    Div(
-                        # PDF
-                        Div(
-                            HTML('<h4 class="font-bold text-lg mb-2 border-b-1 border-gray-300">PDF</h4>'),
-                            HTML(f"""
-                            <div class="flex flex-col gap-3 text-center grid grid-cols-12">
-                                <button type="button" class="btn btn-success gap-2 col-span-4" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse("budget:visualizar_pdf", args=[budget.pk])}' }} }}))">
-                                    <span class="material-icons">description</span>
-                                    Visualizar PDF
-                                </button>
 
-                                <button type="button" class="btn btn-success gap-2 col-span-4" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse("budget:visualizar_pdf_gestor", args=[budget.pk])}' }} }}))">
-                                    <span class="material-icons">supervisor_account</span>
-                                    Visualizar PDF Gestor
-                                </button>
-
-                                <button type="button" class="btn btn-success gap-2 col-span-4" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse("budget:visualizar_pdf_mecanico", args=[budget.pk])}' }} }}))">
-                                    <span class="material-icons">engineering</span>
-                                    Visualizar PDF Mecânico
-                                </button>
-                                
-                            </div>
-                            """),
-                            css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
-                        ),
-                        # Observação
-                        Div(
-                            HTML('<h4 class="font-bold text-lg mb-2 border-b-1 border-gray-300">Observação</h4>'),
-                            HTML(f"""
-                            <div class="flex flex-col gap-3">
-
-                                <textarea 
-                                    class="textarea textarea-bordered w-full"
-                                    maxlength="250"
-                                    rows="4"
-                                    placeholder="Digite uma observação para o PDF (máx. 250 caracteres)..."
-                                    id="budget-observation"
-                                >{saved_observation}</textarea>
-
-                                <div class="flex justify-between items-center text-sm text-gray-500">
-                                    <span id="obs-counter">0 / 250</span>
-
-                                    <button type="button" class="btn btn-sm btn-primary gap-2" onclick="saveObservation({budget.pk})">
-                                        <span class="material-icons">save</span>
-                                        Salvar observação
-                                    </button>
-                                </div>
-
-                            </div>
-
-                            <script>
-                                const textarea = document.getElementById('budget-observation');
-                                const counter = document.getElementById('obs-counter');
-
-                                if (textarea && counter) {{
-                                    textarea.addEventListener('input', () => {{
-                                        counter.textContent = `${{textarea.value.length}} / 250`;
-                                    }});
-                                }}
-                            </script>
-                            """),
-                            css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
-                        ),
-                        # Aprovação
-                        Div(
-                            HTML('<h4 class="font-bold text-lg mb-2 border-b-1 border-gray-300">Aprovação</h4>'),
-                            HTML(f"""
-                            <div class="flex flex-col text-center gap-3 grid grid-cols-12">
-
-                                <button type="button" class="btn btn-error gap-2 col-span-4" onclick="updateBudgetStatus({budget.pk}, 'cancel')">
-                                    <span class="material-icons">close</span>
-                                    Cancelar Orçamento
-                                </button>
-
-                                <button
-                                    type="button"
-                                    class="btn gap-2 col-span-4
-                                           {{% if form.instance.has_local_items %}}
-                                               btn-disabled cursor-not-allowed
-                                           {{% else %}}
-                                               btn-success
-                                           {{% endif %}}"
-                                    {{% if not form.instance.has_local_items %}}
-                                        onclick="updateBudgetStatus({{{{ form.instance.pk }}}}, 'approve')"
-                                    {{% endif %}}
-                                    {{% if form.instance.has_local_items %}}
-                                        disabled
-                                        title="Existem itens não cadastrados no sistema"
-                                    {{% endif %}}
-                                >
-                                    <span class="material-icons">check_circle</span>
-                                    Aprovar Orçamento
-                                </button>
-
-                                <button type="button" class="btn btn-warning gap-2 col-span-4" onclick="updateBudgetStatus({budget.pk}, 'reject')">
-                                    <span class="material-icons">lock</span>
-                                    Reprovar Orçamento
-                                </button>
-
-                            </div>
-                            """),
-                            css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
-                        ),
-                        css_class="sticky",
-                    ),
-                    css_class="col-span-12 lg:col-span-6",
-                ),
-                css_class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch",
-            ),
+            # =========================
+            # CSS utilitário obrigatório
+            # =========================
             HTML("""
-            <dialog id="pdfModal" class="modal" x-data="{ pdfUrl: '' }" @open-pdf-modal.window="pdfUrl = $event.detail.url; $el.showModal()">
-              <div class="modal-box max-w-5xl w-full h-[90vh] p-0 flex flex-col">
-                <div class="flex items-center justify-between px-6 py-4 border-b bg-base-200">
-                    <h3 class="text-xl font-bold flex items-center gap-2">
-                        <span class="material-icons">description</span> Visualização do PDF
-                    </h3>
-                    <div class="flex gap-2">
-                        <button type="button" 
-                                class="btn btn-sm btn-success gap-2"
-                                onclick="const frame = document.querySelector('#pdfModal iframe'); frame.contentWindow.focus(); frame.contentWindow.print();">
-                            <span class="material-icons text-sm">download</span> Baixar PDF
-                        </button>
-                        <button type="button" class="btn btn-sm" onclick="document.getElementById('pdfModal').close()">
-                            <span class="material-icons text-sm">close</span>
-                        </button>
-                    </div>
-                </div>
-                
-                <div class="flex-1 bg-gray-100">
-                    <template x-if="pdfUrl">
-                        <iframe :src="pdfUrl" class="w-full h-full" frameborder="0"></iframe>
-                    </template>
-                </div>
-              </div>
-              <form method="dialog" class="modal-backdrop">
-                <button>close</button>
-              </form>
-            </dialog>"""),
-            HTML("""
-                <dialog
-                    id="kitModal"
-                    class="modal"
-                    onclick="if(event.target === this) closeKitModal()"
-                >
-                  <div class="modal-box max-w-5xl w-full max-h-[75vh] p-0 flex flex-col">
-                
-                    <!-- HEADER -->
-                    <div class="flex items-center justify-between px-8 py-5 border-b bg-base-200">
-                        <div class="flex items-center gap-4">
-                            <div class="p-3 rounded-lg bg-primary/10">
-                                <span class="material-icons text-primary text-3xl">inventory_2</span>
-                            </div>
-                
-                            <div>
-                                <h3 class="text-2xl font-bold leading-tight" id="kit-modal-title"></h3>
-                                <span class="badge badge-primary badge-outline mt-1">
-                                    Kit de Serviços
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                
-                    <!-- BODY -->
-                    <div class="p-8 grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 overflow-y-auto">
-                
-                        <!-- PRODUTOS (CARD VERTICAL) -->
-                        <div class="card bg-base-100 shadow-md border lg:col-span-1">
-                            <div class="card-body gap-4">
-                                <div class="flex items-center justify-between">
-                                    <h4 class="font-semibold text-base flex items-center gap-2">
-                                        <span class="material-icons text-info">build</span>
-                                        Produtos
-                                    </h4>
-                                    <span id="kit-products-count" class="badge badge-info"></span>
-                                </div>
-                
-                                <div class="divider my-1"></div>
-                
-                                <ul
-                                    id="kit-modal-products"
-                                    class="flex flex-col gap-3 text-sm
-                                         max-h-64 overflow-y-auto pr-2
-                                         overflow-x-hidden"
-                                ></ul>
-                            </div>
-                        </div>
-                
-                        <!-- SERVIÇOS (CARD VERTICAL) -->
-                        <div class="card bg-base-100 shadow-md border lg:col-span-1">
-                            <div class="card-body gap-4">
-                                <div class="flex items-center justify-between">
-                                    <h4 class="font-semibold text-base flex items-center gap-2">
-                                        <span class="material-icons text-success">engineering</span>
-                                        Serviços
-                                    </h4>
-                                    <span id="kit-services-count" class="badge badge-success"></span>
-                                </div>
-                
-                                <div class="divider my-1"></div>
-                
-                                <ul
-                                    id="kit-modal-services"
-                                    class="flex flex-col gap-3 text-sm
-                                         max-h-64 overflow-y-auto pr-2
-                                         overflow-x-hidden"
-                                ></ul>
-                            </div>
-                        </div>
-                
-                        <!-- COLUNA DE CONTEXTO (PROFISSIONAL) -->
-                        <div class="card bg-base-200/60 border lg:col-span-1">
-                            <div class="card-body gap-4">
-                                <h4 class="font-semibold text-base">
-                                    Informações do Kit
-                                </h4>
-                
-                                <div class="flex flex-col gap-3 text-sm text-base-content/80">
-                                    <div class="flex justify-between">
-                                        <span>Total de Produtos</span>
-                                        <strong id="kit-products-count-side"></strong>
-                                    </div>
-                
-                                    <div class="flex justify-between">
-                                        <span>Total de Serviços</span>
-                                        <strong id="kit-services-count-side"></strong>
-                                    </div>
-                                </div>
-                
-                                <div class="divider"></div>
-                
-                                <p class="text-xs text-base-content/60 leading-relaxed">
-                                    Este kit agrupa produtos e serviços vinculados ao orçamento,
-                                    facilitando a visualização e conferência antes da aprovação.
-                                </p>
-                            </div>
-                        </div>
-                
-                    </div>
-                
-                    <!-- FOOTER -->
-                    <div class="flex justify-end px-8 py-5 border-t bg-base-200">
-                        <button
-                            type="button"
-                            class="btn btn-primary"
-                            onclick="closeKitModal()"
-                        >
-                            <span class="material-icons text-sm">close</span>
-                            Fechar
-                        </button>
-                    </div>
-                
-                  </div>
-                </dialog>
+            <style>
+                .table-fixed { table-layout: fixed; }
+            </style>
             """),
+
+            alert_confirm_layout(),
+
+            # =========================
+            # TÍTULO
+            # =========================
+            Div(
+                HTML('<h3 class="text-2xl font-bold">Revisão e Confirmação</h3>'),
+                css_class="col-span-12"
+            ),
+
+            # =========================
+            # GRID PRINCIPAL
+            # =========================
+            Div(
+
+                # ===== COLUNA ESQUERDA =====
+                Div(
+
+                    HTML('<div class="border-t-2 mb-6"></div>'),
+
+                    # -------- PRODUTOS --------
+                    Div(
+                        HTML('<h3 class="text-xl font-semibold text-gray-700 mb-4">Peças Selecionadas</h3>'),
+
+                        HTML(f"""
+                        <div class="overflow-x-auto lg:overflow-visible mb-10 rounded-lg shadow-md shadow-gray-300/50">
+                          <table class="table table-zebra table-fixed w-full">
+                            <thead class="text-white bg-primary">
+                              <tr>
+                                <th class="w-[32%]">NOME</th>
+                                <th class="w-[8%] text-center">QTD.</th>
+                                <th class="w-[14%]">CUSTO</th>
+                                <th class="w-[16%]">VALOR VENDA</th>
+                                <th class="w-[12%]">FRETE</th>
+                                <th class="w-[18%]">TOTAL</th>
+                              </tr>
+                            </thead>
+                            <tbody id="product-list-body">
+                              {products_html}
+                            </tbody>
+                          </table>
+                        </div>
+                        """),
+                    ),
+
+                    # -------- SERVIÇOS --------
+                    Div(
+                        HTML('<h3 class="text-xl font-semibold text-gray-700 mb-4">Serviços Selecionados</h3>'),
+
+                        HTML(f"""
+                        <div class="overflow-x-auto lg:overflow-visible mb-10 rounded-lg shadow-md shadow-gray-300/50">
+                          <table class="table table-zebra table-fixed w-full">
+                            <thead class="text-white bg-primary">
+                              <tr>
+                                <th class="w-[36%]">NOME</th>
+                                <th class="w-[8%] text-center">QTD.</th>
+                                <th class="w-[18%]">CUSTO</th>
+                                <th class="w-[18%]">VALOR VENDA</th>
+                                <th class="w-[20%]">TOTAL</th>
+                              </tr>
+                            </thead>
+                            <tbody id="service-list-body">
+                              {services_html}
+                            </tbody>
+                          </table>
+                        </div>
+                        """),
+                    ),
+
+                    # -------- KITS --------
+                    Div(
+                        HTML('<h3 class="text-xl font-semibold text-gray-700 mb-4">Kits Selecionados</h3>'),
+
+                        HTML(f"""
+                        <div class="overflow-x-auto lg:overflow-visible mb-6 rounded-lg shadow-md shadow-gray-300/50">
+                          <table class="table table-compact table-fixed w-full">
+                            <thead class="text-white bg-primary">
+                              <tr>
+                                <th class="w-[40%]">NOME</th>
+                                <th class="w-[10%] text-center">QTD.</th>
+                                <th class="w-[15%] text-center">PRODUTOS</th>
+                                <th class="w-[15%] text-center">SERVIÇOS</th>
+                                <th class="w-[20%] text-center">AÇÕES</th>
+                              </tr>
+                            </thead>
+                            <tbody id="kit-list-body">
+                              {kits_html}
+                            </tbody>
+                          </table>
+                        </div>
+                        """),
+                    ),
+
+                    css_class="col-span-12 lg:col-span-5"
+                ),
+
+                # ===== ESPAÇADOR =====
+                Div(css_class="hidden lg:block lg:col-span-1"),
+
+                # ===== COLUNA DIREITA =====
+                Div(
+
+                    # -------- PDF --------
+                    Div(
+                        HTML('<h4 class="font-bold text-lg mb-2 border-b">PDF</h4>'),
+
+                        HTML(f"""
+                        <div class="grid grid-cols-12 gap-3 mb-8">
+                          <button type="button" class="btn btn-success col-span-4"
+                                  onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{
+                                      detail: {{ url: '{reverse("budget:visualizar_pdf", args=[budget.pk])}' }}
+                                  }}))">
+                            PDF Cliente
+                          </button>
+
+                          <button type="button" class="btn btn-success col-span-4"
+                                  onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{
+                                      detail: {{ url: '{reverse("budget:visualizar_pdf_gestor", args=[budget.pk])}' }}
+                                  }}))">
+                            PDF Gestor
+                          </button>
+
+                          <button type="button" class="btn btn-success col-span-4"
+                                  onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{
+                                      detail: {{ url: '{reverse("budget:visualizar_pdf_mecanico", args=[budget.pk])}' }}
+                                  }}))">
+                            PDF Mecânico
+                          </button>
+                        </div>
+                        """),
+                        css_class="p-4 bg-base-200/50 rounded-lg"
+                    ),
+
+                    # -------- OBSERVAÇÃO --------
+                    Div(
+                        HTML('<h4 class="font-bold text-lg mb-2 border-b">Observação</h4>'),
+
+                        HTML(f"""
+                        <div class="flex flex-col gap-3 mb-8">
+                          <textarea class="textarea textarea-bordered w-full"
+                                    rows="4"
+                                    maxlength="250"
+                                    id="budget-observation"
+                                    placeholder="Observação para o PDF...">{saved_observation}</textarea>
+
+                          <div class="flex justify-between text-sm text-gray-500">
+                            <span id="obs-counter">0 / 250</span>
+                            <button type="button" class="btn btn-sm btn-primary"
+                                    onclick="saveObservation({budget.pk})">
+                              Salvar
+                            </button>
+                          </div>
+                        </div>
+
+                        <script>
+                          const ta = document.getElementById('budget-observation');
+                          const c = document.getElementById('obs-counter');
+                          if (ta && c) {{
+                            c.textContent = `${{ta.value.length}} / 250`;
+                            ta.addEventListener('input', () => {{
+                              c.textContent = `${{ta.value.length}} / 250`;
+                            }});
+                          }}
+                        </script>
+                        """),
+                        css_class="p-4 bg-base-200/50 rounded-lg"
+                    ),
+
+                    # -------- APROVAÇÃO --------
+                    Div(
+                        HTML('<h4 class="font-bold text-lg mb-2 border-b">Aprovação</h4>'),
+
+                        HTML(f"""
+                        <div class="grid grid-cols-12 gap-3">
+                          <button type="button" class="btn btn-error col-span-4"
+                                  onclick="updateBudgetStatus({budget.pk}, 'cancel')">
+                            Cancelar
+                          </button>
+
+                          <button type="button"
+                                  class="btn col-span-4
+                                  {{% if form.instance.has_local_items %}}
+                                      btn-disabled cursor-not-allowed
+                                  {{% else %}}
+                                      btn-success
+                                  {{% endif %}}"
+                                  {{% if not form.instance.has_local_items %}}
+                                      onclick="updateBudgetStatus({budget.pk}, 'approve')"
+                                  {{% endif %}}
+                                  {{% if form.instance.has_local_items %}}
+                                      disabled
+                                      title="Existem itens não cadastrados"
+                                  {{% endif %}}>
+                            Aprovar
+                          </button>
+
+                          <button type="button" class="btn btn-warning col-span-4"
+                                  onclick="updateBudgetStatus({budget.pk}, 'reject')">
+                            Reprovar
+                          </button>
+                        </div>
+                        """),
+                        css_class="p-4 bg-base-200/50 rounded-lg"
+                    ),
+
+                    css_class="col-span-12 lg:col-span-6 sticky top-4"
+                ),
+
+                css_class="grid grid-cols-1 lg:grid-cols-12 gap-8"
+            ),
         )
+
