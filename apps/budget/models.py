@@ -235,12 +235,18 @@ class Budget(TimeStampedModel):
         data = self.calculate_pricing_methods()
         return data["rentabilidade"]
 
+    def _is_local_product_item(self, item: "BudgetItem") -> bool:
+        return item.is_local and ((item.product_cost_price and item.product_cost_price.amount > 0) or (item.product_selling_price and item.product_selling_price.amount > 0) or (item.shipping and item.shipping.amount > 0))
+
+    def _is_local_service_item(self, item: "BudgetItem") -> bool:
+        return item.is_local and ((item.service_cost_price and item.service_cost_price.amount > 0) or (item.service_selling_price and item.service_selling_price.amount > 0) or item.duration)
+
     ## Products
     @property
     def total_products_shipping(self) -> Money:
         total = Money(0, "BRL")
         for item in self.items.all():
-            if item.product:
+            if item.product or self._is_local_product_item(item):
                 total += item.shipping
             elif item.kit:
                 total += item.get_kit_products_shipping_total()
@@ -250,7 +256,7 @@ class Budget(TimeStampedModel):
     def total_costs_products_value(self) -> Money:
         total = Money(0, "BRL")
         for item in self.items.all():
-            if item.product:
+            if item.product or self._is_local_product_item(item):
                 total += item.product_cost_price * item.quantity
             elif item.kit:
                 total += item.get_kit_products_cost_total()
@@ -260,7 +266,7 @@ class Budget(TimeStampedModel):
     def total_products_value(self) -> Money:
         total = Money(0, "BRL")
         for item in self.items.all():
-            if item.product:
+            if item.product or self._is_local_product_item(item):
                 total += (item.product_selling_price * item.quantity) + item.shipping
             elif item.kit:
                 total += item.get_kit_products_total()
@@ -271,7 +277,7 @@ class Budget(TimeStampedModel):
     def total_duration(self) -> timedelta:
         total = timedelta(0)
         for item in self.items.all():
-            if item.service and item.duration:
+            if (item.service or self._is_local_service_item(item)) and item.duration:
                 total += item.duration * item.quantity
             elif item.kit:
                 total += item.get_kit_services_duration()
@@ -301,7 +307,7 @@ class Budget(TimeStampedModel):
     def total_costs_services_value(self) -> Money:
         total = Money(0, "BRL")
         for item in self.items.all():
-            if item.service:
+            if item.service or self._is_local_service_item(item):
                 total += item.service_cost_price * item.quantity
             elif item.kit:
                 total += item.get_kit_services_cost_total()
@@ -311,7 +317,7 @@ class Budget(TimeStampedModel):
     def total_services_value(self) -> Money:
         total = Money(0, "BRL")
         for item in self.items.all():
-            if item.service:
+            if item.service or self._is_local_service_item(item):
                 total += item.service_selling_price * item.quantity
             elif item.kit:
                 total += item.get_kit_services_total()
