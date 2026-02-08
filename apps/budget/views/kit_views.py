@@ -32,14 +32,15 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         # Buscar produtos do kit com overrides
         kit_products = []
-        for product in item.kit.products.all():
+        for kit_product in item.kit.kit_products.select_related("product").all():
+            product = kit_product.product
             override = BudgetKitItemOverride.objects.filter(budget_item=item, product=product).first()
 
             kit_products.append(
                 {
                     "id": product.id,
                     "name": product.name,
-                    "quantity": override.quantity if override else 1,
+                    "quantity": override.quantity if override else kit_product.quantity,
                     "cost": override.product_cost_price if override else product.cost_price,
                     "price": override.product_selling_price if override else product.selling_price,
                     "shipping": override.shipping if override else Money(0, "BRL"),
@@ -48,7 +49,8 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         # Buscar serviços do kit com overrides
         kit_services = []
-        for service in item.kit.services.all():
+        for kit_service in item.kit.kit_services.select_related("service").all():
+            service = kit_service.service
             override = BudgetKitItemOverride.objects.filter(budget_item=item, service=service).first()
 
             # Format duration as HH:MM:SS
@@ -71,7 +73,7 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 {
                     "id": service.id,
                     "name": service.name,
-                    "quantity": override.quantity if override else 1,
+                    "quantity": override.quantity if override else kit_service.quantity,
                     "cost": override.service_cost_price if override else service.suggested_cost,
                     "price": override.service_selling_price if override else service.selling_price,
                     "duration": duration_str,
@@ -107,7 +109,7 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 budget_item=item,
                 product=product,
                 defaults={
-                    "quantity": int(product_data.get("quantity", 1)),
+                    "quantity": max(0, int(product_data.get("quantity", 1))),
                     "product_cost_price": Money(Decimal(str(product_data.get("cost", 0))), "BRL"),
                     "product_selling_price": Money(Decimal(str(product_data.get("price", 0))), "BRL"),
                     "shipping": Money(Decimal(str(product_data.get("shipping", 0))), "BRL"),
@@ -147,7 +149,7 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 budget_item=item,
                 service=service,
                 defaults={
-                    "quantity": int(service_data.get("quantity", 1)),
+                    "quantity": max(0, int(service_data.get("quantity", 1))),
                     "service_cost_price": Money(Decimal(str(service_data.get("cost", 0))), "BRL"),
                     "service_selling_price": Money(Decimal(str(service_data.get("price", 0))), "BRL"),
                     "duration": duration,
