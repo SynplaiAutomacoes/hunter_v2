@@ -1266,6 +1266,16 @@ class BudgetStep5Form(forms.ModelForm):
         self.helper.layout = Layout(
             HTML(f"""
             <style>
+                :root[data-theme="light"] {{
+                  --step5-accent: #0f766e;
+                  --step5-warning-soft: rgba(245, 158, 11, 0.16);
+                }}
+
+                :root[data-theme="dark"] {{
+                  --step5-accent: #5eead4;
+                  --step5-warning-soft: rgba(245, 158, 11, 0.22);
+                }}
+
                 input[type="range"].centered-range {{
                   -webkit-appearance: none;
                   -moz-appearance: none;
@@ -1314,6 +1324,18 @@ class BudgetStep5Form(forms.ModelForm):
                   background: #007bff;
                   border-radius: 50%;
                   border: none;
+                }}
+
+                .step5-accent-text {{
+                    color: var(--step5-accent);
+                }}
+
+                .step5-accent-border {{
+                    border-color: var(--step5-accent);
+                }}
+
+                .step5-warning-surface {{
+                    background-color: var(--step5-warning-soft);
                 }}
             </style>
             <script>
@@ -1444,7 +1466,7 @@ class BudgetStep5Form(forms.ModelForm):
                 # Coluna Esquerda
                 Div(
                     Div(
-                        HTML(f'<h3 class="text-3xl font-bold mb-2 border-b-3 border-primary text-base-content text-center">Método {metodo_precificacao}</h3>'),
+                        HTML(f'<h3 class="text-3xl font-bold mb-2 border-b-3 step5-accent-border text-center step5-accent-text">Método {metodo_precificacao}</h3>'),
                         Div(
                             # Grid de Custos vs Vendas
                             Div(
@@ -1452,15 +1474,15 @@ class BudgetStep5Form(forms.ModelForm):
                                 <div class="grid grid-cols-1 md:grid-cols-2 mt-7 gap-x-8 gap-y-3 text-base text-base-content font-semibold">
 
                                     <!-- COLUNA ESQUERDA — CUSTOS -->
-                                    <div class="grid grid-cols-12 border bg-base-100">
-                                        <span class="col-span-8 p-2 bg-base-200/70">Custo de Peças</span>
-                                        <span class="col-span-4 p-2 border-l">{custo_pecas}</span>
+                                    <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                        <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo de Peças</span>
+                                        <span class="col-span-4 p-2 border-l border-base-300">{custo_pecas}</span>
                                     </div>
 
-                                    <div class="grid grid-cols-12 border bg-base-100">
-                                        <span class="col-span-8 p-2 bg-base-200/70">Valor de Venda de Peças</span>
+                                    <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                        <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Valor de Venda de Peças</span>
                                         <span id="display-venda-pecas"
-                                                class="col-span-4 p-2 border-l whitespace-nowrap"
+                                                class="col-span-4 p-2 border-l border-base-300 whitespace-nowrap step5-accent-text"
                                                 data-base-val="{venda_pecas.amount}"
                                                 data-cost-val="{custo_pecas.amount}"
                                                 data-frete-val="{custo_frete_pecas.amount}">
@@ -1468,71 +1490,71 @@ class BudgetStep5Form(forms.ModelForm):
                                         </span>
                                     </div>
 
-                                    <div class="grid grid-cols-12 border bg-base-100">
-                                        <span class="col-span-8 p-2 bg-base-200/70">Custo de Frete de Peças</span>
-                                        <span class="col-span-4 p-2 border-l">{custo_frete_pecas}</span>
+                                    <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                        <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo de Frete de Peças</span>
+                                        <span class="col-span-4 p-2 border-l border-base-300">{custo_frete_pecas}</span>
                                     </div>
 
-                                    <div class="grid grid-cols-12 border bg-base-100">
-                                        <span class="col-span-8 p-2 bg-base-200/70">Valor de Venda de Serviço de Terceiros</span>
-                                        <span class="col-span-4 p-2 border-l">{venda_servico_terceiros}</span>
+                                    <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                        <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Valor de Venda de Serviço de Terceiros</span>
+                                        <span class="col-span-4 p-2 border-l border-base-300">{venda_servico_terceiros}</span>
                                     </div>
 
-                                    <div class="grid grid-cols-12 border bg-base-100">
-                                        <span class="col-span-8 p-2 bg-base-200/70">Custo de Serviço de Terceiros</span>
-                                        <span class="col-span-4 p-2 border-l">{custo_servico_terceiros}</span>
+                                    <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                        <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo de Serviço de Terceiros</span>
+                                        <span class="col-span-4 p-2 border-l border-base-300">{custo_servico_terceiros}</span>
                                     </div>
 
                                     <div class="grid grid-cols-12"></div>
 
-                                    <div class="grid grid-cols-12 border bg-base-100">
-                                        <span class="col-span-8 p-2 bg-base-200/70">Custo da Hora do Mecânico</span>
-                                        <span class="col-span-4 p-2 border-l">{custo_hora_mecanico}</span>
+                                    <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                        <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo da Hora do Mecânico</span>
+                                        <span class="col-span-4 p-2 border-l border-base-300">{custo_hora_mecanico}</span>
                                     </div>
 
-                                    <div class="grid grid-cols-12 border bg-base-100">
-                                        <span class="col-span-8 p-2 bg-base-200/70">Valor de Venda de Mão de Obra</span>
+                                    <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                        <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Valor de Venda de Mão de Obra</span>
                                         <span id="display-venda-mo"
-                                              class="col-span-4 p-2 border-l"
+                                              class="col-span-4 p-2 border-l border-base-300 step5-accent-text"
                                               data-base-val="{venda_mao_obra.amount}"
                                               data-cost-val="{custo_total_mao_obra.amount}">
                                             {venda_mao_obra}
                                         </span>
                                     </div>
 
-                                    <div class="grid grid-cols-12 border bg-base-100 font-semibold">
-                                        <span class="col-span-8 p-2 bg-base-200/70">Custo Total da Mão de Obra</span>
-                                        <span class="col-span-4 p-2 border-l">{custo_total_mao_obra}</span>
+                                    <div class="grid grid-cols-12 border border-base-300 bg-base-100 font-semibold">
+                                        <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo Total da Mão de Obra</span>
+                                        <span class="col-span-4 p-2 border-l border-base-300">{custo_total_mao_obra}</span>
                                     </div>
 
-                                    <div class="grid grid-cols-12 border bg-base-100">
-                                        <span class="col-span-8 p-2 bg-base-200/70">Duração Total</span>
-                                        <span class="col-span-4 p-2 border-l">{duracao_total}</span>
+                                    <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                        <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Duração Total</span>
+                                        <span class="col-span-4 p-2 border-l border-base-300">{duracao_total}</span>
                                     </div>
 
                                     <!-- RESULTADO (respiro visual) -->
                                     <div class="md:col-span-2 h-2"></div>
 
-                                    <div class="grid grid-cols-12 border bg-base-100 font-bold">
-                                        <span class="col-span-8 p-2 bg-base-200/70">Lucro Operacional</span>
-                                        <span class="col-span-4 p-2 border-l">{lucro_operacional}</span>
+                                    <div class="grid grid-cols-12 border border-base-300 bg-base-100 font-bold">
+                                        <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Lucro Operacional</span>
+                                        <span class="col-span-4 p-2 border-l border-base-300 step5-accent-text">{lucro_operacional}</span>
                                     </div>
 
-                                    <div class="grid grid-cols-12 border border-warning bg-base-100">
-                                        <span class="col-span-8 p-2 bg-base-200/70">Rentabilidade</span>
-                                        <span class="col-span-4 p-2 border-l text-warning">
+                                    <div class="grid grid-cols-12 border border-warning step5-warning-surface">
+                                        <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Rentabilidade</span>
+                                        <span class="col-span-4 p-2 border-l border-warning text-warning">
                                             {rentabilidade:.2f}% ({status_texto})
                                         </span>
                                     </div>
 
-                                    <div class="grid grid-cols-12 border bg-base-100">
-                                        <span class="col-span-8 p-2 bg-base-200/70">MLO</span>
-                                        <span class="col-span-4 p-2 border-l">0.00</span>
+                                    <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                        <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">MLO</span>
+                                        <span class="col-span-4 p-2 border-l border-base-300">0.00</span>
                                     </div>
 
-                                    <div class="grid grid-cols-12 border bg-base-100">
-                                        <span class="col-span-8 p-2 bg-base-200/70">MLR</span>
-                                        <span class="col-span-4 p-2 border-l">0.00</span>
+                                    <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                        <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">MLR</span>
+                                        <span class="col-span-4 p-2 border-l border-base-300">0.00</span>
                                     </div>
 
                                 </div>
@@ -1543,10 +1565,10 @@ class BudgetStep5Form(forms.ModelForm):
                         Div(
                             HTML(f"""<div class="text-center text-base-content mt-6">
                                     <p class="text-2xl font-bold">Valor do Orçamento</p>
-                                    <p class="text-3xl font-black">{budget.total_base_value}</p>
+                                    <p class="text-3xl font-black step5-accent-text">{budget.total_base_value}</p>
                                 </div>""")
                         ),
-                        css_class="bg-base-100 p-6 rounded-2xl border-2 border-base-300 h-full flex flex-col text-base-content",
+                        css_class="bg-base-200 p-6 rounded-2xl border-2 border-base-300 h-full flex flex-col text-base-content",
                     ),
                     css_class="col-span-12 lg:col-span-6 h-full",
                 ),
