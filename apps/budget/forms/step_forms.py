@@ -4,6 +4,7 @@ from decimal import Decimal
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import HTML, Div, Field, Layout
 from django import forms
+from django.templatetags.static import static
 from django.template.loader import render_to_string
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
@@ -42,6 +43,17 @@ SLOT_LAYOUT_CONFIG = [
     {"type": BudgetImageType.CHASSI, "label": "Chassi", "full_width": True},
     {"type": BudgetImageType.MOTOR, "label": "Motor", "full_width": True},
 ]
+
+SLOT_PLACEHOLDER_PATHS = {
+    BudgetImageType.PRINCIPAL: "image/principal.png",
+    BudgetImageType.FRONTAL: "image/frontal.png",
+    BudgetImageType.TRASEIRA: "image/traseira.png",
+    BudgetImageType.DIREITA: "image/direita.png",
+    BudgetImageType.ESQUERDA: "image/esquerda.png",
+    BudgetImageType.PAINEL: "image/painel.png",
+    BudgetImageType.CHASSI: "image/chassi.png",
+    BudgetImageType.MOTOR: "image/motor.png",
+}
 
 
 class BudgetStep1Form(forms.ModelForm):
@@ -501,6 +513,8 @@ class BudgetStep3Form(forms.ModelForm):
                 """
             )
         )
+        slot_placeholder_urls = {slot_type: static(path) for slot_type, path in SLOT_PLACEHOLDER_PATHS.items()}
+        slot_placeholder_urls_js = "{" + ", ".join([f"'{slot_type}': '{slot_placeholder_urls[slot_type]}'" for slot_type in SLOT_IMAGE_TYPES]) + "}"
 
         if self.instance.pk:
             existing_defects = self.instance.defects.all()
@@ -569,13 +583,14 @@ class BudgetStep3Form(forms.ModelForm):
                     </div>
                     """)
                 else:
+                    placeholder_src = slot_placeholder_urls[slot["type"]]
                     slots_html.append(f"""
                     <div class="mb-4">
                         <div class="relative border-2 border-dashed border-gray-300 rounded-lg p-4 bg-gray-50 hover:bg-gray-100 hover:border-primary transition-all cursor-pointer" 
                              id="slot-{slot["type"]}"
                              onclick="document.getElementById('file-input-{slot["type"]}').click()">
                             <div class="flex flex-col items-center justify-center h-48">
-                                <span class="material-icons text-6xl text-gray-400 mb-2">add_photo_alternate</span>
+                                <img src="{placeholder_src}" alt="Placeholder {slot["label"]}" class="w-full h-32 object-contain rounded mb-2 opacity-70">
                                 <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
                                 <p class="text-center text-xs text-gray-400 mt-1">Clique para adicionar</p>
                             </div>
@@ -609,12 +624,13 @@ class BudgetStep3Form(forms.ModelForm):
                         </div>
                         """)
                     else:
+                        placeholder_src = slot_placeholder_urls[slot["type"]]
                         slots_html.append(f"""
                         <div class="relative border-2 border-dashed border-gray-300 rounded-lg p-3 bg-gray-50 hover:bg-gray-100 hover:border-primary transition-all cursor-pointer" 
                              id="slot-{slot["type"]}"
                              onclick="document.getElementById('file-input-{slot["type"]}').click()">
                             <div class="flex flex-col items-center justify-center h-32">
-                                <span class="material-icons text-4xl text-gray-400 mb-1">add_photo_alternate</span>
+                                <img src="{placeholder_src}" alt="Placeholder {slot["label"]}" class="w-full h-16 object-contain rounded mb-1 opacity-70">
                                 <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
                                 <p class="text-center text-xs text-gray-400">Clique para adicionar</p>
                             </div>
@@ -648,12 +664,13 @@ class BudgetStep3Form(forms.ModelForm):
                         </div>
                         """)
                     else:
+                        placeholder_src = slot_placeholder_urls[slot["type"]]
                         slots_html.append(f"""
                         <div class="relative border-2 border-dashed border-gray-300 rounded-lg p-3 bg-gray-50 hover:bg-gray-100 hover:border-primary transition-all cursor-pointer" 
                              id="slot-{slot["type"]}"
                              onclick="document.getElementById('file-input-{slot["type"]}').click()">
                             <div class="flex flex-col items-center justify-center h-32">
-                                <span class="material-icons text-4xl text-gray-400 mb-1">add_photo_alternate</span>
+                                <img src="{placeholder_src}" alt="Placeholder {slot["label"]}" class="w-full h-16 object-contain rounded mb-1 opacity-70">
                                 <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
                                 <p class="text-center text-xs text-gray-400">Clique para adicionar</p>
                             </div>
@@ -688,13 +705,14 @@ class BudgetStep3Form(forms.ModelForm):
                         </div>
                         """)
                     else:
+                        placeholder_src = slot_placeholder_urls[slot["type"]]
                         slots_html.append(f"""
                         <div class="mb-4">
                             <div class="relative border-2 border-dashed border-gray-300 rounded-lg p-4 bg-gray-50 hover:bg-gray-100 hover:border-primary transition-all cursor-pointer" 
                                  id="slot-{slot["type"]}"
                                  onclick="document.getElementById('file-input-{slot["type"]}').click()">
                                 <div class="flex flex-col items-center justify-center h-40">
-                                    <span class="material-icons text-5xl text-gray-400 mb-2">add_photo_alternate</span>
+                                    <img src="{placeholder_src}" alt="Placeholder {slot["label"]}" class="w-full h-24 object-contain rounded mb-2 opacity-70">
                                     <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
                                     <p class="text-center text-xs text-gray-400 mt-1">Clique para adicionar</p>
                                 </div>
@@ -734,6 +752,12 @@ class BudgetStep3Form(forms.ModelForm):
                     <script>
                         document.getElementById('vehicle-images-slots').innerHTML = `{slots_html_joined}`;
                         document.getElementById('additional-images-container').innerHTML = `{additional_html_joined}`;
+                        const slotPlaceholders = {slot_placeholder_urls_js};
+                        function getSlotHeightClass(slotType) {{
+                            if (slotType === '{BudgetImageType.PRINCIPAL}') return 'h-48';
+                            if (slotType === '{BudgetImageType.PAINEL}' || slotType === '{BudgetImageType.CHASSI}' || slotType === '{BudgetImageType.MOTOR}') return 'h-40';
+                            return 'h-32';
+                        }}
                         
                         function previewSlotImage(slotType, input) {{
                             if (input.files && input.files[0]) {{
@@ -741,8 +765,9 @@ class BudgetStep3Form(forms.ModelForm):
                                 reader.onload = function(e) {{
                                     const slotDiv = document.getElementById('slot-' + slotType);
                                     const label = slotDiv.querySelector('p').textContent;
+                                    const height = getSlotHeightClass(slotType);
                                     slotDiv.innerHTML = `
-                                        <img src="${{e.target.result}}" alt="${{label}}" class="w-full h-32 object-contain rounded mb-2">
+                                        <img src="${{e.target.result}}" alt="${{label}}" class="w-full ${{height}} object-contain rounded mb-2">
                                         <p class="text-center text-sm font-semibold text-gray-600">${{label}}</p>
                                         <div class="absolute top-2 right-2 badge badge-success gap-1">
                                             <span class="material-icons text-xs">check</span>
@@ -774,9 +799,11 @@ class BudgetStep3Form(forms.ModelForm):
                             
                             // Replace with empty slot
                             slotDiv.classList.add('border-dashed', 'bg-gray-50', 'hover:bg-gray-100', 'opacity-50');
+                            const height = getSlotHeightClass(slotType);
+                            const placeholderSrc = slotPlaceholders[slotType] || '';
                             slotDiv.innerHTML = `
-                                <div class="flex flex-col items-center justify-center h-32">
-                                    <span class="material-icons text-4xl text-gray-400 mb-1">add_photo_alternate</span>
+                                <div class="flex flex-col items-center justify-center ${{height}}">
+                                    <img src="${{placeholderSrc}}" alt="Placeholder ${{label}}" class="w-full h-16 object-contain rounded mb-1 opacity-70">
                                     <p class="text-center text-sm font-semibold text-gray-600">${{label}}</p>
                                     <p class="text-center text-xs text-error">Será removida (clique para substituir)</p>
                                 </div>
@@ -795,13 +822,14 @@ class BudgetStep3Form(forms.ModelForm):
 
                 # Principal (full width)
                 slot = slots_config[0]
+                placeholder_src = slot_placeholder_urls[slot["type"]]
                 slots_html.append(f"""
                 <div class="mb-4">
                     <div class="relative border-2 border-dashed border-gray-300 rounded-lg p-4 bg-gray-50 hover:bg-gray-100 hover:border-primary transition-all cursor-pointer" 
                          id="slot-{slot["type"]}"
                          onclick="document.getElementById('file-input-{slot["type"]}').click()">
                         <div class="flex flex-col items-center justify-center h-48">
-                            <span class="material-icons text-6xl text-gray-400 mb-2">add_photo_alternate</span>
+                            <img src="{placeholder_src}" alt="Placeholder {slot["label"]}" class="w-full h-32 object-contain rounded mb-2 opacity-70">
                             <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
                             <p class="text-center text-xs text-gray-400 mt-1">Clique para adicionar</p>
                         </div>
@@ -814,12 +842,13 @@ class BudgetStep3Form(forms.ModelForm):
                 # Two columns grid
                 slots_html.append('<div class="grid grid-cols-2 gap-4 mb-4">')
                 for slot in slots_config[1:3]:
+                    placeholder_src = slot_placeholder_urls[slot["type"]]
                     slots_html.append(f"""
                     <div class="relative border-2 border-dashed border-gray-300 rounded-lg p-3 bg-gray-50 hover:bg-gray-100 hover:border-primary transition-all cursor-pointer" 
                          id="slot-{slot["type"]}"
                          onclick="document.getElementById('file-input-{slot["type"]}').click()">
                         <div class="flex flex-col items-center justify-center h-32">
-                            <span class="material-icons text-4xl text-gray-400 mb-1">add_photo_alternate</span>
+                            <img src="{placeholder_src}" alt="Placeholder {slot["label"]}" class="w-full h-16 object-contain rounded mb-1 opacity-70">
                             <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
                             <p class="text-center text-xs text-gray-400">Clique para adicionar</p>
                         </div>
@@ -831,12 +860,13 @@ class BudgetStep3Form(forms.ModelForm):
 
                 slots_html.append('<div class="grid grid-cols-2 gap-4 mb-4">')
                 for slot in slots_config[3:5]:
+                    placeholder_src = slot_placeholder_urls[slot["type"]]
                     slots_html.append(f"""
                     <div class="relative border-2 border-dashed border-gray-300 rounded-lg p-3 bg-gray-50 hover:bg-gray-100 hover:border-primary transition-all cursor-pointer" 
                          id="slot-{slot["type"]}"
                          onclick="document.getElementById('file-input-{slot["type"]}').click()">
                         <div class="flex flex-col items-center justify-center h-32">
-                            <span class="material-icons text-4xl text-gray-400 mb-1">add_photo_alternate</span>
+                            <img src="{placeholder_src}" alt="Placeholder {slot["label"]}" class="w-full h-16 object-contain rounded mb-1 opacity-70">
                             <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
                             <p class="text-center text-xs text-gray-400">Clique para adicionar</p>
                         </div>
@@ -848,13 +878,14 @@ class BudgetStep3Form(forms.ModelForm):
 
                 # Full width for remaining
                 for slot in slots_config[5:]:
+                    placeholder_src = slot_placeholder_urls[slot["type"]]
                     slots_html.append(f"""
                     <div class="mb-4">
                         <div class="relative border-2 border-dashed border-gray-300 rounded-lg p-4 bg-gray-50 hover:bg-gray-100 hover:border-primary transition-all cursor-pointer" 
                              id="slot-{slot["type"]}"
                              onclick="document.getElementById('file-input-{slot["type"]}').click()">
                             <div class="flex flex-col items-center justify-center h-40">
-                                <span class="material-icons text-5xl text-gray-400 mb-2">add_photo_alternate</span>
+                                <img src="{placeholder_src}" alt="Placeholder {slot["label"]}" class="w-full h-24 object-contain rounded mb-2 opacity-70">
                                 <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
                                 <p class="text-center text-xs text-gray-400 mt-1">Clique para adicionar</p>
                             </div>
@@ -870,6 +901,12 @@ class BudgetStep3Form(forms.ModelForm):
                     HTML(f"""
                     <script>
                         document.getElementById('vehicle-images-slots').innerHTML = `{slots_html_joined}`;
+                        const slotPlaceholders = {slot_placeholder_urls_js};
+                        function getSlotHeightClass(slotType) {{
+                            if (slotType === '{BudgetImageType.PRINCIPAL}') return 'h-48';
+                            if (slotType === '{BudgetImageType.PAINEL}' || slotType === '{BudgetImageType.CHASSI}' || slotType === '{BudgetImageType.MOTOR}') return 'h-40';
+                            return 'h-32';
+                        }}
                         
                         function previewSlotImage(slotType, input) {{
                             if (input.files && input.files[0]) {{
@@ -877,7 +914,7 @@ class BudgetStep3Form(forms.ModelForm):
                                 reader.onload = function(e) {{
                                     const slotDiv = document.getElementById('slot-' + slotType);
                                     const label = slotDiv.querySelector('p').textContent;
-                                    const height = slotType === 'principal' ? 'h-48' : (slotType === 'painel' || slotType === 'chassi' || slotType === 'motor' ? 'h-40' : 'h-32');
+                                    const height = getSlotHeightClass(slotType);
                                     
                                     slotDiv.innerHTML = `
                                         <img src="${{e.target.result}}" alt="${{label}}" class="w-full ${{height}} object-contain rounded mb-2">
