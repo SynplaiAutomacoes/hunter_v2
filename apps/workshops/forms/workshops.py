@@ -10,6 +10,7 @@ from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 from apps.core.widgets import (
     CheckboxInput,
     CPForCNPJInput,
+    PhoneInput,
     TextInput,
 )
 from apps.workshops.models.workshops import Workshop
@@ -20,10 +21,12 @@ User = get_user_model()
 class WorkshopForm(forms.ModelForm):
     class Meta:
         model = Workshop
-        fields = ["name", "cnpj", "is_active"]
+        fields = ["name", "cnpj", "phone", "address", "is_active"]
         widgets = {
             "name": TextInput(attrs={"placeholder": "Oficina Hunter"}),
             "cnpj": CPForCNPJInput(mode="cnpj"),
+            "phone": PhoneInput(),
+            "address": TextInput(attrs={"placeholder": "Rua das Oficinas, 123"}),
             "is_active": CheckboxInput(),
         }
 
@@ -37,8 +40,10 @@ class WorkshopForm(forms.ModelForm):
             Div(
                 Field(Workshop.name.field.name, wrapper_class="w-full"),
                 Field(Workshop.cnpj.field.name, wrapper_class="w-full"),
-                Field(Workshop.is_active.field.name, wrapper_class="w-fit"),
-                css_class="grid grid-cols-1 lg:grid-cols-[1fr_1fr_auto] gap-4 items-start",
+                Field(Workshop.phone.field.name, wrapper_class="w-full"),
+                Field(Workshop.address.field.name, wrapper_class="w-full lg:col-span-2"),
+                Field(Workshop.is_active.field.name, wrapper_class="w-fit lg:justify-self-end"),
+                css_class="grid grid-cols-1 lg:grid-cols-[1fr_1fr_1fr] gap-4 items-start",
             ),
             HTML('<div class="divider"></div>'),
             Div(

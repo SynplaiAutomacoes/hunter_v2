@@ -189,10 +189,10 @@
         <tr>
             <td style="width: 60%;">
                 {% block company_info %}
-                    <h3 class="company-title">HUNTER SERVIÇOS AUTOMOTIVOS LTDA</h3>
-                    <p style="margin: 2px 0;">CNPJ: 53.843.712/0001-39</p>
-                    <p style="margin: 2px 0;">RUA ENGENHEIRO JOSE VALTER SENG, 144 - FERREIRA - SÃO PAULO/SP - 05623-020</p>
-                    <p style="margin: 2px 0;">Fone: 11 99999-9999</p>
+                    <h3 class="company-title">{{ workshop.name|default:budget.workshop.name|default:workorder.workshop.name|default:"-" }}</h3>
+                    <p style="margin: 2px 0;">CNPJ: {{ workshop.cnpj|default:budget.workshop.cnpj|default:workorder.workshop.cnpj|default:"-" }}</p>
+                    <p style="margin: 2px 0;">{{ workshop.address|default:budget.workshop.address|default:workorder.workshop.address|default:"-" }}</p>
+                    <p style="margin: 2px 0;">Fone: {{ workshop.phone|default:budget.workshop.phone|default:workorder.workshop.phone|default:"-" }}</p>
                 {% endblock %}
             </td>
             <td style="width: 40%; vertical-align:top;" align="right">

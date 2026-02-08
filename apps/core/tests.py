@@ -6,7 +6,17 @@ from django.db.models import F, Func, IntegerField, Value
 from django.db.models.functions import Cast, NullIf
 from django.urls import reverse
 
-from apps.workshops.models import Workshop
+from apps.workshops.models.workshops import Workshop
+
+
+def create_workshop(**kwargs):
+    data = {
+        "name": "Oficina",
+        "phone": "+5511999999999",
+        "address": "Não informado",
+    }
+    data.update(kwargs)
+    return Workshop.objects.create(**data)
 
 
 class TestRenderTableTag(TestCase):
@@ -15,7 +25,7 @@ class TestRenderTableTag(TestCase):
 
     def test_renders_and_paginates(self):
         for i in range(1, 13):
-            Workshop.objects.create(name=f"Oficina {i:02d}")
+            create_workshop(name=f"Oficina {i:02d}")
 
         request = self.factory.get("/workshops/?page=2")
         template = Template(
@@ -45,9 +55,9 @@ class TestRenderTableTag(TestCase):
         self.assertIn('id="t"', html)
 
     def test_sorts_desc_by_name(self):
-        Workshop.objects.create(name="Oficina 01")
-        Workshop.objects.create(name="Oficina 02")
-        Workshop.objects.create(name="Oficina 03")
+        create_workshop(name="Oficina 01")
+        create_workshop(name="Oficina 02")
+        create_workshop(name="Oficina 03")
 
         request = self.factory.get("/workshops/?sort=-name")
         template = Template(
@@ -74,8 +84,8 @@ class TestRenderTableTag(TestCase):
         self.assertIn("Selecionar todos", html)
 
     def test_boolean_cells_render_as_sim_nao_with_badges(self):
-        Workshop.objects.create(name="Oficina 01", is_active=True)
-        Workshop.objects.create(name="Oficina 02", is_active=False)
+        create_workshop(name="Oficina 01", is_active=True)
+        create_workshop(name="Oficina 02", is_active=False)
 
         request = self.factory.get("/workshops/")
         template = Template(
@@ -107,7 +117,7 @@ class TestRenderTableTag(TestCase):
         self.assertNotIn(">False</td>", html)
 
     def test_can_render_cell_with_frontend_format_hint(self):
-        Workshop.objects.create(name="Oficina 01", cnpj="11.222.333/0001-81")
+        create_workshop(name="Oficina 01", cnpj="11.222.333/0001-81")
 
         request = self.factory.get("/workshops/")
         template = Template(
@@ -132,7 +142,7 @@ class TestRenderTableTag(TestCase):
         self.assertIn('data-hf="cnpj"', html)
 
     def test_formatted_cell_with_none_renders_literal_none_and_no_hint(self):
-        Workshop.objects.create(name="Oficina 01", cnpj=None)
+        create_workshop(name="Oficina 01", cnpj=None)
 
         request = self.factory.get("/workshops/")
         template = Template(
@@ -160,7 +170,7 @@ class TestRenderTableTag(TestCase):
         self.assertNotIn('data-hf="cnpj"', compact_html)
 
     def test_action_column_renders_with_edit_and_delete_links(self):
-        w = Workshop.objects.create(name="Oficina 01", is_active=True)
+        w = create_workshop(name="Oficina 01", is_active=True)
 
         request = self.factory.get("/workshops/")
         template = Template(
@@ -221,9 +231,9 @@ class TestRenderTableTag(TestCase):
 
     def test_third_click_clears_sort(self):
         # Não criar paginação (mantém apenas o link do cabeçalho como hx-get no HTML).
-        Workshop.objects.create(name="Oficina 01")
-        Workshop.objects.create(name="Oficina 02")
-        Workshop.objects.create(name="Oficina 03")
+        create_workshop(name="Oficina 01")
+        create_workshop(name="Oficina 02")
+        create_workshop(name="Oficina 03")
 
         request = self.factory.get("/workshops/?sort=-name")
         template = Template(
@@ -250,8 +260,8 @@ class TestRenderTableTag(TestCase):
         self.assertIn("▼", html)
 
     def test_search_filters_rows(self):
-        Workshop.objects.create(name="Alpha")
-        Workshop.objects.create(name="Beta")
+        create_workshop(name="Alpha")
+        create_workshop(name="Beta")
 
         request = self.factory.get("/workshops/?q=Alp")
         template = Template(
@@ -280,7 +290,7 @@ class TestRenderTableTag(TestCase):
 
     def test_search_query_is_kept_in_pagination_links(self):
         for i in range(1, 26):
-            Workshop.objects.create(name=f"Oficina {i:02d}")
+            create_workshop(name=f"Oficina {i:02d}")
 
         request = self.factory.get("/workshops/?q=Oficina&page=2")
         template = Template(
@@ -318,7 +328,7 @@ class TestRenderTableTag(TestCase):
         )
 
     def test_renders_mobile_cards_container(self):
-        Workshop.objects.create(name="Oficina 01", is_active=True)
+        create_workshop(name="Oficina 01", is_active=True)
 
         request = self.factory.get("/workshops/")
         template = Template(
@@ -346,7 +356,7 @@ class TestRenderTableTag(TestCase):
         self.assertIn('class="card', html)
 
     def test_renders_mobile_sort_dropdown_and_hidden_sort_input(self):
-        Workshop.objects.create(name="Oficina 01", is_active=True)
+        create_workshop(name="Oficina 01", is_active=True)
 
         request = self.factory.get("/workshops/")
         template = Template(
@@ -381,7 +391,7 @@ class TestRenderTableTag(TestCase):
 
         # Mistura valores numéricos (como strings) e nomes com prefixo.
         for name in ["10", "11", "4", "5", "6", "7", "8", "9", "Oficina 1", "Oficina 2", "Oficina 3"]:
-            Workshop.objects.create(name=name)
+            create_workshop(name=name)
 
         digits_only = Func(F("name"), Value(r"\D"), Value(""), Value("g"), function="REGEXP_REPLACE")
         numeric_name = Cast(NullIf(digits_only, Value("")), IntegerField())
@@ -417,7 +427,7 @@ class TestRenderTableTag(TestCase):
         self.assertLess(compact_html.find(">4</td>"), compact_html.find(">10</td>"))
 
     def test_delete_action_can_render_htmx_attributes_and_has_no_default_js_confirm(self):
-        w = Workshop.objects.create(name="Oficina 01", is_active=True)
+        w = create_workshop(name="Oficina 01", is_active=True)
 
         request = self.factory.get("/workshops/")
         template = Template(
@@ -447,7 +457,7 @@ class TestRenderTableTag(TestCase):
         self.assertNotIn('onclick="return confirm(', html)
 
     def test_workshop_delete_view_htmx_get_renders_modal_and_post_triggers_refresh(self):
-        w = Workshop.objects.create(name="Oficina 01", is_active=True)
+        w = create_workshop(name="Oficina 01", is_active=True)
 
         User = get_user_model()
         user = User.objects.create_user(username="u", password="p", cpf="11144477735")

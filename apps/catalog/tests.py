@@ -15,7 +15,7 @@ from apps.workshops.models.workshops import Workshop
 
 class KitTests(TestCase):
     def setUp(self):
-        self.workshop = Workshop.objects.create(name="Oficina Teste")
+        self.workshop = Workshop.objects.create(name="Oficina Teste", phone="+5511999999999", address="Rua Teste, 123")
 
     def test_unique_service_per_kit_constraint(self):
         kit = Kit.objects.create(workshop=self.workshop, name="Kit A", description="", is_active=True)
