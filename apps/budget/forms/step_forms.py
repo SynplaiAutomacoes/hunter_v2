@@ -1585,15 +1585,6 @@ class BudgetStep5Form(forms.ModelForm):
         )
 
 
-from crispy_forms.helper import FormHelper
-from crispy_forms.layout import Layout, Div, HTML
-from django import forms
-
-from apps.budget.models import Budget
-from apps.core.utils import alert_confirm_layout
-from django.urls import reverse
-
-
 class BudgetStep6Form(forms.ModelForm):
     class Meta:
         model = Budget
@@ -1611,7 +1602,7 @@ class BudgetStep6Form(forms.ModelForm):
         if self.workshop:
             saved_observation = self.workshop.pdf_observation or ""
 
-        # Renderização das linhas
+        # Render das linhas (mantido)
         rows = _render_budget_items_rows(budget, step6=True)
         products_html = rows["product"]
         services_html = rows["service"]
@@ -1634,11 +1625,45 @@ class BudgetStep6Form(forms.ModelForm):
             alert_confirm_layout(),
 
             # =========================
+            # SCRIPTS (mantidos do código original)
+            # =========================
+            HTML("""
+            <script>
+                function saveObservation(budgetId) {
+                    const observation = document.getElementById('budget-observation').value;
+
+                    fetch('/budget/save-observation/', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}'
+                        },
+                        body: JSON.stringify({
+                            budget_id: budgetId,
+                            observation: observation,
+                        })
+                    });
+                }
+
+                async function updateBudgetStatus(budgetId, status) {
+                    const confirmed = await customConfirm("Você tem certeza que deseja alterar o status deste orçamento?");
+                    if (!confirmed) return;
+
+                    fetch(`/budget/update-status/${budgetId}/${status}`, {
+                        method: 'POST',
+                        headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+                    }).then(() => {
+                        window.location.href = "{% url 'budget:budget_list' %}";
+                    });
+                }
+            </script>
+            """),
+
+            # =========================
             # TÍTULO
             # =========================
             Div(
-                HTML('<h3 class="text-2xl font-bold">Revisão e Confirmação</h3>'),
-                css_class="col-span-12"
+                HTML('<h3 class="text-2xl font-bold col-span-12">Revisão e Confirmação</h3>'),
             ),
 
             # =========================
@@ -1663,7 +1688,7 @@ class BudgetStep6Form(forms.ModelForm):
                                 <th class="w-[32%]">NOME</th>
                                 <th class="w-[8%] text-center">QTD.</th>
                                 <th class="w-[14%]">CUSTO</th>
-                                <th class="w-[16%]">VALOR VENDA</th>
+                                <th class="w-[16%]">VALOR</th>
                                 <th class="w-[12%]">FRETE</th>
                                 <th class="w-[18%]">TOTAL</th>
                               </tr>
@@ -1682,20 +1707,39 @@ class BudgetStep6Form(forms.ModelForm):
 
                         HTML(f"""
                         <div class="overflow-x-auto lg:overflow-visible mb-10 rounded-lg shadow-md shadow-gray-300/50">
-                          <table class="table table-zebra table-fixed w-full">
-                            <thead class="text-white bg-primary">
-                              <tr>
-                                <th class="w-[36%]">NOME</th>
-                                <th class="w-[8%] text-center">QTD.</th>
-                                <th class="w-[18%]">CUSTO</th>
-                                <th class="w-[18%]">VALOR VENDA</th>
-                                <th class="w-[20%]">TOTAL</th>
-                              </tr>
-                            </thead>
-                            <tbody id="service-list-body">
-                              {services_html}
-                            </tbody>
-                          </table>
+                            <table class="table table-zebra table-fixed w-full">
+                                <thead class="text-white bg-primary">
+                                    <tr>
+                                        <th class="w-[32%] whitespace-nowrap text-left">
+                                            NOME
+                                        </th>
+                                        
+                                        <th class="w-[8%] whitespace-nowrap text-center">
+                                            QTD.
+                                        </th>
+                                        
+                                        <th class="w-[14%] whitespace-nowrap text-right">
+                                            CUSTO
+                                        </th>
+                                        
+                                        <th class="w-[16%] whitespace-nowrap text-right">
+                                            VALOR
+                                        </th>
+                                        
+                                        <th class="w-[10%] whitespace-nowrap text-center">
+                                            TEMPO
+                                        </th>
+                                        
+                                        <th class="w-[20%] whitespace-nowrap text-right">
+                                            TOTAL
+                                        </th>
+                                    </tr>
+                                    </thead>
+                            
+                                <tbody id = "service-list-body">
+                                    {services_html}
+                                </tbody>
+                            </table>
                         </div>
                         """),
                     ),
@@ -1706,140 +1750,202 @@ class BudgetStep6Form(forms.ModelForm):
 
                         HTML(f"""
                         <div class="overflow-x-auto lg:overflow-visible mb-6 rounded-lg shadow-md shadow-gray-300/50">
-                          <table class="table table-compact table-fixed w-full">
-                            <thead class="text-white bg-primary">
-                              <tr>
-                                <th class="w-[40%]">NOME</th>
-                                <th class="w-[10%] text-center">QTD.</th>
-                                <th class="w-[15%] text-center">PRODUTOS</th>
-                                <th class="w-[15%] text-center">SERVIÇOS</th>
-                                <th class="w-[20%] text-center">AÇÕES</th>
-                              </tr>
-                            </thead>
-                            <tbody id="kit-list-body">
-                              {kits_html}
-                            </tbody>
-                          </table>
+                            <table class="table table-compact table-fixed w-full">
+                                <thead class="text-white bg-primary">
+                                    <tr>
+                                        <th class="w-[40%] whitespace-nowrap text-left">
+                                        NOME
+                                        </th>
+                                    
+                                        <th class="w-[10%] whitespace-nowrap text-center">
+                                        QTD.
+                                        </th>
+                                    
+                                        <th class="w-[15%] whitespace-nowrap text-center">
+                                        PRODUTOS
+                                        </th>
+                                    
+                                        <th class="w-[15%] whitespace-nowrap text-center">
+                                        SERVIÇOS
+                                        </th>
+                                    
+                                        <th class="w-[20%] whitespace-nowrap text-center">
+                                        AÇÕES
+                                        </th>
+                                    </tr>
+                                </thead>
+                            
+                                <tbody id="kit-list-body">
+                                {kits_html}
+                                </tbody>
+                            </table>
+
                         </div>
                         """),
                     ),
 
-                    css_class="col-span-12 lg:col-span-5"
+                    css_class="col-span-12 lg:col-span-5",
                 ),
 
-                # ===== ESPAÇADOR =====
                 Div(css_class="hidden lg:block lg:col-span-1"),
 
                 # ===== COLUNA DIREITA =====
                 Div(
 
-                    # -------- PDF --------
+                    # -------- PDF (RESTORED 1:1) --------
                     Div(
                         HTML('<h4 class="font-bold text-lg mb-2 border-b">PDF</h4>'),
-
                         HTML(f"""
-                        <div class="grid grid-cols-12 gap-3 mb-8">
-                          <button type="button" class="btn btn-success col-span-4"
-                                  onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{
-                                      detail: {{ url: '{reverse("budget:visualizar_pdf", args=[budget.pk])}' }}
-                                  }}))">
-                            PDF Cliente
-                          </button>
+                        <div class="grid grid-cols-12 gap-3 text-center mb-8">
+                            <button type="button" class="btn btn-success col-span-4"
+                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse("budget:visualizar_pdf", args=[budget.pk])}' }} }}))">
+                                Visualizar PDF
+                            </button>
 
-                          <button type="button" class="btn btn-success col-span-4"
-                                  onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{
-                                      detail: {{ url: '{reverse("budget:visualizar_pdf_gestor", args=[budget.pk])}' }}
-                                  }}))">
-                            PDF Gestor
-                          </button>
+                            <button type="button" class="btn btn-success col-span-4"
+                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse("budget:visualizar_pdf_gestor", args=[budget.pk])}' }} }}))">
+                                PDF Gestor
+                            </button>
 
-                          <button type="button" class="btn btn-success col-span-4"
-                                  onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{
-                                      detail: {{ url: '{reverse("budget:visualizar_pdf_mecanico", args=[budget.pk])}' }}
-                                  }}))">
-                            PDF Mecânico
-                          </button>
+                            <button type="button" class="btn btn-success col-span-4"
+                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse("budget:visualizar_pdf_mecanico", args=[budget.pk])}' }} }}))">
+                                PDF Mecânico
+                            </button>
                         </div>
                         """),
-                        css_class="p-4 bg-base-200/50 rounded-lg"
+                        css_class="p-4 bg-base-200/50 rounded-lg",
                     ),
 
                     # -------- OBSERVAÇÃO --------
                     Div(
                         HTML('<h4 class="font-bold text-lg mb-2 border-b">Observação</h4>'),
-
                         HTML(f"""
                         <div class="flex flex-col gap-3 mb-8">
-                          <textarea class="textarea textarea-bordered w-full"
-                                    rows="4"
-                                    maxlength="250"
-                                    id="budget-observation"
-                                    placeholder="Observação para o PDF...">{saved_observation}</textarea>
+                            <textarea
+                                class="textarea textarea-bordered w-full"
+                                maxlength="250"
+                                rows="4"
+                                id="budget-observation"
+                                placeholder="Digite uma observação para o PDF..."
+                            >{saved_observation}</textarea>
 
-                          <div class="flex justify-between text-sm text-gray-500">
-                            <span id="obs-counter">0 / 250</span>
-                            <button type="button" class="btn btn-sm btn-primary"
-                                    onclick="saveObservation({budget.pk})">
-                              Salvar
-                            </button>
-                          </div>
+                            <div class="flex justify-between items-center text-sm text-gray-500">
+                                <span id="obs-counter">0 / 250</span>
+                                <button type="button"
+                                        class="btn btn-sm btn-primary"
+                                        onclick="saveObservation({budget.pk})">
+                                    Salvar observação
+                                </button>
+                            </div>
                         </div>
 
                         <script>
-                          const ta = document.getElementById('budget-observation');
-                          const c = document.getElementById('obs-counter');
-                          if (ta && c) {{
-                            c.textContent = `${{ta.value.length}} / 250`;
-                            ta.addEventListener('input', () => {{
-                              c.textContent = `${{ta.value.length}} / 250`;
-                            }});
-                          }}
+                            const textarea = document.getElementById('budget-observation');
+                            const counter = document.getElementById('obs-counter');
+                            if (textarea && counter) {{
+                                counter.textContent = `${{textarea.value.length}} / 250`;
+                                textarea.addEventListener('input', () => {{
+                                    counter.textContent = `${{textarea.value.length}} / 250`;
+                                }});
+                            }}
                         </script>
                         """),
-                        css_class="p-4 bg-base-200/50 rounded-lg"
+                        css_class="p-4 bg-base-200/50 rounded-lg",
                     ),
 
                     # -------- APROVAÇÃO --------
                     Div(
                         HTML('<h4 class="font-bold text-lg mb-2 border-b">Aprovação</h4>'),
-
                         HTML(f"""
                         <div class="grid grid-cols-12 gap-3">
-                          <button type="button" class="btn btn-error col-span-4"
-                                  onclick="updateBudgetStatus({budget.pk}, 'cancel')">
-                            Cancelar
-                          </button>
+                            <button type="button" class="btn btn-error col-span-4"
+                                onclick="updateBudgetStatus({budget.pk}, 'cancel')">
+                                Cancelar
+                            </button>
 
-                          <button type="button"
-                                  class="btn col-span-4
-                                  {{% if form.instance.has_local_items %}}
-                                      btn-disabled cursor-not-allowed
-                                  {{% else %}}
-                                      btn-success
-                                  {{% endif %}}"
-                                  {{% if not form.instance.has_local_items %}}
-                                      onclick="updateBudgetStatus({budget.pk}, 'approve')"
-                                  {{% endif %}}
-                                  {{% if form.instance.has_local_items %}}
-                                      disabled
-                                      title="Existem itens não cadastrados"
-                                  {{% endif %}}>
-                            Aprovar
-                          </button>
+                            <button type="button"
+                                class="btn col-span-4
+                                    {{% if form.instance.has_local_items %}}
+                                        btn-disabled cursor-not-allowed
+                                    {{% else %}}
+                                        btn-success
+                                    {{% endif %}}"
+                                {{% if not form.instance.has_local_items %}}
+                                    onclick="updateBudgetStatus({budget.pk}, 'approve')"
+                                {{% endif %}}
+                                {{% if form.instance.has_local_items %}}
+                                    disabled
+                                    title="Existem itens não cadastrados no sistema"
+                                {{% endif %}}>
+                                Aprovar
+                            </button>
 
-                          <button type="button" class="btn btn-warning col-span-4"
-                                  onclick="updateBudgetStatus({budget.pk}, 'reject')">
-                            Reprovar
-                          </button>
+                            <button type="button" class="btn btn-warning col-span-4"
+                                onclick="updateBudgetStatus({budget.pk}, 'reject')">
+                                Reprovar
+                            </button>
                         </div>
                         """),
-                        css_class="p-4 bg-base-200/50 rounded-lg"
+                        css_class="p-4 bg-base-200/50 rounded-lg",
                     ),
 
-                    css_class="col-span-12 lg:col-span-6 sticky top-4"
+                    css_class="col-span-12 lg:col-span-6 sticky top-4",
                 ),
 
-                css_class="grid grid-cols-1 lg:grid-cols-12 gap-8"
+                css_class="grid grid-cols-1 lg:grid-cols-12 gap-8",
             ),
+
+            # =========================
+            # MODAL DE PDF (RESTAURADO)
+            # =========================
+            HTML("""
+            <dialog id="pdfModal"
+                    class="modal"
+                    x-data="{ pdfUrl: '' }"
+                    @open-pdf-modal.window="pdfUrl = $event.detail.url; $el.showModal()">
+
+              <div class="modal-box max-w-5xl w-full h-[90vh] p-0 flex flex-col">
+
+                <div class="flex items-center justify-between px-6 py-4 border-b bg-base-200">
+                    <h3 class="text-xl font-bold flex items-center gap-2">
+                        <span class="material-icons">description</span>
+                        Visualização do PDF
+                    </h3>
+
+                    <div class="flex gap-2">
+                        <button type="button"
+                                class="btn btn-sm btn-success"
+                                onclick="
+                                  const frame = document.querySelector('#pdfModal iframe');
+                                  frame.contentWindow.focus();
+                                  frame.contentWindow.print();
+                                ">
+                            Baixar PDF
+                        </button>
+
+                        <button type="button"
+                                class="btn btn-sm"
+                                onclick="document.getElementById('pdfModal').close()">
+                            Fechar
+                        </button>
+                    </div>
+                </div>
+
+                <div class="flex-1 bg-gray-100">
+                    <template x-if="pdfUrl">
+                        <iframe :src="pdfUrl"
+                                class="w-full h-full"
+                                frameborder="0"></iframe>
+                    </template>
+                </div>
+
+              </div>
+
+              <form method="dialog" class="modal-backdrop">
+                <button>close</button>
+              </form>
+            </dialog>
+            """),
         )
+
 
