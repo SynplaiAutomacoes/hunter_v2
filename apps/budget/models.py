@@ -344,17 +344,37 @@ class Budget(TimeStampedModel):
         return f"Budget #{self.id} - {self.customer}"
 
 
+class BudgetImageType(models.TextChoices):
+    PRINCIPAL = "principal", "Principal"
+    FRONTAL = "frontal", "Frontal"
+    TRASEIRA = "traseira", "Traseira"
+    DIREITA = "direita", "Direita"
+    ESQUERDA = "esquerda", "Esquerda"
+    PAINEL = "painel", "Painel"
+    CHASSI = "chassi", "Chassi"
+    MOTOR = "motor", "Motor"
+    ADDITIONAL = "additional", "Adicional"
+
+
 class BudgetImage(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="budget_image")
     budget = models.ForeignKey(Budget, on_delete=models.CASCADE, related_name="budget_image")
     content = models.BinaryField(null=True, blank=True)
     content_name = models.CharField(max_length=100, null=True, blank=True)
     content_type = models.CharField(max_length=100, null=True, blank=True)
+    image_type = models.CharField(max_length=20, choices=BudgetImageType.choices, default=BudgetImageType.ADDITIONAL, verbose_name="Tipo de Imagem")
 
     class Meta:
         verbose_name = "Imagem do Orçamento"
         verbose_name_plural = "Imagens do Orçamento"
         ordering = ['criado_em']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['budget', 'image_type'],
+                condition=~models.Q(image_type=BudgetImageType.ADDITIONAL),
+                name='unique_budget_image_type_non_additional'
+            )
+        ]
 
     def __str__(self):
         return f"Image #{self.id} from Budget: {self.budget}"
