@@ -42,3 +42,14 @@ class StockMovement(TimeStampedModel):
     @property
     def location(self):
         return self.stock_product.product.location
+
+
+class SefazZipCache(TimeStampedModel):
+    workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="sefaz_caches")
+    key = models.CharField(max_length=44, unique=True, verbose_name="Chave de Acesso")
+    nf_number = models.CharField(max_length=20, null=True, blank=True)
+    issue_date = models.DateTimeField(null=True, blank=True)
+    issuer_name = models.CharField(max_length=255, null=True, blank=True)
+    issuer_cnpj = models.CharField(max_length=20, null=True, blank=True)
+    total_value = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    is_imported = models.BooleanField(default=False)
