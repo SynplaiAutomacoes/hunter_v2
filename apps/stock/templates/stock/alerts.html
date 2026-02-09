@@ -1,10 +1,12 @@
-{% extends 'stock/base_inventory.html' %}
+{% extends 'crud/page.html' %}
 
-{% block inventory_content %}
+{% block crud_content %}
 <div class="p-6 space-y-6">
-    <div class="flex items-center gap-2">
-        <i class="material-icons text-error text-3xl">warning</i>
-        <h2 class="text-3xl font-bold text-base-content">Alertas de Estoque</h2>
+    <div class="flex justify-between items-center">
+        <div>
+            <h2 class="text-3xl font-bold">Alerta de Estoque</h2>
+            <p class="text-base-content/60">Itens que estão abaixo do estoque mínimo definido no cadastro.</p>
+        </div>
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
