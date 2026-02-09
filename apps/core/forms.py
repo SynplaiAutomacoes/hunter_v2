@@ -63,9 +63,16 @@ class MultiStepFormMixin:
 
     @property
     def budget_object(self):
+        if not hasattr(self, "get_object"):
+            return None
         if not hasattr(self, "_budget_obj"):
             self._budget_obj = self.get_object()
         return self._budget_obj
+
+    def get_steps_config(self):
+        if hasattr(self, "get_steps_definition"):
+            return self.get_steps_definition()
+        return self.steps_definition
 
     def get_current_step(self):
         step_url = self.request.GET.get("step")
@@ -75,12 +82,13 @@ class MultiStepFormMixin:
             step = None
 
         if not step:
-            if self.budget_object and hasattr(self.budget_object, "current_step"):
-                step = self.budget_object.current_step
+            obj = self.budget_object
+            if obj and hasattr(obj, "current_step"):
+                step = obj.current_step
             else:
                 step = 1
 
-        total_steps = len(self.steps_definition)
+        total_steps = len(self.get_steps_config())
         if step > total_steps:
             return total_steps
         return max(1, step)
@@ -88,12 +96,23 @@ class MultiStepFormMixin:
     def get_form_class(self):
         """Retorna o form_class definido para a etapa atual."""
         current_step = self.get_current_step()
-        return self.steps_definition[current_step - 1].get("form_class")
+        steps = self.get_steps_config()
+
+        if not steps:
+            return None
+
+        idx = max(0, min(current_step - 1, len(steps) - 1))
+        return steps[idx].get("form_class")
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
-        if not kwargs.get("instance"):
-            kwargs["instance"] = self.get_object()
+
+        obj = self.get_object() if hasattr(self, "get_object") else None
+
+        if obj:
+            kwargs["instance"] = obj
+        elif "instance" in kwargs:
+            kwargs.pop("instance")
 
         if hasattr(self, "workshop"):
             kwargs.update({'workshop': self.workshop})
@@ -102,17 +121,22 @@ class MultiStepFormMixin:
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         current_step = self.get_current_step()
+        steps = self.get_steps_config()
 
-        context["steps_config"] = [{"number": i + 1, "title": step["title"]} for i, step in enumerate(self.steps_definition)]
+        context["steps_config"] = [{"number": i + 1, "title": step["title"]} for i, step in enumerate(steps)]
         context["current_step"] = current_step
 
         context["object"] = self.budget_object
         context["max_reached_step"] = self.budget_object.current_step if self.budget_object else 1
 
-        # Injeta o formset específico da etapa atual se existir
-        step_config = self.steps_definition[current_step - 1]
-        if "formset_class" in step_config:
-            context["step_formset"] = step_config["formset_class"](instance=self.object, data=self.request.POST if self.request.method == "POST" else None)
+        if steps and current_step <= len(steps):
+            step_config = steps[current_step - 1]
+            if "formset_class" in step_config:
+                obj = getattr(self, 'object', self.budget_object)
+                context["step_formset"] = step_config["formset_class"](
+                    instance=obj,
+                    data=self.request.POST if self.request.method == "POST" else None
+                )
         return context
 
     def apply_step_status(self, budget=None, current_step=None, actor=None, isUpdate=False):
@@ -129,6 +153,8 @@ class MultiStepFormMixin:
 
         Retorna True se uma alteração foi aplicada, False caso contrário.
         """
+        steps = self.get_steps_config()
+
         if budget is None:
             budget = getattr(self, 'object', None) or getattr(self, 'budget_object', None)
         if budget is None:
@@ -138,10 +164,10 @@ class MultiStepFormMixin:
             current_step = self.get_current_step()
 
         # Defensive: ensure step index in range
-        if not (1 <= current_step <= len(self.steps_definition)):
+        if not (1 <= current_step <= len(steps)):
             return False
 
-        step_config = self.steps_definition[current_step - 1]
+        step_config = steps[current_step - 1]
         auto_apply = step_config.get('auto_apply', False)
         desired = step_config.get('status', None)
 
