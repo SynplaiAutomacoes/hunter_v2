@@ -1,10 +1,13 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.views.generic import ListView
+from django.views.generic import ListView, FormView
 from django.shortcuts import get_object_or_404, redirect
 from django.contrib import messages
 from django.db import transaction
 from django.db.models import F, ExpressionWrapper, IntegerField
+
+from .forms import ImportStep1Form
 from .models import StockProduct, StockMovement
+from ..core.forms import MultiStepFormMixin
 from ..core.templatetags.table_tags import TableColumn
 from ..core.views import HtmxTemplateResponseMixin
 from ..workshops.mixin import WorkshopScopedMixin
@@ -93,3 +96,49 @@ def approve_movement(request, pk):
         messages.error(request, f"Erro: {str(e)}")
 
     return redirect('stock:approvals')
+
+
+class StockImportView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixin, FormView):
+    model = StockProduct
+    template_name = "stock/import_form.html"
+    workshop_permission_codename = "add_stockproduct"
+
+    def get_object(self, queryset=None):
+        return None
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        if 'instance' in kwargs:
+            kwargs.pop('instance')
+        return kwargs
+
+    # Definição dinâmica baseada na escolha do Step 1
+    def get_steps_definition(self):
+        method = self.request.session.get("import_method", "XML")
+
+        base_steps = [
+            {"title": "Método", "form_class": ImportStep1Form},
+        ]
+
+        # if method == "SEFAZ":
+        #     base_steps.append({"title": "Seleção de NF", "form_class": ImportSefazListForm})
+        #
+        # base_steps.extend(
+        #     [
+        #         {"title": "Fornecedor", "form_class": ImportStepSupplierForm},
+        #         {"title": "Itens", "form_class": ImportStepItemsForm},
+        #         {"title": "Pagamento", "form_class": ImportStepPaymentForm},
+        #         {"title": "Resumo", "form_class": ImportStepSummaryForm},
+        #     ]
+        # )
+        return base_steps
+
+    def form_valid(self, form):
+        current_step = self.get_current_step()
+
+        # Lógica de persistência em Sessão (Exemplo Step 1)
+        if current_step == 1:
+            self.request.session["import_method"] = form.cleaned_data["method"]
+            # Aqui entraria o parse_nfe_xml para popular a sessão
+
+        return self.render_next_step(form)
