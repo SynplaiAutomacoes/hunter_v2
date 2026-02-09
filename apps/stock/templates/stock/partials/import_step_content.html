@@ -1,0 +1,19 @@
+{% load crispy_forms_tags %}
+{% include 'navbar/stepper.html' %}
+
+<div class="flex items-center justify-between mb-8 mt-4">
+    <button type="button" class="btn btn-ghost"
+            {% if current_step > 1 %} hx-get="?step={{ current_step|add:-1 }}" hx-target="#import-card-content" {% else %} disabled {% endif %}>
+        <span class="material-icons">chevron_left</span> Anterior
+    </button>
+
+    <button type="submit" form="import-form" class="btn btn-primary">
+        {% if current_step == steps_config|length %} Finalizar Importação {% else %} Próxima Etapa {% endif %}
+    </button>
+</div>
+
+<form id="import-form" hx-post="{{ request.path }}?step={{ current_step }}"
+      hx-target="#import-card-content" hx-encoding="multipart/form-data">
+    {% csrf_token %}
+    {% crispy form %}
+</form>
