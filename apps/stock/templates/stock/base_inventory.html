@@ -1,0 +1,25 @@
+{% extends 'crud/page.html' %}
+{% block crud_content %}
+
+    <div class="flex items-center justify-between gap-4">
+        <div>
+            <h1 class="text-3xl font-bold text-base-content">Peças e Gestão de Inventário</h1>
+            <p class="text-base-content/70 mt-1">Supervisione todo o ciclo de vida das peças, da requisição ao consumo. </p>
+        </div>
+        {% block inventory_actions %}
+            {# Botões de ação específicos de cada página entrarão aqui #}
+        {% endblock %}
+    </div>
+
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body p-6 md:p-8" id="stock-card-content">
+            {% block inventory_content %}
+                {# O conteúdo das outras páginas será injetado aqui #}
+            {% endblock %}
+        </div>
+    </div>
+
+    <dialog id="form_modal" class="modal">
+        <div id="modal-container"></div>
+    </dialog>
+{% endblock %}
