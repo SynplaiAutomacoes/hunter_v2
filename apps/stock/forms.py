@@ -1,3 +1,5 @@
+import re
+
 from django import forms
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, HTML
@@ -14,7 +16,7 @@ class ImportStep1Form(forms.Form):
     ]
     method = forms.ChoiceField(choices=METHOD_CHOICES, label="Selecione o método de Importação de Itens", widget=forms.Select(attrs={'x-model': 'method'}))
     xml_file = forms.FileField(label="Selecione o arquivo XML", required=False)
-    access_key = forms.CharField(label="Insira a chave de acesso", max_length=44, required=False, widget=TextInput)
+    access_key = forms.CharField(label="Insira a chave de acesso", max_length=47, required=False, widget=TextInput(attrs={'oninput': "this.value = this.value.replace(/[^0-9]/g, '')"}))
 
     def __init__(self, *args, **kwargs):
         self.workshop = kwargs.pop("workshop", None)
@@ -46,3 +48,17 @@ class ImportStep1Form(forms.Form):
                 )
             )
         )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        method = cleaned_data.get("method")
+
+        if method == 'XML' and not self.files.get('xml_file'):
+            self.add_error("xml_file", "O arquivo XML é obrigatório para este método.")
+
+        if method == "KEY":
+            key = cleaned_data.get("access_key")
+            if not key or len(re.sub(r"\D", "", key)) != 44:
+                self.add_error("access_key", "Insira uma chave válida de 44 dígitos.")
+
+        return cleaned_data

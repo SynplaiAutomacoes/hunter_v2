@@ -53,3 +53,4 @@ class SefazZipCache(TimeStampedModel):
     issuer_cnpj = models.CharField(max_length=20, null=True, blank=True)
     total_value = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
     is_imported = models.BooleanField(default=False)
+    xml_archive = models.TextField(null=True, blank=True)

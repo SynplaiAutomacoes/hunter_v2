@@ -1,16 +1,21 @@
+import re
+
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import ListView, FormView
 from django.shortcuts import get_object_or_404, redirect
 from django.contrib import messages
 from django.db import transaction
 from django.db.models import F, ExpressionWrapper, IntegerField
+from pynfe.processamento import ComunicacaoSefaz
 
 from .forms import ImportStep1Form
 from .models import StockProduct, StockMovement
+from .utils import NFParser
 from ..core.forms import MultiStepFormMixin
 from ..core.templatetags.table_tags import TableColumn
 from ..core.views import HtmxTemplateResponseMixin
 from ..workshops.mixin import WorkshopScopedMixin
+from ..workshops.util.workshops import get_active_workshop_or_404
 
 
 class StockAlertsListView(LoginRequiredMixin, WorkshopScopedMixin, ListView):
@@ -138,7 +143,41 @@ class StockImportView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixi
 
         # Lógica de persistência em Sessão (Exemplo Step 1)
         if current_step == 1:
-            self.request.session["import_method"] = form.cleaned_data["method"]
-            # Aqui entraria o parse_nfe_xml para popular a sessão
+            method = form.cleaned_data["method"]
+            self.request.session["import_method"] = method
+            nf_data = None
+
+            if method == "XML":
+                xml_file = self.request.FILES.get("xml_file")
+                nf_data = NFParser.parse_nfe_xml_to_dict(xml_file)
+
+            elif method == "KEY":
+                chave = re.sub(r"\D", "", form.cleaned_data.get("access_key"))
+                workshop = self.workshop or get_active_workshop_or_404(self.request)
+
+                if not workshop.pfx_certificate or not workshop.certificate_password:
+                    error_message = "Oficina sem certificado configurado."
+                    messages.error(self.request, error_message)
+                    form.add_error("access_key", error_message)
+                    return self.form_invalid(form)
+
+                try:
+                    comunicacao = ComunicacaoSefaz(workshop.uf, workshop.pfx_certificate.path, workshop.certificate_password)
+                    cnpj_clean = re.sub(r"\D", "", workshop.cnpj)
+                    xml_response = comunicacao.consulta_distribuicao(cnpj=cnpj_clean, chave=chave)
+                    nf_data = NFParser.parse_nfe_xml_to_dict(xml_response.content)
+                except Exception as e:
+                    form.add_error("access_key", f"Erro na SEFAZ: {str(e)}")
+                    return self.form_invalid(form)
+
+                if method in ["XML", "KEY"]:
+                    if not nf_data:
+                        form.add_error(None, "Não foi possível extrair dados desta Nota Fiscal.")
+                        return self.form_invalid(form)
+
+                    # Persistência em Sessão para as próximas etapas
+                    self.request.session["nf_data"] = nf_data
+                    # Salva os itens separadamente para facilitar a conciliação no Step 3/4
+                    self.request.session["import_items"] = nf_data['items']
 
         return self.render_next_step(form)
