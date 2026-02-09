@@ -10,7 +10,7 @@
             None
 
         {% elif cell.format == "status_badge" %}
-            <span class="badge {{ cell.value.class }} badge-sm no-wrap">{{ cell.value.text }}</span>
+            <span class="badge {{ cell.value.class }} badge-sm whitespace-nowrap">{{ cell.value.text }}</span>
 
         {% elif cell.format %}
             <span
