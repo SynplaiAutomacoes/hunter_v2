@@ -23,7 +23,12 @@
         },
         {
             label: 'Estoque',
-            href: '#'
+            items: [
+                { label: 'Aprovação', href: '{% url "stock:approvals" %}' },
+                { label: 'Reabastecimento', href: '{% url "stock:replenishment" %}' },
+                { label: 'Movimentações', href: '{% url "stock:movements" %}' },
+                { label: 'Alertas', href: '{% url "stock:alerts" %}' }
+            ]
         },
         {
             label: 'Consulta',
