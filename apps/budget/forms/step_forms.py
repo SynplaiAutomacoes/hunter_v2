@@ -1260,6 +1260,9 @@ class BudgetStep5Form(forms.ModelForm):
         status_texto = "Ruim" if rentabilidade < 60 else "Médio" if (60 <= rentabilidade < 70) else "Bom"
         discount_amount = budget.discount_value.amount if budget.discount_value else Decimal("0")
         discount_display = budget.discount_value if discount_amount != Decimal("0") else Money(0, "BRL")
+        step5_calculation_viewed = bool(budget.pk and budget.step5_calculation_viewed)
+        step5_loading_hidden_class = "hidden" if step5_calculation_viewed else ""
+        step5_method_hidden_class = "" if step5_calculation_viewed else "hidden"
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -1337,6 +1340,27 @@ class BudgetStep5Form(forms.ModelForm):
                 .step5-warning-surface {{
                     background-color: var(--step5-warning-soft);
                 }}
+
+                .step5-calculating-dot {{
+                    animation: step5-loading-blink 1s infinite;
+                }}
+
+                .step5-calculating-dot:nth-child(2) {{
+                    animation-delay: 0.2s;
+                }}
+
+                .step5-calculating-dot:nth-child(3) {{
+                    animation-delay: 0.4s;
+                }}
+
+                @keyframes step5-loading-blink {{
+                    0%, 80%, 100% {{
+                        opacity: 0.2;
+                    }}
+                    40% {{
+                        opacity: 1;
+                    }}
+                }}
             </style>
             <script>
                     (function() {{
@@ -1384,7 +1408,63 @@ class BudgetStep5Form(forms.ModelForm):
                     }})();
 
                     (function () {{
-                        function initSlider() {{
+                        function initCalculationGate() {{
+                            const calculateButton = document.getElementById('step5-calculate-values-btn');
+                            const calculationStatus = document.getElementById('step5-calculation-status');
+                            const loadingCard = document.getElementById('step5-calc-loader-card');
+                            const methodCard = document.getElementById('step5-method-card');
+                            const controlsCard = document.getElementById('step5-controls-card');
+
+                            if (!calculateButton || !loadingCard || !methodCard || !controlsCard || calculateButton.dataset.initialized === 'true') return;
+
+                            calculateButton.dataset.initialized = 'true';
+
+                            calculateButton.addEventListener('click', async () => {{
+                                if (calculateButton.disabled) return;
+
+                                calculateButton.disabled = true;
+                                calculateButton.classList.add('btn-disabled');
+
+                                const label = calculateButton.querySelector('[data-step5-calc-label]');
+                                if (label) {{
+                                    label.textContent = 'Calculando...';
+                                }}
+
+                                if (calculationStatus) {{
+                                    calculationStatus.classList.remove('hidden');
+                                    calculationStatus.classList.add('flex');
+                                }}
+
+                                try {{
+                                    await fetch('{reverse("budget:mark_step5_calculation_viewed", args=[self.instance.pk])}', {{
+                                        method: 'POST',
+                                        headers: {{
+                                            'X-CSRFToken': '{{{{ csrf_token }}}}',
+                                            'X-Requested-With': 'XMLHttpRequest',
+                                        }},
+                                    }});
+                                }} catch (error) {{
+                                    console.error('Erro ao marcar calculo do step 5:', error);
+                                }}
+
+                                window.setTimeout(() => {{
+                                    loadingCard.classList.add('hidden');
+                                    methodCard.classList.remove('hidden');
+                                    controlsCard.classList.remove('hidden');
+
+                                    if (typeof window.step5InitSlider === 'function') {{
+                                        window.step5InitSlider();
+                                    }}
+                                }}, 5000);
+                            }});
+                        }}
+
+                        document.addEventListener('DOMContentLoaded', initCalculationGate);
+                        document.body.addEventListener('htmx:afterSettle', initCalculationGate);
+                    }})();
+
+                    (function () {{
+                        window.step5InitSlider = function initSlider() {{
                             const slider = document.querySelector('input[name="slider"]');
                             const labelPecaPct = document.getElementById('val-peca');
                             const labelMOPct = document.getElementById('val-mo');
@@ -1455,14 +1535,34 @@ class BudgetStep5Form(forms.ModelForm):
                     
                             slider.addEventListener('input', e => update(e.target.value));
                             update(slider.value || 0);
-                        }}
+                        }};
                     
-                        document.addEventListener('DOMContentLoaded', initSlider);
-                        document.body.addEventListener('htmx:afterSettle', initSlider);
+                        document.addEventListener('DOMContentLoaded', window.step5InitSlider);
+                        document.body.addEventListener('htmx:afterSettle', window.step5InitSlider);
                     }})();
                 </script>"""),
             Div(
                 HTML('<h3 class="text-2xl font-bold col-span-12">Método de Precificação</h3>'),
+                Div(
+                    HTML(
+                        """
+                        <div class="h-full max-w-2xl mx-auto flex flex-col items-center justify-center text-center gap-4 py-12">
+                            <p class="text-xl font-semibold text-base-content">A precificação deste orçamento será exibida após o cálculo.</p>
+                            <button type="button" id="step5-calculate-values-btn" class="btn btn-primary btn-lg min-w-52">
+                                <span data-step5-calc-label>Calcular Valores</span>
+                            </button>
+                            <div id="step5-calculation-status" class="hidden items-center gap-1 text-base-content/70 font-semibold" aria-live="polite">
+                                <span>Calculando</span>
+                                <span class="step5-calculating-dot">.</span>
+                                <span class="step5-calculating-dot">.</span>
+                                <span class="step5-calculating-dot">.</span>
+                            </div>
+                        </div>
+                        """
+                    ),
+                    id="step5-calc-loader-card",
+                    css_class=f"col-span-12 bg-base-200 p-6 rounded-2xl border-2 border-base-300 h-full text-base-content {step5_loading_hidden_class}",
+                ),
                 # Coluna Esquerda
                 Div(
                     Div(
@@ -1568,7 +1668,8 @@ class BudgetStep5Form(forms.ModelForm):
                                     <p class="text-3xl font-black step5-accent-text">{budget.total_base_value}</p>
                                 </div>""")
                         ),
-                        css_class="bg-base-200 p-6 rounded-2xl border-2 border-base-300 h-full flex flex-col text-base-content",
+                        id="step5-method-card",
+                        css_class=f"bg-base-200 p-6 rounded-2xl border-2 border-base-300 h-full flex flex-col text-base-content {step5_method_hidden_class}",
                     ),
                     css_class="col-span-12 lg:col-span-6 h-full",
                 ),
@@ -1612,7 +1713,8 @@ class BudgetStep5Form(forms.ModelForm):
                         ),
                         css_class="sticky top-4",
                     ),
-                    css_class="col-span-12 lg:col-span-6",
+                    id="step5-controls-card",
+                    css_class=f"col-span-12 lg:col-span-6 {step5_method_hidden_class}",
                 ),
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch",
             ),

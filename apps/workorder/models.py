@@ -19,8 +19,8 @@ class WorkOrder(TimeStampedModel):
     @property
     def workorder_status_badge(self):
         status_color = {
-            WorkOrderStatus.DRAFT: "badge-soft badge-ghost",
-            WorkOrderStatus.APPROVED: "badge-success",
+            WorkOrderStatus.DRAFT: "badge-soft badge-ghost min-w-sm",
+            WorkOrderStatus.APPROVED: "badge-success min-w-sm",
         }
 
         return {"text": WorkOrderStatus(self.status).label, "class": status_color.get(self.status, "badge-ghost")}
