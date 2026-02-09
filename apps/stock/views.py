@@ -43,3 +43,14 @@ class StockMovementListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplat
             TableColumn(StockMovement.supplier.field.verbose_name, attr=StockMovement.supplier.field.name),
         ]
         return context
+
+
+class ReplenishmentListView(LoginRequiredMixin, WorkshopScopedMixin, ListView):
+    model = StockProduct
+    template_name = "stock/replenish.html"
+    context_object_name = "items"
+    workshop_permission_codename = "view_stockproduct"
+
+    def get_queryset(self):
+        suggested_order_calc = ExpressionWrapper(F("restock_quantity") - F("current_quantity"), output_field=IntegerField())
+        return StockProduct.objects.filter(workshop=self.workshop).annotate(suggested_order=suggested_order_calc).filter(suggested_order__gt=0)
