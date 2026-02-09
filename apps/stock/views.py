@@ -1,7 +1,7 @@
 import re
 
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.views.generic import ListView, FormView
+from django.views.generic import ListView, FormView, CreateView
 from django.shortcuts import get_object_or_404, redirect, render
 from django.contrib import messages
 from django.db import transaction
@@ -151,7 +151,7 @@ class StockImportView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixi
         method = self.request.session.get("import_method", "XML")
 
         base_steps = [
-            {"title": "Método", "form_class": ImportStep1Form},
+            {"title": "Método de Importação", "form_class": ImportStep1Form},
         ]
 
         # if method == "SEFAZ":
@@ -160,9 +160,9 @@ class StockImportView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixi
         base_steps.extend(
             [
                 {"title": "Fornecedor", "form_class": ImportStepSupplierForm},
-        #         {"title": "Itens", "form_class": ImportStepItemsForm},
-        #         {"title": "Pagamento", "form_class": ImportStepPaymentForm},
-        #         {"title": "Resumo", "form_class": ImportStepSummaryForm},
+        #         {"title": "Importar Itens", "form_class": ImportStepItemsForm},
+        #         {"title": "Método de Pagamento", "form_class": ImportStepPaymentForm},
+        #         {"title": "Revisão e Confirmação", "form_class": ImportStepSummaryForm},
             ]
         )
         return base_steps
