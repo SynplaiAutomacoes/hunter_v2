@@ -27,6 +27,13 @@ USE_X_FORWARDED_HOST = True
 
 CSRF_TRUSTED_ORIGINS = [o.strip() for o in os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()]
 
+APP_BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:8000")
+
+SUPERSIGN_BASE_URL = os.getenv("SUPERSIGN_BASE_URL", "https://api.sign.supersign.com.br")
+SUPERSIGN_ACCOUNT_ID = os.getenv("SUPERSIGN_ACCOUNT_ID", "")
+SUPERSIGN_API_KEY = os.getenv("SUPERSIGN_API_KEY", "")
+SUPERSIGN_FOLDER_ID = os.getenv("SUPERSIGN_FOLDER_ID", "")
+
 if not DEBUG:
     SECURE_SSL_REDIRECT = os.getenv("DJANGO_SECURE_SSL_REDIRECT", "1").lower() in ("1", "true", "yes")
     SESSION_COOKIE_SECURE = True
