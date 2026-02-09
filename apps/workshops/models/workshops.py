@@ -17,7 +17,7 @@ class Workshop(TimeStampedModel):
         blank=True,
     )
     name = CharField(verbose_name="Nome", max_length=255, null=False, blank=False)
-    cnpj = BRCNPJField(verbose_name="CNPJ", null=True, blank=True, unique=True)
+    cnpj = BRCNPJField(verbose_name="CNPJ", null=False, blank=False, unique=True)
     phone = PhoneNumberField(region="BR", verbose_name="Telefone", max_length=20, blank=False)
     address = CharField(verbose_name="Endereço", max_length=255, null=False, blank=False)
     uf = models.CharField(verbose_name="UF", max_length=2, null=False, blank=False, default="SP")
