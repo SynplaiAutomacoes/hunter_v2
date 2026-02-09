@@ -1,3 +1,4 @@
+from django.shortcuts import redirect, render
 from django.urls import reverse
 from crispy_forms.layout import Div, Field, HTML
 from apps.core.widgets import CEPInput, TextInput, SelectInput
@@ -138,6 +139,37 @@ class MultiStepFormMixin:
                     data=self.request.POST if self.request.method == "POST" else None
                 )
         return context
+
+    def render_next_step(self, form):
+        """
+        Lida com o avanço de etapa.
+        Se for HTMX, renderiza apenas o conteúdo do card.
+        Se não, redireciona com o parâmetro ?step=X
+        """
+        current_step = self.get_current_step()
+        steps = self.get_steps_config()
+
+        # Se ainda houver passos, avança. Se não, finaliza (comportamento padrão)
+        if current_step < len(steps):
+            next_step = current_step + 1
+        else:
+            return redirect(self.get_success_url())
+
+        # URL para o próximo passo
+        next_url = f"{self.request.path}?step={next_step}"
+
+        if self.request.htmx:
+            self.request.GET = self.request.GET.copy()
+            self.request.GET["step"] = str(next_step)
+
+            form_class = self.get_form_class()
+            next_form = form_class(**self.get_form_kwargs())
+
+            context = self.get_context_data(form=next_form)
+            context["current_step"] = next_step
+            return render(self.request, 'stock/partials/import_step_content.html', context)
+
+        return redirect(next_url)
 
     def apply_step_status(self, budget=None, current_step=None, actor=None, isUpdate=False):
         """

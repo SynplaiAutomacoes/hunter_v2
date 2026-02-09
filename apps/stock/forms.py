@@ -20,6 +20,7 @@ class ImportStep1Form(forms.Form):
 
     def __init__(self, *args, **kwargs):
         self.workshop = kwargs.pop("workshop", None)
+        self.nf_data = kwargs.pop("nf_data", {})
         super().__init__(*args, **kwargs)
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -62,3 +63,42 @@ class ImportStep1Form(forms.Form):
                 self.add_error("access_key", "Insira uma chave válida de 44 dígitos.")
 
         return cleaned_data
+
+
+class ImportStepSupplierForm(forms.Form):
+    def __init__(self, *args, **kwargs):
+        self.workshop = kwargs.pop("workshop", None)
+        self.nf_data = kwargs.pop("nf_data", {})
+        super().__init__(*args, **kwargs)
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+
+        # Dados extraídos para exibição amigável
+        nome = self.nf_data.get("supplier_name", "Não informado")
+        cnpj = self.nf_data.get("supplier_cnpj", "Não informado")
+        nNF = self.nf_data.get("nf_number", "---")
+
+        self.helper.layout = Layout(
+            HTML(f"""
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-indigo-50 p-6 rounded-lg border border-indigo-100 mb-6">
+                <div>
+                    <p class="text-xs text-indigo-600 font-bold uppercase tracking-wider mb-1">Emitente (Fornecedor)</p>
+                    <p class="font-bold text-gray-900 text-lg">{nome}</p>
+                    <p class="text-sm text-gray-600 font-mono">CNPJ: {cnpj}</p>
+                </div>
+                <div>
+                    <p class="text-xs text-indigo-600 font-bold uppercase tracking-wider mb-1">Dados da Nota</p>
+                    <p class="font-bold text-gray-900 text-lg">NF-e: {nNF}</p>
+                    <p class="text-xs text-gray-500 italic">Os itens serão conciliados na próxima etapa.</p>
+                </div>
+            </div>
+            <div class="alert alert-info shadow-sm mb-4">
+                <span class="material-icons">info</span>
+                <div>
+                    <h3 class="font-bold text-sm">Informação</h3>
+                    <div class="text-xs">Ao avançar, o fornecedor será vinculado ou cadastrado automaticamente.</div>
+                </div>
+            </div>
+            """)
+        )

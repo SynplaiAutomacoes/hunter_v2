@@ -2,18 +2,19 @@ import re
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import ListView, FormView
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404, redirect, render
 from django.contrib import messages
 from django.db import transaction
 from django.db.models import F, ExpressionWrapper, IntegerField
 from pynfe.processamento import ComunicacaoSefaz
 
-from .forms import ImportStep1Form
+from .forms import ImportStep1Form, ImportStepSupplierForm
 from .models import StockProduct, StockMovement
 from .utils import NFParser
 from ..core.forms import MultiStepFormMixin
 from ..core.templatetags.table_tags import TableColumn
 from ..core.views import HtmxTemplateResponseMixin
+from ..suppliers.models import Supplier
 from ..workshops.mixin import WorkshopScopedMixin
 from ..workshops.util.workshops import get_active_workshop_or_404
 
@@ -111,10 +112,38 @@ class StockImportView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixi
     def get_object(self, queryset=None):
         return None
 
+    def render_next_step(self, form):
+        current_step = self.get_current_step()
+        total_steps = len(self.get_steps_config())
+
+        # Se for a última etapa, executamos a persistência
+        if current_step == total_steps:
+            return self.finalize_import()
+
+        # Caso contrário, usa o comportamento padrão do Mixin
+        return super().render_next_step(form)
+
+    def finalize_import(self):
+        """ Lógica de persistência final no banco de dados """
+        nf_data = self.request.session.get("nf_data")
+        messages.success(self.request, "Importação concluída com sucesso!")
+        return redirect("stock:movement")
+
+    def get(self, request, *args, **kwargs):
+        # Se for HTMX, renderizamos apenas o fragmento da etapa
+        if request.htmx:
+            form = self.get_form()
+            context = self.get_context_data(form=form)
+            return render(request, 'stock/partials/import_step_content.html', context)
+
+        # Se não for HTMX (carregamento inicial da página), segue o fluxo normal
+        return super().get(request, *args, **kwargs)
+
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
-        if 'instance' in kwargs:
-            kwargs.pop('instance')
+        kwargs['nf_data'] = self.request.session.get("nf_data", {})
+
+        kwargs.pop('instance', None)
         return kwargs
 
     # Definição dinâmica baseada na escolha do Step 1
@@ -127,25 +156,25 @@ class StockImportView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixi
 
         # if method == "SEFAZ":
         #     base_steps.append({"title": "Seleção de NF", "form_class": ImportSefazListForm})
-        #
-        # base_steps.extend(
-        #     [
-        #         {"title": "Fornecedor", "form_class": ImportStepSupplierForm},
+
+        base_steps.extend(
+            [
+                {"title": "Fornecedor", "form_class": ImportStepSupplierForm},
         #         {"title": "Itens", "form_class": ImportStepItemsForm},
         #         {"title": "Pagamento", "form_class": ImportStepPaymentForm},
         #         {"title": "Resumo", "form_class": ImportStepSummaryForm},
-        #     ]
-        # )
+            ]
+        )
         return base_steps
 
     def form_valid(self, form):
         current_step = self.get_current_step()
+        nf_data = self.request.session.get("nf_data", {})
 
         # Lógica de persistência em Sessão (Exemplo Step 1)
         if current_step == 1:
             method = form.cleaned_data["method"]
             self.request.session["import_method"] = method
-            nf_data = None
 
             if method == "XML":
                 xml_file = self.request.FILES.get("xml_file")
@@ -170,14 +199,28 @@ class StockImportView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixi
                     form.add_error("access_key", f"Erro na SEFAZ: {str(e)}")
                     return self.form_invalid(form)
 
-                if method in ["XML", "KEY"]:
-                    if not nf_data:
-                        form.add_error(None, "Não foi possível extrair dados desta Nota Fiscal.")
-                        return self.form_invalid(form)
+            if method in ["XML", "KEY"]:
+                if not nf_data:
+                    form.add_error(None, "Não foi possível extrair dados desta Nota Fiscal.")
+                    return self.form_invalid(form)
 
-                    # Persistência em Sessão para as próximas etapas
-                    self.request.session["nf_data"] = nf_data
-                    # Salva os itens separadamente para facilitar a conciliação no Step 3/4
-                    self.request.session["import_items"] = nf_data['items']
+                # Persistência em Sessão para as próximas etapas
+                self.request.session["nf_data"] = nf_data
+                self.request.session["import_items"] = nf_data['items']
+                self.request.session.modified = True
+
+        elif current_step == 2:
+            cnpj = nf_data.get('supplier_cnpj')
+
+            with transaction.atomic():
+                supplier, created = Supplier.objects.get_or_create(
+                    workshop=self.workshop,
+                    cnpj=cnpj,
+                    defaults={'name': nf_data.get('supplier_name')}
+                )
+
+                nf_data['supplier_id'] = supplier.id
+                self.request.session["nf_data"] = nf_data
+                self.request.session.modified = True
 
         return self.render_next_step(form)
