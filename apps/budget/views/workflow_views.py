@@ -246,6 +246,18 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
         return HttpResponse(status=204)
 
 
+class MarkStep5CalculationViewedView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "add_budget"
+
+    def post(self, request, budget_id):
+        budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not budget.step5_calculation_viewed:
+            budget.step5_calculation_viewed = True
+            budget.save(update_fields=["step5_calculation_viewed"])
+        return HttpResponse(status=204)
+
+
 class SaveObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = Budget
     workshop_permission_codename = "add_budget"
