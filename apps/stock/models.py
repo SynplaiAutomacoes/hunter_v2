@@ -1,14 +1,13 @@
 from django.db import models
 from django.conf import settings
 
-from apps.catalog.models.products import Product
 from apps.core.models import TimeStampedModel
 from apps.suppliers.models import Supplier
 
 
 class StockProduct(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="stock_products")
-    product = models.OneToOneField(Product, on_delete=models.CASCADE, related_name="stock_products")
+    product = models.OneToOneField("catalog.Product", on_delete=models.CASCADE, related_name="stock_products")
     supplier = models.ForeignKey(Supplier, on_delete=models.SET_NULL, null=True, blank=True, related_name="stock_products")
     current_quantity = models.IntegerField(default=0, verbose_name="Estoque Atual")
     minimum_quantity = models.IntegerField(default=0, verbose_name="Estoque Mínimo")
