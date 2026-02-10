@@ -1,13 +1,18 @@
 import gzip
 import base64
-from lxml import etree
 
-from apps.stock.models import StockPaymentMethod
+from django.urls import reverse
+from lxml import etree
+from django.contrib import messages
+
+from apps.stock.models import StockPaymentMethod, StockProduct
+from apps.workshops.util.workshops import get_active_workshop_or_404
 
 
 class NFParser:
     @staticmethod
-    def parse_nfe_xml_to_dict(xml_content):
+    def parse_nfe_xml_to_dict(request, xml_content):
+        workshop = get_active_workshop_or_404(request)
         try:
             if hasattr(xml_content, "read"):
                 xml_content = xml_content.read()
@@ -30,6 +35,10 @@ class NFParser:
             nf_numero = nfe_tree.xpath("//ns:ide/ns:nNF", namespaces=ns)[0].text
             cnpj_fornecedor = emit.xpath("ns:CNPJ", namespaces=ns)[0].text
             nome_fornecedor = emit.xpath("ns:xNome", namespaces=ns)[0].text
+
+            if StockProduct.objects.filter(last_nf=nf_numero, workshop=workshop).exists():
+                messages.error(request, f"A Nota Fiscal nº {nf_numero} já consta no sistema. Não é possível importar a mesma nota mais de uma vez.")
+                return reverse("stock:import")
 
             # --- Itens ---
             produtos = []

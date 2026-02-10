@@ -202,7 +202,7 @@ class StockImportView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixi
 
             if method == "XML":
                 xml_file = self.request.FILES.get("xml_file")
-                nf_data = NFParser.parse_nfe_xml_to_dict(xml_file)
+                nf_data = NFParser.parse_nfe_xml_to_dict(self.request, xml_file)
 
             elif method == "KEY":
                 chave = re.sub(r"\D", "", form.cleaned_data.get("access_key"))
@@ -218,7 +218,7 @@ class StockImportView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixi
                     comunicacao = ComunicacaoSefaz(workshop.uf, workshop.pfx_certificate.path, workshop.certificate_password)
                     cnpj_clean = re.sub(r"\D", "", workshop.cnpj)
                     xml_response = comunicacao.consulta_distribuicao(cnpj=cnpj_clean, chave=chave)
-                    nf_data = NFParser.parse_nfe_xml_to_dict(xml_response.content)
+                    nf_data = NFParser.parse_nfe_xml_to_dict(self.request, xml_response.content)
                 except Exception as e:
                     form.add_error("access_key", f"Erro na SEFAZ: {str(e)}")
                     return self.form_invalid(form)
@@ -249,7 +249,6 @@ class StockImportView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixi
                 self.request.session.modified = True
 
         elif step_title == 'Importar Itens':
-            # Validação
             import_items = self.request.session.get("import_items", [])
 
             for item in import_items:
@@ -257,39 +256,6 @@ class StockImportView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixi
 
                 if not has_manual_link:
                     return self.form_invalid(form)
-
-            # Cadastro
-            supplier_id = nf_data.get('supplier_id')
-            supplier = Supplier.objects.get(id=supplier_id)
-
-            try:
-                with transaction.atomic():
-                    for item in import_items:
-                        product = Product.objects.get(workshop=self.workshop, code=item.get("ref"))
-
-                        stock_product, created = StockProduct.objects.get_or_create(
-                            workshop=self.workshop,
-                            product=product,
-                            defaults={
-                                'supplier': supplier,
-                                'last_nf': nf_data.get('nf_number')
-                            }
-                        )
-
-                        quantity = int(Decimal(str(item.get("qtd", 0))))
-
-                        StockMovement.objects.create(
-                            workshop=self.workshop,
-                            stock_product=stock_product,
-                            type=StockMovement.MovementType.ENTRY,
-                            supplier=supplier,
-                            transcation_by=self.request.user,
-                            quantity=quantity,
-                        )
-
-            except Exception as e:
-                form.add_error(None, f"Erro ao processar estoque: {str(e)}")
-                return self.form_invalid(form)
 
         return self.render_next_step(form)
 
