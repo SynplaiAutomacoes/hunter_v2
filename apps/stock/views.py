@@ -294,54 +294,52 @@ class StockImportView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixi
         return self.render_next_step(form)
 
 
-def add_payment_session(request):
-    workshop = get_active_workshop_or_404(request)
-    payments = request.session.get("import_payments", [])
+class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    def post(self, request, *args, **kwargs):
+        payments = request.session.get("import_payments", [])
 
-    method_code = request.POST.get("payment_method")
-    payment_date = request.POST.get("payment_date")
-    first_amount = Decimal(request.POST.get("first_amount_0", "0"))
-    installments = Decimal(request.POST.get("installments_count", "1"))
-    total_paid = first_amount * installments
+        method_code = request.POST.get("payment_method")
+        payment_date = request.POST.get("payment_date")
+        first_amount = Decimal(request.POST.get("first_amount_0", "0"))
+        installments = Decimal(request.POST.get("installments_count", "1"))
+        total_paid = first_amount * installments
 
-    new_payment = {
-        "id": len(payments) + 1,
-        "method": method_code,
-        "method_display": dict(StockPaymentMethod.PAYMENT_METHOD_CHOICES).get(method_code),
-        "installments": str(installments),
-        "first_amount": str(first_amount),
-        "total_paid": str(total_paid),
-        "payment_date": payment_date,
-    }
+        new_payment = {
+            "id": len(payments) + 1,
+            "method": method_code,
+            "method_display": dict(StockPaymentMethod.PAYMENT_METHOD_CHOICES).get(method_code),
+            "installments": str(installments),
+            "first_amount": str(first_amount),
+            "total_paid": str(total_paid),
+            "payment_date": payment_date,
+        }
 
-    payments.append(new_payment)
-    request.session["import_payments"] = payments
-    request.session.modified = True
+        payments.append(new_payment)
+        request.session["import_payments"] = payments
+        request.session.modified = True
 
-    nf_data = request.session.get("nf_data", {})
-    import_items = request.session.get("import_items", {})
-    form = ImportStepPaymentForm(nf_data=nf_data, import_payments=payments, import_items=import_items, workshop=workshop)
+        nf_data = request.session.get("nf_data", {})
+        import_items = request.session.get("import_items", {})
+        form = ImportStepPaymentForm(nf_data=nf_data, import_payments=payments, import_items=import_items, workshop=self.workshop)
 
-    ctx = {}
-    ctx.update(csrf(request))
-    return HttpResponse(render_crispy_form(form, context=ctx))
+        ctx = {"csrf_token": csrf(request)["csrf_token"]}
+        return HttpResponse(render_crispy_form(form, context=ctx))
 
 
-def remove_payment_session(request, payment_id):
-    workshop = get_active_workshop_or_404(request)
-    payments = request.session.get("import_payments", [])
-    payments = [p for p in payments if p["id"] != int(payment_id)]
+class RemovePaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    def post(self, request, payment_id, *args, **kwargs):
+        payments = request.session.get("import_payments", [])
+        payments = [p for p in payments if p["id"] != int(payment_id)]
 
-    request.session["import_payments"] = payments
-    request.session.modified = True
+        request.session["import_payments"] = payments
+        request.session.modified = True
 
-    nf_data = request.session.get("nf_data", {})
-    import_items = request.session.get("import_items", {})
-    form = ImportStepPaymentForm(nf_data=nf_data, import_payments=payments, import_items=import_items, workshop=workshop)
+        nf_data = request.session.get("nf_data", {})
+        import_items = request.session.get("import_items", {})
+        form = ImportStepPaymentForm( nf_data=nf_data, import_payments=payments, import_items=import_items, workshop=self.workshop)
 
-    ctx = {}
-    ctx.update(csrf(request))
-    return HttpResponse(render_crispy_form(form, context=ctx))
+        ctx = {'csrf_token': csrf(request)['csrf_token']}
+        return HttpResponse(render_crispy_form(form, context=ctx))
 
 
 class LinkProductManualView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -369,18 +367,19 @@ class LinkProductManualView(LoginRequiredMixin, WorkshopScopedMixin, View):
         return response
 
 
-def unlink_item_view(request):
-    item_idx = int(request.GET.get("item_idx"))
-    import_items = request.session.get("import_items", [])
+class UnlinkItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    def get(self, request, *args, **kwargs):
+        item_idx = int(request.GET.get("item_idx"))
+        import_items = request.session.get("import_items", [])
 
-    if 0 <= item_idx < len(import_items):
-        import_items[item_idx]["linked_product_id"] = None
-        request.session["import_items"] = import_items
-        request.session.modified = True
+        if 0 <= item_idx < len(import_items):
+            import_items[item_idx]["linked_product_id"] = None
+            request.session["import_items"] = import_items
+            request.session.modified = True
 
-    response = HttpResponse("")
-    response["HX-Trigger"] = "productCreated"
-    return response
+        response = HttpResponse("")
+        response["HX-Trigger"] = "productCreated"
+        return response
 
 
 class StockProductSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
