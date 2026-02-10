@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from decimal import InvalidOperation, Decimal
+
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
@@ -8,8 +10,9 @@ from django.shortcuts import render, redirect
 from django.urls import reverse_lazy
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
+from djmoney.money import Money
 
-from apps.catalog.forms.products import ProductForm
+from apps.catalog.forms.products import ProductForm, QuickProductForm
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.core.tables import TableActionDefaults
@@ -110,3 +113,46 @@ class ProductSearchSelectView(LoginRequiredMixin, WorkshopScopedMixin, View):
         products = products.only("code", "name", "brand")[:5]
 
         return render(request, "products/partials/search_suggestions.html", {"products": products})
+
+
+class ProductQuickCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
+    model = Product
+    form_class = QuickProductForm
+    template_name = "products/partials/quick_create_modal.html"
+    workshop_permission_codename = "add_product"
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["workshop"] = self.workshop
+        return kwargs
+
+    def get_initial(self):
+        initial = super().get_initial()
+        price_raw = self.request.GET.get("price")
+
+        cost_money = None
+        if price_raw:
+            try:
+                clean_price = Decimal(price_raw.replace(",", "."))
+                cost_money = Money(clean_price, "BRL")
+            except (InvalidOperation, ValueError):
+                pass
+
+        initial.update(
+            {
+                "code": self.request.GET.get("ref"),
+                "name": self.request.GET.get("desc"),
+                "cost_price": cost_money,
+            }
+        )
+        return initial
+
+    def form_valid(self, form):
+        """Salva o produto e retorna o trigger HTMX."""
+        self.object = form.save(commit=False)
+        self.object.workshop = self.workshop
+        self.object.save()
+
+        response = HttpResponse("")
+        response["HX-Trigger"] = "productCreated"
+        return response
