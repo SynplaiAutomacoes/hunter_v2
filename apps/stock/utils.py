@@ -61,6 +61,9 @@ class NFParser:
             duplicatas = tree.xpath('//ns:cobr/ns:dup', namespaces=ns)
             for idx, dup in enumerate(duplicatas):
                 valor = dup.xpath('ns:vDup/text()', namespaces=ns)[0]
+                data_vencimento = dup.xpath("ns:dVenc/text()", namespaces=ns)
+                data_vencimento = data_vencimento[0] if data_vencimento else ""
+
                 pagamentos_sessao.append({
                     "id": idx + 1,
                     "method": method_slug,
@@ -68,6 +71,7 @@ class NFParser:
                     "installments": 1,
                     "first_amount": valor,
                     "total_paid": valor * 1,
+                    "payment_date": data_vencimento,
                 })
             return {"nf_number": nf_numero, "supplier_cnpj": cnpj_fornecedor, "supplier_name": nome_fornecedor, "items": produtos, "payments": pagamentos_sessao}
         except Exception:

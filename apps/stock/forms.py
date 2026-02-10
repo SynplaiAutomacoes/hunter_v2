@@ -1,15 +1,17 @@
 import re
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 from django import forms
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, HTML
+from django.forms.widgets import DateInput
 from django.urls import reverse
 from djmoney.forms import MoneyField
 from djmoney.money import Money
 
 from apps.catalog.models.products import Product
-from apps.core.widgets import TextInput, SelectInput, NumberInput, MoneyInput
+from apps.core.widgets import TextInput, SelectInput, NumberInput, MoneyInput, CalendarDateInput
 from apps.stock.models import StockPaymentMethod
 
 
@@ -18,7 +20,6 @@ class ImportStep1Form(forms.Form):
         ('SEFAZ', 'SEFAZ'),
         ('XML', 'Arquivo XML'),
         ('KEY', 'Chave de Acesso'),
-        ('OS', 'Abrir Ordem de Serviço'),
     ]
     method = forms.ChoiceField(choices=METHOD_CHOICES, label="Selecione o método de Importação de Itens", widget=forms.Select(attrs={'x-model': 'method'}))
     xml_file = forms.FileField(label="Selecione o arquivo XML", required=False)
@@ -230,6 +231,7 @@ class ImportStepPaymentForm(forms.Form):
     payment_method = forms.ChoiceField(choices=StockPaymentMethod.PAYMENT_METHOD_CHOICES, label="Forma de Pagamento", widget=SelectInput, required=False)
     installments_count = forms.IntegerField(min_value=1, initial=1, label="Número de Parcelas", widget=NumberInput, required=False)
     first_amount = MoneyField(max_digits=14, decimal_places=2, label="Valor Pago", widget=MoneyInput, required=False)
+    payment_date = forms.DateField(label="Data de Vencimento", widget=CalendarDateInput, required=False)
 
     total_nf_display = forms.CharField(label="Valor Total", required=False, widget=MoneyInput)
     total_allocated_display = forms.CharField(label="Valor Pago", required=False, widget=MoneyInput)
@@ -286,12 +288,7 @@ class ImportStepPaymentForm(forms.Form):
                 HTML('<h3 class="font-bold text-2xl pb-2 mb-2">Configuração das Formas de Pagamento</h3>'),
                 HTML('<h5 class="text-lg pb-2 mb-4">Adicione, edite e salve múltiplos planos de pagamentos para esta importação.</h5>'),
                 #
-                Div(
-                    Field("total_nf_display", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("total_allocated_display", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("pending_display", wrapper_class="col-span-12 lg:col-span-4"),
-                    css_class="grid grid-cols-12 gap-4 mb-2 pb-4"
-                ),
+                Div(Field("total_nf_display", wrapper_class="col-span-12 lg:col-span-4"), Field("total_allocated_display", wrapper_class="col-span-12 lg:col-span-4"), Field("pending_display", wrapper_class="col-span-12 lg:col-span-4"), css_class="grid grid-cols-12 gap-4 mb-2 pb-4"),
                 #
                 Div(
                     Field("payment_method", wrapper_class="col-span-12 lg:col-span-4"),
@@ -301,13 +298,14 @@ class ImportStepPaymentForm(forms.Form):
                 ),
                 #
                 Div(
-                    Div(css_class="col-span-12 lg:col-span-8"),
+                    Field("payment_date", wrapper_class="col-span-12 lg:col-span-4"),
+                    Div(css_class="col-span-12 lg:col-span-4"),
                     HTML(f"""<button type="button" hx-post="{reverse("stock:add_payment_session")}" 
                                         hx-target="#import-step-container" 
                                         hx-include="#import-step-container"
                                         hx-indicator="#payment-loader"
                                         class="btn btn-primary col-span-12 lg:col-span-4"> Incluir Pagamento</button>"""),
-                    css_class="grid grid-cols-12 gap-4 mb-2 pb-4"
+                    css_class="grid grid-cols-12 gap-4 mb-2 pb-4",
                 ),
                 #
                 HTML('<div class="mt-6 overflow-x-auto">'),
@@ -321,10 +319,17 @@ class ImportStepPaymentForm(forms.Form):
     def _generate_payments_table_html(self):
         rows = ""
         for p in self.import_payments:
+            payment_date = p.get("payment_date", "")
+            try:
+                date_obj = datetime.strptime(payment_date, '%Y-%m-%d')
+                payment_date = date_obj.strftime('%d/%m/%Y')
+            except:
+                continue
             delete_url = reverse("stock:remove_payment_session", kwargs={"payment_id": p["id"]})
             rows += f"""<tr>
                     <td>{p["method_display"]}</td>
                     <td>{p["installments"]}x</td>
+                    <td>{payment_date}x</td>
                     <td class="font-bold">{Money(p["total_paid"], 'BRL')}</td>
                     <td class="text-center">
                         <button type="button" 
@@ -338,13 +343,14 @@ class ImportStepPaymentForm(forms.Form):
                 </tr>"""
 
         if not rows:
-            rows = '<tr><td colspan="4" class="text-center text-gray-500 italic py-4">Nenhum pagamento registrado.</td></tr>'
+            rows = '<tr><td colspan="5" class="text-center text-gray-500 italic py-4">Nenhum pagamento registrado.</td></tr>'
 
         return f"""<table class="table table-zebra w-full">
                 <thead>
                     <tr>
                         <th>Forma de Pagamento</th>
                         <th>Parcelas</th>
+                        <th>Data de Vencimento</th>
                         <th>Valor Pago</th>
                         <th class="text-center">Ações</th>
                     </tr>

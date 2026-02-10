@@ -60,6 +60,7 @@ class StockPaymentMethod(TimeStampedModel):
     installments_count = models.PositiveIntegerField(verbose_name="Número de Parcelas", default=1)
     first_installment_amount = MoneyField(verbose_name="Valor da primeira parcela", max_digits=14, decimal_places=2, default=0.00)
     remaining_installments_amount = MoneyField(verbose_name="Valor das parcelas restantes", max_digits=14, decimal_places=2, default=0.00)
+    due_date = models.DateTimeField()
     nf_number = models.CharField(max_length=60, verbose_name="Número da NF", null=False, blank=False)
 
     @property

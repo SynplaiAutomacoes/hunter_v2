@@ -83,7 +83,7 @@ class MovementApprovalListView(LoginRequiredMixin, WorkshopScopedMixin, ListView
 
 class MovementApprovalActionView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = StockMovement
-    workshop_permission_codename = "update_stockmovement"
+    workshop_permission_codename = "change_stockmovement"
 
     def post(self, request, pk):
         workshop = self.workshop
@@ -294,6 +294,7 @@ def add_payment_session(request):
     payments = request.session.get("import_payments", [])
 
     method_code = request.POST.get("payment_method")
+    payment_date = request.POST.get("payment_date")
     first_amount = Decimal(request.POST.get("first_amount_0", "0"))
     installments = Decimal(request.POST.get("installments_count", "1"))
     total_paid = first_amount * installments
@@ -305,6 +306,7 @@ def add_payment_session(request):
         "installments": str(installments),
         "first_amount": str(first_amount),
         "total_paid": str(total_paid),
+        "payment_date": payment_date,
     }
 
     payments.append(new_payment)
