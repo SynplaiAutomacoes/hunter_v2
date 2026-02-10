@@ -2,6 +2,7 @@ import re
 from decimal import Decimal
 
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.views import View
 from django.views.generic import ListView, FormView, CreateView
 from django.shortcuts import get_object_or_404, redirect, render
 from django.contrib import messages
@@ -77,34 +78,38 @@ class MovementApprovalListView(LoginRequiredMixin, WorkshopScopedMixin, ListView
         return StockMovement.objects.filter(workshop=self.workshop, status=StockMovement.MovementStatus.WAITING)
 
 
-def approve_movement(request, pk):
-    workshop = get_active_workshop_or_404(request)
-    movement = get_object_or_404(StockMovement, pk=pk, workshop=workshop)
-    action = request.POST.get("action")
+class MovementApprovalActionView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = StockMovement
+    workshop_permission_codename = "update_stockmovement"
 
-    if movement.status != StockMovement.MovementStatus.WAITING:
-        messages.error(request, "Esta movimentação já foi processada.")
-        return redirect("stock:approvals")
+    def post(self, request, pk):
+        workshop = self.workshop
+        movement = get_object_or_404(StockMovement, pk=pk, workshop=workshop)
+        action = request.POST.get("action")
 
-    try:
-        with transaction.atomic():
-            if action == "approve":
-                product = movement.stock_product
-                if movement.type == StockMovement.MovementType.ENTRY:
-                    product.current_quantity += movement.quantity
+        if movement.status != StockMovement.MovementStatus.WAITING:
+            messages.error(request, "Esta movimentação já foi processada.")
+            return redirect("stock:approvals")
+
+        try:
+            with transaction.atomic():
+                if action == "approve":
+                    product = movement.stock_product
+                    if movement.type == StockMovement.MovementType.ENTRY:
+                        product.current_quantity += movement.quantity
+                    else:
+                        product.current_quantity -= movement.quantity
+                    product.save()
+                    movement.status = StockMovement.MovementStatus.APPROVED
+                    messages.success(request, "Movimentação aprovada com sucesso.")
                 else:
-                    product.current_quantity -= movement.quantity
-                product.save()
-                movement.status = StockMovement.MovementStatus.APPROVED
-                messages.success(request, "Movimentação aprovada com sucesso.")
-            else:
-                movement.status = StockMovement.MovementStatus.REJECTED
-                messages.warning(request, "Movimentação rejeitada.")
-            movement.save()
-    except Exception as e:
-        messages.error(request, f"Erro: {str(e)}")
+                    movement.status = StockMovement.MovementStatus.REJECTED
+                    messages.warning(request, "Movimentação rejeitada.")
+                movement.save()
+        except Exception as e:
+            messages.error(request, f"Erro: {str(e)}")
 
-    return redirect('stock:approvals')
+        return redirect('stock:approvals')
 
 
 class StockImportView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixin, FormView):
