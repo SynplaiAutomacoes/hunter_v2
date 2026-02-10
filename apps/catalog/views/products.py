@@ -6,7 +6,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
 from django.http import HttpResponse
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse_lazy
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
@@ -18,7 +18,9 @@ from apps.catalog.models.products import Product
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
+from apps.stock.models import StockMovement, StockProduct
 from apps.workshops.mixin import WorkshopScopedMixin
+from apps.workshops.util.workshops import get_active_workshop_or_404
 
 
 class ProductListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
@@ -83,6 +85,15 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         kwargs["workshop"] = self.workshop
         return kwargs
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        stock_obj, created = StockProduct.objects.get_or_create(workshop=self.workshop, product=self.object)
+
+        context["stock_obj"] = stock_obj
+        context["movements"] = StockMovement.objects.filter(stock_product=stock_obj).order_by("-criado_em")
+
+        return context
+
 
 class ProductDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResponseMixin, DeleteView):
     model = Product
@@ -113,6 +124,30 @@ class ProductSearchSelectView(LoginRequiredMixin, WorkshopScopedMixin, View):
         products = products.only("code", "name", "brand")[:5]
 
         return render(request, "products/partials/search_suggestions.html", {"products": products})
+
+
+def update_stock_fields(request):
+    product_id = request.POST.get("product_id")
+    workshop = get_active_workshop_or_404(request)
+
+    stock_obj = get_object_or_404(StockProduct, product_id=product_id, workshop=workshop)
+
+    allowed_fields = ["minimum_quantity", "restock_quantity"]
+
+    updated = False
+    for field in allowed_fields:
+        if field in request.POST:
+            value = request.POST.get(field)
+            try:
+                setattr(stock_obj, field, int(value) if value else 0)
+                updated = True
+            except ValueError:
+                return HttpResponse("Valor inválido", status=400)
+
+    if updated:
+        stock_obj.save()
+
+    return HttpResponse("", status=200)
 
 
 class ProductQuickCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):

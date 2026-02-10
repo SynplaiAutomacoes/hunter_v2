@@ -1,91 +1,47 @@
 <section class="card bg-base-100 shadow-md">
   <div class="card-body">
+    <h2 class="text-lg font-semibold">Histórico de Movimentações</h2>
+    <div class="mt-2 border-b-2 border-primary w-full mb-6"></div>
 
-    <div>
-      <h2 class="text-lg font-semibold">
-        Histórico de Movimentações
-      </h2>
-      <div class="mt-2 border-b-2 border-primary w-full"></div>
-    </div>
-
-    <div class="mt-6 overflow-x-auto">
-      <table class="table w-full table-fixed">
-
+    <div class="overflow-x-auto">
+      <table class="table w-full">
         <thead>
-          <tr class="bg-base-200 text-sm text-base-content/70">
-            <th class="align-middle">Data</th>
-            <th class="align-middle">Tipo</th>
-            <th class="align-middle">Funcionário</th>
-            <th class="align-middle">Quantidade</th>
-            <th class="align-middle">Fornecedor</th>
-            <th class="align-middle">Status</th>
+          <tr class="bg-base-200">
+            <th>Data</th>
+            <th>Tipo</th>
+            <th>Responsável</th>
+            <th>Qtd.</th>
+            <th>Fornecedor</th>
+            <th>Status</th>
           </tr>
         </thead>
-
         <tbody>
+          {% for m in movements %}
           <tr class="hover">
-            <td class="align-middle">
-              31/01/2026 11:11
+            <td>{{ m.criado_em|date:"d/m/Y H:i" }}</td>
+            <td>
+              {% if m.type == "ENTRADA" %}
+                <span class="badge badge-success">Entrada</span>
+              {% else %}
+                <span class="badge badge-error">Saída</span>
+              {% endif %}
             </td>
-
-            <td class="align-middle">
-              <span class="badge badge-success badge-md">
-                Entrada
-              </span>
-            </td>
-
-            <td class="align-middle">
-              Lucas Gomes
-            </td>
-
-            <td class="align-middle">
-              25
-            </td>
-
-            <td class="align-middle">
-              Fornecedor 1
-            </td>
-
-            <td class="align-middle">
-              <span class="text-warning">
-                Aguardando Aprovação
-              </span>
+            <td>{{ m.transcation_by.get_full_name|default:m.transcation_by.username }}</td>
+            <td class="font-bold">{{ m.quantity }}</td>
+            <td>{{ m.supplier.name|default:"—" }}</td>
+            <td>
+                <span class="{% if m.status == 'AGUARDANDO' %}text-warning{% elif m.status == 'APROVADO' %}text-success{% else %}text-error{% endif %}">
+                    {{ m.get_status_display }}
+                </span>
             </td>
           </tr>
-
-          <tr class="hover">
-            <td class="align-middle">
-              29/01/2026 16:40
-            </td>
-
-            <td class="align-middle">
-              <span class="badge badge-error badge-md">
-                Saída
-              </span>
-            </td>
-
-            <td class="align-middle">
-              Ana Martins
-            </td>
-
-            <td class="align-middle">
-              3
-            </td>
-
-            <td class="align-middle text-base-content/60">
-              —
-            </td>
-
-            <td class="align-middle">
-              <span class="text-info">
-                Utilizado em OS
-              </span>
-            </td>
+          {% empty %}
+          <tr>
+            <td colspan="6" class="text-center italic opacity-50">Nenhuma movimentação registrada.</td>
           </tr>
+          {% endfor %}
         </tbody>
-
       </table>
     </div>
-
   </div>
 </section>
