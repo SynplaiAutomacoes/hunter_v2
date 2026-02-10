@@ -128,12 +128,7 @@ class ImportStepItemsForm(forms.Form):
 
         table_html = self._generate_table_html()
 
-        self.helper.layout = Layout(
-            Div(
-                HTML(table_html),
-                css_class="mt-4"
-            )
-        )
+        self.helper.layout = Layout(Div(HTML(table_html), css_class="mt-4"))
 
     def _generate_table_html(self):
         rows_xml = ""
@@ -142,20 +137,22 @@ class ImportStepItemsForm(forms.Form):
         link_manual_url = reverse("stock:link_product_manual")
 
         for idx, item in enumerate(self.import_items):
-            # --- Dados do XML ---
             ref_xml = item.get("ref", "")
             desc_xml = item.get("desc", "")
+            desc_xml_limited = (desc_xml[:47] + "...") if len(desc_xml) > 50 else desc_xml
             qtd = Decimal(str(item.get("qtd", 0)))
             valor_unit = Decimal(str(item.get("valor", 0)))
+            valor_total = qtd * valor_unit
 
             rows_xml += f"""
                 <tr class="h-16 border-b hover:bg-base-200/30">
-                    <td>
-                        <div class="text-sm font-medium truncate w-48" title="{desc_xml}">{desc_xml}</div>
+                    <td class="max-w-[150px]">
+                        <div class="text-sm font-medium truncate" title="{desc_xml}">{desc_xml_limited}</div>
                         <div class="text-[10px] opacity-50 font-mono">{ref_xml}</div>
                     </td>
                     <td class="text-center">{qtd}</td>
-                    <td class="text-right font-semibold">R$ {valor_unit:,.2f}</td>
+                    <td class="text-right font-semibold whitespace-nowrap">{Money(valor_unit, 'BRL')}</td>
+                    <td class="text-right font-bold whitespace-nowrap">{Money(valor_total, 'BRL')}</td>
                 </tr>
             """
 
@@ -167,10 +164,9 @@ class ImportStepItemsForm(forms.Form):
                 stock_qty = getattr(db_product.stock_products.first(), "current_quantity", 0)
                 cost_price = getattr(db_product, "cost_price", 0)
 
-                rows_system += f"""
-                    <tr class="h-16 border-b hover:bg-base-200/30">
-                        <td>
-                            <div class="font-bold text-sm text-success italic">✓ {db_product.name}</div>
+                rows_system += f"""<tr class="h-16 border-b">
+                        <td class="max-w-[150px]">
+                            <div class="font-bold text-sm text-success italic truncate">{db_product.name}</div>
                             <div class="text-xs opacity-60">Custo: R$ {cost_price:,.2f}</div>
                         </td>
                         <td class="text-center">{stock_qty}</td>
@@ -180,19 +176,20 @@ class ImportStepItemsForm(forms.Form):
                                 <span class="material-icons text-xs">link_off</span>
                             </button>
                         </td>
-                    </tr>
-                """
+                    </tr>"""
             else:
-                rows_system += f"""
-                    <tr class="h-16 border-b bg-warning/5">
+                rows_system += f"""<tr class="h-16 border-b">
                         <td colspan="2" class="italic text-warning text-xs">
                             <span class="flex items-center gap-1"><span class="material-icons text-sm">warning</span> Pendente</span>
                         </td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
                         <td class="text-center">
                             <div class="flex gap-1 justify-center">
-                                <button type="button" class="btn btn-primary btn-xs" hx-target="#modal-container"
+                                <button type="button" class="btn btn-primary btn-sm" hx-target="#modal-container"
                                         hx-get="{quick_create_url}?ref={ref_xml}&desc={desc_xml}&price={valor_unit}&item_idx={idx}">Novo</button>
-                                <button type="button" class="btn btn-outline btn-xs" hx-target="#modal-container"
+                                <button type="button" class="btn btn-outline btn-sm" hx-target="#modal-container"
                                         hx-get="{link_manual_url}?item_idx={idx}">Link</button>
                             </div>
                         </td>
@@ -202,13 +199,14 @@ class ImportStepItemsForm(forms.Form):
         return f"""<div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
             <div class="col-span-12 lg:col-span-5">
                 <h3 class="text-2xl font-bold mb-4 flex items-center gap-2">Itens Importados</h3>
-                <div class="rounded-xl overflow-hidden">
+                <div class="rounded-xl border border-base-300 overflow-x-auto">
                     <table class="table table-sm w-full">
                         <thead>
                             <tr>
                                 <th>Descrição</th>
                                 <th class="text-center">Quantidade</th>
-                                <th class="text-right">Valor Pago</th>
+                                <th class="text-right">Valor Unitário</th>
+                                <th class="text-right">Valor Total</th>
                             </tr>
                         </thead>
                         <tbody>{rows_xml}</tbody>
@@ -216,11 +214,11 @@ class ImportStepItemsForm(forms.Form):
                 </div>
             </div>
             
-            <div class="lg:col-span-1">
+            <div class="hidden lg:block lg:col-span-1"></div>
             
             <div class="col-span-12 lg:col-span-6">
                 <h3 class="text-2xl font-bold mb-4 flex items-center gap-2">Itens Cadastrados</h3>
-                <div class="rounded-xl overflow-hidden">
+                <div class="rounded-xl border border-base-300 overflow-x-auto">
                     <table class="table table-sm w-full">
                         <thead>
                             <tr>
