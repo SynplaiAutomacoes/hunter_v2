@@ -5,8 +5,7 @@ from crispy_forms.layout import Layout, Div, Field, HTML, Submit, Button
 from django.urls import reverse
 
 from .models import Customer, Vehicle
-from apps.core.widgets import CPForCNPJInput, CalendarDateInput, TextInput, SelectInput, RGInput, PhoneInput, EmailInput, CheckboxInput, CEPInput, \
-    NumberInput
+from apps.core.widgets import CPForCNPJInput, CalendarDateInput, TextInput, SelectInput, RGInput, PhoneInput, EmailInput, CheckboxInput, CEPInput, NumberInput
 from .cpf_cnpj_validator import is_valid_cpf, is_valid_cnpj
 from ..core.forms import AddressFormMixin, address_layout
 from ..workshops.models.workshops import Workshop
@@ -15,7 +14,7 @@ from ..workshops.models.workshops import Workshop
 VehicleFormSet = inlineformset_factory(
     parent_model=Customer,
     model=Vehicle,
-    fields = [
+    fields=[
         "plate",
         "brand",
         "model",
@@ -31,7 +30,7 @@ VehicleFormSet = inlineformset_factory(
     ],
     extra=0,
     can_delete=True,
-    widgets = {
+    widgets={
         "plate": TextInput(),
         "brand": TextInput(),
         "model": TextInput(),
@@ -107,7 +106,6 @@ class CustomerForm(AddressFormMixin, forms.ModelForm):
                         class="col-span-12 grid grid-cols-1 lg:grid-cols-12 gap-4"
                     >
                 """),
-
                 HTML("""
                     <label class="flex items-center gap-2 cursor-pointer">
                         <input
@@ -131,62 +129,49 @@ class CustomerForm(AddressFormMixin, forms.ModelForm):
     
                     <input type="hidden" name="customer_type" :value="tipo">
                 """),
-
                 HTML('<h3 class="text-xl font-bold col-span-12">Dados Gerais</h3>'),
-
                 # ─────────────────────────────
                 # Linha 1 — Identificação
                 # CPF/CNPJ | Nome | Nome Fantasia (PJ)
                 # ─────────────────────────────
                 Field("cpf_or_cnpj", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("name", wrapper_class="col-span-12 lg:col-span-4"),
-
                 HTML('<div x-show="tipo === \'PJ\'" class="col-span-12 lg:col-span-4">'),
                 Field("fantasy_name", wrapper_class="col-span-12"),
-                HTML('</div>'),
-
+                HTML("</div>"),
                 # ─────────────────────────────
                 # Linha 2 — Registros PJ
                 # Inscrição Municipal | Inscrição Estadual | Data de Fundação
                 # ─────────────────────────────
                 HTML('<div x-show="tipo === \'PJ\'" class="col-span-12 lg:col-span-4">'),
                 Field("municipal_registration", wrapper_class="col-span-12"),
-                HTML('</div>'),
-
+                HTML("</div>"),
                 HTML('<div x-show="tipo === \'PJ\'" class="col-span-12 lg:col-span-4">'),
                 Field("state_registration", wrapper_class="col-span-12"),
-                HTML('</div>'),
-
+                HTML("</div>"),
                 HTML('<div x-show="tipo === \'PJ\'" class="col-span-12 lg:col-span-4">'),
                 Field("foundation_date", wrapper_class="col-span-12"),
-                HTML('</div>'),
-
+                HTML("</div>"),
                 # ─────────────────────────────
                 # Linha 3 — Contato / Status
                 # Telefone | RG (PF) | Email
                 # ─────────────────────────────
                 Field("phone", wrapper_class="col-span-12 lg:col-span-4"),
-
                 HTML('<div x-show="tipo === \'PF\'" class="col-span-12 lg:col-span-4">'),
                 Field("rg", wrapper_class="col-span-12"),
-                HTML('</div>'),
-
+                HTML("</div>"),
                 Field("email", wrapper_class="col-span-12 lg:col-span-4"),
-
                 # ─────────────────────────────
                 # Linha 4 — Status / Dados PF
                 # Ativo | Data de Nascimento | Sexo
                 # ─────────────────────────────
                 Field("is_active", wrapper_class="col-span-12 lg:col-span-4"),
-
                 HTML('<div x-show="tipo === \'PF\'" class="col-span-12 lg:col-span-4">'),
                 Field("birth_date", wrapper_class="col-span-12"),
-                HTML('</div>'),
-
+                HTML("</div>"),
                 HTML('<div x-show="tipo === \'PF\'" class="col-span-12 lg:col-span-4">'),
                 Field("sex", wrapper_class="col-span-12"),
-                HTML('</div>'),
-
+                HTML("</div>"),
                 HTML("</div>"),  # FECHA O X-DATA
                 #
                 HTML('<div class="col-span-12 divider"></div>'),
@@ -213,7 +198,7 @@ class CustomerForm(AddressFormMixin, forms.ModelForm):
                     ),
                     css_class="col-span-12",
                 ),
-                Div(HTML('<div id="vehicle-list" class="space-y-4">{% include "customer/partials/vehicle_formset_list.html" %}</div>'), css_class="col-span-12"),
+                Div(HTML('<div id="vehicle-formset-container" class="space-y-4">{% include "customer/partials/vehicle_formset_list.html" %}</div>'), css_class="col-span-12"),
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
             ),
             #
@@ -228,31 +213,31 @@ class CustomerForm(AddressFormMixin, forms.ModelForm):
 
     def clean(self):
         """
-           Validação contextual do formulário de Customer, considerando Pessoa Física (PF)
-           e Pessoa Jurídica (PJ) em um único formulário.
+        Validação contextual do formulário de Customer, considerando Pessoa Física (PF)
+        e Pessoa Jurídica (PJ) em um único formulário.
 
-           Regras de negócio aplicadas:
-           - Pessoa Física (customer_type="PF"):
-               • Campos obrigatórios: nome (name) e CPF (cpf_or_cnpj)
-               • O CPF deve ser válido conforme as regras oficiais
-           - Pessoa Jurídica (customer_type="PJ"):
-               • Campos obrigatórios: razão social (name) e CNPJ (cpf_or_cnpj)
-               • O CNPJ deve ser válido conforme as regras oficiais
+        Regras de negócio aplicadas:
+        - Pessoa Física (customer_type="PF"):
+            • Campos obrigatórios: nome (name) e CPF (cpf_or_cnpj)
+            • O CPF deve ser válido conforme as regras oficiais
+        - Pessoa Jurídica (customer_type="PJ"):
+            • Campos obrigatórios: razão social (name) e CNPJ (cpf_or_cnpj)
+            • O CNPJ deve ser válido conforme as regras oficiais
 
-           Regras adicionais:
-           - A validação do documento (CPF/CNPJ) é feita de forma explícita e contextual,
-             com base no campo customer_type, sem inferência por tamanho ou outros campos.
-           - O campo cpf_or_cnpj deve ser único por workshop.
-           - Em operações de edição, o próprio registro é ignorado na verificação
-             de unicidade.
-           - Campos não obrigatórios permanecem opcionais, mesmo que visíveis no formulário.
-           - Esta implementação complementa as validações existentes, preservando o
-             comportamento definido em super().clean().
+        Regras adicionais:
+        - A validação do documento (CPF/CNPJ) é feita de forma explícita e contextual,
+          com base no campo customer_type, sem inferência por tamanho ou outros campos.
+        - O campo cpf_or_cnpj deve ser único por workshop.
+        - Em operações de edição, o próprio registro é ignorado na verificação
+          de unicidade.
+        - Campos não obrigatórios permanecem opcionais, mesmo que visíveis no formulário.
+        - Esta implementação complementa as validações existentes, preservando o
+          comportamento definido em super().clean().
 
-           Retorno:
-           - Retorna cleaned_data com os erros adicionados aos campos correspondentes,
-             quando aplicável.
-           """
+        Retorno:
+        - Retorna cleaned_data com os erros adicionados aos campos correspondentes,
+          quando aplicável.
+        """
 
         cleaned_data = super().clean()
 
@@ -285,19 +270,13 @@ class CustomerForm(AddressFormMixin, forms.ModelForm):
 
         # Unicidade do documento por oficina
         if documento:
-            queryset = Customer.objects.filter(
-                workshop=self.workshop,
-                cpf_or_cnpj=documento
-            )
+            queryset = Customer.objects.filter(workshop=self.workshop, cpf_or_cnpj=documento)
 
             if self.instance.pk:
                 queryset = queryset.exclude(pk=self.instance.pk)
 
             if queryset.exists():
-                self.add_error(
-                    "cpf_or_cnpj",
-                    "Já existe um cliente cadastrado com este documento nesta oficina."
-                )
+                self.add_error("cpf_or_cnpj", "Já existe um cliente cadastrado com este documento nesta oficina.")
 
         return cleaned_data
 
@@ -305,7 +284,7 @@ class CustomerForm(AddressFormMixin, forms.ModelForm):
 class QuickCustomerForm(AddressFormMixin, forms.ModelForm):
     class Meta:
         model = Customer
-        fields = ["cpf_or_cnpj","name","phone","email","birth_date","cep","logradouro","numero","complemento","bairro","cidade","estado"]
+        fields = ["cpf_or_cnpj", "name", "phone", "email", "birth_date", "cep", "logradouro", "numero", "complemento", "bairro", "cidade", "estado"]
         widgets = {
             "cpf_or_cnpj": CPForCNPJInput(mode="both"),
             "name": TextInput(),
@@ -337,10 +316,7 @@ class QuickCustomerForm(AddressFormMixin, forms.ModelForm):
 class QuickVehicleForm(forms.ModelForm):
     class Meta:
         model = Vehicle
-        fields = [
-            "plate", "brand", "model", "year_fabrication", "year_model",
-            "color", "fuel", "engine", "type", "renavam", "chassi", "km"
-        ]
+        fields = ["plate", "brand", "model", "year_fabrication", "year_model", "color", "fuel", "engine", "type", "renavam", "chassi", "km"]
         widgets = {
             "plate": TextInput(),
             "brand": TextInput(),

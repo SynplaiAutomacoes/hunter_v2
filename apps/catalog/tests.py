@@ -59,6 +59,21 @@ class KitTests(TestCase):
         self.assertFalse(form.is_valid())
         self.assertIn("Existem serviços repetidos no kit.", form.non_field_errors())
 
+    def test_kit_form_rejects_duplicate_name_in_same_workshop(self):
+        Kit.objects.create(workshop=self.workshop, name="Kit Revisao", description="", is_active=True)
+
+        form = KitForm(
+            data={
+                "name": "Kit Revisao",
+                "description": "",
+                "is_active": "on",
+            },
+            workshop=self.workshop,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("Já existe um kit com este nome na oficina ativa.", form.errors.get("name", []))
+
     def test_kit_form_persists_service_quantity(self):
         kit = Kit.objects.create(workshop=self.workshop, name="Kit A", description="", is_active=True)
         service = Service.objects.create(
@@ -90,6 +105,38 @@ class KitTests(TestCase):
         item = KitService.objects.get(kit=kit, service=service)
         self.assertEqual(item.quantity, 2)
 
+    def test_kit_form_persists_service_duration(self):
+        kit = Kit.objects.create(workshop=self.workshop, name="Kit A", description="", is_active=True)
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name="Serviço 1",
+            description="",
+            duration=datetime.timedelta(minutes=30),
+            selling_price=Money(10, "BRL"),
+            suggested_cost=None,
+            is_third_party=False,
+            is_active=True,
+        )
+
+        form = KitForm(
+            instance=kit,
+            data={
+                "name": "Kit A",
+                "description": "",
+                "is_active": "on",
+                "kit_services": [str(service.id)],
+                f"kit_service_qty_{service.id}": "2",
+                f"kit_service_duration_{service.id}": "01:20:00",
+            },
+            workshop=self.workshop,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        form.save()
+
+        item = KitService.objects.get(kit=kit, service=service)
+        self.assertEqual(item.duration, datetime.timedelta(hours=1, minutes=20))
+
     def test_kit_form_rejects_invalid_service_quantity(self):
         service = Service.objects.create(
             workshop=self.workshop,
@@ -115,6 +162,32 @@ class KitTests(TestCase):
 
         self.assertFalse(form.is_valid())
         self.assertIn("Quantidade inválida para serviço.", form.non_field_errors())
+
+    def test_kit_form_rejects_invalid_service_duration(self):
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name="Serviço 1",
+            description="",
+            duration=datetime.timedelta(minutes=30),
+            selling_price=Money(10, "BRL"),
+            suggested_cost=None,
+            is_third_party=False,
+            is_active=True,
+        )
+
+        form = KitForm(
+            data={
+                "name": "Kit A",
+                "description": "",
+                "is_active": "on",
+                "kit_services": [str(service.id)],
+                f"kit_service_duration_{service.id}": "01:75:00",
+            },
+            workshop=self.workshop,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("Duração inválida para serviço.", form.non_field_errors())
 
     def test_service_money_fields_work_with_only_including_currency_fields(self):
         """Regressão: `djmoney` precisa do campo `*_currency` junto com o valor.

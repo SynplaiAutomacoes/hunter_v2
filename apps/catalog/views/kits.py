@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
+from django.db import IntegrityError
 from django.db.models import Q
 from django.shortcuts import render
 from django.urls import reverse_lazy
@@ -54,7 +56,16 @@ class KitCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
 
     def form_valid(self, form):
         form.instance.workshop = self.workshop
-        return super().form_valid(form)
+        try:
+            return super().form_valid(form)
+        except IntegrityError:
+            form.add_error("name", "Já existe um kit com este nome na oficina ativa.")
+            return self.form_invalid(form)
+
+    def form_invalid(self, form):
+        if form.errors.get("name"):
+            messages.error(self.request, form.errors["name"][0])
+        return super().form_invalid(form)
 
 
 class KitUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
@@ -67,6 +78,18 @@ class KitUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         kwargs = super().get_form_kwargs()
         kwargs["workshop"] = self.workshop
         return kwargs
+
+    def form_valid(self, form):
+        try:
+            return super().form_valid(form)
+        except IntegrityError:
+            form.add_error("name", "Já existe um kit com este nome na oficina ativa.")
+            return self.form_invalid(form)
+
+    def form_invalid(self, form):
+        if form.errors.get("name"):
+            messages.error(self.request, form.errors["name"][0])
+        return super().form_invalid(form)
 
 
 class KitDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResponseMixin, DeleteView):
@@ -139,6 +162,7 @@ class KitServiceSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
         qs = qs.order_by("name").only(
             "id",
             "name",
+            "duration",
             "suggested_cost",
             "suggested_cost_currency",
             "selling_price",
@@ -158,15 +182,16 @@ class KitServiceSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
             },
         )
 
+
 class KitsByProductHXView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = Kit
     workshop_permission_codename = "view_kit"
+
     def get(self, request, *args, **kwargs):
         product_id = request.GET.get("product_id")
 
         kits = (
-            Kit.objects
-            .filter(
+            Kit.objects.filter(
                 workshop=self.workshop,
                 is_active=True,
                 products__id=product_id,

@@ -47,16 +47,25 @@
                 <button type="button"
                         class="btn btn-error"
                         hx-on:click="
-                            let item = this.closest('.vehicle-item');
-                            let deleteInput = item.querySelector('input[name$=&quot;-DELETE&quot;]');
+                            const modalToggle = document.getElementById('{{ modal_id }}');
+                            if (modalToggle) {
+                                modalToggle.checked = false;
+                            }
+
+                            const item = this.closest('.vehicle-item');
+                            if (!item) {
+                                return;
+                            }
+
+                            const deleteInput = item.querySelector('input[name$=&quot;-DELETE&quot;]');
                             if (deleteInput) {
                                 deleteInput.checked = true;
                                 item.style.display = 'none';
                             } else {
                                 item.remove();
                             }
-                            $dispatch('htmx:after-swap', { detail: { target: { id: 'vehicle-list' } } });
-                            document.getElementById('{{ modal_id }}').checked = false;
+
+                            window.dispatchEvent(new CustomEvent('vehicle-list:changed'));
                         ">
                     Confirmar Remoção
                 </button>
