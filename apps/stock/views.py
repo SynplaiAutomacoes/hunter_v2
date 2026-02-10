@@ -28,7 +28,7 @@ class StockAlertsListView(LoginRequiredMixin, WorkshopScopedMixin, ListView):
     workshop_permission_codename = "view_stockproduct"
 
     def get_queryset(self):
-        return StockProduct.objects.filter(workshop=self.workshop, current_quantity__lte=F("minimum_quantity")).select_related("product")
+        return StockProduct.objects.filter(workshop=self.workshop, current_quantity__lt=F("minimum_quantity")).select_related("product")
 
 
 class StockMovementListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
