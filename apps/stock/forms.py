@@ -130,101 +130,112 @@ class ImportStepItemsForm(forms.Form):
 
         self.helper.layout = Layout(
             Div(
-                HTML('<h2 class="text-2xl font-bold mb-4">Itens Importados</h2>'),
                 HTML(table_html),
                 css_class="mt-4"
             )
         )
 
     def _generate_table_html(self):
-        rows = ""
-        total_geral = Decimal("0.00")
-        has_missing = False
-
+        rows_xml = ""
+        rows_system = ""
         quick_create_url = reverse("catalog:quick_create")
+        link_manual_url = reverse("stock:link_product_manual")
 
-        for item in self.import_items:
-            ref = item.get("ref", "")
-            desc = item.get("desc", "")
+        for idx, item in enumerate(self.import_items):
+            # --- Dados do XML ---
+            ref_xml = item.get("ref", "")
+            desc_xml = item.get("desc", "")
+            qtd = Decimal(str(item.get("qtd", 0)))
+            valor_unit = Decimal(str(item.get("valor", 0)))
 
-            # Tenta encontrar o produto no catálogo
-            db_product = Product.objects.filter(workshop=self.workshop, code=ref).first()
+            rows_xml += f"""
+                <tr class="h-16 border-b hover:bg-base-200/30">
+                    <td>
+                        <div class="text-sm font-medium truncate w-48" title="{desc_xml}">{desc_xml}</div>
+                        <div class="text-[10px] opacity-50 font-mono">{ref_xml}</div>
+                    </td>
+                    <td class="text-center">{qtd}</td>
+                    <td class="text-right font-semibold">R$ {valor_unit:,.2f}</td>
+                </tr>
+            """
 
-            # Cálculos de valores (convertendo strings para Decimal)
-            try:
-                qtd = Decimal(str(item.get("qtd", 0)))
-                valor_unit = Decimal(str(item.get("valor", 0)))
-            except:
-                qtd = Decimal("0")
-                valor_unit = Decimal("0")
-
-            subtotal = qtd * valor_unit
-            total_geral += subtotal
-            desc_display = f'<div class="font-bold text-error">{desc}</div><div class="text-xs opacity-50">Código: {ref}</div>'
+            # --- Dados do Sistema ---
+            product_id = item.get("linked_product_id")
+            db_product = Product.objects.filter(id=product_id, workshop=self.workshop).first() if product_id else None
 
             if db_product:
-                status_badge = '<div class="badge badge-success gap-2 py-3"> <span class="material-icons text-xs">check_circle</span> Vinculado </div>'
-                action_btn = '<div class="text-sm text-success font-bold text-center italic"></div>'
-            else:
-                has_missing = True
-                status_badge = '<div class="badge badge-warning gap-2 py-3"> <span class="material-icons text-xs">help</span> Novo </div>'
-                url_with_params = f"{quick_create_url}?ref={ref}&desc={desc}&price={valor_unit}"
-                action_btn = f"""<button type="button" class="btn btn-sm btn-primary w-full" 
-                                            hx-get="{url_with_params}" 
-                                            hx-target="#modal-container">
-                                        <span class="material-icons text-xs">add</span> Cadastrar
-                                    </button>"""
+                stock_qty = getattr(db_product.stock_products.first(), "current_quantity", 0)
+                cost_price = getattr(db_product, "cost_price", 0)
 
-            rows += f"""
-                    <tr class="hover">
-                        <td class="w-10">{status_badge}</td>
-                        <td>{desc_display}</td>
-                        <td class="text-center font-mono">{qtd}</td>
-                        <td class="text-right">R$ {valor_unit:,.2f}</td>
-                        <td class="text-right font-bold">R$ {subtotal:,.2f}</td>
-                        <td class="w-32">{action_btn}</td>
+                rows_system += f"""
+                    <tr class="h-16 border-b hover:bg-base-200/30">
+                        <td>
+                            <div class="font-bold text-sm text-success italic">✓ {db_product.name}</div>
+                            <div class="text-xs opacity-60">Custo: R$ {cost_price:,.2f}</div>
+                        </td>
+                        <td class="text-center">{stock_qty}</td>
+                        <td class="text-center">
+                            <button type="button" class="btn btn-ghost btn-xs text-error" 
+                                    hx-post='{reverse("stock:unlink_item")}?item_idx={idx}' hx-target="#import-card-content">
+                                <span class="material-icons text-xs">link_off</span>
+                            </button>
+                        </td>
+                    </tr>
+                """
+            else:
+                rows_system += f"""
+                    <tr class="h-16 border-b bg-warning/5">
+                        <td colspan="2" class="italic text-warning text-xs">
+                            <span class="flex items-center gap-1"><span class="material-icons text-sm">warning</span> Pendente</span>
+                        </td>
+                        <td class="text-center">
+                            <div class="flex gap-1 justify-center">
+                                <button type="button" class="btn btn-primary btn-xs" hx-target="#modal-container"
+                                        hx-get="{quick_create_url}?ref={ref_xml}&desc={desc_xml}&price={valor_unit}&item_idx={idx}">Novo</button>
+                                <button type="button" class="btn btn-outline btn-xs" hx-target="#modal-container"
+                                        hx-get="{link_manual_url}?item_idx={idx}">Link</button>
+                            </div>
+                        </td>
                     </tr>
                     """
 
-        warning_alert = ""
-        if has_missing:
-            warning_alert = """
-                    <div class="alert alert-warning shadow-sm mb-4">
-                        <span class="material-icons">info</span>
-                        <div>
-                            <h3 class="font-bold">Itens pendentes!</h3>
-                            <div class="text-xs">Cadastre os produtos marcados como "Novo" para liberar a importação.</div>
-                        </div>
-                    </div>
-                    """
-
-        table_base = f"""
-                <div class="overflow-x-auto border rounded-xl bg-base-100 shadow-sm">
-                    <table class="table table-md w-full">
+        return f"""<div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            <div class="col-span-12 lg:col-span-5">
+                <h3 class="text-2xl font-bold mb-4 flex items-center gap-2">Itens Importados</h3>
+                <div class="rounded-xl overflow-hidden">
+                    <table class="table table-sm w-full">
                         <thead>
-                            <tr class="bg-base-200 text-base-content">
-                                <th>Status</th>
-                                <th>Produto / Referência</th>
-                                <th class="text-center">Qtd.</th>
-                                <th class="text-right">Valor Unitário</th>
-                                <th class="text-right">Subtotal</th>
+                            <tr>
+                                <th>Descrição</th>
+                                <th class="text-center">Quantidade</th>
+                                <th class="text-right">Valor Pago</th>
+                            </tr>
+                        </thead>
+                        <tbody>{rows_xml}</tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <div class="lg:col-span-1">
+            
+            <div class="col-span-12 lg:col-span-6">
+                <h3 class="text-2xl font-bold mb-4 flex items-center gap-2">Itens Cadastrados</h3>
+                <div class="rounded-xl overflow-hidden">
+                    <table class="table table-sm w-full">
+                        <thead>
+                            <tr>
+                                <th>Produto Vinculado</th>
+                                <th class="text-center">Valor de Custo</th>
+                                <th class="text-center">Valor de Venda</th>
+                                <th class="text-center">Estoque Atual</th>
                                 <th class="text-center">Ações</th>
                             </tr>
                         </thead>
-                        <tbody>
-                            {rows if rows else '<tr><td colspan="6" class="text-center py-4">Nenhum item encontrado</td></tr>'}
-                        </tbody>
-                        <tfoot class="bg-base-200">
-                            <tr class="text-right font-bold text-lg uppercase">
-                                <td colspan="4">Total da Nota:</td>
-                                <td>R$ {total_geral:,.2f}</td>
-                                <td></td>
-                            </tr>
-                        </tfoot>
+                        <tbody>{rows_system}</tbody>
                     </table>
                 </div>
-                """
-        return warning_alert + table_base
+            </div>
+        </div>"""
 
 
 class ImportStepPaymentForm(forms.Form):
