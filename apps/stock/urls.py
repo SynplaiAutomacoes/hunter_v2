@@ -10,4 +10,6 @@ urlpatterns = [
     path('approvals/', views.MovementApprovalListView.as_view(), name='approvals'),
     path('approvals/<int:pk>/process/', views.MovementApprovalActionView.as_view(), name='process_approval'),
     path('import/', views.StockImportView.as_view(), name='import'),
+    path('remove_payment_session/<int:payment_id>/', views.remove_payment_session, name='remove_payment_session'),
+    path('add_payment_session/', views.add_payment_session, name='add_payment_session'),
 ]

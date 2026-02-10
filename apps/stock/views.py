@@ -1,7 +1,10 @@
 import re
 from decimal import Decimal
 
+from crispy_forms.utils import render_crispy_form
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.http import HttpResponse
+from django.template.context_processors import csrf
 from django.views import View
 from django.views.generic import ListView, FormView, CreateView
 from django.shortcuts import get_object_or_404, redirect, render
@@ -10,8 +13,8 @@ from django.db import transaction
 from django.db.models import F, ExpressionWrapper, IntegerField
 from pynfe.processamento import ComunicacaoSefaz
 
-from .forms import ImportStep1Form, ImportStepSupplierForm, ImportStepItemsForm
-from .models import StockProduct, StockMovement
+from .forms import ImportStep1Form, ImportStepSupplierForm, ImportStepItemsForm, ImportStepPaymentForm
+from .models import StockProduct, StockMovement, StockPaymentMethod
 from .utils import NFParser
 from ..catalog.models.products import Product
 from ..core.forms import MultiStepFormMixin
@@ -151,6 +154,7 @@ class StockImportView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixi
         kwargs = super().get_form_kwargs()
         kwargs['nf_data'] = self.request.session.get("nf_data", {})
         kwargs['import_items'] = self.request.session.get("import_items", [])
+        kwargs['import_payments'] = self.request.session.get("import_payments", [])
 
         kwargs.pop('instance', None)
         return kwargs
@@ -170,7 +174,7 @@ class StockImportView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixi
             [
                 {"title": "Fornecedor", "form_class": ImportStepSupplierForm},
                 {"title": "Importar Itens", "form_class": ImportStepItemsForm},
-        #         {"title": "Método de Pagamento", "form_class": ImportStepPaymentForm},
+                {"title": "Método de Pagamento", "form_class": ImportStepPaymentForm},
         #         {"title": "Revisão e Confirmação", "form_class": ImportStepSummaryForm},
             ]
         )
@@ -222,6 +226,7 @@ class StockImportView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixi
                 # Persistência em Sessão para as próximas etapas
                 self.request.session["nf_data"] = nf_data
                 self.request.session["import_items"] = nf_data['items']
+                self.request.session["import_payments"] = nf_data['payments']
                 self.request.session.modified = True
 
         elif current_step == 2:
@@ -279,3 +284,51 @@ class StockImportView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixi
                 return self.form_invalid(form)
 
         return self.render_next_step(form)
+
+
+def add_payment_session(request):
+    workshop = get_active_workshop_or_404(request)
+    payments = request.session.get("import_payments", [])
+
+    method_code = request.POST.get("payment_method")
+    first_amount = Decimal(request.POST.get("first_amount_0", "0"))
+    installments = Decimal(request.POST.get("installments_count", "1"))
+    total_paid = first_amount * installments
+
+    new_payment = {
+        "id": len(payments) + 1,
+        "method": method_code,
+        "method_display": dict(StockPaymentMethod.PAYMENT_METHOD_CHOICES).get(method_code),
+        "installments": str(installments),
+        "first_amount": str(first_amount),
+        "total_paid": str(total_paid),
+    }
+
+    payments.append(new_payment)
+    request.session["import_payments"] = payments
+    request.session.modified = True
+
+    nf_data = request.session.get("nf_data", {})
+    import_items = request.session.get("import_items", {})
+    form = ImportStepPaymentForm(nf_data=nf_data, import_payments=payments, import_items=import_items, workshop=workshop)
+
+    ctx = {}
+    ctx.update(csrf(request))
+    return HttpResponse(render_crispy_form(form, context=ctx))
+
+
+def remove_payment_session(request, payment_id):
+    workshop = get_active_workshop_or_404(request)
+    payments = request.session.get("import_payments", [])
+    payments = [p for p in payments if p["id"] != int(payment_id)]
+
+    request.session["import_payments"] = payments
+    request.session.modified = True
+
+    nf_data = request.session.get("nf_data", {})
+    import_items = request.session.get("import_items", {})
+    form = ImportStepPaymentForm(nf_data=nf_data, import_payments=payments, import_items=import_items, workshop=workshop)
+
+    ctx = {}
+    ctx.update(csrf(request))
+    return HttpResponse(render_crispy_form(form, context=ctx))

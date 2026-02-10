@@ -2,6 +2,8 @@ import gzip
 import base64
 from lxml import etree
 
+from apps.stock.models import StockPaymentMethod
+
 
 class NFParser:
     @staticmethod
@@ -23,14 +25,13 @@ class NFParser:
                 # Caso seja o XML direto (upload manual)
                 nfe_tree = tree
 
-            nf_numero = nfe_tree.xpath("//ns:ide/ns:nNF", namespaces=ns)[0].text
-
-            # Dados do Emitente (Fornecedor)
+            # --- Cabeçalho e Fornecedor ---
             emit = nfe_tree.xpath("//ns:emit", namespaces=ns)[0]
-            nome_fornecedor = emit.xpath("ns:xNome", namespaces=ns)[0].text
+            nf_numero = nfe_tree.xpath("//ns:ide/ns:nNF", namespaces=ns)[0].text
             cnpj_fornecedor = emit.xpath("ns:CNPJ", namespaces=ns)[0].text
+            nome_fornecedor = emit.xpath("ns:xNome", namespaces=ns)[0].text
 
-            # Itens
+            # --- Itens ---
             produtos = []
             detalhes = nfe_tree.xpath("//ns:det", namespaces=ns)
             for det in detalhes:
@@ -44,6 +45,30 @@ class NFParser:
                     }
                 )
 
-            return {"nf_number": nf_numero, "supplier_cnpj": cnpj_fornecedor, "supplier_name": nome_fornecedor, "items": produtos}
-        except Exception as e:
+            # --- Pagamento ---
+            pagamentos_sessao = []
+            sefaz_map = {
+                "01": "DINHEIRO",
+                "03": "CREDITO",
+                "04": "DEBITO",
+                "15": "BOLETO",
+                "17": "PIX"
+            }
+
+            t_pag_code = tree.xpath('//ns:pag/ns:detPag/ns:tPag/text()', namespaces=ns)
+            method_slug = sefaz_map.get(t_pag_code[0], "BOLETO") if t_pag_code else "BOLETO"
+
+            duplicatas = tree.xpath('//ns:cobr/ns:dup', namespaces=ns)
+            for idx, dup in enumerate(duplicatas):
+                valor = dup.xpath('ns:vDup/text()', namespaces=ns)[0]
+                pagamentos_sessao.append({
+                    "id": idx + 1,
+                    "method": method_slug,
+                    "method_display": dict(StockPaymentMethod.PAYMENT_METHOD_CHOICES).get(method_slug),
+                    "installments": 1,
+                    "first_amount": valor,
+                    "total_paid": valor * 1,
+                })
+            return {"nf_number": nf_numero, "supplier_cnpj": cnpj_fornecedor, "supplier_name": nome_fornecedor, "items": produtos, "payments": pagamentos_sessao}
+        except Exception:
             return None

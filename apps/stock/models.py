@@ -3,6 +3,7 @@ from django.conf import settings
 
 from apps.core.models import TimeStampedModel
 from apps.suppliers.models import Supplier
+from djmoney.models.fields import MoneyField
 
 
 class StockProduct(TimeStampedModel):
@@ -42,6 +43,28 @@ class StockMovement(TimeStampedModel):
     @property
     def location(self):
         return self.stock_product.product.location
+
+
+class StockPaymentMethod(TimeStampedModel):
+    PAYMENT_METHOD_CHOICES = (
+        ("CREDITO", "Cartão de Crédito"),
+        ("DEBITO", "Cartão de Débito"),
+        ("PIX", "Pix"),
+        ("DINHEIRO", "Dinheiro"),
+        ("BOLETO", "Boleto"),
+        ("TRANSFERENCIA", "Transferência/TED"),
+    )
+
+    workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="stockpayments")
+    payment_method = models.CharField(verbose_name="Forma de Pagamento", choices=PAYMENT_METHOD_CHOICES, max_length=20)
+    installments_count = models.PositiveIntegerField(verbose_name="Número de Parcelas", default=1)
+    first_installment_amount = MoneyField(verbose_name="Valor da primeira parcela", max_digits=14, decimal_places=2, default=0.00)
+    remaining_installments_amount = MoneyField(verbose_name="Valor das parcelas restantes", max_digits=14, decimal_places=2, default=0.00)
+    nf_number = models.CharField(max_length=60, verbose_name="Número da NF", null=False, blank=False)
+
+    @property
+    def total_paid(self):
+        return self.first_installment_amount.amount + ((self.installments_count - 1) * self.remaining_installments_amount.amount)
 
 
 class SefazZipCache(TimeStampedModel):

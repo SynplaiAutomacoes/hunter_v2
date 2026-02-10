@@ -1,13 +1,16 @@
 import re
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django import forms
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, HTML
 from django.urls import reverse
+from djmoney.forms import MoneyField
+from djmoney.money import Money
 
 from apps.catalog.models.products import Product
-from apps.core.widgets import TextInput
+from apps.core.widgets import TextInput, SelectInput, NumberInput, MoneyInput
+from apps.stock.models import StockPaymentMethod
 
 
 class ImportStep1Form(forms.Form):
@@ -25,6 +28,7 @@ class ImportStep1Form(forms.Form):
         self.workshop = kwargs.pop("workshop", None)
         self.nf_data = kwargs.pop("nf_data", {})
         self.import_items = kwargs.pop("import_items", [])
+        self.import_payments = kwargs.pop("import_payments", [])
         super().__init__(*args, **kwargs)
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -74,6 +78,7 @@ class ImportStepSupplierForm(forms.Form):
         self.workshop = kwargs.pop("workshop", None)
         self.nf_data = kwargs.pop("nf_data", {})
         self.import_items = kwargs.pop("import_items", [])
+        self.import_payments = kwargs.pop("import_payments", [])
         super().__init__(*args, **kwargs)
 
         self.helper = FormHelper()
@@ -114,6 +119,7 @@ class ImportStepItemsForm(forms.Form):
         self.workshop = kwargs.pop("workshop", None)
         self.nf_data = kwargs.pop("nf_data", {})
         self.import_items = kwargs.pop("import_items", [])
+        self.import_payments = kwargs.pop("import_payments", [])
         super().__init__(*args, **kwargs)
 
         self.helper = FormHelper()
@@ -218,3 +224,132 @@ class ImportStepItemsForm(forms.Form):
                 </div>
                 """
         return warning_alert + table_base
+
+
+class ImportStepPaymentForm(forms.Form):
+    payment_method = forms.ChoiceField(choices=StockPaymentMethod.PAYMENT_METHOD_CHOICES, label="Forma de Pagamento", widget=SelectInput)
+    installments_count = forms.IntegerField(min_value=1, initial=1, label="Número de Parcelas", widget=NumberInput)
+    first_amount = MoneyField(max_digits=14, decimal_places=2, label="Valor Pago", widget=MoneyInput)
+
+    total_nf_display = forms.CharField(label="Valor Total", required=False, widget=MoneyInput)
+    total_allocated_display = forms.CharField(label="Valor Pago", required=False, widget=MoneyInput)
+    pending_display = forms.CharField(label="Valor Pendente", required=False, widget=MoneyInput)
+
+    def __init__(self, *args, **kwargs):
+        self.workshop = kwargs.pop("workshop", None)
+        self.nf_data = kwargs.pop("nf_data", {})
+        self.import_items = kwargs.pop("import_items", [])
+        self.import_payments = kwargs.pop("import_payments", [])
+        super().__init__(*args, **kwargs)
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+
+        # Cálculos Financeiros
+        valor_total = Decimal('0.00')
+        for item in self.import_items:
+            qtd = Decimal(str(item.get("qtd", 0)))
+            valor_unit = Decimal(str(item.get("valor", 0)))
+            valor_total += valor_unit * qtd
+
+        valor_pago = Decimal("0.00")
+        for p in self.import_payments:
+            valor_pago += Decimal(str(p.get("total_paid", 0)))
+
+        valor_pendente = valor_total - valor_pago
+
+        resume = {
+            "total_nf_display": valor_total,
+            "total_allocated_display": valor_pago,
+            "pending_display": valor_pendente,
+        }
+
+        for field_name, value in resume.items():
+            money_obj = Money(value, 'BRL')
+            self.initial[field_name] = money_obj
+
+            if self.is_bound:
+                 self.data._mutable = True
+                 self.data[f"{field_name}_0"] = str(value)
+                 self.data[f"{field_name}_1"] = 'BRL'
+                 self.data._mutable = False
+
+            self.fields[field_name].widget.attrs.update({
+                "readonly": True,
+                "class": "cursor-not-allowed opacity-75"
+            })
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout(
+            Div(
+                HTML('<h3 class="font-bold text-2xl pb-2 mb-2">Configuração das Formas de Pagamento</h3>'),
+                HTML('<h5 class="text-lg pb-2 mb-4">Adicione, edite e salve múltiplos planos de pagamentos para esta importação.</h5>'),
+                #
+                Div(
+                    Field("total_nf_display", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("total_allocated_display", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("pending_display", wrapper_class="col-span-12 lg:col-span-4"),
+                    css_class="grid grid-cols-12 gap-4 mb-2 pb-4"
+                ),
+                #
+                Div(
+                    Field("payment_method", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("installments_count", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("first_amount", wrapper_class="col-span-12 lg:col-span-4"),
+                    css_class="grid grid-cols-12 gap-4 mb-2 pb-4",
+                ),
+                #
+                Div(
+                    Div(css_class="col-span-12 lg:col-span-8"),
+                    HTML(f"""<button type="button" hx-post="{reverse("stock:add_payment_session")}" 
+                                        hx-target="#import-step-container" 
+                                        hx-include="#import-step-container"
+                                        hx-indicator="#payment-loader"
+                                        class="btn btn-primary col-span-12 lg:col-span-4"> Incluir Pagamento</button>"""),
+                    css_class="grid grid-cols-12 gap-4 mb-2 pb-4"
+                ),
+                #
+                HTML('<div class="mt-6 overflow-x-auto">'),
+                HTML(self._generate_payments_table_html()),
+                HTML("</div>"),
+                id="import-step-container",
+                css_class="card-body",
+            )
+        )
+
+    def _generate_payments_table_html(self):
+        rows = ""
+        for p in self.import_payments:
+            delete_url = reverse("stock:remove_payment_session", kwargs={"payment_id": p["id"]})
+            rows += f"""<tr>
+                    <td>{p["method_display"]}</td>
+                    <td>{p["installments"]}x</td>
+                    <td class="font-bold">{Money(p["total_paid"], 'BRL')}</td>
+                    <td class="text-center">
+                        <button type="button" 
+                                hx-post="{delete_url}" 
+                                hx-target="#import-step-container" 
+                                hx-confirm="Deseja remover este pagamento?"
+                                class="btn btn-ghost btn-xs text-error">
+                            <span class="material-icons text-sm">delete</span>
+                        </button>
+                    </td>
+                </tr>"""
+
+        if not rows:
+            rows = '<tr><td colspan="4" class="text-center text-gray-500 italic py-4">Nenhum pagamento registrado.</td></tr>'
+
+        return f"""<table class="table table-zebra w-full">
+                <thead>
+                    <tr>
+                        <th>Forma de Pagamento</th>
+                        <th>Parcelas</th>
+                        <th>Valor Pago</th>
+                        <th class="text-center">Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows}
+                </tbody>
+            </table>"""
