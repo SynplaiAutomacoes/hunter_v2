@@ -33,7 +33,7 @@ class StockMovement(TimeStampedModel):
     supplier = models.ForeignKey(Supplier, on_delete=models.SET_NULL, verbose_name="Fornecedor", null=True, blank=True, related_name="movements")
     transcation_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, related_name="movements", null=True)
     quantity = models.IntegerField(default=1, verbose_name="Quantidade")
-    status = models.CharField(max_length=10, choices=MovementStatus.choices, verbose_name="Status")
+    status = models.CharField(max_length=10, choices=MovementStatus.choices, verbose_name="Status", default=MovementStatus.WAITING)
 
     @property
     def get_product_reference(self):
