@@ -182,16 +182,19 @@ class StockImportView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixi
 
     def form_invalid(self, form):
         if self.request.htmx:
-            return render(self.request, 'stock/partials/import_step_content.html', self.get_context_data(form=form))
+            return render(self.request, "stock/partials/import_step_content.html", self.get_context_data(form=form))
         return super().form_invalid(form)
 
     def form_valid(self, form):
-        current_step = self.get_current_step()
+        steps_config = self.get_steps_config()
+        current_step_idx = self.get_current_step() - 1
+        step_title = steps_config[current_step_idx]['title']
+
         nf_data = self.request.session.get("nf_data", {})
         import_items = self.request.session.get("import_items", [])
 
         # Lógica de persistência em Sessão (Exemplo Step 1)
-        if current_step == 1:
+        if step_title == 'Método de Importação':
             method = form.cleaned_data["method"]
             self.request.session["import_method"] = method
 
@@ -229,7 +232,7 @@ class StockImportView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixi
                 self.request.session["import_payments"] = nf_data['payments']
                 self.request.session.modified = True
 
-        elif current_step == 2:
+        elif step_title == 'Fornecedor':
             cnpj = nf_data.get('supplier_cnpj')
 
             with transaction.atomic():
@@ -243,7 +246,7 @@ class StockImportView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixi
                 self.request.session["nf_data"] = nf_data
                 self.request.session.modified = True
 
-        elif current_step == 3:
+        elif step_title == 'Importar Itens':
             # Validação
             missing_products = [item.get("desc") for item in import_items
                 if not Product.objects.filter(workshop=self.workshop, code=item.get("ref")).exists()]

@@ -227,9 +227,9 @@ class ImportStepItemsForm(forms.Form):
 
 
 class ImportStepPaymentForm(forms.Form):
-    payment_method = forms.ChoiceField(choices=StockPaymentMethod.PAYMENT_METHOD_CHOICES, label="Forma de Pagamento", widget=SelectInput)
-    installments_count = forms.IntegerField(min_value=1, initial=1, label="Número de Parcelas", widget=NumberInput)
-    first_amount = MoneyField(max_digits=14, decimal_places=2, label="Valor Pago", widget=MoneyInput)
+    payment_method = forms.ChoiceField(choices=StockPaymentMethod.PAYMENT_METHOD_CHOICES, label="Forma de Pagamento", widget=SelectInput, required=False)
+    installments_count = forms.IntegerField(min_value=1, initial=1, label="Número de Parcelas", widget=NumberInput, required=False)
+    first_amount = MoneyField(max_digits=14, decimal_places=2, label="Valor Pago", widget=MoneyInput, required=False)
 
     total_nf_display = forms.CharField(label="Valor Total", required=False, widget=MoneyInput)
     total_allocated_display = forms.CharField(label="Valor Pago", required=False, widget=MoneyInput)
