@@ -1,8 +1,9 @@
 import re
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from crispy_forms.utils import render_crispy_form
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.paginator import Paginator
 from django.http import HttpResponse
 from django.template.context_processors import csrf
 from django.views import View
@@ -10,10 +11,11 @@ from django.views.generic import ListView, FormView, CreateView
 from django.shortcuts import get_object_or_404, redirect, render
 from django.contrib import messages
 from django.db import transaction
-from django.db.models import F, ExpressionWrapper, IntegerField
+from django.db.models import F, ExpressionWrapper, IntegerField, Q
+from djmoney.money import Money
 from pynfe.processamento import ComunicacaoSefaz
 
-from .forms import ImportStep1Form, ImportStepSupplierForm, ImportStepItemsForm, ImportStepPaymentForm
+from .forms import ImportStep1Form, ImportStepSupplierForm, ImportStepItemsForm, ImportStepPaymentForm, QuickProductForm
 from .models import StockProduct, StockMovement, StockPaymentMethod
 from .utils import NFParser
 from ..catalog.models.products import Product
@@ -248,10 +250,13 @@ class StockImportView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixi
 
         elif step_title == 'Importar Itens':
             # Validação
-            missing_products = [item.get("desc") for item in import_items
-                if not Product.objects.filter(workshop=self.workshop, code=item.get("ref")).exists()]
-            if missing_products:
-                return self.form_invalid(form)
+            import_items = self.request.session.get("import_items", [])
+
+            for item in import_items:
+                has_manual_link = item.get("linked_product_id") is not None
+
+                if not has_manual_link:
+                    return self.form_invalid(form)
 
             # Cadastro
             supplier_id = nf_data.get('supplier_id')
@@ -337,3 +342,119 @@ def remove_payment_session(request, payment_id):
     ctx = {}
     ctx.update(csrf(request))
     return HttpResponse(render_crispy_form(form, context=ctx))
+
+
+class LinkProductManualView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Product
+    workshop_permission_codename = "view_product"
+
+    def get(self, request):
+        item_idx = request.GET.get("item_idx")
+        context = {"item_idx": item_idx, "workshop": self.workshop}
+        return render(request, "stock/partials/link_manual_modal.html", context)
+
+    @transaction.atomic
+    def post(self, request):
+        item_idx = int(request.POST.get("item_idx"))
+        product_id = request.POST.get("product_id")
+
+        import_items = request.session.get("import_items", [])
+        if 0 <= item_idx < len(import_items):
+            import_items[item_idx]["linked_product_id"] = product_id
+            request.session["import_items"] = import_items
+            request.session.modified = True
+
+        response = HttpResponse("")
+        response["HX-Trigger"] = "productCreated"
+        return response
+
+
+def unlink_item_view(request):
+    item_idx = int(request.GET.get("item_idx"))
+    import_items = request.session.get("import_items", [])
+
+    if 0 <= item_idx < len(import_items):
+        import_items[item_idx]["linked_product_id"] = None
+        request.session["import_items"] = import_items
+        request.session.modified = True
+
+    response = HttpResponse("")
+    response["HX-Trigger"] = "productCreated"
+    return response
+
+
+class StockProductSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Product
+    workshop_permission_codename = "view_product"
+
+    def get(self, request, *args, **kwargs):
+        query = request.GET.get("product_search", "").strip()
+        page = request.GET.get("page", "1")
+
+        qs = Product.objects.filter(workshop=self.workshop, is_active=True)
+        if query:
+            qs = qs.filter(Q(code__icontains=query) | Q(name__icontains=query) | Q(brand__icontains=query))
+
+        # Otimização com .only() incluindo os campos de moeda do djmoney
+        qs = qs.order_by("name").only("id", "code", "name", "brand", "cost_price", "cost_price_currency", "selling_price", "selling_price_currency")
+
+        paginator = Paginator(qs, 10) # Menor quantidade para caber no modal
+        page_obj = paginator.get_page(page)
+
+        return render(
+            request,
+            "stock/partials/product_search_results.html",
+            {
+                "products": page_obj.object_list,
+                "page_obj": page_obj,
+                "query": query,
+            },
+        )
+
+
+class ProductQuickCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
+    model = Product
+    form_class = QuickProductForm
+    template_name = "stock/partials/product_quick_create_modal.html"
+    workshop_permission_codename = "add_product"
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["workshop"] = self.workshop
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["item_idx"] = self.request.GET.get("item_idx")
+        return context
+
+    def get_initial(self):
+        initial = super().get_initial()
+        price_raw = self.request.GET.get("price")
+
+        cost_money = None
+        if price_raw:
+            try:
+                clean_price = Decimal(price_raw.replace(",", "."))
+                cost_money = Money(clean_price, "BRL")
+            except (InvalidOperation, ValueError):
+                pass
+
+        initial.update(
+            {
+                "code": self.request.GET.get("ref"),
+                "name": self.request.GET.get("desc"),
+                "cost_price": cost_money,
+            }
+        )
+        return initial
+
+    def form_valid(self, form):
+        """Salva o produto e retorna o trigger HTMX."""
+        self.object = form.save(commit=False)
+        self.object.workshop = self.workshop
+        self.object.save()
+
+        response = HttpResponse("")
+        response["HX-Trigger"] = "productCreated"
+        return response

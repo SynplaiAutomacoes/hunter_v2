@@ -1,17 +1,16 @@
 import re
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from django import forms
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, HTML
-from django.forms.widgets import DateInput
 from django.urls import reverse
 from djmoney.forms import MoneyField
 from djmoney.money import Money
 
 from apps.catalog.models.products import Product
-from apps.core.widgets import TextInput, SelectInput, NumberInput, MoneyInput, CalendarDateInput
+from apps.core.widgets import TextInput, SelectInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput
 from apps.stock.models import StockPaymentMethod
 
 
@@ -133,7 +132,7 @@ class ImportStepItemsForm(forms.Form):
     def _generate_table_html(self):
         rows_xml = ""
         rows_system = ""
-        quick_create_url = reverse("catalog:quick_create")
+        quick_create_url = reverse("stock:product_quick_create")
         link_manual_url = reverse("stock:link_product_manual")
 
         for idx, item in enumerate(self.import_items):
@@ -362,3 +361,69 @@ class ImportStepPaymentForm(forms.Form):
                     {rows}
                 </tbody>
             </table>"""
+
+
+class QuickProductForm(forms.ModelForm):
+    class Meta:
+        model = Product
+        fields = ["code", "name", "unit", "group", "cost_price", "selling_price", "profit_margin", "origin_cst", "purpose"]
+        widgets = {
+            "code": TextInput(),
+            "name": TextInput(),
+            "unit": SelectInput(),
+            "group": SelectInput(),
+            "cost_price": MoneyInput(),
+            "selling_price": MoneyInput(),
+            "profit_margin": PercentageInput(attrs={"readonly": True}),
+            "origin_cst": SelectInput(),
+            "purpose": SelectInput(),
+        }
+
+    def __init__(self, *args, workshop=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.workshop = workshop
+
+        if workshop:
+            self.fields["group"].queryset = self.fields["group"].queryset.filter(workshop=workshop)
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False  # Importante para o modal
+        self.helper.layout = Layout(
+            Div(
+                # Usando x-data para o cálculo de margem idêntico ao original
+                Div(
+                    Field("code", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("name", wrapper_class="col-span-12 lg:col-span-9"),
+                    Field("unit", wrapper_class="col-span-12 lg:col-span-6"),
+                    Field("group", wrapper_class="col-span-12 lg:col-span-6"),
+                    Field("cost_price", wrapper_class="col-span-12 lg:col-span-4"),
+                    Div(
+                        Field("selling_price", wrapper_class="w-full"),
+                        HTML('<div class="text-error text-xs" x-show="priceError" x-cloak>⚠️ Menor que o custo</div>'),
+                        css_class="col-span-12 lg:col-span-4",
+                    ),
+                    Field("profit_margin", wrapper_class="col-span-12 lg:col-span-4", css_class="opacity-50"),
+                    Field("origin_cst", wrapper_class="col-span-12 lg:col-span-6"),
+                    Field("purpose", wrapper_class="col-span-12 lg:col-span-6"),
+                    css_class="grid grid-cols-12 gap-3",
+                ),
+                **{
+                    "x-data": """{
+                        priceError: false,
+                        calculateMargin() {
+                            const getVal = (id) => parseFloat(document.getElementById(id)?.value) || 0;
+                            let cost = getVal("id_cost_price_0");
+                            let sell = getVal("id_selling_price_0");
+                            this.priceError = sell > 0 && sell < cost;
+                            let marginEl = document.getElementById("id_profit_margin_display");
+                            if (sell > 0) {
+                                let m = ((sell - cost) / sell) * 100;
+                                marginEl.value = m.toFixed(2).replace(".", ",");
+                                marginEl.dispatchEvent(new Event('input'));
+                            }
+                        }
+                    }""",
+                    "@input": "calculateMargin()",
+                },
+            )
+        )

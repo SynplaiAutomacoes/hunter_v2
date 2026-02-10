@@ -1,0 +1,46 @@
+<div class="modal modal-open" x-data="{
+    searchQuery: '',
+    confirmLink(product) {
+        htmx.ajax('POST', '{% url 'stock:link_product_manual' %}', {
+            values: {
+                item_idx: '{{ item_idx }}',
+                product_id: product.id
+            },
+            target: '#modal-container'
+        });
+    }
+}">
+    <div class="modal-box max-w-4xl">
+        <h3 class="font-bold text-lg mb-4">Vincular Item à um Produto</h3>
+
+        <div class="form-control w-full mb-4">
+            <input type="text"
+                   name="product_search"
+                   class="input input-bordered w-full"
+                   placeholder="Pesquise por código, nome ou marca..."
+                   hx-get="{% url 'stock:stock_product_search' %}"
+                   hx-trigger="keyup changed delay:500ms"
+                   hx-target="#search-results-rows">
+        </div>
+
+        <div class="overflow-x-auto max-h-96 border border-base-300 rounded-box">
+            <table class="table table-sm table-zebra w-full">
+                <thead class="sticky top-0 bg-base-200">
+                    <tr>
+                        <th>Produto</th>
+                        <th class="text-right">Valor de Venda</th>
+                        <th class="text-center">Ações</th>
+                    </tr>
+                </thead>
+                <tbody id="search-results-rows"
+                       hx-get="{% url 'stock:stock_product_search' %}"
+                       hx-trigger="load">
+                    </tbody>
+            </table>
+        </div>
+
+        <div class="modal-action">
+            <button class="btn btn-ghost" onclick="document.getElementById('modal-container').innerHTML=''">Fechar</button>
+        </div>
+    </div>
+</div>
