@@ -139,37 +139,31 @@ class ImportStepItemsForm(forms.Form):
         for idx, item in enumerate(self.import_items):
             ref_xml = item.get("ref", "")
             desc_xml = item.get("desc", "")
-            desc_xml_limited = (desc_xml[:47] + "...") if len(desc_xml) > 50 else desc_xml
             qtd = Decimal(str(item.get("qtd", 0)))
             valor_unit = Decimal(str(item.get("valor", 0)))
             valor_total = qtd * valor_unit
-
-            rows_xml += f"""
-                <tr class="h-16 border-b hover:bg-base-200/30">
+            rows_xml += f"""<tr class="h-16 border-b">
                     <td class="max-w-[150px]">
-                        <div class="text-sm font-medium truncate" title="{desc_xml}">{desc_xml_limited}</div>
+                        <div class="text-sm font-medium truncate" title="{desc_xml}">{desc_xml}</div>
                         <div class="text-[10px] opacity-50 font-mono">{ref_xml}</div>
                     </td>
                     <td class="text-center">{qtd}</td>
                     <td class="text-right font-semibold whitespace-nowrap">{Money(valor_unit, 'BRL')}</td>
                     <td class="text-right font-bold whitespace-nowrap">{Money(valor_total, 'BRL')}</td>
-                </tr>
-            """
+                </tr>"""
 
-            # --- Dados do Sistema ---
+
             product_id = item.get("linked_product_id")
-            db_product = Product.objects.filter(id=product_id, workshop=self.workshop).first() if product_id else None
-
-            if db_product:
-                stock_qty = getattr(db_product.stock_products.first(), "current_quantity", 0)
-                cost_price = getattr(db_product, "cost_price", 0)
-
+            product = Product.objects.filter(id=product_id, workshop=self.workshop).first() if product_id else None
+            if product:
                 rows_system += f"""<tr class="h-16 border-b">
                         <td class="max-w-[150px]">
-                            <div class="font-bold text-sm text-success italic truncate">{db_product.name}</div>
-                            <div class="text-xs opacity-60">Custo: R$ {cost_price:,.2f}</div>
+                            <div class="text-sm font-medium truncate" title="{product.name}">{product.name}</div>
+                            <div class="text-[10px] opacity-50 font-mono">{product.code}</div>
                         </td>
-                        <td class="text-center">{stock_qty}</td>
+                        <td class="text-center">{product.cost_price}</td>
+                        <td class="text-center">{product.selling_price}</td>
+                        <td class="text-center">{product.stock_products.current_quantity}</td>
                         <td class="text-center">
                             <button type="button" class="btn btn-ghost btn-xs text-error" 
                                     hx-post='{reverse("stock:unlink_item")}?item_idx={idx}' hx-target="#import-card-content">
@@ -179,7 +173,7 @@ class ImportStepItemsForm(forms.Form):
                     </tr>"""
             else:
                 rows_system += f"""<tr class="h-16 border-b">
-                        <td colspan="2" class="italic text-warning text-xs">
+                        <td class="italic text-warning text-xs">
                             <span class="flex items-center gap-1"><span class="material-icons text-sm">warning</span> Pendente</span>
                         </td>
                         <td></td>
@@ -188,9 +182,9 @@ class ImportStepItemsForm(forms.Form):
                         <td class="text-center">
                             <div class="flex gap-1 justify-center">
                                 <button type="button" class="btn btn-primary btn-sm" hx-target="#modal-container"
-                                        hx-get="{quick_create_url}?ref={ref_xml}&desc={desc_xml}&price={valor_unit}&item_idx={idx}">Novo</button>
+                                        hx-get="{quick_create_url}?ref={ref_xml}&desc={desc_xml}&price={valor_unit}&item_idx={idx}">Cadastrar</button>
                                 <button type="button" class="btn btn-outline btn-sm" hx-target="#modal-container"
-                                        hx-get="{link_manual_url}?item_idx={idx}">Link</button>
+                                        hx-get="{link_manual_url}?item_idx={idx}">Vincular</button>
                             </div>
                         </td>
                     </tr>
