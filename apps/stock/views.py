@@ -78,7 +78,8 @@ class MovementApprovalListView(LoginRequiredMixin, WorkshopScopedMixin, ListView
 
 
 def approve_movement(request, pk):
-    movement = get_object_or_404(StockMovement, pk=pk, workshop=request.workshop)
+    workshop = get_active_workshop_or_404(request)
+    movement = get_object_or_404(StockMovement, pk=pk, workshop=workshop)
     action = request.POST.get("action")
 
     if movement.status != StockMovement.MovementStatus.WAITING:
