@@ -23,6 +23,7 @@ from apps.catalog.views.products import (
     ProductSearchSelectView,
     ProductQuickCreateView,
     update_stock_fields,
+    StockFieldsUpdateView,
 )
 
 from apps.catalog.views.kits import (
@@ -54,7 +55,7 @@ urlpatterns = [
     path("products/<int:pk>/delete/", ProductDeleteView.as_view(), name="product_delete"),
     path("products/search/", ProductSearchSelectView.as_view(), name="product_search"),
     path("products/quick-create/", ProductQuickCreateView.as_view(), name="quick_create"),
-    path("update_stock_fields/", update_stock_fields, name="update_stock_fields"),
+    path("update_stock_fields/", StockFieldsUpdateView.as_view(), name="update_stock_fields"),
     path("kits/", KitListView.as_view(), name="kits_list"),
     path("kits/create/", KitCreateView.as_view(), name="kits_create"),
     path("kits/<int:pk>/edit/", KitUpdateView.as_view(), name="kits_update"),

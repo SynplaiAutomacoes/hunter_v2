@@ -126,28 +126,31 @@ class ProductSearchSelectView(LoginRequiredMixin, WorkshopScopedMixin, View):
         return render(request, "products/partials/search_suggestions.html", {"products": products})
 
 
-def update_stock_fields(request):
-    product_id = request.POST.get("product_id")
-    workshop = get_active_workshop_or_404(request)
+class StockFieldsUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = StockProduct
+    workshop_permission_codename = "change_stockproduct"
 
-    stock_obj = get_object_or_404(StockProduct, product_id=product_id, workshop=workshop)
+    def post(self, request, *args, **kwargs):
+        product_id = request.POST.get("product_id")
 
-    allowed_fields = ["minimum_quantity", "restock_quantity"]
+        stock_obj = get_object_or_404(StockProduct, product_id=product_id, workshop=self.workshop)
 
-    updated = False
-    for field in allowed_fields:
-        if field in request.POST:
-            value = request.POST.get(field)
-            try:
-                setattr(stock_obj, field, int(value) if value else 0)
-                updated = True
-            except ValueError:
-                return HttpResponse("Valor inválido", status=400)
+        allowed_fields = ["minimum_quantity", "restock_quantity"]
 
-    if updated:
-        stock_obj.save()
+        updated = False
+        for field in allowed_fields:
+            if field in request.POST:
+                value = request.POST.get(field)
+                try:
+                    setattr(stock_obj, field, int(value) if value else 0)
+                    updated = True
+                except (ValueError, TypeError):
+                    return HttpResponse("Valor inválido", status=400)
 
-    return HttpResponse("", status=200)
+        if updated:
+            stock_obj.save()
+
+        return HttpResponse("", status=200)
 
 
 class ProductQuickCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
