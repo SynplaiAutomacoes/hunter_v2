@@ -1,4 +1,5 @@
 import re
+from decimal import Decimal
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import ListView, FormView, CreateView
@@ -8,9 +9,10 @@ from django.db import transaction
 from django.db.models import F, ExpressionWrapper, IntegerField
 from pynfe.processamento import ComunicacaoSefaz
 
-from .forms import ImportStep1Form, ImportStepSupplierForm
+from .forms import ImportStep1Form, ImportStepSupplierForm, ImportStepItemsForm
 from .models import StockProduct, StockMovement
 from .utils import NFParser
+from ..catalog.models.products import Product
 from ..core.forms import MultiStepFormMixin
 from ..core.templatetags.table_tags import TableColumn
 from ..core.views import HtmxTemplateResponseMixin
@@ -142,6 +144,7 @@ class StockImportView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixi
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs['nf_data'] = self.request.session.get("nf_data", {})
+        kwargs['import_items'] = self.request.session.get("import_items", [])
 
         kwargs.pop('instance', None)
         return kwargs
@@ -160,16 +163,22 @@ class StockImportView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixi
         base_steps.extend(
             [
                 {"title": "Fornecedor", "form_class": ImportStepSupplierForm},
-        #         {"title": "Importar Itens", "form_class": ImportStepItemsForm},
+                {"title": "Importar Itens", "form_class": ImportStepItemsForm},
         #         {"title": "Método de Pagamento", "form_class": ImportStepPaymentForm},
         #         {"title": "Revisão e Confirmação", "form_class": ImportStepSummaryForm},
             ]
         )
         return base_steps
 
+    def form_invalid(self, form):
+        if self.request.htmx:
+            return render(self.request, 'stock/partials/import_step_content.html', self.get_context_data(form=form))
+        return super().form_invalid(form)
+
     def form_valid(self, form):
         current_step = self.get_current_step()
         nf_data = self.request.session.get("nf_data", {})
+        import_items = self.request.session.get("import_items", [])
 
         # Lógica de persistência em Sessão (Exemplo Step 1)
         if current_step == 1:
@@ -219,8 +228,48 @@ class StockImportView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixi
                     defaults={'name': nf_data.get('supplier_name')}
                 )
 
-                nf_data['supplier_id'] = supplier.id
+                nf_data["supplier_id"] = supplier.id
                 self.request.session["nf_data"] = nf_data
                 self.request.session.modified = True
+
+        elif current_step == 3:
+            # Validação
+            missing_products = [item.get("desc") for item in import_items
+                if not Product.objects.filter(workshop=self.workshop, code=item.get("ref")).exists()]
+            if missing_products:
+                return self.form_invalid(form)
+
+            # Cadastro
+            supplier_id = nf_data.get('supplier_id')
+            supplier = Supplier.objects.get(id=supplier_id)
+
+            try:
+                with transaction.atomic():
+                    for item in import_items:
+                        product = Product.objects.get(workshop=self.workshop, code=item.get("ref"))
+
+                        stock_product, created = StockProduct.objects.get_or_create(
+                            workshop=self.workshop,
+                            product=product,
+                            defaults={
+                                'supplier': supplier,
+                                'last_nf': nf_data.get('nf_number')
+                            }
+                        )
+
+                        quantity = int(Decimal(str(item.get("qtd", 0))))
+
+                        StockMovement.objects.create(
+                            workshop=self.workshop,
+                            stock_product=stock_product,
+                            type=StockMovement.MovementType.ENTRY,
+                            supplier=supplier,
+                            transcation_by=self.request.user,
+                            quantity=quantity,
+                        )
+
+            except Exception as e:
+                form.add_error(None, f"Erro ao processar estoque: {str(e)}")
+                return self.form_invalid(form)
 
         return self.render_next_step(form)

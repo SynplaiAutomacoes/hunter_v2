@@ -1,9 +1,12 @@
 import re
+from decimal import Decimal
 
 from django import forms
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, HTML
+from django.urls import reverse
 
+from apps.catalog.models.products import Product
 from apps.core.widgets import TextInput
 
 
@@ -21,6 +24,7 @@ class ImportStep1Form(forms.Form):
     def __init__(self, *args, **kwargs):
         self.workshop = kwargs.pop("workshop", None)
         self.nf_data = kwargs.pop("nf_data", {})
+        self.import_items = kwargs.pop("import_items", [])
         super().__init__(*args, **kwargs)
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -69,6 +73,7 @@ class ImportStepSupplierForm(forms.Form):
     def __init__(self, *args, **kwargs):
         self.workshop = kwargs.pop("workshop", None)
         self.nf_data = kwargs.pop("nf_data", {})
+        self.import_items = kwargs.pop("import_items", [])
         super().__init__(*args, **kwargs)
 
         self.helper = FormHelper()
@@ -102,3 +107,114 @@ class ImportStepSupplierForm(forms.Form):
             </div>
             """)
         )
+
+
+class ImportStepItemsForm(forms.Form):
+    def __init__(self, *args, **kwargs):
+        self.workshop = kwargs.pop("workshop", None)
+        self.nf_data = kwargs.pop("nf_data", {})
+        self.import_items = kwargs.pop("import_items", [])
+        super().__init__(*args, **kwargs)
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+
+        table_html = self._generate_table_html()
+
+        self.helper.layout = Layout(
+            Div(
+                HTML('<h2 class="text-2xl font-bold mb-4">Itens Importados</h2>'),
+                HTML(table_html),
+                css_class="mt-4"
+            )
+        )
+
+    def _generate_table_html(self):
+        rows = ""
+        total_geral = Decimal("0.00")
+        has_missing = False
+
+        quick_create_url = reverse("catalog:quick_create")
+
+        for item in self.import_items:
+            ref = item.get("ref", "")
+            desc = item.get("desc", "")
+
+            # Tenta encontrar o produto no catálogo
+            db_product = Product.objects.filter(workshop=self.workshop, code=ref).first()
+
+            # Cálculos de valores (convertendo strings para Decimal)
+            try:
+                qtd = Decimal(str(item.get("qtd", 0)))
+                valor_unit = Decimal(str(item.get("valor", 0)))
+            except:
+                qtd = Decimal("0")
+                valor_unit = Decimal("0")
+
+            subtotal = qtd * valor_unit
+            total_geral += subtotal
+            desc_display = f'<div class="font-bold text-error">{desc}</div><div class="text-xs opacity-50">Código: {ref}</div>'
+
+            if db_product:
+                status_badge = '<div class="badge badge-success gap-2 py-3"> <span class="material-icons text-xs">check_circle</span> Vinculado </div>'
+                action_btn = '<div class="text-sm text-success font-bold text-center italic"></div>'
+            else:
+                has_missing = True
+                status_badge = '<div class="badge badge-warning gap-2 py-3"> <span class="material-icons text-xs">help</span> Novo </div>'
+                url_with_params = f"{quick_create_url}?ref={ref}&desc={desc}&price={valor_unit}"
+                action_btn = f"""<button type="button" class="btn btn-sm btn-primary w-full" 
+                                            hx-get="{url_with_params}" 
+                                            hx-target="#modal-container">
+                                        <span class="material-icons text-xs">add</span> Cadastrar
+                                    </button>"""
+
+            rows += f"""
+                    <tr class="hover">
+                        <td class="w-10">{status_badge}</td>
+                        <td>{desc_display}</td>
+                        <td class="text-center font-mono">{qtd}</td>
+                        <td class="text-right">R$ {valor_unit:,.2f}</td>
+                        <td class="text-right font-bold">R$ {subtotal:,.2f}</td>
+                        <td class="w-32">{action_btn}</td>
+                    </tr>
+                    """
+
+        warning_alert = ""
+        if has_missing:
+            warning_alert = """
+                    <div class="alert alert-warning shadow-sm mb-4">
+                        <span class="material-icons">info</span>
+                        <div>
+                            <h3 class="font-bold">Itens pendentes!</h3>
+                            <div class="text-xs">Cadastre os produtos marcados como "Novo" para liberar a importação.</div>
+                        </div>
+                    </div>
+                    """
+
+        table_base = f"""
+                <div class="overflow-x-auto border rounded-xl bg-base-100 shadow-sm">
+                    <table class="table table-md w-full">
+                        <thead>
+                            <tr class="bg-base-200 text-base-content">
+                                <th>Status</th>
+                                <th>Produto / Referência</th>
+                                <th class="text-center">Qtd.</th>
+                                <th class="text-right">Valor Unitário</th>
+                                <th class="text-right">Subtotal</th>
+                                <th class="text-center">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {rows if rows else '<tr><td colspan="6" class="text-center py-4">Nenhum item encontrado</td></tr>'}
+                        </tbody>
+                        <tfoot class="bg-base-200">
+                            <tr class="text-right font-bold text-lg uppercase">
+                                <td colspan="4">Total da Nota:</td>
+                                <td>R$ {total_geral:,.2f}</td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+                """
+        return warning_alert + table_base

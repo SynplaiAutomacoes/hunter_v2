@@ -1,19 +1,42 @@
 {% load crispy_forms_tags %}
-{% include 'navbar/stepper.html' %}
 
-<div class="flex items-center justify-between mb-8 mt-4">
-    <button type="button" class="btn btn-ghost"
-            {% if current_step > 1 %} hx-get="?step={{ current_step|add:-1 }}" hx-target="#import-card-content" {% else %} disabled {% endif %}>
-        <span class="material-icons">chevron_left</span> Anterior
-    </button>
+<div id="import-step-wrapper" class="w-full"
+     hx-get="{{ request.path }}?step={{ current_step }}"
+     hx-trigger="productCreated from:body"
+     hx-target="#import-card-content"
+     hx-indicator="#loading-spinner"
+     hx-swap="innerHTML">
 
-    <button type="submit" form="import-form" class="btn btn-primary">
-        {% if current_step == steps_config|length %} Finalizar Importação {% else %} Próxima Etapa {% endif %}
-    </button>
+    {% include 'navbar/stepper.html' %}
+
+    <div class="flex items-center justify-between mb-8 mt-4">
+        <button type="button" class="btn btn-ghost"
+                {% if current_step > 1 %}
+                hx-get="?step={{ current_step|add:-1 }}"
+                hx-target="#import-card-content"
+                {% else %} disabled {% endif %}>
+            <span class="material-icons">chevron_left</span> Anterior
+        </button>
+
+        <div class="flex items-center gap-4">
+            <span id="loading-spinner" class="loading loading-spinner loading-md htmx-indicator"></span>
+
+            <button type="submit" form="import-form" class="btn btn-primary">
+                {% if current_step == steps_config|length %}
+                    Finalizar Importação
+                {% else %}
+                    Próxima Etapa
+                {% endif %}
+            </button>
+        </div>
+    </div>
+
+    <form id="import-form"
+          hx-post="{{ request.path }}?step={{ current_step }}"
+          hx-target="#import-card-content"
+          hx-swap="innerHTML"
+          hx-encoding="multipart/form-data">
+        {% csrf_token %}
+        {% crispy form %}
+    </form>
 </div>
-
-<form id="import-form" hx-post="{{ request.path }}?step={{ current_step }}"
-      hx-target="#import-card-content" hx-encoding="multipart/form-data">
-    {% csrf_token %}
-    {% crispy form %}
-</form>
