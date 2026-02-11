@@ -134,7 +134,7 @@ class BudgetUpdateView(BudgetCreateView):
         # Ensure workshop is available before budget_object access.
         # MultiStepFormMixin.budget_object calls self.get_object(), which needs self.workshop.
         self.workshop = get_active_workshop_or_404(request)
-        if not self.budget_object:
+        if not self.model_instance:
             return redirect("budget:budget_list")
         return super().dispatch(request, *args, **kwargs)
 

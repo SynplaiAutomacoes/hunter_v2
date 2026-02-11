@@ -4,6 +4,7 @@
         htmx.ajax('POST', '{% url 'stock:link_product_manual' %}', {
             values: {
                 item_idx: '{{ item_idx }}',
+                pk: '{{ pk }}',
                 product_id: product.id
             },
             target: '#modal-container'

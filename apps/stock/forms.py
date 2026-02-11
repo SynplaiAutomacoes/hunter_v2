@@ -5,58 +5,101 @@ from decimal import Decimal
 from django import forms
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, HTML
+from django.db import transaction
 from django.urls import reverse
+from django.utils import timezone
 from djmoney.forms import MoneyField
 from djmoney.money import Money
+from pynfe.processamento import ComunicacaoSefaz
 
 from apps.catalog.models.products import Product
 from apps.core.widgets import TextInput, SelectInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput
-from apps.stock.models import StockPaymentMethod
+from apps.stock.models import StockPaymentMethod, StockImport, StockProduct, StockMovement
+from apps.stock.utils import NFParser
+from apps.suppliers.models import Supplier
 
 
-class ImportStep1Form(forms.Form):
-    METHOD_CHOICES = [
-        ('SEFAZ', 'SEFAZ'),
-        ('XML', 'Arquivo XML'),
-        ('KEY', 'Chave de Acesso'),
-    ]
-    method = forms.ChoiceField(choices=METHOD_CHOICES, label="Selecione o método de Importação de Itens", widget=forms.Select(attrs={'x-model': 'method'}))
+class ImportStep1Form(forms.ModelForm):
     xml_file = forms.FileField(label="Selecione o arquivo XML", required=False)
-    access_key = forms.CharField(label="Insira a chave de acesso", max_length=47, required=False, widget=TextInput(attrs={'oninput': "this.value = this.value.replace(/[^0-9]/g, '')"}))
+    access_key = forms.CharField(label="Insira a chave de acesso", max_length=47, required=False, widget=TextInput(attrs={"oninput": "this.value = this.value.replace(/[^0-9]/g, '')"}))
+
+    class Meta:
+        model = StockImport
+        fields = ["method"]
+        widgets = {"method": forms.Select(attrs={"x-model": "method", "class": "select select-bordered w-full"})}
 
     def __init__(self, *args, **kwargs):
         self.workshop = kwargs.pop("workshop", None)
+        self.request = kwargs.pop("request", None)
         self.nf_data = kwargs.pop("nf_data", {})
         self.import_items = kwargs.pop("import_items", [])
         self.import_payments = kwargs.pop("import_payments", [])
         super().__init__(*args, **kwargs)
+
+        if self.instance:
+            self.fields["method"].initial = self.instance.method
+
         self.helper = FormHelper()
         self.helper.form_tag = False
-        self.helper.layout = (Layout(
+        self.helper.layout = Layout(
+            Div(
+                # Coluna Esquerda: Seleção
                 Div(
-                    # Coluna Esquerda: Seleção
-                    Div(
-                        HTML('<h2 class="text-2xl font-bold mb-6">Método de Importação</h2>'),
-                        Field("method", css_class="select select-bordered w-full"),
-                        css_class="col-span-12 lg:col-span-5",
-                    ),
-                    #
-                    Div(css_class="hidden lg:block lg:col-span-2"),
-                    #
-                    # Coluna Direita
-                    Div(
-                        # Cabeçalhos Dinâmicos
-                        HTML('<h2 class="text-2xl font-bold mb-6" x-show="method == \'XML\'">Importação do Arquivo</h2>'),
-                        HTML('<h2 class="text-2xl font-bold mb-6" x-show="method == \'KEY\'">Chave de Acesso</h2>'),
-                        # Campos Dinâmicos
-                        Div(Field("xml_file", css_class="file-input file-input-bordered w-full"), x_show="method == 'XML'"),
-                        Div(Field("access_key", css_class="input input-bordered w-full"), x_show="method == 'KEY'"),
-                        css_class="col-span-12 lg:col-span-5",
-                    ),
-                    css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
-                )
+                    HTML('<h2 class="text-2xl font-bold mb-6">Método de Importação</h2>'),
+                    Field("method", css_class="select select-bordered w-full"),
+                    css_class="col-span-12 lg:col-span-5",
+                ),
+                #
+                Div(css_class="hidden lg:block lg:col-span-2"),
+                #
+                # Coluna Direita
+                Div(
+                    # Cabeçalhos Dinâmicos
+                    HTML('<h2 class="text-2xl font-bold mb-6" x-show="method == \'XML\'">Importação do Arquivo</h2>'),
+                    HTML('<h2 class="text-2xl font-bold mb-6" x-show="method == \'KEY\'">Chave de Acesso</h2>'),
+                    # Campos Dinâmicos
+                    Div(Field("xml_file", css_class="file-input file-input-bordered w-full"), x_show="method == 'XML'"),
+                    Div(Field("access_key", css_class="input input-bordered w-full"), x_show="method == 'KEY'"),
+                    css_class="col-span-12 lg:col-span-5",
+                ),
+                css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
             )
         )
+
+    def save(self, commit=True):
+        obj = super().save(commit=False)
+
+        method = self.cleaned_data.get("method")
+        nf_data = None
+
+        if method == "XML":
+            xml_file = self.files.get("xml_file")
+            nf_data = NFParser.parse_nfe_xml_to_dict(xml_file)
+        elif method == "KEY":
+            chave = re.sub(r"\D", "", self.cleaned_data.get("access_key"))
+            workshop = self.workshop
+
+            try:
+                comunicacao = ComunicacaoSefaz(workshop.uf, workshop.pfx_certificate.path, workshop.certificate_password)
+                cnpj_clean = re.sub(r"\D", "", workshop.cnpj)
+                xml_response = comunicacao.consulta_distribuicao(cnpj=cnpj_clean, chave=chave)
+                nf_data = NFParser.parse_nfe_xml_to_dict(xml_response.content)
+            except Exception as e:
+                raise forms.ValidationError(f"Erro ao importar chave no Sefaz: {str(e)}")
+
+        if StockImport.objects.filter(workshop=self.workshop, nf_number=nf_data["nf_number"]).exists():
+            raise forms.ValidationError("Não é possível importar a mesma NF mais de uma vez.")
+
+        if nf_data:
+            obj.nf_number = nf_data["nf_number"]
+            obj.supplier_cnpj = nf_data["supplier_cnpj"]
+            obj.supplier_name = nf_data["supplier_name"]
+            obj.items_data = nf_data["items"]
+            obj.payments_data = nf_data['payments']
+
+        if commit:
+            obj.save()
+        return obj
 
     def clean(self):
         cleaned_data = super().clean()
@@ -70,25 +113,31 @@ class ImportStep1Form(forms.Form):
             if not key or len(re.sub(r"\D", "", key)) != 44:
                 self.add_error("access_key", "Insira uma chave válida de 44 dígitos.")
 
+            if not self.workshop.pfx_certificate or not self.workshop.certificate_password:
+                self.add_error(None, "Oficina sem certificado configurado.")
+
         return cleaned_data
 
 
-class ImportStepSupplierForm(forms.Form):
+class ImportStepSupplierForm(forms.ModelForm):
+    class Meta:
+        model = StockImport
+        fields = []
+
     def __init__(self, *args, **kwargs):
         self.workshop = kwargs.pop("workshop", None)
+        self.request = kwargs.pop("request", None)
         self.nf_data = kwargs.pop("nf_data", {})
         self.import_items = kwargs.pop("import_items", [])
         self.import_payments = kwargs.pop("import_payments", [])
         super().__init__(*args, **kwargs)
 
+        nome = self.instance.supplier_name or "Não informado"
+        cnpj = self.instance.supplier_cnpj or "Não informado"
+        nNF = self.instance.nf_number or "---"
+
         self.helper = FormHelper()
         self.helper.form_tag = False
-
-        # Dados extraídos para exibição amigável
-        nome = self.nf_data.get("supplier_name", "Não informado")
-        cnpj = self.nf_data.get("supplier_cnpj", "Não informado")
-        nNF = self.nf_data.get("nf_number", "---")
-
         self.helper.layout = Layout(
             HTML(f"""
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-indigo-50 p-6 rounded-lg border border-indigo-100 mb-6">
@@ -113,10 +162,21 @@ class ImportStepSupplierForm(forms.Form):
             """)
         )
 
+    def save(self, commit=True):
+        cnpj = self.instance.supplier_cnpj or self.nf_data["supplier_cnpj"]
+        name = self.instance.supplier_name or self.nf_data["supplier_name"]
+        Supplier.objects.get_or_create(workshop=self.workshop, cnpj=cnpj, defaults={"name": name})
+        return self.instance
 
-class ImportStepItemsForm(forms.Form):
+
+class ImportStepItemsForm(forms.ModelForm):
+    class Meta:
+        model = StockImport
+        fields = []
+
     def __init__(self, *args, **kwargs):
         self.workshop = kwargs.pop("workshop", None)
+        self.request = kwargs.pop("request", None)
         self.nf_data = kwargs.pop("nf_data", {})
         self.import_items = kwargs.pop("import_items", [])
         self.import_payments = kwargs.pop("import_payments", [])
@@ -124,10 +184,7 @@ class ImportStepItemsForm(forms.Form):
 
         self.helper = FormHelper()
         self.helper.form_tag = False
-
-        table_html = self._generate_table_html()
-
-        self.helper.layout = Layout(Div(HTML(table_html), css_class="mt-4"))
+        self.helper.layout = Layout(Div(HTML(self._generate_table_html()), css_class="mt-4"))
 
     def _generate_table_html(self):
         rows_xml = ""
@@ -165,7 +222,7 @@ class ImportStepItemsForm(forms.Form):
                         <td class="text-center">{product.stock_products.current_quantity}</td>
                         <td class="text-center">
                             <button type="button" class="btn btn-ghost btn-xs text-error" 
-                                    hx-post='{reverse("stock:unlink_item")}?item_idx={idx}' hx-target="#import-card-content">
+                                    hx-post='{reverse("stock:unlink_item")}?item_idx={idx}&pk={self.instance.pk}' hx-target="#step-container">
                                 <span class="material-icons text-xs">link_off</span>
                             </button>
                         </td>
@@ -181,9 +238,9 @@ class ImportStepItemsForm(forms.Form):
                         <td class="text-center">
                             <div class="flex gap-1 justify-center">
                                 <button type="button" class="btn btn-primary btn-sm" hx-target="#modal-container"
-                                        hx-get="{quick_create_url}?ref={ref_xml}&desc={desc_xml}&price={valor_unit}&item_idx={idx}">Cadastrar</button>
+                                        hx-get="{quick_create_url}?ref={ref_xml}&desc={desc_xml}&price={valor_unit}&item_idx={idx}&pk={self.instance.pk}">Cadastrar</button>
                                 <button type="button" class="btn btn-outline btn-sm" hx-target="#modal-container"
-                                        hx-get="{link_manual_url}?item_idx={idx}">Vincular</button>
+                                        hx-get="{link_manual_url}?item_idx={idx}&pk={self.instance.pk}">Vincular</button>
                             </div>
                         </td>
                     </tr>
@@ -228,8 +285,15 @@ class ImportStepItemsForm(forms.Form):
             </div>
         </div>"""
 
+    def clean(self):
+        cleaned_data = super().clean()
+        for item in self.instance.items_data:
+            if not item.get("linked_product_id"):
+                self.add_error(None, "Existem itens pendentes de vínculo.")
+        return cleaned_data
 
-class ImportStepPaymentForm(forms.Form):
+
+class ImportStepPaymentForm(forms.ModelForm):
     payment_method = forms.ChoiceField(choices=StockPaymentMethod.PAYMENT_METHOD_CHOICES, label="Forma de Pagamento", widget=SelectInput, required=False)
     installments_count = forms.IntegerField(min_value=1, initial=1, label="Número de Parcelas", widget=NumberInput, required=False)
     first_amount = MoneyField(max_digits=14, decimal_places=2, label="Valor Pago", widget=MoneyInput, required=False)
@@ -239,27 +303,27 @@ class ImportStepPaymentForm(forms.Form):
     total_allocated_display = forms.CharField(label="Valor Pago", required=False, widget=MoneyInput)
     pending_display = forms.CharField(label="Valor Pendente", required=False, widget=MoneyInput)
 
+    class Meta:
+        model = StockImport
+        fields = []
+
     def __init__(self, *args, **kwargs):
         self.workshop = kwargs.pop("workshop", None)
+        self.request = kwargs.pop("request", None)
         self.nf_data = kwargs.pop("nf_data", {})
         self.import_items = kwargs.pop("import_items", [])
         self.import_payments = kwargs.pop("import_payments", [])
         super().__init__(*args, **kwargs)
 
-        self.helper = FormHelper()
-        self.helper.form_tag = False
-
         # Cálculos Financeiros
-        valor_total = Decimal('0.00')
-        for item in self.import_items:
-            qtd = Decimal(str(item.get("qtd", 0)))
-            valor_unit = Decimal(str(item.get("valor", 0)))
-            valor_total += valor_unit * qtd
-
-        valor_pago = Decimal("0.00")
-        for p in self.import_payments:
-            valor_pago += Decimal(str(p.get("total_paid", 0)))
-
+        valor_total = sum(
+            Decimal(str(item.get("valor", 0))) * Decimal(str(item.get("qtd", 0)))
+            for item in self.import_items
+        )
+        valor_pago = sum(
+            Decimal(str(p.get("total_paid", 0)))
+            for p in self.import_payments
+        )
         valor_pendente = valor_total - valor_pago
 
         resume = {
@@ -302,7 +366,7 @@ class ImportStepPaymentForm(forms.Form):
                 Div(
                     Field("payment_date", wrapper_class="col-span-12 lg:col-span-4"),
                     Div(css_class="col-span-12 lg:col-span-4"),
-                    HTML(f"""<button type="button" hx-post="{reverse("stock:add_payment_session")}" 
+                    HTML(f"""<button type="button" hx-post="{reverse("stock:add_payment_session")}?pk={self.instance.pk}"
                                         hx-target="#import-step-container" 
                                         hx-include="#import-step-container"
                                         hx-indicator="#payment-loader"
@@ -328,6 +392,7 @@ class ImportStepPaymentForm(forms.Form):
             except:
                 continue
             delete_url = reverse("stock:remove_payment_session", kwargs={"payment_id": p["id"]})
+            delete_url += f"?pk={self.instance.pk}"
             rows += f"""<tr>
                     <td>{p["method_display"]}</td>
                     <td>{p["installments"]}x</td>
@@ -363,16 +428,21 @@ class ImportStepPaymentForm(forms.Form):
             </table>"""
 
 
-class ImportStepSummaryForm(forms.Form):
+class ImportStepSummaryForm(forms.ModelForm):
+    class Meta:
+        model = StockImport
+        fields = []
+
     def __init__(self, *args, **kwargs):
         self.workshop = kwargs.pop("workshop", None)
+        self.request = kwargs.pop("request", None)
         self.nf_data = kwargs.pop("nf_data", {})
         self.import_items = kwargs.pop("import_items", [])
         self.import_payments = kwargs.pop("import_payments", [])
         super().__init__(*args, **kwargs)
 
         rows_html = ""
-        for item in self.import_items:
+        for item in self.instance.items_data:
             raw_value = str(item.get("valor", "0.00"))
             if ',' in raw_value:
                 clean_value = raw_value.replace('.', '').replace(',', '.')
@@ -388,7 +458,7 @@ class ImportStepSummaryForm(forms.Form):
 
         payments_html = ""
         total_value = Money(0, "BRL")
-        for pay in self.import_payments:
+        for pay in self.instance.payments_data:
             raw_value = str(pay.get("total_paid", "0.00"))
             if ',' in raw_value:
                 clean_value = raw_value.replace('.', '').replace(',', '.')
@@ -401,9 +471,9 @@ class ImportStepSummaryForm(forms.Form):
                             <span class="font-bold">{value}</span>
                         </div>"""
 
-        supplier_name = self.nf_data.get('supplier_name', 'Não informado')
-        supplier_cnpj = self.nf_data.get('supplier_cnpj', '---')
-        nf_number = self.nf_data.get('nf_number', '---')
+        supplier_name = self.instance.supplier_name or 'Não informado'
+        supplier_cnpj = self.instance.supplier_cnpj or "Não informado"
+        nf_number = self.instance.nf_number or "---"
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -457,6 +527,77 @@ class ImportStepSummaryForm(forms.Form):
             </div>
             """),
         )
+
+    @transaction.atomic
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        workshop = self.workshop
+
+        if instance.status == StockImport.ImportStatus.COMPLETED:
+            return instance
+
+        supplier = None
+        if instance.supplier_cnpj:
+            supplier, _ = Supplier.objects.get_or_create(cnpj=instance.supplier_cnpj, workshop=workshop, defaults={"name": instance.supplier_name})
+
+        for item in instance.items_data:
+            product_id = item.get("linked_product_id")
+            product = Product.objects.get(id=product_id, workshop=workshop)
+            stock_product, created = StockProduct.objects.get_or_create(workshop=workshop, product=product, defaults={"supplier": supplier, "last_nf": instance.nf_number})
+
+            quantity = Decimal(str(item.get("qtd", 0)))
+            StockMovement.objects.create(
+                workshop=workshop,
+                stock_product=stock_product,
+                type=StockMovement.MovementType.ENTRY,
+                supplier=supplier,
+                transcation_by=self.request.user,
+                quantity=quantity,
+                status=StockMovement.MovementStatus.APPROVED,
+            )
+
+            stock_product.current_quantity += quantity
+            stock_product.last_nf = instance.nf_number
+            stock_product.save()
+
+        for pay in instance.payments_data:
+            payment_due_date = pay.get("payment_date")
+            if isinstance(payment_due_date, str) and payment_due_date:
+                try:
+                    payment_due_date = datetime.strptime(payment_due_date, '%Y-%m-%d')
+                except ValueError:
+                    payment_due_date = timezone.now()
+            else:
+                payment_due_date = timezone.now()
+
+            total_val = Decimal(str(pay.get("total_paid", 0)))
+            installments = int(pay.get("installments", 1))
+            first_amount = Decimal(str(pay.get("first_amount", total_val)))
+            remaining_amount = Decimal('0.00')
+            if installments > 1:
+                remaining_amount = (total_val - first_amount) / (installments - 1)
+
+            StockPaymentMethod.objects.create(
+                workshop=workshop,
+                payment_method=pay.get("method", "BOLETO"),
+                installments_count=installments,
+                first_installment_amount=Money(first_amount, 'BRL'),
+                remaining_installments_amount=Money(remaining_amount, 'BRL'),
+                nf_number=instance.nf_number,
+                due_date=payment_due_date
+            )
+
+        instance.status = StockImport.ImportStatus.COMPLETED
+        if commit:
+            instance.save()
+        return instance
+
+    def clean(self):
+        cleaned_data = super().clean()
+        for item in self.instance.items_data:
+            if not item.get("linked_product_id"):
+                self.add_error(None, "Existem itens pendentes de vínculo.")
+        return cleaned_data
 
 
 class QuickProductForm(forms.ModelForm):

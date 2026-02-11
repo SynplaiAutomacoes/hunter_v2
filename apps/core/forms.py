@@ -61,14 +61,13 @@ def address_layout() -> Div:
 
 class MultiStepFormMixin:
     steps_definition = []
+    step_template_name = None
 
     @property
-    def budget_object(self):
-        if not hasattr(self, "get_object"):
-            return None
-        if not hasattr(self, "_budget_obj"):
-            self._budget_obj = self.get_object()
-        return self._budget_obj
+    def model_instance(self):
+        if not hasattr(self, "_model_instance"):
+            self._model_instance = self.get_object() if hasattr(self, "get_object") else None
+        return self._model_instance
 
     def get_steps_config(self):
         if hasattr(self, "get_steps_definition"):
@@ -83,11 +82,10 @@ class MultiStepFormMixin:
             step = None
 
         if not step:
-            obj = self.budget_object
+            obj = self.model_instance
             if obj and hasattr(obj, "current_step"):
-                step = obj.current_step
-            else:
-                step = 1
+                return obj.current_step
+            return 1
 
         total_steps = len(self.get_steps_config())
         if step > total_steps:
@@ -108,8 +106,7 @@ class MultiStepFormMixin:
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
 
-        obj = self.get_object() if hasattr(self, "get_object") else None
-
+        obj = getattr(self, "object", None) or self.get_object()
         if obj:
             kwargs["instance"] = obj
         elif "instance" in kwargs:
@@ -127,13 +124,13 @@ class MultiStepFormMixin:
         context["steps_config"] = [{"number": i + 1, "title": step["title"]} for i, step in enumerate(steps)]
         context["current_step"] = current_step
 
-        context["object"] = self.budget_object
-        context["max_reached_step"] = self.budget_object.current_step if self.budget_object else 1
+        context["object"] = self.model_instance
+        context["max_reached_step"] = self.model_instance.current_step if self.model_instance else 1
 
         if steps and current_step <= len(steps):
             step_config = steps[current_step - 1]
             if "formset_class" in step_config:
-                obj = getattr(self, 'object', self.budget_object)
+                obj = getattr(self, 'object', self.model_instance)
                 context["step_formset"] = step_config["formset_class"](
                     instance=obj,
                     data=self.request.POST if self.request.method == "POST" else None

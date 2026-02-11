@@ -1,5 +1,6 @@
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
 
 from apps.core.models import TimeStampedModel
 from apps.suppliers.models import Supplier
@@ -60,7 +61,7 @@ class StockPaymentMethod(TimeStampedModel):
     installments_count = models.PositiveIntegerField(verbose_name="Número de Parcelas", default=1)
     first_installment_amount = MoneyField(verbose_name="Valor da primeira parcela", max_digits=14, decimal_places=2, default=0.00)
     remaining_installments_amount = MoneyField(verbose_name="Valor das parcelas restantes", max_digits=14, decimal_places=2, default=0.00)
-    due_date = models.DateTimeField()
+    due_date = models.DateTimeField(default=timezone.now)
     nf_number = models.CharField(max_length=60, verbose_name="Número da NF", null=False, blank=False)
 
     @property
@@ -78,3 +79,41 @@ class SefazZipCache(TimeStampedModel):
     total_value = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
     is_imported = models.BooleanField(default=False)
     xml_archive = models.TextField(null=True, blank=True)
+
+
+class StockImport(TimeStampedModel):
+    class ImportStatus(models.TextChoices):
+        DRAFT = "RASCUNHO", "Rascunho"
+        COMPLETED = "CONCLUIDO", "Concluído"
+
+    class ImportMethods(models.TextChoices):
+        SEFAZ = 'SEFAZ', 'SEFAZ'
+        XML = 'XML', 'Arquivo XML'
+        KEY = 'KEY', 'Chave de Acesso'
+
+    workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, verbose_name="Aberto por",on_delete=models.SET_NULL, null=True)
+
+    # Dados da NF
+    nf_number = models.CharField(verbose_name="NF",max_length=50, blank=True, null=True)
+    supplier_name = models.CharField(verbose_name="Fornecedor", max_length=255, blank=True, null=True)
+    supplier_cnpj = models.CharField(max_length=20, blank=True, null=True)
+
+    # Progresso e Dados Brutos
+    current_step = models.PositiveIntegerField(default=1)
+    items_data = models.JSONField(default=list)
+    payments_data = models.JSONField(default=list)
+    method = models.CharField(verbose_name="Selecione o método de Importação de Itens",max_length=30, choices=ImportMethods.choices, default=ImportMethods.XML)
+    status = models.CharField(max_length=20, choices=ImportStatus.choices, default=ImportStatus.DRAFT)
+
+    def __str__(self):
+        return f"Importação {self.nf_number} - {self.workshop}"
+
+    @property
+    def stockimport_status_badge(self):
+        status_color = {
+            StockImport.ImportStatus.DRAFT: "badge-soft badge-ghost",
+            StockImport.ImportStatus.COMPLETED: "badge-success",
+        }
+
+        return {"text": self.get_status_display(), "class": status_color.get(self.status, "badge-ghost")}

@@ -6,8 +6,9 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
 from django.http import HttpResponse
 from django.template.context_processors import csrf
+from django.urls import reverse, reverse_lazy
 from django.views import View
-from django.views.generic import ListView, FormView, CreateView
+from django.views.generic import ListView, FormView, CreateView, DeleteView
 from django.shortcuts import get_object_or_404, redirect, render
 from django.contrib import messages
 from django.db import transaction
@@ -15,14 +16,14 @@ from django.db.models import F, ExpressionWrapper, IntegerField, Q
 from djmoney.money import Money
 from pynfe.processamento import ComunicacaoSefaz
 
-from .forms import ImportStep1Form, ImportStepSupplierForm, ImportStepItemsForm, ImportStepPaymentForm, QuickProductForm, \
-    ImportStepSummaryForm
-from .models import StockProduct, StockMovement, StockPaymentMethod
+from .forms import ImportStep1Form, ImportStepSupplierForm, ImportStepItemsForm, ImportStepPaymentForm, QuickProductForm, ImportStepSummaryForm
+from .models import StockProduct, StockMovement, StockPaymentMethod, StockImport
 from .utils import NFParser
 from ..catalog.models.products import Product
 from ..core.forms import MultiStepFormMixin
+from ..core.tables import TableActionDefaults
 from ..core.templatetags.table_tags import TableColumn
-from ..core.views import HtmxTemplateResponseMixin
+from ..core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin
 from ..suppliers.models import Supplier
 from ..workshops.mixin import WorkshopScopedMixin
 from ..workshops.util.workshops import get_active_workshop_or_404
@@ -118,59 +119,73 @@ class MovementApprovalActionView(LoginRequiredMixin, WorkshopScopedMixin, View):
         return redirect('stock:approvals')
 
 
-class StockImportView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixin, FormView):
-    model = StockProduct
+class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
+    model = StockImport
+    template_name = "stock/stock_list.html"
+    context_object_name = "stock"
+    htmx_template_name = "stock/partials/stock_table.html"
+    workshop_permission_codename = "view_stockimport"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["fields"] = [
+            TableColumn("ID", attr="id"),
+            TableColumn(StockImport.nf_number.field.verbose_name, attr=StockImport.nf_number.field.name),
+            TableColumn(StockImport.supplier_name.field.verbose_name, attr=StockImport.supplier_name.field.name),
+            TableColumn(StockImport.user.field.verbose_name, attr=StockImport.user.field.name),
+            TableColumn(StockImport.criado_em.field.verbose_name, attr=StockImport.criado_em.field.name),
+            TableColumn(StockImport.status.field.verbose_name, attr="stockimport_status_badge", format="status_badge"),
+        ]
+        context["actions"] = [
+            TableActionDefaults.edit("stock:stock_update"),
+            TableActionDefaults.delete("stock:stock_delete"),
+        ]
+        return context
+
+
+class StockImportCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixin, CreateView):
+    model = StockImport
     template_name = "stock/import_form.html"
-    workshop_permission_codename = "add_stockproduct"
-
-    def get_object(self, queryset=None):
-        return None
-
-    def render_next_step(self, form):
-        current_step = self.get_current_step()
-        total_steps = len(self.get_steps_config())
-
-        # Se for a última etapa, executamos a persistência
-        if current_step == total_steps:
-            return self.finalize_import()
-
-        # Caso contrário, usa o comportamento padrão do Mixin
-        return super().render_next_step(form)
-
-    def finalize_import(self):
-        """ Lógica de persistência final no banco de dados """
-        nf_data = self.request.session.get("nf_data")
-        messages.success(self.request, "Importação concluída com sucesso!")
-        return redirect("stock:movement")
+    workshop_permission_codename = "add_stockimport"
 
     def get(self, request, *args, **kwargs):
-        # Se for HTMX, renderizamos apenas o fragmento da etapa
-        if request.htmx:
-            form = self.get_form()
-            context = self.get_context_data(form=form)
-            return render(request, 'stock/partials/import_step_content.html', context)
-
-        # Se não for HTMX (carregamento inicial da página), segue o fluxo normal
         return super().get(request, *args, **kwargs)
+
+    def get_template_names(self):
+        if self.request.htmx:
+            return ["stock/partials/import_step_content.html"]
+        return [self.template_name]
+
+    def get_object(self, queryset=None):
+        pk = self.request.GET.get("pk") or self.kwargs.get("pk")
+        if pk:
+            return get_object_or_404(StockImport, id=pk, workshop=self.workshop)
+        return None
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
-        kwargs['nf_data'] = self.request.session.get("nf_data", {})
-        kwargs['import_items'] = self.request.session.get("import_items", [])
-        kwargs['import_payments'] = self.request.session.get("import_payments", [])
-
-        kwargs.pop('instance', None)
+        obj = self.get_object()
+        kwargs.update({
+            "request": self.request,
+            "workshop": self.workshop,
+            "instance": obj,
+        })
+        if obj:
+            kwargs.update({
+                "nf_data": {"nf_number": obj.nf_number, "supplier_name": obj.supplier_name},
+                "import_items": obj.items_data,
+                "import_payments": obj.payments_data,
+            })
         return kwargs
 
-    # Definição dinâmica baseada na escolha do Step 1
     def get_steps_definition(self):
-        method = self.request.session.get("import_method", "XML")
+        obj = self.get_object()
 
         base_steps = [
             {"title": "Método de Importação", "form_class": ImportStep1Form},
         ]
 
-        # if method == "SEFAZ":
+        # if obj.method == "SEFAZ":
         #     base_steps.append({"title": "Seleção de NF", "form_class": ImportSefazListForm})
 
         base_steps.extend(
@@ -183,87 +198,114 @@ class StockImportView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixi
         )
         return base_steps
 
-    def form_invalid(self, form):
-        if self.request.htmx:
-            return render(self.request, "stock/partials/import_step_content.html", self.get_context_data(form=form))
-        return super().form_invalid(form)
+    def get_success_url(self):
+        return reverse('stock:stock_list')
 
     def form_valid(self, form):
+        form.instance.workshop = self.workshop
+        form.instance.user = self.request.user
+
+        self.object = form.save()
+
+        current_step = self.get_current_step()
         steps_config = self.get_steps_config()
-        current_step_idx = self.get_current_step() - 1
-        step_title = steps_config[current_step_idx]['title']
+        total_steps = len(steps_config)
 
-        nf_data = self.request.session.get("nf_data", {})
-        import_items = self.request.session.get("import_items", [])
+        if hasattr(self.object, "current_step"):
+            next_step_value = current_step + 1
+            if self.object.current_step < next_step_value:
+                self.object.current_step = next_step_value
+                self.object.save(update_fields=["current_step"])
 
-        # Lógica de persistência em Sessão (Exemplo Step 1)
-        if step_title == 'Método de Importação':
-            method = form.cleaned_data["method"]
-            self.request.session["import_method"] = method
+        if current_step < total_steps:
+            next_step = current_step + 1
+            success_url = f"{self.request.path}?step={next_step}&pk={self.object.pk}"
+        else:
+            success_url = self.get_success_url()
 
-            if method == "XML":
-                xml_file = self.request.FILES.get("xml_file")
-                nf_data = NFParser.parse_nfe_xml_to_dict(self.request, xml_file)
+        if self.request.htmx:
+            response = redirect(success_url)
+            response["HX-Push-Url"] = success_url
+            return response
 
-            elif method == "KEY":
-                chave = re.sub(r"\D", "", form.cleaned_data.get("access_key"))
-                workshop = self.workshop or get_active_workshop_or_404(self.request)
+        return redirect(success_url)
 
-                if not workshop.pfx_certificate or not workshop.certificate_password:
-                    error_message = "Oficina sem certificado configurado."
-                    messages.error(self.request, error_message)
-                    form.add_error("access_key", error_message)
-                    return self.form_invalid(form)
 
-                try:
-                    comunicacao = ComunicacaoSefaz(workshop.uf, workshop.pfx_certificate.path, workshop.certificate_password)
-                    cnpj_clean = re.sub(r"\D", "", workshop.cnpj)
-                    xml_response = comunicacao.consulta_distribuicao(cnpj=cnpj_clean, chave=chave)
-                    nf_data = NFParser.parse_nfe_xml_to_dict(self.request, xml_response.content)
-                except Exception as e:
-                    form.add_error("access_key", f"Erro na SEFAZ: {str(e)}")
-                    return self.form_invalid(form)
+class StockImportUpdateView(StockImportCreateView):
+    def get(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        step_na_url = int(request.GET.get("step", 0))
 
-            if method in ["XML", "KEY"]:
-                if not nf_data:
-                    form.add_error(None, "Não foi possível extrair dados desta Nota Fiscal.")
-                    return self.form_invalid(form)
+        if not step_na_url:
+            target_step = self.object.current_step
+            return redirect(f"{reverse('stock:stock_update', kwargs={'pk': self.object.pk})}?step={target_step}")
 
-                # Persistência em Sessão para as próximas etapas
-                self.request.session["nf_data"] = nf_data
-                self.request.session["import_items"] = nf_data['items']
-                self.request.session["import_payments"] = nf_data['payments']
-                self.request.session.modified = True
+        return super().get(request, *args, **kwargs)
 
-        elif step_title == 'Fornecedor':
-            cnpj = nf_data.get('supplier_cnpj')
+    def dispatch(self, request, *args, **kwargs):
+        self.workshop = get_active_workshop_or_404(request)
+        if not self.model_instance:
+            return redirect("stock:stock_list")
+        return super().dispatch(request, *args, **kwargs)
 
-            with transaction.atomic():
-                supplier, created = Supplier.objects.get_or_create(
-                    workshop=self.workshop,
-                    cnpj=cnpj,
-                    defaults={'name': nf_data.get('supplier_name')}
-                )
+    def get_object(self, queryset=None):
+        pk = self.kwargs.get("pk")
+        if pk:
+            return StockImport.objects.get(pk=pk, workshop=self.workshop)
+        return super().get_object()
 
-                nf_data["supplier_id"] = supplier.id
-                self.request.session["nf_data"] = nf_data
-                self.request.session.modified = True
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["is_update"] = True
+        return context
 
-        elif step_title == 'Importar Itens':
-            import_items = self.request.session.get("import_items", [])
+    def form_valid(self, form):
+        form.instance.workshop = self.workshop
+        form.instance.user = self.request.user
 
-            for item in import_items:
-                has_manual_link = item.get("linked_product_id") is not None
+        self.object = form.save()
 
-                if not has_manual_link:
-                    return self.form_invalid(form)
+        current_step = self.get_current_step()
+        steps_config = self.get_steps_config()
+        total_steps = len(steps_config)
 
-        return self.render_next_step(form)
+        if hasattr(self.object, "current_step"):
+            next_step_value = current_step + 1
+            if self.object.current_step < next_step_value:
+                self.object.current_step = next_step_value
+                self.object.save(update_fields=["current_step"])
+
+        if current_step < total_steps:
+            next_step = current_step + 1
+            success_url = f"{reverse('stock:stock_update', kwargs={'pk': self.object.pk})}?step={next_step}"
+        else:
+            success_url = self.get_success_url()
+
+        if self.request.htmx:
+            response = redirect(success_url)
+            response["HX-Push-Url"] = success_url
+            return response
+
+        return redirect(success_url)
+
+
+class StockImportDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResponseMixin, DeleteView):
+    model = StockImport
+    success_url = reverse_lazy("stock:stock_list")
+    workshop_permission_codename = "delete_stockimport"
+
+    htmx_template_name = "stock/partials/stock_delete_modal.html"
+    htmx_trigger = "stock-table-refresh"
 
 
 class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = StockImport
+    workshop_permission_codename = "change_stockimport"
+
     def post(self, request, *args, **kwargs):
-        payments = request.session.get("import_payments", [])
+        pk = request.GET.get("pk")
+        obj = get_object_or_404(StockImport, id=pk, workshop=self.workshop)
+        payments = obj.payments_data
 
         method_code = request.POST.get("payment_method")
         payment_date = request.POST.get("payment_date")
@@ -282,31 +324,25 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
         }
 
         payments.append(new_payment)
-        request.session["import_payments"] = payments
-        request.session.modified = True
+        obj.payments_data = payments
+        obj.save(update_fields=["payments_data"])
 
-        nf_data = request.session.get("nf_data", {})
-        import_items = request.session.get("import_items", {})
-        form = ImportStepPaymentForm(nf_data=nf_data, import_payments=payments, import_items=import_items, workshop=self.workshop)
-
-        ctx = {"csrf_token": csrf(request)["csrf_token"]}
-        return HttpResponse(render_crispy_form(form, context=ctx))
+        return HttpResponse(headers={"HX-Refresh": "true"})
 
 
 class RemovePaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = StockImport
+    workshop_permission_codename = "change_stockimport"
+
     def post(self, request, payment_id, *args, **kwargs):
-        payments = request.session.get("import_payments", [])
-        payments = [p for p in payments if p["id"] != int(payment_id)]
+        pk = request.GET.get("pk")
+        obj = get_object_or_404(StockImport, id=pk, workshop=self.workshop)
+        payments = [p for p in obj.payments_data if p["id"] != int(payment_id)]
 
-        request.session["import_payments"] = payments
-        request.session.modified = True
+        obj.payments_data = payments
+        obj.save(update_fields=["payments_data"])
 
-        nf_data = request.session.get("nf_data", {})
-        import_items = request.session.get("import_items", {})
-        form = ImportStepPaymentForm( nf_data=nf_data, import_payments=payments, import_items=import_items, workshop=self.workshop)
-
-        ctx = {'csrf_token': csrf(request)['csrf_token']}
-        return HttpResponse(render_crispy_form(form, context=ctx))
+        return HttpResponse(headers={"HX-Refresh": "true"})
 
 
 class LinkProductManualView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -315,19 +351,23 @@ class LinkProductManualView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def get(self, request):
         item_idx = request.GET.get("item_idx")
-        context = {"item_idx": item_idx, "workshop": self.workshop}
+        pk = request.GET.get("pk")
+        context = {"item_idx": item_idx, "workshop": self.workshop, "pk": pk}
         return render(request, "stock/partials/link_manual_modal.html", context)
 
     @transaction.atomic
     def post(self, request):
         item_idx = int(request.POST.get("item_idx"))
         product_id = request.POST.get("product_id")
+        pk = request.POST.get("pk")
 
-        import_items = request.session.get("import_items", [])
+        obj = get_object_or_404(StockImport, id=pk, workshop=self.workshop)
+        import_items = obj.items_data
+
         if 0 <= item_idx < len(import_items):
             import_items[item_idx]["linked_product_id"] = product_id
-            request.session["import_items"] = import_items
-            request.session.modified = True
+            obj.items_data = import_items
+            obj.save(update_fields=["items_data"])
 
         response = HttpResponse("")
         response["HX-Trigger"] = "productCreated"
@@ -335,14 +375,20 @@ class LinkProductManualView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
 
 class UnlinkItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
-    def get(self, request, *args, **kwargs):
-        item_idx = int(request.GET.get("item_idx"))
-        import_items = request.session.get("import_items", [])
+    model = Product
+    workshop_permission_codename = "view_product"
 
-        if 0 <= item_idx < len(import_items):
-            import_items[item_idx]["linked_product_id"] = None
-            request.session["import_items"] = import_items
-            request.session.modified = True
+    def post(self, request, *args, **kwargs):
+        item_idx = request.POST.get("item_idx") or request.GET.get("item_idx")
+        pk = request.POST.get("pk") or request.GET.get("pk")
+
+        obj = get_object_or_404(StockImport, id=pk, workshop=self.workshop)
+        import_items = obj.items_data
+
+        if 0 <= int(item_idx) < len(import_items):
+            import_items[int(item_idx)]["linked_product_id"] = None
+            obj.items_data = import_items
+            obj.save(update_fields=['items_data'])
 
         response = HttpResponse("")
         response["HX-Trigger"] = "productCreated"

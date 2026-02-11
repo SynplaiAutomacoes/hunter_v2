@@ -3,40 +3,44 @@
 <div id="import-step-wrapper" class="w-full"
      hx-get="{{ request.path }}?step={{ current_step }}"
      hx-trigger="productCreated from:body"
-     hx-target="#import-card-content"
+     hx-target="#step-container"
      hx-indicator="#loading-spinner"
      hx-swap="innerHTML">
 
     {% include 'navbar/stepper.html' %}
 
-    <div class="flex items-center justify-between mb-8 mt-4">
-        <button type="button" class="btn btn-ghost"
-                {% if current_step > 1 %}
-                hx-get="?step={{ current_step|add:-1 }}"
-                hx-target="#import-card-content"
-                {% else %} disabled {% endif %}>
-            <span class="material-icons">chevron_left</span> Anterior
-        </button>
+    <div class="flex items-center justify-between mb-6">
+        {% if current_step > 1 %}
+            {% if object.pk %}
+                {% url 'stock:stock_update' object.pk as back_url_base %}
+            {% else %}
+                {% url 'stock:import' as back_url_base %}
+            {% endif %}
 
-        <div class="flex items-center gap-4">
-            <span id="loading-spinner" class="loading loading-spinner loading-md htmx-indicator"></span>
-
-            <button type="submit" form="import-form" class="btn btn-primary">
-                {% if current_step == steps_config|length %}
-                    Finalizar Importação
-                {% else %}
-                    Próxima Etapa
-                {% endif %}
+            <button type="button" class="btn btn-outline"
+                    hx-get="{{ back_url_base }}?step={{ current_step|add:-1 }}{% if object.pk %}&pk={{ object.pk }}{% endif %}"
+                    hx-target="#step-container"
+                    hx-push-url="true">
+                <span class="material-icons">arrow_back</span> Voltar
             </button>
-        </div>
+        {% else %}
+            <div></div>
+        {% endif %}
+
+        <button type="submit" form="import-form" class="btn btn-primary">
+            {% if current_step == steps_config|length %} Finalizar Importação {% else %} Próxima Etapa {% endif %}
+        </button>
     </div>
 
-    <form id="import-form"
-          hx-post="{{ request.path }}?step={{ current_step }}"
-          hx-target="#import-card-content"
-          hx-swap="innerHTML"
-          hx-encoding="multipart/form-data">
-        {% csrf_token %}
-        {% crispy form %}
-    </form>
+    <div id="form-container">
+        <form id="import-form"
+              hx-post="{{ request.path }}?step={{ current_step }}{% if object.pk %}&pk={{ object.pk }}{% endif %}"
+              hx-target="#step-container"
+              hx-encoding="multipart/form-data"
+              enctype="multipart/form-data"
+              hx-swap="innerHTML">
+            {% csrf_token %}
+            {% crispy form %}
+        </form>
+    </div>
 </div>
