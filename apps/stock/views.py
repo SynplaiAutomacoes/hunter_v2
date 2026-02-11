@@ -54,8 +54,8 @@ class StockMovementListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplat
         context = super().get_context_data(**kwargs)
         context["fields"] = [
             TableColumn(StockMovement.criado_em.field.verbose_name, attr=StockMovement.criado_em.field.name),
-            TableColumn(StockMovement.status.field.verbose_name, attr="get_status_display"),
-            TableColumn(StockMovement.type.field.verbose_name, attr="get_type_display"),
+            TableColumn(StockMovement.status.field.verbose_name, attr="stockmovement_status_badge", format="status_badge"),
+            TableColumn(StockMovement.type.field.verbose_name, attr="stockmovement_type_badge", format="status_badge"),
             TableColumn(StockMovement.stock_product.field.verbose_name, attr="get_product_reference"),
             TableColumn(StockMovement.quantity.field.verbose_name, attr=StockMovement.quantity.field.name),
             TableColumn("Localização", attr="location"),

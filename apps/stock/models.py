@@ -38,6 +38,25 @@ class StockMovement(TimeStampedModel):
     status = models.CharField(max_length=10, choices=MovementStatus.choices, verbose_name="Status", default=MovementStatus.WAITING)
 
     @property
+    def stockmovement_status_badge(self):
+        status_color = {
+            StockMovement.MovementStatus.WAITING: "badge-soft badge-ghost",
+            StockMovement.MovementStatus.APPROVED: "badge-success",
+            StockMovement.MovementStatus.REJECTED: "badge-error",
+        }
+
+        return {"text": self.get_status_display(), "class": status_color.get(self.status, "badge-ghost")}
+
+    @property
+    def stockmovement_type_badge(self):
+        status_color = {
+            StockMovement.MovementType.EXIT: "badge-error",
+            StockMovement.MovementType.ENTRY: "badge-success",
+        }
+
+        return {"text": self.get_type_display(), "class": status_color.get(self.type, "badge-ghost")}
+
+    @property
     def get_product_reference(self):
         return self.stock_product.product
 
