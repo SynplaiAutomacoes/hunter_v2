@@ -363,6 +363,102 @@ class ImportStepPaymentForm(forms.Form):
             </table>"""
 
 
+class ImportStepSummaryForm(forms.Form):
+    def __init__(self, *args, **kwargs):
+        self.workshop = kwargs.pop("workshop", None)
+        self.nf_data = kwargs.pop("nf_data", {})
+        self.import_items = kwargs.pop("import_items", [])
+        self.import_payments = kwargs.pop("import_payments", [])
+        super().__init__(*args, **kwargs)
+
+        rows_html = ""
+        for item in self.import_items:
+            raw_value = str(item.get("valor", "0.00"))
+            if ',' in raw_value:
+                clean_value = raw_value.replace('.', '').replace(',', '.')
+            else:
+                clean_value = raw_value
+            value = Money(Decimal(clean_value), 'BRL')
+            rows_html += f"""<tr>
+                        <td class="font-mono text-xs">{item.get("ref")}</td>
+                        <td class="max-w-[150px] truncate">{item.get("desc")}</td>
+                        <td class="text-right">{item.get("qtd")}</td>
+                        <td class="text-right font-bold">{value}</td>
+                    </tr>"""
+
+        payments_html = ""
+        total_value = Money(0, "BRL")
+        for pay in self.import_payments:
+            raw_value = str(pay.get("total_paid", "0.00"))
+            if ',' in raw_value:
+                clean_value = raw_value.replace('.', '').replace(',', '.')
+            else:
+                clean_value = raw_value
+            value = Money(Decimal(clean_value), 'BRL')
+            total_value += value
+            payments_html += f"""<div class="flex justify-between items-center mb-2">
+                            <span class="text-sm">{pay.get("method_display", "Boleto")} ({pay.get("installments", 1)}x)</span>
+                            <span class="font-bold">{value}</span>
+                        </div>"""
+
+        supplier_name = self.nf_data.get('supplier_name', 'Não informado')
+        supplier_cnpj = self.nf_data.get('supplier_cnpj', '---')
+        nf_number = self.nf_data.get('nf_number', '---')
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout(
+            HTML(f"""
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div class="space-y-6">
+                    <div>
+                        <h3 class="text-2xl font-bold mb-4 flex items-center gap-2">Itens da Nota</h3>
+                        <div class="overflow-x-auto rounded-lg bg-base-50">
+                            <table class="table table-sm w-full">
+                                <thead>
+                                    <tr class="bg-base-200">
+                                        <th>Código</th>
+                                        <th>Descrição</th>
+                                        <th class="text-right">Quantidade</th>
+                                        <th class="text-right">Valor Unitário</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {rows_html}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            
+                <div class="space-y-6">
+                    <div class="card bg-base-200 shadow-sm">
+                        <div class="card-body p-4">
+                            <h3 class="text-base font-bold uppercase mb-3">Fornecedor</h3>
+                            <p class="text-lg font-bold">{supplier_name}</p>
+                            <p class="text-sm opacity-70">CNPJ: {supplier_cnpj}</p>
+                            <div class="divider my-1"></div>
+                            <p class="text-sm">Nota Fiscal: <span class="font-bold">#{nf_number}</span></p>
+                        </div>
+                    </div>
+            
+                    <div class="card bg-base-200 shadow-sm">
+                        <div class="card-body p-4">
+                            <h3 class="text-base font-bold uppercase mb-3">Resumo Financeiro</h3>
+                            {payments_html}
+                            <div class="divider my-1"></div>
+                            <div class="flex justify-between items-center font-black text-xl">
+                                <span>Total Geral</span>
+                                <span>{total_value}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            """),
+        )
+
+
 class QuickProductForm(forms.ModelForm):
     class Meta:
         model = Product

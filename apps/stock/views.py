@@ -15,7 +15,8 @@ from django.db.models import F, ExpressionWrapper, IntegerField, Q
 from djmoney.money import Money
 from pynfe.processamento import ComunicacaoSefaz
 
-from .forms import ImportStep1Form, ImportStepSupplierForm, ImportStepItemsForm, ImportStepPaymentForm, QuickProductForm
+from .forms import ImportStep1Form, ImportStepSupplierForm, ImportStepItemsForm, ImportStepPaymentForm, QuickProductForm, \
+    ImportStepSummaryForm
 from .models import StockProduct, StockMovement, StockPaymentMethod
 from .utils import NFParser
 from ..catalog.models.products import Product
@@ -177,7 +178,7 @@ class StockImportView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixi
                 {"title": "Fornecedor", "form_class": ImportStepSupplierForm},
                 {"title": "Importar Itens", "form_class": ImportStepItemsForm},
                 {"title": "Método de Pagamento", "form_class": ImportStepPaymentForm},
-        #         {"title": "Revisão e Confirmação", "form_class": ImportStepSummaryForm},
+                {"title": "Revisão e Confirmação", "form_class": ImportStepSummaryForm},
             ]
         )
         return base_steps
