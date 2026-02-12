@@ -13,11 +13,15 @@ from djmoney.forms import MoneyField
 from djmoney.money import Money
 from pynfe.processamento import ComunicacaoSefaz
 
+from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.core.widgets import TextInput, SelectInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput
+
 from apps.stock.models import StockPaymentMethod, StockImport, StockProduct, StockMovement, SefazZipCache
+
 from apps.stock.utils import NFParser
 from apps.suppliers.models import Supplier
+from apps.workshops.models.workshops import Workshop
 
 
 class ImportStep1Form(forms.ModelForm):
@@ -753,7 +757,20 @@ class QuickProductForm(forms.ModelForm):
                     Field("code", wrapper_class="col-span-12 lg:col-span-3"),
                     Field("name", wrapper_class="col-span-12 lg:col-span-9"),
                     Field("unit", wrapper_class="col-span-12 lg:col-span-6"),
-                    Field("group", wrapper_class="col-span-12 lg:col-span-6"),
+                    Div(
+                        Field("group", wrapper_class="w-full"),
+                        HTML(f'''<div class="flex items-center ml-2"> 
+                                    <button type="button" 
+                                        style="height: 60%; aspect-ratio: 1 / 1;"
+                                        class="btn btn-primary rounded-full flex items-center justify-center p-0" 
+                                        hx-get="{reverse("stock:group_quick_create")}" 
+                                        hx-target="#group-modal-container"
+                                        title="Cadastrar novo grupo">
+                                        <span class="material-icons" style="font-size: 1.5rem;">add</span>
+                                    </button>
+                                </div>'''),
+                        css_class="col-span-12 lg:col-span-6 flex items-stretch h-12",
+                    ),
                     Field("cost_price", wrapper_class="col-span-12 lg:col-span-4"),
                     Div(
                         Field("selling_price", wrapper_class="w-full"),
@@ -785,3 +802,28 @@ class QuickProductForm(forms.ModelForm):
                 },
             )
         )
+
+class CatalogGroupQuickForm(forms.ModelForm):
+    class Meta:
+        model = CatalogGroup
+        fields = ["name"]
+        widgets = {"name": TextInput(attrs={"placeholder": "Grupo"})}
+
+    def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.workshop = workshop
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout(Div(
+            Field("name", wrapper_class="col-span-1"), css_class="grid grid-cols-1 gap-4 items-start"))
+
+    def clean_name(self):
+        name = self.cleaned_data.get("name")
+        if name and self.workshop:
+            # Validação extra para garantir unicidade case-insensitive no workshop
+            qs = CatalogGroup.objects.filter(workshop=self.workshop, name__iexact=name)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise forms.ValidationError("Já existe um grupo com este nome.")
+        return name

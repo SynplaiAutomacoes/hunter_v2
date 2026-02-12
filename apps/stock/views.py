@@ -1,8 +1,9 @@
+import json
 from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.urls import reverse, reverse_lazy
 from django.views import View
 from django.views.generic import ListView, CreateView, DeleteView
@@ -12,9 +13,9 @@ from django.db import transaction
 from django.db.models import F, ExpressionWrapper, IntegerField, Q
 from djmoney.money import Money
 
-from .forms import ImportStep1Form, ImportStepSupplierForm, ImportStepItemsForm, ImportStepPaymentForm, QuickProductForm, ImportStepSummaryForm, \
-    ImportSefazListForm
+from .forms import ImportStep1Form, ImportStepSupplierForm, ImportStepItemsForm, ImportStepPaymentForm, QuickProductForm, ImportStepSummaryForm, ImportSefazListForm, CatalogGroupQuickForm
 from .models import StockProduct, StockMovement, StockPaymentMethod, StockImport
+from ..catalog.models.groups import CatalogGroup
 from ..catalog.models.products import Product
 from ..core.forms import MultiStepFormMixin
 from ..core.tables import TableActionDefaults
@@ -348,7 +349,7 @@ class LinkProductManualView(LoginRequiredMixin, WorkshopScopedMixin, View):
         item_idx = request.GET.get("item_idx")
         pk = request.GET.get("pk")
         context = {"item_idx": item_idx, "workshop": self.workshop, "pk": pk}
-        return render(request, "stock/partials/link_manual_modal.html", context)
+        return render(request, "stock/partials/modal/link_manual_modal.html", context)
 
     @transaction.atomic
     def post(self, request):
@@ -422,7 +423,7 @@ class StockProductSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
 class ProductQuickCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
     model = Product
     form_class = QuickProductForm
-    template_name = "stock/partials/product_quick_create_modal.html"
+    template_name = "stock/partials/modal/product_quick_create_modal.html"
     workshop_permission_codename = "add_product"
 
     def get_form_kwargs(self):
@@ -464,4 +465,20 @@ class ProductQuickCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView
 
         response = HttpResponse("")
         response["HX-Trigger"] = "productCreated"
+        return response
+
+
+class CatalogGroupQuickCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
+    model = CatalogGroup
+    form_class = CatalogGroupQuickForm
+    template_name = "stock/partials/modal/group_quick_create_modal.html"
+    workshop_permission_codename = "add_cataloggroup"
+
+    def form_valid(self, form):
+        self.object = form.save(commit=False)
+        self.object.workshop = self.workshop
+        self.object.save()
+
+        response = HttpResponse("")
+        response["HX-Trigger"] = json.dumps({ "groupAdded": {"id": str(self.object.id), "name": self.object.name}})
         return response
