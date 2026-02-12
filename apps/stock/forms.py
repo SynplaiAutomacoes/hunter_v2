@@ -6,7 +6,9 @@ from django import forms
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, HTML
 from django.db import transaction
-from django.template.loader import render_to_string
+import gzip
+import base64
+from lxml import etree
 from django.urls import reverse
 from django.utils import timezone
 from djmoney.forms import MoneyField
@@ -606,9 +608,6 @@ class ImportStepSummaryForm(forms.ModelForm):
         return cleaned_data
 
 
-import gzip
-import base64
-from lxml import etree
 class ImportSefazListForm(forms.ModelForm):
     selected_key = forms.CharField(widget=forms.HiddenInput(), required=False)
 
@@ -725,6 +724,7 @@ class ImportSefazListForm(forms.ModelForm):
 
         return cleaned_data
 
+
 class QuickProductForm(forms.ModelForm):
     class Meta:
         model = Product
@@ -802,6 +802,7 @@ class QuickProductForm(forms.ModelForm):
                 },
             )
         )
+
 
 class CatalogGroupQuickForm(forms.ModelForm):
     class Meta:
