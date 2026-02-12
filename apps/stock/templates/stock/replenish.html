@@ -1,0 +1,49 @@
+{% extends 'crud/page.html' %}
+
+{% block crud_content %}
+<div class="p-6 space-y-6">
+    <div class="flex justify-between items-center">
+        <div>
+            <h2 class="text-3xl font-bold">Sugestões de Reabastecimento</h2>
+            <p class="text-base-content/60">Itens que precisam de compra para atingir a meta de estoque.</p>
+        </div>
+    </div>
+
+    <div class="card bg-base-100 shadow-sm border border-base-300">
+        <div class="overflow-x-auto">
+            <table class="table table-md">
+                <thead>
+                    <tr class="uppercase">
+                        <th>Referência</th>
+                        <th>Nome</th>
+                        <th class="text-center">Estoque Atual</th>
+                        <th class="text-center">Estoque Mínimo</th>
+                        <th class="text-center">Estoque Reposição (Meta)</th>
+                        <th class="text-center font-bold">Sugestão de Compra</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in items %}
+                    <tr class="hover">
+                        <td><div class="font-bold">{{ item.product.code }}</div></td>
+                        <td><div class="text-xs opacity-50">{{ item.product.name }}</div></td>
+                        <td class="text-center">
+                            <div class="badge {% if item.current_quantity <= item.minimum_quantity %}badge-error{% else %}badge-ghost{% endif %}">
+                                {{ item.current_quantity }}
+                            </div>
+                        </td>
+                        <td class="text-center font-semibold">{{ item.minimum_quantity }}</td>
+                        <td class="text-center font-semibold">{{ item.restock_quantity }}</td>
+                        <td class="text-center text-success"> <span class="font-bold text-success text-lg">+{{ item.suggested_order }}</span></td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center py-10 opacity-50">Nenhuma sugestão de reabastecimento disponível.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

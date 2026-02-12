@@ -3,12 +3,14 @@ from decimal import Decimal
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db import transaction
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView
+from psycopg.pq import error_message
 
 from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
 from apps.budget.models import Budget, BudgetStatus
@@ -21,6 +23,7 @@ from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
 from .shared import _get_budget_for_workshop, logger, reset_steps_after_step_4
+from ...stock.models import StockMovement
 
 
 class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
@@ -131,7 +134,7 @@ class BudgetUpdateView(BudgetCreateView):
         # Ensure workshop is available before budget_object access.
         # MultiStepFormMixin.budget_object calls self.get_object(), which needs self.workshop.
         self.workshop = get_active_workshop_or_404(request)
-        if not self.budget_object:
+        if not self.model_instance:
             return redirect("budget:budget_list")
         return super().dispatch(request, *args, **kwargs)
 
@@ -212,21 +215,50 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def post(self, request, budget_id, status):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
 
-        reset_steps_after_step_4(budget)
-
-        # Validar se há itens locais ao tentar aprovar
-        if status == "approve":
-            local_items = budget.items.filter(is_local=True)
-            if local_items.exists():
-                return JsonResponse({"success": False, "error": "Não é possível aprovar. Existem itens sem cadastro que devem ser registrados antes de gerar a ordem de serviço."}, status=400)
-
+        # Mapa de status
         status_map = {
             "cancel": BudgetStatus.CANCELLED,
             "approve": BudgetStatus.APPROVED,
             "reject": BudgetStatus.REJECTED,
         }
 
-        if status in status_map:
+        if status not in status_map:
+            error_message = "Status invalido"
+            messages.error(request, error_message)
+            return JsonResponse({"success": False, "error": error_message}, status=400)
+
+        # Validação de Aprovação
+        if status == "approve":
+            local_items = budget.items.filter(is_local=True)
+            if local_items.exists():
+                error_message = "Não é possível aprovar. Existem itens sem cadastro (locais)."
+                messages.error(request, error_message)
+                return JsonResponse({"success": False, "error": error_message}, status=400)
+
+            try:
+                with transaction.atomic():
+                    # Consumir produto do estoque
+                    for item in budget.items.all():
+                        stock_product = item.product.stock_products
+
+                        if stock_product.current_quantity < item.quantity:
+                            warn_message = f"Estoque insuficiente para {item.product.referencia}. Disponível: {stock_product.current_quantity}, Necessário: {item.quantity}"
+                            messages.warning(request, warn_message)
+                            raise ValueError(warn_message)
+
+                        stock_product.current_quantity -= item.quantity
+                        stock_product.save()
+
+                        StockMovement.objects.create(workshop=self.workshop, stock_product=stock_product, type="SAIDA", quantity=item.quantity, status="APROVADO", transcation_by=request.user)
+
+                    budget.status = status_map[status]
+                    budget.save()
+            except Exception:
+                error_message = "Erro interno ao processar estoque."
+                messages.error(request, error_message)
+                return JsonResponse({"success": False, "error": error_message}, status=500)
+
+        else:
             budget.status = status_map[status]
             budget.save()
 

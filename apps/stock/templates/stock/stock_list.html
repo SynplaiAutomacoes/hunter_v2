@@ -1,0 +1,11 @@
+{% extends 'crud/list_page.html' %}
+{% block crud_title %}Importações de Estoque{% endblock %}
+{% block crud_header_actions %}
+    <a href="{% url 'stock:import' %}" class="btn btn-primary">Nova Importação</a>
+{% endblock %}
+{% block crud_table_wrapper_id %}stock-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'stock:stock_list' %}{% endblock %}
+{% block crud_table_hx_trigger %}stock-table-refresh from:body{% endblock %}
+{% block crud_table %}
+    {% include 'stock/partials/stock_table.html' %}
+{% endblock %}

@@ -1,0 +1,53 @@
+{% extends 'crud/page.html' %}
+
+{% block crud_content %}
+<div class="p-6 space-y-6">
+    <div class="flex justify-between items-center">
+        <h2 class="text-3xl font-bold">Peças para Aprovação</h2>
+        <div class="badge badge-warning p-4 font-bold">{{ pending_movements.count }} Pendentes</div>
+    </div>
+
+    <div class="card bg-base-100 shadow-xl border border-base-300">
+        <div class="overflow-x-auto">
+            <table class="table table-zebra w-full">
+                <thead>
+                    <tr class="uppercase">
+                        <th>Referência</th>
+                        <th>Nome</th>
+                        <th>Tipo</th>
+                        <th>Qtd. Solicitada</th>
+                        <th>Solicitante</th>
+                        <th class="text-right">Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for movement in pending_movements %}
+                    <tr>
+                        <td class="font-bold">{{ movement.stock_product.product.code }}</td>
+                        <td class="font-bold">{{ movement.stock_product.product.name }}</td>
+                        <td>
+                            <span class="badge {% if movement.type == 'ENTRADA' %}badge-success{% else %}badge-error{% endif %}">
+                                {{ movement.get_type_display }}
+                            </span>
+                        </td>
+                        <td class="text-lg font-semibold">{{ movement.quantity }}</td>
+                        <td>{{ movement.transcation_by.get_full_name|default:movement.transcation_by.username }}</td>
+                        <td class="flex justify-end gap-2">
+                            <form method="post" action="{% url 'stock:process_approval' movement.pk %}">
+                                {% csrf_token %}
+                                <button type="submit" name="action" value="approve" class="btn btn-sm btn-success">Aprovar</button>
+                                <button type="submit" name="action" value="reject" class="btn btn-sm btn-ghost text-error">Rejeitar</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center py-8 text-base-content/50">Nenhuma movimentação pendente.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
