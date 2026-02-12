@@ -5,4 +5,5 @@ app_name = "core"
 
 urlpatterns = [
     path("cep-lookup/", views.CEPLookupView.as_view(), name="cep_lookup"),
+    path("", views.DashboardView.as_view(), name="dashboard"),
 ]

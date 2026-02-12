@@ -44,6 +44,10 @@ class HtmxDeleteResponseMixin:
         return super().form_valid(form)
 
 
+class DashboardView(HtmxTemplateResponseMixin, TemplateView):
+    template_name = "partials/dashboard.html"
+
+
 class CEPLookupView(TemplateView):
     template_name = "partials/address_fields.html"
 
