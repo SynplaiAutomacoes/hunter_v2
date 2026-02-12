@@ -434,6 +434,7 @@ class ProductQuickCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["item_idx"] = self.request.GET.get("item_idx")
+        context["pk_import"] = self.request.GET.get("pk")
         return context
 
     def get_initial(self):
@@ -462,6 +463,23 @@ class ProductQuickCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView
         self.object = form.save(commit=False)
         self.object.workshop = self.workshop
         self.object.save()
+
+        item_idx = self.request.GET.get("item_idx")
+        import_pk = self.request.GET.get("pk")
+
+        if item_idx is not None and import_pk:
+            try:
+                stock_import = get_object_or_404(StockImport, id=import_pk, workshop=self.workshop)
+
+                items = list(stock_import.items_data)
+                idx = int(item_idx)
+
+                if 0 <= idx < len(items):
+                    items[idx]["linked_product_id"] = str(self.object.id)
+                    stock_import.items_data = items
+                    stock_import.save(update_fields=["items_data"])
+            except (ValueError, IndexError):
+                pass
 
         response = HttpResponse("")
         response["HX-Trigger"] = "productCreated"
