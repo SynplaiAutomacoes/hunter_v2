@@ -117,6 +117,7 @@ class StockImport(TimeStampedModel):
 
     # Dados da NF
     nf_number = models.CharField(verbose_name="NF",max_length=50, blank=True, null=True)
+    nf_key = models.CharField(max_length=44, verbose_name="Chave de Acesso", blank=False, null=False)
     supplier_name = models.CharField(verbose_name="Fornecedor", max_length=255, blank=True, null=True)
     supplier_cnpj = models.CharField(max_length=20, blank=True, null=True)
 

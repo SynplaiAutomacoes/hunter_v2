@@ -26,6 +26,9 @@ class NFParser:
                 # Caso seja o XML direto (upload manual)
                 nfe_tree = tree
 
+            infNFe = nfe_tree.xpath("//ns:infNFe", namespaces=ns)[0]
+            chave_acesso = infNFe.get("Id").replace("NFe", "")
+
             # --- Cabeçalho e Fornecedor ---
             emit = nfe_tree.xpath("//ns:emit", namespaces=ns)[0]
             nf_numero = nfe_tree.xpath("//ns:ide/ns:nNF", namespaces=ns)[0].text
@@ -74,6 +77,6 @@ class NFParser:
                     "total_paid": valor * 1,
                     "payment_date": data_vencimento,
                 })
-            return {"nf_number": nf_numero, "supplier_cnpj": cnpj_fornecedor, "supplier_name": nome_fornecedor, "items": produtos, "payments": pagamentos_sessao}
+            return {"nf_key": chave_acesso, "nf_number": nf_numero, "supplier_cnpj": cnpj_fornecedor, "supplier_name": nome_fornecedor, "items": produtos, "payments": pagamentos_sessao}
         except Exception:
             return None

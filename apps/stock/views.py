@@ -1,30 +1,25 @@
-import re
 from decimal import Decimal, InvalidOperation
 
-from crispy_forms.utils import render_crispy_form
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
 from django.http import HttpResponse
-from django.template.context_processors import csrf
 from django.urls import reverse, reverse_lazy
 from django.views import View
-from django.views.generic import ListView, FormView, CreateView, DeleteView
+from django.views.generic import ListView, CreateView, DeleteView
 from django.shortcuts import get_object_or_404, redirect, render
 from django.contrib import messages
 from django.db import transaction
 from django.db.models import F, ExpressionWrapper, IntegerField, Q
 from djmoney.money import Money
-from pynfe.processamento import ComunicacaoSefaz
 
-from .forms import ImportStep1Form, ImportStepSupplierForm, ImportStepItemsForm, ImportStepPaymentForm, QuickProductForm, ImportStepSummaryForm
+from .forms import ImportStep1Form, ImportStepSupplierForm, ImportStepItemsForm, ImportStepPaymentForm, QuickProductForm, ImportStepSummaryForm, \
+    ImportSefazListForm
 from .models import StockProduct, StockMovement, StockPaymentMethod, StockImport
-from .utils import NFParser
 from ..catalog.models.products import Product
 from ..core.forms import MultiStepFormMixin
 from ..core.tables import TableActionDefaults
 from ..core.templatetags.table_tags import TableColumn
 from ..core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin
-from ..suppliers.models import Supplier
 from ..workshops.mixin import WorkshopScopedMixin
 from ..workshops.util.workshops import get_active_workshop_or_404
 
@@ -185,8 +180,8 @@ class StockImportCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFo
             {"title": "Método de Importação", "form_class": ImportStep1Form},
         ]
 
-        # if obj.method == "SEFAZ":
-        #     base_steps.append({"title": "Seleção de NF", "form_class": ImportSefazListForm})
+        if obj and obj.method == "SEFAZ":
+            base_steps.append({"title": "Seleção de NF", "form_class": ImportSefazListForm})
 
         base_steps.extend(
             [

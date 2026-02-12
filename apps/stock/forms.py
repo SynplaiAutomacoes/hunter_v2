@@ -6,6 +6,7 @@ from django import forms
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, HTML
 from django.db import transaction
+from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 from djmoney.forms import MoneyField
@@ -14,7 +15,7 @@ from pynfe.processamento import ComunicacaoSefaz
 
 from apps.catalog.models.products import Product
 from apps.core.widgets import TextInput, SelectInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput
-from apps.stock.models import StockPaymentMethod, StockImport, StockProduct, StockMovement
+from apps.stock.models import StockPaymentMethod, StockImport, StockProduct, StockMovement, SefazZipCache
 from apps.stock.utils import NFParser
 from apps.suppliers.models import Supplier
 
@@ -87,11 +88,12 @@ class ImportStep1Form(forms.ModelForm):
             except Exception as e:
                 raise forms.ValidationError(f"Erro ao importar chave no Sefaz: {str(e)}")
 
-        if StockImport.objects.filter(workshop=self.workshop, nf_number=nf_data["nf_number"]).exists():
-            raise forms.ValidationError("Não é possível importar a mesma NF mais de uma vez.")
-
         if nf_data:
+            if StockImport.objects.filter(workshop=self.workshop, nf_key=nf_data["nf_key"]).exists():
+                raise forms.ValidationError("Não é possível importar a mesma NF mais de uma vez.")
+
             obj.nf_number = nf_data["nf_number"]
+            obj.nf_key = nf_data["nf_key"]
             obj.supplier_cnpj = nf_data["supplier_cnpj"]
             obj.supplier_name = nf_data["supplier_name"]
             obj.items_data = nf_data["items"]
@@ -599,6 +601,125 @@ class ImportStepSummaryForm(forms.ModelForm):
                 self.add_error(None, "Existem itens pendentes de vínculo.")
         return cleaned_data
 
+
+import gzip
+import base64
+from lxml import etree
+class ImportSefazListForm(forms.ModelForm):
+    selected_key = forms.CharField(widget=forms.HiddenInput(), required=False)
+
+    class Meta:
+        model = StockImport
+        fields = []
+
+    def __init__(self, *args, **kwargs):
+        self.workshop = kwargs.pop("workshop", None)
+        self.request = kwargs.pop("request", None)
+        self.nf_data = kwargs.pop("nf_data", {})
+        self.import_items = kwargs.pop("import_items", [])
+        self.import_payments = kwargs.pop("import_payments", [])
+        super().__init__(*args, **kwargs)
+
+        if self.workshop and self.workshop.can_search_sefaz:
+            self.update_sefaz_list()
+
+        imported_keys = StockImport.objects.filter(workshop=self.workshop).values_list("nf_key", flat=True)
+        self.notas = SefazZipCache.objects.filter(workshop=self.workshop)
+
+        for nota in self.notas:
+            nota.is_imported = nota.key in imported_keys
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout(
+            Field("selected_key", id="id_selected_key"),
+            HTML("{% include 'stock/partials/sefaz_table.html' %}")
+        )
+
+    def update_sefaz_list(self):
+        """Encapsula a lógica de busca na SEFAZ fornecida"""
+        try:
+            uf = self.workshop.uf
+            certificado = self.workshop.pfx_certificate.path
+            senha = self.workshop.certificate_password
+            cnpj = re.sub(r"\D", "", self.workshop.cnpj)
+            nsu = self.workshop.last_nsu_sefaz
+
+            comunicacao = ComunicacaoSefaz(uf, certificado, senha)
+            xml_resp = comunicacao.consulta_distribuicao(cnpj=cnpj, nsu=nsu)
+
+            # Parsing do retorno da SEFAZ (simplificado do seu exemplo)
+            tree = etree.fromstring(xml_resp.content)
+            ns = {"ns": "http://www.portalfiscal.inf.br/nfe"}
+
+            if tree.xpath("//ns:cStat/text()", namespaces=ns)[0] == "138":
+                self.workshop.last_nsu_sefaz = tree.xpath("//ns:ultNSU/text()", namespaces=ns)[0]
+
+                docs = tree.xpath("//ns:docZip", namespaces=ns)
+                for doc in docs:
+                    content = gzip.decompress(base64.b64decode(doc.text))
+                    nfe_tree = etree.fromstring(content)
+                    tag = etree.QName(nfe_tree).localname
+
+                    dados = {}
+                    if tag == 'resNFe':
+                        dados = {
+                            'key': nfe_tree.get('chNFe'),
+                            'nome': nfe_tree.get('xNome'),
+                            'cnpj': nfe_tree.get('CNPJ') or nfe_tree.get('CPF'),
+                            'valor': nfe_tree.get('vNF'),
+                            'data': nfe_tree.get('dhEmi')
+                        }
+                    elif tag == 'nfeProc':
+                        dados = {
+                            'key': nfe_tree.xpath('//ns:infNFe/@Id', namespaces=ns)[0].replace('NFe',''),
+                            'nome': nfe_tree.xpath('//ns:emit/ns:xNome/text()', namespaces=ns)[0],
+                            'cnpj': nfe_tree.xpath('//ns:emit/ns:CNPJ/text()', namespaces=ns)[0],
+                            'valor': nfe_tree.xpath('//ns:vNF/text()', namespaces=ns)[0],
+                            'data': nfe_tree.xpath('//ns:dhEmi/text()', namespaces=ns)[0]
+                        }
+
+                    if dados.get("key"):
+                        SefazZipCache.objects.update_or_create(key=dados["key"], workshop=self.workshop, defaults={"issuer_name": dados["nome"], "issuer_cnpj": dados["cnpj"], "total_value": dados["valor"], "issue_date": dados["data"]})
+
+            self.workshop.last_sefaz_search_date = timezone.now()
+            self.workshop.save()
+        except Exception as e:
+            print(f"Erro SEFAZ: {e}")
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        key = self.cleaned_data.get("selected_key")
+
+        if key:
+            try:
+                comunicacao = ComunicacaoSefaz(self.workshop.uf, self.workshop.pfx_certificate.path, self.workshop.certificate_password)
+                xml_completo = comunicacao.consulta_distribuicao(cnpj=re.sub(r"\D", "", self.workshop.cnpj), chave=key)
+
+                nf_data = NFParser.parse_nfe_xml_to_dict(xml_completo.content)
+
+                if nf_data:
+                    instance.nf_number = nf_data["nf_number"]
+                    instance.nf_key = nf_data["nf_key"]
+                    instance.supplier_cnpj = nf_data["supplier_cnpj"]
+                    instance.supplier_name = nf_data["supplier_name"]
+                    instance.items_data = nf_data["items"]
+                    instance.payments_data = nf_data["payments"]
+                    instance.method = "SEFAZ"
+            except Exception as e:
+                raise forms.ValidationError(f"Erro ao baixar nota completa: {e}")
+
+        if commit:
+            instance.save()
+        return instance
+
+    def clean(self):
+        cleaned_data = super().clean()
+
+        if not cleaned_data.get("selected_key"):
+            self.add_error(None, "Selecione uma NF antes de avançar.")
+
+        return cleaned_data
 
 class QuickProductForm(forms.ModelForm):
     class Meta:
