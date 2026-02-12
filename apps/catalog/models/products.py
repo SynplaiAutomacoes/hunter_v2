@@ -96,6 +96,11 @@ class Product(TimeStampedModel):
 
     is_active = models.BooleanField(verbose_name="Ativo", default=True)
 
+    @property
+    def current_stock(self):
+        stock = getattr(self, 'stock_products', None)
+        return stock.current_quantity if stock else 0
+
     class Meta:
         verbose_name = "Produto"
         verbose_name_plural = "Produtos"

@@ -21,7 +21,7 @@ class ServiceForm(forms.ModelForm):
             "duration": DurationInput(),
             "selling_price": MoneyInput(),
             "suggested_cost": MoneyInput(),
-            "description": TextareaInput(),
+            "description": TextareaInput(attrs={"class": "!bg-transparent"}),
             "is_active": CheckboxInput(),
         }
 

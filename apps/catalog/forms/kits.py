@@ -27,7 +27,7 @@ class KitForm(forms.ModelForm):
         fields = ["name", "description", "is_active"]
         widgets = {
             "name": TextInput(attrs={"placeholder": "Ex: Kit Revisão 10.000km"}),
-            "description": TextareaInput(),
+            "description": TextareaInput(attrs={"class": "!bg-transparent"}),
             "is_active": CheckboxInput(),
         }
 

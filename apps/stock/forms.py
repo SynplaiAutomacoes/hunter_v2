@@ -6,18 +6,24 @@ from django import forms
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, HTML
 from django.db import transaction
-from django.template.loader import render_to_string
+import gzip
+import base64
+from lxml import etree
 from django.urls import reverse
 from django.utils import timezone
 from djmoney.forms import MoneyField
 from djmoney.money import Money
 from pynfe.processamento import ComunicacaoSefaz
 
+from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.core.widgets import TextInput, SelectInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput
+
 from apps.stock.models import StockPaymentMethod, StockImport, StockProduct, StockMovement, SefazZipCache
+
 from apps.stock.utils import NFParser
 from apps.suppliers.models import Supplier
+from apps.workshops.models.workshops import Workshop
 
 
 class ImportStep1Form(forms.ModelForm):
@@ -27,7 +33,9 @@ class ImportStep1Form(forms.ModelForm):
     class Meta:
         model = StockImport
         fields = ["method"]
-        widgets = {"method": forms.Select(attrs={"x-model": "method", "class": "select select-bordered w-full"})}
+        widgets = {
+            "method": SelectInput(choices=StockImport.ImportMethods.choices, attrs={"x-model": "method"})
+        }
 
     def __init__(self, *args, **kwargs):
         self.workshop = kwargs.pop("workshop", None)
@@ -35,9 +43,10 @@ class ImportStep1Form(forms.ModelForm):
         self.nf_data = kwargs.pop("nf_data", {})
         self.import_items = kwargs.pop("import_items", [])
         self.import_payments = kwargs.pop("import_payments", [])
+        self.parsed_nf_data = None
         super().__init__(*args, **kwargs)
 
-        if self.instance:
+        if self.instance and self.instance.method:
             self.fields["method"].initial = self.instance.method
 
         self.helper = FormHelper()
@@ -47,7 +56,7 @@ class ImportStep1Form(forms.ModelForm):
                 # Coluna Esquerda: Seleção
                 Div(
                     HTML('<h2 class="text-2xl font-bold mb-6">Método de Importação</h2>'),
-                    Field("method", css_class="select select-bordered w-full"),
+                    Field("method"),
                     css_class="col-span-12 lg:col-span-5",
                 ),
                 #
@@ -70,34 +79,15 @@ class ImportStep1Form(forms.ModelForm):
     def save(self, commit=True):
         obj = super().save(commit=False)
 
-        method = self.cleaned_data.get("method")
-        nf_data = None
-
-        if method == "XML":
-            xml_file = self.files.get("xml_file")
-            nf_data = NFParser.parse_nfe_xml_to_dict(xml_file)
-        elif method == "KEY":
-            chave = re.sub(r"\D", "", self.cleaned_data.get("access_key"))
-            workshop = self.workshop
-
-            try:
-                comunicacao = ComunicacaoSefaz(workshop.uf, workshop.pfx_certificate.path, workshop.certificate_password)
-                cnpj_clean = re.sub(r"\D", "", workshop.cnpj)
-                xml_response = comunicacao.consulta_distribuicao(cnpj=cnpj_clean, chave=chave)
-                nf_data = NFParser.parse_nfe_xml_to_dict(xml_response.content)
-            except Exception as e:
-                raise forms.ValidationError(f"Erro ao importar chave no Sefaz: {str(e)}")
-
-        if nf_data:
-            if StockImport.objects.filter(workshop=self.workshop, nf_key=nf_data["nf_key"]).exists():
-                raise forms.ValidationError("Não é possível importar a mesma NF mais de uma vez.")
-
-            obj.nf_number = nf_data["nf_number"]
-            obj.nf_key = nf_data["nf_key"]
-            obj.supplier_cnpj = nf_data["supplier_cnpj"]
-            obj.supplier_name = nf_data["supplier_name"]
-            obj.items_data = nf_data["items"]
-            obj.payments_data = nf_data['payments']
+        if self.parsed_nf_data:
+            data = self.parsed_nf_data
+            obj.workshop = self.workshop
+            obj.nf_number = data["nf_number"]
+            obj.nf_key = data["nf_key"]
+            obj.supplier_cnpj = data["supplier_cnpj"]
+            obj.supplier_name = data["supplier_name"]
+            obj.items_data = data["items"]
+            obj.payments_data = data['payments']
 
         if commit:
             obj.save()
@@ -106,17 +96,45 @@ class ImportStep1Form(forms.ModelForm):
     def clean(self):
         cleaned_data = super().clean()
         method = cleaned_data.get("method")
+        nf_data = None
 
-        if method == 'XML' and not self.files.get('xml_file'):
-            self.add_error("xml_file", "O arquivo XML é obrigatório para este método.")
+        if method == "XML":
+            xml_file = self.files.get("xml_file")
+            if not xml_file:
+                self.add_error("xml_file", "O arquivo XML é obrigatório para este método.")
+            else:
+                try:
+                    nf_data = NFParser.parse_nfe_xml_to_dict(xml_file)
+                except Exception:
+                    self.add_error("xml_file", f"Erro ao ler o arquivo XML.")
 
         if method == "KEY":
             key = cleaned_data.get("access_key")
-            if not key or len(re.sub(r"\D", "", key)) != 44:
+            nf_key = re.sub(r"\D", "", key) if key else ''
+
+            if len(nf_key) != 44:
                 self.add_error("access_key", "Insira uma chave válida de 44 dígitos.")
 
-            if not self.workshop.pfx_certificate or not self.workshop.certificate_password:
-                self.add_error(None, "Oficina sem certificado configurado.")
+            elif not self.workshop.pfx_certificate or not self.workshop.certificate_password:
+                self.add_error("method", "Oficina sem certificado configurado.")
+
+            else:
+                try:
+                    comunicacao = ComunicacaoSefaz(self.workshop.uf, self.workshop.pfx_certificate.path, self.workshop.certificate_password)
+                    cnpj_clean = re.sub(r"\D", "", self.workshop.cnpj)
+                    xml_response = comunicacao.consulta_distribuicao(cnpj=cnpj_clean, chave=nf_key)
+                    nf_data = NFParser.parse_nfe_xml_to_dict(xml_response.content)
+                except Exception:
+                    self.add_error("access_key", "Erro ao buscar chave na SEFAZ ou chave inválida.")
+
+        if nf_data:
+            if StockImport.objects.filter(workshop=self.workshop, nf_key=nf_data["nf_key"]).exclude(pk=self.instance.pk).exists():
+                self.add_error("method", f"A NF com chave {nf_data['nf_key']} já existe.")
+
+            elif StockImport.objects.filter(workshop=self.workshop, nf_number=nf_data["nf_number"], supplier_cnpj=nf_data["supplier_cnpj"]).exclude(pk=self.instance.pk).exists():
+                self.add_error("method", f"A NF número {nf_data['nf_number']} deste fornecedor já foi importada.")
+
+            self.parsed_nf_data = nf_data
 
         return cleaned_data
 
@@ -142,7 +160,7 @@ class ImportStepSupplierForm(forms.ModelForm):
         self.helper.form_tag = False
         self.helper.layout = Layout(
             HTML(f"""
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-indigo-50 p-6 rounded-lg border border-indigo-100 mb-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-base-300 p-6 rounded-lg mb-6">
                 <div>
                     <p class="text-xs text-indigo-600 font-bold uppercase tracking-wider mb-1">Emitente (Fornecedor)</p>
                     <p class="font-bold text-gray-900 text-lg">{nome}</p>
@@ -254,14 +272,14 @@ class ImportStepItemsForm(forms.ModelForm):
                 <div class="rounded-xl border border-base-300 overflow-x-auto">
                     <table class="table table-sm w-full">
                         <thead>
-                            <tr>
+                            <tr class="bg-base-300">
                                 <th>Descrição</th>
                                 <th class="text-center">Quantidade</th>
                                 <th class="text-right">Valor Unitário</th>
                                 <th class="text-right">Valor Total</th>
                             </tr>
                         </thead>
-                        <tbody>{rows_xml}</tbody>
+                        <tbody class="bg-base-200">{rows_xml}</tbody>
                     </table>
                 </div>
             </div>
@@ -273,7 +291,7 @@ class ImportStepItemsForm(forms.ModelForm):
                 <div class="rounded-xl border border-base-300 overflow-x-auto">
                     <table class="table table-sm w-full">
                         <thead>
-                            <tr>
+                            <tr class="bg-base-300">
                                 <th>Produto Vinculado</th>
                                 <th class="text-center">Valor de Custo</th>
                                 <th class="text-center">Valor de Venda</th>
@@ -281,7 +299,7 @@ class ImportStepItemsForm(forms.ModelForm):
                                 <th class="text-center">Ações</th>
                             </tr>
                         </thead>
-                        <tbody>{rows_system}</tbody>
+                        <tbody class="bg-base-200">{rows_system}</tbody>
                     </table>
                 </div>
             </div>
@@ -416,7 +434,7 @@ class ImportStepPaymentForm(forms.ModelForm):
 
         return f"""<table class="table table-zebra w-full">
                 <thead>
-                    <tr>
+                    <tr class="bg-base-300">
                         <th>Forma de Pagamento</th>
                         <th>Parcelas</th>
                         <th>Data de Vencimento</th>
@@ -424,7 +442,7 @@ class ImportStepPaymentForm(forms.ModelForm):
                         <th class="text-center">Ações</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody class="bg-base-200">
                     {rows}
                 </tbody>
             </table>"""
@@ -451,12 +469,29 @@ class ImportStepSummaryForm(forms.ModelForm):
             else:
                 clean_value = raw_value
             value = Money(Decimal(clean_value), 'BRL')
+            
+            # Item da nota
             rows_html += f"""<tr>
-                        <td class="font-mono text-xs">{item.get("ref")}</td>
-                        <td class="max-w-[150px] truncate">{item.get("desc")}</td>
+                        <td class="text-xs" title="{item.get("ref")}">{item.get("ref")}</td>
+                        <td class="max-w-[150px] truncate" title="{item.get("desc")}">{item.get("desc")}</td>
                         <td class="text-right">{item.get("qtd")}</td>
                         <td class="text-right font-bold">{value}</td>
                     </tr>"""
+            
+            # Produto vinculado (se existir)
+            product_id = item.get("linked_product_id")
+            if product_id:
+                product = Product.objects.filter(id=product_id, workshop=self.workshop).first()
+                if product:
+                    stock_qty = product.stock_products.current_quantity if hasattr(product, 'stock_products') else 0
+                    rows_html += f"""<tr>
+                        <td class="text-xs text-warning" title="Código do Produto Vinculado: {product.code}">{product.code}</td>
+                        <td class="max-w-[150px] truncate text-warning" title="Descrição do Produto Vinculado: {product.name}">{product.name}</td>
+                        <td class="text-right text-warning" title="Estoque Atual do Produto Vinculado: {stock_qty}">{stock_qty}</td>
+                        <td class="text-right font-bold text-warning" title="Valor de Custo do Produto Vinculado: {product.cost_price}">{product.cost_price}</td>
+                    </tr>
+                    <tr class="h-5"><td colspan="4"></td></tr>"""
+
 
         payments_html = ""
         total_value = Money(0, "BRL")
@@ -488,14 +523,14 @@ class ImportStepSummaryForm(forms.ModelForm):
                         <div class="overflow-x-auto rounded-lg bg-base-50">
                             <table class="table table-sm w-full">
                                 <thead>
-                                    <tr class="bg-base-200">
+                                    <tr class="bg-base-300">
                                         <th>Código</th>
                                         <th>Descrição</th>
                                         <th class="text-right">Quantidade</th>
                                         <th class="text-right">Valor Unitário</th>
                                     </tr>
                                 </thead>
-                                <tbody>
+                                <tbody class="gap-2 bg-base-200">
                                     {rows_html}
                                 </tbody>
                             </table>
@@ -602,9 +637,6 @@ class ImportStepSummaryForm(forms.ModelForm):
         return cleaned_data
 
 
-import gzip
-import base64
-from lxml import etree
 class ImportSefazListForm(forms.ModelForm):
     selected_key = forms.CharField(widget=forms.HiddenInput(), required=False)
 
@@ -721,6 +753,7 @@ class ImportSefazListForm(forms.ModelForm):
 
         return cleaned_data
 
+
 class QuickProductForm(forms.ModelForm):
     class Meta:
         model = Product
@@ -753,7 +786,20 @@ class QuickProductForm(forms.ModelForm):
                     Field("code", wrapper_class="col-span-12 lg:col-span-3"),
                     Field("name", wrapper_class="col-span-12 lg:col-span-9"),
                     Field("unit", wrapper_class="col-span-12 lg:col-span-6"),
-                    Field("group", wrapper_class="col-span-12 lg:col-span-6"),
+                    Div(
+                        Field("group", wrapper_class="w-full"),
+                        HTML(f'''<div class="flex items-center ml-2"> 
+                                    <button type="button" 
+                                        style="height: 60%; aspect-ratio: 1 / 1;"
+                                        class="btn btn-primary rounded-full flex items-center justify-center p-0" 
+                                        hx-get="{reverse("stock:group_quick_create")}" 
+                                        hx-target="#group-modal-container"
+                                        title="Cadastrar novo grupo">
+                                        <span class="material-icons" style="font-size: 1.5rem;">add</span>
+                                    </button>
+                                </div>'''),
+                        css_class="col-span-12 lg:col-span-6 flex items-stretch h-12",
+                    ),
                     Field("cost_price", wrapper_class="col-span-12 lg:col-span-4"),
                     Div(
                         Field("selling_price", wrapper_class="w-full"),
@@ -785,3 +831,29 @@ class QuickProductForm(forms.ModelForm):
                 },
             )
         )
+
+
+class CatalogGroupQuickForm(forms.ModelForm):
+    class Meta:
+        model = CatalogGroup
+        fields = ["name"]
+        widgets = {"name": TextInput(attrs={"placeholder": "Grupo"})}
+
+    def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.workshop = workshop
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout(Div(
+            Field("name", wrapper_class="col-span-1"), css_class="grid grid-cols-1 gap-4 items-start"))
+
+    def clean_name(self):
+        name = self.cleaned_data.get("name")
+        if name and self.workshop:
+            # Validação extra para garantir unicidade case-insensitive no workshop
+            qs = CatalogGroup.objects.filter(workshop=self.workshop, name__iexact=name)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise forms.ValidationError("Já existe um grupo com este nome.")
+        return name
