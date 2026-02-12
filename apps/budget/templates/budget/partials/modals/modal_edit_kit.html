@@ -41,33 +41,16 @@
                         <tr data-product-id="{{ product.id }}">
                             <td class="font-medium">{{ product.name }}</td>
                             <td class="text-center">
-                                <input type="number"
-                                       class="input input-sm input-bordered w-20 text-center product-qty"
-                                       value="{{ product.quantity }}"
-                                       min="0"
-                                       data-field="quantity"
-                                       onchange="calculateProductTotal(this)" />
+                                {{ product.form.quantity }}
                             </td>
                             <td>
-                                <input type="text"
-                                       class="input input-sm input-bordered w-full product-cost"
-                                       value="{{ product.cost.amount }}"
-                                       data-field="cost"
-                                       onchange="calculateProductTotal(this)" />
+                                {{ product.form.cost }}
                             </td>
                             <td>
-                                <input type="text"
-                                       class="input input-sm input-bordered w-full product-price"
-                                       value="{{ product.price.amount }}"
-                                       data-field="price"
-                                       onchange="calculateProductTotal(this)" />
+                                {{ product.form.price }}
                             </td>
                             <td>
-                                <input type="text"
-                                       class="input input-sm input-bordered w-full product-shipping"
-                                       value="{{ product.shipping.amount }}"
-                                       data-field="shipping"
-                                       onchange="calculateProductTotal(this)" />
+                                {{ product.form.shipping }}
                             </td>
                             <td class="font-bold">
                                 <span class="product-total">R$ 0,00</span>
@@ -112,34 +95,16 @@
                         <tr data-service-id="{{ service.id }}">
                             <td class="font-medium">{{ service.name }}</td>
                             <td class="text-center">
-                                <input type="number"
-                                       class="input input-sm input-bordered w-20 text-center service-qty"
-                                       value="{{ service.quantity }}"
-                                       min="0"
-                                       data-field="quantity"
-                                       onchange="calculateServiceTotal(this)" />
+                                {{ service.form.quantity }}
                             </td>
                             <td>
-                                <input type="text"
-                                       class="input input-sm input-bordered w-full service-cost"
-                                       value="{{ service.cost.amount }}"
-                                       data-field="cost"
-                                       onchange="calculateServiceTotal(this)" />
+                                {{ service.form.cost }}
                             </td>
                             <td>
-                                <input type="text"
-                                       class="input input-sm input-bordered w-full service-price"
-                                       value="{{ service.price.amount }}"
-                                       data-field="price"
-                                       onchange="calculateServiceTotal(this)" />
+                                {{ service.form.price }}
                             </td>
                             <td>
-                                <input type="text"
-                                       class="input input-sm input-bordered w-full service-duration"
-                                       value="{{ service.duration }}"
-                                       data-field="duration"
-                                       placeholder="HH:MM:SS"
-                                       onchange="calculateServicePricing(this)" />
+                                {{ service.form.duration }}
                             </td>
                             <td class="font-bold">
                                 <span class="service-total">R$ 0,00</span>
@@ -187,65 +152,6 @@
 (function() {
     'use strict';
 
-    (() => {
-        // Apply input masks
-        document.querySelectorAll('.product-cost, .product-price, .product-shipping, .service-cost, .service-price').forEach(input => {
-            input.addEventListener('input', function() {
-                this.value = formatCurrencyForInput(this.value);
-            });
-
-            input.addEventListener('blur', function() {
-                this.value = formatCurrencyForInput(this.value);
-            });
-
-            // Format initial value when modal opens
-            input.value = formatCurrencyForInput(input.value);
-        });
-
-        document.querySelectorAll('.service-duration').forEach(input => {
-            input.addEventListener('input', function() {
-                this.value = normalizeDurationInput(this.value);
-            });
-
-            input.addEventListener('blur', function() {
-                this.value = normalizeDurationInput(this.value, true);
-            });
-
-            // Normalize initial value when modal opens
-            input.value = normalizeDurationInput(input.value, true);
-        });
-    })();
-
-    function formatCurrencyForInput(value) {
-        const digits = (value || '').toString().replace(/\D/g, '');
-        if (!digits) return '';
-
-        const number = parseInt(digits, 10) / 100;
-        if (Number.isNaN(number)) return '';
-
-        return number.toLocaleString('pt-BR', {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-        });
-    }
-
-    function normalizeDurationInput(value, finalize) {
-        const numbers = (value || '').toString().replace(/\D/g, '').slice(0, 6);
-        if (!numbers) return '';
-
-        if (finalize) {
-            const hh = numbers.slice(0, 2).padStart(2, '0');
-            const mm = numbers.slice(2, 4).padStart(2, '0');
-            const ss = numbers.slice(4, 6).padStart(2, '0');
-            return `${hh}:${mm}:${ss}`;
-        }
-
-        if (numbers.length <= 2) return numbers;
-        if (numbers.length <= 4) return `${numbers.slice(0, 2)}:${numbers.slice(2)}`;
-        return `${numbers.slice(0, 2)}:${numbers.slice(2, 4)}:${numbers.slice(4)}`;
-    }
-
-    // Format currency
     function formatCurrency(value) {
         const num = parseFloat(value) || 0;
         return new Intl.NumberFormat('pt-BR', {
@@ -254,56 +160,87 @@
         }).format(num);
     }
 
-    // Parse currency input - handles Brazilian format (123,45) and US format (123.45)
     function parseCurrency(str) {
         if (!str) return 0;
         let value = str.toString().trim();
-        // Remove R$ and whitespace
         value = value.replace(/R\$\s*/g, '');
-        // If has comma, it's Brazilian format: remove dots (thousands) and replace comma with period
         if (value.includes(',')) {
             value = value.replace(/\./g, '').replace(',', '.');
         }
-        // Remove any remaining non-numeric characters except period
         value = value.replace(/[^\d.]/g, '');
         return parseFloat(value) || 0;
     }
 
-    // Calculate product total
+    function getFieldInput(row, fieldName) {
+        return row.querySelector(`[data-field="${fieldName}"]`);
+    }
+
+    function getFieldValue(row, fieldName) {
+        const input = getFieldInput(row, fieldName);
+        return input ? input.value : '';
+    }
+
+    function normalizeDurationForApi(value) {
+        const raw = (value || '').toString().trim();
+        if (!raw) return '';
+
+        const parts = raw.split(':').map(part => part.trim());
+        if (parts.length === 2) {
+            const hours = parseInt(parts[0], 10);
+            const minutes = parseInt(parts[1], 10);
+            if (Number.isNaN(hours) || Number.isNaN(minutes)) return '';
+            return `${String(Math.max(0, hours)).padStart(2, '0')}:${String(Math.min(59, Math.max(0, minutes))).padStart(2, '0')}:00`;
+        }
+
+        if (parts.length === 3) {
+            const hours = parseInt(parts[0], 10);
+            const minutes = parseInt(parts[1], 10);
+            const seconds = parseInt(parts[2], 10);
+            if (Number.isNaN(hours) || Number.isNaN(minutes) || Number.isNaN(seconds)) return '';
+            return `${String(Math.max(0, hours)).padStart(2, '0')}:${String(Math.min(59, Math.max(0, minutes))).padStart(2, '0')}:${String(Math.min(59, Math.max(0, seconds))).padStart(2, '0')}`;
+        }
+
+        return '';
+    }
+
+    function setMoneyInputValue(row, fieldName, amount) {
+        const input = getFieldInput(row, fieldName);
+        if (!input) return;
+        input.value = amount === null || amount === undefined ? '' : String(amount);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('blur', { bubbles: true }));
+    }
+
     window.calculateProductTotal = function(input) {
         const row = input.closest('tr');
-        const qty = parseInt(row.querySelector('.product-qty').value) || 0;
-        const price = parseCurrency(row.querySelector('.product-price').value);
-        const shipping = parseCurrency(row.querySelector('.product-shipping').value);
+        const qty = parseInt(getFieldValue(row, 'quantity'), 10) || 0;
+        const price = parseCurrency(getFieldValue(row, 'price'));
+        const shipping = parseCurrency(getFieldValue(row, 'shipping'));
 
         const total = qty > 0 ? (price * qty) + shipping : 0;
         row.querySelector('.product-total').textContent = formatCurrency(total);
     };
 
-    // Calculate service total
     window.calculateServiceTotal = function(input) {
         const row = input.closest('tr');
-        const qty = parseInt(row.querySelector('.service-qty').value) || 0;
-        const price = parseCurrency(row.querySelector('.service-price').value);
+        const qty = parseInt(getFieldValue(row, 'quantity'), 10) || 0;
+        const price = parseCurrency(getFieldValue(row, 'price'));
 
         const total = price * qty;
         row.querySelector('.service-total').textContent = formatCurrency(total);
     };
 
-    // Calculate service pricing based on duration
     window.calculateServicePricing = function(input) {
         const row = input.closest('tr');
         const serviceId = row.dataset.serviceId;
-        const duration = input.value;
+        const duration = normalizeDurationForApi(input.value);
         const budgetId = {{ item.budget_id }};
 
         if (!duration) return;
 
-        // Show loading indicator
         input.classList.add('loading', 'loading-spinner');
         input.disabled = true;
 
-        // Call backend to calculate pricing
         fetch(`/budget/${budgetId}/kit/calculate-service/`, {
             method: 'POST',
             headers: {
@@ -315,10 +252,10 @@
         .then(response => response.json())
         .then(data => {
             if (data.cost !== undefined) {
-                row.querySelector('.service-cost').value = data.cost;
+                setMoneyInputValue(row, 'cost', data.cost);
             }
             if (data.price !== undefined) {
-                row.querySelector('.service-price').value = data.price;
+                setMoneyInputValue(row, 'price', data.price);
             }
             calculateServiceTotal(input);
         })
@@ -332,36 +269,32 @@
         });
     };
 
-    // Save kit changes
     window.saveKitChanges = function(budgetId, itemId) {
         const products = [];
         const services = [];
 
-        // Collect products data
         document.querySelectorAll('#products-table-body tr[data-product-id]').forEach(row => {
-            const qty = parseInt(row.querySelector('.product-qty').value);
+            const qty = parseInt(getFieldValue(row, 'quantity'), 10);
             products.push({
                 id: row.dataset.productId,
                 quantity: isNaN(qty) ? 0 : qty,
-                cost: parseCurrency(row.querySelector('.product-cost').value),
-                price: parseCurrency(row.querySelector('.product-price').value),
-                shipping: parseCurrency(row.querySelector('.product-shipping').value)
+                cost: parseCurrency(getFieldValue(row, 'cost')),
+                price: parseCurrency(getFieldValue(row, 'price')),
+                shipping: parseCurrency(getFieldValue(row, 'shipping'))
             });
         });
 
-        // Collect services data
         document.querySelectorAll('#services-table-body tr[data-service-id]').forEach(row => {
-            const qty = parseInt(row.querySelector('.service-qty').value);
+            const qty = parseInt(getFieldValue(row, 'quantity'), 10);
             services.push({
                 id: row.dataset.serviceId,
                 quantity: isNaN(qty) ? 0 : qty,
-                cost: parseCurrency(row.querySelector('.service-cost').value),
-                price: parseCurrency(row.querySelector('.service-price').value),
-                duration: row.querySelector('.service-duration').value
+                cost: parseCurrency(getFieldValue(row, 'cost')),
+                price: parseCurrency(getFieldValue(row, 'price')),
+                duration: normalizeDurationForApi(getFieldValue(row, 'duration'))
             });
         });
 
-        // Send data to backend
         const formData = new FormData();
         formData.append('products', JSON.stringify(products));
         formData.append('services', JSON.stringify(services));
@@ -373,7 +306,6 @@
         })
         .then(response => {
             if (response.ok) {
-                // Redirect to refresh page
                 window.location.href = `/budget/${budgetId}/edit/?step=4`;
             } else {
                 alert('Erro ao salvar alterações');
@@ -385,42 +317,55 @@
         });
     };
 
-    // Initialize totals on load
-    document.addEventListener('DOMContentLoaded', function() {
+    function bindRowEvents() {
         document.querySelectorAll('#products-table-body tr[data-product-id]').forEach(row => {
-            calculateProductTotal(row.querySelector('.product-qty'));
+            ['quantity', 'price', 'shipping'].forEach(fieldName => {
+                const input = getFieldInput(row, fieldName);
+                if (!input) return;
+                input.addEventListener('input', () => calculateProductTotal(input));
+                input.addEventListener('change', () => calculateProductTotal(input));
+            });
+        });
+
+        document.querySelectorAll('#services-table-body tr[data-service-id]').forEach(row => {
+            ['quantity', 'price'].forEach(fieldName => {
+                const input = getFieldInput(row, fieldName);
+                if (!input) return;
+                input.addEventListener('input', () => calculateServiceTotal(input));
+                input.addEventListener('change', () => calculateServiceTotal(input));
+            });
+
+            const durationInput = getFieldInput(row, 'duration');
+            if (durationInput) {
+                durationInput.addEventListener('change', () => calculateServicePricing(durationInput));
+                durationInput.addEventListener('blur', () => calculateServicePricing(durationInput));
+            }
+        });
+    }
+
+    function initializeTotals() {
+        document.querySelectorAll('#products-table-body tr[data-product-id]').forEach(row => {
+            const quantityInput = getFieldInput(row, 'quantity');
+            if (quantityInput) calculateProductTotal(quantityInput);
         });
         document.querySelectorAll('#services-table-body tr[data-service-id]').forEach(row => {
-            calculateServiceTotal(row.querySelector('.service-qty'));
+            const quantityInput = getFieldInput(row, 'quantity');
+            if (quantityInput) calculateServiceTotal(quantityInput);
         });
-    });
-
-    // Initialize immediately if DOM already loaded
-    if (document.readyState === 'loading') {
-        // Wait for DOMContentLoaded
-    } else {
-        // DOM already loaded, initialize now
-        setTimeout(() => {
-            document.querySelectorAll('#products-table-body tr[data-product-id]').forEach(row => {
-                const qtyInput = row.querySelector('.product-qty');
-                if (qtyInput) calculateProductTotal(qtyInput);
-            });
-            document.querySelectorAll('#services-table-body tr[data-service-id]').forEach(row => {
-                const qtyInput = row.querySelector('.service-qty');
-                if (qtyInput) calculateServiceTotal(qtyInput);
-            });
-        }, 100);
     }
+
+    bindRowEvents();
+    initializeTotals();
 })();
 </script>
 
 <style>
     /* Input validation states */
-    .input:invalid {
+    .input-theme:invalid {
         border-color: hsl(var(--er));
     }
 
-    .input:focus {
+    .input-theme:focus {
         outline: 2px solid hsl(var(--p) / 0.5);
         outline-offset: 2px;
     }

@@ -1,5 +1,6 @@
 from django import forms
 from django.urls import reverse
+from djmoney.forms import MoneyField
 
 from apps.budget.models import BudgetItem
 from apps.catalog.models.groups import CatalogGroup
@@ -60,6 +61,20 @@ class BudgetItemEditForm(forms.ModelForm):
                         "hx-indicator": "#calculation-indicator",
                     }
                 )
+
+
+class BudgetKitProductEditRowForm(forms.Form):
+    quantity = forms.IntegerField(min_value=0, widget=NumberInput(attrs={"data-field": "quantity", "min": "0"}))
+    cost = MoneyField(required=False, widget=MoneyInput(attrs={"data-field": "cost"}))
+    price = MoneyField(required=False, widget=MoneyInput(attrs={"data-field": "price"}))
+    shipping = MoneyField(required=False, widget=MoneyInput(attrs={"data-field": "shipping"}))
+
+
+class BudgetKitServiceEditRowForm(forms.Form):
+    quantity = forms.IntegerField(min_value=0, widget=NumberInput(attrs={"data-field": "quantity", "min": "0"}))
+    cost = MoneyField(required=False, widget=MoneyInput(attrs={"data-field": "cost"}))
+    price = MoneyField(required=False, widget=MoneyInput(attrs={"data-field": "price"}))
+    duration = forms.CharField(required=False, widget=DurationInput(attrs={"data-field": "duration"}))
 
 
 class LocalProductForm(forms.ModelForm):
