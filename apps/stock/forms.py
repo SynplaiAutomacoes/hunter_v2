@@ -33,7 +33,9 @@ class ImportStep1Form(forms.ModelForm):
     class Meta:
         model = StockImport
         fields = ["method"]
-        widgets = {"method": forms.Select(attrs={"x-model": "method", "class": "select select-bordered w-full"})}
+        widgets = {
+            "method": SelectInput(choices=StockImport.ImportMethods.choices, attrs={"x-model": "method"})
+        }
 
     def __init__(self, *args, **kwargs):
         self.workshop = kwargs.pop("workshop", None)
@@ -41,9 +43,10 @@ class ImportStep1Form(forms.ModelForm):
         self.nf_data = kwargs.pop("nf_data", {})
         self.import_items = kwargs.pop("import_items", [])
         self.import_payments = kwargs.pop("import_payments", [])
+        self.parsed_nf_data = None
         super().__init__(*args, **kwargs)
 
-        if self.instance:
+        if self.instance and self.instance.method:
             self.fields["method"].initial = self.instance.method
 
         self.helper = FormHelper()
@@ -53,7 +56,7 @@ class ImportStep1Form(forms.ModelForm):
                 # Coluna Esquerda: Seleção
                 Div(
                     HTML('<h2 class="text-2xl font-bold mb-6">Método de Importação</h2>'),
-                    Field("method", css_class="select select-bordered w-full"),
+                    Field("method"),
                     css_class="col-span-12 lg:col-span-5",
                 ),
                 #
@@ -76,34 +79,15 @@ class ImportStep1Form(forms.ModelForm):
     def save(self, commit=True):
         obj = super().save(commit=False)
 
-        method = self.cleaned_data.get("method")
-        nf_data = None
-
-        if method == "XML":
-            xml_file = self.files.get("xml_file")
-            nf_data = NFParser.parse_nfe_xml_to_dict(xml_file)
-        elif method == "KEY":
-            chave = re.sub(r"\D", "", self.cleaned_data.get("access_key"))
-            workshop = self.workshop
-
-            try:
-                comunicacao = ComunicacaoSefaz(workshop.uf, workshop.pfx_certificate.path, workshop.certificate_password)
-                cnpj_clean = re.sub(r"\D", "", workshop.cnpj)
-                xml_response = comunicacao.consulta_distribuicao(cnpj=cnpj_clean, chave=chave)
-                nf_data = NFParser.parse_nfe_xml_to_dict(xml_response.content)
-            except Exception as e:
-                raise forms.ValidationError(f"Erro ao importar chave no Sefaz: {str(e)}")
-
-        if nf_data:
-            if StockImport.objects.filter(workshop=self.workshop, nf_key=nf_data["nf_key"]).exists():
-                raise forms.ValidationError("Não é possível importar a mesma NF mais de uma vez.")
-
-            obj.nf_number = nf_data["nf_number"]
-            obj.nf_key = nf_data["nf_key"]
-            obj.supplier_cnpj = nf_data["supplier_cnpj"]
-            obj.supplier_name = nf_data["supplier_name"]
-            obj.items_data = nf_data["items"]
-            obj.payments_data = nf_data['payments']
+        if self.parsed_nf_data:
+            data = self.parsed_nf_data
+            obj.workshop = self.workshop
+            obj.nf_number = data["nf_number"]
+            obj.nf_key = data["nf_key"]
+            obj.supplier_cnpj = data["supplier_cnpj"]
+            obj.supplier_name = data["supplier_name"]
+            obj.items_data = data["items"]
+            obj.payments_data = data['payments']
 
         if commit:
             obj.save()
@@ -112,17 +96,45 @@ class ImportStep1Form(forms.ModelForm):
     def clean(self):
         cleaned_data = super().clean()
         method = cleaned_data.get("method")
+        nf_data = None
 
-        if method == 'XML' and not self.files.get('xml_file'):
-            self.add_error("xml_file", "O arquivo XML é obrigatório para este método.")
+        if method == "XML":
+            xml_file = self.files.get("xml_file")
+            if not xml_file:
+                self.add_error("xml_file", "O arquivo XML é obrigatório para este método.")
+            else:
+                try:
+                    nf_data = NFParser.parse_nfe_xml_to_dict(xml_file)
+                except Exception:
+                    self.add_error("xml_file", f"Erro ao ler o arquivo XML.")
 
         if method == "KEY":
             key = cleaned_data.get("access_key")
-            if not key or len(re.sub(r"\D", "", key)) != 44:
+            nf_key = re.sub(r"\D", "", key) if key else ''
+
+            if len(nf_key) != 44:
                 self.add_error("access_key", "Insira uma chave válida de 44 dígitos.")
 
-            if not self.workshop.pfx_certificate or not self.workshop.certificate_password:
-                self.add_error(None, "Oficina sem certificado configurado.")
+            elif not self.workshop.pfx_certificate or not self.workshop.certificate_password:
+                self.add_error("method", "Oficina sem certificado configurado.")
+
+            else:
+                try:
+                    comunicacao = ComunicacaoSefaz(self.workshop.uf, self.workshop.pfx_certificate.path, self.workshop.certificate_password)
+                    cnpj_clean = re.sub(r"\D", "", self.workshop.cnpj)
+                    xml_response = comunicacao.consulta_distribuicao(cnpj=cnpj_clean, chave=nf_key)
+                    nf_data = NFParser.parse_nfe_xml_to_dict(xml_response.content)
+                except Exception:
+                    self.add_error("access_key", "Erro ao buscar chave na SEFAZ ou chave inválida.")
+
+        if nf_data:
+            if StockImport.objects.filter(workshop=self.workshop, nf_key=nf_data["nf_key"]).exclude(pk=self.instance.pk).exists():
+                self.add_error("method", f"A NF com chave {nf_data['nf_key']} já existe.")
+
+            elif StockImport.objects.filter(workshop=self.workshop, nf_number=nf_data["nf_number"], supplier_cnpj=nf_data["supplier_cnpj"]).exclude(pk=self.instance.pk).exists():
+                self.add_error("method", f"A NF número {nf_data['nf_number']} deste fornecedor já foi importada.")
+
+            self.parsed_nf_data = nf_data
 
         return cleaned_data
 
