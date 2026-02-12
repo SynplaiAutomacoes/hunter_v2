@@ -504,7 +504,7 @@ class KitForm(forms.ModelForm):
 
                                     parseTotalMinutes(value) {{
                                         const normalized = this.normalizeDistributionTime(value);
-                                        const match = normalized.match(/^(\d{{2}}):(\d{{2}})$/);
+                                        const match = normalized.match(/^(\\d{{2}}):(\\d{{2}})$/);
                                         if (!match) return null;
                                         const hours = parseInt(match[1], 10);
                                         const minutes = parseInt(match[2], 10);
@@ -512,7 +512,7 @@ class KitForm(forms.ModelForm):
                                         return (hours * 60) + minutes;
                                     }},
                                     normalizeDistributionTime(value) {{
-                                        const digits = (value || '').toString().replace(/\D/g, '').slice(0, 4);
+                                        const digits = (value || '').toString().replace(/\\D/g, '').slice(0, 4);
                                         if (!digits) return '';
                                         if (digits.length <= 2) return digits;
                                         const hh = digits.slice(0, 2);

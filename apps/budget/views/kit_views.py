@@ -9,6 +9,7 @@ from django.utils import timezone
 from django.views import View
 from djmoney.money import Money
 
+from apps.budget.forms.item_forms import BudgetKitProductEditRowForm, BudgetKitServiceEditRowForm
 from apps.budget.models import Budget, BudgetItem
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
@@ -36,14 +37,26 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
             product = kit_product.product
             override = BudgetKitItemOverride.objects.filter(budget_item=item, product=product).first()
 
+            quantity = override.quantity if override else kit_product.quantity
+            cost = override.product_cost_price if override else product.cost_price
+            price = override.product_selling_price if override else product.selling_price
+            shipping = override.shipping if override else Money(0, "BRL")
+
+            row_form = BudgetKitProductEditRowForm(
+                initial={
+                    "quantity": quantity,
+                    "cost": cost,
+                    "price": price,
+                    "shipping": shipping,
+                },
+                prefix=f"product_{product.id}",
+            )
+
             kit_products.append(
                 {
                     "id": product.id,
                     "name": product.name,
-                    "quantity": override.quantity if override else kit_product.quantity,
-                    "cost": override.product_cost_price if override else product.cost_price,
-                    "price": override.product_selling_price if override else product.selling_price,
-                    "shipping": override.shipping if override else Money(0, "BRL"),
+                    "form": row_form,
                 }
             )
 
@@ -69,14 +82,25 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 seconds = total_seconds % 60
                 duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
+            quantity = override.quantity if override else kit_service.quantity
+            cost = override.service_cost_price if override else service.suggested_cost
+            price = override.service_selling_price if override else service.selling_price
+
+            row_form = BudgetKitServiceEditRowForm(
+                initial={
+                    "quantity": quantity,
+                    "cost": cost,
+                    "price": price,
+                    "duration": duration_str,
+                },
+                prefix=f"service_{service.id}",
+            )
+
             kit_services.append(
                 {
                     "id": service.id,
                     "name": service.name,
-                    "quantity": override.quantity if override else kit_service.quantity,
-                    "cost": override.service_cost_price if override else service.suggested_cost,
-                    "price": override.service_selling_price if override else service.selling_price,
-                    "duration": duration_str,
+                    "form": row_form,
                 }
             )
 
@@ -140,6 +164,10 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                         minutes = int(parts[1])
                         seconds = int(parts[2])
                         duration = timedelta(hours=hours, minutes=minutes, seconds=seconds)
+                    elif len(parts) == 2:
+                        hours = int(parts[0])
+                        minutes = int(parts[1])
+                        duration = timedelta(hours=hours, minutes=minutes)
                 except (ValueError, IndexError):
                     duration = timedelta(0)
 
@@ -203,6 +231,10 @@ class CalculateKitServiceView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 minutes = int(parts[1])
                 seconds = int(parts[2])
                 duration = timedelta(hours=hours, minutes=minutes, seconds=seconds)
+            elif len(parts) == 2:
+                hours = int(parts[0])
+                minutes = int(parts[1])
+                duration = timedelta(hours=hours, minutes=minutes)
         except (ValueError, IndexError):
             return JsonResponse({"error": "Invalid duration format"}, status=400)
 
