@@ -84,6 +84,12 @@
                     </tbody>
                 </table>
             </div>
+            <div role="alert" class="alert alert-warning mt-3">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="h-6 w-6 shrink-0 stroke-current">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <span>Para remover um item ou serviço, deixe a quantidade em 0 (Zero)</span>
+            </div>
         </div>
 
         <input type="radio" name="kit_tabs" role="tab" class="tab [--tab-bg:hsl(var(--b1))]"
@@ -150,6 +156,13 @@
                     </tbody>
                 </table>
             </div>
+
+            <div role="alert" class="alert alert-warning mt-3">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="h-6 w-6 shrink-0 stroke-current">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <span>Para remover um item ou serviço, deixe a quantidade em 0 (Zero)</span>
+            </div>
         </div>
     </div>
 
@@ -173,6 +186,64 @@
 <script>
 (function() {
     'use strict';
+
+    (() => {
+        // Apply input masks
+        document.querySelectorAll('.product-cost, .product-price, .product-shipping, .service-cost, .service-price').forEach(input => {
+            input.addEventListener('input', function() {
+                this.value = formatCurrencyForInput(this.value);
+            });
+
+            input.addEventListener('blur', function() {
+                this.value = formatCurrencyForInput(this.value);
+            });
+
+            // Format initial value when modal opens
+            input.value = formatCurrencyForInput(input.value);
+        });
+
+        document.querySelectorAll('.service-duration').forEach(input => {
+            input.addEventListener('input', function() {
+                this.value = normalizeDurationInput(this.value);
+            });
+
+            input.addEventListener('blur', function() {
+                this.value = normalizeDurationInput(this.value, true);
+            });
+
+            // Normalize initial value when modal opens
+            input.value = normalizeDurationInput(input.value, true);
+        });
+    })();
+
+    function formatCurrencyForInput(value) {
+        const digits = (value || '').toString().replace(/\D/g, '');
+        if (!digits) return '';
+
+        const number = parseInt(digits, 10) / 100;
+        if (Number.isNaN(number)) return '';
+
+        return number.toLocaleString('pt-BR', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        });
+    }
+
+    function normalizeDurationInput(value, finalize) {
+        const numbers = (value || '').toString().replace(/\D/g, '').slice(0, 6);
+        if (!numbers) return '';
+
+        if (finalize) {
+            const hh = numbers.slice(0, 2).padStart(2, '0');
+            const mm = numbers.slice(2, 4).padStart(2, '0');
+            const ss = numbers.slice(4, 6).padStart(2, '0');
+            return `${hh}:${mm}:${ss}`;
+        }
+
+        if (numbers.length <= 2) return numbers;
+        if (numbers.length <= 4) return `${numbers.slice(0, 2)}:${numbers.slice(2)}`;
+        return `${numbers.slice(0, 2)}:${numbers.slice(2, 4)}:${numbers.slice(4)}`;
+    }
 
     // Format currency
     function formatCurrency(value) {
