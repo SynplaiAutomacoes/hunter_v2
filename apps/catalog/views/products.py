@@ -37,6 +37,7 @@ class ProductListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespo
             TableColumn(Product.unit.field.verbose_name, attr="unit"),
             TableColumn(Product.cost_price.field.verbose_name, attr="cost_price"),
             TableColumn(Product.selling_price.field.verbose_name, attr="selling_price"),
+            TableColumn("Estoque Atual", attr="current_stock"),
             TableColumn(Product.location.field.verbose_name, attr="location"),
             TableColumn(Product.is_active.field.verbose_name, attr="is_active"),
         ]
