@@ -180,6 +180,14 @@
         return input ? input.value : '';
     }
 
+    function debounce(fn, wait) {
+        let timeoutId;
+        return function(...args) {
+            clearTimeout(timeoutId);
+            timeoutId = setTimeout(() => fn.apply(this, args), wait);
+        };
+    }
+
     function normalizeDurationForApi(value) {
         const raw = (value || '').toString().trim();
         if (!raw) return '';
@@ -203,14 +211,6 @@
         return '';
     }
 
-    function setMoneyInputValue(row, fieldName, amount) {
-        const input = getFieldInput(row, fieldName);
-        if (!input) return;
-        input.value = amount === null || amount === undefined ? '' : String(amount);
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new Event('blur', { bubbles: true }));
-    }
-
     window.calculateProductTotal = function(input) {
         const row = input.closest('tr');
         const qty = parseInt(getFieldValue(row, 'quantity'), 10) || 0;
@@ -228,45 +228,6 @@
 
         const total = price * qty;
         row.querySelector('.service-total').textContent = formatCurrency(total);
-    };
-
-    window.calculateServicePricing = function(input) {
-        const row = input.closest('tr');
-        const serviceId = row.dataset.serviceId;
-        const duration = normalizeDurationForApi(input.value);
-        const budgetId = {{ item.budget_id }};
-
-        if (!duration) return;
-
-        input.classList.add('loading', 'loading-spinner');
-        input.disabled = true;
-
-        fetch(`/budget/${budgetId}/kit/calculate-service/`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
-            },
-            body: `service_id=${serviceId}&duration=${duration}`
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.cost !== undefined) {
-                setMoneyInputValue(row, 'cost', data.cost);
-            }
-            if (data.price !== undefined) {
-                setMoneyInputValue(row, 'price', data.price);
-            }
-            calculateServiceTotal(input);
-        })
-        .catch(error => {
-            console.error('Error calculating service pricing:', error);
-            alert('Erro ao calcular preços do serviço');
-        })
-        .finally(() => {
-            input.classList.remove('loading', 'loading-spinner');
-            input.disabled = false;
-        });
     };
 
     window.saveKitChanges = function(budgetId, itemId) {
@@ -319,27 +280,34 @@
 
     function bindRowEvents() {
         document.querySelectorAll('#products-table-body tr[data-product-id]').forEach(row => {
+            const debouncedProductTotal = debounce(() => {
+                const quantityInput = getFieldInput(row, 'quantity');
+                if (quantityInput) {
+                    calculateProductTotal(quantityInput);
+                }
+            }, 100);
+
             ['quantity', 'price', 'shipping'].forEach(fieldName => {
                 const input = getFieldInput(row, fieldName);
                 if (!input) return;
-                input.addEventListener('input', () => calculateProductTotal(input));
-                input.addEventListener('change', () => calculateProductTotal(input));
+                input.addEventListener('input', debouncedProductTotal);
             });
         });
 
         document.querySelectorAll('#services-table-body tr[data-service-id]').forEach(row => {
+            const debouncedServiceTotal = debounce(() => {
+                const quantityInput = getFieldInput(row, 'quantity');
+                if (quantityInput) {
+                    calculateServiceTotal(quantityInput);
+                }
+            }, 100);
+
             ['quantity', 'price'].forEach(fieldName => {
                 const input = getFieldInput(row, fieldName);
                 if (!input) return;
-                input.addEventListener('input', () => calculateServiceTotal(input));
-                input.addEventListener('change', () => calculateServiceTotal(input));
+                input.addEventListener('input', debouncedServiceTotal);
             });
 
-            const durationInput = getFieldInput(row, 'duration');
-            if (durationInput) {
-                durationInput.addEventListener('change', () => calculateServicePricing(durationInput));
-                durationInput.addEventListener('blur', () => calculateServicePricing(durationInput));
-            }
         });
     }
 
@@ -354,8 +322,24 @@
         });
     }
 
+    function initializeTotalsWithFallback() {
+        initializeTotals();
+        requestAnimationFrame(initializeTotals);
+        setTimeout(initializeTotals, 120);
+    }
+
     bindRowEvents();
-    initializeTotals();
+    initializeTotalsWithFallback();
+
+    if (!window.__budgetKitTotalsAfterSettleBound) {
+        document.body.addEventListener('htmx:afterSettle', function(event) {
+            const target = event.detail && event.detail.target;
+            if (target && target.id === 'modal-container') {
+                initializeTotalsWithFallback();
+            }
+        });
+        window.__budgetKitTotalsAfterSettleBound = true;
+    }
 })();
 </script>
 
@@ -374,9 +358,4 @@
         background-color: var(--color-gray-700);
     }
 
-    /* Loading state for inputs */
-    .loading.loading-spinner {
-        pointer-events: none;
-        opacity: 0.6;
-    }
 </style>
