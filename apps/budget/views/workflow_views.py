@@ -10,10 +10,9 @@ from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView
-from psycopg.pq import error_message
-
 from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
-from apps.budget.models import Budget, BudgetStatus
+from apps.budget.models import Budget, BudgetStatus, SignatureStatus
+from apps.budget.service import SuperSignError, send_budget_for_signature
 from apps.core.forms import MultiStepFormMixin
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
@@ -22,7 +21,7 @@ from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
-from .shared import _get_budget_for_workshop, logger, reset_steps_after_step_4
+from .shared import _get_budget_for_workshop, logger
 from ...stock.models import StockMovement
 
 
@@ -116,7 +115,49 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
 
             return redirect(success_url)
 
-        return super().form_valid(form)
+        toast_type, toast_message, redirect_url = self._trigger_signature_send_if_needed(self.object)
+
+        if self.request.htmx:
+            response = HttpResponse(status=204)
+            triggers = {"showToast": {"message": toast_message, "type": toast_type}}
+            if redirect_url:
+                triggers["redirectAfterToast"] = {"url": redirect_url, "delay": 1200}
+            response["HX-Trigger"] = json.dumps(triggers)
+            return response
+
+        if toast_type == "success":
+            messages.success(self.request, toast_message)
+        elif toast_type == "error":
+            messages.error(self.request, toast_message)
+        else:
+            messages.info(self.request, toast_message)
+
+        if redirect_url:
+            return redirect(redirect_url)
+
+        return redirect(f"{reverse('budget:budget_update', kwargs={'pk': self.object.pk})}?step={current_step}")
+
+    def _trigger_signature_send_if_needed(self, budget: Budget) -> tuple[str, str, str | None]:
+        with transaction.atomic():
+            locked_budget = Budget.objects.select_for_update().get(pk=budget.pk)
+
+            if locked_budget.signature_request_status == SignatureStatus.SENT and locked_budget.signature_external_id:
+                return "info", "Orçamento já enviado para assinatura do cliente.", reverse("budget:budget_list")
+
+            if locked_budget.signature_request_status == SignatureStatus.SENDING:
+                return "info", "O envio do orçamento ainda está em processamento.", None
+
+            locked_budget.mark_signature_sending()
+
+        try:
+            result = send_budget_for_signature(budget=budget, request=self.request)
+        except SuperSignError:
+            budget.mark_signature_failed()
+            logger.exception("Falha ao enviar orcamento para assinatura", extra={"budget_id": budget.pk})
+            return "error", "Falha ao enviar orçamento para assinatura. Tente novamente em instantes.", None
+
+        budget.mark_signature_sent(result.envelope_id)
+        return "success", "Orçamento enviado para assinatura do cliente.", reverse("budget:budget_list")
 
 
 class BudgetUpdateView(BudgetCreateView):
@@ -180,8 +221,27 @@ class BudgetUpdateView(BudgetCreateView):
 
             return redirect(success_url)
 
-        # Se for o último passo, volta para a lista
-        return redirect(reverse("budget:budget_list"))
+        toast_type, toast_message, redirect_url = self._trigger_signature_send_if_needed(self.object)
+
+        if self.request.htmx:
+            response = HttpResponse(status=204)
+            triggers = {"showToast": {"message": toast_message, "type": toast_type}}
+            if redirect_url:
+                triggers["redirectAfterToast"] = {"url": redirect_url, "delay": 1200}
+            response["HX-Trigger"] = json.dumps(triggers)
+            return response
+
+        if toast_type == "success":
+            messages.success(self.request, toast_message)
+        elif toast_type == "error":
+            messages.error(self.request, toast_message)
+        else:
+            messages.info(self.request, toast_message)
+
+        if redirect_url:
+            return redirect(redirect_url)
+
+        return redirect(f"{reverse('budget:budget_update', kwargs={'pk': self.object.pk})}?step={current_step}")
 
 
 class BudgetDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResponseMixin, DeleteView):

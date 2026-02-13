@@ -9,13 +9,13 @@
         @page { size: A4; margin: 0; }
         @media print {
             body { background-color: white !important; padding: 0 !important; }
-            #pdf-content { border: none !important; box-shadow: none !important; }
+            .pdf-content { border: none !important; box-shadow: none !important; }
         }
     </style>
 </head>
 <body class="bg-gray-100 p-5 font-sans text-[11px] leading-tight">
-
-    <div id="pdf-content" class="max-w-[210mm] mx-auto bg-white border border-gray-200 rounded-lg shadow-sm p-4 text-[13px]">
+    {% for page in pages %}
+    <div class="pdf-content max-w-[210mm] mx-auto bg-white border border-gray-200 rounded-lg shadow-sm p-4 text-[13px]">
 
         <div class="flex justify-between items-start p-4 border-b border-gray-200">
             <div>
@@ -74,7 +74,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for p in produtos %}
+                    {% for p in page.produtos %}
                     <tr class="border-b border-gray-100">
                         <td class="p-2">{{ p.description }}</td>
                         <td class="p-2 text-center">{{ p.quantity }}</td>
@@ -100,12 +100,12 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for s in servicos %}
+                    {% for s in page.servicos %}
                     <tr class="border-b border-gray-100">
                         <td class="p-2 font-medium">{{ s.description }}</td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="1" class="p-4 text-center text-gray-400">Nenhum serviço informado.</td></tr>
+                    <tr><td colspan="1" class="p-4 text-center text-gray-400">Nenhum serviço nesta página.</td></tr>
                     {% endfor %}
                     <tr class="bg-gray-50 border-t-2 border-gray-200">
                         <td class="p-2 text-right font-bold">TOTAL DOS SERVIÇOS ACIMA: {{ total_servicos }}</td>
@@ -148,11 +148,21 @@
             </div>
         </div>
 
-        <div class="text-center text-[11px] text-gray-500 pt-4 mt-4 border-t border-gray-200">
-            <p>Aberto por: {{ request.user.get_full_name }} em: {{ budget.criado_em|date:"d/m/Y" }} às {{ budget.criado_em|date:"H:i" }}</p>
-            <p>Status: <span class="uppercase font-bold text-gray-700">{{ budget.budget_status }}</span></p>
+        <div class="pt-4 mt-4 border-t border-gray-200 text-[11px] text-gray-500">
+            <div class="flex items-end justify-between">
+                <div>
+                    <p>Aberto por: {{ request.user.get_full_name|default:"Sistema" }} em: {{ budget.criado_em|date:"d/m/Y" }} às {{ budget.criado_em|date:"H:i" }}</p>
+                    <p>Status: <span class="uppercase font-bold text-gray-700">{{ budget.budget_status }}</span></p>
+                </div>
+                <p class="font-semibold text-gray-700">Página {{ page.page_number }} de {{ page.total_pages }}</p>
+            </div>
         </div>
 
     </div>
+
+    {% if not forloop.last %}
+    <div style="page-break-after: always;"></div>
+    {% endif %}
+    {% endfor %}
 </body>
 </html>

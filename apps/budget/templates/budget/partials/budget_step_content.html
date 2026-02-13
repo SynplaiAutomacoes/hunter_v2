@@ -20,8 +20,9 @@
         <div></div>
     {% endif %}
 
-    <button type="submit" form="budget-form" class="btn btn-primary">
-        {% if current_step == steps_config|length %} Finalizar {% else %} Próxima Etapa {% endif %}
+    <button type="submit" form="budget-form" class="btn btn-primary" id="budget-submit-btn">
+        <span class="loading loading-spinner loading-sm htmx-indicator" id="budget-submit-spinner"></span>
+        <span id="budget-submit-label">{% if current_step == steps_config|length %} Finalizar {% else %} Próxima Etapa {% endif %}</span>
     </button>
 </div>
 
@@ -29,6 +30,7 @@
     <form id="budget-form"
           hx-post="{{ request.path }}?step={{ current_step }}{% if object.pk %}&pk={{ object.pk }}{% endif %}"
           hx-target="#step-container"
+          hx-indicator="#budget-submit-spinner"
           hx-encoding="multipart/form-data"
           enctype="multipart/form-data"
           hx-swap="innerHTML">
@@ -47,3 +49,52 @@
         {% endif %}
     </form>
 </div>
+
+<script>
+    (function () {
+        const form = document.getElementById('budget-form');
+        if (!form || form.dataset.submitLoadingBound === '1') {
+            return;
+        }
+
+        form.dataset.submitLoadingBound = '1';
+
+        const submitBtn = document.getElementById('budget-submit-btn');
+        const submitLabel = document.getElementById('budget-submit-label');
+        if (!submitBtn || !submitLabel) {
+            return;
+        }
+
+        const defaultLabel = submitLabel.textContent;
+        const loadingLabel = {% if current_step == steps_config|length %}'Enviando orçamento...'{% else %}'Salvando etapa...'{% endif %};
+
+        const startLoading = function () {
+            submitBtn.disabled = true;
+            submitLabel.textContent = loadingLabel;
+        };
+
+        const stopLoading = function () {
+            submitBtn.disabled = false;
+            submitLabel.textContent = defaultLabel;
+        };
+
+        form.addEventListener('htmx:beforeRequest', startLoading);
+        form.addEventListener('htmx:afterRequest', stopLoading);
+        form.addEventListener('htmx:responseError', stopLoading);
+
+        if (document.body.dataset.redirectAfterToastBound !== '1') {
+            document.body.dataset.redirectAfterToastBound = '1';
+            document.body.addEventListener('redirectAfterToast', function (event) {
+                const url = event.detail && event.detail.url;
+                const delay = (event.detail && event.detail.delay) || 1200;
+                if (!url) {
+                    return;
+                }
+
+                window.setTimeout(function () {
+                    window.location.href = url;
+                }, delay);
+            });
+        }
+    })();
+</script>
