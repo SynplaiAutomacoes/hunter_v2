@@ -6,7 +6,7 @@ from .pdf_views import signature_file, signature_preview, visualizar_pdf, visual
 from .realtime_views import BudgetEventsView
 from .shared import reset_steps_after_step_4
 from .webhook_views import SuperSignWebhookView
-from .workflow_views import BudgetCreateView, BudgetDeleteView, BudgetListView, BudgetUpdateView, MarkStep5CalculationViewedView, SaveObservationView, UpdateBudgetDiscountView, UpdateBudgetStatusView, UpdateSliderView
+from .workflow_views import BudgetCreateView, BudgetDeleteView, BudgetListView, BudgetUpdateView, MarkStep5CalculationViewedView, SaveObservationView, SendBudgetSignatureView, UpdateBudgetDiscountView, UpdateBudgetStatusView, UpdateSliderView
 
 __all__ = [
     "BudgetListView",
@@ -30,6 +30,7 @@ __all__ = [
     "UpdateBudgetDiscountView",
     "UpdateBudgetStatusView",
     "SaveObservationView",
+    "SendBudgetSignatureView",
     "BudgetImageView",
     "visualizar_pdf",
     "visualizar_pdf_gestor",

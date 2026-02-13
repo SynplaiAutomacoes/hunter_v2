@@ -26,6 +26,7 @@ urlpatterns = [
     path("mark-step5-calculation-viewed/<int:budget_id>/", views.MarkStep5CalculationViewedView.as_view(), name="mark_step5_calculation_viewed"),
     path("update-budget-discount/<int:budget_id>/", views.UpdateBudgetDiscountView.as_view(), name="update_budget_discount"),
     path("update-status/<int:budget_id>/<str:status>", views.UpdateBudgetStatusView.as_view(), name="update_budget_status"),
+    path("send-signature/<int:budget_id>/", views.SendBudgetSignatureView.as_view(), name="send_signature"),
     path("save-observation/", views.SaveObservationView.as_view(), name="save_observation"),
     path("image-view/<int:pk>", views.BudgetImageView.as_view(), name="image_view"),
     path("visualizar-pdf/<int:pk>", views.visualizar_pdf, name="visualizar_pdf"),

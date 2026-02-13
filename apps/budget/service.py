@@ -4,9 +4,11 @@ import re
 import requests
 from django.core import signing
 from django.conf import settings
+from django.template.loader import render_to_string
 from django.urls import reverse
 
-from apps.core.pdf_playwright import render_pdf_from_url
+from apps.budget.pdf_context import build_budget_pdf_context
+from apps.core.pdf_playwright import render_pdf_from_html
 
 
 PRODUCTS_PER_PAGE = 4
@@ -178,10 +180,11 @@ def _build_signature_fields(budget) -> list[dict]:
 
 
 def _build_budget_pdf_bytes(*, budget, request=None) -> bytes:
-    preview_url = build_signature_preview_url(budget=budget, request=request)
+    context = build_budget_pdf_context(budget=budget, observacao=budget.workshop.pdf_observation)
+    html = render_to_string("budget/partials/pdf/visualizarPDF.html", context)
 
     try:
-        return render_pdf_from_url(preview_url)
+        return render_pdf_from_html(html)
     except Exception as exc:
         raise SuperSignError(f"Erro ao gerar PDF para assinatura via Playwright: {exc}") from exc
 
