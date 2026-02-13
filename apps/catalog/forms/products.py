@@ -57,7 +57,7 @@ class ProductForm(forms.ModelForm):
         widgets = {
             "code": TextInput(),
             "name": TextInput(),
-            "description": TextareaInput(),
+            "description": TextareaInput(attrs={"class": "!bg-transparent"}),
             "unit": SelectInput(),
             "group": SelectInput(),
             "brand": TextInput(),
@@ -149,8 +149,8 @@ class ProductForm(forms.ModelForm):
                         Div(
                             Field(
                                 "equivalent_search",
-                                css_class="input-theme border-none",
-                                wrapper_class="w-full",
+                                css_class="input-theme border-none !bg-transparent",
+                                wrapper_class="w-full !bg-transparent",
                                 autocomplete="off",
                                 placeholder="Buscar...",
                                 hx_get=search_product_url,

@@ -1,0 +1,77 @@
+<div class="mt-4">
+    <div class="flex justify-between items-center mb-4">
+        <div class="form-control w-full max-w-xs">
+            <input type="text" placeholder="Filtrar notas..." class="input input-bordered input-sm"
+                   @keyup="filterTable($event)">
+        </div>
+        <button type="button" class="btn btn-sm btn-ghost gap-2"
+                hx-get="{{ request.path }}?step={{ current_step }}&pk={{ object.pk }}"
+                hx-target="#step-container"
+                hx-indicator="#loading-spinner">
+            <span class="material-icons text-sm">refresh</span> Atualizar Lista
+        </button>
+    </div>
+
+    <div class="overflow-x-auto border rounded-lg">
+        <table class="table table-zebra w-full" id="sefaz-table">
+            <thead>
+                <tr>
+                    <th>Data Emissão</th>
+                    <th>Fornecedor</th>
+                    <th>CNPJ</th>
+                    <th>Valor Total</th>
+                    <th>Status</th>
+                    <th class="text-center">Ação</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for nota in form.notas %}
+                <tr class="hover">
+                    <td>{{ nota.issue_date|date:"d/m/Y" }}</td>
+                    <td>{{ nota.issuer_name }}</td>
+                    <td>{{ nota.issuer_cnpj }}</td>
+                    <td>R$ {{ nota.total_value }}</td>
+                    <td>
+                        {% if nota.is_imported %}
+                            <div class="badge badge-success">IMPORTADA</div>
+                        {% else %}
+                            <div class="badge badge-warning">PENDENTE</div>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        {% if not nota.is_imported %}
+                        <button type="button"
+                                class="btn btn-primary btn-xs"
+                                onclick="selectNFe('{{ nota.key }}')">
+                            Selecionar
+                        </button>
+                        {% else %}
+                        <button class="btn btn-disabled btn-xs">Vincular</button>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="6" class="text-center py-8 opacity-50">Nenhuma nota encontrada na SEFAZ.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+function selectNFe(chave) {
+    document.getElementById('id_selected_key').value = chave;
+    // Submete o formulário principal do MultiStepView
+    document.getElementById('import-form').requestSubmit();
+}
+
+function filterTable(event) {
+    const term = event.target.value.toLowerCase();
+    const rows = document.querySelectorAll('#sefaz-table tbody tr');
+    rows.forEach(row => {
+        row.style.display = row.innerText.toLowerCase().includes(term) ? '' : 'none';
+    });
+}
+</script>

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import timedelta
+
 from django.db import models
 
 from apps.catalog.models.products import Product
@@ -69,6 +71,7 @@ class KitService(TimeStampedModel):
     kit = models.ForeignKey(Kit, on_delete=models.CASCADE, related_name="kit_services")
     service = models.ForeignKey(Service, on_delete=models.CASCADE, related_name="service_kits")
     quantity = models.PositiveIntegerField(verbose_name="Quantidade", default=1)
+    duration = models.DurationField(verbose_name="Duração", default=timedelta)
 
     class Meta:
         verbose_name = "Item de Kit (Serviço)"

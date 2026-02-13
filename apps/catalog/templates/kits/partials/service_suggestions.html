@@ -9,7 +9,8 @@
                 id: '{{ service.id }}',
                 name: '{{ service.name|escapejs }}',
                 cost: '{% if service.suggested_cost %}{{ service.suggested_cost }}{% else %}-{% endif %}',
-                sell: '{{ service.selling_price }}'
+                sell: '{{ service.selling_price }}',
+                duration: '{{ service.duration|default:"00:00:00" }}'
             })"
         />
     </td>

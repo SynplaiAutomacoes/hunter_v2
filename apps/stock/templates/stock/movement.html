@@ -1,0 +1,11 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Histórico de Movimentações{% endblock %}
+
+{% block crud_table_wrapper_id %}movement-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'stock:movements' %}{% endblock %}
+{% block crud_table_hx_trigger %}movement-table-refresh from:body{% endblock %}
+
+{% block crud_table %}
+    {% include 'stock/partials/movement_table.html' %}
+{% endblock %}

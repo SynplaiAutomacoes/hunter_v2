@@ -53,7 +53,7 @@
 </head>
 <body class="antialiased scroll-smooth bg-background" hx-headers='{"x-csrftoken": "{{ csrf_token }}"}'>
     {% if messages %}
-    <div class="toast toast-top toast-end z-50 overflow-hidden">
+    <div class="toast toast-top toast-end overflow-hidden" style="z-index: 200;">
         {% for message in messages %}
             <div class="alert
                 {% if message.tags == 'success' %}alert-success
@@ -109,7 +109,7 @@
     </main>
 
     <!-- Toast Container for dynamic notifications -->
-    <div id="dynamic-toast-container" class="toast toast-top toast-end z-50"></div>
+    <div id="dynamic-toast-container" class="toast toast-top toast-end" style="z-index: 200;"></div>
 
     <script>
         // Dynamic Toast Notification System

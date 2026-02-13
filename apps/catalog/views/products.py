@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from decimal import InvalidOperation, Decimal
+
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
 from django.http import HttpResponse
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse_lazy
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
@@ -15,6 +17,7 @@ from apps.catalog.models.products import Product
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
+from apps.stock.models import StockMovement, StockProduct
 from apps.workshops.mixin import WorkshopScopedMixin
 
 
@@ -34,6 +37,7 @@ class ProductListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespo
             TableColumn(Product.unit.field.verbose_name, attr="unit"),
             TableColumn(Product.cost_price.field.verbose_name, attr="cost_price"),
             TableColumn(Product.selling_price.field.verbose_name, attr="selling_price"),
+            TableColumn("Estoque Atual", attr="current_stock"),
             TableColumn(Product.location.field.verbose_name, attr="location"),
             TableColumn(Product.is_active.field.verbose_name, attr="is_active"),
         ]
@@ -80,6 +84,15 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         kwargs["workshop"] = self.workshop
         return kwargs
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        stock_obj, created = StockProduct.objects.get_or_create(workshop=self.workshop, product=self.object)
+
+        context["stock_obj"] = stock_obj
+        context["movements"] = StockMovement.objects.filter(stock_product=stock_obj).order_by("-criado_em")
+
+        return context
+
 
 class ProductDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResponseMixin, DeleteView):
     model = Product
@@ -110,3 +123,30 @@ class ProductSearchSelectView(LoginRequiredMixin, WorkshopScopedMixin, View):
         products = products.only("code", "name", "brand")[:5]
 
         return render(request, "products/partials/search_suggestions.html", {"products": products})
+
+
+class StockFieldsUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = StockProduct
+    workshop_permission_codename = "change_stockproduct"
+
+    def post(self, request, *args, **kwargs):
+        product_id = request.POST.get("product_id")
+
+        stock_obj = get_object_or_404(StockProduct, product_id=product_id, workshop=self.workshop)
+
+        allowed_fields = ["minimum_quantity", "restock_quantity"]
+
+        updated = False
+        for field in allowed_fields:
+            if field in request.POST:
+                value = request.POST.get(field)
+                try:
+                    setattr(stock_obj, field, int(value) if value else 0)
+                    updated = True
+                except (ValueError, TypeError):
+                    return HttpResponse("Valor inválido", status=400)
+
+        if updated:
+            stock_obj.save()
+
+        return HttpResponse("", status=200)

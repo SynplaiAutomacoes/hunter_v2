@@ -2,6 +2,7 @@ from django.contrib.auth.views import LoginView, LogoutView
 from django.db import transaction
 from django.urls import reverse_lazy
 from django.views.generic import FormView
+from django_htmx.http import HttpResponseClientRedirect
 
 from apps.accounts.models import Account
 
@@ -39,3 +40,9 @@ class UserSignUpView(FormView):
 
 class UserLogoutView(LogoutView):
     next_page = reverse_lazy("accounts:login")
+
+    def dispatch(self, request, *args, **kwargs):
+        response = super().dispatch(request, *args, **kwargs)
+        if request.headers.get("HX-Request"):
+            return HttpResponseClientRedirect(str(self.next_page))
+        return response

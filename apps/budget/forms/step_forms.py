@@ -1072,24 +1072,26 @@ class BudgetStep4Form(forms.ModelForm):
                         ),
                         Div(
                             HTML(f"""
-                                <table class="table table-zebra w-full">
-                                    <thead>
-                                        <tr>
-                                            <th class="w-full">DESCRIÇÃO</th>
-                                            <th class="text-center">QTD.</th>
-                                            <th>CUSTO</th>
-                                            <th>VALOR VENDA</th>
-                                            <th>FRETE</th>
-                                            <th>TOTAL</th>
-                                            <th class="text-center">AÇÕES</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="product-list-body">
-                                        {products_html}
-                                    </tbody>
-                                </table>
+                                <div class="overflow-x-auto">
+                                    <table class="table table-zebra w-full">
+                                        <thead class="bg-primary text-primary-content">
+                                            <tr>
+                                                <th class="w-full">DESCRIÇÃO</th>
+                                                <th class="text-center">QTD.</th>
+                                                <th>CUSTO</th>
+                                                <th>VALOR VENDA</th>
+                                                <th>FRETE</th>
+                                                <th>TOTAL</th>
+                                                <th class="text-center">AÇÕES</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="product-list-body">
+                                            {products_html}
+                                        </tbody>
+                                    </table>
+                                </div>
                             """),
-                            css_class="overflow-x-auto lg:overflow-visible mb-8 rounded-lg shadow-md shadow-gray-300/50",
+                            css_class="mb-8 rounded-lg shadow-md shadow-gray-300/50 overflow-hidden",
                         ),
                         css_class="mb-10",
                     ),
@@ -1102,24 +1104,26 @@ class BudgetStep4Form(forms.ModelForm):
                         ),
                         Div(
                             HTML(f"""
-                                <table class="table table-zebra w-full">
-                                    <thead>
-                                        <tr>
-                                            <th class="w-full">DESCRIÇÃO</th>
-                                            <th class="text-center">QTD.</th>
-                                            <th>CUSTO</th>
-                                            <th>VALOR VENDA</th>
-                                            <th>TEMPO</th>
-                                            <th>TOTAL</th>
-                                            <th class="text-center">AÇÕES</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="service-list-body">
-                                        {services_html}
-                                    </tbody>
-                                </table>
+                                <div class="overflow-x-auto">
+                                    <table class="table table-zebra w-full">
+                                        <thead class="bg-primary text-primary-content">
+                                            <tr>
+                                                <th class="w-full">DESCRIÇÃO</th>
+                                                <th class="text-center">QTD.</th>
+                                                <th>CUSTO</th>
+                                                <th>VALOR VENDA</th>
+                                                <th>TEMPO</th>
+                                                <th>TOTAL</th>
+                                                <th class="text-center">AÇÕES</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="service-list-body">
+                                            {services_html}
+                                        </tbody>
+                                    </table>
+                                </div>
                             """),
-                            css_class="overflow-x-auto lg:overflow-visible mb-8 rounded-lg shadow-md shadow-gray-300/50",
+                            css_class="mb-8 rounded-lg shadow-md shadow-gray-300/50 overflow-hidden",
                         ),
                         css_class="mb-10",
                     ),
@@ -1132,22 +1136,24 @@ class BudgetStep4Form(forms.ModelForm):
                         ),
                         Div(
                             HTML(f"""
-                                <table class="table table-compact w-full">
-                                    <thead>
-                                        <tr>
-                                            <th class="w-full">NOME</th>
-                                            <th class="text-center">QTD.</th>
-                                            <th class="text-center">PRODUTOS</th>
-                                            <th class="text-center">SERVIÇOS</th>
-                                            <th class="text-center">AÇÕES</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="kit-list-body">
-                                        {kits_html}
-                                    </tbody>
-                                </table>
+                                <div class="overflow-x-auto">
+                                    <table class="table table-compact w-full">
+                                        <thead class="bg-primary text-primary-content">
+                                            <tr>
+                                                <th class="w-full">NOME</th>
+                                                <th class="text-center">QTD.</th>
+                                                <th class="text-center">PRODUTOS</th>
+                                                <th class="text-center">SERVIÇOS</th>
+                                                <th class="text-center">AÇÕES</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="kit-list-body">
+                                            {kits_html}
+                                        </tbody>
+                                    </table>
+                                </div>
                             """),
-                            css_class="overflow-x-auto lg:overflow-visible mb-4 rounded-lg shadow-md shadow-gray-300/50",
+                            css_class="mb-4 rounded-lg shadow-md shadow-gray-300/50 overflow-hidden",
                         ),
                         css_class="mb-6",
                     ),
@@ -1252,12 +1258,27 @@ class BudgetStep5Form(forms.ModelForm):
         rentabilidade = dados.get("rentabilidade") or 0
 
         status_texto = "Ruim" if rentabilidade < 60 else "Médio" if (60 <= rentabilidade < 70) else "Bom"
+        discount_amount = budget.discount_value.amount if budget.discount_value else Decimal("0")
+        discount_display = budget.discount_value if discount_amount != Decimal("0") else Money(0, "BRL")
+        step5_calculation_viewed = bool(budget.pk and budget.step5_calculation_viewed)
+        step5_loading_hidden_class = "hidden" if step5_calculation_viewed else ""
+        step5_method_hidden_class = "" if step5_calculation_viewed else "hidden"
 
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
             HTML(f"""
             <style>
+                :root[data-theme="light"] {{
+                  --step5-accent: #0f766e;
+                  --step5-warning-soft: rgba(245, 158, 11, 0.16);
+                }}
+
+                :root[data-theme="dark"] {{
+                  --step5-accent: #5eead4;
+                  --step5-warning-soft: rgba(245, 158, 11, 0.22);
+                }}
+
                 input[type="range"].centered-range {{
                   -webkit-appearance: none;
                   -moz-appearance: none;
@@ -1280,11 +1301,11 @@ class BudgetStep5Form(forms.ModelForm):
 
                 input[type="range"].centered-range::-webkit-slider-thumb {{
                   -webkit-appearance: none;
-                  width: 18px;
-                  height: 18px;
+                  width: 24px;
+                  height: 24px;
                   background: #007bff;
                   border-radius: 50%;
-                  margin-top: -5px;
+                  margin-top: -8px;
                   cursor: pointer;
                 }}
 
@@ -1301,11 +1322,44 @@ class BudgetStep5Form(forms.ModelForm):
                 }}
 
                 input[type="range"].centered-range::-moz-range-thumb {{
-                  width: 18px;
-                  height: 18px;
+                  width: 24px;
+                  height: 24px;
                   background: #007bff;
                   border-radius: 50%;
                   border: none;
+                }}
+
+                .step5-accent-text {{
+                    color: var(--step5-accent);
+                }}
+
+                .step5-accent-border {{
+                    border-color: var(--step5-accent);
+                }}
+
+                .step5-warning-surface {{
+                    background-color: var(--step5-warning-soft);
+                }}
+
+                .step5-calculating-dot {{
+                    animation: step5-loading-blink 1s infinite;
+                }}
+
+                .step5-calculating-dot:nth-child(2) {{
+                    animation-delay: 0.2s;
+                }}
+
+                .step5-calculating-dot:nth-child(3) {{
+                    animation-delay: 0.4s;
+                }}
+
+                @keyframes step5-loading-blink {{
+                    0%, 80%, 100% {{
+                        opacity: 0.2;
+                    }}
+                    40% {{
+                        opacity: 1;
+                    }}
                 }}
             </style>
             <script>
@@ -1354,7 +1408,63 @@ class BudgetStep5Form(forms.ModelForm):
                     }})();
 
                     (function () {{
-                        function initSlider() {{
+                        function initCalculationGate() {{
+                            const calculateButton = document.getElementById('step5-calculate-values-btn');
+                            const calculationStatus = document.getElementById('step5-calculation-status');
+                            const loadingCard = document.getElementById('step5-calc-loader-card');
+                            const methodCard = document.getElementById('step5-method-card');
+                            const controlsCard = document.getElementById('step5-controls-card');
+
+                            if (!calculateButton || !loadingCard || !methodCard || !controlsCard || calculateButton.dataset.initialized === 'true') return;
+
+                            calculateButton.dataset.initialized = 'true';
+
+                            calculateButton.addEventListener('click', async () => {{
+                                if (calculateButton.disabled) return;
+
+                                calculateButton.disabled = true;
+                                calculateButton.classList.add('btn-disabled');
+
+                                const label = calculateButton.querySelector('[data-step5-calc-label]');
+                                if (label) {{
+                                    label.textContent = 'Calculando...';
+                                }}
+
+                                if (calculationStatus) {{
+                                    calculationStatus.classList.remove('hidden');
+                                    calculationStatus.classList.add('flex');
+                                }}
+
+                                try {{
+                                    await fetch('{reverse("budget:mark_step5_calculation_viewed", args=[self.instance.pk])}', {{
+                                        method: 'POST',
+                                        headers: {{
+                                            'X-CSRFToken': '{{{{ csrf_token }}}}',
+                                            'X-Requested-With': 'XMLHttpRequest',
+                                        }},
+                                    }});
+                                }} catch (error) {{
+                                    console.error('Erro ao marcar calculo do step 5:', error);
+                                }}
+
+                                window.setTimeout(() => {{
+                                    loadingCard.classList.add('hidden');
+                                    methodCard.classList.remove('hidden');
+                                    controlsCard.classList.remove('hidden');
+
+                                    if (typeof window.step5InitSlider === 'function') {{
+                                        window.step5InitSlider();
+                                    }}
+                                }}, 5000);
+                            }});
+                        }}
+
+                        document.addEventListener('DOMContentLoaded', initCalculationGate);
+                        document.body.addEventListener('htmx:afterSettle', initCalculationGate);
+                    }})();
+
+                    (function () {{
+                        window.step5InitSlider = function initSlider() {{
                             const slider = document.querySelector('input[name="slider"]');
                             const labelPecaPct = document.getElementById('val-peca');
                             const labelMOPct = document.getElementById('val-mo');
@@ -1425,18 +1535,38 @@ class BudgetStep5Form(forms.ModelForm):
                     
                             slider.addEventListener('input', e => update(e.target.value));
                             update(slider.value || 0);
-                        }}
+                        }};
                     
-                        document.addEventListener('DOMContentLoaded', initSlider);
-                        document.body.addEventListener('htmx:afterSettle', initSlider);
+                        document.addEventListener('DOMContentLoaded', window.step5InitSlider);
+                        document.body.addEventListener('htmx:afterSettle', window.step5InitSlider);
                     }})();
                 </script>"""),
             Div(
                 HTML('<h3 class="text-2xl font-bold col-span-12">Método de Precificação</h3>'),
+                Div(
+                    HTML(
+                        """
+                        <div class="h-full max-w-2xl mx-auto flex flex-col items-center justify-center text-center gap-4 py-12">
+                            <p class="text-xl font-semibold text-base-content">A precificação deste orçamento será exibida após o cálculo.</p>
+                            <button type="button" id="step5-calculate-values-btn" class="btn btn-primary btn-lg min-w-52">
+                                <span data-step5-calc-label>Calcular Valores</span>
+                            </button>
+                            <div id="step5-calculation-status" class="hidden items-center gap-1 text-base-content/70 font-semibold" aria-live="polite">
+                                <span>Calculando</span>
+                                <span class="step5-calculating-dot">.</span>
+                                <span class="step5-calculating-dot">.</span>
+                                <span class="step5-calculating-dot">.</span>
+                            </div>
+                        </div>
+                        """
+                    ),
+                    id="step5-calc-loader-card",
+                    css_class=f"col-span-12 bg-base-200 p-6 rounded-2xl border-2 border-base-300 h-full text-base-content {step5_loading_hidden_class}",
+                ),
                 # Coluna Esquerda
                 Div(
                     Div(
-                        HTML(f'<h3 class="text-3xl font-bold mb-2 border-b-3 border-primary text-base-content text-center">Método {metodo_precificacao}</h3>'),
+                        HTML(f'<h3 class="text-3xl font-bold mb-2 border-b-3 step5-accent-border text-center step5-accent-text">Método {metodo_precificacao}</h3>'),
                         Div(
                             # Grid de Custos vs Vendas
                             Div(
@@ -1444,15 +1574,15 @@ class BudgetStep5Form(forms.ModelForm):
                                 <div class="grid grid-cols-1 md:grid-cols-2 mt-7 gap-x-8 gap-y-3 text-base text-base-content font-semibold">
 
                                     <!-- COLUNA ESQUERDA — CUSTOS -->
-                                    <div class="grid grid-cols-12 border bg-base-100">
-                                        <span class="col-span-8 p-2 bg-base-200/70">Custo de Peças</span>
-                                        <span class="col-span-4 p-2 border-l">{custo_pecas}</span>
+                                    <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                        <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo de Peças</span>
+                                        <span class="col-span-4 p-2 border-l border-base-300">{custo_pecas}</span>
                                     </div>
 
-                                    <div class="grid grid-cols-12 border bg-base-100">
-                                        <span class="col-span-8 p-2 bg-base-200/70">Valor de Venda de Peças</span>
+                                    <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                        <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Valor de Venda de Peças</span>
                                         <span id="display-venda-pecas"
-                                                class="col-span-4 p-2 border-l whitespace-nowrap"
+                                                class="col-span-4 p-2 border-l border-base-300 whitespace-nowrap step5-accent-text"
                                                 data-base-val="{venda_pecas.amount}"
                                                 data-cost-val="{custo_pecas.amount}"
                                                 data-frete-val="{custo_frete_pecas.amount}">
@@ -1460,71 +1590,71 @@ class BudgetStep5Form(forms.ModelForm):
                                         </span>
                                     </div>
 
-                                    <div class="grid grid-cols-12 border bg-base-100">
-                                        <span class="col-span-8 p-2 bg-base-200/70">Custo de Frete de Peças</span>
-                                        <span class="col-span-4 p-2 border-l">{custo_frete_pecas}</span>
+                                    <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                        <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo de Frete de Peças</span>
+                                        <span class="col-span-4 p-2 border-l border-base-300">{custo_frete_pecas}</span>
                                     </div>
 
-                                    <div class="grid grid-cols-12 border bg-base-100">
-                                        <span class="col-span-8 p-2 bg-base-200/70">Valor de Venda de Serviço de Terceiros</span>
-                                        <span class="col-span-4 p-2 border-l">{venda_servico_terceiros}</span>
+                                    <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                        <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Valor de Venda de Serviço de Terceiros</span>
+                                        <span class="col-span-4 p-2 border-l border-base-300">{venda_servico_terceiros}</span>
                                     </div>
 
-                                    <div class="grid grid-cols-12 border bg-base-100">
-                                        <span class="col-span-8 p-2 bg-base-200/70">Custo de Serviço de Terceiros</span>
-                                        <span class="col-span-4 p-2 border-l">{custo_servico_terceiros}</span>
+                                    <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                        <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo de Serviço de Terceiros</span>
+                                        <span class="col-span-4 p-2 border-l border-base-300">{custo_servico_terceiros}</span>
                                     </div>
 
                                     <div class="grid grid-cols-12"></div>
 
-                                    <div class="grid grid-cols-12 border bg-base-100">
-                                        <span class="col-span-8 p-2 bg-base-200/70">Custo da Hora do Mecânico</span>
-                                        <span class="col-span-4 p-2 border-l">{custo_hora_mecanico}</span>
+                                    <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                        <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo da Hora do Mecânico</span>
+                                        <span class="col-span-4 p-2 border-l border-base-300">{custo_hora_mecanico}</span>
                                     </div>
 
-                                    <div class="grid grid-cols-12 border bg-base-100">
-                                        <span class="col-span-8 p-2 bg-base-200/70">Valor de Venda de Mão de Obra</span>
+                                    <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                        <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Valor de Venda de Mão de Obra</span>
                                         <span id="display-venda-mo"
-                                              class="col-span-4 p-2 border-l"
+                                              class="col-span-4 p-2 border-l border-base-300 step5-accent-text"
                                               data-base-val="{venda_mao_obra.amount}"
                                               data-cost-val="{custo_total_mao_obra.amount}">
                                             {venda_mao_obra}
                                         </span>
                                     </div>
 
-                                    <div class="grid grid-cols-12 border bg-base-100 font-semibold">
-                                        <span class="col-span-8 p-2 bg-base-200/70">Custo Total da Mão de Obra</span>
-                                        <span class="col-span-4 p-2 border-l">{custo_total_mao_obra}</span>
+                                    <div class="grid grid-cols-12 border border-base-300 bg-base-100 font-semibold">
+                                        <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo Total da Mão de Obra</span>
+                                        <span class="col-span-4 p-2 border-l border-base-300">{custo_total_mao_obra}</span>
                                     </div>
 
-                                    <div class="grid grid-cols-12 border bg-base-100">
-                                        <span class="col-span-8 p-2 bg-base-200/70">Duração Total</span>
-                                        <span class="col-span-4 p-2 border-l">{duracao_total}</span>
+                                    <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                        <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Duração Total</span>
+                                        <span class="col-span-4 p-2 border-l border-base-300">{duracao_total}</span>
                                     </div>
 
                                     <!-- RESULTADO (respiro visual) -->
                                     <div class="md:col-span-2 h-2"></div>
 
-                                    <div class="grid grid-cols-12 border bg-base-100 font-bold">
-                                        <span class="col-span-8 p-2 bg-base-200/70">Lucro Operacional</span>
-                                        <span class="col-span-4 p-2 border-l">{lucro_operacional}</span>
+                                    <div class="grid grid-cols-12 border border-base-300 bg-base-100 font-bold">
+                                        <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Lucro Operacional</span>
+                                        <span class="col-span-4 p-2 border-l border-base-300 step5-accent-text">{lucro_operacional}</span>
                                     </div>
 
-                                    <div class="grid grid-cols-12 border border-warning bg-base-100">
-                                        <span class="col-span-8 p-2 bg-base-200/70">Rentabilidade</span>
-                                        <span class="col-span-4 p-2 border-l text-warning">
+                                    <div class="grid grid-cols-12 border border-warning step5-warning-surface">
+                                        <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Rentabilidade</span>
+                                        <span class="col-span-4 p-2 border-l border-warning text-warning">
                                             {rentabilidade:.2f}% ({status_texto})
                                         </span>
                                     </div>
 
-                                    <div class="grid grid-cols-12 border bg-base-100">
-                                        <span class="col-span-8 p-2 bg-base-200/70">MLO</span>
-                                        <span class="col-span-4 p-2 border-l">0.00</span>
+                                    <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                        <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">MLO</span>
+                                        <span class="col-span-4 p-2 border-l border-base-300">0.00</span>
                                     </div>
 
-                                    <div class="grid grid-cols-12 border bg-base-100">
-                                        <span class="col-span-8 p-2 bg-base-200/70">MLR</span>
-                                        <span class="col-span-4 p-2 border-l">0.00</span>
+                                    <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                        <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">MLR</span>
+                                        <span class="col-span-4 p-2 border-l border-base-300">0.00</span>
                                     </div>
 
                                 </div>
@@ -1535,10 +1665,11 @@ class BudgetStep5Form(forms.ModelForm):
                         Div(
                             HTML(f"""<div class="text-center text-base-content mt-6">
                                     <p class="text-2xl font-bold">Valor do Orçamento</p>
-                                    <p class="text-3xl font-black">{budget.total_base_value}</p>
+                                    <p class="text-3xl font-black step5-accent-text">{budget.total_base_value}</p>
                                 </div>""")
                         ),
-                        css_class="bg-base-100 p-6 rounded-2xl border-2 border-base-300 h-full flex flex-col text-base-content",
+                        id="step5-method-card",
+                        css_class=f"bg-base-200 p-6 rounded-2xl border-2 border-base-300 h-full flex flex-col text-base-content {step5_method_hidden_class}",
                     ),
                     css_class="col-span-12 lg:col-span-6 h-full",
                 ),
@@ -1567,7 +1698,11 @@ class BudgetStep5Form(forms.ModelForm):
                             HTML(f"""<div class="space-y-3">
                                         <div class="flex justify-between text-xl font-semibold">
                                             <span>Subtotal:</span>
-                                            <span class="line-through">{budget.total_base_value}</span>
+                                            <span>{budget.total_base_value}</span>
+                                        </div>
+                                        <div class="flex justify-between text-xl font-semibold">
+                                            <span>Desconto:</span>
+                                            <span>{discount_display}</span>
                                         </div>
                                         <div class="flex justify-between text-xl font-black">
                                             <span>Valor Final:</span>
@@ -1578,7 +1713,8 @@ class BudgetStep5Form(forms.ModelForm):
                         ),
                         css_class="sticky top-4",
                     ),
-                    css_class="col-span-12 lg:col-span-6",
+                    id="step5-controls-card",
+                    css_class=f"col-span-12 lg:col-span-6 {step5_method_hidden_class}",
                 ),
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch",
             ),
@@ -1736,22 +1872,24 @@ class BudgetStep6Form(forms.ModelForm):
                     Div(
                         HTML('<h3 class="text-xl font-semibold text-gray-700 mb-4">Peças Selecionadas</h3>'),
                         HTML(f"""
-                        <div class="overflow-x-auto lg:overflow-visible mb-10 rounded-lg shadow-md shadow-gray-300/50">
-                          <table class="table table-zebra table-fixed w-full">
-                            <thead class="text-white bg-primary">
-                              <tr>
-                                <th class="w-[32%]">NOME</th>
-                                <th class="w-[8%] text-center">QTD.</th>
-                                <th class="w-[14%]">CUSTO</th>
-                                <th class="w-[16%]">VALOR</th>
-                                <th class="w-[12%]">FRETE</th>
-                                <th class="w-[18%]">TOTAL</th>
-                              </tr>
-                            </thead>
-                            <tbody id="product-list-body">
-                              {products_html}
-                            </tbody>
-                          </table>
+                        <div class="mb-10 rounded-lg shadow-md shadow-gray-300/50 overflow-hidden">
+                          <div class="overflow-x-auto">
+                            <table class="table table-zebra table-fixed w-full">
+                              <thead class="bg-primary text-primary-content">
+                                <tr>
+                                  <th class="w-[32%]">NOME</th>
+                                  <th class="w-[8%] text-center">QTD.</th>
+                                  <th class="w-[14%]">CUSTO</th>
+                                  <th class="w-[16%]">VALOR</th>
+                                  <th class="w-[12%]">FRETE</th>
+                                  <th class="w-[18%]">TOTAL</th>
+                                </tr>
+                              </thead>
+                              <tbody id="product-list-body">
+                                {products_html}
+                              </tbody>
+                            </table>
+                          </div>
                         </div>
                         """),
                     ),
@@ -1759,40 +1897,42 @@ class BudgetStep6Form(forms.ModelForm):
                     Div(
                         HTML('<h3 class="text-xl font-semibold text-gray-700 mb-4">Serviços Selecionados</h3>'),
                         HTML(f"""
-                        <div class="overflow-x-auto lg:overflow-visible mb-10 rounded-lg shadow-md shadow-gray-300/50">
-                            <table class="table table-zebra table-fixed w-full">
-                                <thead class="text-white bg-primary">
-                                    <tr>
-                                        <th class="w-[32%] whitespace-nowrap text-left">
-                                            NOME
-                                        </th>
-                                        
-                                        <th class="w-[8%] whitespace-nowrap text-center">
-                                            QTD.
-                                        </th>
-                                        
-                                        <th class="w-[14%] whitespace-nowrap text-right">
-                                            CUSTO
-                                        </th>
-                                        
-                                        <th class="w-[16%] whitespace-nowrap text-right">
-                                            VALOR
-                                        </th>
-                                        
-                                        <th class="w-[10%] whitespace-nowrap text-center">
-                                            TEMPO
-                                        </th>
-                                        
-                                        <th class="w-[20%] whitespace-nowrap text-right">
-                                            TOTAL
-                                        </th>
-                                    </tr>
-                                    </thead>
-                            
-                                <tbody id = "service-list-body">
-                                    {services_html}
-                                </tbody>
-                            </table>
+                        <div class="mb-10 rounded-lg shadow-md shadow-gray-300/50 overflow-hidden">
+                            <div class="overflow-x-auto">
+                                <table class="table table-zebra table-fixed w-full">
+                                    <thead class="bg-primary text-primary-content">
+                                        <tr>
+                                            <th class="w-[32%] whitespace-nowrap text-left">
+                                                NOME
+                                            </th>
+                                            
+                                            <th class="w-[8%] whitespace-nowrap text-center">
+                                                QTD.
+                                            </th>
+                                            
+                                            <th class="w-[14%] whitespace-nowrap text-right">
+                                                CUSTO
+                                            </th>
+                                            
+                                            <th class="w-[16%] whitespace-nowrap text-right">
+                                                VALOR
+                                            </th>
+                                            
+                                            <th class="w-[10%] whitespace-nowrap text-center">
+                                                TEMPO
+                                            </th>
+                                            
+                                            <th class="w-[20%] whitespace-nowrap text-right">
+                                                TOTAL
+                                            </th>
+                                        </tr>
+                                        </thead>
+                                
+                                    <tbody id = "service-list-body">
+                                        {services_html}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                         """),
                     ),
@@ -1800,36 +1940,38 @@ class BudgetStep6Form(forms.ModelForm):
                     Div(
                         HTML('<h3 class="text-xl font-semibold text-gray-700 mb-4">Kits Selecionados</h3>'),
                         HTML(f"""
-                        <div class="overflow-x-auto lg:overflow-visible mb-6 rounded-lg shadow-md shadow-gray-300/50">
-                            <table class="table table-compact table-fixed w-full">
-                                <thead class="text-white bg-primary">
-                                    <tr>
-                                        <th class="w-[40%] whitespace-nowrap text-left">
-                                        NOME
-                                        </th>
-                                    
-                                        <th class="w-[10%] whitespace-nowrap text-center">
-                                        QTD.
-                                        </th>
-                                    
-                                        <th class="w-[15%] whitespace-nowrap text-center">
-                                        PRODUTOS
-                                        </th>
-                                    
-                                        <th class="w-[15%] whitespace-nowrap text-center">
-                                        SERVIÇOS
-                                        </th>
-                                    
-                                        <th class="w-[20%] whitespace-nowrap text-center">
-                                        AÇÕES
-                                        </th>
-                                    </tr>
-                                </thead>
-                            
-                                <tbody id="kit-list-body">
-                                {kits_html}
-                                </tbody>
-                            </table>
+                        <div class="mb-6 rounded-lg shadow-md shadow-gray-300/50 overflow-hidden">
+                            <div class="overflow-x-auto">
+                                <table class="table table-compact table-fixed w-full">
+                                    <thead class="bg-primary text-primary-content">
+                                        <tr>
+                                            <th class="w-[40%] whitespace-nowrap text-left">
+                                            NOME
+                                            </th>
+                                        
+                                            <th class="w-[10%] whitespace-nowrap text-center">
+                                            QTD.
+                                            </th>
+                                        
+                                            <th class="w-[15%] whitespace-nowrap text-center">
+                                            PRODUTOS
+                                            </th>
+                                        
+                                            <th class="w-[15%] whitespace-nowrap text-center">
+                                            SERVIÇOS
+                                            </th>
+                                        
+                                            <th class="w-[20%] whitespace-nowrap text-center">
+                                            AÇÕES
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                
+                                    <tbody id="kit-list-body">
+                                    {kits_html}
+                                    </tbody>
+                                </table>
+                            </div>
 
                         </div>
                         """),

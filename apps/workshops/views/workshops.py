@@ -129,6 +129,15 @@ class WorkshopListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):
                 format="cnpj",
             ),
             TableColumn(
+                label=Workshop.phone.field.verbose_name,
+                attr=Workshop.phone.field.name,
+                format="phone",
+            ),
+            TableColumn(
+                label=Workshop.address.field.verbose_name,
+                attr=Workshop.address.field.name,
+            ),
+            TableColumn(
                 label=Workshop.is_active.field.verbose_name,
                 attr=Workshop.is_active.field.name,
             ),

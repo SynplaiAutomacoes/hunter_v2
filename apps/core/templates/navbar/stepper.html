@@ -23,7 +23,7 @@
 
                 {% if step.number <= max_reached_step and step.number != current_step %}
                     hx-get="?step={{ step.number }}{% if object.pk %}&pk={{ object.pk }}{% endif %}"
-                    hx-target="#budget-card-content"
+                    hx-target="#step-container"
                     hx-push-url="true"
                 {% endif %}>
 

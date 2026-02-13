@@ -3,11 +3,14 @@ from __future__ import annotations
 import re
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 from djmoney.models.fields import MoneyField
 import stdnum.ean
 
 
 from apps.core.models import TimeStampedModel
+from apps.stock.models import StockProduct
 from apps.workshops.models.workshops import Workshop
 from apps.catalog.models.groups import CatalogGroup
 
@@ -93,6 +96,11 @@ class Product(TimeStampedModel):
 
     is_active = models.BooleanField(verbose_name="Ativo", default=True)
 
+    @property
+    def current_stock(self):
+        stock = getattr(self, 'stock_products', None)
+        return stock.current_quantity if stock else 0
+
     class Meta:
         verbose_name = "Produto"
         verbose_name_plural = "Produtos"
@@ -105,3 +113,12 @@ class Product(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.code} - {self.name}"
+
+
+@receiver(post_save, sender=Product)
+def create_stock_product(sender, instance, created, **kwargs):
+    if created:
+        StockProduct.objects.get_or_create(
+            workshop=instance.workshop,
+            product=instance
+        )

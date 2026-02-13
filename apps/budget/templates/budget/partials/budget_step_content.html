@@ -11,7 +11,7 @@
 
         <button type="button"
             hx-get="{{ back_url_base }}?step={{ current_step|add:-1 }}{% if object.pk %}&pk={{ object.pk }}{% endif %}"
-            hx-target="#budget-card-content"
+            hx-target="#step-container"
             hx-push-url="true"
             class="btn btn-outline">
             <span class="material-icons">arrow_back</span> Voltar
@@ -28,7 +28,7 @@
 <div id="form-container">
     <form id="budget-form"
           hx-post="{{ request.path }}?step={{ current_step }}{% if object.pk %}&pk={{ object.pk }}{% endif %}"
-          hx-target="#budget-card-content"
+          hx-target="#step-container"
           hx-encoding="multipart/form-data"
           enctype="multipart/form-data"
           hx-swap="innerHTML">

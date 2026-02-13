@@ -3,17 +3,16 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import Http404, HttpResponse, JsonResponse
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, render
-from django.utils import timezone
 from django.views import View
 from djmoney.money import Money
 
-from apps.budget.models import Budget, BudgetItem
+from apps.budget.forms.item_forms import BudgetKitProductEditRowForm, BudgetKitServiceEditRowForm
+from apps.budget.models import BudgetItem
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.workshops.mixin import WorkshopScopedMixin
-from apps.workshops.models.workshop_costs import WorkshopCost
 
 from .shared import _get_budget_for_workshop, _get_budget_item_for_workshop, logger, reset_steps_after_step_4
 
@@ -36,14 +35,26 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
             product = kit_product.product
             override = BudgetKitItemOverride.objects.filter(budget_item=item, product=product).first()
 
+            quantity = override.quantity if override else kit_product.quantity
+            cost = override.product_cost_price if override else product.cost_price
+            price = override.product_selling_price if override else product.selling_price
+            shipping = override.shipping if override else Money(0, "BRL")
+
+            row_form = BudgetKitProductEditRowForm(
+                initial={
+                    "quantity": quantity,
+                    "cost": cost,
+                    "price": price,
+                    "shipping": shipping,
+                },
+                prefix=f"product_{product.id}",
+            )
+
             kit_products.append(
                 {
                     "id": product.id,
                     "name": product.name,
-                    "quantity": override.quantity if override else kit_product.quantity,
-                    "cost": override.product_cost_price if override else product.cost_price,
-                    "price": override.product_selling_price if override else product.selling_price,
-                    "shipping": override.shipping if override else Money(0, "BRL"),
+                    "form": row_form,
                 }
             )
 
@@ -69,14 +80,25 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 seconds = total_seconds % 60
                 duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
+            quantity = override.quantity if override else kit_service.quantity
+            cost = override.service_cost_price if override else service.suggested_cost
+            price = override.service_selling_price if override else service.selling_price
+
+            row_form = BudgetKitServiceEditRowForm(
+                initial={
+                    "quantity": quantity,
+                    "cost": cost,
+                    "price": price,
+                    "duration": duration_str,
+                },
+                prefix=f"service_{service.id}",
+            )
+
             kit_services.append(
                 {
                     "id": service.id,
                     "name": service.name,
-                    "quantity": override.quantity if override else kit_service.quantity,
-                    "cost": override.service_cost_price if override else service.suggested_cost,
-                    "price": override.service_selling_price if override else service.selling_price,
-                    "duration": duration_str,
+                    "form": row_form,
                 }
             )
 
@@ -140,6 +162,10 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                         minutes = int(parts[1])
                         seconds = int(parts[2])
                         duration = timedelta(hours=hours, minutes=minutes, seconds=seconds)
+                    elif len(parts) == 2:
+                        hours = int(parts[0])
+                        minutes = int(parts[1])
+                        duration = timedelta(hours=hours, minutes=minutes)
                 except (ValueError, IndexError):
                     duration = timedelta(0)
 
@@ -179,66 +205,3 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
         response["HX-Redirect"] = f"/budget/{budget_id}/edit/?step=4&_t={timestamp}"
         response["HX-Refresh"] = "true"  # Force full page refresh
         return response
-
-
-class CalculateKitServiceView(LoginRequiredMixin, WorkshopScopedMixin, View):
-    """Calcula custo e preço de um serviço baseado na duração (para edição de kit)"""
-
-    model = Budget
-    workshop_permission_codename = "add_budget"
-
-    def post(self, request, budget_id):
-        from datetime import timedelta
-        from decimal import Decimal
-
-        service_id = request.POST.get("service_id")
-        duration_str = request.POST.get("duration", "00:00:00")
-
-        # Parse duration
-        duration = None
-        try:
-            parts = duration_str.split(":")
-            if len(parts) == 3:
-                hours = int(parts[0])
-                minutes = int(parts[1])
-                seconds = int(parts[2])
-                duration = timedelta(hours=hours, minutes=minutes, seconds=seconds)
-        except (ValueError, IndexError):
-            return JsonResponse({"error": "Invalid duration format"}, status=400)
-
-        if not duration or duration.total_seconds() == 0:
-            return JsonResponse({"error": "Duration is required"}, status=400)
-
-        # Get service
-        try:
-            service = get_object_or_404(Service, id=service_id, workshop=self.workshop)
-        except Http404:
-            return JsonResponse({"error": "Service not found"}, status=404)
-
-        # Calculate pricing using existing logic
-        try:
-            budget = _get_budget_for_workshop(self.workshop, budget_id)
-
-            # Try to get WorkshopCost for calculation
-            workshop_cost = WorkshopCost.objects.filter(workshop=self.workshop, month=timezone.now().month, year=timezone.now().year).first()
-
-            if workshop_cost and workshop_cost.minimum_hourly_cost:
-                # Calculate based on duration and hourly cost
-                hours_decimal = Decimal(str(duration.total_seconds())) / Decimal("3600")
-                cost = float(workshop_cost.minimum_hourly_cost.amount) * float(hours_decimal)
-
-                # Apply markup from slider (if exists)
-                slider_value = budget.slider if hasattr(budget, "slider") else 50
-                markup_percentage = Decimal(str(slider_value)) / Decimal("100")
-                price = cost * float(Decimal("1") + markup_percentage)
-
-                return JsonResponse({"cost": round(cost, 2), "price": round(price, 2)})
-            else:
-                # Fallback to service defaults
-                cost_val = float(service.suggested_cost.amount) if service.suggested_cost else 0
-                price_val = float(service.selling_price.amount) if service.selling_price else 0
-
-                return JsonResponse({"cost": cost_val, "price": price_val})
-        except Exception as e:
-            logger.exception("Erro ao calcular servico de kit", extra={"budget_id": budget_id, "service_id": service_id})
-            return JsonResponse({"error": str(e)}, status=500)

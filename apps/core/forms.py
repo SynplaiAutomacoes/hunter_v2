@@ -1,3 +1,4 @@
+from django.shortcuts import redirect, render
 from django.urls import reverse
 from crispy_forms.layout import Div, Field, HTML
 from apps.core.widgets import CEPInput, TextInput, SelectInput
@@ -60,12 +61,18 @@ def address_layout() -> Div:
 
 class MultiStepFormMixin:
     steps_definition = []
+    step_template_name = None
 
     @property
-    def budget_object(self):
-        if not hasattr(self, "_budget_obj"):
-            self._budget_obj = self.get_object()
-        return self._budget_obj
+    def model_instance(self):
+        if not hasattr(self, "_model_instance"):
+            self._model_instance = self.get_object() if hasattr(self, "get_object") else None
+        return self._model_instance
+
+    def get_steps_config(self):
+        if hasattr(self, "get_steps_definition"):
+            return self.get_steps_definition()
+        return self.steps_definition
 
     def get_current_step(self):
         step_url = self.request.GET.get("step")
@@ -75,12 +82,12 @@ class MultiStepFormMixin:
             step = None
 
         if not step:
-            if self.budget_object and hasattr(self.budget_object, "current_step"):
-                step = self.budget_object.current_step
-            else:
-                step = 1
+            obj = self.model_instance
+            if obj and hasattr(obj, "current_step"):
+                return obj.current_step
+            return 1
 
-        total_steps = len(self.steps_definition)
+        total_steps = len(self.get_steps_config())
         if step > total_steps:
             return total_steps
         return max(1, step)
@@ -88,12 +95,22 @@ class MultiStepFormMixin:
     def get_form_class(self):
         """Retorna o form_class definido para a etapa atual."""
         current_step = self.get_current_step()
-        return self.steps_definition[current_step - 1].get("form_class")
+        steps = self.get_steps_config()
+
+        if not steps:
+            return None
+
+        idx = max(0, min(current_step - 1, len(steps) - 1))
+        return steps[idx].get("form_class")
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
-        if not kwargs.get("instance"):
-            kwargs["instance"] = self.get_object()
+
+        obj = getattr(self, "object", None) or self.get_object()
+        if obj:
+            kwargs["instance"] = obj
+        elif "instance" in kwargs:
+            kwargs.pop("instance")
 
         if hasattr(self, "workshop"):
             kwargs.update({'workshop': self.workshop})
@@ -102,18 +119,54 @@ class MultiStepFormMixin:
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         current_step = self.get_current_step()
+        steps = self.get_steps_config()
 
-        context["steps_config"] = [{"number": i + 1, "title": step["title"]} for i, step in enumerate(self.steps_definition)]
+        context["steps_config"] = [{"number": i + 1, "title": step["title"]} for i, step in enumerate(steps)]
         context["current_step"] = current_step
 
-        context["object"] = self.budget_object
-        context["max_reached_step"] = self.budget_object.current_step if self.budget_object else 1
+        context["object"] = self.model_instance
+        context["max_reached_step"] = self.model_instance.current_step if self.model_instance else 1
 
-        # Injeta o formset específico da etapa atual se existir
-        step_config = self.steps_definition[current_step - 1]
-        if "formset_class" in step_config:
-            context["step_formset"] = step_config["formset_class"](instance=self.object, data=self.request.POST if self.request.method == "POST" else None)
+        if steps and current_step <= len(steps):
+            step_config = steps[current_step - 1]
+            if "formset_class" in step_config:
+                obj = getattr(self, 'object', self.model_instance)
+                context["step_formset"] = step_config["formset_class"](
+                    instance=obj,
+                    data=self.request.POST if self.request.method == "POST" else None
+                )
         return context
+
+    def render_next_step(self, form):
+        """
+        Lida com o avanço de etapa.
+        Se for HTMX, renderiza apenas o conteúdo do card.
+        Se não, redireciona com o parâmetro ?step=X
+        """
+        current_step = self.get_current_step()
+        steps = self.get_steps_config()
+
+        # Se ainda houver passos, avança. Se não, finaliza (comportamento padrão)
+        if current_step < len(steps):
+            next_step = current_step + 1
+        else:
+            return redirect(self.get_success_url())
+
+        # URL para o próximo passo
+        next_url = f"{self.request.path}?step={next_step}"
+
+        if self.request.htmx:
+            self.request.GET = self.request.GET.copy()
+            self.request.GET["step"] = str(next_step)
+
+            form_class = self.get_form_class()
+            next_form = form_class(**self.get_form_kwargs())
+
+            context = self.get_context_data(form=next_form)
+            context["current_step"] = next_step
+            return render(self.request, 'stock/partials/import_step_content.html', context)
+
+        return redirect(next_url)
 
     def apply_step_status(self, budget=None, current_step=None, actor=None, isUpdate=False):
         """
@@ -129,6 +182,8 @@ class MultiStepFormMixin:
 
         Retorna True se uma alteração foi aplicada, False caso contrário.
         """
+        steps = self.get_steps_config()
+
         if budget is None:
             budget = getattr(self, 'object', None) or getattr(self, 'budget_object', None)
         if budget is None:
@@ -138,10 +193,10 @@ class MultiStepFormMixin:
             current_step = self.get_current_step()
 
         # Defensive: ensure step index in range
-        if not (1 <= current_step <= len(self.steps_definition)):
+        if not (1 <= current_step <= len(steps)):
             return False
 
-        step_config = self.steps_definition[current_step - 1]
+        step_config = steps[current_step - 1]
         auto_apply = step_config.get('auto_apply', False)
         desired = step_config.get('status', None)
 
