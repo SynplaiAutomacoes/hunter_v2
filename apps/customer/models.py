@@ -1,15 +1,13 @@
 from django.db import models
-from localflavor.br.models import BRCPFField
 from phonenumber_field.modelfields import PhoneNumberField
 
 from apps.core.models import TimeStampedModel, Address
 
+
 class Customer(TimeStampedModel, Address):
     SEX_CHOICES = [("M", "Masculino"), ("F", "Feminino"), ("O", "Outro")]
 
-    workshop = models.ForeignKey(
-        "workshops.Workshop", on_delete=models.CASCADE, related_name="customers"
-    )
+    workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="customers")
 
     customer_type = models.CharField(
         max_length=2,
@@ -17,14 +15,14 @@ class Customer(TimeStampedModel, Address):
             ("PF", "Pessoa Física"),
             ("PJ", "Pessoa Jurídica"),
         ],
-        default="PF"
+        default="PF",
     )
 
     # CAMPOS COMUNS
     name = models.CharField(verbose_name="Nome", max_length=255, null=False, blank=False)
     cpf_or_cnpj = models.CharField(verbose_name="CPF/CNPJ", max_length=18, null=False, blank=False)
     phone = PhoneNumberField(verbose_name="Telefone", blank=True)
-    email = models.EmailField(verbose_name="Email", blank=True, null=True)
+    email = models.EmailField(verbose_name="Email", blank=False, null=False)
     is_active = models.BooleanField(verbose_name="Ativo", default=True)
 
     # CAMPOS PESSOA FISICA
@@ -44,25 +42,21 @@ class Customer(TimeStampedModel, Address):
 
     @property
     def cpf_or_cnpj_formatted(self):
-        value = ''.join(filter(str.isdigit, self.cpf_or_cnpj))
+        value = "".join(filter(str.isdigit, self.cpf_or_cnpj))
 
         if len(value) == 11:  # CPF
             return f"{value[:3]}.{value[3:6]}.{value[6:9]}-{value[9:]}"
         elif len(value) == 14:  # CNPJ
             return f"{value[:2]}.{value[2:5]}.{value[5:8]}/{value[8:12]}-{value[12:]}"
         return self.cpf_or_cnpj
-      
+
     def vehicles_count(self) -> str:
         return str(self.vehicles.count())
 
     class Meta:
         verbose_name = "Cliente"
         verbose_name_plural = "Clientes"
-        constraints = [
-            models.UniqueConstraint(
-                fields=("workshop", "cpf_or_cnpj"), name="unique_customer_document_per_workshop"
-            )
-        ]
+        constraints = [models.UniqueConstraint(fields=("workshop", "cpf_or_cnpj"), name="unique_customer_document_per_workshop")]
 
     def __str__(self):
         return self.name

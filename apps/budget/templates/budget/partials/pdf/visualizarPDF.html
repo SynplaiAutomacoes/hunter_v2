@@ -6,16 +6,45 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <title>Orçamento de O.S.</title>
     <style>
-        @page { size: A4; margin: 0; }
+        @page { size: A4; margin: 5mm; }
+
+        body {
+            margin: 0;
+            padding: 0;
+        }
+
+        .pdf-content {
+            width: 100%;
+            box-sizing: border-box;
+            break-inside: avoid;
+        }
+
+        .products-table {
+            width: 100%;
+            table-layout: fixed;
+        }
+
+        .col-description {
+            width: 55%;
+        }
+
+        .desc-truncate {
+            display: block;
+            width: 100%;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: clip;
+        }
+
         @media print {
             body { background-color: white !important; padding: 0 !important; }
-            #pdf-content { border: none !important; box-shadow: none !important; }
+            .pdf-content { border: none !important; box-shadow: none !important; }
         }
     </style>
 </head>
-<body class="bg-gray-100 p-5 font-sans text-[11px] leading-tight">
-
-    <div id="pdf-content" class="max-w-[210mm] mx-auto bg-white border border-gray-200 rounded-lg shadow-sm p-4 text-[13px]">
+<body class="bg-gray-100 font-sans text-[11px] leading-tight">
+    {% for page in pages %}
+    <div class="pdf-content bg-white border border-gray-200 rounded-lg shadow-sm p-4 text-[13px]">
 
         <div class="flex justify-between items-start p-4 border-b border-gray-200">
             <div>
@@ -64,25 +93,31 @@
 
         <div class="p-4 border-b border-gray-200">
             <h4 class="font-bold mb-2 uppercase">Produtos</h4>
-            <table class="w-full text-left border-collapse text-[12px] mt-2">
+            <table class="products-table w-full text-left border-collapse text-[12px] mt-2">
                 <thead>
                     <tr class="bg-gray-100 border-b-2 border-gray-200">
-                        <th class="p-2 font-semibold">Descrição</th>
+                        <th class="p-2 font-semibold col-description">Descrição</th>
                         <th class="p-2 font-semibold w-[15%] text-center">Qtd</th>
                         <th class="p-2 font-semibold w-[15%] text-right">Valor Unitário</th>
                         <th class="p-2 font-semibold w-[15%] text-right">Valor Total</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for p in produtos %}
+                    {% for p in page.produtos %}
                     <tr class="border-b border-gray-100">
-                        <td class="p-2">{{ p.description }}</td>
+                        <td class="p-2"><span class="desc-truncate">{{ p.description }}</span></td>
                         <td class="p-2 text-center">{{ p.quantity }}</td>
                         <td class="p-2 text-right">{{ p.product_selling_price }}</td>
                         <td class="p-2 text-right font-medium">{{ p.total_price }}</td>
                     </tr>
-                    {% empty %}
-                    <tr><td colspan="4" class="p-4 text-center text-gray-400">Nenhum produto listado.</td></tr>
+                    {% endfor %}
+                    {% for _ in page.empty_product_rows %}
+                    <tr class="border-b border-gray-100">
+                        <td class="p-2">&nbsp;</td>
+                        <td class="p-2 text-center">&nbsp;</td>
+                        <td class="p-2 text-right">&nbsp;</td>
+                        <td class="p-2 text-right">&nbsp;</td>
+                    </tr>
                     {% endfor %}
                     <tr class="bg-gray-50 border-t-2 border-gray-200">
                         <td colspan="4" class="p-2 text-right font-bold">TOTAL DAS PEÇAS ACIMA: {{ total_produtos }}</td>
@@ -100,12 +135,15 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for s in servicos %}
+                    {% for s in page.servicos %}
                     <tr class="border-b border-gray-100">
-                        <td class="p-2 font-medium">{{ s.description }}</td>
+                        <td class="p-2 font-medium"><span class="desc-truncate">{{ s.description }}</span></td>
                     </tr>
-                    {% empty %}
-                    <tr><td colspan="1" class="p-4 text-center text-gray-400">Nenhum serviço informado.</td></tr>
+                    {% endfor %}
+                    {% for _ in page.empty_service_rows %}
+                    <tr class="border-b border-gray-100">
+                        <td class="p-2">&nbsp;</td>
+                    </tr>
                     {% endfor %}
                     <tr class="bg-gray-50 border-t-2 border-gray-200">
                         <td class="p-2 text-right font-bold">TOTAL DOS SERVIÇOS ACIMA: {{ total_servicos }}</td>
@@ -148,11 +186,38 @@
             </div>
         </div>
 
-        <div class="text-center text-[11px] text-gray-500 pt-4 mt-4 border-t border-gray-200">
-            <p>Aberto por: {{ request.user.get_full_name }} em: {{ budget.criado_em|date:"d/m/Y" }} às {{ budget.criado_em|date:"H:i" }}</p>
-            <p>Status: <span class="uppercase font-bold text-gray-700">{{ budget.budget_status }}</span></p>
+        <div class="pt-4 mt-4 border-t border-gray-200 text-[11px] text-gray-500">
+            <div class="flex items-end justify-between">
+                <div>
+                    <p>Aberto por: {{ request.user.get_full_name|default:"Sistema" }} em: {{ budget.criado_em|date:"d/m/Y" }} às {{ budget.criado_em|date:"H:i" }}</p>
+                    <p>Status: <span class="uppercase font-bold text-gray-700">{{ budget.budget_status }}</span></p>
+                </div>
+                <p class="font-semibold text-gray-700">Página {{ page.page_number }} de {{ page.total_pages }}</p>
+            </div>
         </div>
 
     </div>
+
+    {% if not forloop.last %}
+    <div style="page-break-after: always;"></div>
+    {% endif %}
+    {% endfor %}
+<script>
+    (function () {
+        const minFontSize = 8;
+        const step = 0.5;
+
+        document.querySelectorAll('.desc-truncate').forEach((element) => {
+            let current = 11;
+            element.style.fontSize = `${current}px`;
+            element.style.lineHeight = '1.1';
+
+            while (element.scrollWidth > element.clientWidth && current > minFontSize) {
+                current -= step;
+                element.style.fontSize = `${current}px`;
+            }
+        });
+    })();
+</script>
 </body>
 </html>

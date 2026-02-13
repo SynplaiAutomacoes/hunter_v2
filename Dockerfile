@@ -31,6 +31,9 @@ RUN pip install uv
 # Install Python dependencies
 RUN uv sync --frozen
 
+# Install Playwright browser runtime
+RUN uv run playwright install --with-deps chromium
+
 # Install Node dependencies (needed for Tailwind plugins)
 RUN npm ci
 

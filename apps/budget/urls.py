@@ -4,6 +4,7 @@ from . import views
 app_name = "budget"
 
 urlpatterns = [
+    path("events/", views.BudgetEventsView.as_view(), name="budget_events"),
     path("", views.BudgetListView.as_view(), name="budget_list"),
     path("create/", views.BudgetCreateView.as_view(), name="budget_create"),
     path("<int:pk>/edit/", views.BudgetUpdateView.as_view(), name="budget_update"),
@@ -19,6 +20,8 @@ urlpatterns = [
     path("<int:budget_id>/item/<int:item_id>/calculate/", views.BudgetItemCalculateView.as_view(), name="calculate_item"),
     # Kit editing URLs
     path("<int:budget_id>/kit/<int:item_id>/edit/", views.BudgetKitEditView.as_view(), name="edit_kit"),
+    path("<int:budget_id>/kit/<int:item_id>/product/<int:product_id>/calculate/", views.BudgetKitProductCalculateView.as_view(), name="calculate_kit_product"),
+    path("<int:budget_id>/kit/<int:item_id>/service/<int:service_id>/calculate/", views.BudgetKitServiceCalculateView.as_view(), name="calculate_kit_service"),
     path("update_slider/<int:budget_id>/", views.UpdateSliderView.as_view(), name="update_slider"),
     path("mark-step5-calculation-viewed/<int:budget_id>/", views.MarkStep5CalculationViewedView.as_view(), name="mark_step5_calculation_viewed"),
     path("update-budget-discount/<int:budget_id>/", views.UpdateBudgetDiscountView.as_view(), name="update_budget_discount"),
@@ -28,6 +31,10 @@ urlpatterns = [
     path("visualizar-pdf/<int:pk>", views.visualizar_pdf, name="visualizar_pdf"),
     path("visualizar-pdf-gestor/<int:pk>", views.visualizar_pdf_gestor, name="visualizar_pdf_gestor"),
     path("visualizar-pdf-mecanico/<int:pk>", views.visualizar_pdf_mecanico, name="visualizar_pdf_mecanico"),
+    path("signature-preview/<str:token>/", views.signature_preview, name="signature_preview"),
+    path("signature-file/<str:token>/", views.signature_file, name="signature_file"),
+    path("supersign/webhook/ping/", views.SuperSignWebhookView.as_view(), name="supersign_webhook_ping"),
+    path("supersign/webhook/", views.SuperSignWebhookView.as_view(), name="supersign_webhook"),
     path("<int:budget_id>/add-items-batch/<str:item_type>/", views.AddItemsBatchToBudgetView.as_view(), name="add_items_batch"),
     path("<int:budget_id>/summary/", views.BudgetSummaryView.as_view(), name="budget_summary"),
     path("<int:budget_id>/collaborator-field/", views.BudgetStep3CollaboratorFieldView.as_view(), name="collaborator_field"),
