@@ -25,6 +25,29 @@ from apps.workshops.util.workshops import get_active_workshop_or_404
 from .shared import _get_budget_for_workshop, logger
 
 
+def trigger_signature_send_if_needed(*, request, budget: Budget) -> tuple[str, str, str | None]:
+    with transaction.atomic():
+        locked_budget = Budget.objects.select_for_update().get(pk=budget.pk)
+
+        if locked_budget.signature_request_status == SignatureStatus.SENT and locked_budget.signature_external_id:
+            return "info", "Orçamento já enviado para assinatura do cliente.", reverse("budget:budget_list")
+
+        if locked_budget.signature_request_status == SignatureStatus.SENDING:
+            return "info", "O envio do orçamento ainda está em processamento.", None
+
+        locked_budget.mark_signature_sending()
+
+    try:
+        result = send_budget_for_signature(budget=budget, request=request)
+    except SuperSignError:
+        budget.mark_signature_failed()
+        logger.exception("Falha ao enviar orcamento para assinatura", extra={"budget_id": budget.pk})
+        return "error", "Falha ao enviar orçamento para assinatura. Tente novamente em instantes.", None
+
+    budget.mark_signature_sent(result.envelope_id)
+    return "success", "Orçamento enviado para assinatura do cliente.", reverse("budget:budget_list")
+
+
 class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = Budget
     template_name = "budget/budget_list.html"
@@ -115,7 +138,7 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
 
             return redirect(success_url)
 
-        toast_type, toast_message, redirect_url = self._trigger_signature_send_if_needed(self.object)
+        toast_type, toast_message, redirect_url = ("success", "Orçamento finalizado. Envie para assinatura no modal de PDF.", reverse("budget:budget_list"))
 
         if self.request.htmx:
             response = HttpResponse(status=204)
@@ -136,28 +159,6 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
             return redirect(redirect_url)
 
         return redirect(f"{reverse('budget:budget_update', kwargs={'pk': self.object.pk})}?step={current_step}")
-
-    def _trigger_signature_send_if_needed(self, budget: Budget) -> tuple[str, str, str | None]:
-        with transaction.atomic():
-            locked_budget = Budget.objects.select_for_update().get(pk=budget.pk)
-
-            if locked_budget.signature_request_status == SignatureStatus.SENT and locked_budget.signature_external_id:
-                return "info", "Orçamento já enviado para assinatura do cliente.", reverse("budget:budget_list")
-
-            if locked_budget.signature_request_status == SignatureStatus.SENDING:
-                return "info", "O envio do orçamento ainda está em processamento.", None
-
-            locked_budget.mark_signature_sending()
-
-        try:
-            result = send_budget_for_signature(budget=budget, request=self.request)
-        except SuperSignError:
-            budget.mark_signature_failed()
-            logger.exception("Falha ao enviar orcamento para assinatura", extra={"budget_id": budget.pk})
-            return "error", "Falha ao enviar orçamento para assinatura. Tente novamente em instantes.", None
-
-        budget.mark_signature_sent(result.envelope_id)
-        return "success", "Orçamento enviado para assinatura do cliente.", reverse("budget:budget_list")
 
 
 class BudgetUpdateView(BudgetCreateView):
@@ -221,7 +222,7 @@ class BudgetUpdateView(BudgetCreateView):
 
             return redirect(success_url)
 
-        toast_type, toast_message, redirect_url = self._trigger_signature_send_if_needed(self.object)
+        toast_type, toast_message, redirect_url = ("success", "Orçamento finalizado. Envie para assinatura no modal de PDF.", reverse("budget:budget_list"))
 
         if self.request.htmx:
             response = HttpResponse(status=204)
@@ -305,6 +306,17 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
             budget.save()
 
         return JsonResponse({"success": True})
+
+
+class SendBudgetSignatureView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "change_budget"
+
+    def post(self, request, budget_id):
+        budget = _get_budget_for_workshop(self.workshop, budget_id)
+        toast_type, toast_message, _ = trigger_signature_send_if_needed(request=request, budget=budget)
+        status_code = 200 if toast_type in {"success", "info"} else 400
+        return JsonResponse({"success": toast_type in {"success", "info"}, "type": toast_type, "message": toast_message}, status=status_code)
 
 
 class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
