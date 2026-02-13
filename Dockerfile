@@ -4,18 +4,18 @@ WORKDIR /app
 
 # Install system dependencies (Python + Node build tooling)
 RUN apt-get update && apt-get install -y \
-    git \
-    curl \
-    build-essential \
-    python3-dev \
-    libcairo2-dev \
-    pkg-config \
-    && rm -rf /var/lib/apt/lists/*
+  git \
+  curl \
+  build-essential \
+  python3-dev \
+  libcairo2-dev \
+  pkg-config \
+  && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js (LTS) + npm
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get update && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
+  && apt-get update && apt-get install -y nodejs \
+  && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
 COPY pyproject.toml ./
@@ -42,8 +42,6 @@ COPY . .
 
 # Set the path to include the virtual environment
 ENV PATH="/app/.venv/bin:$PATH"
-
-RUN uv run python manage.py webhook
 
 RUN uv run python manage.py tailwind build
 
