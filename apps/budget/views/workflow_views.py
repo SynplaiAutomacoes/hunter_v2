@@ -11,6 +11,7 @@ from django.utils import timezone
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView
 from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
+from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
 from apps.budget.models import Budget, BudgetStatus, SignatureStatus
 from apps.budget.service import SuperSignError, send_budget_for_signature
 from apps.core.forms import MultiStepFormMixin
@@ -22,7 +23,6 @@ from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
 from .shared import _get_budget_for_workshop, logger
-from ...stock.models import StockMovement
 
 
 class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
@@ -289,32 +289,14 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         # Validação de Aprovação
         if status == "approve":
-            local_items = budget.items.filter(is_local=True)
-            if local_items.exists():
-                error_message = "Não é possível aprovar. Existem itens sem cadastro (locais)."
+            try:
+                approve_budget_with_stock(budget=budget, user=request.user)
+            except BudgetApprovalError as exc:
+                error_message = str(exc)
                 messages.error(request, error_message)
                 return JsonResponse({"success": False, "error": error_message}, status=400)
-
-            try:
-                with transaction.atomic():
-                    # Consumir produto do estoque
-                    for item in budget.items.all():
-                        stock_product = item.product.stock_products
-
-                        if stock_product.current_quantity < item.quantity:
-                            warn_message = f"Estoque insuficiente para {item.product.referencia}. Disponível: {stock_product.current_quantity}, Necessário: {item.quantity}"
-                            messages.warning(request, warn_message)
-                            raise ValueError(warn_message)
-
-                        stock_product.current_quantity -= item.quantity
-                        stock_product.save()
-
-                        StockMovement.objects.create(workshop=self.workshop, stock_product=stock_product, type="SAIDA", quantity=item.quantity, status="APROVADO", transcation_by=request.user)
-
-                    budget.status = status_map[status]
-                    budget.save()
             except Exception:
-                error_message = "Erro interno ao processar estoque."
+                error_message = "Erro interno ao processar aprovação automática de estoque."
                 messages.error(request, error_message)
                 return JsonResponse({"success": False, "error": error_message}, status=500)
 

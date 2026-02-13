@@ -55,6 +55,17 @@ def build_signature_preview_url(*, budget, request=None) -> str:
     return f"{base_url}{path}"
 
 
+def build_supersign_webhook_url(*, request=None) -> str:
+    path = reverse("budget:supersign_webhook")
+    if request is not None:
+        return request.build_absolute_uri(path)
+
+    base_url = getattr(settings, "APP_BASE_URL", "").rstrip("/")
+    if not base_url:
+        base_url = "http://localhost:8000"
+    return f"{base_url}{path}"
+
+
 class SuperSignError(Exception):
     pass
 
@@ -64,6 +75,55 @@ class SuperSignResult:
     envelope_id: str
     document_id: str
     raw_response: dict
+
+
+def _supersign_headers() -> dict[str, str]:
+    return {
+        "x-account-id": settings.SUPERSIGN_ACCOUNT_ID,
+        "Authorization": f"Bearer {settings.SUPERSIGN_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+
+def list_supersign_webhooks() -> list[dict]:
+    base_url = settings.SUPERSIGN_BASE_URL.rstrip("/")
+    try:
+        response = requests.get(f"{base_url}/v2/webhooks/", headers=_supersign_headers(), timeout=20)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        response_text = exc.response.text if exc.response is not None else ""
+        raise SuperSignError(f"Erro ao listar webhooks: {exc}. Resposta: {response_text}") from exc
+
+    data = response.json()
+    return data if isinstance(data, list) else []
+
+
+def create_supersign_webhook(*, url: str, events: list[str] | None = None, is_active: bool = True) -> dict:
+    base_url = settings.SUPERSIGN_BASE_URL.rstrip("/")
+    payload = {
+        "url": url,
+        "events": events or ["ENVELOPE_COMPLETED"],
+        "isActive": is_active,
+    }
+
+    try:
+        response = requests.post(f"{base_url}/v2/webhooks/", json=payload, headers=_supersign_headers(), timeout=20)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        response_text = exc.response.text if exc.response is not None else ""
+        raise SuperSignError(f"Erro ao criar webhook: {exc}. Resposta: {response_text}") from exc
+
+    data = response.json()
+    return data if isinstance(data, dict) else {}
+
+
+def ensure_supersign_webhook(*, webhook_url: str) -> dict:
+    existing = list_supersign_webhooks()
+    for webhook in existing:
+        if webhook.get("url") == webhook_url and "ENVELOPE_COMPLETED" in (webhook.get("events") or []):
+            return webhook
+
+    return create_supersign_webhook(url=webhook_url, events=["ENVELOPE_COMPLETED"], is_active=True)
 
 
 def _calculate_pdf_total_pages(budget) -> int:

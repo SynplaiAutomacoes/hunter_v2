@@ -4,6 +4,7 @@ from .kit_views import BudgetKitEditView
 from .local_item_views import CalculateLocalServiceView, CreateLocalItemView, QuickCreateProductView, RegisterLocalItemView
 from .pdf_views import signature_file, signature_preview, visualizar_pdf, visualizar_pdf_gestor, visualizar_pdf_mecanico
 from .shared import reset_steps_after_step_4
+from .webhook_views import SuperSignWebhookView
 from .workflow_views import BudgetCreateView, BudgetDeleteView, BudgetListView, BudgetUpdateView, MarkStep5CalculationViewedView, SaveObservationView, UpdateBudgetDiscountView, UpdateBudgetStatusView, UpdateSliderView
 
 __all__ = [
@@ -32,6 +33,7 @@ __all__ = [
     "visualizar_pdf_mecanico",
     "signature_preview",
     "signature_file",
+    "SuperSignWebhookView",
     "AddItemsBatchToBudgetView",
     "BudgetSummaryView",
     "BudgetStep3CollaboratorFieldView",

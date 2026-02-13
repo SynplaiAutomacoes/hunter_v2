@@ -30,6 +30,7 @@ urlpatterns = [
     path("visualizar-pdf-mecanico/<int:pk>", views.visualizar_pdf_mecanico, name="visualizar_pdf_mecanico"),
     path("signature-preview/<str:token>/", views.signature_preview, name="signature_preview"),
     path("signature-file/<str:token>/", views.signature_file, name="signature_file"),
+    path("supersign/webhook/", views.SuperSignWebhookView.as_view(), name="supersign_webhook"),
     path("<int:budget_id>/add-items-batch/<str:item_type>/", views.AddItemsBatchToBudgetView.as_view(), name="add_items_batch"),
     path("<int:budget_id>/summary/", views.BudgetSummaryView.as_view(), name="budget_summary"),
     path("<int:budget_id>/collaborator-field/", views.BudgetStep3CollaboratorFieldView.as_view(), name="collaborator_field"),
