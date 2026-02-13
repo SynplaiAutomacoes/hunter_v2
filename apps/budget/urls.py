@@ -19,7 +19,6 @@ urlpatterns = [
     path("<int:budget_id>/item/<int:item_id>/calculate/", views.BudgetItemCalculateView.as_view(), name="calculate_item"),
     # Kit editing URLs
     path("<int:budget_id>/kit/<int:item_id>/edit/", views.BudgetKitEditView.as_view(), name="edit_kit"),
-    path("<int:budget_id>/kit/calculate-service/", views.CalculateKitServiceView.as_view(), name="calculate_kit_service"),
     path("update_slider/<int:budget_id>/", views.UpdateSliderView.as_view(), name="update_slider"),
     path("mark-step5-calculation-viewed/<int:budget_id>/", views.MarkStep5CalculationViewedView.as_view(), name="mark_step5_calculation_viewed"),
     path("update-budget-discount/<int:budget_id>/", views.UpdateBudgetDiscountView.as_view(), name="update_budget_discount"),

@@ -1,6 +1,6 @@
 from .customer_vehicle_views import CustomerDetailView, VehicleDetailView, VehicleListView
 from .item_views import AddItemToBudgetView, AddItemsBatchToBudgetView, BudgetImageView, BudgetItemCalculateView, BudgetItemUpdateView, BudgetStep3CollaboratorFieldView, BudgetSummaryView, ItemSelectionModalView, RemoveBudgetItemView, RemoveItemFromBudgetView
-from .kit_views import BudgetKitEditView, CalculateKitServiceView
+from .kit_views import BudgetKitEditView
 from .local_item_views import CalculateLocalServiceView, CreateLocalItemView, QuickCreateProductView, RegisterLocalItemView
 from .pdf_views import visualizar_pdf, visualizar_pdf_gestor, visualizar_pdf_mecanico
 from .shared import reset_steps_after_step_4
@@ -21,7 +21,6 @@ __all__ = [
     "BudgetItemUpdateView",
     "BudgetItemCalculateView",
     "BudgetKitEditView",
-    "CalculateKitServiceView",
     "UpdateSliderView",
     "MarkStep5CalculationViewedView",
     "UpdateBudgetDiscountView",
