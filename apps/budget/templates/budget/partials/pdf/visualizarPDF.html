@@ -19,6 +19,23 @@
             break-inside: avoid;
         }
 
+        .products-table {
+            width: 100%;
+            table-layout: fixed;
+        }
+
+        .col-description {
+            width: 55%;
+        }
+
+        .desc-truncate {
+            display: block;
+            width: 100%;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: clip;
+        }
+
         @media print {
             body { background-color: white !important; padding: 0 !important; }
             .pdf-content { border: none !important; box-shadow: none !important; }
@@ -76,10 +93,10 @@
 
         <div class="p-4 border-b border-gray-200">
             <h4 class="font-bold mb-2 uppercase">Produtos</h4>
-            <table class="w-full text-left border-collapse text-[12px] mt-2">
+            <table class="products-table w-full text-left border-collapse text-[12px] mt-2">
                 <thead>
                     <tr class="bg-gray-100 border-b-2 border-gray-200">
-                        <th class="p-2 font-semibold">Descrição</th>
+                        <th class="p-2 font-semibold col-description">Descrição</th>
                         <th class="p-2 font-semibold w-[15%] text-center">Qtd</th>
                         <th class="p-2 font-semibold w-[15%] text-right">Valor Unitário</th>
                         <th class="p-2 font-semibold w-[15%] text-right">Valor Total</th>
@@ -88,7 +105,7 @@
                 <tbody>
                     {% for p in page.produtos %}
                     <tr class="border-b border-gray-100">
-                        <td class="p-2">{{ p.description }}</td>
+                        <td class="p-2"><span class="desc-truncate">{{ p.description }}</span></td>
                         <td class="p-2 text-center">{{ p.quantity }}</td>
                         <td class="p-2 text-right">{{ p.product_selling_price }}</td>
                         <td class="p-2 text-right font-medium">{{ p.total_price }}</td>
@@ -120,7 +137,7 @@
                 <tbody>
                     {% for s in page.servicos %}
                     <tr class="border-b border-gray-100">
-                        <td class="p-2 font-medium">{{ s.description }}</td>
+                        <td class="p-2 font-medium"><span class="desc-truncate">{{ s.description }}</span></td>
                     </tr>
                     {% endfor %}
                     {% for _ in page.empty_service_rows %}
@@ -185,5 +202,22 @@
     <div style="page-break-after: always;"></div>
     {% endif %}
     {% endfor %}
+<script>
+    (function () {
+        const minFontSize = 8;
+        const step = 0.5;
+
+        document.querySelectorAll('.desc-truncate').forEach((element) => {
+            let current = 11;
+            element.style.fontSize = `${current}px`;
+            element.style.lineHeight = '1.1';
+
+            while (element.scrollWidth > element.clientWidth && current > minFontSize) {
+                current -= step;
+                element.style.fontSize = `${current}px`;
+            }
+        });
+    })();
+</script>
 </body>
 </html>

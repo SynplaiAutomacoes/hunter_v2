@@ -1,20 +1,20 @@
 import json
 from datetime import timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.views import View
 from djmoney.money import Money
 
 from apps.budget.forms.item_forms import BudgetKitProductEditRowForm, BudgetKitServiceEditRowForm
-from apps.budget.models import BudgetItem
+from apps.budget.models import BudgetItem, BudgetKitItemOverride
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.workshops.mixin import WorkshopScopedMixin
 
-from .shared import _get_budget_for_workshop, _get_budget_item_for_workshop, logger, reset_steps_after_step_4
+from .shared import _calculate_service_prices, _get_budget_for_workshop, _get_budget_item_for_workshop, _get_budget_workshop_cost, _parse_duration_from_string, logger, reset_steps_after_step_4
 
 
 class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -205,3 +205,139 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
         response["HX-Redirect"] = f"/budget/{budget_id}/edit/?step=4&_t={timestamp}"
         response["HX-Refresh"] = "true"  # Force full page refresh
         return response
+
+
+def _parse_decimal_value(raw_value, default: Decimal = Decimal("0")) -> Decimal:
+    if raw_value is None:
+        return default
+
+    text = str(raw_value).strip().replace("R$", "").replace(" ", "")
+    if not text:
+        return default
+
+    if "," in text:
+        text = text.replace(".", "").replace(",", ".")
+
+    try:
+        return Decimal(text)
+    except (InvalidOperation, ValueError, TypeError):
+        return default
+
+
+class BudgetKitProductCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = BudgetItem
+    workshop_permission_codename = "change_budgetitem"
+
+    def post(self, request, budget_id, item_id, product_id):
+        budget = _get_budget_for_workshop(self.workshop, budget_id)
+        item = _get_budget_item_for_workshop(self.workshop, budget_id, item_id, kit__isnull=False)
+
+        product_in_kit = item.kit.kit_products.filter(product_id=product_id).exists()
+        if not product_in_kit:
+            return JsonResponse({"error": "product_not_in_kit"}, status=400)
+
+        product = get_object_or_404(Product, id=product_id, workshop=self.workshop)
+        existing_override = BudgetKitItemOverride.objects.filter(workshop=self.workshop, budget_item=item, product=product).first()
+
+        quantity = request.POST.get("quantity")
+        try:
+            parsed_quantity = max(0, int(quantity)) if quantity is not None else (existing_override.quantity if existing_override else 1)
+        except (ValueError, TypeError):
+            parsed_quantity = existing_override.quantity if existing_override else 1
+
+        cost_default = existing_override.product_cost_price.amount if existing_override else product.cost_price.amount
+        price_default = existing_override.product_selling_price.amount if existing_override else product.selling_price.amount
+        shipping_default = existing_override.shipping.amount if existing_override else Decimal("0")
+
+        parsed_cost = _parse_decimal_value(request.POST.get("cost"), cost_default).quantize(Decimal("0.01"))
+        parsed_price = _parse_decimal_value(request.POST.get("price"), price_default).quantize(Decimal("0.01"))
+        parsed_shipping = _parse_decimal_value(request.POST.get("shipping"), shipping_default).quantize(Decimal("0.01"))
+
+        BudgetKitItemOverride.objects.update_or_create(
+            workshop=self.workshop,
+            budget_item=item,
+            product=product,
+            defaults={
+                "quantity": parsed_quantity,
+                "product_cost_price": Money(parsed_cost, "BRL"),
+                "product_selling_price": Money(parsed_price, "BRL"),
+                "shipping": Money(parsed_shipping, "BRL"),
+            },
+        )
+        reset_steps_after_step_4(budget)
+
+        return JsonResponse(
+            {
+                "product_id": product_id,
+                "quantity": parsed_quantity,
+                "cost": str(parsed_cost),
+                "price": str(parsed_price),
+                "shipping": str(parsed_shipping),
+                "summary_updated": True,
+            }
+        )
+
+
+class BudgetKitServiceCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = BudgetItem
+    workshop_permission_codename = "change_budgetitem"
+
+    def post(self, request, budget_id, item_id, service_id):
+        budget = _get_budget_for_workshop(self.workshop, budget_id)
+        item = _get_budget_item_for_workshop(self.workshop, budget_id, item_id, kit__isnull=False)
+
+        service_in_kit = item.kit.kit_services.filter(service_id=service_id).exists()
+        if not service_in_kit:
+            return JsonResponse({"error": "service_not_in_kit"}, status=400)
+
+        service = get_object_or_404(Service, id=service_id, workshop=self.workshop)
+        existing_override = BudgetKitItemOverride.objects.filter(workshop=self.workshop, budget_item=item, service=service).first()
+
+        changed_field = (request.POST.get("changed_field") or "").strip()
+
+        raw_duration = request.POST.get("duration")
+        parsed_duration = _parse_duration_from_string(raw_duration)
+        duration = parsed_duration or (existing_override.duration if existing_override else service.duration) or timedelta(0)
+
+        workshop_cost, workshop_cost_missing = _get_budget_workshop_cost(budget, self.workshop)
+
+        if changed_field == "duration":
+            service_cost_price, service_selling_price = _calculate_service_prices(duration, workshop_cost)
+            service_cost_price_amount = service_cost_price.amount.quantize(Decimal("0.01"))
+            service_selling_price_amount = service_selling_price.amount.quantize(Decimal("0.01"))
+        else:
+            cost_default = existing_override.service_cost_price.amount if existing_override and existing_override.service_cost_price else (service.suggested_cost.amount if service.suggested_cost else Decimal("0"))
+            price_default = existing_override.service_selling_price.amount if existing_override else service.selling_price.amount
+            service_cost_price_amount = _parse_decimal_value(request.POST.get("cost"), cost_default).quantize(Decimal("0.01"))
+            service_selling_price_amount = _parse_decimal_value(request.POST.get("price"), price_default).quantize(Decimal("0.01"))
+
+        quantity = request.POST.get("quantity")
+        try:
+            parsed_quantity = max(0, int(quantity)) if quantity is not None else 1
+        except ValueError:
+            parsed_quantity = 1
+
+        BudgetKitItemOverride.objects.update_or_create(
+            workshop=self.workshop,
+            budget_item=item,
+            service=service,
+            defaults={
+                "quantity": parsed_quantity,
+                "service_cost_price": Money(service_cost_price_amount, "BRL"),
+                "service_selling_price": Money(service_selling_price_amount, "BRL"),
+                "duration": duration,
+            },
+        )
+        reset_steps_after_step_4(budget)
+
+        return JsonResponse(
+            {
+                "service_id": service_id,
+                "duration": raw_duration,
+                "quantity": parsed_quantity,
+                "cost": str(service_cost_price_amount),
+                "price": str(service_selling_price_amount),
+                "workshop_cost_missing": workshop_cost_missing,
+                "summary_updated": True,
+            }
+        )

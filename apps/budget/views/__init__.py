@@ -1,8 +1,9 @@
 from .customer_vehicle_views import CustomerDetailView, VehicleDetailView, VehicleListView
 from .item_views import AddItemToBudgetView, AddItemsBatchToBudgetView, BudgetImageView, BudgetItemCalculateView, BudgetItemUpdateView, BudgetStep3CollaboratorFieldView, BudgetSummaryView, ItemSelectionModalView, RemoveBudgetItemView, RemoveItemFromBudgetView
-from .kit_views import BudgetKitEditView
+from .kit_views import BudgetKitEditView, BudgetKitProductCalculateView, BudgetKitServiceCalculateView
 from .local_item_views import CalculateLocalServiceView, CreateLocalItemView, QuickCreateProductView, RegisterLocalItemView
 from .pdf_views import signature_file, signature_preview, visualizar_pdf, visualizar_pdf_gestor, visualizar_pdf_mecanico
+from .realtime_views import BudgetEventsView
 from .shared import reset_steps_after_step_4
 from .webhook_views import SuperSignWebhookView
 from .workflow_views import BudgetCreateView, BudgetDeleteView, BudgetListView, BudgetUpdateView, MarkStep5CalculationViewedView, SaveObservationView, UpdateBudgetDiscountView, UpdateBudgetStatusView, UpdateSliderView
@@ -22,6 +23,8 @@ __all__ = [
     "BudgetItemUpdateView",
     "BudgetItemCalculateView",
     "BudgetKitEditView",
+    "BudgetKitProductCalculateView",
+    "BudgetKitServiceCalculateView",
     "UpdateSliderView",
     "MarkStep5CalculationViewedView",
     "UpdateBudgetDiscountView",
@@ -33,6 +36,7 @@ __all__ = [
     "visualizar_pdf_mecanico",
     "signature_preview",
     "signature_file",
+    "BudgetEventsView",
     "SuperSignWebhookView",
     "AddItemsBatchToBudgetView",
     "BudgetSummaryView",

@@ -8,4 +8,22 @@
 {% block crud_table_hx_trigger %}budget-table-refresh from:body{% endblock %}
 {% block crud_table %}
     {% include 'budget/partials/budget_table.html' %}
+<script>
+    (function () {
+        if (window.__budgetEventsBound) {
+            return;
+        }
+
+        window.__budgetEventsBound = true;
+        const source = new EventSource("{% url 'budget:budget_events' %}");
+
+        source.addEventListener('budget-status-changed', function () {
+            document.body.dispatchEvent(new CustomEvent('budget-table-refresh'));
+        });
+
+        window.addEventListener('beforeunload', function () {
+            source.close();
+        });
+    })();
+</script>
 {% endblock %}

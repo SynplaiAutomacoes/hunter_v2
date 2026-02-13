@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import re
 
 import requests
 from django.core import signing
@@ -75,6 +76,28 @@ class SuperSignResult:
     envelope_id: str
     document_id: str
     raw_response: dict
+
+
+def _normalize_phone_number(raw_phone: object) -> str:
+    if raw_phone is None:
+        return ""
+
+    phone = str(raw_phone).strip()
+    if not phone:
+        return ""
+
+    phone = re.sub(r"[^\d+]", "", phone)
+    if not phone:
+        return ""
+
+    if phone.startswith("+"):
+        return "+" + re.sub(r"\D", "", phone)
+
+    digits = re.sub(r"\D", "", phone)
+    if digits:
+        return f"+{digits}"
+
+    return ""
 
 
 def _supersign_headers() -> dict[str, str]:
@@ -165,14 +188,40 @@ def _build_budget_pdf_bytes(*, budget, request=None) -> bytes:
 
 def send_budget_for_signature(*, budget, request=None) -> SuperSignResult:
     customer_email = getattr(budget.customer, "email", "") if budget.customer else ""
-    if not budget.customer or not customer_email:
+    customer_phone = getattr(budget.customer, "phone", "") if budget.customer else ""
+    normalized_phone = _normalize_phone_number(customer_phone)
+
+    if not budget.customer:
+        raise SuperSignError("Orçamento sem cliente vinculado para assinatura")
+
+    if not customer_email:
         raise SuperSignError("Cliente sem email para assinatura")
+
+    signatory = {
+        "id": f"customer-{budget.id}",
+        "name": budget.customer.name,
+        "email": customer_email,
+        "qualification": "Cliente",
+        "signingOrder": 0,
+        "authMethod": "EMAIL",
+    }
+
+    observers: list[dict] = []
+    if normalized_phone:
+        signatory["authMethod"] = "WHATSAPP"
+        signatory["phoneNumber"] = normalized_phone
+        observers.append(
+            {
+                "email": customer_email,
+                "notifyOnSent": True,
+                "notifyOnCompletion": True,
+            }
+        )
 
     pdf_bytes = _build_budget_pdf_bytes(budget=budget, request=request)
     file_name = f"orcamento-{budget.id}.pdf"
 
     document_ref_id = f"budget-{budget.id}"
-    signatory_ref_id = f"customer-{budget.id}"
     create_payload = {
         "folderId": getattr(settings, "SUPERSIGN_FOLDER_ID", ""),
         "title": f"Orcamento #{budget.id}",
@@ -184,17 +233,8 @@ def send_budget_for_signature(*, budget, request=None) -> SuperSignResult:
                 "contentType": "application/pdf",
             }
         ],
-        "signatories": [
-            {
-                "id": signatory_ref_id,
-                "name": budget.customer.name,
-                "email": customer_email,
-                "qualification": "Cliente",
-                "signingOrder": 0,
-                "authMethod": "EMAIL",
-            }
-        ],
-        "observers": [],
+        "signatories": [signatory],
+        "observers": observers,
         "fields": _build_signature_fields(budget),
     }
 

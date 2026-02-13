@@ -37,6 +37,7 @@ class SignatureStatus(models.TextChoices):
     SENDING = "sending", "Enviando"
     SENT = "sent", "Enviado"
     FAILED = "failed", "Falha no Envio"
+    APPROVED = "approved", "Aprovado"
 
 
 class FuelLevel(models.IntegerChoices):
@@ -254,6 +255,10 @@ class Budget(TimeStampedModel):
 
     def mark_signature_failed(self) -> None:
         self.signature_request_status = SignatureStatus.FAILED
+        self.save(update_fields=["signature_request_status"])
+
+    def mark_signature_approved(self) -> None:
+        self.signature_request_status = SignatureStatus.APPROVED
         self.save(update_fields=["signature_request_status"])
 
     @property

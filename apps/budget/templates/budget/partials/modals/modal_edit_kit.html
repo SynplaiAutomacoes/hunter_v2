@@ -152,6 +152,9 @@
 (function() {
     'use strict';
 
+    const kitBudgetId = {{ item.budget_id }};
+    const kitItemId = {{ item.id }};
+
     function formatCurrency(value) {
         const num = parseFloat(value) || 0;
         return new Intl.NumberFormat('pt-BR', {
@@ -186,6 +189,60 @@
             clearTimeout(timeoutId);
             timeoutId = setTimeout(() => fn.apply(this, args), wait);
         };
+    }
+
+    function formatDecimalToInput(value) {
+        const num = parseFloat(value);
+        if (Number.isNaN(num)) return '';
+        return num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    async function syncProductRow(row) {
+        const productId = row.dataset.productId;
+        if (!productId) return;
+
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value;
+        if (!csrfToken) return;
+
+        const formData = new FormData();
+        formData.append('quantity', String(parseInt(getFieldValue(row, 'quantity'), 10) || 0));
+        formData.append('cost', String(getFieldValue(row, 'cost') || '0'));
+        formData.append('price', String(getFieldValue(row, 'price') || '0'));
+        formData.append('shipping', String(getFieldValue(row, 'shipping') || '0'));
+        formData.append('csrfmiddlewaretoken', csrfToken);
+
+        try {
+            const response = await fetch(`/budget/${kitBudgetId}/kit/${kitItemId}/product/${productId}/calculate/`, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            });
+
+            if (!response.ok) {
+                return;
+            }
+
+            const data = await response.json();
+            const costInput = getFieldInput(row, 'cost');
+            const priceInput = getFieldInput(row, 'price');
+            const shippingInput = getFieldInput(row, 'shipping');
+            if (costInput) costInput.value = formatDecimalToInput(data.cost);
+            if (priceInput) priceInput.value = formatDecimalToInput(data.price);
+            if (shippingInput) shippingInput.value = formatDecimalToInput(data.shipping);
+
+            const quantityInput = getFieldInput(row, 'quantity');
+            if (quantityInput) {
+                calculateProductTotal(quantityInput);
+            }
+
+            if (data.summary_updated) {
+                document.body.dispatchEvent(new CustomEvent('update-summary'));
+            }
+        } catch (error) {
+            console.error('Error syncing product override:', error);
+        }
     }
 
     function normalizeDurationForApi(value) {
@@ -229,6 +286,68 @@
         const total = price * qty;
         row.querySelector('.service-total').textContent = formatCurrency(total);
     };
+
+    async function syncServiceRow(row, changedField) {
+        const serviceId = row.dataset.serviceId;
+        if (!serviceId) return;
+
+        const durationRawValue = getFieldValue(row, 'duration');
+        const normalizedDuration = normalizeDurationForApi(durationRawValue);
+        if (changedField === 'duration' && !normalizedDuration) {
+            return;
+        }
+
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value;
+        if (!csrfToken) return;
+
+        const formData = new FormData();
+        formData.append('duration', normalizedDuration || durationRawValue || '');
+        formData.append('quantity', String(parseInt(getFieldValue(row, 'quantity'), 10) || 0));
+        formData.append('cost', String(getFieldValue(row, 'cost') || '0'));
+        formData.append('price', String(getFieldValue(row, 'price') || '0'));
+        formData.append('changed_field', changedField || '');
+        formData.append('csrfmiddlewaretoken', csrfToken);
+
+        try {
+            const response = await fetch(`/budget/${kitBudgetId}/kit/${kitItemId}/service/${serviceId}/calculate/`, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            });
+
+            if (!response.ok) {
+                return;
+            }
+
+            const data = await response.json();
+            const costInput = getFieldInput(row, 'cost');
+            const priceInput = getFieldInput(row, 'price');
+            if (costInput) costInput.value = formatDecimalToInput(data.cost);
+            if (priceInput) priceInput.value = formatDecimalToInput(data.price);
+
+            const quantityInput = getFieldInput(row, 'quantity');
+            if (quantityInput) {
+                calculateServiceTotal(quantityInput);
+            }
+
+            if (data.summary_updated) {
+                document.body.dispatchEvent(new CustomEvent('update-summary'));
+            }
+
+            if (changedField === 'duration' && data.workshop_cost_missing) {
+                document.body.dispatchEvent(new CustomEvent('showToast', {
+                    detail: {
+                        type: 'warning',
+                        message: 'Custo da oficina não cadastrado para o mês atual. Valores de serviço não foram recalculados automaticamente.',
+                    },
+                }));
+            }
+        } catch (error) {
+            console.error('Error calculating kit service values:', error);
+        }
+    }
 
     window.saveKitChanges = function(budgetId, itemId) {
         const products = [];
@@ -280,33 +399,46 @@
 
     function bindRowEvents() {
         document.querySelectorAll('#products-table-body tr[data-product-id]').forEach(row => {
-            const debouncedProductTotal = debounce(() => {
+            const debouncedProductSync = debounce(() => {
                 const quantityInput = getFieldInput(row, 'quantity');
                 if (quantityInput) {
                     calculateProductTotal(quantityInput);
                 }
+                syncProductRow(row);
             }, 100);
 
             ['quantity', 'price', 'shipping'].forEach(fieldName => {
                 const input = getFieldInput(row, fieldName);
                 if (!input) return;
-                input.addEventListener('input', debouncedProductTotal);
+                input.addEventListener('input', debouncedProductSync);
             });
+
+            const costInput = getFieldInput(row, 'cost');
+            if (costInput) {
+                costInput.addEventListener('input', debouncedProductSync);
+            }
         });
 
         document.querySelectorAll('#services-table-body tr[data-service-id]').forEach(row => {
-            const debouncedServiceTotal = debounce(() => {
+            const debouncedServiceSync = debounce((changedField) => {
                 const quantityInput = getFieldInput(row, 'quantity');
                 if (quantityInput) {
                     calculateServiceTotal(quantityInput);
                 }
-            }, 100);
+                syncServiceRow(row, changedField);
+            }, 150);
 
-            ['quantity', 'price'].forEach(fieldName => {
+            ['quantity', 'price', 'cost'].forEach(fieldName => {
                 const input = getFieldInput(row, fieldName);
                 if (!input) return;
-                input.addEventListener('input', debouncedServiceTotal);
+                input.addEventListener('input', () => debouncedServiceSync(fieldName));
             });
+
+            const durationInput = getFieldInput(row, 'duration');
+            if (durationInput) {
+                durationInput.addEventListener('input', () => debouncedServiceSync('duration'));
+                durationInput.addEventListener('change', () => debouncedServiceSync('duration'));
+            }
 
         });
     }

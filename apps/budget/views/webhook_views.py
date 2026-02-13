@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Any
 
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
@@ -9,56 +10,114 @@ from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 
-from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
-from apps.budget.models import Budget, BudgetStatus
+from apps.budget.models import Budget, BudgetStatus, SignatureStatus
 
 
 logger = logging.getLogger(__name__)
 
 
-def _extract_event(payload: dict) -> str:
-    for key in ("event", "type", "name"):
-        value = payload.get(key)
-        if isinstance(value, str):
-            return value.upper()
+def _find_first_string(payload: dict[str, Any], keys: tuple[str, ...]) -> str:
+    queue: list[Any] = [payload]
+    while queue:
+        current = queue.pop(0)
+        if isinstance(current, dict):
+            for key, value in current.items():
+                if key in keys and isinstance(value, str) and value.strip():
+                    return value.strip()
+                if isinstance(value, (dict, list)):
+                    queue.append(value)
+        elif isinstance(current, list):
+            queue.extend(current)
     return ""
 
 
-def _extract_envelope_id(payload: dict) -> str:
-    direct = payload.get("envelopeId") or payload.get("envelope_id")
-    if isinstance(direct, str):
+def _normalize_event_name(raw_event: str) -> str:
+    normalized = raw_event.strip().upper().replace(".", "_").replace("-", "_")
+    alias_map = {
+        "ENVELOPE_COMPLETED": "ENVELOPE_COMPLETED",
+        "DOCUMENT_COMPLETED": "ENVELOPE_COMPLETED",
+        "ENVELOPE_COMPLETE": "ENVELOPE_COMPLETED",
+    }
+    return alias_map.get(normalized, normalized)
+
+
+def _extract_event(payload: dict[str, Any]) -> str:
+    raw_event = _find_first_string(payload, ("event", "eventType", "type", "name", "status"))
+    if not raw_event:
+        return ""
+    return _normalize_event_name(raw_event)
+
+
+def _extract_envelope_id(payload: dict[str, Any]) -> str:
+    direct = _find_first_string(payload, ("envelopeId", "envelope_id", "envelopeID"))
+    if direct:
         return direct
 
-    data = payload.get("data")
-    if isinstance(data, dict):
-        nested = data.get("envelopeId") or data.get("envelope_id")
-        if isinstance(nested, str):
-            return nested
-
+    queue: list[Any] = [payload]
+    while queue:
+        current = queue.pop(0)
+        if isinstance(current, dict):
+            envelope_obj = current.get("envelope")
+            if isinstance(envelope_obj, dict):
+                envelope_id = envelope_obj.get("id")
+                if isinstance(envelope_id, str) and envelope_id.strip():
+                    return envelope_id.strip()
+            for value in current.values():
+                if isinstance(value, (dict, list)):
+                    queue.append(value)
+        elif isinstance(current, list):
+            queue.extend(current)
     return ""
 
 
 @method_decorator(csrf_exempt, name="dispatch")
 class SuperSignWebhookView(View):
+    def get(self, request):
+        logger.info("Webhook ping recebido")
+        return JsonResponse({"ok": True, "message": "webhook online"}, status=200)
+
     def post(self, request):
+        logger.info("SuperSign webhook recebido", extra={"content_type": request.content_type})
+
         auth_header = request.headers.get("Authorization", "")
         expected_api_key = getattr(settings, "SUPERSIGN_API_KEY", "")
         expected_auth = f"Bearer {expected_api_key}" if expected_api_key else ""
-        if not expected_auth or auth_header != expected_auth:
+
+        if expected_auth and auth_header and auth_header != expected_auth:
+            logger.warning("Webhook rejeitado por autorizacao invalida")
             return JsonResponse({"error": "invalid_authorization"}, status=403)
+
+        if expected_auth and not auth_header:
+            logger.warning("Webhook sem header Authorization; seguindo validacao por x-account-id")
 
         account_id = request.headers.get("x-account-id", "")
         expected_account_id = getattr(settings, "SUPERSIGN_ACCOUNT_ID", "")
         if expected_account_id and account_id and account_id != expected_account_id:
+            logger.warning(
+                "Webhook rejeitado por conta invalida",
+                extra={"received_account_id": account_id, "expected_account_id": expected_account_id},
+            )
             return JsonResponse({"error": "invalid_account"}, status=403)
+
+        if expected_account_id and not account_id:
+            logger.warning("Webhook sem header x-account-id")
 
         try:
             payload = json.loads(request.body or b"{}")
         except json.JSONDecodeError:
+            logger.warning("Webhook com payload JSON invalido")
             return JsonResponse({"error": "invalid_json"}, status=400)
 
         event_name = _extract_event(payload)
         envelope_id = _extract_envelope_id(payload)
+        logger.info(
+            "Webhook parseado",
+            extra={
+                "event": event_name,
+                "envelope_id": envelope_id,
+                "payload_keys": list(payload.keys()) if isinstance(payload, dict) else [],
+            },
+        )
 
         if not envelope_id:
             logger.warning("Webhook recebido sem envelope_id", extra={"event": event_name})
@@ -74,13 +133,14 @@ class SuperSignWebhookView(View):
             return HttpResponse(status=200)
 
         if budget.status == BudgetStatus.APPROVED:
+            logger.info("Webhook ignorado: budget ja aprovado", extra={"budget_id": budget.pk, "envelope_id": envelope_id})
             return HttpResponse(status=200)
 
         try:
-            approve_budget_with_stock(budget=budget, user=None)
-        except BudgetApprovalError as exc:
-            logger.warning("Falha de regra ao aprovar por webhook", extra={"budget_id": budget.pk, "error": str(exc)})
-            return JsonResponse({"error": str(exc)}, status=409)
+            budget.status = BudgetStatus.APPROVED
+            budget.signature_request_status = SignatureStatus.APPROVED
+            budget.save(update_fields=["status", "signature_request_status"])
+            logger.info("Budget aprovado automaticamente por webhook", extra={"budget_id": budget.pk, "envelope_id": envelope_id})
         except Exception:
             logger.exception("Erro interno ao processar webhook", extra={"budget_id": budget.pk, "envelope_id": envelope_id})
             return HttpResponse(status=500)
