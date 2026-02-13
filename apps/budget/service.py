@@ -8,6 +8,16 @@ from django.urls import reverse
 from apps.core.pdf_playwright import render_pdf_from_url
 
 
+PRODUCTS_PER_PAGE = 4
+SERVICES_PER_PAGE = 2
+SIGNATURE_POSITION = {
+    "x": 170.14,
+    "y": 689.69,
+    "width": 254.25,
+    "height": 30.4,
+}
+
+
 def build_signature_payload(budget) -> dict:
     return {
         "budget_id": budget.id,
@@ -56,6 +66,34 @@ class SuperSignResult:
     raw_response: dict
 
 
+def _calculate_pdf_total_pages(budget) -> int:
+    products_count = budget.items.filter(product__isnull=False).count()
+    services_count = budget.items.filter(service__isnull=False).count()
+
+    products_pages = (products_count + PRODUCTS_PER_PAGE - 1) // PRODUCTS_PER_PAGE
+    services_pages = (services_count + SERVICES_PER_PAGE - 1) // SERVICES_PER_PAGE
+
+    return max(products_pages, services_pages, 1)
+
+
+def _build_signature_fields(budget) -> list[dict]:
+    total_pages = _calculate_pdf_total_pages(budget)
+    document_ref_id = f"budget-{budget.id}"
+    signatory_ref_id = f"customer-{budget.id}"
+
+    return [
+        {
+            "type": "SIGNATURE",
+            "documentId": document_ref_id,
+            "signatoryId": signatory_ref_id,
+            "pageNumber": page_number,
+            "position": SIGNATURE_POSITION,
+            "properties": {},
+        }
+        for page_number in range(1, total_pages + 1)
+    ]
+
+
 def _build_budget_pdf_bytes(*, budget, request=None) -> bytes:
     preview_url = build_signature_preview_url(budget=budget, request=request)
 
@@ -73,20 +111,22 @@ def send_budget_for_signature(*, budget, request=None) -> SuperSignResult:
     pdf_bytes = _build_budget_pdf_bytes(budget=budget, request=request)
     file_name = f"orcamento-{budget.id}.pdf"
 
+    document_ref_id = f"budget-{budget.id}"
+    signatory_ref_id = f"customer-{budget.id}"
     create_payload = {
         "folderId": getattr(settings, "SUPERSIGN_FOLDER_ID", ""),
         "title": f"Orcamento #{budget.id}",
         "message": "Segue orcamento para assinatura.",
         "documents": [
             {
-                "id": f"budget-{budget.id}",
+                "id": document_ref_id,
                 "fileName": file_name,
                 "contentType": "application/pdf",
             }
         ],
         "signatories": [
             {
-                "id": f"customer-{budget.id}",
+                "id": signatory_ref_id,
                 "name": budget.customer.name,
                 "email": customer_email,
                 "qualification": "Cliente",
@@ -95,7 +135,7 @@ def send_budget_for_signature(*, budget, request=None) -> SuperSignResult:
             }
         ],
         "observers": [],
-        "fields": [],
+        "fields": _build_signature_fields(budget),
     }
 
     headers = {

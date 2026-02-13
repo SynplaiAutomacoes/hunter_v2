@@ -6,16 +6,28 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <title>Orçamento de O.S.</title>
     <style>
-        @page { size: A4; margin: 0; }
+        @page { size: A4; margin: 5mm; }
+
+        body {
+            margin: 0;
+            padding: 0;
+        }
+
+        .pdf-content {
+            width: 100%;
+            box-sizing: border-box;
+            break-inside: avoid;
+        }
+
         @media print {
             body { background-color: white !important; padding: 0 !important; }
             .pdf-content { border: none !important; box-shadow: none !important; }
         }
     </style>
 </head>
-<body class="bg-gray-100 p-5 font-sans text-[11px] leading-tight">
+<body class="bg-gray-100 font-sans text-[11px] leading-tight">
     {% for page in pages %}
-    <div class="pdf-content max-w-[210mm] mx-auto bg-white border border-gray-200 rounded-lg shadow-sm p-4 text-[13px]">
+    <div class="pdf-content bg-white border border-gray-200 rounded-lg shadow-sm p-4 text-[13px]">
 
         <div class="flex justify-between items-start p-4 border-b border-gray-200">
             <div>
@@ -81,8 +93,14 @@
                         <td class="p-2 text-right">{{ p.product_selling_price }}</td>
                         <td class="p-2 text-right font-medium">{{ p.total_price }}</td>
                     </tr>
-                    {% empty %}
-                    <tr><td colspan="4" class="p-4 text-center text-gray-400">Nenhum produto listado.</td></tr>
+                    {% endfor %}
+                    {% for _ in page.empty_product_rows %}
+                    <tr class="border-b border-gray-100">
+                        <td class="p-2">&nbsp;</td>
+                        <td class="p-2 text-center">&nbsp;</td>
+                        <td class="p-2 text-right">&nbsp;</td>
+                        <td class="p-2 text-right">&nbsp;</td>
+                    </tr>
                     {% endfor %}
                     <tr class="bg-gray-50 border-t-2 border-gray-200">
                         <td colspan="4" class="p-2 text-right font-bold">TOTAL DAS PEÇAS ACIMA: {{ total_produtos }}</td>
@@ -104,8 +122,11 @@
                     <tr class="border-b border-gray-100">
                         <td class="p-2 font-medium">{{ s.description }}</td>
                     </tr>
-                    {% empty %}
-                    <tr><td colspan="1" class="p-4 text-center text-gray-400">Nenhum serviço nesta página.</td></tr>
+                    {% endfor %}
+                    {% for _ in page.empty_service_rows %}
+                    <tr class="border-b border-gray-100">
+                        <td class="p-2">&nbsp;</td>
+                    </tr>
                     {% endfor %}
                     <tr class="bg-gray-50 border-t-2 border-gray-200">
                         <td class="p-2 text-right font-bold">TOTAL DOS SERVIÇOS ACIMA: {{ total_servicos }}</td>
