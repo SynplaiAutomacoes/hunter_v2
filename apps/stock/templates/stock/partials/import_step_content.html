@@ -1,8 +1,8 @@
 {% load crispy_forms_tags %}
 
 <div id="import-step-wrapper" class="w-full"
-     hx-get="{{ request.path }}?step={{ current_step }}"
-     hx-trigger="productCreated from:body"
+     hx-get="{{ request.path }}?step={{ current_step }}{% if object.pk %}&pk={{ object.pk }}{% endif %}"
+     hx-trigger="productCreated from:body, sefaz-list-refresh from:body"
      hx-target="#step-container"
      hx-indicator="#loading-spinner"
      hx-swap="innerHTML">

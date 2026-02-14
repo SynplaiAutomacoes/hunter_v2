@@ -33,9 +33,7 @@ class ImportStep1Form(forms.ModelForm):
     class Meta:
         model = StockImport
         fields = ["method"]
-        widgets = {
-            "method": SelectInput(choices=StockImport.ImportMethods.choices, attrs={"x-model": "method"})
-        }
+        widgets = {"method": SelectInput(choices=StockImport.ImportMethods.choices, attrs={"x-model": "method"})}
 
     def __init__(self, *args, **kwargs):
         self.workshop = kwargs.pop("workshop", None)
@@ -87,7 +85,7 @@ class ImportStep1Form(forms.ModelForm):
             obj.supplier_cnpj = data["supplier_cnpj"]
             obj.supplier_name = data["supplier_name"]
             obj.items_data = data["items"]
-            obj.payments_data = data['payments']
+            obj.payments_data = data["payments"]
 
         if commit:
             obj.save()
@@ -106,11 +104,11 @@ class ImportStep1Form(forms.ModelForm):
                 try:
                     nf_data = NFParser.parse_nfe_xml_to_dict(xml_file)
                 except Exception:
-                    self.add_error("xml_file", f"Erro ao ler o arquivo XML.")
+                    self.add_error("xml_file", "Erro ao ler o arquivo XML.")
 
         if method == "KEY":
             key = cleaned_data.get("access_key")
-            nf_key = re.sub(r"\D", "", key) if key else ''
+            nf_key = re.sub(r"\D", "", key) if key else ""
 
             if len(nf_key) != 44:
                 self.add_error("access_key", "Insira uma chave válida de 44 dígitos.")
@@ -224,10 +222,9 @@ class ImportStepItemsForm(forms.ModelForm):
                         <div class="text-[10px] opacity-50 font-mono">{ref_xml}</div>
                     </td>
                     <td class="text-center">{qtd}</td>
-                    <td class="text-right font-semibold whitespace-nowrap">{Money(valor_unit, 'BRL')}</td>
-                    <td class="text-right font-bold whitespace-nowrap">{Money(valor_total, 'BRL')}</td>
+                    <td class="text-right font-semibold whitespace-nowrap">{Money(valor_unit, "BRL")}</td>
+                    <td class="text-right font-bold whitespace-nowrap">{Money(valor_total, "BRL")}</td>
                 </tr>"""
-
 
             product_id = item.get("linked_product_id")
             product = Product.objects.filter(id=product_id, workshop=self.workshop).first() if product_id else None
@@ -336,14 +333,8 @@ class ImportStepPaymentForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
 
         # Cálculos Financeiros
-        valor_total = sum(
-            Decimal(str(item.get("valor", 0))) * Decimal(str(item.get("qtd", 0)))
-            for item in self.import_items
-        )
-        valor_pago = sum(
-            Decimal(str(p.get("total_paid", 0)))
-            for p in self.import_payments
-        )
+        valor_total = sum(Decimal(str(item.get("valor", 0))) * Decimal(str(item.get("qtd", 0))) for item in self.import_items)
+        valor_pago = sum(Decimal(str(p.get("total_paid", 0))) for p in self.import_payments)
         valor_pendente = valor_total - valor_pago
 
         resume = {
@@ -353,19 +344,16 @@ class ImportStepPaymentForm(forms.ModelForm):
         }
 
         for field_name, value in resume.items():
-            money_obj = Money(value, 'BRL')
+            money_obj = Money(value, "BRL")
             self.initial[field_name] = money_obj
 
             if self.is_bound:
-                 self.data._mutable = True
-                 self.data[f"{field_name}_0"] = str(value)
-                 self.data[f"{field_name}_1"] = 'BRL'
-                 self.data._mutable = False
+                self.data._mutable = True
+                self.data[f"{field_name}_0"] = str(value)
+                self.data[f"{field_name}_1"] = "BRL"
+                self.data._mutable = False
 
-            self.fields[field_name].widget.attrs.update({
-                "readonly": True,
-                "class": "cursor-not-allowed opacity-75"
-            })
+            self.fields[field_name].widget.attrs.update({"readonly": True, "class": "cursor-not-allowed opacity-75"})
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -407,9 +395,9 @@ class ImportStepPaymentForm(forms.ModelForm):
         for p in self.import_payments:
             payment_date = p.get("payment_date", "")
             try:
-                date_obj = datetime.strptime(payment_date, '%Y-%m-%d')
-                payment_date = date_obj.strftime('%d/%m/%Y')
-            except:
+                date_obj = datetime.strptime(payment_date, "%Y-%m-%d")
+                payment_date = date_obj.strftime("%d/%m/%Y")
+            except ValueError:
                 continue
             delete_url = reverse("stock:remove_payment_session", kwargs={"payment_id": p["id"]})
             delete_url += f"?pk={self.instance.pk}"
@@ -417,7 +405,7 @@ class ImportStepPaymentForm(forms.ModelForm):
                     <td>{p["method_display"]}</td>
                     <td>{p["installments"]}x</td>
                     <td>{payment_date}x</td>
-                    <td class="font-bold">{Money(p["total_paid"], 'BRL')}</td>
+                    <td class="font-bold">{Money(p["total_paid"], "BRL")}</td>
                     <td class="text-center">
                         <button type="button" 
                                 hx-post="{delete_url}" 
@@ -464,12 +452,12 @@ class ImportStepSummaryForm(forms.ModelForm):
         rows_html = ""
         for item in self.instance.items_data:
             raw_value = str(item.get("valor", "0.00"))
-            if ',' in raw_value:
-                clean_value = raw_value.replace('.', '').replace(',', '.')
+            if "," in raw_value:
+                clean_value = raw_value.replace(".", "").replace(",", ".")
             else:
                 clean_value = raw_value
-            value = Money(Decimal(clean_value), 'BRL')
-            
+            value = Money(Decimal(clean_value), "BRL")
+
             # Item da nota
             rows_html += f"""<tr>
                         <td class="text-xs" title="{item.get("ref")}">{item.get("ref")}</td>
@@ -477,13 +465,13 @@ class ImportStepSummaryForm(forms.ModelForm):
                         <td class="text-right">{item.get("qtd")}</td>
                         <td class="text-right font-bold">{value}</td>
                     </tr>"""
-            
+
             # Produto vinculado (se existir)
             product_id = item.get("linked_product_id")
             if product_id:
                 product = Product.objects.filter(id=product_id, workshop=self.workshop).first()
                 if product:
-                    stock_qty = product.stock_products.current_quantity if hasattr(product, 'stock_products') else 0
+                    stock_qty = product.stock_products.current_quantity if hasattr(product, "stock_products") else 0
                     rows_html += f"""<tr>
                         <td class="text-xs text-warning" title="Código do Produto Vinculado: {product.code}">{product.code}</td>
                         <td class="max-w-[150px] truncate text-warning" title="Descrição do Produto Vinculado: {product.name}">{product.name}</td>
@@ -492,23 +480,22 @@ class ImportStepSummaryForm(forms.ModelForm):
                     </tr>
                     <tr class="h-5"><td colspan="4"></td></tr>"""
 
-
         payments_html = ""
         total_value = Money(0, "BRL")
         for pay in self.instance.payments_data:
             raw_value = str(pay.get("total_paid", "0.00"))
-            if ',' in raw_value:
-                clean_value = raw_value.replace('.', '').replace(',', '.')
+            if "," in raw_value:
+                clean_value = raw_value.replace(".", "").replace(",", ".")
             else:
                 clean_value = raw_value
-            value = Money(Decimal(clean_value), 'BRL')
+            value = Money(Decimal(clean_value), "BRL")
             total_value += value
             payments_html += f"""<div class="flex justify-between items-center mb-2">
                             <span class="text-sm">{pay.get("method_display", "Boleto")} ({pay.get("installments", 1)}x)</span>
                             <span class="font-bold">{value}</span>
                         </div>"""
 
-        supplier_name = self.instance.supplier_name or 'Não informado'
+        supplier_name = self.instance.supplier_name or "Não informado"
         supplier_cnpj = self.instance.supplier_cnpj or "Não informado"
         nf_number = self.instance.nf_number or "---"
 
@@ -601,7 +588,7 @@ class ImportStepSummaryForm(forms.ModelForm):
             payment_due_date = pay.get("payment_date")
             if isinstance(payment_due_date, str) and payment_due_date:
                 try:
-                    payment_due_date = datetime.strptime(payment_due_date, '%Y-%m-%d')
+                    payment_due_date = datetime.strptime(payment_due_date, "%Y-%m-%d")
                 except ValueError:
                     payment_due_date = timezone.now()
             else:
@@ -610,19 +597,11 @@ class ImportStepSummaryForm(forms.ModelForm):
             total_val = Decimal(str(pay.get("total_paid", 0)))
             installments = int(pay.get("installments", 1))
             first_amount = Decimal(str(pay.get("first_amount", total_val)))
-            remaining_amount = Decimal('0.00')
+            remaining_amount = Decimal("0.00")
             if installments > 1:
                 remaining_amount = (total_val - first_amount) / (installments - 1)
 
-            StockPaymentMethod.objects.create(
-                workshop=workshop,
-                payment_method=pay.get("method", "BOLETO"),
-                installments_count=installments,
-                first_installment_amount=Money(first_amount, 'BRL'),
-                remaining_installments_amount=Money(remaining_amount, 'BRL'),
-                nf_number=instance.nf_number,
-                due_date=payment_due_date
-            )
+            StockPaymentMethod.objects.create(workshop=workshop, payment_method=pay.get("method", "BOLETO"), installments_count=installments, first_installment_amount=Money(first_amount, "BRL"), remaining_installments_amount=Money(remaining_amount, "BRL"), nf_number=instance.nf_number, due_date=payment_due_date)
 
         instance.status = StockImport.ImportStatus.COMPLETED
         if commit:
@@ -652,9 +631,6 @@ class ImportSefazListForm(forms.ModelForm):
         self.import_payments = kwargs.pop("import_payments", [])
         super().__init__(*args, **kwargs)
 
-        if self.workshop and self.workshop.can_search_sefaz:
-            self.update_sefaz_list()
-
         imported_keys = StockImport.objects.filter(workshop=self.workshop).values_list("nf_key", flat=True)
         self.notas = SefazZipCache.objects.filter(workshop=self.workshop)
 
@@ -663,13 +639,19 @@ class ImportSefazListForm(forms.ModelForm):
 
         self.helper = FormHelper()
         self.helper.form_tag = False
-        self.helper.layout = Layout(
-            Field("selected_key", id="id_selected_key"),
-            HTML("{% include 'stock/partials/sefaz_table.html' %}")
-        )
+        self.helper.layout = Layout(Field("selected_key", id="id_selected_key"), HTML("{% include 'stock/partials/sefaz_table.html' %}"))
 
-    def update_sefaz_list(self):
-        """Encapsula a lógica de busca na SEFAZ fornecida"""
+    def update_sefaz_list(self) -> tuple[bool, str]:
+        """Atualiza cache de notas da SEFAZ e retorna (sucesso, mensagem)."""
+        if not self.workshop:
+            return False, "Oficina não identificada para consulta na SEFAZ."
+
+        if not self.workshop.can_search_sefaz:
+            return False, "A busca da SEFAZ foi executada recentemente. Aguarde alguns minutos para atualizar novamente."
+
+        if not self.workshop.pfx_certificate or not self.workshop.certificate_password:
+            return False, "Configure certificado e senha da oficina antes de buscar notas na SEFAZ."
+
         try:
             uf = self.workshop.uf
             certificado = self.workshop.pfx_certificate.path
@@ -683,6 +665,7 @@ class ImportSefazListForm(forms.ModelForm):
             # Parsing do retorno da SEFAZ (simplificado do seu exemplo)
             tree = etree.fromstring(xml_resp.content)
             ns = {"ns": "http://www.portalfiscal.inf.br/nfe"}
+            cached_count = 0
 
             if tree.xpath("//ns:cStat/text()", namespaces=ns)[0] == "138":
                 self.workshop.last_nsu_sefaz = tree.xpath("//ns:ultNSU/text()", namespaces=ns)[0]
@@ -694,30 +677,26 @@ class ImportSefazListForm(forms.ModelForm):
                     tag = etree.QName(nfe_tree).localname
 
                     dados = {}
-                    if tag == 'resNFe':
+                    if tag == "resNFe":
+                        dados = {"key": nfe_tree.get("chNFe"), "nome": nfe_tree.get("xNome"), "cnpj": nfe_tree.get("CNPJ") or nfe_tree.get("CPF"), "valor": nfe_tree.get("vNF"), "data": nfe_tree.get("dhEmi")}
+                    elif tag == "nfeProc":
                         dados = {
-                            'key': nfe_tree.get('chNFe'),
-                            'nome': nfe_tree.get('xNome'),
-                            'cnpj': nfe_tree.get('CNPJ') or nfe_tree.get('CPF'),
-                            'valor': nfe_tree.get('vNF'),
-                            'data': nfe_tree.get('dhEmi')
-                        }
-                    elif tag == 'nfeProc':
-                        dados = {
-                            'key': nfe_tree.xpath('//ns:infNFe/@Id', namespaces=ns)[0].replace('NFe',''),
-                            'nome': nfe_tree.xpath('//ns:emit/ns:xNome/text()', namespaces=ns)[0],
-                            'cnpj': nfe_tree.xpath('//ns:emit/ns:CNPJ/text()', namespaces=ns)[0],
-                            'valor': nfe_tree.xpath('//ns:vNF/text()', namespaces=ns)[0],
-                            'data': nfe_tree.xpath('//ns:dhEmi/text()', namespaces=ns)[0]
+                            "key": nfe_tree.xpath("//ns:infNFe/@Id", namespaces=ns)[0].replace("NFe", ""),
+                            "nome": nfe_tree.xpath("//ns:emit/ns:xNome/text()", namespaces=ns)[0],
+                            "cnpj": nfe_tree.xpath("//ns:emit/ns:CNPJ/text()", namespaces=ns)[0],
+                            "valor": nfe_tree.xpath("//ns:vNF/text()", namespaces=ns)[0],
+                            "data": nfe_tree.xpath("//ns:dhEmi/text()", namespaces=ns)[0],
                         }
 
                     if dados.get("key"):
                         SefazZipCache.objects.update_or_create(key=dados["key"], workshop=self.workshop, defaults={"issuer_name": dados["nome"], "issuer_cnpj": dados["cnpj"], "total_value": dados["valor"], "issue_date": dados["data"]})
+                        cached_count += 1
 
             self.workshop.last_sefaz_search_date = timezone.now()
-            self.workshop.save()
-        except Exception as e:
-            print(f"Erro SEFAZ: {e}")
+            self.workshop.save(update_fields=["last_nsu_sefaz", "last_sefaz_search_date"])
+            return True, f"Lista da SEFAZ atualizada com sucesso ({cached_count} nota(s) processada(s))."
+        except Exception as exc:
+            return False, f"Erro ao atualizar lista da SEFAZ: {exc}"
 
     def save(self, commit=True):
         instance = super().save(commit=False)
@@ -844,8 +823,7 @@ class CatalogGroupQuickForm(forms.ModelForm):
         self.workshop = workshop
         self.helper = FormHelper()
         self.helper.form_tag = False
-        self.helper.layout = Layout(Div(
-            Field("name", wrapper_class="col-span-1"), css_class="grid grid-cols-1 gap-4 items-start"))
+        self.helper.layout = Layout(Div(Field("name", wrapper_class="col-span-1"), css_class="grid grid-cols-1 gap-4 items-start"))
 
     def clean_name(self):
         name = self.cleaned_data.get("name")

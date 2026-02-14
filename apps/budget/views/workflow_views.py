@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Prefetch
 from django.http import HttpResponse, JsonResponse
@@ -88,6 +89,8 @@ class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespon
         context["actions"] = [
             TableActionDefaults.edit("budget:budget_update"),
         ]
+        context["budget_events_enabled"] = getattr(settings, "BUDGET_EVENTS_ENABLED", False)
+        context["budget_poll_interval_seconds"] = getattr(settings, "BUDGET_POLL_INTERVAL_SECONDS", 20)
         return context
 
 

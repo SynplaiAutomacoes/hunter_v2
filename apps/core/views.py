@@ -4,7 +4,6 @@ from typing import Any
 
 from django.http import HttpResponse
 from django.template.response import TemplateResponse
-from django.shortcuts import render
 import requests
 from django.views.generic import TemplateView
 
@@ -55,16 +54,12 @@ class CEPLookupView(TemplateView):
         context = super().get_context_data(**kwargs)
 
         cep = self.request.GET.get("cep", "").replace("-", "").replace(".", "")
-        updates = {
-            "id_logradouro": "",
-            "id_bairro": "",
-            "id_cidade": "",
-            "readonly": True
-        }
+        updates = {"id_logradouro": "", "id_bairro": "", "id_cidade": "", "readonly": True}
 
         if len(cep) == 8:
             try:
-                response = requests.get(f"https://viacep.com.br/ws/{cep}/json/", timeout=5)
+                response = requests.get(f"https://viacep.com.br/ws/{cep}/json/", timeout=1.5)
+                response.raise_for_status()
                 data = response.json()
 
                 if "erro" not in data:
@@ -78,7 +73,7 @@ class CEPLookupView(TemplateView):
                     )
                 else:
                     updates["readonly"] = False
-            except Exception:
+            except (requests.RequestException, ValueError):
                 updates["readonly"] = False
 
         context["updates"] = updates
@@ -87,6 +82,7 @@ class CEPLookupView(TemplateView):
 
 class BaseModalFormView:
     """MixIn para lidar com formulários dentro de Modais via HTMX"""
+
     template_name = "partials/modal_form.html"
 
     def form_valid(self, form):

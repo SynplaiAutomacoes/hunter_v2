@@ -289,6 +289,40 @@ class StockImportUpdateView(StockImportCreateView):
         return redirect(success_url)
 
 
+class RefreshSefazListView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = StockImport
+    workshop_permission_codename = "view_stockimport"
+
+    def post(self, request, pk):
+        stock_import = get_object_or_404(StockImport, pk=pk, workshop=self.workshop)
+        if stock_import.method != StockImport.ImportMethods.SEFAZ:
+            response = HttpResponse(status=204)
+            response["HX-Trigger"] = json.dumps(
+                {
+                    "showToast": {
+                        "type": "warning",
+                        "message": "A atualização da SEFAZ só está disponível quando o método de importação é SEFAZ.",
+                    }
+                }
+            )
+            return response
+
+        form = ImportSefazListForm(instance=stock_import, workshop=self.workshop, request=request)
+        success, message = form.update_sefaz_list()
+
+        response = HttpResponse(status=204)
+        response["HX-Trigger"] = json.dumps(
+            {
+                "showToast": {
+                    "type": "success" if success else "warning",
+                    "message": message,
+                },
+                "sefaz-list-refresh": {},
+            }
+        )
+        return response
+
+
 class StockImportDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResponseMixin, DeleteView):
     model = StockImport
     success_url = reverse_lazy("stock:stock_list")

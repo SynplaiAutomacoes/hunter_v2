@@ -15,15 +15,25 @@
         }
 
         window.__budgetEventsBound = true;
-        const source = new EventSource("{% url 'budget:budget_events' %}");
+        const eventsEnabled = {{ budget_events_enabled|yesno:"true,false" }};
 
-        source.addEventListener('budget-status-changed', function () {
+        if (eventsEnabled) {
+            const source = new EventSource("{% url 'budget:budget_events' %}");
+
+            source.addEventListener('budget-status-changed', function () {
+                document.body.dispatchEvent(new CustomEvent('budget-table-refresh'));
+            });
+
+            window.addEventListener('beforeunload', function () {
+                source.close();
+            });
+            return;
+        }
+
+        const pollIntervalMs = {{ budget_poll_interval_seconds|default:20 }} * 1000;
+        window.setInterval(function () {
             document.body.dispatchEvent(new CustomEvent('budget-table-refresh'));
-        });
-
-        window.addEventListener('beforeunload', function () {
-            source.close();
-        });
+        }, pollIntervalMs);
     })();
 </script>
 {% endblock %}

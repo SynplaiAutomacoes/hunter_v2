@@ -30,6 +30,10 @@ CSRF_TRUSTED_ORIGINS = [o.strip() for o in os.getenv("DJANGO_CSRF_TRUSTED_ORIGIN
 # Utilize o ngrok para desenvolvimento local, se não o webhook não funciona
 APP_BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:8000")
 
+BUDGET_EVENTS_ENABLED = os.getenv("BUDGET_EVENTS_ENABLED", "0").lower() in ("1", "true", "yes")
+BUDGET_POLL_INTERVAL_SECONDS = int(os.getenv("BUDGET_POLL_INTERVAL_SECONDS", "20"))
+BUDGET_SSE_CHECK_INTERVAL_SECONDS = float(os.getenv("BUDGET_SSE_CHECK_INTERVAL_SECONDS", "3"))
+
 SUPERSIGN_BASE_URL = os.getenv("SUPERSIGN_BASE_URL", "https://api.sign.supersign.com.br")
 SUPERSIGN_ACCOUNT_ID = os.getenv("SUPERSIGN_ACCOUNT_ID", "")
 SUPERSIGN_API_KEY = os.getenv("SUPERSIGN_API_KEY", "")
