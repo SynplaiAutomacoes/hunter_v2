@@ -21,12 +21,15 @@ class WorkshopScopedMixin:
     def dispatch(self, request, *args, **kwargs):
         self.workshop = get_active_workshop_or_404(request)
 
+        model = getattr(self, "model", None)
         model_name = self.workshop_permission_model
         if model_name is None:
-            model = getattr(self, "model", None)
             if model is None:
                 raise ImproperlyConfigured("Defina `model` na view ou `workshop_permission_model` no mixin.")
             model_name = model._meta.model_name
+
+        if self.workshop_permission_app_label is None and model is None:
+            raise ImproperlyConfigured("Defina `model` na view ou `workshop_permission_app_label` no mixin.")
 
         if isinstance(self, (ListView, DetailView)):
             action = "view"
@@ -42,12 +45,19 @@ class WorkshopScopedMixin:
         if action is None and self.workshop_permission_codename is None:
             raise ImproperlyConfigured("Defina `workshop_permission_codename` na view.")
 
+        app_label = self.workshop_permission_app_label
+        if app_label is None and model is not None:
+            app_label = model._meta.app_label
+        if app_label is None:
+            raise ImproperlyConfigured("Defina `workshop_permission_app_label` no mixin.")
+
         if not has_workshop_perm(
             user=request.user,
             workshop=self.workshop,
-            app_label=self.workshop_permission_app_label or model._meta.app_label,
+            app_label=app_label,
             model=model_name,
             codename=self.workshop_permission_codename or f"{action}_{model_name}",
+            request=request,
         ):
             raise PermissionDenied
 

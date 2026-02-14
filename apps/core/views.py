@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import logging
+import time
 from typing import Any
 
 from django.http import HttpResponse
 from django.template.response import TemplateResponse
 import requests
 from django.views.generic import TemplateView
+
+
+external_calls_logger = logging.getLogger("performance.external")
 
 
 class HtmxTemplateResponseMixin:
@@ -57,6 +62,7 @@ class CEPLookupView(TemplateView):
         updates = {"id_logradouro": "", "id_bairro": "", "id_cidade": "", "readonly": True}
 
         if len(cep) == 8:
+            started_at = time.perf_counter()
             try:
                 response = requests.get(f"https://viacep.com.br/ws/{cep}/json/", timeout=1.5)
                 response.raise_for_status()
@@ -75,6 +81,9 @@ class CEPLookupView(TemplateView):
                     updates["readonly"] = False
             except (requests.RequestException, ValueError):
                 updates["readonly"] = False
+            finally:
+                duration_ms = (time.perf_counter() - started_at) * 1000
+                external_calls_logger.warning("external_call service=viacep_lookup duration_ms=%.2f cep=%s", duration_ms, cep)
 
         context["updates"] = updates
         return context

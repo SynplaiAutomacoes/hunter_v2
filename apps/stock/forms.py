@@ -1,8 +1,11 @@
 import re
+import logging
+import time
 from datetime import datetime
 from decimal import Decimal
 
 from django import forms
+from django.conf import settings
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, HTML
 from django.db import transaction
@@ -24,6 +27,9 @@ from apps.stock.models import StockPaymentMethod, StockImport, StockProduct, Sto
 from apps.stock.utils import NFParser
 from apps.suppliers.models import Supplier
 from apps.workshops.models.workshops import Workshop
+
+
+external_calls_logger = logging.getLogger("performance.external")
 
 
 class ImportStep1Form(forms.ModelForm):
@@ -652,6 +658,7 @@ class ImportSefazListForm(forms.ModelForm):
         if not self.workshop.pfx_certificate or not self.workshop.certificate_password:
             return False, "Configure certificado e senha da oficina antes de buscar notas na SEFAZ."
 
+        started_at = time.perf_counter()
         try:
             uf = self.workshop.uf
             certificado = self.workshop.pfx_certificate.path
@@ -694,8 +701,16 @@ class ImportSefazListForm(forms.ModelForm):
 
             self.workshop.last_sefaz_search_date = timezone.now()
             self.workshop.save(update_fields=["last_nsu_sefaz", "last_sefaz_search_date"])
+
+            if settings.PERF_LOGGING_ENABLED:
+                elapsed_ms = (time.perf_counter() - started_at) * 1000
+                external_calls_logger.warning("external_call service=sefaz_consulta_distribuicao duration_ms=%.2f workshop_id=%s success=true", elapsed_ms, self.workshop.id)
+
             return True, f"Lista da SEFAZ atualizada com sucesso ({cached_count} nota(s) processada(s))."
         except Exception as exc:
+            if settings.PERF_LOGGING_ENABLED:
+                elapsed_ms = (time.perf_counter() - started_at) * 1000
+                external_calls_logger.warning("external_call service=sefaz_consulta_distribuicao duration_ms=%.2f workshop_id=%s success=false", elapsed_ms, self.workshop.id)
             return False, f"Erro ao atualizar lista da SEFAZ: {exc}"
 
     def save(self, commit=True):
