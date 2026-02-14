@@ -18,8 +18,8 @@ from apps.core.widgets import CalendarDateInput, MoneyInput, NumberInput, Select
 from apps.customer.models import Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
 
-from .shared import MAX_BUDGET_IMAGES, _render_budget_items_rows, _validate_uploaded_images
-from .widgets import MultipleFileInput
+from .shared import MAX_BUDGET_IMAGES, _get_budget_with_prefetched_items, _render_budget_items_rows, _validate_uploaded_images
+from .widgets import MultipleFileField, MultipleFileInput
 
 
 SLOT_IMAGE_TYPES = [
@@ -54,6 +54,185 @@ SLOT_PLACEHOLDER_PATHS = {
     BudgetImageType.CHASSI: "image/chassi.png",
     BudgetImageType.MOTOR: "image/motor.png",
 }
+
+
+def _build_step3_slot_fallback_html(slot_placeholder_urls):
+    slots_html = []
+
+    principal = SLOT_LAYOUT_CONFIG[0]
+    principal_src = slot_placeholder_urls[principal["type"]]
+    slots_html.append(
+        f"""
+        <div class="mb-4">
+            <div class="relative border-2 border-dashed border-gray-300 rounded-lg p-4 bg-gray-50 hover:bg-gray-100 hover:border-primary transition-all cursor-pointer" 
+                 id="slot-{principal["type"]}"
+                 onclick="document.getElementById('file-input-{principal["type"]}').click()">
+                <div class="flex flex-col items-center justify-center h-48">
+                    <img src="{principal_src}" alt="Placeholder {principal["label"]}" class="w-full h-32 object-contain rounded mb-2 opacity-40">
+                    <p class="text-center text-sm font-semibold text-gray-600">{principal["label"]}</p>
+                    <p class="text-center text-xs text-gray-400 mt-1">Clique para adicionar</p>
+                </div>
+                <input type="file" id="file-input-{principal["type"]}" name="image_{principal["type"]}" accept="image/*" class="hidden" onchange="previewSlotImage('{principal["type"]}', this)">
+            </div>
+        </div>
+        """
+    )
+
+    slots_html.append('<div class="grid grid-cols-2 gap-4 mb-4">')
+    for slot in SLOT_LAYOUT_CONFIG[1:3]:
+        placeholder_src = slot_placeholder_urls[slot["type"]]
+        slots_html.append(
+            f"""
+            <div class="relative border-2 border-dashed border-gray-300 rounded-lg p-3 bg-gray-50 hover:bg-gray-100 hover:border-primary transition-all cursor-pointer" 
+                 id="slot-{slot["type"]}"
+                 onclick="document.getElementById('file-input-{slot["type"]}').click()">
+                <div class="flex flex-col items-center justify-center h-32">
+                    <img src="{placeholder_src}" alt="Placeholder {slot["label"]}" class="w-full h-16 object-contain rounded mb-1 opacity-40">
+                    <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
+                    <p class="text-center text-xs text-gray-400">Clique para adicionar</p>
+                </div>
+                <input type="file" id="file-input-{slot["type"]}" name="image_{slot["type"]}" accept="image/*" class="hidden" onchange="previewSlotImage('{slot["type"]}', this)">
+            </div>
+            """
+        )
+    slots_html.append("</div>")
+
+    slots_html.append('<div class="grid grid-cols-2 gap-4 mb-4">')
+    for slot in SLOT_LAYOUT_CONFIG[3:5]:
+        placeholder_src = slot_placeholder_urls[slot["type"]]
+        slots_html.append(
+            f"""
+            <div class="relative border-2 border-dashed border-gray-300 rounded-lg p-3 bg-gray-50 hover:bg-gray-100 hover:border-primary transition-all cursor-pointer" 
+                 id="slot-{slot["type"]}"
+                 onclick="document.getElementById('file-input-{slot["type"]}').click()">
+                <div class="flex flex-col items-center justify-center h-32">
+                    <img src="{placeholder_src}" alt="Placeholder {slot["label"]}" class="w-full h-16 object-contain rounded mb-1 opacity-40">
+                    <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
+                    <p class="text-center text-xs text-gray-400">Clique para adicionar</p>
+                </div>
+                <input type="file" id="file-input-{slot["type"]}" name="image_{slot["type"]}" accept="image/*" class="hidden" onchange="previewSlotImage('{slot["type"]}', this)">
+            </div>
+            """
+        )
+    slots_html.append("</div>")
+
+    for slot in SLOT_LAYOUT_CONFIG[5:]:
+        placeholder_src = slot_placeholder_urls[slot["type"]]
+        slots_html.append(
+            f"""
+            <div class="mb-4">
+                <div class="relative border-2 border-dashed border-gray-300 rounded-lg p-4 bg-gray-50 hover:bg-gray-100 hover:border-primary transition-all cursor-pointer" 
+                     id="slot-{slot["type"]}"
+                     onclick="document.getElementById('file-input-{slot["type"]}').click()">
+                    <div class="flex flex-col items-center justify-center h-40">
+                        <img src="{placeholder_src}" alt="Placeholder {slot["label"]}" class="w-full h-24 object-contain rounded mb-2 opacity-40">
+                        <p class="text-center text-sm font-semibold text-gray-600">{slot["label"]}</p>
+                        <p class="text-center text-xs text-gray-400 mt-1">Clique para adicionar</p>
+                    </div>
+                    <input type="file" id="file-input-{slot["type"]}" name="image_{slot["type"]}" accept="image/*" class="hidden" onchange="previewSlotImage('{slot["type"]}', this)">
+                </div>
+            </div>
+            """
+        )
+
+    return "".join(slots_html)
+
+
+def _build_step3_images_initial_html(budget, slot_placeholder_urls):
+    images_by_type = {}
+    additional_images = []
+
+    if budget and getattr(budget, "pk", None):
+        for existing_image in budget.ordered_images:
+            if existing_image.image_type in SLOT_IMAGE_TYPES and existing_image.content and existing_image.image_type not in images_by_type:
+                images_by_type[existing_image.image_type] = existing_image
+            elif existing_image.content:
+                additional_images.append(existing_image)
+
+    def render_slot(slot):
+        slot_type = slot["type"]
+        slot_label = slot["label"]
+        slot_image = images_by_type.get(slot_type)
+
+        is_main = slot_type == BudgetImageType.PRINCIPAL
+        is_bottom_full = slot_type in {BudgetImageType.PAINEL, BudgetImageType.CHASSI, BudgetImageType.MOTOR}
+
+        padding = "p-4" if (is_main or is_bottom_full) else "p-3"
+        height = "h-48" if is_main else ("h-40" if is_bottom_full else "h-32")
+        empty_img_height = "h-32" if is_main else ("h-24" if is_bottom_full else "h-16")
+
+        if slot_image and slot_image.content:
+            img_data = base64.b64encode(slot_image.content).decode("utf-8")
+            img_src = f"data:{slot_image.content_type or 'image/jpeg'};base64,{img_data}"
+            return f"""
+                <div class="mb-4">
+                    <div class="relative border-2 border-gray-300 rounded-lg {padding} bg-white hover:border-primary transition-colors cursor-pointer group" 
+                         id="slot-{slot_type}"
+                         onclick="document.getElementById('file-input-{slot_type}').click()">
+                        <img src="{img_src}" alt="{slot_label}" class="w-full {height} object-contain rounded mb-2">
+                        <p class="text-center text-sm font-semibold text-gray-600">{slot_label}</p>
+                        <input type="file" id="file-input-{slot_type}" name="image_{slot_type}" accept="image/*" class="hidden" onchange="previewSlotImage('{slot_type}', this)">
+                        <input type="hidden" id="delete-slot-{slot_type}" name="slot_to_delete" value="">
+                        <button type="button" 
+                                onclick="event.stopPropagation(); deleteSlotImage('{slot_type}', '{slot_image.id}')"
+                                class="absolute top-2 right-2 btn btn-xs btn-error gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <span class="material-icons text-xs">delete</span>
+                        </button>
+                    </div>
+                </div>
+            """
+
+        placeholder_src = slot_placeholder_urls[slot_type]
+        hint_margin = " mt-1" if (is_main or is_bottom_full) else ""
+        return f"""
+            <div class="mb-4">
+                <div class="relative border-2 border-dashed border-gray-300 rounded-lg {padding} bg-gray-50 hover:bg-gray-100 hover:border-primary transition-all cursor-pointer" 
+                     id="slot-{slot_type}"
+                     onclick="document.getElementById('file-input-{slot_type}').click()">
+                    <div class="flex flex-col items-center justify-center {height}">
+                        <img src="{placeholder_src}" alt="Placeholder {slot_label}" class="w-full {empty_img_height} object-contain rounded mb-1 opacity-40">
+                        <p class="text-center text-sm font-semibold text-gray-600">{slot_label}</p>
+                        <p class="text-center text-xs text-gray-400{hint_margin}">Clique para adicionar</p>
+                    </div>
+                    <input type="file" id="file-input-{slot_type}" name="image_{slot_type}" accept="image/*" class="hidden" onchange="previewSlotImage('{slot_type}', this)">
+                </div>
+            </div>
+        """
+
+    slots_html = [render_slot(SLOT_LAYOUT_CONFIG[0])]
+    slots_html.append('<div class="grid grid-cols-2 gap-4 mb-4">')
+    slots_html.append(render_slot(SLOT_LAYOUT_CONFIG[1]).replace('class="mb-4"', 'class="mb-0"', 1))
+    slots_html.append(render_slot(SLOT_LAYOUT_CONFIG[2]).replace('class="mb-4"', 'class="mb-0"', 1))
+    slots_html.append("</div>")
+    slots_html.append('<div class="grid grid-cols-2 gap-4 mb-4">')
+    slots_html.append(render_slot(SLOT_LAYOUT_CONFIG[3]).replace('class="mb-4"', 'class="mb-0"', 1))
+    slots_html.append(render_slot(SLOT_LAYOUT_CONFIG[4]).replace('class="mb-4"', 'class="mb-0"', 1))
+    slots_html.append("</div>")
+    for slot in SLOT_LAYOUT_CONFIG[5:]:
+        slots_html.append(render_slot(slot))
+
+    additional_html = []
+    for img in additional_images:
+        img_data = base64.b64encode(img.content).decode("utf-8")
+        img_src = f"data:{img.content_type or 'image/jpeg'};base64,{img_data}"
+        img_name = img.content_name or f"Imagem {img.id}"
+        additional_html.append(
+            f"""
+            <div class="relative border-2 border-gray-200 rounded-lg p-2 hover:border-primary transition-colors" id="additional-image-{img.id}">
+                <img src="{img_src}" alt="{img_name}" class="w-full h-32 object-cover rounded mb-2">
+                <input type="hidden" name="images_to_delete" value="" id="delete-flag-{img.id}">
+                <button type="button" 
+                        onclick="document.getElementById('delete-flag-{img.id}').value='{img.id}'; document.getElementById('additional-image-{img.id}').classList.add('opacity-50'); this.disabled=true; this.textContent='Será excluída';"
+                        class="btn btn-xs btn-error w-full gap-1"
+                        title="Marcar para exclusão">
+                    <span class="material-icons text-xs">delete</span>
+                    Remover
+                </button>
+            </div>
+            """
+        )
+
+    return "".join(slots_html), "".join(additional_html)
 
 
 class BudgetStep1Form(forms.ModelForm):
@@ -273,15 +452,16 @@ class BudgetStep2Form(forms.ModelForm):
 
         self.investigative_questions = InvestigativeQuestion.objects.filter(workshop=self.workshop, is_active=True).order_by("order")
 
+        responses_by_question_id: dict[int, str] = {}
+        if self.instance.pk:
+            responses_by_question_id = {response.question_id: response.response for response in InvestigativeResponse.objects.filter(budget=self.instance).only("question_id", "response")}
+
         self.question_field_names = []
         for q in self.investigative_questions:
             field_name = f"question_{q.id}"
             self.question_field_names.append(field_name)
             # Valor inicial (se estiver editando)
-            initial_value = ""
-            if self.instance.pk:
-                resp = InvestigativeResponse.objects.filter(budget=self.instance, question=q).first()
-                initial_value = resp.response if resp else ""
+            initial_value = responses_by_question_id.get(q.id, "")
             # Definir o tipo de campo
             if q.response_type == InvestigativeQuestion.ResponseType.BOOLEAN:
                 choices = [("", "Selecione..."), ("Sim", "Sim"), ("Não", "Não")]
@@ -343,7 +523,7 @@ class BudgetStep3Form(forms.ModelForm):
     new_defect = forms.CharField(label=False, required=False, widget=TextInput(attrs={"id": "id_new_defect", "placeholder": "Digite um defeito e clique em Adicionar", "onkeypress": "if(event.keyCode==13){ event.preventDefault(); addDefectRow(); }"}))
     checklist = forms.ModelChoiceField(label="Selecione o Checklist", queryset=Checklist.objects.none(), required=False, widget=SelectInput())
     collaborator = forms.ModelChoiceField(label="Selecione o colaborador que realizará o serviço", required=True, queryset=WorkshopCollaborator.objects.none(), widget=SelectInput())
-    images = forms.FileField(label=False, required=False, widget=MultipleFileInput(attrs={"accept": "image/*", "class": "file-input file-input-bordered w-full"}))
+    images = MultipleFileField(label=None, required=False, widget=MultipleFileInput(attrs={"accept": "image/*", "class": "file-input file-input-bordered w-full"}))
 
     class Meta:
         model = Budget
@@ -370,6 +550,12 @@ class BudgetStep3Form(forms.ModelForm):
                 "x-model": "collaboratorId",
             }
         )
+
+        slot_placeholder_urls = {slot_type: static(path) for slot_type, path in SLOT_PLACEHOLDER_PATHS.items()}
+        slot_placeholder_urls_js = "{" + ", ".join([f"'{slot_type}': '{slot_placeholder_urls[slot_type]}'" for slot_type in SLOT_IMAGE_TYPES]) + "}"
+        slots_initial_html, additional_initial_html = _build_step3_images_initial_html(self.instance, slot_placeholder_urls)
+        if not slots_initial_html:
+            slots_initial_html = _build_step3_slot_fallback_html(slot_placeholder_urls)
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -482,9 +668,9 @@ class BudgetStep3Form(forms.ModelForm):
                     # Imagens
                     Div(
                         HTML('<h3 class="text-2xl font-bold mb-4">Anexar Imagens do Veículo</h3>'),
-                        HTML('<div id="vehicle-images-slots"></div>'),
+                        HTML(f'<div id="vehicle-images-slots">{slots_initial_html}</div>'),
                         HTML('<h4 class="text-lg font-semibold mt-6 mb-2">Imagens Adicionais</h4>'),
-                        HTML('<div id="additional-images-container" class="grid grid-cols-2 gap-4 mb-4"></div>'),
+                        HTML(f'<div id="additional-images-container" class="grid grid-cols-2 gap-4 mb-4">{additional_initial_html}</div>'),
                         Field("images", label=False, wrapper_class="mb-0"),
                         HTML('<p class="text-sm text-gray-500 mt-2">Use os slots acima para fotos específicas do veículo. Aqui você pode adicionar imagens adicionais.</p>'),
                         css_class="mb-6",
@@ -513,9 +699,6 @@ class BudgetStep3Form(forms.ModelForm):
                 """
             )
         )
-        slot_placeholder_urls = {slot_type: static(path) for slot_type, path in SLOT_PLACEHOLDER_PATHS.items()}
-        slot_placeholder_urls_js = "{" + ", ".join([f"'{slot_type}': '{slot_placeholder_urls[slot_type]}'" for slot_type in SLOT_IMAGE_TYPES]) + "}"
-
         if self.instance.pk:
             existing_defects = self.instance.defects.all()
             if existing_defects.exists():
@@ -750,8 +933,24 @@ class BudgetStep3Form(forms.ModelForm):
                 self.helper.layout.append(
                     HTML(f"""
                     <script>
-                        document.getElementById('vehicle-images-slots').innerHTML = `{slots_html_joined}`;
-                        document.getElementById('additional-images-container').innerHTML = `{additional_html_joined}`;
+                        function renderBudgetStep3Images() {{
+                            const slotsContainer = document.getElementById('vehicle-images-slots');
+                            const additionalContainer = document.getElementById('additional-images-container');
+                            if (!slotsContainer || !additionalContainer) {{
+                                return;
+                            }}
+                            if (slotsContainer.children.length > 0) {{
+                                return;
+                            }}
+                            slotsContainer.innerHTML = `{slots_html_joined}`;
+                            if (additionalContainer.children.length === 0) {{
+                                additionalContainer.innerHTML = `{additional_html_joined}`;
+                            }}
+                        }}
+
+                        renderBudgetStep3Images();
+                        window.setTimeout(renderBudgetStep3Images, 0);
+
                         const slotPlaceholders = {slot_placeholder_urls_js};
                         function getSlotHeightClass(slotType) {{
                             if (slotType === '{BudgetImageType.PRINCIPAL}') return 'h-48';
@@ -900,7 +1099,20 @@ class BudgetStep3Form(forms.ModelForm):
                 self.helper.layout.append(
                     HTML(f"""
                     <script>
-                        document.getElementById('vehicle-images-slots').innerHTML = `{slots_html_joined}`;
+                        function renderBudgetStep3EmptySlots() {{
+                            const slotsContainer = document.getElementById('vehicle-images-slots');
+                            if (!slotsContainer) {{
+                                return;
+                            }}
+                            if (slotsContainer.children.length > 0) {{
+                                return;
+                            }}
+                            slotsContainer.innerHTML = `{slots_html_joined}`;
+                        }}
+
+                        renderBudgetStep3EmptySlots();
+                        window.setTimeout(renderBudgetStep3EmptySlots, 0);
+
                         const slotPlaceholders = {slot_placeholder_urls_js};
                         function getSlotHeightClass(slotType) {{
                             if (slotType === '{BudgetImageType.PRINCIPAL}') return 'h-48';
@@ -1049,7 +1261,7 @@ class BudgetStep4Form(forms.ModelForm):
         self.request = kwargs.pop("request", None)
         super().__init__(*args, **kwargs)
 
-        budget = self.instance
+        budget = _get_budget_with_prefetched_items(self.instance)
         rows = _render_budget_items_rows(budget, step6=False)
         products_html = rows["product"]
         services_html = rows["service"]
@@ -1219,7 +1431,7 @@ class BudgetStep5Form(forms.ModelForm):
         self.fields["discount_value"].required = False
         self.fields["slider"].widget.attrs.update({"hx-post": reverse("budget:update_slider", args=[self.instance.pk]), "hx-trigger": "change", "hx-swap": "none"})
 
-        budget = self.instance
+        budget = _get_budget_with_prefetched_items(self.instance)
 
         dados = {}
         if budget.pk:
@@ -1732,7 +1944,7 @@ class BudgetStep6Form(forms.ModelForm):
         self.request = kwargs.pop("request", None)
         super().__init__(*args, **kwargs)
 
-        budget = self.instance
+        budget = _get_budget_with_prefetched_items(self.instance)
 
         saved_observation = ""
         if self.workshop:

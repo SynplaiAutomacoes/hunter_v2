@@ -3,7 +3,9 @@ from decimal import Decimal
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.conf import settings
 from django.db import transaction
+from django.db.models import Prefetch
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.urls import reverse, reverse_lazy
@@ -12,7 +14,7 @@ from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView
 from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
 from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
-from apps.budget.models import Budget, BudgetStatus, SignatureStatus
+from apps.budget.models import Budget, BudgetItem, BudgetStatus, SignatureStatus
 from apps.budget.service import SuperSignError, send_budget_for_signature
 from apps.core.forms import MultiStepFormMixin
 from apps.core.tables import TableActionDefaults
@@ -54,6 +56,25 @@ class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespon
     context_object_name = "budget"
     htmx_template_name = "budget/partials/budget_table.html"
 
+    def get_queryset(self):
+        return (
+            super()
+            .get_queryset()
+            .select_related("customer", "vehicle", "collaborator")
+            .prefetch_related(
+                Prefetch(
+                    "items",
+                    queryset=BudgetItem.objects.select_related("product", "service", "kit")
+                    .prefetch_related(
+                        "kit_overrides",
+                        "kit__kit_products__product",
+                        "kit__kit_services__service",
+                    )
+                    .order_by("id"),
+                )
+            )
+        )
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["fields"] = [
@@ -68,6 +89,8 @@ class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespon
         context["actions"] = [
             TableActionDefaults.edit("budget:budget_update"),
         ]
+        context["budget_events_enabled"] = getattr(settings, "BUDGET_EVENTS_ENABLED", False)
+        context["budget_poll_interval_seconds"] = getattr(settings, "BUDGET_POLL_INTERVAL_SECONDS", 20)
         return context
 
 

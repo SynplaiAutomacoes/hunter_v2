@@ -4,12 +4,25 @@
             <input type="text" placeholder="Filtrar notas..." class="input input-bordered input-sm"
                    @keyup="filterTable($event)">
         </div>
-        <button type="button" class="btn btn-sm btn-ghost gap-2"
-                hx-get="{{ request.path }}?step={{ current_step }}&pk={{ object.pk }}"
-                hx-target="#step-container"
-                hx-indicator="#loading-spinner">
-            <span class="material-icons text-sm">refresh</span> Atualizar Lista
-        </button>
+        {% if object.pk %}
+            <button type="button" class="btn btn-sm btn-ghost gap-2"
+                    hx-post="{% url 'stock:refresh_sefaz' object.pk %}"
+                    hx-swap="none"
+                    hx-indicator="#loading-spinner">
+                <span class="material-icons text-sm">refresh</span> Atualizar Lista
+            </button>
+        {% endif %}
+    </div>
+
+    <div class="text-xs opacity-70 mb-3">
+        {% if form.workshop.last_sefaz_search_date %}
+            Ultima sincronizacao: {{ form.workshop.last_sefaz_search_date|date:"d/m/Y H:i" }}
+        {% else %}
+            Nenhuma sincronizacao executada ainda.
+        {% endif %}
+        {% if not form.workshop.can_search_sefaz %}
+            <span class="ml-2">(aguarde para nova consulta)</span>
+        {% endif %}
     </div>
 
     <div class="overflow-x-auto border rounded-lg">

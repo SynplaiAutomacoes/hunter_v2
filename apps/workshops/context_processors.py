@@ -2,15 +2,21 @@ from apps.workshops.models.workshops import Workshop
 
 
 def active_workshops(request):
+    cached_payload = getattr(request, "_active_workshops_payload", None)
+    if cached_payload is not None:
+        return cached_payload
+
     if not request.user.is_authenticated or not getattr(request.user, "account_id", None):
-        return {
+        payload = {
             "active_workshops": Workshop.objects.none(),
             "active_workshop_id": None,
         }
+        setattr(request, "_active_workshops_payload", payload)
+        return payload
 
-    workshops = (
+    workshops_qs = (
         Workshop.objects.filter(
-            account=request.user.account,
+            account_id=request.user.account_id,
             is_active=True,
             members__user=request.user,
             members__is_active=True,
@@ -19,7 +25,8 @@ def active_workshops(request):
         .order_by("name")
     )
 
-    workshop_ids = workshops.values_list("pk", flat=True)
+    workshops = list(workshops_qs)
+    workshop_ids = [workshop.pk for workshop in workshops]
 
     active_workshop_id = request.session.get("active_workshop_id")
 
@@ -30,7 +37,9 @@ def active_workshops(request):
         else:
             request.session["active_workshop_id"] = active_workshop_id
 
-    return {
+    payload = {
         "active_workshops": workshops,
         "active_workshop_id": active_workshop_id,
     }
+    setattr(request, "_active_workshops_payload", payload)
+    return payload

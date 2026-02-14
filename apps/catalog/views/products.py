@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from decimal import InvalidOperation, Decimal
-
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
@@ -26,6 +24,9 @@ class ProductListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespo
     template_name = "products/product_list.html"
     context_object_name = "products"
     htmx_template_name = "products/partials/product_table.html"
+
+    def get_queryset(self):
+        return super().get_queryset().select_related("stock_products")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

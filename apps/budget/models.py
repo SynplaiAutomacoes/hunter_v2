@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any
+from typing import Any, Iterable
 
 from django.db import models, transaction
 from django.core.validators import MinValueValidator, MaxValueValidator
@@ -289,11 +289,29 @@ class Budget(TimeStampedModel):
     def _is_local_service_item(self, item: "BudgetItem") -> bool:
         return item.is_local and ((item.service_cost_price and item.service_cost_price.amount > 0) or (item.service_selling_price and item.service_selling_price.amount > 0) or item.duration)
 
+    def _iter_items(self) -> Iterable["BudgetItem"]:
+        if not self.pk:
+            return ()
+
+        prefetched_items = getattr(self, "_prefetched_objects_cache", {}).get("items")
+        if prefetched_items is not None:
+            return prefetched_items
+
+        return (
+            self.items.select_related("product", "service", "kit")
+            .prefetch_related(
+                "kit_overrides",
+                "kit__kit_products__product",
+                "kit__kit_services__service",
+            )
+            .all()
+        )
+
     ## Products
     @property
     def total_products_shipping(self) -> Money:
         total = Money(0, "BRL")
-        for item in self.items.all():
+        for item in self._iter_items():
             if item.product or self._is_local_product_item(item):
                 total += item.shipping
             elif item.kit:
@@ -303,7 +321,7 @@ class Budget(TimeStampedModel):
     @property
     def total_costs_products_value(self) -> Money:
         total = Money(0, "BRL")
-        for item in self.items.all():
+        for item in self._iter_items():
             if item.product or self._is_local_product_item(item):
                 total += item.product_cost_price * item.quantity
             elif item.kit:
@@ -313,7 +331,7 @@ class Budget(TimeStampedModel):
     @property
     def total_products_value(self) -> Money:
         total = Money(0, "BRL")
-        for item in self.items.all():
+        for item in self._iter_items():
             if item.product or self._is_local_product_item(item):
                 total += (item.product_selling_price * item.quantity) + item.shipping
             elif item.kit:
@@ -324,7 +342,7 @@ class Budget(TimeStampedModel):
     @property
     def total_duration(self) -> timedelta:
         total = timedelta(0)
-        for item in self.items.all():
+        for item in self._iter_items():
             if (item.service or self._is_local_service_item(item)) and item.duration:
                 total += item.duration * item.quantity
             elif item.kit:
@@ -334,7 +352,7 @@ class Budget(TimeStampedModel):
     @property
     def total_third_party_services_cost(self) -> Money:
         total = Money(0, "BRL")
-        for item in self.items.all():
+        for item in self._iter_items():
             if item.service and item.service.is_third_party:
                 total += item.service_cost_price * item.quantity
             elif item.kit:
@@ -344,7 +362,7 @@ class Budget(TimeStampedModel):
     @property
     def total_third_party_services_selling(self) -> Money:
         total = Money(0, "BRL")
-        for item in self.items.all():
+        for item in self._iter_items():
             if item.service and item.service.is_third_party:
                 total += item.service_selling_price * item.quantity
             elif item.kit:
@@ -354,7 +372,7 @@ class Budget(TimeStampedModel):
     @property
     def total_costs_services_value(self) -> Money:
         total = Money(0, "BRL")
-        for item in self.items.all():
+        for item in self._iter_items():
             if item.service or self._is_local_service_item(item):
                 total += item.service_cost_price * item.quantity
             elif item.kit:
@@ -364,7 +382,7 @@ class Budget(TimeStampedModel):
     @property
     def total_services_value(self) -> Money:
         total = Money(0, "BRL")
-        for item in self.items.all():
+        for item in self._iter_items():
             if item.service or self._is_local_service_item(item):
                 total += item.service_selling_price * item.quantity
             elif item.kit:
@@ -503,16 +521,42 @@ class BudgetItem(TimeStampedModel):
         return f"{hours:02d}h {minutes:02d}m"
 
     def _get_kit_override_maps(self) -> tuple[dict[int, "BudgetKitItemOverride"], dict[int, "BudgetKitItemOverride"]]:
+        cache = getattr(self, "_kit_override_maps_cache", None)
+        if cache is not None:
+            return cache
+
         product_overrides: dict[int, "BudgetKitItemOverride"] = {}
         service_overrides: dict[int, "BudgetKitItemOverride"] = {}
 
-        for override in self.kit_overrides.select_related("product", "service"):
+        for override in self.kit_overrides.all():
             if override.product_id:
                 product_overrides[override.product_id] = override
             if override.service_id:
                 service_overrides[override.service_id] = override
 
-        return product_overrides, service_overrides
+        cache = (product_overrides, service_overrides)
+        setattr(self, "_kit_override_maps_cache", cache)
+        return cache
+
+    def _iter_kit_products(self):
+        if not self.kit:
+            return ()
+
+        prefetched = getattr(self.kit, "_prefetched_objects_cache", {}).get("kit_products")
+        if prefetched is not None:
+            return prefetched
+
+        return self.kit.kit_products.select_related("product").all()
+
+    def _iter_kit_services(self):
+        if not self.kit:
+            return ()
+
+        prefetched = getattr(self.kit, "_prefetched_objects_cache", {}).get("kit_services")
+        if prefetched is not None:
+            return prefetched
+
+        return self.kit.kit_services.select_related("service").all()
 
     @property
     def effective_kit_products(self) -> list[dict[str, Any]]:
@@ -522,7 +566,7 @@ class BudgetItem(TimeStampedModel):
         product_overrides, _ = self._get_kit_override_maps()
         products: list[dict[str, Any]] = []
 
-        for kit_product in self.kit.kit_products.select_related("product").all():
+        for kit_product in self._iter_kit_products():
             override = product_overrides.get(kit_product.product_id)
             quantity = override.quantity if override else kit_product.quantity
             if quantity <= 0:
@@ -540,7 +584,7 @@ class BudgetItem(TimeStampedModel):
         _, service_overrides = self._get_kit_override_maps()
         services: list[dict[str, Any]] = []
 
-        for kit_service in self.kit.kit_services.select_related("service").all():
+        for kit_service in self._iter_kit_services():
             override = service_overrides.get(kit_service.service_id)
             quantity = override.quantity if override else kit_service.quantity
             if quantity <= 0:
@@ -579,10 +623,11 @@ class BudgetItem(TimeStampedModel):
 
         total_produtos = Money(0, "BRL")
         total_servicos = Money(0, "BRL")
+        product_overrides, service_overrides = self._get_kit_override_maps()
 
         # Calcular total dos produtos: (preço * qtd) + frete para cada produto
-        for kit_product in self.kit.kit_products.select_related("product").all():
-            override = self.kit_overrides.filter(product=kit_product.product).first()
+        for kit_product in self._iter_kit_products():
+            override = product_overrides.get(kit_product.product_id)
             if override:
                 if override.quantity <= 0:
                     produto_subtotal = Money(0, "BRL")
@@ -595,8 +640,8 @@ class BudgetItem(TimeStampedModel):
             total_produtos += produto_subtotal
 
         # Calcular total dos serviços: preço * qtd para cada serviço
-        for kit_service in self.kit.kit_services.select_related("service").all():
-            override = self.kit_overrides.filter(service=kit_service.service).first()
+        for kit_service in self._iter_kit_services():
+            override = service_overrides.get(kit_service.service_id)
             if override:
                 if override.quantity <= 0:
                     servico_subtotal = Money(0, "BRL")
@@ -620,8 +665,9 @@ class BudgetItem(TimeStampedModel):
             return Money(0, "BRL")
 
         total_produtos = Money(0, "BRL")
-        for kit_product in self.kit.kit_products.select_related("product").all():
-            override = self.kit_overrides.filter(product=kit_product.product).first()
+        product_overrides, _ = self._get_kit_override_maps()
+        for kit_product in self._iter_kit_products():
+            override = product_overrides.get(kit_product.product_id)
             if override:
                 if override.quantity <= 0:
                     produto_subtotal = Money(0, "BRL")
@@ -641,8 +687,9 @@ class BudgetItem(TimeStampedModel):
             return Money(0, "BRL")
 
         total_servicos = Money(0, "BRL")
-        for kit_service in self.kit.kit_services.select_related("service").all():
-            override = self.kit_overrides.filter(service=kit_service.service).first()
+        _, service_overrides = self._get_kit_override_maps()
+        for kit_service in self._iter_kit_services():
+            override = service_overrides.get(kit_service.service_id)
             if override:
                 if override.quantity <= 0:
                     servico_subtotal = Money(0, "BRL")
@@ -662,8 +709,9 @@ class BudgetItem(TimeStampedModel):
             return timedelta(0)
 
         total_duration = timedelta(0)
-        for kit_service in self.kit.kit_services.select_related("service").all():
-            override = self.kit_overrides.filter(service=kit_service.service).first()
+        _, service_overrides = self._get_kit_override_maps()
+        for kit_service in self._iter_kit_services():
+            override = service_overrides.get(kit_service.service_id)
             if override:
                 if override.quantity > 0 and override.duration:
                     total_duration += override.duration * override.quantity
@@ -677,8 +725,9 @@ class BudgetItem(TimeStampedModel):
             return Money(0, "BRL")
 
         total_shipping = Money(0, "BRL")
-        for kit_product in self.kit.kit_products.select_related("product").all():
-            override = self.kit_overrides.filter(product=kit_product.product).first()
+        product_overrides, _ = self._get_kit_override_maps()
+        for kit_product in self._iter_kit_products():
+            override = product_overrides.get(kit_product.product_id)
             if override and override.quantity > 0:
                 total_shipping += override.shipping
 
@@ -689,8 +738,9 @@ class BudgetItem(TimeStampedModel):
             return Money(0, "BRL")
 
         total_cost = Money(0, "BRL")
-        for kit_product in self.kit.kit_products.select_related("product").all():
-            override = self.kit_overrides.filter(product=kit_product.product).first()
+        product_overrides, _ = self._get_kit_override_maps()
+        for kit_product in self._iter_kit_products():
+            override = product_overrides.get(kit_product.product_id)
             if override:
                 if override.quantity <= 0:
                     continue
@@ -705,8 +755,9 @@ class BudgetItem(TimeStampedModel):
             return Money(0, "BRL")
 
         total_cost = Money(0, "BRL")
-        for kit_service in self.kit.kit_services.select_related("service").all():
-            override = self.kit_overrides.filter(service=kit_service.service).first()
+        _, service_overrides = self._get_kit_override_maps()
+        for kit_service in self._iter_kit_services():
+            override = service_overrides.get(kit_service.service_id)
             if override:
                 if override.quantity <= 0:
                     continue
@@ -721,11 +772,12 @@ class BudgetItem(TimeStampedModel):
             return Money(0, "BRL")
 
         total_cost = Money(0, "BRL")
-        for kit_service in self.kit.kit_services.select_related("service").all():
+        _, service_overrides = self._get_kit_override_maps()
+        for kit_service in self._iter_kit_services():
             if not kit_service.service.is_third_party:
                 continue
 
-            override = self.kit_overrides.filter(service=kit_service.service).first()
+            override = service_overrides.get(kit_service.service_id)
             if override:
                 if override.quantity <= 0:
                     continue
@@ -740,11 +792,12 @@ class BudgetItem(TimeStampedModel):
             return Money(0, "BRL")
 
         total_selling = Money(0, "BRL")
-        for kit_service in self.kit.kit_services.select_related("service").all():
+        _, service_overrides = self._get_kit_override_maps()
+        for kit_service in self._iter_kit_services():
             if not kit_service.service.is_third_party:
                 continue
 
-            override = self.kit_overrides.filter(service=kit_service.service).first()
+            override = service_overrides.get(kit_service.service_id)
             if override:
                 if override.quantity <= 0:
                     continue
