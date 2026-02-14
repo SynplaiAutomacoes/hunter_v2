@@ -20,10 +20,12 @@
         <div></div>
     {% endif %}
 
+    {% if current_step < steps_config|length %}
     <button type="submit" form="budget-form" class="btn btn-primary" id="budget-submit-btn">
-        <span class="loading loading-spinner loading-sm htmx-indicator" id="budget-submit-spinner"></span>
-        <span id="budget-submit-label">{% if current_step == steps_config|length %} Finalizar {% else %} Próxima Etapa {% endif %}</span>
+        <span class="loading loading-spinner loading-sm hidden" id="budget-submit-spinner"></span>
+        <span id="budget-submit-label">Próxima Etapa</span>
     </button>
+    {% endif %}
 </div>
 
 <div id="form-container">
@@ -61,21 +63,28 @@
 
         const submitBtn = document.getElementById('budget-submit-btn');
         const submitLabel = document.getElementById('budget-submit-label');
+        const submitSpinner = document.getElementById('budget-submit-spinner');
         if (!submitBtn || !submitLabel) {
             return;
         }
 
         const defaultLabel = submitLabel.textContent;
-        const loadingLabel = {% if current_step == steps_config|length %}'Enviando orçamento...'{% else %}'Salvando etapa...'{% endif %};
+        const loadingLabel = 'Salvando etapa...';
 
         const startLoading = function () {
             submitBtn.disabled = true;
             submitLabel.textContent = loadingLabel;
+            if (submitSpinner) {
+                submitSpinner.classList.remove('hidden');
+            }
         };
 
         const stopLoading = function () {
             submitBtn.disabled = false;
             submitLabel.textContent = defaultLabel;
+            if (submitSpinner) {
+                submitSpinner.classList.add('hidden');
+            }
         };
 
         form.addEventListener('htmx:beforeRequest', startLoading);

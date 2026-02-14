@@ -1854,17 +1854,28 @@ class BudgetStep6Form(forms.ModelForm):
                     });
                 }
 
-                async function sendBudgetForSignature(budgetId) {
-                    const btn = document.getElementById('send-signature-btn');
+                async function sendBudgetForSignature(buttonEl) {
+                    const btn = buttonEl || document.getElementById('send-signature-btn');
                     const label = document.getElementById('send-signature-label');
                     const spinner = document.getElementById('send-signature-spinner');
+                    const endpoint = btn ? btn.dataset.url : '';
+
+                    if (!endpoint) {
+                        document.body.dispatchEvent(new CustomEvent('showToast', {
+                            detail: {
+                                type: 'error',
+                                message: 'Endpoint de assinatura não configurado.',
+                            },
+                        }));
+                        return;
+                    }
 
                     if (btn) btn.disabled = true;
                     if (label) label.textContent = 'Enviando...';
                     if (spinner) spinner.classList.remove('hidden');
 
                     try {
-                        const response = await fetch(`/budget/send-signature/${budgetId}/`, {
+                        const response = await fetch(endpoint, {
                             method: 'POST',
                             headers: {
                                 'X-CSRFToken': '{{ csrf_token }}',
@@ -1872,7 +1883,11 @@ class BudgetStep6Form(forms.ModelForm):
                             },
                         });
 
-                        const payload = await response.json();
+                        const payload = await response.json().catch(() => ({}));
+                        if (!response.ok) {
+                            throw new Error(payload.message || 'Falha ao enviar para assinatura.');
+                        }
+
                         const toastType = payload.type || (payload.success ? 'success' : 'error');
                         const toastMessage = payload.message || (payload.success ? 'Orçamento enviado para assinatura.' : 'Falha ao enviar para assinatura.');
 
@@ -1892,7 +1907,7 @@ class BudgetStep6Form(forms.ModelForm):
                         document.body.dispatchEvent(new CustomEvent('showToast', {
                             detail: {
                                 type: 'error',
-                                message: 'Falha ao enviar para assinatura. Tente novamente.',
+                                message: error && error.message ? error.message : 'Falha ao enviar para assinatura. Tente novamente.',
                             },
                         }));
                     } finally {
@@ -2148,7 +2163,8 @@ class BudgetStep6Form(forms.ModelForm):
                         <button type="button"
                                 class="btn btn-sm btn-primary"
                                 id="send-signature-btn"
-                                onclick="sendBudgetForSignature({budget.pk})">
+                                data-url="{% url 'budget:send_signature' form.instance.pk %}"
+                                onclick="sendBudgetForSignature(this)">
                             <span class="loading loading-spinner loading-xs hidden" id="send-signature-spinner"></span>
                             <span id="send-signature-label">Enviar para Assinatura</span>
                         </button>
