@@ -18,7 +18,7 @@ from apps.core.widgets import CalendarDateInput, MoneyInput, NumberInput, Select
 from apps.customer.models import Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
 
-from .shared import MAX_BUDGET_IMAGES, _render_budget_items_rows, _validate_uploaded_images
+from .shared import MAX_BUDGET_IMAGES, _get_budget_with_prefetched_items, _render_budget_items_rows, _validate_uploaded_images
 from .widgets import MultipleFileInput
 
 
@@ -273,15 +273,16 @@ class BudgetStep2Form(forms.ModelForm):
 
         self.investigative_questions = InvestigativeQuestion.objects.filter(workshop=self.workshop, is_active=True).order_by("order")
 
+        responses_by_question_id: dict[int, str] = {}
+        if self.instance.pk:
+            responses_by_question_id = {response.question_id: response.response for response in InvestigativeResponse.objects.filter(budget=self.instance).only("question_id", "response")}
+
         self.question_field_names = []
         for q in self.investigative_questions:
             field_name = f"question_{q.id}"
             self.question_field_names.append(field_name)
             # Valor inicial (se estiver editando)
-            initial_value = ""
-            if self.instance.pk:
-                resp = InvestigativeResponse.objects.filter(budget=self.instance, question=q).first()
-                initial_value = resp.response if resp else ""
+            initial_value = responses_by_question_id.get(q.id, "")
             # Definir o tipo de campo
             if q.response_type == InvestigativeQuestion.ResponseType.BOOLEAN:
                 choices = [("", "Selecione..."), ("Sim", "Sim"), ("Não", "Não")]
@@ -1049,7 +1050,7 @@ class BudgetStep4Form(forms.ModelForm):
         self.request = kwargs.pop("request", None)
         super().__init__(*args, **kwargs)
 
-        budget = self.instance
+        budget = _get_budget_with_prefetched_items(self.instance)
         rows = _render_budget_items_rows(budget, step6=False)
         products_html = rows["product"]
         services_html = rows["service"]
@@ -1219,7 +1220,7 @@ class BudgetStep5Form(forms.ModelForm):
         self.fields["discount_value"].required = False
         self.fields["slider"].widget.attrs.update({"hx-post": reverse("budget:update_slider", args=[self.instance.pk]), "hx-trigger": "change", "hx-swap": "none"})
 
-        budget = self.instance
+        budget = _get_budget_with_prefetched_items(self.instance)
 
         dados = {}
         if budget.pk:
@@ -1732,7 +1733,7 @@ class BudgetStep6Form(forms.ModelForm):
         self.request = kwargs.pop("request", None)
         super().__init__(*args, **kwargs)
 
-        budget = self.instance
+        budget = _get_budget_with_prefetched_items(self.instance)
 
         saved_observation = ""
         if self.workshop:

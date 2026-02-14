@@ -1,4 +1,5 @@
 from django import forms
+from django.db.models import Prefetch
 from django.template.loader import render_to_string
 
 MAX_BUDGET_IMAGES = 10
@@ -34,13 +35,49 @@ def _empty_rows(step6=False):
     }
 
 
+def _get_budget_with_prefetched_items(budget):
+    if not budget or not budget.pk:
+        return budget
+
+    if getattr(budget, "_items_prefetched_for_render", False):
+        return budget
+
+    from apps.budget.models import Budget, BudgetItem
+
+    prefetched_budget = (
+        Budget.objects.filter(pk=budget.pk)
+        .select_related("customer", "vehicle", "collaborator")
+        .prefetch_related(
+            Prefetch(
+                "items",
+                queryset=BudgetItem.objects.select_related("product", "service", "kit")
+                .prefetch_related(
+                    "kit_overrides",
+                    "kit__kit_products__product",
+                    "kit__kit_services__service",
+                )
+                .order_by("id"),
+            )
+        )
+        .first()
+    )
+
+    if prefetched_budget is None:
+        return budget
+
+    setattr(prefetched_budget, "_items_prefetched_for_render", True)
+    return prefetched_budget
+
+
 def _render_budget_items_rows(budget, step6=False):
     rows = {"product": "", "service": "", "kit": ""}
 
-    if budget.pk:
-        for item in budget.items.all():
+    budget_for_render = _get_budget_with_prefetched_items(budget)
+
+    if budget_for_render.pk:
+        for item in budget_for_render.items.all():
             item_type = _budget_item_type(item)
-            context = {"item": item, "budget": budget, "is_full_render": True, "step6": step6}
+            context = {"item": item, "budget": budget_for_render, "is_full_render": True, "step6": step6}
             if item_type == "product":
                 rows["product"] += render_to_string("budget/partials/items/item_product_row.html", context)
             elif item_type == "service":

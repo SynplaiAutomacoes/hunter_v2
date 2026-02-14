@@ -3,7 +3,7 @@ from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse
 from django.urls import reverse, reverse_lazy
 from django.views import View
 from django.views.generic import ListView, CreateView, DeleteView
@@ -44,7 +44,7 @@ class StockMovementListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplat
     htmx_template_name = "stock/partials/movement_table.html"
 
     def get_queryset(self):
-        return super().get_queryset().order_by("-criado_em")
+        return super().get_queryset().select_related("stock_product__product", "supplier").order_by("-criado_em")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -112,7 +112,7 @@ class MovementApprovalActionView(LoginRequiredMixin, WorkshopScopedMixin, View):
         except Exception as e:
             messages.error(request, f"Erro: {str(e)}")
 
-        return redirect('stock:approvals')
+        return redirect("stock:approvals")
 
 
 class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
@@ -161,17 +161,21 @@ class StockImportCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFo
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         obj = self.get_object()
-        kwargs.update({
-            "request": self.request,
-            "workshop": self.workshop,
-            "instance": obj,
-        })
+        kwargs.update(
+            {
+                "request": self.request,
+                "workshop": self.workshop,
+                "instance": obj,
+            }
+        )
         if obj:
-            kwargs.update({
-                "nf_data": {"nf_number": obj.nf_number, "supplier_name": obj.supplier_name},
-                "import_items": obj.items_data,
-                "import_payments": obj.payments_data,
-            })
+            kwargs.update(
+                {
+                    "nf_data": {"nf_number": obj.nf_number, "supplier_name": obj.supplier_name},
+                    "import_items": obj.items_data,
+                    "import_payments": obj.payments_data,
+                }
+            )
         return kwargs
 
     def get_steps_definition(self):
@@ -195,7 +199,7 @@ class StockImportCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFo
         return base_steps
 
     def get_success_url(self):
-        return reverse('stock:stock_list')
+        return reverse("stock:stock_list")
 
     def form_valid(self, form):
         form.instance.workshop = self.workshop
@@ -384,7 +388,7 @@ class UnlinkItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if 0 <= int(item_idx) < len(import_items):
             import_items[int(item_idx)]["linked_product_id"] = None
             obj.items_data = import_items
-            obj.save(update_fields=['items_data'])
+            obj.save(update_fields=["items_data"])
 
         response = HttpResponse("")
         response["HX-Trigger"] = "productCreated"
@@ -406,7 +410,7 @@ class StockProductSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
         # Otimização com .only() incluindo os campos de moeda do djmoney
         qs = qs.order_by("name").only("id", "code", "name", "brand", "cost_price", "cost_price_currency", "selling_price", "selling_price_currency")
 
-        paginator = Paginator(qs, 10) # Menor quantidade para caber no modal
+        paginator = Paginator(qs, 10)  # Menor quantidade para caber no modal
         page_obj = paginator.get_page(page)
 
         return render(
@@ -498,5 +502,5 @@ class CatalogGroupQuickCreateView(LoginRequiredMixin, WorkshopScopedMixin, Creat
         self.object.save()
 
         response = HttpResponse("")
-        response["HX-Trigger"] = json.dumps({ "groupAdded": {"id": str(self.object.id), "name": self.object.name}})
+        response["HX-Trigger"] = json.dumps({"groupAdded": {"id": str(self.object.id), "name": self.object.name}})
         return response

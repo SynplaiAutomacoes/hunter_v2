@@ -1,5 +1,6 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
+from django.db.models import Prefetch
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, render
 from django.views import View
@@ -7,6 +8,7 @@ from django.views.generic import ListView, DetailView
 
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
+from apps.budget.models import BudgetItem
 from apps.workorder.forms import WorkOrderPaymentForm, WorkOrderAttachmentForm
 from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderAttachment, WorkOrderStatus
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -18,6 +20,25 @@ class WorkOrderListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRes
     template_name = "workorder/workorder_list.html"
     context_object_name = "workorder"
     htmx_template_name = "workorder/partials/workorder_table.html"
+
+    def get_queryset(self):
+        return (
+            super()
+            .get_queryset()
+            .select_related("budget", "budget__customer", "budget__vehicle")
+            .prefetch_related(
+                Prefetch(
+                    "budget__items",
+                    queryset=BudgetItem.objects.select_related("product", "service", "kit")
+                    .prefetch_related(
+                        "kit_overrides",
+                        "kit__kit_products__product",
+                        "kit__kit_services__service",
+                    )
+                    .order_by("id"),
+                )
+            )
+        )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -35,6 +56,7 @@ class WorkOrderListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRes
             TableActionDefaults.edit("workorder:workorder_detail"),
         ]
         return context
+
 
 class WorkOrderDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
     model = WorkOrder
