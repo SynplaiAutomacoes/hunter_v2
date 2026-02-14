@@ -31,9 +31,9 @@ CSRF_TRUSTED_ORIGINS = [o.strip() for o in os.getenv("DJANGO_CSRF_TRUSTED_ORIGIN
 APP_BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:8000")
 
 SUPERSIGN_BASE_URL = os.getenv("SUPERSIGN_BASE_URL", "https://api.sign.supersign.com.br")
-SUPERSIGN_ACCOUNT_ID = os.getenv("SUPERSIGN_ACCOUNT_ID", "76e623")
-SUPERSIGN_API_KEY = os.getenv("SUPERSIGN_API_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJkZjhiYmYyMTZkMjQyNWM3N2U4M2U1YmU2NWFiNjBmOSIsIm5hbWUiOiJMdWNhcyBHb21lcyBNb3JlaXJhIiwiZW1haWwiOiJzb2Z0d2FyZUBzeW5wbGFpLmNvbSIsImlhdCI6MTUxNjIzOTAyMn0.tSQCKktcS5_XkoOtvIjHrsSAOA39LU-nXZmnqjqr_Q4")
-SUPERSIGN_FOLDER_ID = os.getenv("SUPERSIGN_FOLDER_ID", "a87fb17f-dde0-4d9a-97e1-7429c11ada73")
+SUPERSIGN_ACCOUNT_ID = os.getenv("SUPERSIGN_ACCOUNT_ID", "")
+SUPERSIGN_API_KEY = os.getenv("SUPERSIGN_API_KEY", "")
+SUPERSIGN_FOLDER_ID = os.getenv("SUPERSIGN_FOLDER_ID", "")
 
 if not DEBUG:
     SECURE_SSL_REDIRECT = os.getenv("DJANGO_SECURE_SSL_REDIRECT", "1").lower() in ("1", "true", "yes")
