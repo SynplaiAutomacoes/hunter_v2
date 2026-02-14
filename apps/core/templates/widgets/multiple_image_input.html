@@ -30,6 +30,46 @@ if (typeof window.selectedImageFiles === 'undefined') {
     window.selectedImageFiles = {};
 }
 
+function renderMultipleImagePreview(widgetId) {
+    const container = document.getElementById('preview-container-' + widgetId);
+    if (!container) return;
+
+    const files = window.selectedImageFiles[widgetId] || [];
+    container.innerHTML = '';
+
+    files.forEach((file, index) => {
+        const reader = new FileReader();
+
+        reader.onload = (e) => {
+            const previewDiv = document.createElement('div');
+            previewDiv.className = 'relative w-full aspect-video bg-base-200 rounded-box border border-base-300 overflow-hidden group';
+            previewDiv.innerHTML = `
+                <img src="${e.target.result}" class="w-full h-full object-cover" alt="Preview ${index + 1}">
+                <div class="absolute top-2 right-2 badge badge-primary badge-sm">Nova</div>
+                <div class="absolute bottom-2 left-2 text-xs bg-black/50 text-white px-2 py-1 rounded">${file.name}</div>
+                <button type="button" 
+                        onclick="removeImagePreview('${widgetId}', ${index})"
+                        class="absolute top-2 left-2 btn btn-circle btn-xs btn-error opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="Remover">
+                    ✕
+                </button>
+            `;
+            container.appendChild(previewDiv);
+        };
+
+        reader.readAsDataURL(file);
+    });
+}
+
+function hydrateMultipleImageInput(widgetId) {
+    const input = document.getElementById(widgetId);
+    if (!input) return;
+
+    window.selectedImageFiles[widgetId] = input.files ? Array.from(input.files) : [];
+
+    renderMultipleImagePreview(widgetId);
+}
+
 function handleMultipleImages(event, widgetId) {
     const files = event.target.files;
     const container = document.getElementById('preview-container-' + widgetId);
@@ -73,37 +113,11 @@ function handleMultipleImages(event, widgetId) {
         window.selectedImageFiles[widgetId].push(file);
     });
     
-    // Clear and rebuild preview with all files
-    container.innerHTML = '';
-    
-    window.selectedImageFiles[widgetId].forEach((file, index) => {
-        const reader = new FileReader();
-        
-        reader.onload = (e) => {
-            const previewDiv = document.createElement('div');
-            previewDiv.className = 'relative w-full aspect-video bg-base-200 rounded-box border border-base-300 overflow-hidden group';
-            previewDiv.innerHTML = `
-                <img src="${e.target.result}" class="w-full h-full object-cover" alt="Preview ${index + 1}">
-                <div class="absolute top-2 right-2 badge badge-primary badge-sm">Nova</div>
-                <div class="absolute bottom-2 left-2 text-xs bg-black/50 text-white px-2 py-1 rounded">${file.name}</div>
-                <button type="button" 
-                        onclick="removeImagePreview('${widgetId}', ${index})"
-                        class="absolute top-2 left-2 btn btn-circle btn-xs btn-error opacity-0 group-hover:opacity-100 transition-opacity"
-                        title="Remover">
-                    ✕
-                </button>
-            `;
-            container.appendChild(previewDiv);
-        };
-        
-        reader.readAsDataURL(file);
-    });
+    renderMultipleImagePreview(widgetId);
     
     // Update file input with all selected files
     updateFileInput(widgetId);
     
-    // Reset the input value so the same file can be added again if removed
-    event.target.value = '';
 }
 
 function removeImagePreview(widgetId, index) {
@@ -112,34 +126,7 @@ function removeImagePreview(widgetId, index) {
     // Remove file from storage
     window.selectedImageFiles[widgetId].splice(index, 1);
     
-    // Rebuild preview
-    const container = document.getElementById('preview-container-' + widgetId);
-    if (!container) return;
-    
-    container.innerHTML = '';
-    
-    window.selectedImageFiles[widgetId].forEach((file, newIndex) => {
-        const reader = new FileReader();
-        
-        reader.onload = (e) => {
-            const previewDiv = document.createElement('div');
-            previewDiv.className = 'relative w-full aspect-video bg-base-200 rounded-box border border-base-300 overflow-hidden group';
-            previewDiv.innerHTML = `
-                <img src="${e.target.result}" class="w-full h-full object-cover" alt="Preview ${newIndex + 1}">
-                <div class="absolute top-2 right-2 badge badge-primary badge-sm">Nova</div>
-                <div class="absolute bottom-2 left-2 text-xs bg-black/50 text-white px-2 py-1 rounded">${file.name}</div>
-                <button type="button" 
-                        onclick="removeImagePreview('${widgetId}', ${newIndex})"
-                        class="absolute top-2 left-2 btn btn-circle btn-xs btn-error opacity-0 group-hover:opacity-100 transition-opacity"
-                        title="Remover">
-                    ✕
-                </button>
-            `;
-            container.appendChild(previewDiv);
-        };
-        
-        reader.readAsDataURL(file);
-    });
+    renderMultipleImagePreview(widgetId);
     
     // Update file input
     updateFileInput(widgetId);
@@ -156,4 +143,6 @@ function updateFileInput(widgetId) {
     });
     input.files = dt.files;
 }
+
+hydrateMultipleImageInput('{{ widget.attrs.id }}');
 </script>
