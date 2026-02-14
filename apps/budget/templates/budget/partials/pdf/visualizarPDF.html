@@ -6,7 +6,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <title>Orçamento de O.S.</title>
     <style>
-        @page { size: A4; margin: 5mm; }
+        @page { size: A4; margin: 4mm; }
 
         body {
             margin: 0;
@@ -30,11 +30,38 @@
             overflow: hidden;
         }
 
-        .header-section p,
-        .client-vehicle-section p {
+        .field-row {
+            display: flex;
+            align-items: baseline;
+            gap: 4px;
+            min-width: 0;
+        }
+
+        .field-label {
+            color: #6b7280;
+            flex-shrink: 0;
+        }
+
+        .field-value {
+            min-width: 0;
             white-space: nowrap;
             overflow: hidden;
-            text-overflow: ellipsis;
+            text-overflow: clip;
+            display: inline-block;
+        }
+
+        .field-row.multiline {
+            align-items: flex-start;
+        }
+
+        .field-value-multiline {
+            min-width: 0;
+            display: inline-block;
+            white-space: normal;
+            overflow: hidden;
+            line-height: 1.15;
+            max-height: 2.3em;
+            word-break: break-word;
         }
 
         .header-section {
@@ -96,17 +123,17 @@
 </head>
 <body class="bg-gray-100 font-sans text-[11px] leading-tight">
     {% for page in pages %}
-    <div class="pdf-content bg-white border border-gray-200 rounded-lg shadow-sm p-4 text-[13px]">
+    <div class="pdf-content bg-white border border-gray-200 rounded-lg shadow-sm p-2 text-[13px]">
         <div class="pdf-main">
 
         <div class="header-section flex justify-between items-start p-4 border-b border-gray-200">
-            <div>
-                <h3 class="text-[18px] font-bold uppercase m-0">{{ budget.workshop.name }}</h3>
-                <p>CNPJ: {{ budget.workshop.cnpj|cnpj_br|default:"-" }}</p>
-                <p>{{ budget.workshop.address|default:"-" }}</p>
-                <p>Fone: {{ budget.workshop.phone|phone_br|default:"-" }}</p>
+            <div class="flex-1 min-w-0 pr-4">
+                <h3 class="text-[18px] font-bold uppercase m-0 field-value fit-important">{{ budget.workshop.name }}</h3>
+                <p class="field-row"><span class="field-label">CNPJ:</span> <span class="field-value fit-important">{{ budget.workshop.cnpj|cnpj_br|default:"-" }}</span></p>
+                <p class="field-row multiline"><span class="field-value field-value-multiline fit-important-multiline">{{ budget.workshop.address|default:"-" }}</span></p>
+                <p class="field-row"><span class="field-label">Fone:</span> <span class="field-value fit-important">{{ budget.workshop.phone|phone_br|default:"-" }}</span></p>
             </div>
-            <div class="text-right">
+            <div class="text-right w-[180px] flex-shrink-0">
                 <h4 class="font-bold">ORDEM DE SERVIÇO</h4>
                 <p class="text-2xl font-bold leading-none m-0">#{{ budget.id }}</p>
                 <p class="text-[11px]">{{ budget.created|date:"d/m/Y H:i" }}</p>
@@ -116,25 +143,25 @@
         <div class="client-vehicle-section grid grid-cols-2 gap-4 p-4 border-b border-gray-200">
             <div>
                 <h4 class="font-bold mb-2 uppercase">Cliente</h4>
-                <div class="grid grid-cols-2 gap-x-4 gap-y-1">
-                    <p><span class="text-gray-500">Nome:</span> {{ budget.customer.name|default:budget.customer }}</p>
-                    <p><span class="text-gray-500">CPF/CNPJ:</span> {{ budget.customer.cpf_or_cnpj|default:"-" }}</p>
-                    <p><span class="text-gray-500">Endereço:</span> {{ budget.customer.estado|default:"-" }}, {{ budget.customer.logradouro|default:"-" }},{{ budget.customer.numero|default:"-" }}</p>
-                    <p><span class="text-gray-500">Telefone:</span> {{ budget.customer.phone|default:"-" }}</p>
-                    <p><span class="text-gray-500">Bairro:</span> {{ budget.customer.bairro|default:"-" }}</p>
-                    <p><span class="text-gray-500">Cidade:</span> {{ budget.customer.cidade|default:"-" }}</p>
-                    <p><span class="text-gray-500">CEP:</span> {{ budget.customer.cep|default:"-" }}</p>
+                <div class="grid grid-cols-1 gap-y-1">
+                    <p class="field-row"><span class="field-label">Nome:</span> <span class="field-value fit-important">{{ budget.customer.name|default:budget.customer }}</span></p>
+                    <p class="field-row"><span class="field-label">CPF/CNPJ:</span> <span class="field-value fit-important">{{ budget.customer.cpf_or_cnpj|default:"-" }}</span></p>
+                    <p class="field-row multiline"><span class="field-label">Endereço:</span> <span class="field-value field-value-multiline fit-important-multiline">{{ budget.customer.estado|default:"-" }}, {{ budget.customer.logradouro|default:"-" }},{{ budget.customer.numero|default:"-" }}</span></p>
+                    <p class="field-row"><span class="field-label">Telefone:</span> <span class="field-value fit-important">{{ budget.customer.phone|default:"-" }}</span></p>
+                    <p class="field-row"><span class="field-label">Bairro:</span> <span class="field-value fit-important">{{ budget.customer.bairro|default:"-" }}</span></p>
+                    <p class="field-row"><span class="field-label">Cidade:</span> <span class="field-value fit-important">{{ budget.customer.cidade|default:"-" }}</span></p>
+                    <p class="field-row"><span class="field-label">CEP:</span> <span class="field-value fit-important">{{ budget.customer.cep|default:"-" }}</span></p>
                 </div>
             </div>
             <div>
                 <h4 class="font-bold mb-2 uppercase">Veículo</h4>
-                <div class="grid grid-cols-2 gap-x-4 gap-y-1">
-                    <p><span class="text-gray-500">Placa:</span> {{ budget.vehicle.plate }}</p>
-                    <p><span class="text-gray-500">Marca:</span> {{ budget.vehicle.brand }}</p>
-                    <p><span class="text-gray-500">Ano/Mod:</span> {{ budget.vehicle.year_model|default:"-" }}</p>
-                    <p><span class="text-gray-500">Ano/Fab:</span> {{ budget.vehicle.year_fabrication|default:"-" }}</p>
-                    <p><span class="text-gray-500">Cor:</span> {{ budget.vehicle.color|default:"-" }}</p>
-                    <p><span class="text-gray-500">Chassi:</span> {{ budget.vehicle.chassi|default:"-" }}</p>
+                <div class="grid grid-cols-1 gap-y-1">
+                    <p class="field-row"><span class="field-label">Placa:</span> <span class="field-value fit-important">{{ budget.vehicle.plate }}</span></p>
+                    <p class="field-row"><span class="field-label">Marca:</span> <span class="field-value fit-important">{{ budget.vehicle.brand }}</span></p>
+                    <p class="field-row"><span class="field-label">Ano/Mod:</span> <span class="field-value fit-important">{{ budget.vehicle.year_model|default:"-" }}</span></p>
+                    <p class="field-row"><span class="field-label">Ano/Fab:</span> <span class="field-value fit-important">{{ budget.vehicle.year_fabrication|default:"-" }}</span></p>
+                    <p class="field-row"><span class="field-label">Cor:</span> <span class="field-value fit-important">{{ budget.vehicle.color|default:"-" }}</span></p>
+                    <p class="field-row"><span class="field-label">Chassi:</span> <span class="field-value fit-important">{{ budget.vehicle.chassi|default:"-" }}</span></p>
                 </div>
             </div>
         </div>
@@ -268,6 +295,27 @@
 
             while (element.scrollWidth > element.clientWidth && current > minFontSize) {
                 current -= step;
+                element.style.fontSize = `${current}px`;
+            }
+        });
+
+        document.querySelectorAll('.fit-important').forEach((element) => {
+            let current = 13;
+            element.style.fontSize = `${current}px`;
+            element.style.lineHeight = '1.1';
+
+            while (element.scrollWidth > element.clientWidth && current > 9) {
+                current -= 0.5;
+                element.style.fontSize = `${current}px`;
+            }
+        });
+
+        document.querySelectorAll('.fit-important-multiline').forEach((element) => {
+            let current = 13;
+            element.style.fontSize = `${current}px`;
+
+            while ((element.scrollHeight > element.clientHeight || element.scrollWidth > element.clientWidth) && current > 9) {
+                current -= 0.5;
                 element.style.fontSize = `${current}px`;
             }
         });
