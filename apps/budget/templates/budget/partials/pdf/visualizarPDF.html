@@ -17,6 +17,58 @@
             width: 100%;
             box-sizing: border-box;
             break-inside: avoid;
+            height: 287mm;
+            min-height: 287mm;
+            max-height: 287mm;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .pdf-main {
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .header-section p,
+        .client-vehicle-section p {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .header-section {
+            min-height: 98px;
+            max-height: 98px;
+            overflow: hidden;
+        }
+
+        .client-vehicle-section {
+            min-height: 142px;
+            max-height: 142px;
+            overflow: hidden;
+        }
+
+        .issue-section {
+            min-height: 70px;
+            max-height: 70px;
+            overflow: hidden;
+        }
+
+        .summary-section {
+            min-height: 116px;
+            max-height: 116px;
+            overflow: hidden;
+        }
+
+        .signature-section {
+            min-height: 80px;
+            max-height: 80px;
+        }
+
+        .footer-section {
+            min-height: 40px;
+            max-height: 40px;
         }
 
         .products-table {
@@ -45,8 +97,9 @@
 <body class="bg-gray-100 font-sans text-[11px] leading-tight">
     {% for page in pages %}
     <div class="pdf-content bg-white border border-gray-200 rounded-lg shadow-sm p-4 text-[13px]">
+        <div class="pdf-main">
 
-        <div class="flex justify-between items-start p-4 border-b border-gray-200">
+        <div class="header-section flex justify-between items-start p-4 border-b border-gray-200">
             <div>
                 <h3 class="text-[18px] font-bold uppercase m-0">{{ budget.workshop.name }}</h3>
                 <p>CNPJ: {{ budget.workshop.cnpj|cnpj_br|default:"-" }}</p>
@@ -60,7 +113,7 @@
             </div>
         </div>
 
-        <div class="grid grid-cols-2 gap-4 p-4 border-b border-gray-200">
+        <div class="client-vehicle-section grid grid-cols-2 gap-4 p-4 border-b border-gray-200">
             <div>
                 <h4 class="font-bold mb-2 uppercase">Cliente</h4>
                 <div class="grid grid-cols-2 gap-x-4 gap-y-1">
@@ -86,7 +139,7 @@
             </div>
         </div>
 
-        <div class="p-4 border-b border-gray-200">
+        <div class="issue-section p-4 border-b border-gray-200">
             <h4 class="font-bold mb-2 uppercase">Reclamações/Problemas</h4>
             <p><span class="text-gray-500 italic">Relato principal do cliente:</span> {{ budget.problem_description|default:"Não informado." }}</p>
         </div>
@@ -152,7 +205,7 @@
             </table>
         </div>
 
-        <div class="grid grid-cols-2 gap-8 p-4 border-b-0">
+        <div class="summary-section grid grid-cols-2 gap-8 p-4 border-b-0">
             <div>
                 <h4 class="font-bold mb-2 uppercase">Observação</h4>
                 <p class="text-[12px]">{{ observacao|default:"Nenhuma observação técnica adicional." }}</p>
@@ -178,15 +231,16 @@
                 </div>
             </div>
         </div>
+        </div>
 
-        <div class="mt-8 mb-8 text-center">
+        <div class="signature-section text-center">
             <div class="inline-block border-t border-gray-500 px-12 pt-2">
                 <p class="font-bold mb-1">{{ budget.customer.name|default:budget.customer }}</p>
                 <p class="text-[11px] text-gray-500">Assinatura do cliente ou pessoa por ele autorizada</p>
             </div>
         </div>
 
-        <div class="pt-4 mt-4 border-t border-gray-200 text-[11px] text-gray-500">
+        <div class="footer-section pt-3 border-t border-gray-200 text-[11px] text-gray-500">
             <div class="flex items-end justify-between">
                 <div>
                     <p>Aberto por: {{ request.user.get_full_name|default:"Sistema" }} em: {{ budget.criado_em|date:"d/m/Y" }} às {{ budget.criado_em|date:"H:i" }}</p>
