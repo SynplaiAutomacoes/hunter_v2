@@ -117,10 +117,11 @@ class Budget(TimeStampedModel):
             super().save(*args, **kwargs)
 
             if old_status != BudgetStatus.APPROVED and self.status == BudgetStatus.APPROVED:
-                WorkOrder.objects.get_or_create(
+                workorder, _ = WorkOrder.objects.get_or_create(
                     budget=self,
                     defaults={"workshop": self.workshop},
                 )
+                workorder.sync_from_budget()
 
             if self.status == BudgetStatus.APPROVED or self.status == BudgetStatus.REJECTED or self.status == BudgetStatus.CANCELLED:
                 self.signature_token_active = False
