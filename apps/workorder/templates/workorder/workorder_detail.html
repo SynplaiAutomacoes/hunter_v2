@@ -39,5 +39,23 @@
         </div>
 
     </div>
+
+    <dialog id="form_modal" class="modal">
+        <div id="modal-container"></div>
+    </dialog>
 </div>
+
+<script>
+    document.body.addEventListener('workorderItemsUpdated', function () {
+        htmx.ajax('GET', '{% url "workorder:resume_section" workorder.pk %}', {
+            target: '#resume-section',
+            swap: 'innerHTML'
+        });
+
+        htmx.ajax('GET', '{% url "workorder:payment_section" workorder.pk %}', {
+            target: '#payment-section',
+            swap: 'innerHTML'
+        });
+    });
+</script>
 {% endblock %}

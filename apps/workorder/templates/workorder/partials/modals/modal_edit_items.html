@@ -1,0 +1,222 @@
+<div class="modal-box w-11/12 max-w-7xl bg-base-100 p-0 overflow-hidden">
+    <div class="p-6 border-b border-base-200 flex justify-between items-center bg-base-50">
+        <h3 class="font-bold text-2xl flex items-center gap-3">
+            <span class="material-icons">edit_note</span>
+            Editar Itens da O.S. #{{ workorder.id }}
+        </h3>
+        <button type="button" class="btn btn-sm btn-circle btn-ghost" onclick="document.getElementById('form_modal').close()">✕</button>
+    </div>
+
+    <div class="p-6">
+        <div role="tablist" class="tabs tabs-lifted tabs-lg">
+            <input type="radio" name="workorder_items_tabs" role="tab" class="tab" aria-label="Peças" {% if active_tab == 'products' %}checked{% endif %} />
+            <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-4">
+                <div class="flex justify-between items-center mb-4">
+                    <h4 class="font-bold text-lg">Peças</h4>
+                    <button
+                        type="button"
+                        class="btn btn-primary btn-sm"
+                        hx-get="{% url 'workorder:item_selection' workorder.pk 'product' %}"
+                        hx-target="#modal-container"
+                        hx-swap="innerHTML">
+                        Inserir Peça
+                    </button>
+                </div>
+
+                <div class="overflow-x-auto rounded-lg border border-base-200">
+                    <table class="table table-zebra w-full">
+                        <thead class="bg-base-200">
+                            <tr>
+                                <th>Descrição</th>
+                                <th class="text-center">Qtd.</th>
+                                <th>Custo</th>
+                                <th>Venda</th>
+                                <th>Frete</th>
+                                <th>Total</th>
+                                <th class="text-center">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in product_items %}
+                                <tr>
+                                    <td>{{ item.description }}</td>
+                                    <td class="text-center">{{ item.quantity }}</td>
+                                    <td>{{ item.product_cost_price }}</td>
+                                    <td>{{ item.product_selling_price }}</td>
+                                    <td>{{ item.shipping }}</td>
+                                    <td class="font-semibold">{{ item.total_price }}</td>
+                                    <td class="text-center">
+                                        <div class="flex justify-center gap-1">
+                                            <button
+                                                type="button"
+                                                class="btn btn-ghost btn-xs text-info"
+                                                hx-get="{% url 'workorder:edit_item' workorder.pk item.pk %}?tab=products"
+                                                hx-target="#modal-container"
+                                                hx-swap="innerHTML">
+                                                <span class="material-icons text-sm">edit</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                class="btn btn-ghost btn-xs text-error"
+                                                hx-post="{% url 'workorder:remove_item' workorder.pk item.pk %}"
+                                                hx-target="#modal-container"
+                                                hx-swap="innerHTML"
+                                                hx-confirm="Deseja remover esta peça?"
+                                                hx-vals='{"active_tab":"products"}'>
+                                                <span class="material-icons text-sm">delete</span>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            {% empty %}
+                                <tr>
+                                    <td colspan="7" class="text-center text-base-content/60">Nenhuma peça adicionada.</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <input type="radio" name="workorder_items_tabs" role="tab" class="tab" aria-label="Serviços" {% if active_tab == 'services' %}checked{% endif %} />
+            <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-4">
+                <div class="flex justify-between items-center mb-4">
+                    <h4 class="font-bold text-lg">Serviços</h4>
+                    <button
+                        type="button"
+                        class="btn btn-primary btn-sm"
+                        hx-get="{% url 'workorder:item_selection' workorder.pk 'service' %}"
+                        hx-target="#modal-container"
+                        hx-swap="innerHTML">
+                        Inserir Serviço
+                    </button>
+                </div>
+
+                <div class="overflow-x-auto rounded-lg border border-base-200">
+                    <table class="table table-zebra w-full">
+                        <thead class="bg-base-200">
+                            <tr>
+                                <th>Descrição</th>
+                                <th class="text-center">Qtd.</th>
+                                <th>Custo</th>
+                                <th>Venda</th>
+                                <th>Duração</th>
+                                <th>Total</th>
+                                <th class="text-center">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in service_items %}
+                                <tr>
+                                    <td>{{ item.description }}</td>
+                                    <td class="text-center">{{ item.quantity }}</td>
+                                    <td>{{ item.service_cost_price }}</td>
+                                    <td>{{ item.service_selling_price }}</td>
+                                    <td>{{ item.duration_display }}</td>
+                                    <td class="font-semibold">{{ item.total_price }}</td>
+                                    <td class="text-center">
+                                        <div class="flex justify-center gap-1">
+                                            <button
+                                                type="button"
+                                                class="btn btn-ghost btn-xs text-info"
+                                                hx-get="{% url 'workorder:edit_item' workorder.pk item.pk %}?tab=services"
+                                                hx-target="#modal-container"
+                                                hx-swap="innerHTML">
+                                                <span class="material-icons text-sm">edit</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                class="btn btn-ghost btn-xs text-error"
+                                                hx-post="{% url 'workorder:remove_item' workorder.pk item.pk %}"
+                                                hx-target="#modal-container"
+                                                hx-swap="innerHTML"
+                                                hx-confirm="Deseja remover este serviço?"
+                                                hx-vals='{"active_tab":"services"}'>
+                                                <span class="material-icons text-sm">delete</span>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            {% empty %}
+                                <tr>
+                                    <td colspan="7" class="text-center text-base-content/60">Nenhum serviço adicionado.</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <input type="radio" name="workorder_items_tabs" role="tab" class="tab" aria-label="Kits" {% if active_tab == 'kits' %}checked{% endif %} />
+            <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-4">
+                <div class="flex justify-between items-center mb-4">
+                    <h4 class="font-bold text-lg">Kits</h4>
+                    <button
+                        type="button"
+                        class="btn btn-primary btn-sm"
+                        hx-get="{% url 'workorder:item_selection' workorder.pk 'kit' %}"
+                        hx-target="#modal-container"
+                        hx-swap="innerHTML">
+                        Inserir Kit
+                    </button>
+                </div>
+
+                <div class="overflow-x-auto rounded-lg border border-base-200">
+                    <table class="table table-zebra w-full">
+                        <thead class="bg-base-200">
+                            <tr>
+                                <th>Kit</th>
+                                <th class="text-center">Qtd.</th>
+                                <th class="text-center">Produtos</th>
+                                <th class="text-center">Serviços</th>
+                                <th>Total</th>
+                                <th class="text-center">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in kit_items %}
+                                <tr>
+                                    <td>{{ item.kit.name }}</td>
+                                    <td class="text-center">{{ item.quantity }}</td>
+                                    <td class="text-center">{{ item.effective_kit_products_count }}</td>
+                                    <td class="text-center">{{ item.effective_kit_services_count }}</td>
+                                    <td class="font-semibold">{{ item.total_price }}</td>
+                                    <td class="text-center">
+                                        <div class="flex justify-center gap-1">
+                                            <button
+                                                type="button"
+                                                class="btn btn-ghost btn-xs text-info"
+                                                hx-get="{% url 'workorder:edit_kit' workorder.pk item.pk %}"
+                                                hx-target="#modal-container"
+                                                hx-swap="innerHTML">
+                                                <span class="material-icons text-sm">edit</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                class="btn btn-ghost btn-xs text-error"
+                                                hx-post="{% url 'workorder:remove_item' workorder.pk item.pk %}"
+                                                hx-target="#modal-container"
+                                                hx-swap="innerHTML"
+                                                hx-confirm="Deseja remover este kit?"
+                                                hx-vals='{"active_tab":"kits"}'>
+                                                <span class="material-icons text-sm">delete</span>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            {% empty %}
+                                <tr>
+                                    <td colspan="6" class="text-center text-base-content/60">Nenhum kit adicionado.</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="p-4 border-t border-base-200 flex justify-end bg-base-50">
+        <button type="button" class="btn" onclick="document.getElementById('form_modal').close()">Fechar</button>
+    </div>
+</div>
