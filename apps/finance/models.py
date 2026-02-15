@@ -59,7 +59,7 @@ class NfseRequest(TimeStampedModel):
         }
         update_method = status_mapping.get(request_status)
         if update_method:
-            update_method()
+            self.set_status(update_method)
         else:
             print(f"Status desconhecido recebido: {request_status}")
             raise ValueError
