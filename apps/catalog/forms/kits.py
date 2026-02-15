@@ -202,14 +202,20 @@ class KitForm(forms.ModelForm):
                     Field("name", wrapper_class="col-span-12 lg:col-span-11"),
                     Field("is_active", wrapper_class="col-span-12 lg:col-span-1"),
                     Field("description", wrapper_class="col-span-12"),
-                    HTML('<div class="col-span-12 divider my-1"></div>'),
-                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Itens do Kit</h3>'),
                     HTML(
                         f"""
                         <div
                             class="col-span-12"
                             x-data="kitItemsManager()"
                         >
+                            <div class="p-4 bg-base-300 rounded-box mb-3">
+                                <div class="text-sm text-base-content/70">Duração Total</div>
+                                <div class="text-xl font-semibold" x-text="totalDurationDisplay"></div>
+                            </div>
+
+                            <div class="divider my-1"></div>
+                            <h3 class="text-xl font-bold mb-2">Itens do Kit</h3>
+
                             <div class="flex flex-wrap gap-2 mb-3">
                                 <label for="kit-products-modal" class="btn btn-sm btn-primary" @click="openProductsModal()">Adicionar Produto</label>
                                 <label for="kit-services-modal" class="btn btn-sm btn-primary" @click="openServicesModal()">Adicionar Serviço</label>
@@ -442,6 +448,34 @@ class KitForm(forms.ModelForm):
                                     selectedServices: {services_json},
                                     modalSelectedProducts: [],
                                     modalSelectedServices: [],
+                                    totalDurationDisplay: '00:00',
+
+                                    init() {{
+                                        this.refreshTotalDurationDisplay();
+                                    }},
+
+                                    parseDurationToSeconds(value) {{
+                                        const normalized = this.normalizeDurationForPost(value);
+                                        const parts = normalized.split(':');
+                                        if (parts.length !== 3) return 0;
+                                        const hours = Number.parseInt(parts[0], 10);
+                                        const minutes = Number.parseInt(parts[1], 10);
+                                        const seconds = Number.parseInt(parts[2], 10);
+                                        if (Number.isNaN(hours) || Number.isNaN(minutes) || Number.isNaN(seconds)) return 0;
+                                        return (hours * 3600) + (minutes * 60) + seconds;
+                                    }},
+                                    formatSecondsToHHMM(totalSeconds) {{
+                                        const safeSeconds = Math.max(0, Number.parseInt(totalSeconds, 10) || 0);
+                                        const hours = Math.floor(safeSeconds / 3600);
+                                        const minutes = Math.floor((safeSeconds % 3600) / 60);
+                                        return `${{String(hours).padStart(2, '0')}}:${{String(minutes).padStart(2, '0')}}`;
+                                    }},
+                                    refreshTotalDurationDisplay() {{
+                                        const totalSeconds = this.selectedServices.reduce((sum, service) => {{
+                                            return sum + this.parseDurationToSeconds(service.duration);
+                                        }}, 0);
+                                        this.totalDurationDisplay = this.formatSecondsToHHMM(totalSeconds);
+                                    }},
 
                                     openProductsModal() {{
                                         this.modalSelectedProducts = this.selectedProducts.map(p => ({{
@@ -498,6 +532,7 @@ class KitForm(forms.ModelForm):
                                                 qty: 1,
                                                 duration: this.normalizeDurationForPost(item.duration || '00:00:00'),
                                             }});
+                                            this.refreshTotalDurationDisplay();
                                         }}
                                     }},
                                     distributionTotalTime: '',
@@ -590,6 +625,8 @@ class KitForm(forms.ModelForm):
                                             this.selectedServices[item.index].duration = `${{String(hours).padStart(2, '0')}}:${{String(minutes).padStart(2, '0')}}:00`;
                                         }});
 
+                                        this.totalDurationDisplay = this.normalizeDistributionTime(this.distributionTotalTime);
+
                                         const modalToggle = document.getElementById('kit-distribute-time-modal');
                                         if (modalToggle) modalToggle.checked = false;
                                     }},
@@ -621,7 +658,10 @@ class KitForm(forms.ModelForm):
                                         if (list && window.htmx) window.htmx.trigger(list, 'load');
                                     }},
                                     removeProduct(index) {{ this.selectedProducts.splice(index, 1); }},
-                                    removeService(index) {{ this.selectedServices.splice(index, 1); }},
+                                    removeService(index) {{
+                                        this.selectedServices.splice(index, 1);
+                                        this.refreshTotalDurationDisplay();
+                                    }},
                                 }}
                             }}
                         </script>
