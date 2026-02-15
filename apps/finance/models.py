@@ -1,5 +1,7 @@
 from django.db import models
 
+from apps.core.models import TimeStampedModel
+
 
 class BatchStatus(models.TextChoices):
     processando = "processando"
@@ -7,7 +9,7 @@ class BatchStatus(models.TextChoices):
     agendado = "agendado"
     reprovado = "reprovado"
     cancelado = "cancelado"
-    contingencia = "contingência"
+    contingencia = "contingencia"
 
 
 class NfseItemStatus(models.TextChoices):
@@ -16,12 +18,12 @@ class NfseItemStatus(models.TextChoices):
     agendado = "agendado"
     reprovado = "reprovado"
     cancelado = "cancelado"
-    contingencia = "contingência"
+    contingencia = "contingencia"
 
 class NfsePdfStatus(models.TextChoices):
     processando = "processando"
     processado = "processado"
-    indisponivel = "indisponível"
+    indisponivel = "indisponivel"
 
 
 class NfseRequestStatus(models.TextChoices):
@@ -36,11 +38,62 @@ class NfseRequestStatus(models.TextChoices):
     CONTINGENCY = "contingency", "Contingência"
 
 
-class NfseRequest(models.Model):
+class NfseRequest(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE)
     workorder = models.ForeignKey("workorder.WorkOrder", verbose_name="Ordem de Serviço", on_delete=models.CASCADE)
     current_step = models.PositiveIntegerField(default=0)
-    status = models.CharField(max_length=20, choices=NfseRequestStatus.choices)
+    status = models.CharField(max_length=20, choices=NfseRequestStatus.choices, default=NfseRequestStatus.WAITING_WO)
+
+    def mark_status_waiting_wo(self):
+        self.status = NfseRequestStatus.WAITING_WO
+        self.save(update_fields=["status"])
+
+    def mark_status_checking_client(self):
+        self.status = NfseRequestStatus.CHECKING_CLIENT
+        self.save(update_fields=["status"])
+
+    def mark_status_checking_services(self):
+        self.status = NfseRequestStatus.CHECKING_SERVICES
+        self.save(update_fields=["status"])
+
+    def mark_status_processing(self):
+        self.status = NfseRequestStatus.PROCESSING
+        self.save(update_fields=["status"])
+
+    def mark_status_approved(self):
+        self.status = NfseRequestStatus.APPROVED
+        self.save(update_fields=["status"])
+
+    def mark_status_reproved(self):
+        self.status = NfseRequestStatus.REPROVED
+        self.save(update_fields=["status"])
+
+    def mark_status_scheduled(self):
+        self.status = NfseRequestStatus.SCHEDULED
+        self.save(update_fields=["status"])
+
+    def mark_status_canceled(self):
+        self.status = NfseRequestStatus.CANCELED
+        self.save(update_fields=["status"])
+
+    def mark_status_contingency(self):
+        self.status = NfseRequestStatus.CONTINGENCY
+        self.save(update_fields=["status"])
+
+    def update_status_based_on_request(self, request_status: str):
+        status_mapping = {
+            "processando": self.mark_status_processing,
+            "aprovado": self.mark_status_approved,
+            "reprovado": self.mark_status_reproved,
+            "agendado": self.mark_status_scheduled,
+            "cancelado": self.mark_status_canceled,
+            "contingencia": self.mark_status_contingency,
+        }
+        update_method = status_mapping.get(request_status)
+        if update_method:
+            update_method()
+        else:
+            print(f"Status desconhecido recebido: {request_status}")
 
 
 class NfseBatch(models.Model):

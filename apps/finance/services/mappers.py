@@ -8,8 +8,8 @@ def map_batch_payload(payload: dict) -> dict:
 
     log_payload = payload.get("log")
 
-    if type(log_payload) is not dict:
-        log_payload = {"raw": log_payload}
+    if not isinstance(log_payload, dict):
+        log_payload = {"error": "Log payload is not a dict", "raw": log_payload}
 
     return {
         "uuid": payload.get("uuid", None),
