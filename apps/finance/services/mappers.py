@@ -2,7 +2,7 @@
 def map_batch_payload(payload: dict) -> dict:
     try:
         rps_quantity = int(payload.get("quantidade_rps"))
-    except (ValueError):
+    except (ValueError, TypeError):
         print(f"Valor inválido para quantidade_rps: {payload.get('quantidade_rps')}")
         rps_quantity = 0
 
@@ -26,8 +26,8 @@ def map_batch_payload(payload: dict) -> dict:
 def map_item_payload(payload: dict) -> dict:
     log_payload = payload.get("log")
 
-    if type(log_payload) is not dict:
-        log_payload = {"raw": log_payload}
+    if not isinstance(log_payload, dict):
+        log_payload = {"error": "Log payload is not a dict", "raw": log_payload}
 
     return {
         "uuid": payload.get("uuid", None),
@@ -40,7 +40,7 @@ def map_item_payload(payload: dict) -> dict:
         "rps_number": payload.get("numero_rps", ""),
         "xml_url": payload.get("xml", ""),
         "pdf_nfse_url": payload.get("pdf_nfse", ""),
-        "pdf_nfse_status": payload.get("pdf_nfse_status", ""),
+        "pdf_nfse_status": payload.get("pdf_nfse_status", "processando"),
         "pdf_rps_url": payload.get("pdf_rps", ""),
         "log_payload": log_payload,
     }

@@ -44,56 +44,25 @@ class NfseRequest(TimeStampedModel):
     current_step = models.PositiveIntegerField(default=0)
     status = models.CharField(max_length=20, choices=NfseRequestStatus.choices, default=NfseRequestStatus.WAITING_WO)
 
-    def mark_status_waiting_wo(self):
-        self.status = NfseRequestStatus.WAITING_WO
-        self.save(update_fields=["status"])
-
-    def mark_status_checking_client(self):
-        self.status = NfseRequestStatus.CHECKING_CLIENT
-        self.save(update_fields=["status"])
-
-    def mark_status_checking_services(self):
-        self.status = NfseRequestStatus.CHECKING_SERVICES
-        self.save(update_fields=["status"])
-
-    def mark_status_processing(self):
-        self.status = NfseRequestStatus.PROCESSING
-        self.save(update_fields=["status"])
-
-    def mark_status_approved(self):
-        self.status = NfseRequestStatus.APPROVED
-        self.save(update_fields=["status"])
-
-    def mark_status_reproved(self):
-        self.status = NfseRequestStatus.REPROVED
-        self.save(update_fields=["status"])
-
-    def mark_status_scheduled(self):
-        self.status = NfseRequestStatus.SCHEDULED
-        self.save(update_fields=["status"])
-
-    def mark_status_canceled(self):
-        self.status = NfseRequestStatus.CANCELED
-        self.save(update_fields=["status"])
-
-    def mark_status_contingency(self):
-        self.status = NfseRequestStatus.CONTINGENCY
+    def set_status(self, status: NfseRequestStatus):
+        self.status = status
         self.save(update_fields=["status"])
 
     def update_status_based_on_request(self, request_status: str):
         status_mapping = {
-            "processando": self.mark_status_processing,
-            "aprovado": self.mark_status_approved,
-            "reprovado": self.mark_status_reproved,
-            "agendado": self.mark_status_scheduled,
-            "cancelado": self.mark_status_canceled,
-            "contingencia": self.mark_status_contingency,
+            "processando": NfseRequestStatus.PROCESSING,
+            "aprovado": NfseRequestStatus.APPROVED,
+            "reprovado": NfseRequestStatus.REPROVED,
+            "agendado": NfseRequestStatus.SCHEDULED,
+            "cancelado": NfseRequestStatus.CANCELED,
+            "contingencia": NfseRequestStatus.CONTINGENCY,
         }
         update_method = status_mapping.get(request_status)
         if update_method:
             update_method()
         else:
             print(f"Status desconhecido recebido: {request_status}")
+            raise ValueError
 
 
 class NfseBatch(models.Model):
@@ -102,7 +71,7 @@ class NfseBatch(models.Model):
     request = models.ForeignKey(NfseRequest, verbose_name="Requisição de NFS-e", related_name="batches", on_delete=models.SET_NULL, null=True)
     uuid = models.UUIDField(db_index=True) # UUID do lote
     model = models.CharField(max_length=255, default="lote_rps")
-    status = models.CharField(max_length=20, choices=BatchStatus.choices)
+    status = models.CharField(max_length=20, choices=BatchStatus.choices, default=BatchStatus.processando)
     reason = models.TextField(blank=True, default="")
     batch_number = models.CharField(max_length=40, blank=True, default="") # Número do lote
     batch_series = models.CharField(max_length=20, blank=True, default="") # Série do lote
@@ -128,7 +97,7 @@ class NfseItem(models.Model):
     batch = models.ForeignKey(NfseBatch, verbose_name="Lote", related_name="items", on_delete=models.SET_NULL, null=True)
     uuid = models.UUIDField(db_index=True) # UUID da NFS-e
     model = models.CharField(max_length=255, default="nfse")
-    status = models.CharField(max_length=20, choices=NfseItemStatus.choices)
+    status = models.CharField(max_length=20, choices=NfseItemStatus.choices, default=NfseItemStatus.processando)
     reason = models.TextField(blank=True, default="")
     number = models.CharField(max_length=40, blank=True, default="") # Número da NFS-e
     verification_code = models.CharField(max_length=60, blank=True, default="")
