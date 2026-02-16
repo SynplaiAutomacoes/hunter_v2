@@ -1,19 +1,15 @@
 <tr id="budget-item-{{ item.id }}"
     class="{% if item.is_local %}bg-warning/20{% endif %}"
     {% if not is_full_render %}hx-swap-oob="true"{% endif %}>
-    <td>
-        <div class="flex items-center justify-between gap-2">
-            <div class="flex items-center gap-2">
-                {{ item.description }}
-                {% if item.is_local %}
-                    <span class="tooltip tooltip-right" data-tip="Item disponível somente neste orçamento. Cadastre-o para prosseguir com a aprovação do orçamento.">
-                        <span class="material-icons text-warning" style="font-size: 18px;">warning</span>
-                    </span>
-                {% endif %}
-            </div>
+    <td class="budget-step4-description">
+        <div class="flex items-center gap-2 min-w-0">
+            <span class="break-words whitespace-normal leading-snug">{{ item.description }}</span>
             {% if item.is_local %}
+                <span class="tooltip tooltip-right shrink-0" data-tip="Item disponível somente neste orçamento. Cadastre-o para prosseguir com a aprovação do orçamento.">
+                    <span class="material-icons text-warning" style="font-size: 18px;">warning</span>
+                </span>
                 <button type="button"
-                        class="btn btn-xs btn-ghost tooltip"
+                        class="btn btn-xs btn-ghost tooltip shrink-0"
                         data-tip="Cadastrar no banco de dados"
                         hx-get="{% url 'budget:register_local_item' budget.id item.id %}"
                         hx-target="#modal-container"
@@ -24,13 +20,13 @@
             {% endif %}
         </div>
     </td>
-    <td class="text-center whitespace-nowrap">{{ item.quantity }}</td>
-    <td class="whitespace-nowrap">{{ item.product_cost_price }}</td>
-    <td class="whitespace-nowrap">{{ item.product_selling_price }}</td>
-    <td class="whitespace-nowrap">{{ item.shipping }} </td>
-    <td class="font-bold whitespace-nowrap">{{ item.total_price }}</td>
+    <td class="text-center">{{ item.quantity }}</td>
+    <td class="text-right">{{ item.product_cost_price }}</td>
+    <td class="text-right">{{ item.product_selling_price }}</td>
+    <td class="text-right">{{ item.shipping }}</td>
+    <td class="font-bold text-right">{{ item.total_price }}</td>
     {% if not step6 %}
-    <td class="text-center whitespace-nowrap">
+    <td class="text-center budget-step4-actions">
         <div class="flex justify-center items-center gap-1">
             <button type="button"
                     class="btn btn-ghost btn-xs text-info"
