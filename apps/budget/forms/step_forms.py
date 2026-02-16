@@ -673,10 +673,53 @@ class BudgetStep3Form(forms.ModelForm):
                         return true;
                     }}
 
+                    function moveChecklistPrintAreaToBody() {{
+                        const printArea = document.getElementById('step3-checklist-print-area');
+                        if (!printArea || !printArea.parentNode) {{
+                            return false;
+                        }}
+
+                        if (!window.__step3ChecklistPrintOriginalParent) {{
+                            window.__step3ChecklistPrintOriginalParent = printArea.parentNode;
+                            window.__step3ChecklistPrintOriginalNextSibling = printArea.nextSibling;
+                        }}
+
+                        let host = document.getElementById('step3-checklist-print-host');
+                        if (!host) {{
+                            host = document.createElement('div');
+                            host.id = 'step3-checklist-print-host';
+                            document.body.appendChild(host);
+                        }}
+
+                        host.appendChild(printArea);
+                        return true;
+                    }}
+
+                    function restoreChecklistPrintAreaFromBody() {{
+                        const printArea = document.getElementById('step3-checklist-print-area');
+                        const originalParent = window.__step3ChecklistPrintOriginalParent;
+                        if (!printArea || !originalParent) {{
+                            return;
+                        }}
+
+                        const originalNextSibling = window.__step3ChecklistPrintOriginalNextSibling;
+                        if (originalNextSibling && originalNextSibling.parentNode === originalParent) {{
+                            originalParent.insertBefore(printArea, originalNextSibling);
+                        }} else {{
+                            originalParent.appendChild(printArea);
+                        }}
+
+                        const host = document.getElementById('step3-checklist-print-host');
+                        if (host) {{
+                            host.remove();
+                        }}
+                    }}
+
                     if (window.__step3ChecklistAfterPrintBound !== true) {{
                         window.__step3ChecklistAfterPrintBound = true;
                         window.addEventListener('afterprint', function () {{
                             document.body.classList.remove('checklist-print-mode');
+                            restoreChecklistPrintAreaFromBody();
                         }});
                     }}
 
@@ -722,6 +765,16 @@ class BudgetStep3Form(forms.ModelForm):
                                 detail: {{
                                     type: 'error',
                                     message: 'Nao foi possivel montar o checklist para impressao.',
+                                }},
+                            }}));
+                            return;
+                        }}
+
+                        if (!moveChecklistPrintAreaToBody()) {{
+                            document.body.dispatchEvent(new CustomEvent('showToast', {{
+                                detail: {{
+                                    type: 'error',
+                                    message: 'Nao foi possivel preparar a area de impressao.',
                                 }},
                             }}));
                             return;
@@ -868,6 +921,7 @@ class BudgetStep3Form(forms.ModelForm):
                         border-color: rgb(75 85 99) !important;
                     }
 
+                    #step3-checklist-print-host,
                     #step3-checklist-print-area {
                         display: none;
                     }
@@ -930,26 +984,40 @@ class BudgetStep3Form(forms.ModelForm):
                     }
 
                     @media print {
-                        body.checklist-print-mode * {
-                            visibility: hidden !important;
+                        @page {
+                            size: A4;
+                            margin: 12mm;
                         }
 
-                        body.checklist-print-mode #step3-checklist-print-area,
-                        body.checklist-print-mode #step3-checklist-print-area * {
-                            visibility: visible !important;
+                        body.checklist-print-mode {
+                            margin: 0 !important;
+                            padding: 0 !important;
+                            background: #ffffff !important;
+                        }
+
+                        body.checklist-print-mode > * {
+                            display: none !important;
+                        }
+
+                        body.checklist-print-mode #step3-checklist-print-host {
+                            display: block !important;
                         }
 
                         body.checklist-print-mode #step3-checklist-print-area {
                             display: block !important;
-                            position: absolute;
-                            inset: 0;
                             margin: 0;
                             padding: 0;
+                            width: 100%;
                             background: #ffffff;
                         }
 
                         body.checklist-print-mode .checklist-print-sheet {
-                            padding: 12mm;
+                            padding: 0;
+                        }
+
+                        body.checklist-print-mode .checklist-print-table tr {
+                            break-inside: avoid;
+                            page-break-inside: avoid;
                         }
                     }
                 </style>
