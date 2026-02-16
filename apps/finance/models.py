@@ -105,7 +105,7 @@ class NfseRequest(TimeStampedModel):
         return True
 
     def __str__(self):
-        workorder_pk = self.workorder.pk if self.workorder else "-"
+        workorder_pk = getattr(self, "workorder_id", None) or "-"
         return f"NFS-e Request #{self.pk} - OS #{workorder_pk}"
 
 

@@ -20,7 +20,7 @@ def map_batch_payload(payload: dict) -> dict:
     return {
         "uuid": payload.get("uuid", None),
         "model": payload.get("modelo", "lote_rps"),
-        "status": payload.get("status", ""),
+        "status": payload.get("status", "processando"),
         "reason": payload.get("motivo", ""),
         "batch_number": payload.get("numero_lote", ""),
         "batch_series": payload.get("serie_lote", ""),
@@ -39,7 +39,7 @@ def map_item_payload(payload: dict) -> dict:
     return {
         "uuid": payload.get("uuid", None),
         "model": payload.get("modelo", "nfse"),
-        "status": payload.get("status", ""),
+        "status": payload.get("status", "processando"),
         "reason": payload.get("motivo", ""),
         "number": payload.get("numero", ""),
         "verification_code": payload.get("codigo_verificacao", ""),

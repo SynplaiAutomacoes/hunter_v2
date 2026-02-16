@@ -32,6 +32,13 @@
             ]
         },
         {
+            label: 'Financeiro',
+            items: [
+                { label: 'Emitir NF-e', href: '{% url "finance:nfe_emit" %}' },
+                { label: 'Emitir NFS-e', href: '{% url "finance:nfse_list" %}' }
+            ]
+        },
+        {
             label: 'Consulta',
             items: [
                 { label: 'Histórico de Clientes', href: '{% url "customer:customer_history_list" %}'}
