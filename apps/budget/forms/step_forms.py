@@ -528,7 +528,7 @@ class BudgetStep3Form(forms.ModelForm):
 
     class Meta:
         model = Budget
-        fields = ["collaborator", "technical_diagnosis"]
+        fields = ["collaborator", "checklist", "technical_diagnosis"]
         widgets = {
             "technical_diagnosis": forms.Textarea(attrs={"rows": 10, "placeholder": "Descreva detalhadamente as observações técnicas, diagnósticos preliminares, testes realizados...", "class": "textarea textarea-bordered w-full !bg-transparent"}),
         }
