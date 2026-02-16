@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import re
 from decimal import Decimal, ROUND_HALF_UP
@@ -21,15 +22,49 @@ class NfseEmissionError(Exception):
     pass
 
 
+def _is_debug_enabled() -> bool:
+    return bool(getattr(settings, "NFSE_DEBUG_LOGS", True))
+
+
+def _debug_print(message: str, payload: Any | None = None) -> None:
+    if not _is_debug_enabled():
+        return
+
+    prefix = "[NFS-E DEBUG]"
+    if payload is None:
+        print(f"{prefix} {message}")
+        return
+
+    try:
+        serialized = json.dumps(payload, ensure_ascii=False, default=str)
+    except TypeError:
+        serialized = str(payload)
+    print(f"{prefix} {message}: {serialized}")
+
+
+def _redact_headers(headers: dict[str, str]) -> dict[str, str]:
+    safe_headers = dict(headers)
+    authorization = safe_headers.get("Authorization", "")
+    if authorization.startswith("Bearer "):
+        token = authorization.removeprefix("Bearer ").strip()
+        if len(token) > 10:
+            token = f"{token[:6]}...{token[-4:]}"
+        elif token:
+            token = "***"
+        safe_headers["Authorization"] = f"Bearer {token}"
+    return safe_headers
+
+
 def build_webmania_webhook_url(*, request=None) -> str:
     path = reverse("finance:webhook")
+    base_url = getattr(settings, "APP_BASE_URL", "").rstrip("/")
+    if base_url:
+        return f"{base_url}{path}"
+
     if request is not None:
         return request.build_absolute_uri(path)
 
-    base_url = getattr(settings, "APP_BASE_URL", "").rstrip("/")
-    if not base_url:
-        base_url = "http://localhost:8000"
-    return f"{base_url}{path}"
+    return f"http://localhost:8000{path}"
 
 
 def _build_headers() -> dict[str, str]:
@@ -91,6 +126,10 @@ def _default_service_description(nfse_request: NfseRequest) -> str:
 
 def _service_total_value(nfse_request: NfseRequest) -> str:
     amount = Decimal(nfse_request.workorder.budget.total_services_value.amount).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    if amount <= 0:
+        raise NfseEmissionError("A OS selecionada não possui valor de serviços para emissão de NFS-e.")
+
     return str(amount)
 
 
@@ -118,30 +157,65 @@ def build_nfse_payload(*, nfse_request: NfseRequest, request=None) -> dict[str, 
 def emit_nfse_request(*, nfse_request: NfseRequest, request=None) -> dict[str, Any]:
     payload = build_nfse_payload(nfse_request=nfse_request, request=request)
     emit_url = _build_emit_url()
+    headers = _build_headers()
+
+    _debug_print(
+        "Iniciando emissao de NFS-e",
+        {
+            "nfse_request_id": nfse_request.pk,
+            "workorder_id": nfse_request.workorder.pk,
+        },
+    )
+    _debug_print("URL de emissao", emit_url)
+    _debug_print("Headers de emissao", _redact_headers(headers))
+    _debug_print("Payload de emissao", payload)
 
     try:
         response = requests.post(
             emit_url,
             json=payload,
-            headers=_build_headers(),
+            headers=headers,
             timeout=30,
         )
+        _debug_print("Status HTTP da emissao", response.status_code)
+        _debug_print("Body bruto da emissao", response.text)
         response.raise_for_status()
     except requests.RequestException as exc:
         response_text = exc.response.text if exc.response is not None else ""
-        logger.exception("Erro ao emitir NFS-e", extra={"workorder_id": nfse_request.workorder_id})
+        _debug_print("Falha HTTP na emissao", response_text or str(exc))
+        logger.exception("Erro ao emitir NFS-e", extra={"workorder_id": nfse_request.workorder.pk})
         raise NfseEmissionError(f"Falha ao emitir NFS-e: {response_text or str(exc)}") from exc
 
-    data = response.json()
+    try:
+        data = response.json()
+    except ValueError as exc:
+        _debug_print("Resposta nao e JSON", response.text)
+        raise NfseEmissionError("Resposta inválida da API de emissão de NFS-e.") from exc
+
+    _debug_print("JSON parseado da emissao", data)
+
     if not isinstance(data, dict):
         raise NfseEmissionError("Resposta inválida da API de emissão de NFS-e.")
+
+    if data.get("error"):
+        error_message = str(data.get("error"))
+        _debug_print("Erro de negocio retornado pela API", error_message)
+        raise NfseEmissionError(error_message)
+
+    if not data.get("modelo") and not data.get("uuid"):
+        message = str(data.get("msg") or data.get("message") or "Resposta da API sem modelo/uuid.")
+        _debug_print("Resposta sem dados esperados de emissao", data)
+        raise NfseEmissionError(message)
 
     return data
 
 
 def sync_emission_response(*, nfse_request: NfseRequest, response_payload: dict[str, Any]) -> None:
+    _debug_print("Iniciando sincronizacao da resposta", response_payload)
+
     model = response_payload.get("modelo")
     if model not in {"lote_rps", "nfse"}:
+        _debug_print("Modelo de resposta nao suportado para sincronizacao", model)
         return
 
     with transaction.atomic():
@@ -149,9 +223,10 @@ def sync_emission_response(*, nfse_request: NfseRequest, response_payload: dict[
             mapped_batch = map_batch_payload(response_payload)
             batch_uuid = mapped_batch.pop("uuid", None)
             if not batch_uuid:
+                _debug_print("Lote sem UUID, sincronizacao ignorada", response_payload)
                 return
 
-            batch, _ = NfseBatch.objects.update_or_create(
+            batch, batch_created = NfseBatch.objects.update_or_create(
                 workorder=nfse_request.workorder,
                 uuid=batch_uuid,
                 defaults={
@@ -161,13 +236,24 @@ def sync_emission_response(*, nfse_request: NfseRequest, response_payload: dict[
                     **mapped_batch,
                 },
             )
+            _debug_print(
+                "Batch sincronizado",
+                {
+                    "uuid": str(batch.uuid),
+                    "created": batch_created,
+                    "status": batch.status,
+                },
+            )
+
+            created_items = 0
+            updated_items = 0
 
             for item_payload in extract_items_from_batch(response_payload):
                 item_uuid = item_payload.pop("uuid", None)
                 if not item_uuid:
                     continue
 
-                NfseItem.objects.update_or_create(
+                _, item_created = NfseItem.objects.update_or_create(
                     workorder=nfse_request.workorder,
                     uuid=item_uuid,
                     defaults={
@@ -179,14 +265,28 @@ def sync_emission_response(*, nfse_request: NfseRequest, response_payload: dict[
                     },
                 )
 
+                if item_created:
+                    created_items += 1
+                else:
+                    updated_items += 1
+
+            _debug_print(
+                "Itens sincronizados a partir do lote",
+                {
+                    "created": created_items,
+                    "updated": updated_items,
+                },
+            )
+
             return
 
         mapped_item = map_item_payload(response_payload)
         item_uuid = mapped_item.pop("uuid", None)
         if not item_uuid:
+            _debug_print("NFS-e sem UUID, sincronizacao ignorada", response_payload)
             return
 
-        NfseItem.objects.update_or_create(
+        item, item_created = NfseItem.objects.update_or_create(
             workorder=nfse_request.workorder,
             uuid=item_uuid,
             defaults={
@@ -194,5 +294,13 @@ def sync_emission_response(*, nfse_request: NfseRequest, response_payload: dict[
                 "request": nfse_request,
                 "raw_payload": response_payload,
                 **mapped_item,
+            },
+        )
+        _debug_print(
+            "Item de NFS-e sincronizado",
+            {
+                "uuid": str(item.uuid),
+                "created": item_created,
+                "status": item.status,
             },
         )

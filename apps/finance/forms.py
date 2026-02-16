@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from html import escape
-from typing import Any, cast
+from typing import Any
 
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
