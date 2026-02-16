@@ -42,6 +42,7 @@ PERF_LOG_MIN_MS = int(os.getenv("PERF_LOG_MIN_MS", "300"))
 
 WEBMANIA_BASE_URL = "https://api.webmania.com.br/2/"
 WEBMANIA_AMBIENT = os.getenv("WEBMANIA_AMBIENT", "2")
+WEBMANIA_API_KEY = os.getenv("WEBMANIA_API_KEY", "")
 
 SUPERSIGN_BASE_URL = os.getenv("SUPERSIGN_BASE_URL", "https://api.sign.supersign.com.br")
 SUPERSIGN_ACCOUNT_ID = os.getenv("SUPERSIGN_ACCOUNT_ID", "")

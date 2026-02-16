@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from html import escape
-from typing import Any
+from typing import Any, cast
 
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
@@ -73,15 +73,24 @@ class NfseRequestStep1Form(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         workshop = kwargs.pop("workshop", None)
+        self.request = kwargs.pop("request", None)
         super().__init__(*args, **kwargs)
 
         queryset = WorkOrder.objects.none()
         if workshop is not None:
             queryset = WorkOrder.objects.filter(workshop=workshop, status=WorkOrderStatus.APPROVED).select_related("budget", "budget__customer", "budget__vehicle")
 
-        self.fields["workorder"].queryset = queryset.order_by("-id")
-        self.fields["workorder"].widget = SelectInput(choices=self.fields["workorder"].choices)
-        self.fields["workorder"].label = "Ordem de Serviço"
+        field = self.fields["workorder"]
+        field.queryset = queryset.order_by("-id")
+
+        def _label_from_instance(workorder: WorkOrder) -> str:
+            customer = getattr(getattr(workorder, "budget", None), "customer", None)
+            customer_name = customer.name if customer else "Cliente não informado"
+            return f"Ordem de Serviço - {customer_name} - #{workorder.pk}"
+
+        field.label_from_instance = _label_from_instance
+        field.widget = SelectInput(choices=field.choices)
+        field.label = "Ordem de Serviço"
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -101,6 +110,8 @@ class NfseRequestStep2Form(forms.ModelForm):
         fields: list[str] = []
 
     def __init__(self, *args, **kwargs):
+        self.workshop = kwargs.pop("workshop", None)
+        self.request = kwargs.pop("request", None)
         super().__init__(*args, **kwargs)
 
         customer = None
@@ -168,6 +179,8 @@ class NfseRequestStep3Form(forms.ModelForm):
         }
 
     def __init__(self, *args, **kwargs):
+        self.workshop = kwargs.pop("workshop", None)
+        self.request = kwargs.pop("request", None)
         super().__init__(*args, **kwargs)
 
         rows: list[dict[str, Any]] = []

@@ -35,27 +35,17 @@ def build_webmania_webhook_url(*, request=None) -> str:
 def _build_headers() -> dict[str, str]:
     headers = {"Content-Type": "application/json"}
 
-    consumer_key = getattr(settings, "WEBMANIA_CONSUMER_KEY", "")
-    consumer_secret = getattr(settings, "WEBMANIA_CONSUMER_SECRET", "")
-    auth_token = getattr(settings, "WEBMANIA_AUTH_TOKEN", "")
+    api_key = getattr(settings, "WEBMANIA_API_KEY", "").strip()
 
-    if consumer_key:
-        headers["X-Consumer-Key"] = consumer_key
-    if consumer_secret:
-        headers["X-Consumer-Secret"] = consumer_secret
-    if auth_token:
-        headers["Authorization"] = f"Bearer {auth_token}"
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
 
     return headers
 
 
 def _build_emit_url() -> str:
-    configured_url = getattr(settings, "WEBMANIA_NFSE_EMIT_URL", "").strip()
-    if configured_url:
-        return configured_url
-
     base_url = getattr(settings, "WEBMANIA_BASE_URL", "https://api.webmania.com.br/2/").rstrip("/")
-    return f"{base_url}/nfse/"
+    return f"{base_url}/nfse/emissao/"
 
 
 def _build_taker_payload(nfse_request: NfseRequest) -> dict[str, str]:

@@ -132,7 +132,7 @@ class NfseRequestListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
         context = super().get_context_data(**kwargs)
         context["fields"] = [
             TableColumn("ID", attr="id"),
-            TableColumn("OS", attr="workorder"),
+            TableColumn("Ordem de Serviço", attr="workorder"),
             TableColumn("Cliente", attr="customer_name"),
             TableColumn(NfseRequest.criado_em.field.verbose_name, attr=NfseRequest.criado_em.field.name),
             TableColumn("Status", attr="nfse_request_status_badge", format="status_badge"),
