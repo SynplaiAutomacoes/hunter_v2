@@ -1,4 +1,5 @@
 import base64
+import json
 from decimal import Decimal
 
 from crispy_forms.helper import FormHelper
@@ -527,7 +528,7 @@ class BudgetStep3Form(forms.ModelForm):
 
     class Meta:
         model = Budget
-        fields = ["collaborator", "technical_diagnosis"]
+        fields = ["collaborator", "checklist", "technical_diagnosis"]
         widgets = {
             "technical_diagnosis": forms.Textarea(attrs={"rows": 10, "placeholder": "Descreva detalhadamente as observações técnicas, diagnósticos preliminares, testes realizados...", "class": "textarea textarea-bordered w-full !bg-transparent"}),
         }
@@ -537,9 +538,31 @@ class BudgetStep3Form(forms.ModelForm):
         self.request = kwargs.pop("request", None)
         super().__init__(*args, **kwargs)
 
+        checklist_print_data_b64 = base64.b64encode(b"[]").decode("ascii")
         if self.workshop:
             self.fields["collaborator"].queryset = WorkshopCollaborator.objects.filter(workshop=self.workshop, is_active=True)
-            self.fields["checklist"].queryset = Checklist.objects.filter(workshop=self.workshop)
+            checklist_queryset = Checklist.objects.filter(workshop=self.workshop).prefetch_related("items").order_by("name")
+            self.fields["checklist"].queryset = checklist_queryset
+
+            checklist_payload = []
+            for checklist in checklist_queryset:
+                sorted_items = sorted(checklist.items.all(), key=lambda item: (item.order, item.id))
+                checklist_payload.append(
+                    {
+                        "id": checklist.id,
+                        "name": checklist.name,
+                        "items": [
+                            {
+                                "group": item.group,
+                                "description": item.description,
+                                "response_type": item.response_type,
+                            }
+                            for item in sorted_items
+                        ],
+                    }
+                )
+
+            checklist_print_data_b64 = base64.b64encode(json.dumps(checklist_payload).encode("utf-8")).decode("ascii")
 
         initial_collab_id = ""
         if self.instance.pk and self.instance.collaborator:
@@ -578,7 +601,191 @@ class BudgetStep3Form(forms.ModelForm):
                         input.value = "";
                         input.focus();
                     }}
-                    
+
+                    const checklistDataEncoded = '{checklist_print_data_b64}';
+                    let checklistPrintData = [];
+
+                    try {{
+                        checklistPrintData = JSON.parse(atob(checklistDataEncoded));
+                    }} catch (error) {{
+                        checklistPrintData = [];
+                    }}
+
+                    function escapeHtml(value) {{
+                        return String(value || '')
+                            .replace(/&/g, '&amp;')
+                            .replace(/</g, '&lt;')
+                            .replace(/>/g, '&gt;')
+                            .replace(/"/g, '&quot;')
+                            .replace(/'/g, '&#39;');
+                    }}
+
+                    function getResponseOptionsHtml(responseType) {{
+                        if (responseType === 'SIM_NAO') {{
+                            return '<span class="checklist-print-option"><span class="checklist-print-box"></span>Sim</span>' +
+                                '<span class="checklist-print-option"><span class="checklist-print-box"></span>Nao</span>';
+                        }}
+                        if (responseType === 'BOM_REGULAR_RUIM') {{
+                            return '<span class="checklist-print-option"><span class="checklist-print-box"></span>Bom</span>' +
+                                '<span class="checklist-print-option"><span class="checklist-print-box"></span>Regular</span>' +
+                                '<span class="checklist-print-option"><span class="checklist-print-box"></span>Ruim</span>';
+                        }}
+                        if (responseType === 'NIVEL') {{
+                            return '<span class="checklist-print-option"><span class="checklist-print-box"></span>Vazio</span>' +
+                                '<span class="checklist-print-option"><span class="checklist-print-box"></span>1/4</span>' +
+                                '<span class="checklist-print-option"><span class="checklist-print-box"></span>1/2</span>' +
+                                '<span class="checklist-print-option"><span class="checklist-print-box"></span>3/4</span>' +
+                                '<span class="checklist-print-option"><span class="checklist-print-box"></span>Cheio</span>';
+                        }}
+
+                        return '<div class="checklist-print-line"></div>';
+                    }}
+
+                    function renderChecklistPrintArea(checklist) {{
+                        const titleEl = document.getElementById('step3-checklist-print-title');
+                        const bodyEl = document.getElementById('step3-checklist-print-items');
+                        if (!titleEl || !bodyEl) {{
+                            return false;
+                        }}
+
+                        titleEl.textContent = checklist.name || 'Checklist';
+                        if (!Array.isArray(checklist.items) || checklist.items.length === 0) {{
+                            bodyEl.innerHTML = '';
+                            return false;
+                        }}
+
+                        const rowsHtml = checklist.items
+                            .map(function (item, index) {{
+                                const groupLabel = item.group ? item.group : 'Sem grupo';
+                                const description = item.description ? item.description : '-';
+                                const responseOptions = getResponseOptionsHtml(item.response_type);
+
+                                return '<tr>' +
+                                    '<td class="checklist-print-col-seq">' + (index + 1) + '</td>' +
+                                    '<td>' + escapeHtml(groupLabel) + '</td>' +
+                                    '<td>' + escapeHtml(description) + '</td>' +
+                                    '<td>' + responseOptions + '</td>' +
+                                    '</tr>';
+                            }})
+                            .join('');
+
+                        bodyEl.innerHTML = rowsHtml;
+                        return true;
+                    }}
+
+                    function moveChecklistPrintAreaToBody() {{
+                        const printArea = document.getElementById('step3-checklist-print-area');
+                        if (!printArea || !printArea.parentNode) {{
+                            return false;
+                        }}
+
+                        if (!window.__step3ChecklistPrintOriginalParent) {{
+                            window.__step3ChecklistPrintOriginalParent = printArea.parentNode;
+                            window.__step3ChecklistPrintOriginalNextSibling = printArea.nextSibling;
+                        }}
+
+                        let host = document.getElementById('step3-checklist-print-host');
+                        if (!host) {{
+                            host = document.createElement('div');
+                            host.id = 'step3-checklist-print-host';
+                            document.body.appendChild(host);
+                        }}
+
+                        host.appendChild(printArea);
+                        return true;
+                    }}
+
+                    function restoreChecklistPrintAreaFromBody() {{
+                        const printArea = document.getElementById('step3-checklist-print-area');
+                        const originalParent = window.__step3ChecklistPrintOriginalParent;
+                        if (!printArea || !originalParent) {{
+                            return;
+                        }}
+
+                        const originalNextSibling = window.__step3ChecklistPrintOriginalNextSibling;
+                        if (originalNextSibling && originalNextSibling.parentNode === originalParent) {{
+                            originalParent.insertBefore(printArea, originalNextSibling);
+                        }} else {{
+                            originalParent.appendChild(printArea);
+                        }}
+
+                        const host = document.getElementById('step3-checklist-print-host');
+                        if (host) {{
+                            host.remove();
+                        }}
+                    }}
+
+                    if (window.__step3ChecklistAfterPrintBound !== true) {{
+                        window.__step3ChecklistAfterPrintBound = true;
+                        window.addEventListener('afterprint', function () {{
+                            document.body.classList.remove('checklist-print-mode');
+                            restoreChecklistPrintAreaFromBody();
+                        }});
+                    }}
+
+                    function printSelectedChecklist() {{
+                        const checklistInput = document.getElementById('id_checklist');
+                        const checklistId = checklistInput ? checklistInput.value.trim() : '';
+                        if (!checklistId) {{
+                            document.body.dispatchEvent(new CustomEvent('showToast', {{
+                                detail: {{
+                                    type: 'warning',
+                                    message: 'Selecione um checklist antes de imprimir.',
+                                }},
+                            }}));
+                            return;
+                        }}
+
+                        const selectedChecklist = checklistPrintData.find(function (entry) {{
+                            return String(entry.id) === checklistId;
+                        }});
+
+                        if (!selectedChecklist) {{
+                            document.body.dispatchEvent(new CustomEvent('showToast', {{
+                                detail: {{
+                                    type: 'error',
+                                    message: 'Checklist selecionado nao foi encontrado.',
+                                }},
+                            }}));
+                            return;
+                        }}
+
+                        if (!Array.isArray(selectedChecklist.items) || selectedChecklist.items.length === 0) {{
+                            document.body.dispatchEvent(new CustomEvent('showToast', {{
+                                detail: {{
+                                    type: 'warning',
+                                    message: 'Checklist selecionado nao possui itens para impressao.',
+                                }},
+                            }}));
+                            return;
+                        }}
+
+                        if (!renderChecklistPrintArea(selectedChecklist)) {{
+                            document.body.dispatchEvent(new CustomEvent('showToast', {{
+                                detail: {{
+                                    type: 'error',
+                                    message: 'Nao foi possivel montar o checklist para impressao.',
+                                }},
+                            }}));
+                            return;
+                        }}
+
+                        if (!moveChecklistPrintAreaToBody()) {{
+                            document.body.dispatchEvent(new CustomEvent('showToast', {{
+                                detail: {{
+                                    type: 'error',
+                                    message: 'Nao foi possivel preparar a area de impressao.',
+                                }},
+                            }}));
+                            return;
+                        }}
+
+                        document.body.classList.add('checklist-print-mode');
+                        window.setTimeout(function () {{
+                            window.print();
+                        }}, 60);
+                    }}
+                     
                     document.body.addEventListener('collaboratorSaved', function(evt) {{
                         const modal = document.getElementById('form_modal');
                         if (modal) modal.close();
@@ -646,10 +853,28 @@ class BudgetStep3Form(forms.ModelForm):
                         HTML('<h3 class="text-2xl font-bold mb-4">Checklist para Impressão</h3>'),
                         Div(
                             Div(Field("checklist", wrapper_class="mb-0"), css_class="flex-1"),
-                            HTML("""<button type="button" class="btn btn-primary ml-2">
+                            HTML("""<button type="button" class="btn btn-primary ml-2" onclick="printSelectedChecklist()">
                                             Imprimir</button>"""),
                             css_class="flex items-end mb-8",
                         ),
+                        HTML("""
+                            <div id="step3-checklist-print-area" aria-hidden="true">
+                                <div class="checklist-print-sheet">
+                                    <h2 id="step3-checklist-print-title" class="checklist-print-title">Checklist</h2>
+                                    <table class="checklist-print-table">
+                                        <thead>
+                                            <tr>
+                                                <th class="checklist-print-col-seq">#</th>
+                                                <th>Agrupamento</th>
+                                                <th>Item</th>
+                                                <th>Resposta</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="step3-checklist-print-items"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        """),
                         css_class="mb-8",
                     ),
                     css_class="col-span-12 lg:col-span-5",
@@ -694,6 +919,106 @@ class BudgetStep3Form(forms.ModelForm):
                     [data-theme="dark"] #additional-images-container [id^="additional-image-"] {
                         background-color: rgb(31 41 55 / 0.75) !important;
                         border-color: rgb(75 85 99) !important;
+                    }
+
+                    #step3-checklist-print-host,
+                    #step3-checklist-print-area {
+                        display: none;
+                    }
+
+                    .checklist-print-sheet {
+                        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+                        color: #111827;
+                        background: #ffffff;
+                        padding: 12mm;
+                    }
+
+                    .checklist-print-title {
+                        margin: 0 0 10px;
+                        font-size: 22px;
+                        font-weight: 700;
+                    }
+
+                    .checklist-print-table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        font-size: 12px;
+                    }
+
+                    .checklist-print-table th,
+                    .checklist-print-table td {
+                        border: 1px solid #d1d5db;
+                        padding: 7px;
+                        text-align: left;
+                        vertical-align: top;
+                    }
+
+                    .checklist-print-table th {
+                        background: #f3f4f6;
+                        font-weight: 700;
+                    }
+
+                    .checklist-print-col-seq {
+                        width: 48px;
+                        text-align: center !important;
+                    }
+
+                    .checklist-print-option {
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 4px;
+                        margin-right: 10px;
+                        margin-bottom: 3px;
+                    }
+
+                    .checklist-print-box {
+                        width: 13px;
+                        height: 13px;
+                        border: 1px solid #374151;
+                        display: inline-block;
+                    }
+
+                    .checklist-print-line {
+                        border-bottom: 1px solid #9ca3af;
+                        min-height: 16px;
+                    }
+
+                    @media print {
+                        @page {
+                            size: A4;
+                            margin: 12mm;
+                        }
+
+                        body.checklist-print-mode {
+                            margin: 0 !important;
+                            padding: 0 !important;
+                            background: #ffffff !important;
+                        }
+
+                        body.checklist-print-mode > * {
+                            display: none !important;
+                        }
+
+                        body.checklist-print-mode #step3-checklist-print-host {
+                            display: block !important;
+                        }
+
+                        body.checklist-print-mode #step3-checklist-print-area {
+                            display: block !important;
+                            margin: 0;
+                            padding: 0;
+                            width: 100%;
+                            background: #ffffff;
+                        }
+
+                        body.checklist-print-mode .checklist-print-sheet {
+                            padding: 0;
+                        }
+
+                        body.checklist-print-mode .checklist-print-table tr {
+                            break-inside: avoid;
+                            page-break-inside: avoid;
+                        }
                     }
                 </style>
                 """
