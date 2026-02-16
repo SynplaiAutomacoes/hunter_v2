@@ -1,16 +1,18 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db import transaction
+from django.shortcuts import render
 from django.urls import reverse_lazy
 from django.views import View
-from django.views.generic import DeleteView, ListView
-from .models import Checklist, ChecklistItem
-from apps.workshops.mixin import WorkshopScopedMixin
-from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
+from django.views.generic import CreateView, DeleteView, ListView, UpdateView
+
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from django.db import transaction
-from django.views.generic import CreateView, UpdateView
+from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
+from apps.workshops.mixin import WorkshopScopedMixin
+
 from .forms import ChecklistForm
-from django.shortcuts import render
+from .models import Checklist, ChecklistItem
+
 
 class ChecklistListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = Checklist
