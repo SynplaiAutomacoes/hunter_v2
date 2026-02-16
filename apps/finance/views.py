@@ -1,4 +1,5 @@
 import json
+import logging
 
 from django.db import transaction
 from django.http import JsonResponse
@@ -11,6 +12,9 @@ from apps.finance.models import NfseBatch, NfseItem, NfseRequest
 from apps.finance.services.mappers import map_batch_payload, map_item_payload, extract_items_from_batch
 
 
+logger = logging.getLogger(__name__)
+
+
 @method_decorator(csrf_exempt, name="dispatch")
 class WebhookView(View):
     def get(self, request):
@@ -20,13 +24,13 @@ class WebhookView(View):
         try:
             payload = json.loads(request.body)
         except json.JSONDecodeError:
-            print(f"Erro ao decodificar JSON: {request.body}")
+            logger.warning("Erro ao decodificar payload JSON no webhook de NFS-e")
             return JsonResponse({"ok": False, "message": "Invalid JSON"}, status=400)
 
         model = payload.get("modelo")
 
         if not model:
-            print(f"Payload recebido sem campo 'modelo': {payload}")
+            logger.warning("Payload recebido sem campo 'modelo' no webhook de NFS-e")
             return JsonResponse({"ok": False, "message": "Missing 'modelo' field"}, status=400)
 
         if model == "lote_rps":
@@ -42,6 +46,7 @@ class WebhookView(View):
             with transaction.atomic():
                 for key, value in batch_payload.items():
                     setattr(batch, key, value)
+                batch.raw_payload = payload
                 batch.save()
 
                 for item_payload in items:
@@ -58,9 +63,14 @@ class WebhookView(View):
                     if not created:
                         for key, value in item_payload.items():
                             setattr(item, key, value)
+                        item.raw_payload = payload
                         item.save()
+                    else:
+                        item.raw_payload = payload
+                        item.save(update_fields=["raw_payload"])
 
-                batch.request.update_status_based_on_request(payload.get("status"))
+                if batch.request:
+                    batch.request.update_status_based_on_request(payload.get("status"))
 
             return JsonResponse({"ok": True, "message": "Payload processed successfully"}, status=200)
 
@@ -75,9 +85,11 @@ class WebhookView(View):
             with transaction.atomic():
                 for key, value in item_payload.items():
                     setattr(item, key, value)
+                item.raw_payload = payload
                 item.save()
 
-            item.request.update_status_based_on_request(payload.get("status"))
+            if item.request:
+                item.request.update_status_based_on_request(payload.get("status"))
 
             return JsonResponse({"ok": True, "message": "Payload processed successfully"}, status=200)
 
@@ -85,7 +97,5 @@ class WebhookView(View):
             return JsonResponse({"ok": False, "message": "Invalid payload"}, status=400)
 
 
-
 class CreateBatchView(CreateView):
     pass
-

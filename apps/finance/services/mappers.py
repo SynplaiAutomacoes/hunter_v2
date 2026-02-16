@@ -1,9 +1,15 @@
+import logging
+
+
+logger = logging.getLogger(__name__)
+
 
 def map_batch_payload(payload: dict) -> dict:
+    raw_quantity = payload.get("quantidade_rps", 0)
     try:
-        rps_quantity = int(payload.get("quantidade_rps"))
+        rps_quantity = int(raw_quantity)
     except (ValueError, TypeError):
-        print(f"Valor inválido para quantidade_rps: {payload.get('quantidade_rps')}")
+        logger.warning("Valor invalido para quantidade_rps no payload de lote", extra={"quantidade_rps": raw_quantity})
         rps_quantity = 0
 
     log_payload = payload.get("log")
@@ -22,6 +28,7 @@ def map_batch_payload(payload: dict) -> dict:
         "protocol": payload.get("protocolo", ""),
         "log_payload": log_payload,
     }
+
 
 def map_item_payload(payload: dict) -> dict:
     log_payload = payload.get("log")
@@ -44,6 +51,7 @@ def map_item_payload(payload: dict) -> dict:
         "pdf_rps_url": payload.get("pdf_rps", ""),
         "log_payload": log_payload,
     }
+
 
 def extract_items_from_batch(payload: dict) -> list[dict]:
     items = payload.get("info_nfse", [])
