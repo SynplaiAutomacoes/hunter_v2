@@ -53,10 +53,6 @@ class TaxClassNfe(TimeStampedModel):
     remote_updated_date = models.CharField(verbose_name="Data de atualização remota", max_length=40, blank=True, default="")
     informacoes_fisco = models.TextField(verbose_name="Informações ao Fisco", blank=True, default="")
     informacoes_complementares = models.TextField(verbose_name="Informações complementares", blank=True, default="")
-    icms = models.JSONField(verbose_name="Cenários ICMS", blank=True, default=list)
-    ipi = models.JSONField(verbose_name="Cenários IPI", blank=True, default=list)
-    pis = models.JSONField(verbose_name="Cenários PIS", blank=True, default=list)
-    cofins = models.JSONField(verbose_name="Cenários COFINS", blank=True, default=list)
 
     class Meta(TimeStampedModel.Meta):
         constraints = [
@@ -69,6 +65,54 @@ class TaxClassNfe(TimeStampedModel):
     def __str__(self) -> str:
         workshop_id = getattr(self, "workshop_id", "-")
         return f"NF-e {self.reference} ({workshop_id})"
+
+
+class TaxClassNfeIcmsScenario(models.Model):
+    tax_class = models.ForeignKey(TaxClassNfe, verbose_name="Classe NF-e", on_delete=models.CASCADE, related_name="icms_scenarios")
+    position = models.PositiveIntegerField(verbose_name="Posição", default=0)
+    data = models.JSONField(verbose_name="Cenário ICMS", blank=True, default=dict)
+
+    class Meta:
+        ordering = ["position", "id"]
+        indexes = [
+            models.Index(fields=["tax_class", "position"]),
+        ]
+
+
+class TaxClassNfeIpiScenario(models.Model):
+    tax_class = models.ForeignKey(TaxClassNfe, verbose_name="Classe NF-e", on_delete=models.CASCADE, related_name="ipi_scenarios")
+    position = models.PositiveIntegerField(verbose_name="Posição", default=0)
+    data = models.JSONField(verbose_name="Cenário IPI", blank=True, default=dict)
+
+    class Meta:
+        ordering = ["position", "id"]
+        indexes = [
+            models.Index(fields=["tax_class", "position"]),
+        ]
+
+
+class TaxClassNfePisScenario(models.Model):
+    tax_class = models.ForeignKey(TaxClassNfe, verbose_name="Classe NF-e", on_delete=models.CASCADE, related_name="pis_scenarios")
+    position = models.PositiveIntegerField(verbose_name="Posição", default=0)
+    data = models.JSONField(verbose_name="Cenário PIS", blank=True, default=dict)
+
+    class Meta:
+        ordering = ["position", "id"]
+        indexes = [
+            models.Index(fields=["tax_class", "position"]),
+        ]
+
+
+class TaxClassNfeCofinsScenario(models.Model):
+    tax_class = models.ForeignKey(TaxClassNfe, verbose_name="Classe NF-e", on_delete=models.CASCADE, related_name="cofins_scenarios")
+    position = models.PositiveIntegerField(verbose_name="Posição", default=0)
+    data = models.JSONField(verbose_name="Cenário COFINS", blank=True, default=dict)
+
+    class Meta:
+        ordering = ["position", "id"]
+        indexes = [
+            models.Index(fields=["tax_class", "position"]),
+        ]
 
 
 class TaxClassNfse(TimeStampedModel):

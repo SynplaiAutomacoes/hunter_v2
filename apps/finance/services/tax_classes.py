@@ -5,8 +5,17 @@ from typing import Any
 
 import requests
 from django.conf import settings
+from django.db import transaction
 
-from apps.finance.models import TaxClassNfe, TaxClassNfse, TaxClassSyncState
+from apps.finance.models import (
+    TaxClassNfe,
+    TaxClassNfeCofinsScenario,
+    TaxClassNfeIcmsScenario,
+    TaxClassNfeIpiScenario,
+    TaxClassNfePisScenario,
+    TaxClassNfse,
+    TaxClassSyncState,
+)
 from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers, sanitize_webmania_setting
 from apps.workshops.models.workshops import Workshop
 
@@ -192,6 +201,24 @@ def _format_decimal(value: Decimal | None) -> str:
     return f"{value.quantize(Decimal('0.01')):f}"
 
 
+def _scenario_payloads_from_manager(manager: Any) -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = []
+    for scenario in manager.all():
+        data = scenario.data
+        if isinstance(data, dict):
+            payloads.append(dict(data))
+    return payloads
+
+
+def _replace_nfe_scenarios(*, tax_class: TaxClassNfe, model_class: Any, items: list[dict[str, Any]]) -> None:
+    model_class.objects.filter(tax_class=tax_class).delete()
+    if not items:
+        return
+
+    instances = [model_class(tax_class=tax_class, position=index, data=item) for index, item in enumerate(items)]
+    model_class.objects.bulk_create(instances)
+
+
 def _serialize_nfe_tax_class(tax_class: TaxClassNfe) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "referencia": tax_class.reference,
@@ -209,14 +236,19 @@ def _serialize_nfe_tax_class(tax_class: TaxClassNfe) -> dict[str, Any]:
     if tax_class.informacoes_complementares:
         payload["informacoes_complementares"] = tax_class.informacoes_complementares
 
-    if tax_class.icms:
-        payload["icms"] = list(tax_class.icms)
-    if tax_class.ipi:
-        payload["ipi"] = list(tax_class.ipi)
-    if tax_class.pis:
-        payload["pis"] = list(tax_class.pis)
-    if tax_class.cofins:
-        payload["cofins"] = list(tax_class.cofins)
+    icms_payload = _scenario_payloads_from_manager(getattr(tax_class, "icms_scenarios"))
+    ipi_payload = _scenario_payloads_from_manager(getattr(tax_class, "ipi_scenarios"))
+    pis_payload = _scenario_payloads_from_manager(getattr(tax_class, "pis_scenarios"))
+    cofins_payload = _scenario_payloads_from_manager(getattr(tax_class, "cofins_scenarios"))
+
+    if icms_payload:
+        payload["icms"] = icms_payload
+    if ipi_payload:
+        payload["ipi"] = ipi_payload
+    if pis_payload:
+        payload["pis"] = pis_payload
+    if cofins_payload:
+        payload["cofins"] = cofins_payload
 
     return payload
 
@@ -291,22 +323,25 @@ def _upsert_local_nfe_tax_class(*, workshop: Workshop, payload: dict[str, Any]) 
     if not reference:
         raise TaxClassServiceError("Classe de imposto sem referência não pode ser salva localmente.")
 
-    tax_class, _ = TaxClassNfe.objects.update_or_create(
-        workshop=workshop,
-        reference=reference,
-        defaults={
-            "description": _clean_string(payload.get("descricao")),
-            "status": _clean_string(payload.get("status")),
-            "remote_date": _clean_string(payload.get("data")),
-            "remote_updated_date": _clean_string(payload.get("updated_date")),
-            "informacoes_fisco": _clean_string(payload.get("informacoes_fisco")),
-            "informacoes_complementares": _clean_string(payload.get("informacoes_complementares")),
-            "icms": _normalize_scenarios(payload.get("icms")),
-            "ipi": _normalize_scenarios(payload.get("ipi")),
-            "pis": _normalize_scenarios(payload.get("pis")),
-            "cofins": _normalize_scenarios(payload.get("cofins")),
-        },
-    )
+    with transaction.atomic():
+        tax_class, _ = TaxClassNfe.objects.update_or_create(
+            workshop=workshop,
+            reference=reference,
+            defaults={
+                "description": _clean_string(payload.get("descricao")),
+                "status": _clean_string(payload.get("status")),
+                "remote_date": _clean_string(payload.get("data")),
+                "remote_updated_date": _clean_string(payload.get("updated_date")),
+                "informacoes_fisco": _clean_string(payload.get("informacoes_fisco")),
+                "informacoes_complementares": _clean_string(payload.get("informacoes_complementares")),
+            },
+        )
+
+        _replace_nfe_scenarios(tax_class=tax_class, model_class=TaxClassNfeIcmsScenario, items=_normalize_scenarios(payload.get("icms")))
+        _replace_nfe_scenarios(tax_class=tax_class, model_class=TaxClassNfeIpiScenario, items=_normalize_scenarios(payload.get("ipi")))
+        _replace_nfe_scenarios(tax_class=tax_class, model_class=TaxClassNfePisScenario, items=_normalize_scenarios(payload.get("pis")))
+        _replace_nfe_scenarios(tax_class=tax_class, model_class=TaxClassNfeCofinsScenario, items=_normalize_scenarios(payload.get("cofins")))
+
     TaxClassNfse.objects.filter(workshop=workshop, reference=reference).delete()
     return _serialize_nfe_tax_class(tax_class)
 
@@ -384,7 +419,7 @@ def _upsert_local_tax_classes(*, workshop: Workshop, tax_classes: list[dict[str,
 
 
 def _list_local_tax_classes(*, workshop: Workshop) -> list[dict[str, Any]]:
-    nfe_tax_classes = TaxClassNfe.objects.filter(workshop=workshop)
+    nfe_tax_classes = TaxClassNfe.objects.filter(workshop=workshop).prefetch_related("icms_scenarios", "ipi_scenarios", "pis_scenarios", "cofins_scenarios")
     nfse_tax_classes = TaxClassNfse.objects.filter(workshop=workshop)
 
     payloads: list[dict[str, Any]] = []
