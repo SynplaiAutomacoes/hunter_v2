@@ -111,6 +111,7 @@ class StockImport(TimeStampedModel):
         SEFAZ = 'SEFAZ', 'SEFAZ'
         XML = 'XML', 'Arquivo XML'
         KEY = 'KEY', 'Chave de Acesso'
+        MANUAL = 'MANUAL', 'Importar Manualmente'
 
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, verbose_name="Aberto por",on_delete=models.SET_NULL, null=True)
