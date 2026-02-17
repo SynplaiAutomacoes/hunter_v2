@@ -19,6 +19,7 @@ urlpatterns = [
     path("add_payment_session/", views.AddPaymentSessionView.as_view(), name="add_payment_session"),
     path("link-manual/", views.LinkProductManualView.as_view(), name="link_product_manual"),
     path("unlink-item/", views.UnlinkItemView.as_view(), name="unlink_item"),
+    path("supplier_details/", views.SupplierDetailsView.as_view(), name="supplier_details"),
     # Quick Create
     path("stock_product_search/", views.StockProductSearchView.as_view(), name="stock_product_search"),
     path("products/quick-create/", views.ProductQuickCreateView.as_view(), name="product_quick_create"),

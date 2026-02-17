@@ -13,7 +13,7 @@ from django.db import transaction
 from django.db.models import F, ExpressionWrapper, IntegerField, Q
 from djmoney.money import Money
 
-from .forms import ImportStep1Form, ImportStepSupplierForm, ImportStepItemsForm, ImportStepPaymentForm, QuickProductForm, ImportStepSummaryForm, ImportSefazListForm, CatalogGroupQuickForm, ImportStepSupplierManualForm, ImportManualItemsForm
+from .forms import ImportStep1Form, ImportStepSupplierForm, ImportStepItemsForm, ImportStepPaymentForm, QuickProductForm, ImportStepSummaryForm, ImportSefazListForm, CatalogGroupQuickForm, ImportStepSupplierManualForm
 from .models import StockProduct, StockMovement, StockPaymentMethod, StockImport
 from ..catalog.models.groups import CatalogGroup
 from ..catalog.models.products import Product
@@ -21,6 +21,7 @@ from ..core.forms import MultiStepFormMixin
 from ..core.tables import TableActionDefaults
 from ..core.templatetags.table_tags import TableColumn
 from ..core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin
+from ..suppliers.models import Supplier
 from ..workshops.mixin import WorkshopScopedMixin
 from ..workshops.util.workshops import get_active_workshop_or_404
 
@@ -193,7 +194,7 @@ class StockImportCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFo
                 base_steps.extend(
                     [
                         {"title": "Fornecedor", "form_class": ImportStepSupplierManualForm},
-                        {"title": "Importar Itens", "form_class": ImportManualItemsForm},
+                        # {"title": "Importar Itens", "form_class": ImportManualItemsForm},
                     ]
                 )
             else:
@@ -552,4 +553,78 @@ class CatalogGroupQuickCreateView(LoginRequiredMixin, WorkshopScopedMixin, Creat
 
         response = HttpResponse("")
         response["HX-Trigger"] = json.dumps({"groupAdded": {"id": str(self.object.id), "name": self.object.name}})
+        return response
+
+
+class SupplierDetailsView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Supplier
+    workshop_permission_codename = "view_supplier"
+
+    def get(self, request):
+        supplier_id = request.GET.get("supplier_select")
+        if not supplier_id:
+            return HttpResponse('<div class="text-center opacity-50 py-10">Selecione um fornecedor para ver os detalhes.</div>')
+
+        supplier = get_object_or_404(Supplier, id=supplier_id, workshop=self.workshop)
+
+        # Histórico de compras
+        history = StockImport.objects.filter(workshop=self.workshop, supplier_cnpj=supplier.cnpj, status=StockImport.ImportStatus.COMPLETED).order_by("-criado_em")[:3]
+
+        history_html = ""
+        for imp in history:
+            history_html += f"""<tr class="text-xs">
+                    <td>#{imp.id or "---"}</td>
+                    <td class="py-2">{imp.criado_em.strftime("%d/%m/%Y")}</td>
+                    <td>{imp.nf_number or "---"}</td>
+            </tr>"""
+
+        if not history:
+            history_html = '<tr><td colspan="3" class="text-center py-4 opacity-50 italic">Sem histórico.</td></tr>'
+
+        # Tabelas
+        html = f"""
+        <div class="animate-in fade-in slide-in-from-right-4 duration-300 space-y-4">
+        
+            <div class="card bg-base-300 shadow-sm p-4">
+                <h4 class="text-base font-bold uppercase mb-3">Contato e Localização</h4>
+                <div class="space-y-1 text-base">
+                    <p class="flex justify-between">
+                        <span>Responsável:</span>
+                        <span class="font-medium text-right">{supplier.contact_person or "---"}</span>
+                    </p>
+                    <p class="flex justify-between">
+                        <span>Telefone:</span>
+                        <span class="font-medium text-right">{supplier.phone or "---"}</span>
+                    </p>
+                    <p class="flex justify-between">
+                        <span>E-mail:</span>
+                        <span class="font-medium text-right lowercase">{supplier.email or "---"}</span>
+                    </p>
+                    <div class="mt-2 pt-2 border-t border-base-100">
+                        <p class="text-[11px] leading-tight opacity-70 italic">Endereço: {supplier.full_address}</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card bg-base-300 shadow-sm p-4">
+                <h4 class="text-base font-bold uppercase mb-3">Histórico Recente</h4>
+                <table class="table table-xs w-full">
+                    <thead>
+                        <tr class="opacity-50 text-[9px]">
+                            <th>ID</th>
+                            <th>DATA</th>
+                            <th>NF</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {history_html}
+                    </tbody>
+                </table>
+            </div>
+
+        </div>
+        """
+
+        response = HttpResponse(html)
+        response["HX-Trigger"] = json.dumps({"update-supplier-info": {"name": supplier.name, "cnpj": supplier.cnpj}})
         return response

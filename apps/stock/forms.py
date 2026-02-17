@@ -763,11 +763,11 @@ class ImportStepSupplierManualForm(forms.ModelForm):
         self.import_payments = kwargs.pop("import_payments", [])
         super().__init__(*args, **kwargs)
 
-        suppliers = Supplier.objects.filter(workshop=self.workshop, is_active=True)
-        choices = [("", "Selecione um fornecedor...")] + [(str(s.id), f"{s.name} ({s.cnpj})") for s in suppliers]
+        suppliers = Supplier.objects.filter(workshop=self.workshop, is_active=True).order_by("name")
+        choices = [("", "Pesquisar fornecedor...")] + [(str(s.id), f"{s.name} ({s.cnpj})") for s in suppliers]
 
         self.fields["supplier_select"].choices = choices
-        self.fields["supplier_select"].widget = SelectInput(choices=choices)
+        self.fields["supplier_select"].widget = SelectInput(choices=choices, attrs={"hx-get": reverse("stock:supplier_details"), "hx-target": "#supplier-info-container", "hx-trigger": "change", "class": "w-full"})
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -778,24 +778,32 @@ class ImportStepSupplierManualForm(forms.ModelForm):
                     HTML('<h2 class="text-2xl font-bold mb-6 text-base-content">Fornecedor</h2>'),
                     Div(
                         Div(
-                            Field("supplier_select", hx_get=reverse("stock:supplier_details"),
-                                hx_target="#supplier-details-root", hx_swap="innerHTML",),
+                            Field("supplier_select"),
                             css_class="flex-grow",
                         ),
                         css_class="flex items-end mb-6",
                     ),
                     #
-                    HTML(f"""<div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-base-300 p-6 rounded-lg mb-6">
-                                <div>
-                                    <p class="text-xs text-indigo-600 font-bold uppercase tracking-wider mb-1">Emitente (Fornecedor)</p>
-                                    <p class="font-bold text-gray-900 text-lg" x-text="supName || 'Não informado'"></p>
-                                    <p class="text-sm text-gray-600 font-mono" x-text="supCnpj ? 'CNPJ: ' + supCnpj : 'CNPJ: Não informado'"></p>
+                    HTML("""
+                        <div class="mt-6 bg-base-300 p-6 rounded-xl border border-base-content/5 shadow-inner"
+                             x-show="supName" x-transition>
+                            <div class="flex items-start gap-4">
+                                <div class="bg-primary/10 p-3 rounded-lg text-primary">
+                                    <span class="material-icons">business</span>
                                 </div>
                                 <div>
-                                    <p class="text-xs text-indigo-600 font-bold uppercase tracking-wider mb-1">Dados da Nota</p>
-                                    <p class="text-xs text-gray-500 italic">Os itens serão conciliados na próxima etapa.</p>
+                                    <p class="text-[10px] font-bold uppercase tracking-widest text-primary mb-1">Fornecedor Selecionado</p>
+                                    <h3 class="text-xl font-black leading-none mb-1" x-text="supName"></h3>
+                                    <p class="text-sm font-mono opacity-60" x-text="'CNPJ: ' + supCnpj"></p>
                                 </div>
-                            </div>"""),
+                            </div>
+                        </div>
+
+                        <div class="alert mt-4 bg-info/10 text-info border-none" x-show="!supName">
+                             <span class="material-icons">help_outline</span>
+                             <span class="text-xs">Selecione um fornecedor acima para prosseguir com a importação manual.</span>
+                        </div>
+                    """),
                     css_class="col-span-12 lg:col-span-5",
                 ),
                 #
@@ -803,32 +811,38 @@ class ImportStepSupplierManualForm(forms.ModelForm):
                 #
                 # Coluna Direita
                 Div(
-                    HTML(f"""
-                        <div class="space-y-6">
-                            <div class="card bg-base-200 shadow-sm">
-                                <div class="card-body p-4">
-                                    <h3 class="text-base font-bold uppercase mb-3">Detalhes e Contato</h3>
-                                    <p class="text-base font-semibold">Responsável: </p>
-                                    <p class="text-base font-semibold">Telefone: </p>
-                                    <p class="text-base font-semibold">Email: </p>
-                                    <p class="text-base font-semibold">Endereço: </p>
-                                </div>
-                            </div>
-    
-                            <div class="card bg-base-200 shadow-sm">
-                                <div class="card-body p-4">
-                                    <h3 class="text-base font-bold uppercase mb-3">Histórico de Fornecedor</h3>
+                    HTML("""
+                        <div class="card bg-base-200 shadow-sm min-h-full">
+                            <div class="card-body p-6">
+                                <h2 class="text-xl font-bold mb-6 uppercase text-base-content opacity-70 flex items-center gap-2">
+                                    <span class="material-icons text-sm">analytics</span> 
+                                    Perfil do Fornecedor
+                                </h2>
+
+                                <div id="supplier-info-container" class="flex-grow flex flex-col justify-center">
+                                    <div class="text-center opacity-30 py-10">
+                                        <span class="material-icons text-5xl mb-2">manage_search</span>
+                                        <p class="text-xs">Aguardando seleção de fornecedor...</p>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     """),
                     css_class="col-span-12 lg:col-span-6",
                 ),
-                css_class="grid grid-cols-1 lg:grid-cols-12 gap-6",
-                x_data="{ supName: '', supCnpj: ''}",
+                css_class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch",
+                x_data="{ supName: '', supCnpj: '' }",
                 x_on_update_supplier_info_window="supName = $event.detail.name; supCnpj = $event.detail.cnpj;",
             )
         )
+
+    def save(self, commit=True):
+        supplier_id = self.cleaned_data.get("supplier_select")
+        if supplier_id:
+            supplier = Supplier.objects.get(id=supplier_id)
+            self.instance.supplier_name = supplier.name
+            self.instance.supplier_cnpj = supplier.cnpj
+        return super().save(commit=commit)
 
 
 class QuickProductForm(forms.ModelForm):
