@@ -45,7 +45,9 @@ def has_workshop_perm(*, user: User, workshop: Workshop, app_label: str, model: 
     if getattr(workshop, "account_id", None) != getattr(user, "account_id", None):
         return False
 
-    permission_key = (workshop.id, app_label, model, codename)
+    workshop_id = getattr(workshop, "id", None)
+    permission_key = (workshop_id, app_label, model, codename)
+    cache: dict[tuple[object, ...], bool] | None = None
     if request is not None:
         cache = getattr(request, "_workshop_perm_cache", None)
         if cache is None:
@@ -63,7 +65,35 @@ def has_workshop_perm(*, user: User, workshop: Workshop, app_label: str, model: 
         role__permissions__codename=codename,
     ).exists()
 
-    if request is not None:
+    if request is not None and cache is not None:
         cache[permission_key] = has_permission
 
     return has_permission
+
+
+def is_workshop_director(*, user: User, workshop: Workshop, request=None) -> bool:
+    if getattr(workshop, "account_id", None) != getattr(user, "account_id", None):
+        return False
+
+    workshop_id = getattr(workshop, "id", None)
+    cache_key = ("director", workshop_id)
+    cache: dict[tuple[object, ...], bool] | None = None
+    if request is not None:
+        cache = getattr(request, "_workshop_role_cache", None)
+        if cache is None:
+            cache = {}
+            setattr(request, "_workshop_role_cache", cache)
+        elif cache_key in cache:
+            return cache[cache_key]
+
+    is_director = WorkshopMember.objects.filter(
+        user=user,
+        workshop=workshop,
+        is_active=True,
+        role__name__iexact="Diretor",
+    ).exists()
+
+    if request is not None and cache is not None:
+        cache[cache_key] = is_director
+
+    return is_director

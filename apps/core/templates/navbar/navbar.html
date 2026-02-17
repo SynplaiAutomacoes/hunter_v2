@@ -36,7 +36,11 @@
             items: [
                 { label: 'Emitir NF-e', href: '{% url "finance:nfe_emit" %}' },
                 { label: 'Classe de Imposto', href: '{% url "finance:tax_class_list" %}' },
-                { label: 'Emitir NFS-e', href: '{% url "finance:nfse_list" %}' }
+                { label: 'Emitir NFS-e', href: '{% url "finance:nfse_list" %}' },
+                {% if active_workshop_is_director %}
+                    { label: 'Listar Empresas', href: '{% url "finance:webmania_company_list" %}' },
+                    { label: 'Requisições Webmania', href: '{% url "finance:webmania_requests" %}' }
+                {% endif %}
             ]
         },
         {

@@ -40,9 +40,9 @@ def _debug_print(message: str, payload: Any | None = None) -> None:
     print(f"{prefix} {message}", payload)
 
 
-def _build_headers() -> dict[str, str]:
+def _build_headers(*, workshop: Workshop) -> dict[str, str]:
     try:
-        return build_webmania_headers()
+        return build_webmania_headers(workshop=workshop)
     except WebmaniaAuthError as exc:
         raise TaxClassServiceError(str(exc)) from exc
 
@@ -583,12 +583,12 @@ def _list_local_tax_classes(*, workshop: Workshop) -> list[dict[str, Any]]:
     return payloads
 
 
-def _list_tax_classes_remote() -> list[dict[str, Any]]:
+def _list_tax_classes_remote(*, workshop: Workshop) -> list[dict[str, Any]]:
     endpoint = _build_endpoint_url()
     _debug_print("GET endpoint", endpoint)
 
     try:
-        response = requests.get(endpoint, headers=_build_headers(), timeout=30)
+        response = requests.get(endpoint, headers=_build_headers(workshop=workshop), timeout=30)
         _debug_print("GET status", response.status_code)
         _debug_print("GET body", response.text)
         response.raise_for_status()
@@ -625,7 +625,7 @@ def list_tax_classes(*, workshop: Workshop) -> list[dict[str, Any]]:
     if _has_initial_sync_done(workshop=workshop):
         return []
 
-    remote_tax_classes = _list_tax_classes_remote()
+    remote_tax_classes = _list_tax_classes_remote(workshop=workshop)
     _upsert_local_tax_classes(workshop=workshop, tax_classes=remote_tax_classes)
     _mark_initial_sync_done(workshop=workshop)
 
@@ -639,7 +639,7 @@ def save_tax_class(*, workshop: Workshop, payload: dict[str, Any]) -> dict[str, 
     endpoint = _build_endpoint_url()
 
     try:
-        response = requests.post(endpoint, json=payload, headers=_build_headers(), timeout=30)
+        response = requests.post(endpoint, json=payload, headers=_build_headers(workshop=workshop), timeout=30)
         response.raise_for_status()
     except requests.RequestException as exc:
         message = _request_exception_message(exc, default="Falha ao salvar classe de imposto")
@@ -676,7 +676,7 @@ def delete_tax_class(*, workshop: Workshop, reference: str | list[str]) -> list[
     endpoint = _build_endpoint_url()
 
     try:
-        response = requests.delete(endpoint, json={"referencia": payload_reference}, headers=_build_headers(), timeout=30)
+        response = requests.delete(endpoint, json={"referencia": payload_reference}, headers=_build_headers(workshop=workshop), timeout=30)
         response.raise_for_status()
     except requests.RequestException as exc:
         message = _request_exception_message(exc, default="Falha ao excluir classe de imposto")

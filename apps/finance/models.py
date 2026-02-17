@@ -195,6 +195,108 @@ class TaxClassSyncState(TimeStampedModel):
         return f"TaxClassSyncState[{state}] ({workshop_id})"
 
 
+class WebmaniaCompanyTaxType(models.TextChoices):
+    SIMPLES_NACIONAL = "simples_nacional", "Simples Nacional"
+    LUCRO_NORMAL = "lucro_normal", "Lucro Normal"
+
+
+class WebmaniaCompany(TimeStampedModel):
+    workshop = models.OneToOneField("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="webmania_company", null=True, blank=True)
+
+    webmania_company_id = models.CharField(verbose_name="ID da empresa na Webmania", max_length=32, blank=True, default="")
+    consumer_key = models.CharField(verbose_name="Consumer Key", max_length=255, blank=True, default="")
+    consumer_secret = models.CharField(verbose_name="Consumer Secret", max_length=255, blank=True, default="")
+    access_token = models.CharField(verbose_name="Access Token", max_length=255, blank=True, default="")
+    access_token_secret = models.CharField(verbose_name="Access Token Secret", max_length=255, blank=True, default="")
+    bearer_access_token = models.CharField(verbose_name="Bearer Access Token", max_length=255, blank=True, default="")
+
+    tipo_tributacao = models.CharField(verbose_name="Tipo tributação", max_length=32, choices=WebmaniaCompanyTaxType.choices, blank=True, default="")
+    regime_tributario = models.CharField(verbose_name="Regime tributário", max_length=32, blank=True, default="")
+    cnpj = models.CharField(verbose_name="CNPJ", max_length=18, blank=True, default="")
+    razao_social = models.CharField(verbose_name="Razão social", max_length=120, blank=True, default="")
+    cpf = models.CharField(verbose_name="CPF", max_length=14, blank=True, default="")
+    nome_completo = models.CharField(verbose_name="Nome completo", max_length=120, blank=True, default="")
+    nome_fantasia = models.CharField(verbose_name="Nome fantasia", max_length=120, blank=True, default="")
+    ie = models.CharField(verbose_name="Inscrição estadual", max_length=20, blank=True, default="")
+    im = models.CharField(verbose_name="Inscrição municipal", max_length=20, blank=True, default="")
+    unidade_empresa = models.CharField(verbose_name="Unidade da empresa", max_length=16, blank=True, default="")
+    email = models.CharField(verbose_name="E-mail", max_length=120, blank=True, default="")
+    telefone = models.CharField(verbose_name="Telefone", max_length=20, blank=True, default="")
+    conta_bancaria_banco = models.CharField(verbose_name="Banco", max_length=8, blank=True, default="")
+    conta_bancaria_agencia = models.CharField(verbose_name="Agência", max_length=10, blank=True, default="")
+    conta_bancaria_numero = models.CharField(verbose_name="Conta", max_length=30, blank=True, default="")
+    conta_bancaria_digito = models.CharField(verbose_name="Dígito da conta", max_length=4, blank=True, default="")
+    contabilidade = models.CharField(verbose_name="Contabilidade", max_length=255, blank=True, default="")
+    url_notificacao = models.CharField(verbose_name="URL notificação", max_length=255, blank=True, default="")
+    logomarca = models.CharField(verbose_name="Logomarca", max_length=255, blank=True, default="")
+
+    cep = models.CharField(verbose_name="CEP", max_length=10, blank=True, default="")
+    endereco = models.CharField(verbose_name="Endereço", max_length=120, blank=True, default="")
+    numero = models.CharField(verbose_name="Número", max_length=20, blank=True, default="")
+    complemento = models.CharField(verbose_name="Complemento", max_length=120, blank=True, default="")
+    bairro = models.CharField(verbose_name="Bairro", max_length=120, blank=True, default="")
+    cidade = models.CharField(verbose_name="Cidade", max_length=120, blank=True, default="")
+    uf = models.CharField(verbose_name="UF", max_length=2, blank=True, default="")
+
+    nfe_serie = models.PositiveIntegerField(verbose_name="Série NF-e", null=True, blank=True)
+    nfe_numero = models.PositiveIntegerField(verbose_name="Próximo número NF-e", null=True, blank=True)
+    nfe_numero_dev = models.PositiveIntegerField(verbose_name="Próximo número NF-e homologação", null=True, blank=True)
+    cnae_issqn = models.CharField(verbose_name="CNAE ISSQN", max_length=10, blank=True, default="")
+
+    nfce_serie = models.PositiveIntegerField(verbose_name="Série NFC-e", null=True, blank=True)
+    nfce_numero = models.PositiveIntegerField(verbose_name="Próximo número NFC-e", null=True, blank=True)
+    nfce_id_csc = models.CharField(verbose_name="ID CSC NFC-e", max_length=60, blank=True, default="")
+    nfce_codigo_csc = models.CharField(verbose_name="Código CSC NFC-e", max_length=60, blank=True, default="")
+    nfce_numero_dev = models.PositiveIntegerField(verbose_name="Próximo número NFC-e homologação", null=True, blank=True)
+    nfce_id_csc_dev = models.CharField(verbose_name="ID CSC NFC-e homologação", max_length=60, blank=True, default="")
+    nfce_codigo_csc_dev = models.CharField(verbose_name="Código CSC NFC-e homologação", max_length=60, blank=True, default="")
+
+    informacoes_fisco = models.TextField(verbose_name="Informações ao fisco", blank=True, default="")
+    nfse_rps_serie = models.CharField(verbose_name="Série RPS NFS-e", max_length=10, blank=True, default="")
+    nfse_rps_numero = models.PositiveIntegerField(verbose_name="Próximo RPS NFS-e", null=True, blank=True)
+    cnae = models.CharField(verbose_name="CNAE NFS-e", max_length=255, blank=True, default="")
+    nfse_login = models.CharField(verbose_name="Login NFS-e", max_length=120, blank=True, default="")
+    nfse_password = models.CharField(verbose_name="Senha NFS-e", max_length=255, blank=True, default="")
+    nfse_token = models.CharField(verbose_name="Token NFS-e", max_length=255, blank=True, default="")
+    regime_apuracao_sn = models.CharField(verbose_name="Regime apuração SN", max_length=4, blank=True, default="")
+    regime_especial_nacional = models.CharField(verbose_name="Regime especial nacional", max_length=4, blank=True, default="")
+    regime_especial_municipal = models.CharField(verbose_name="Regime especial municipal", max_length=4, blank=True, default="")
+    nfse_lote_rps_numero = models.PositiveIntegerField(verbose_name="Próximo lote RPS", null=True, blank=True)
+    nfse_rps_numero_dev = models.PositiveIntegerField(verbose_name="Próximo RPS homologação", null=True, blank=True)
+
+    certificado = models.TextField(verbose_name="Certificado A1 em Base64", blank=True, default="")
+    certificado_senha = models.CharField(verbose_name="Senha certificado A1", max_length=255, blank=True, default="")
+
+    partilha_icms_contribuinte = models.BooleanField(verbose_name="Partilha ICMS contribuinte", null=True, blank=True)
+    partilha_icms_isento = models.BooleanField(verbose_name="Partilha ICMS isento", null=True, blank=True)
+    orientacao_danfe = models.CharField(verbose_name="Orientação DANFE", max_length=2, blank=True, default="")
+    microcervejaria = models.BooleanField(verbose_name="Microcervejaria", null=True, blank=True)
+    icms_ref_sp = models.BooleanField(verbose_name="ICMS refeição SP", null=True, blank=True)
+    refeicoes_sp = models.BooleanField(verbose_name="Regime refeições SP", null=True, blank=True)
+    icms_ref_df = models.BooleanField(verbose_name="ICMS refeição DF", null=True, blank=True)
+    exclusao_icms_pis_cofins = models.BooleanField(verbose_name="Exclusão ICMS PIS/COFINS", null=True, blank=True)
+    exclusao_difal_pis_cofins = models.BooleanField(verbose_name="Exclusão DIFAL PIS/COFINS", null=True, blank=True)
+    deduzir_desconto_ipi = models.BooleanField(verbose_name="Deduzir desconto IPI", null=True, blank=True)
+    email_automatico_nfse = models.BooleanField(verbose_name="E-mail automático NFS-e", null=True, blank=True)
+    desativar_epec = models.CharField(verbose_name="Desativar EPEC", max_length=4, blank=True, default="")
+    ocultar_total_etiqueta = models.CharField(verbose_name="Ocultar total etiqueta", max_length=4, blank=True, default="")
+
+    last_sync_at = models.DateTimeField(verbose_name="Última sincronização", null=True, blank=True)
+    last_sync_error = models.TextField(verbose_name="Último erro de sincronização", blank=True, default="")
+
+    class Meta(TimeStampedModel.Meta):
+        indexes = [
+            models.Index(fields=["webmania_company_id"]),
+            models.Index(fields=["cnpj"]),
+            models.Index(fields=["cpf"]),
+        ]
+
+    def __str__(self) -> str:
+        workshop_id = getattr(self, "workshop_id", "-")
+        label = self.razao_social or self.nome_completo or self.webmania_company_id or "sem-id"
+        return f"WebmaniaCompany[{label}] ({workshop_id})"
+
+
 class NfseRequest(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE)
     workorder = models.ForeignKey("workorder.WorkOrder", verbose_name="Ordem de Serviço", on_delete=models.CASCADE)

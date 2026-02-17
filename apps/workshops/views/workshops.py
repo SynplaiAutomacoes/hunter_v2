@@ -3,6 +3,7 @@ from __future__ import annotations
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
+from django.shortcuts import redirect
 from django.template.response import TemplateResponse
 from django.urls import reverse_lazy
 from django.views import View
@@ -12,6 +13,7 @@ from apps.iam.utils import get_or_create_director_role
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.tables import TableActionDefaults
+from apps.finance.services.webmania_b2b import WebmaniaB2BServiceError, provision_webmania_company_for_workshop
 from apps.workshops.forms.workshops import WorkshopForm
 from apps.workshops.models.workshops import Workshop
 from apps.collaborators.models import WorkshopMember
@@ -32,23 +34,33 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
         return super().dispatch(request, *args, **kwargs)
 
     def form_valid(self, form):
-        with transaction.atomic():
-            form.instance.account = self.request.user.account
-            response = super().form_valid(form)
+        try:
+            with transaction.atomic():
+                workshop = form.save(commit=False)
+                workshop.account = self.request.user.account
+                workshop.save()
 
-            director_role = get_or_create_director_role(account=self.request.user.account)
-            WorkshopMember.objects.get_or_create(
-                user=self.request.user,
-                workshop=self.object,
-                defaults={
-                    "role": director_role,
-                    "is_active": True,
-                },
-            )
+                provision_webmania_company_for_workshop(workshop=workshop)
 
-            create_default_monthly_costs(workshop=self.object)
+                director_role = get_or_create_director_role(account=self.request.user.account)
+                WorkshopMember.objects.get_or_create(
+                    user=self.request.user,
+                    workshop=workshop,
+                    defaults={
+                        "role": director_role,
+                        "is_active": True,
+                    },
+                )
 
-        return response
+                create_default_monthly_costs(workshop=workshop)
+
+                self.object = workshop
+        except WebmaniaB2BServiceError as exc:
+            form.add_error(None, str(exc))
+            self.object = None
+            return self.form_invalid(form)
+
+        return redirect(self.get_success_url())
 
 
 class WorkshopUpdateView(LoginRequiredMixin, UpdateView):

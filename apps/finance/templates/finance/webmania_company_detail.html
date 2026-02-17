@@ -1,0 +1,105 @@
+{% extends 'crud/detail.html' %}
+
+{% block crud_title %}Detalhes da Empresa{% endblock %}
+{% block crud_subtitle %}Visualize os dados sincronizados da empresa na Webmania.{% endblock %}
+{% block crud_back_url %}{% url 'finance:webmania_company_list' %}{% endblock %}
+{% block crud_header_actions %}
+    <a href="{% url 'finance:webmania_company_update' pk=company.pk %}" class="btn btn-sm btn-primary gap-2">
+        <span class="material-icons text-sm">edit</span>
+        Editar empresa
+    </a>
+{% endblock %}
+
+{% block crud_detail_content %}
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body p-6 md:p-8">
+            <div class="flex items-center gap-2 mb-2">
+                <span class="material-icons text-base-content/80">apartment</span>
+                <h2 class="text-xl font-bold text-base-content">Dados principais</h2>
+            </div>
+            <div class="divider mt-0 mb-6"></div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {% for field in identity_fields %}
+                    <div>
+                        <p class="text-xs text-base-content/70 mb-1">{{ field.label }}</p>
+                        <p class="font-medium">{{ field.value }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body p-6 md:p-8">
+            <div class="flex items-center gap-2 mb-2">
+                <span class="material-icons text-base-content/80">key</span>
+                <h2 class="text-xl font-bold text-base-content">Credenciais de API</h2>
+            </div>
+            <div class="divider mt-0 mb-6"></div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {% for field in credential_fields %}
+                    <div>
+                        <label class="label pt-0 pb-1"><span class="label-text text-xs">{{ field.label }}</span></label>
+                        <div class="join w-full">
+                            <input id="secret-field-{{ forloop.counter }}" type="password" value="{{ field.value }}" readonly class="input input-bordered join-item w-full font-mono text-sm">
+                            <button type="button" class="btn btn-outline join-item" onclick="toggleSecretField('secret-field-{{ forloop.counter }}', this)">Mostrar</button>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body p-6 md:p-8">
+            <div class="flex items-center gap-2 mb-2">
+                <span class="material-icons text-base-content/80">location_on</span>
+                <h2 class="text-xl font-bold text-base-content">Contato e endereço</h2>
+            </div>
+            <div class="divider mt-0 mb-6"></div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {% for field in contact_fields %}
+                    <div>
+                        <p class="text-xs text-base-content/70 mb-1">{{ field.label }}</p>
+                        <p class="font-medium break-all">{{ field.value }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body p-6 md:p-8">
+            <div class="flex items-center gap-2 mb-2">
+                <span class="material-icons text-base-content/80">receipt_long</span>
+                <h2 class="text-xl font-bold text-base-content">Dados fiscais</h2>
+            </div>
+            <div class="divider mt-0 mb-6"></div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {% for field in fiscal_fields %}
+                    <div>
+                        <p class="text-xs text-base-content/70 mb-1">{{ field.label }}</p>
+                        <p class="font-medium break-all">{{ field.value }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function toggleSecretField(fieldId, button) {
+            const input = document.getElementById(fieldId);
+            if (!input) {
+                return;
+            }
+
+            const isPassword = input.type === "password";
+            input.type = isPassword ? "text" : "password";
+            button.textContent = isPassword ? "Ocultar" : "Mostrar";
+        }
+    </script>
+{% endblock %}
