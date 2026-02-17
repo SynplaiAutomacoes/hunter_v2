@@ -13,7 +13,7 @@ from django.db import transaction
 from django.db.models import F, ExpressionWrapper, IntegerField, Q
 from djmoney.money import Money
 
-from .forms import ImportStep1Form, ImportStepSupplierForm, ImportStepItemsForm, ImportStepPaymentForm, QuickProductForm, ImportStepSummaryForm, ImportSefazListForm, CatalogGroupQuickForm
+from .forms import ImportStep1Form, ImportStepSupplierForm, ImportStepItemsForm, ImportStepPaymentForm, QuickProductForm, ImportStepSummaryForm, ImportSefazListForm, CatalogGroupQuickForm, ImportStepSupplierManualForm, ImportManualItemsForm
 from .models import StockProduct, StockMovement, StockPaymentMethod, StockImport
 from ..catalog.models.groups import CatalogGroup
 from ..catalog.models.products import Product
@@ -185,13 +185,28 @@ class StockImportCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFo
             {"title": "Método de Importação", "form_class": ImportStep1Form},
         ]
 
-        if obj and obj.method == "SEFAZ":
-            base_steps.append({"title": "Seleção de NF", "form_class": ImportSefazListForm})
+        if obj:
+            if obj.method == "SEFAZ":
+                base_steps.append({"title": "Seleção de NF", "form_class": ImportSefazListForm})
+
+            if obj.method == "MANUAL":
+                base_steps.extend(
+                    [
+                        {"title": "Fornecedor", "form_class": ImportStepSupplierManualForm},
+                        {"title": "Importar Itens", "form_class": ImportManualItemsForm},
+                    ]
+                )
+            else:
+                # XML/KEY/SEFAZ
+                base_steps.extend(
+                    [
+                        {"title": "Fornecedor", "form_class": ImportStepSupplierForm},
+                        {"title": "Importar Itens", "form_class": ImportStepItemsForm},
+                    ]
+                )
 
         base_steps.extend(
             [
-                {"title": "Fornecedor", "form_class": ImportStepSupplierForm},
-                {"title": "Importar Itens", "form_class": ImportStepItemsForm},
                 {"title": "Método de Pagamento", "form_class": ImportStepPaymentForm},
                 {"title": "Revisão e Confirmação", "form_class": ImportStepSummaryForm},
             ]
