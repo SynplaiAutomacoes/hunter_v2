@@ -13,7 +13,8 @@ from django.db import transaction
 from django.db.models import F, ExpressionWrapper, IntegerField, Q
 from djmoney.money import Money
 
-from .forms import ImportStep1Form, ImportStepSupplierForm, ImportStepItemsForm, ImportStepPaymentForm, QuickProductForm, ImportStepSummaryForm, ImportSefazListForm, CatalogGroupQuickForm, ImportStepSupplierManualForm
+from .forms import ImportStep1Form, ImportStepSupplierForm, ImportStepItemsForm, ImportStepPaymentForm, QuickProductForm, ImportStepSummaryForm, ImportSefazListForm, CatalogGroupQuickForm, ImportStepSupplierManualForm, \
+    QuickSupplierForm
 from .models import StockProduct, StockMovement, StockPaymentMethod, StockImport
 from ..catalog.models.groups import CatalogGroup
 from ..catalog.models.products import Product
@@ -572,10 +573,15 @@ class SupplierDetailsView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         history_html = ""
         for imp in history:
-            history_html += f"""<tr class="text-xs">
+            history_html += f"""<tr class="text-sm">
                     <td>#{imp.id or "---"}</td>
                     <td class="py-2">{imp.criado_em.strftime("%d/%m/%Y")}</td>
                     <td>{imp.nf_number or "---"}</td>
+                    <td>
+                        <a href="{reverse("stock:stock_update", kwargs={"pk": imp.id})}" title="Acessar Importação" class="btn btn-ghost btn-sm btn-circle">
+                            <span class="material-icons !text-sm">visibility</span>
+                        </a>
+                    </td>
             </tr>"""
 
         if not history:
@@ -614,6 +620,7 @@ class SupplierDetailsView(LoginRequiredMixin, WorkshopScopedMixin, View):
                             <th>ID</th>
                             <th>DATA</th>
                             <th>NF</th>
+                            <th>AÇÕES</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -628,3 +635,30 @@ class SupplierDetailsView(LoginRequiredMixin, WorkshopScopedMixin, View):
         response = HttpResponse(html)
         response["HX-Trigger"] = json.dumps({"update-supplier-info": {"name": supplier.name, "cnpj": supplier.cnpj}})
         return response
+
+
+class SupplierQuickCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
+    model = Supplier
+    form_class = QuickSupplierForm
+    template_name = "stock/partials/modal/supplier_quick_create_modal.html"
+    workshop_permission_codename = "add_supplier"
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["workshop"] = self.workshop
+        return kwargs
+
+    def form_valid(self, form):
+        self.object = form.save(commit=False)
+        self.object.workshop = self.workshop
+        self.object.save()
+
+        if self.request.headers.get("HX-Request"):
+            response = HttpResponse()
+            response["HX-Trigger"] = json.dumps({
+                    "supplierCreated": {"id": str(self.object.id), "name": self.object.name, "cnpj": self.object.cnpj},
+                    "closeModal": True,
+            })
+            return response
+
+        return super().form_valid(form)

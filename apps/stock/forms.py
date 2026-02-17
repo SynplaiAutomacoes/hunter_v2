@@ -20,7 +20,8 @@ from pynfe.processamento import ComunicacaoSefaz
 
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
-from apps.core.widgets import TextInput, SelectInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput
+from apps.core.forms import address_layout, AddressFormMixin
+from apps.core.widgets import TextInput, SelectInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput
 
 from apps.stock.models import StockPaymentMethod, StockImport, StockProduct, StockMovement, SefazZipCache
 
@@ -767,20 +768,43 @@ class ImportStepSupplierManualForm(forms.ModelForm):
         choices = [("", "Pesquisar fornecedor...")] + [(str(s.id), f"{s.name} ({s.cnpj})") for s in suppliers]
 
         self.fields["supplier_select"].choices = choices
-        self.fields["supplier_select"].widget = SelectInput(choices=choices, attrs={"hx-get": reverse("stock:supplier_details"), "hx-target": "#supplier-info-container", "hx-trigger": "change", "class": "w-full"})
+        self.fields["supplier_select"].widget = SelectInput(choices=choices, attrs={"hx-get": reverse("stock:supplier_details"), "hx-target": "#supplier-info-container", "hx-trigger": "change", "class": "w-full", "x-model": "supplierId", "@change": "supplierId = $el.value"})
 
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
+            HTML(r"""<script>
+                document.body.addEventListener('supplierCreated', function(evt) {
+                    const data = evt.detail;
+                    const select = document.querySelector('select[name="supplier_select"]');
+    
+                    const newOption = new Option(`${data.name} (${data.cnpj})`, data.id, true, true);
+                    select.add(newOption);
+    
+                    const alpineDiv = select.closest('[x-data]');
+                    if (alpineDiv) {
+                        const scope = Alpine.$data(alpineDiv);
+                        scope.supplierId = data.id;
+                        scope.supName = data.name;
+                        scope.supCnpj = data.cnpj;
+                    }
+    
+                    select.dispatchEvent(new Event('change'));
+                });
+            </script>"""),
             Div(
                 # Coluna Esquerda
                 Div(
                     HTML('<h2 class="text-2xl font-bold mb-6 text-base-content">Fornecedor</h2>'),
                     Div(
-                        Div(
-                            Field("supplier_select"),
-                            css_class="flex-grow",
-                        ),
+                        Div(Field("supplier_select"), css_class="flex-grow"),
+                        HTML("""<button type="button" class="btn btn-circle mb-2 ml-2" title="Cadastrar Fornecedor"
+                                        :class="'btn-primary'"
+                                        @click="const url = '/stock/supplier/quick-create/';
+                                            htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
+                                            document.getElementById('form_modal').showModal();">
+                                <span class="material-icons" x-text="'local_shipping'"></span>
+                        </button>"""),
                         css_class="flex items-end mb-6",
                     ),
                     #
@@ -831,9 +855,9 @@ class ImportStepSupplierManualForm(forms.ModelForm):
                     css_class="col-span-12 lg:col-span-6",
                 ),
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch",
-                x_data="{ supName: '', supCnpj: '' }",
+                x_data=f"{{ supName: '', supCnpj: '', supplierId: '' }}",
                 x_on_update_supplier_info_window="supName = $event.detail.name; supCnpj = $event.detail.cnpj;",
-            )
+            ),
         )
 
     def save(self, commit=True):
@@ -922,6 +946,58 @@ class QuickProductForm(forms.ModelForm):
                 },
             )
         )
+
+
+class QuickSupplierForm(AddressFormMixin, forms.ModelForm):
+    class Meta:
+        model = Supplier
+        fields = ["cnpj", "name", "registration_date", "is_active", "cep", "logradouro", "numero", "complemento", "bairro", "cidade", "estado"]
+        widgets = {
+            "cnpj": CPForCNPJInput(mode="cnpj"),
+            "name": TextInput(),
+            "registration_date": CalendarDateInput(),
+            "is_active": CheckboxInput(),
+        }
+
+    def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.workshop = workshop
+        self.setup_address_fields()
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout(
+            Div(
+                Field("cnpj", wrapper_class="col-span-12 lg:col-span-6"),
+                Field("name", wrapper_class="col-span-12 lg:col-span-6"),
+                #
+                Field("registration_date", wrapper_class="col-span-12 lg:col-span-6"),
+                Field("is_active", wrapper_class="col-span-12 lg:col-span-6"),
+                #
+                HTML('<div class="col-span-12 divider"></div>'),
+                #
+                # Seção: Endereço
+                address_layout(),
+                css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
+            ),
+        )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        cnpj = cleaned_data.get("cnpj")
+
+        # Só validamos se tivermos o CNPJ e a workshop disponível
+        if cnpj and self.workshop:
+            queryset = Supplier.objects.filter(workshop=self.workshop, cnpj=cnpj)
+
+            # Se for edição (update), ignoramos o próprio objeto
+            if self.instance.pk:
+                queryset = queryset.exclude(pk=self.instance.pk)
+
+            if queryset.exists():
+                # Adiciona o erro especificamente no campo CNPJ
+                self.add_error("cnpj", "Já existe um fornecedor cadastrado com este CNPJ nesta oficina.")
+
+        return cleaned_data
 
 
 class CatalogGroupQuickForm(forms.ModelForm):

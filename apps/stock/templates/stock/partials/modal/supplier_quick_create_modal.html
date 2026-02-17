@@ -1,0 +1,15 @@
+<div class="modal modal-open">
+    <div class="modal-box w-10/12 max-w-3xl">
+        <h3 class="font-bold text-lg mb-4 uppercase">Cadastro Rápido de Fornecedor</h3>
+
+        <form hx-post="{% url 'stock:supplier_quick_create' %}" hx-target="#modal-container">
+            {% csrf_token %}
+            {% crispy form %}
+
+            <div class="modal-action">
+                <button type="button" class="btn btn-ghost" onclick="document.getElementById('modal-container').innerHTML=''">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Salvar</button>
+            </div>
+        </form>
+    </div>
+</div>
