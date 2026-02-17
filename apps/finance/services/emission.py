@@ -13,6 +13,7 @@ from django.urls import reverse
 
 from apps.finance.models import NfseBatch, NfseItem, NfseRequest
 from apps.finance.services.mappers import extract_items_from_batch, map_batch_payload, map_item_payload
+from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers, redact_webmania_headers, sanitize_webmania_setting
 
 
 logger = logging.getLogger(__name__)
@@ -43,21 +44,12 @@ def _debug_print(message: str, payload: Any | None = None) -> None:
 
 
 def _redact_headers(headers: dict[str, str]) -> dict[str, str]:
-    safe_headers = dict(headers)
-    authorization = safe_headers.get("Authorization", "")
-    if authorization.startswith("Bearer "):
-        token = authorization.removeprefix("Bearer ").strip()
-        if len(token) > 10:
-            token = f"{token[:6]}...{token[-4:]}"
-        elif token:
-            token = "***"
-        safe_headers["Authorization"] = f"Bearer {token}"
-    return safe_headers
+    return redact_webmania_headers(headers)
 
 
 def build_webmania_webhook_url(*, request=None) -> str:
     path = reverse("finance:webhook")
-    base_url = getattr(settings, "APP_BASE_URL", "").rstrip("/")
+    base_url = sanitize_webmania_setting(getattr(settings, "APP_BASE_URL", "")).rstrip("/")
     if base_url:
         return f"{base_url}{path}"
 
@@ -68,18 +60,14 @@ def build_webmania_webhook_url(*, request=None) -> str:
 
 
 def _build_headers() -> dict[str, str]:
-    headers = {"Content-Type": "application/json"}
-
-    api_key = getattr(settings, "WEBMANIA_API_KEY", "").strip()
-
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-
-    return headers
+    try:
+        return build_webmania_headers()
+    except WebmaniaAuthError as exc:
+        raise NfseEmissionError(str(exc)) from exc
 
 
 def _build_emit_url() -> str:
-    base_url = getattr(settings, "WEBMANIA_BASE_URL", "https://api.webmania.com.br/2/").rstrip("/")
+    base_url = sanitize_webmania_setting(getattr(settings, "WEBMANIA_BASE_URL", "https://api.webmania.com.br/2/")).rstrip("/")
     return f"{base_url}/nfse/emissao/"
 
 

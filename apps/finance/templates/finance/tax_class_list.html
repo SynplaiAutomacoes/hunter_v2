@@ -1,0 +1,95 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Classe de Imposto{% endblock %}
+{% block crud_subtitle %}Gerencie classes fiscais de NF-e e NFS-e.{% endblock %}
+
+{% block crud_header_actions %}
+    <a href="{% url 'finance:tax_class_create' %}?tab={{ active_tab }}" class="btn btn-primary">Criar nova Classe de Imposto</a>
+{% endblock %}
+
+{% block crud_table %}
+    <div class="tabs tabs-lift mb-6">
+        <a href="{% url 'finance:tax_class_list' %}?tab=nfe" class="tab {% if active_tab == 'nfe' %}tab-active{% endif %}">NF-e</a>
+        <a href="{% url 'finance:tax_class_list' %}?tab=nfse" class="tab {% if active_tab == 'nfse' %}tab-active{% endif %}">NFS-e</a>
+    </div>
+
+    <div class="overflow-x-auto">
+        <table class="table table-zebra w-full">
+            <thead>
+                <tr>
+                    <th>Referencia</th>
+                    <th>Descricao</th>
+                    <th>Data</th>
+                    <th class="text-center">Acoes</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if active_tab == 'nfe' %}
+                    {% for tax_class in nfe_tax_classes %}
+                        <tr>
+                            <td class="font-mono">{{ tax_class.referencia|default:'-' }}</td>
+                            <td>{{ tax_class.descricao|default:'-' }}</td>
+                            <td>{{ tax_class.data|default:'-' }}</td>
+                            <td class="text-center">
+                                {% if tax_class.referencia %}
+                                    <div class="flex items-center justify-center gap-2">
+                                        <a href="{% url 'finance:tax_class_update' reference=tax_class.referencia %}?tab=nfe" class="btn-table-edit" aria-label="Atualizar classe de imposto" title="Atualizar">
+                                            <span class="material-icons text-base">edit</span>
+                                        </a>
+                                        <form method="post" action="{% url 'finance:tax_class_list' %}?tab=nfe" onsubmit="return confirm('Deseja realmente excluir a classe {{ tax_class.referencia }}?');">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="form_action" value="delete">
+                                            <input type="hidden" name="tab" value="nfe">
+                                            <input type="hidden" name="reference" value="{{ tax_class.referencia }}">
+                                            <button type="submit" class="btn-table-delete" aria-label="Excluir classe de imposto" title="Excluir">
+                                                <span class="material-icons text-base">delete</span>
+                                            </button>
+                                        </form>
+                                    </div>
+                                {% else %}
+                                    <span class="text-base-content/50">-</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="4" class="text-center text-base-content/60 py-6">Nenhuma classe de imposto de NF-e encontrada.</td>
+                        </tr>
+                    {% endfor %}
+                {% else %}
+                    {% for tax_class in nfse_tax_classes %}
+                        <tr>
+                            <td class="font-mono">{{ tax_class.referencia|default:'-' }}</td>
+                            <td>{{ tax_class.descricao|default:'-' }}</td>
+                            <td>{{ tax_class.data|default:'-' }}</td>
+                            <td class="text-center">
+                                {% if tax_class.referencia %}
+                                    <div class="flex items-center justify-center gap-2">
+                                        <a href="{% url 'finance:tax_class_update' reference=tax_class.referencia %}?tab=nfse" class="btn-table-edit" aria-label="Atualizar classe de imposto" title="Atualizar">
+                                            <span class="material-icons text-base">edit</span>
+                                        </a>
+                                        <form method="post" action="{% url 'finance:tax_class_list' %}?tab=nfse" onsubmit="return confirm('Deseja realmente excluir a classe {{ tax_class.referencia }}?');">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="form_action" value="delete">
+                                            <input type="hidden" name="tab" value="nfse">
+                                            <input type="hidden" name="reference" value="{{ tax_class.referencia }}">
+                                            <button type="submit" class="btn-table-delete" aria-label="Excluir classe de imposto" title="Excluir">
+                                                <span class="material-icons text-base">delete</span>
+                                            </button>
+                                        </form>
+                                    </div>
+                                {% else %}
+                                    <span class="text-base-content/50">-</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="4" class="text-center text-base-content/60 py-6">Nenhuma classe de imposto de NFS-e encontrada.</td>
+                        </tr>
+                    {% endfor %}
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+{% endblock %}
