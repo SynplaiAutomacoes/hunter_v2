@@ -195,7 +195,7 @@ class NfseRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFo
 
     def _get_nfse_tax_class_choices(self) -> list[tuple[str, str]]:
         try:
-            tax_classes = list_tax_classes()
+            tax_classes = list_tax_classes(workshop=self.workshop)
         except TaxClassServiceError as exc:
             messages.warning(self.request, f"Nao foi possivel carregar classes de imposto de NFS-e: {exc}")
             return []
@@ -503,7 +503,7 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
 
     def _load_tax_classes(self) -> list[dict[str, object]]:
         try:
-            return list_tax_classes()
+            return list_tax_classes(workshop=self.workshop)
         except TaxClassServiceError as exc:
             messages.error(self.request, str(exc))
             return []
@@ -711,10 +711,12 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
         context.update(
             {
                 "active_tab": active_tab,
+                "is_update": getattr(self, "is_update", False),
                 "nfe_form": nfe_form,
                 "nfse_form": nfse_form,
                 "nfe_formset_sections": nfe_formset_sections,
                 "edit_reference": edit_reference,
+                "editing_tax_class": editing_tax_class,
                 "selected_preset_key": selected_preset_key,
                 "nfe_presets": self._preset_options(self.TAB_NFE),
                 "nfse_presets": self._preset_options(self.TAB_NFSE),
@@ -794,7 +796,7 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
                 is_update = bool(str(payload.get("referencia") or "").strip())
 
                 try:
-                    saved_tax_class = save_tax_class(payload=payload)
+                    saved_tax_class = save_tax_class(workshop=self.workshop, payload=payload)
                 except TaxClassServiceError as exc:
                     messages.error(request, str(exc))
                 else:
@@ -828,7 +830,7 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
             is_update = bool(str(payload.get("referencia") or "").strip())
 
             try:
-                saved_tax_class = save_tax_class(payload=payload)
+                saved_tax_class = save_tax_class(workshop=self.workshop, payload=payload)
             except TaxClassServiceError as exc:
                 messages.error(request, str(exc))
             else:
@@ -886,7 +888,7 @@ class TaxClassListView(TaxClassManagerView):
             return redirect(f"{reverse('finance:tax_class_list')}?tab={active_tab}")
 
         try:
-            delete_tax_class(reference=reference)
+            delete_tax_class(workshop=self.workshop, reference=reference)
         except TaxClassServiceError as exc:
             messages.error(request, str(exc))
         else:
@@ -938,6 +940,9 @@ class TaxClassFormBaseView(TaxClassManagerView):
             messages.error(request, "Classe de imposto nao encontrada para edicao.")
             return redirect(f"{reverse('finance:tax_class_list')}?tab={active_tab}")
 
+        if self.is_update and editing_tax_class is not None:
+            active_tab = self._tab_from_tax_class(editing_tax_class)
+
         if form_action == "apply_preset":
             preset_payload = self._get_preset_payload(tab=active_tab, preset_key=selected_preset_key)
             if preset_payload is None:
@@ -983,7 +988,7 @@ class TaxClassFormBaseView(TaxClassManagerView):
 
                 is_update_action = bool(str(payload.get("referencia") or "").strip())
                 try:
-                    saved_tax_class = save_tax_class(payload=payload)
+                    saved_tax_class = save_tax_class(workshop=self.workshop, payload=payload)
                 except TaxClassServiceError as exc:
                     messages.error(request, str(exc))
                 else:
@@ -1016,7 +1021,7 @@ class TaxClassFormBaseView(TaxClassManagerView):
 
             is_update_action = bool(str(payload.get("referencia") or "").strip())
             try:
-                saved_tax_class = save_tax_class(payload=payload)
+                saved_tax_class = save_tax_class(workshop=self.workshop, payload=payload)
             except TaxClassServiceError as exc:
                 messages.error(request, str(exc))
             else:

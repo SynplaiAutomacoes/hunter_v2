@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import requests
 from django.conf import settings
 
+from apps.finance.models import TaxClassNfe, TaxClassNfse, TaxClassSyncState
 from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers, sanitize_webmania_setting
+from apps.workshops.models.workshops import Workshop
 
 
 class TaxClassServiceError(Exception):
@@ -68,12 +71,12 @@ def _extract_error_message(payload: Any) -> str:
         return "; ".join(parts)
 
     if isinstance(payload, list):
-        parts: list[str] = []
+        list_parts: list[str] = []
         for item in payload:
             message = _extract_error_message(item)
             if message:
-                parts.append(message)
-        return "; ".join(parts)
+                list_parts.append(message)
+        return "; ".join(list_parts)
 
     return ""
 
@@ -105,7 +108,292 @@ def _request_exception_message(exc: requests.RequestException, *, default: str) 
     return f"{default}: {exc}"
 
 
-def list_tax_classes() -> list[dict[str, Any]]:
+def _clean_string(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _digits_only(value: Any) -> str:
+    raw_value = _clean_string(value)
+    if not raw_value:
+        return ""
+    return "".join(char for char in raw_value if char.isdigit())
+
+
+def _normalize_tax_type(payload: dict[str, Any]) -> str:
+    return _clean_string(payload.get("tipo") or payload.get("type")).lower()
+
+
+def _looks_like_nfse(payload: dict[str, Any]) -> bool:
+    tax_type = _normalize_tax_type(payload)
+    if tax_type in {"nfse", "nfs-e", "nsfe"}:
+        return True
+    return bool(_clean_string(payload.get("tipo_emissao"))) and bool(_clean_string(payload.get("codigo_servico")))
+
+
+def _normalize_tax_class_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    normalized_payload = dict(payload)
+
+    reference = _clean_string(normalized_payload.get("referencia"))
+    if reference:
+        normalized_payload["referencia"] = reference
+
+    description = _clean_string(normalized_payload.get("descricao"))
+    if description:
+        normalized_payload["descricao"] = description
+
+    status = _clean_string(normalized_payload.get("status"))
+    if status:
+        normalized_payload["status"] = status
+
+    remote_date = _clean_string(normalized_payload.get("data"))
+    if remote_date:
+        normalized_payload["data"] = remote_date
+
+    remote_updated_date = _clean_string(normalized_payload.get("updated_date"))
+    if remote_updated_date:
+        normalized_payload["updated_date"] = remote_updated_date
+
+    tax_type = _normalize_tax_type(normalized_payload)
+    if tax_type:
+        normalized_payload["tipo"] = tax_type
+        normalized_payload["type"] = tax_type
+
+    return normalized_payload
+
+
+def _normalize_scenarios(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+
+    normalized_items: list[dict[str, Any]] = []
+    for item in value:
+        if isinstance(item, dict):
+            normalized_items.append(dict(item))
+    return normalized_items
+
+
+def _to_decimal(value: Any) -> Decimal | None:
+    if value in (None, ""):
+        return None
+
+    normalized_value = str(value).strip().replace(",", ".")
+    if not normalized_value:
+        return None
+
+    try:
+        return Decimal(normalized_value)
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _format_decimal(value: Decimal | None) -> str:
+    if value is None:
+        return ""
+    return f"{value.quantize(Decimal('0.01')):f}"
+
+
+def _serialize_nfe_tax_class(tax_class: TaxClassNfe) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "referencia": tax_class.reference,
+        "descricao": tax_class.description,
+        "tipo": "nfe",
+        "type": "nfe",
+        "status": tax_class.status,
+        "data": tax_class.remote_date,
+    }
+
+    if tax_class.remote_updated_date:
+        payload["updated_date"] = tax_class.remote_updated_date
+    if tax_class.informacoes_fisco:
+        payload["informacoes_fisco"] = tax_class.informacoes_fisco
+    if tax_class.informacoes_complementares:
+        payload["informacoes_complementares"] = tax_class.informacoes_complementares
+
+    if tax_class.icms:
+        payload["icms"] = list(tax_class.icms)
+    if tax_class.ipi:
+        payload["ipi"] = list(tax_class.ipi)
+    if tax_class.pis:
+        payload["pis"] = list(tax_class.pis)
+    if tax_class.cofins:
+        payload["cofins"] = list(tax_class.cofins)
+
+    return payload
+
+
+def _serialize_nfse_tax_class(tax_class: TaxClassNfse) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "referencia": tax_class.reference,
+        "descricao": tax_class.description,
+        "tipo": "nfse",
+        "type": "nfse",
+        "status": tax_class.status,
+        "data": tax_class.remote_date,
+    }
+
+    if tax_class.remote_updated_date:
+        payload["updated_date"] = tax_class.remote_updated_date
+    if tax_class.informacoes_fisco:
+        payload["informacoes_fisco"] = tax_class.informacoes_fisco
+    if tax_class.informacoes_complementares:
+        payload["informacoes_complementares"] = tax_class.informacoes_complementares
+
+    text_fields = (
+        "tipo_emissao",
+        "codigo_servico",
+        "codigo_tributacao_municipio",
+        "tributacao_iss",
+        "tipo_imunidade",
+        "retencao_iss",
+        "cst_pis_cofins",
+        "retencao_pis_cofins",
+        "natureza_operacao",
+        "exigibilidade_iss",
+        "iss_retido",
+        "responsavel_retencao",
+        "codigo_cnae",
+    )
+    for field_name in text_fields:
+        value = _clean_string(getattr(tax_class, field_name))
+        if value:
+            payload[field_name] = value
+
+    for field_name in ("iss", "pis", "cofins", "inss", "ir", "csll"):
+        value = getattr(tax_class, field_name)
+        if value is not None:
+            payload[field_name] = _format_decimal(value)
+
+    ibs_cbs: dict[str, Any] = {}
+    if tax_class.ibs_situacao_tributaria:
+        ibs_cbs["situacao_tributaria"] = tax_class.ibs_situacao_tributaria
+    if tax_class.ibs_classificacao_tributaria:
+        ibs_cbs["classificacao_tributaria"] = tax_class.ibs_classificacao_tributaria
+    if tax_class.ibs_situacao_tributaria_regular:
+        ibs_cbs["situacao_tributaria_regular"] = tax_class.ibs_situacao_tributaria_regular
+    if tax_class.ibs_classificacao_tributaria_regular:
+        ibs_cbs["classificacao_tributaria_regular"] = tax_class.ibs_classificacao_tributaria_regular
+    if tax_class.ibs_credito_presumido:
+        ibs_cbs["credito_presumido"] = tax_class.ibs_credito_presumido
+    if tax_class.ibs_aliquota_diferimento_estadual is not None:
+        ibs_cbs["ibs_estadual"] = {"aliquota_diferimento": float(tax_class.ibs_aliquota_diferimento_estadual)}
+    if tax_class.ibs_aliquota_diferimento_municipal is not None:
+        ibs_cbs["ibs_municipal"] = {"aliquota_diferimento": float(tax_class.ibs_aliquota_diferimento_municipal)}
+    if tax_class.cbs_aliquota_diferimento is not None:
+        ibs_cbs["cbs"] = {"aliquota_diferimento": float(tax_class.cbs_aliquota_diferimento)}
+    if ibs_cbs:
+        payload["ibs_cbs"] = ibs_cbs
+
+    return payload
+
+
+def _upsert_local_nfe_tax_class(*, workshop: Workshop, payload: dict[str, Any]) -> dict[str, Any]:
+    reference = _clean_string(payload.get("referencia"))
+    if not reference:
+        raise TaxClassServiceError("Classe de imposto sem referência não pode ser salva localmente.")
+
+    tax_class, _ = TaxClassNfe.objects.update_or_create(
+        workshop=workshop,
+        reference=reference,
+        defaults={
+            "description": _clean_string(payload.get("descricao")),
+            "status": _clean_string(payload.get("status")),
+            "remote_date": _clean_string(payload.get("data")),
+            "remote_updated_date": _clean_string(payload.get("updated_date")),
+            "informacoes_fisco": _clean_string(payload.get("informacoes_fisco")),
+            "informacoes_complementares": _clean_string(payload.get("informacoes_complementares")),
+            "icms": _normalize_scenarios(payload.get("icms")),
+            "ipi": _normalize_scenarios(payload.get("ipi")),
+            "pis": _normalize_scenarios(payload.get("pis")),
+            "cofins": _normalize_scenarios(payload.get("cofins")),
+        },
+    )
+    TaxClassNfse.objects.filter(workshop=workshop, reference=reference).delete()
+    return _serialize_nfe_tax_class(tax_class)
+
+
+def _upsert_local_nfse_tax_class(*, workshop: Workshop, payload: dict[str, Any]) -> dict[str, Any]:
+    reference = _clean_string(payload.get("referencia"))
+    if not reference:
+        raise TaxClassServiceError("Classe de imposto sem referência não pode ser salva localmente.")
+
+    ibs_cbs_raw = payload.get("ibs_cbs")
+    ibs_cbs: dict[str, Any] = dict(ibs_cbs_raw) if isinstance(ibs_cbs_raw, dict) else {}
+    ibs_estadual_raw = ibs_cbs.get("ibs_estadual")
+    ibs_estadual: dict[str, Any] = dict(ibs_estadual_raw) if isinstance(ibs_estadual_raw, dict) else {}
+    ibs_municipal_raw = ibs_cbs.get("ibs_municipal")
+    ibs_municipal: dict[str, Any] = dict(ibs_municipal_raw) if isinstance(ibs_municipal_raw, dict) else {}
+    cbs_raw = ibs_cbs.get("cbs")
+    cbs: dict[str, Any] = dict(cbs_raw) if isinstance(cbs_raw, dict) else {}
+
+    tax_class, _ = TaxClassNfse.objects.update_or_create(
+        workshop=workshop,
+        reference=reference,
+        defaults={
+            "description": _clean_string(payload.get("descricao")),
+            "status": _clean_string(payload.get("status")),
+            "remote_date": _clean_string(payload.get("data")),
+            "remote_updated_date": _clean_string(payload.get("updated_date")),
+            "informacoes_fisco": _clean_string(payload.get("informacoes_fisco")),
+            "informacoes_complementares": _clean_string(payload.get("informacoes_complementares")),
+            "tipo_emissao": _clean_string(payload.get("tipo_emissao")),
+            "codigo_servico": _digits_only(payload.get("codigo_servico")) or _clean_string(payload.get("codigo_servico")),
+            "codigo_tributacao_municipio": _digits_only(payload.get("codigo_tributacao_municipio")) or _clean_string(payload.get("codigo_tributacao_municipio")),
+            "tributacao_iss": _clean_string(payload.get("tributacao_iss")),
+            "tipo_imunidade": _clean_string(payload.get("tipo_imunidade")),
+            "retencao_iss": _clean_string(payload.get("retencao_iss") or payload.get("iss_retido")),
+            "cst_pis_cofins": _clean_string(payload.get("cst_pis_cofins")),
+            "retencao_pis_cofins": _clean_string(payload.get("retencao_pis_cofins")),
+            "natureza_operacao": _clean_string(payload.get("natureza_operacao")),
+            "exigibilidade_iss": _clean_string(payload.get("exigibilidade_iss")),
+            "iss_retido": _clean_string(payload.get("iss_retido") or payload.get("retencao_iss")),
+            "responsavel_retencao": _clean_string(payload.get("responsavel_retencao")),
+            "codigo_cnae": _clean_string(payload.get("codigo_cnae")),
+            "iss": _to_decimal(payload.get("iss")),
+            "pis": _to_decimal(payload.get("pis")),
+            "cofins": _to_decimal(payload.get("cofins")),
+            "inss": _to_decimal(payload.get("inss")),
+            "ir": _to_decimal(payload.get("ir")),
+            "csll": _to_decimal(payload.get("csll")),
+            "ibs_situacao_tributaria": _clean_string(ibs_cbs.get("situacao_tributaria")),
+            "ibs_classificacao_tributaria": _clean_string(ibs_cbs.get("classificacao_tributaria")),
+            "ibs_situacao_tributaria_regular": _clean_string(ibs_cbs.get("situacao_tributaria_regular")),
+            "ibs_classificacao_tributaria_regular": _clean_string(ibs_cbs.get("classificacao_tributaria_regular")),
+            "ibs_credito_presumido": _clean_string(ibs_cbs.get("credito_presumido")),
+            "ibs_aliquota_diferimento_estadual": _to_decimal(ibs_estadual.get("aliquota_diferimento")),
+            "ibs_aliquota_diferimento_municipal": _to_decimal(ibs_municipal.get("aliquota_diferimento")),
+            "cbs_aliquota_diferimento": _to_decimal(cbs.get("aliquota_diferimento")),
+        },
+    )
+    TaxClassNfe.objects.filter(workshop=workshop, reference=reference).delete()
+    return _serialize_nfse_tax_class(tax_class)
+
+
+def _upsert_local_tax_class(*, workshop: Workshop, payload: dict[str, Any]) -> dict[str, Any]:
+    normalized_payload = _normalize_tax_class_payload(payload)
+    if _looks_like_nfse(normalized_payload):
+        return _upsert_local_nfse_tax_class(workshop=workshop, payload=normalized_payload)
+    return _upsert_local_nfe_tax_class(workshop=workshop, payload=normalized_payload)
+
+
+def _upsert_local_tax_classes(*, workshop: Workshop, tax_classes: list[dict[str, Any]]) -> None:
+    for item in tax_classes:
+        reference = _clean_string(item.get("referencia"))
+        if not reference:
+            continue
+        _upsert_local_tax_class(workshop=workshop, payload=item)
+
+
+def _list_local_tax_classes(*, workshop: Workshop) -> list[dict[str, Any]]:
+    nfe_tax_classes = TaxClassNfe.objects.filter(workshop=workshop)
+    nfse_tax_classes = TaxClassNfse.objects.filter(workshop=workshop)
+
+    payloads: list[dict[str, Any]] = []
+    payloads.extend(_serialize_nfe_tax_class(item) for item in nfe_tax_classes)
+    payloads.extend(_serialize_nfse_tax_class(item) for item in nfse_tax_classes)
+    return payloads
+
+
+def _list_tax_classes_remote() -> list[dict[str, Any]]:
     endpoint = _build_endpoint_url()
     _debug_print("GET endpoint", endpoint)
 
@@ -125,7 +413,36 @@ def list_tax_classes() -> list[dict[str, Any]]:
     return [item for item in payload if isinstance(item, dict)]
 
 
-def save_tax_class(*, payload: dict[str, Any]) -> dict[str, Any]:
+def _mark_initial_sync_done(*, workshop: Workshop) -> None:
+    TaxClassSyncState.objects.update_or_create(workshop=workshop, defaults={"synced_once": True})
+
+
+def _has_initial_sync_done(*, workshop: Workshop) -> bool:
+    return TaxClassSyncState.objects.filter(workshop=workshop, synced_once=True).exists()
+
+
+def _merge_tax_class_payloads(*, sent_payload: dict[str, Any], response_payload: dict[str, Any]) -> dict[str, Any]:
+    merged_payload = dict(sent_payload)
+    merged_payload.update(response_payload)
+    return _normalize_tax_class_payload(merged_payload)
+
+
+def list_tax_classes(*, workshop: Workshop) -> list[dict[str, Any]]:
+    local_tax_classes = _list_local_tax_classes(workshop=workshop)
+    if local_tax_classes:
+        return local_tax_classes
+
+    if _has_initial_sync_done(workshop=workshop):
+        return []
+
+    remote_tax_classes = _list_tax_classes_remote()
+    _upsert_local_tax_classes(workshop=workshop, tax_classes=remote_tax_classes)
+    _mark_initial_sync_done(workshop=workshop)
+
+    return _list_local_tax_classes(workshop=workshop)
+
+
+def save_tax_class(*, workshop: Workshop, payload: dict[str, Any]) -> dict[str, Any]:
     if not payload:
         raise TaxClassServiceError("Informe o payload da classe de imposto.")
 
@@ -146,20 +463,25 @@ def save_tax_class(*, payload: dict[str, Any]) -> dict[str, Any]:
     if error_message:
         raise TaxClassServiceError(error_message)
 
-    return data
+    merged_payload = _merge_tax_class_payloads(sent_payload=payload, response_payload=data)
+    saved_payload = _upsert_local_tax_class(workshop=workshop, payload=merged_payload)
+    _mark_initial_sync_done(workshop=workshop)
+    return saved_payload
 
 
-def delete_tax_class(*, reference: str | list[str]) -> list[dict[str, Any]]:
+def delete_tax_class(*, workshop: Workshop, reference: str | list[str]) -> list[dict[str, Any]]:
     if isinstance(reference, str):
         normalized_reference = reference.strip()
         if not normalized_reference:
             raise TaxClassServiceError("Informe a referencia da classe de imposto para excluir.")
         payload_reference: str | list[str] = normalized_reference
+        references_to_delete = [normalized_reference]
     else:
         references = [item.strip() for item in reference if isinstance(item, str) and item.strip()]
         if not references:
             raise TaxClassServiceError("Informe ao menos uma referencia valida para excluir.")
         payload_reference = references
+        references_to_delete = references
 
     endpoint = _build_endpoint_url()
 
@@ -185,4 +507,7 @@ def delete_tax_class(*, reference: str | list[str]) -> list[dict[str, Any]]:
         if error_message and "sucesso" not in error_message.lower():
             raise TaxClassServiceError(error_message)
 
+    TaxClassNfe.objects.filter(workshop=workshop, reference__in=references_to_delete).delete()
+    TaxClassNfse.objects.filter(workshop=workshop, reference__in=references_to_delete).delete()
+    _mark_initial_sync_done(workshop=workshop)
     return [item for item in data if isinstance(item, dict)]

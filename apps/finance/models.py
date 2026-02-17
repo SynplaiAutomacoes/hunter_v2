@@ -44,6 +44,96 @@ class NfseRequestStatus(models.TextChoices):
     CONTINGENCY = "contingency", "Contingência"
 
 
+class TaxClassNfe(TimeStampedModel):
+    workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="tax_classes_nfe")
+    reference = models.CharField(verbose_name="Referência", max_length=30)
+    description = models.CharField(verbose_name="Descrição", max_length=255, blank=True, default="")
+    status = models.CharField(verbose_name="Status", max_length=30, blank=True, default="")
+    remote_date = models.CharField(verbose_name="Data", max_length=40, blank=True, default="")
+    remote_updated_date = models.CharField(verbose_name="Data de atualização remota", max_length=40, blank=True, default="")
+    informacoes_fisco = models.TextField(verbose_name="Informações ao Fisco", blank=True, default="")
+    informacoes_complementares = models.TextField(verbose_name="Informações complementares", blank=True, default="")
+    icms = models.JSONField(verbose_name="Cenários ICMS", blank=True, default=list)
+    ipi = models.JSONField(verbose_name="Cenários IPI", blank=True, default=list)
+    pis = models.JSONField(verbose_name="Cenários PIS", blank=True, default=list)
+    cofins = models.JSONField(verbose_name="Cenários COFINS", blank=True, default=list)
+
+    class Meta(TimeStampedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["workshop", "reference"], name="unique_tax_class_nfe_per_workshop_reference"),
+        ]
+        indexes = [
+            models.Index(fields=["workshop", "status"]),
+        ]
+
+    def __str__(self) -> str:
+        workshop_id = getattr(self, "workshop_id", "-")
+        return f"NF-e {self.reference} ({workshop_id})"
+
+
+class TaxClassNfse(TimeStampedModel):
+    workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="tax_classes_nfse")
+    reference = models.CharField(verbose_name="Referência", max_length=30)
+    description = models.CharField(verbose_name="Descrição", max_length=255, blank=True, default="")
+    status = models.CharField(verbose_name="Status", max_length=30, blank=True, default="")
+    remote_date = models.CharField(verbose_name="Data", max_length=40, blank=True, default="")
+    remote_updated_date = models.CharField(verbose_name="Data de atualização remota", max_length=40, blank=True, default="")
+    informacoes_fisco = models.TextField(verbose_name="Informações ao Fisco", blank=True, default="")
+    informacoes_complementares = models.TextField(verbose_name="Informações complementares", blank=True, default="")
+
+    tipo_emissao = models.CharField(verbose_name="Tipo de emissão", max_length=10, blank=True, default="")
+    codigo_servico = models.CharField(verbose_name="Código do serviço", max_length=20, blank=True, default="")
+    codigo_tributacao_municipio = models.CharField(verbose_name="Código tributação município", max_length=20, blank=True, default="")
+    tributacao_iss = models.CharField(verbose_name="Tributação ISS", max_length=10, blank=True, default="")
+    tipo_imunidade = models.CharField(verbose_name="Tipo imunidade", max_length=10, blank=True, default="")
+    retencao_iss = models.CharField(verbose_name="Retenção ISS", max_length=10, blank=True, default="")
+    cst_pis_cofins = models.CharField(verbose_name="CST PIS/COFINS", max_length=10, blank=True, default="")
+    retencao_pis_cofins = models.CharField(verbose_name="Retenção PIS/COFINS", max_length=10, blank=True, default="")
+    natureza_operacao = models.CharField(verbose_name="Natureza da operação", max_length=10, blank=True, default="")
+    exigibilidade_iss = models.CharField(verbose_name="Exigibilidade ISS", max_length=10, blank=True, default="")
+    iss_retido = models.CharField(verbose_name="ISS retido", max_length=10, blank=True, default="")
+    responsavel_retencao = models.CharField(verbose_name="Responsável retenção", max_length=10, blank=True, default="")
+    codigo_cnae = models.CharField(verbose_name="Código CNAE", max_length=20, blank=True, default="")
+
+    iss = models.DecimalField(verbose_name="Alíquota ISS", max_digits=7, decimal_places=2, null=True, blank=True)
+    pis = models.DecimalField(verbose_name="Alíquota PIS", max_digits=7, decimal_places=2, null=True, blank=True)
+    cofins = models.DecimalField(verbose_name="Alíquota COFINS", max_digits=7, decimal_places=2, null=True, blank=True)
+    inss = models.DecimalField(verbose_name="Alíquota INSS", max_digits=7, decimal_places=2, null=True, blank=True)
+    ir = models.DecimalField(verbose_name="Alíquota IR", max_digits=7, decimal_places=2, null=True, blank=True)
+    csll = models.DecimalField(verbose_name="Alíquota CSLL", max_digits=7, decimal_places=2, null=True, blank=True)
+
+    ibs_situacao_tributaria = models.CharField(verbose_name="IBS/CBS Situação tributária", max_length=30, blank=True, default="")
+    ibs_classificacao_tributaria = models.CharField(verbose_name="IBS/CBS Classificação tributária", max_length=30, blank=True, default="")
+    ibs_situacao_tributaria_regular = models.CharField(verbose_name="IBS/CBS Situação regular", max_length=30, blank=True, default="")
+    ibs_classificacao_tributaria_regular = models.CharField(verbose_name="IBS/CBS Classificação regular", max_length=30, blank=True, default="")
+    ibs_credito_presumido = models.CharField(verbose_name="IBS/CBS Crédito presumido", max_length=30, blank=True, default="")
+    ibs_aliquota_diferimento_estadual = models.DecimalField(verbose_name="IBS estadual diferimento", max_digits=7, decimal_places=2, null=True, blank=True)
+    ibs_aliquota_diferimento_municipal = models.DecimalField(verbose_name="IBS municipal diferimento", max_digits=7, decimal_places=2, null=True, blank=True)
+    cbs_aliquota_diferimento = models.DecimalField(verbose_name="CBS diferimento", max_digits=7, decimal_places=2, null=True, blank=True)
+
+    class Meta(TimeStampedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["workshop", "reference"], name="unique_tax_class_nfse_per_workshop_reference"),
+        ]
+        indexes = [
+            models.Index(fields=["workshop", "status"]),
+        ]
+
+    def __str__(self) -> str:
+        workshop_id = getattr(self, "workshop_id", "-")
+        return f"NFS-e {self.reference} ({workshop_id})"
+
+
+class TaxClassSyncState(TimeStampedModel):
+    workshop = models.OneToOneField("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="tax_class_sync_state")
+    synced_once = models.BooleanField(verbose_name="Sincronização inicial concluída", default=False)
+
+    def __str__(self) -> str:
+        state = "ok" if self.synced_once else "pending"
+        workshop_id = getattr(self, "workshop_id", "-")
+        return f"TaxClassSyncState[{state}] ({workshop_id})"
+
+
 class NfseRequest(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE)
     workorder = models.ForeignKey("workorder.WorkOrder", verbose_name="Ordem de Serviço", on_delete=models.CASCADE)

@@ -1,8 +1,8 @@
 {% extends 'crud/form_page.html' %}
 {% load crispy_forms_tags %}
 
-{% block crud_title %}{% if is_update %}Atualizar Classe de Imposto{% else %}Criar Classe de Imposto{% endif %}{% endblock %}
-{% block crud_subtitle %}Preencha os campos da classe fiscal sem editar JSON manualmente.{% endblock %}
+{% block crud_title %}{% if is_update and edit_reference %}Classe {{ edit_reference }}{% elif is_update %}Atualizar Classe de Imposto{% else %}Criar Classe de Imposto{% endif %}{% endblock %}
+{% block crud_subtitle %}{% if is_update %}Edite os dados da classe fiscal sem alternar o tipo do documento.{% else %}Preencha os campos da classe fiscal sem editar JSON manualmente.{% endif %}{% endblock %}
 {% block crud_back_url %}{% url 'finance:tax_class_list' %}?tab={{ active_tab }}{% endblock %}
 
 {% block crud_form %}
@@ -12,15 +12,15 @@
         {% url 'finance:tax_class_create' as form_base_url %}
     {% endif %}
 
-    <div class="tabs tabs-lift mb-6">
-        <a href="{{ form_base_url }}?tab=nfe" class="tab {% if active_tab == 'nfe' %}tab-active{% endif %}">NF-e</a>
-        <a href="{{ form_base_url }}?tab=nfse" class="tab {% if active_tab == 'nfse' %}tab-active{% endif %}">NFS-e</a>
-    </div>
-
-    {% if edit_reference %}
-        <div class="alert alert-info mb-4">
-            <span class="material-icons">edit</span>
-            <span>Editando a classe <span class="font-mono font-semibold">{{ edit_reference }}</span>.</span>
+    {% if is_update and edit_reference %}
+        <div class="mb-6 rounded-lg border border-base-300 bg-base-200/50 px-4 py-3">
+            <p class="text-sm text-base-content/70">Referência da classe de imposto</p>
+            <h2 class="font-mono text-xl font-semibold">{{ edit_reference }}</h2>
+        </div>
+    {% else %}
+        <div class="tabs tabs-lift mb-6">
+            <a href="{{ form_base_url }}?tab=nfe" class="tab {% if active_tab == 'nfe' %}tab-active{% endif %}">NF-e</a>
+            <a href="{{ form_base_url }}?tab=nfse" class="tab {% if active_tab == 'nfse' %}tab-active{% endif %}">NFS-e</a>
         </div>
     {% endif %}
 
