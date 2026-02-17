@@ -201,22 +201,177 @@ def _format_decimal(value: Decimal | None) -> str:
     return f"{value.quantize(Decimal('0.01')):f}"
 
 
-def _scenario_payloads_from_manager(manager: Any) -> list[dict[str, Any]]:
+def _to_bool_or_none(value: Any) -> bool | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, bool):
+        return value
+
+    normalized_value = str(value).strip().lower()
+    if normalized_value in {"1", "true", "yes", "sim"}:
+        return True
+    if normalized_value in {"0", "false", "no", "nao", "não"}:
+        return False
+    return None
+
+
+def _serialize_icms_scenarios(tax_class: TaxClassNfe) -> list[dict[str, Any]]:
     payloads: list[dict[str, Any]] = []
-    for scenario in manager.all():
-        data = scenario.data
-        if isinstance(data, dict):
-            payloads.append(dict(data))
+    for scenario in getattr(tax_class, "icms_scenarios").all():
+        item: dict[str, Any] = {}
+        if scenario.tipo_tributacao:
+            item["tipo_tributacao"] = scenario.tipo_tributacao
+        if scenario.cenario:
+            item["cenario"] = scenario.cenario
+        if scenario.tipo_pessoa:
+            item["tipo_pessoa"] = scenario.tipo_pessoa
+        if scenario.nao_contribuinte is not None:
+            item["nao_contribuinte"] = bool(scenario.nao_contribuinte)
+        if scenario.codigo_cfop:
+            item["codigo_cfop"] = scenario.codigo_cfop
+        if scenario.situacao_tributaria:
+            item["situacao_tributaria"] = scenario.situacao_tributaria
+        if scenario.aliquota_credito is not None:
+            item["aliquota_credito"] = _format_decimal(scenario.aliquota_credito)
+        if scenario.aliquota_importacao is not None:
+            item["aliquota_importacao"] = _format_decimal(scenario.aliquota_importacao)
+        if item:
+            payloads.append(item)
     return payloads
 
 
-def _replace_nfe_scenarios(*, tax_class: TaxClassNfe, model_class: Any, items: list[dict[str, Any]]) -> None:
-    model_class.objects.filter(tax_class=tax_class).delete()
+def _serialize_ipi_scenarios(tax_class: TaxClassNfe) -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = []
+    for scenario in getattr(tax_class, "ipi_scenarios").all():
+        item: dict[str, Any] = {}
+        if scenario.cenario:
+            item["cenario"] = scenario.cenario
+        if scenario.tipo_pessoa:
+            item["tipo_pessoa"] = scenario.tipo_pessoa
+        if scenario.situacao_tributaria:
+            item["situacao_tributaria"] = scenario.situacao_tributaria
+        if scenario.codigo_enquadramento:
+            item["codigo_enquadramento"] = scenario.codigo_enquadramento
+        if scenario.aliquota is not None:
+            item["aliquota"] = _format_decimal(scenario.aliquota)
+        if item:
+            payloads.append(item)
+    return payloads
+
+
+def _serialize_pis_scenarios(tax_class: TaxClassNfe) -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = []
+    for scenario in getattr(tax_class, "pis_scenarios").all():
+        item: dict[str, Any] = {}
+        if scenario.cenario:
+            item["cenario"] = scenario.cenario
+        if scenario.tipo_pessoa:
+            item["tipo_pessoa"] = scenario.tipo_pessoa
+        if scenario.situacao_tributaria:
+            item["situacao_tributaria"] = scenario.situacao_tributaria
+        if scenario.aliquota is not None:
+            item["aliquota"] = _format_decimal(scenario.aliquota)
+        if item:
+            payloads.append(item)
+    return payloads
+
+
+def _serialize_cofins_scenarios(tax_class: TaxClassNfe) -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = []
+    for scenario in getattr(tax_class, "cofins_scenarios").all():
+        item: dict[str, Any] = {}
+        if scenario.cenario:
+            item["cenario"] = scenario.cenario
+        if scenario.tipo_pessoa:
+            item["tipo_pessoa"] = scenario.tipo_pessoa
+        if scenario.situacao_tributaria:
+            item["situacao_tributaria"] = scenario.situacao_tributaria
+        if scenario.aliquota is not None:
+            item["aliquota"] = _format_decimal(scenario.aliquota)
+        if item:
+            payloads.append(item)
+    return payloads
+
+
+def _replace_icms_scenarios(*, tax_class: TaxClassNfe, items: list[dict[str, Any]]) -> None:
+    TaxClassNfeIcmsScenario.objects.filter(tax_class=tax_class).delete()
     if not items:
         return
 
-    instances = [model_class(tax_class=tax_class, position=index, data=item) for index, item in enumerate(items)]
-    model_class.objects.bulk_create(instances)
+    instances = [
+        TaxClassNfeIcmsScenario(
+            tax_class=tax_class,
+            position=index,
+            tipo_tributacao=_clean_string(item.get("tipo_tributacao")),
+            cenario=_clean_string(item.get("cenario")),
+            tipo_pessoa=_clean_string(item.get("tipo_pessoa")),
+            nao_contribuinte=_to_bool_or_none(item.get("nao_contribuinte")),
+            codigo_cfop=_clean_string(item.get("codigo_cfop")),
+            situacao_tributaria=_clean_string(item.get("situacao_tributaria")),
+            aliquota_credito=_to_decimal(item.get("aliquota_credito")),
+            aliquota_importacao=_to_decimal(item.get("aliquota_importacao")),
+        )
+        for index, item in enumerate(items)
+    ]
+    TaxClassNfeIcmsScenario.objects.bulk_create(instances)
+
+
+def _replace_ipi_scenarios(*, tax_class: TaxClassNfe, items: list[dict[str, Any]]) -> None:
+    TaxClassNfeIpiScenario.objects.filter(tax_class=tax_class).delete()
+    if not items:
+        return
+
+    instances = [
+        TaxClassNfeIpiScenario(
+            tax_class=tax_class,
+            position=index,
+            cenario=_clean_string(item.get("cenario")),
+            tipo_pessoa=_clean_string(item.get("tipo_pessoa")),
+            situacao_tributaria=_clean_string(item.get("situacao_tributaria")),
+            codigo_enquadramento=_clean_string(item.get("codigo_enquadramento")),
+            aliquota=_to_decimal(item.get("aliquota")),
+        )
+        for index, item in enumerate(items)
+    ]
+    TaxClassNfeIpiScenario.objects.bulk_create(instances)
+
+
+def _replace_pis_scenarios(*, tax_class: TaxClassNfe, items: list[dict[str, Any]]) -> None:
+    TaxClassNfePisScenario.objects.filter(tax_class=tax_class).delete()
+    if not items:
+        return
+
+    instances = [
+        TaxClassNfePisScenario(
+            tax_class=tax_class,
+            position=index,
+            cenario=_clean_string(item.get("cenario")),
+            tipo_pessoa=_clean_string(item.get("tipo_pessoa")),
+            situacao_tributaria=_clean_string(item.get("situacao_tributaria")),
+            aliquota=_to_decimal(item.get("aliquota")),
+        )
+        for index, item in enumerate(items)
+    ]
+    TaxClassNfePisScenario.objects.bulk_create(instances)
+
+
+def _replace_cofins_scenarios(*, tax_class: TaxClassNfe, items: list[dict[str, Any]]) -> None:
+    TaxClassNfeCofinsScenario.objects.filter(tax_class=tax_class).delete()
+    if not items:
+        return
+
+    instances = [
+        TaxClassNfeCofinsScenario(
+            tax_class=tax_class,
+            position=index,
+            cenario=_clean_string(item.get("cenario")),
+            tipo_pessoa=_clean_string(item.get("tipo_pessoa")),
+            situacao_tributaria=_clean_string(item.get("situacao_tributaria")),
+            aliquota=_to_decimal(item.get("aliquota")),
+        )
+        for index, item in enumerate(items)
+    ]
+    TaxClassNfeCofinsScenario.objects.bulk_create(instances)
 
 
 def _serialize_nfe_tax_class(tax_class: TaxClassNfe) -> dict[str, Any]:
@@ -236,10 +391,10 @@ def _serialize_nfe_tax_class(tax_class: TaxClassNfe) -> dict[str, Any]:
     if tax_class.informacoes_complementares:
         payload["informacoes_complementares"] = tax_class.informacoes_complementares
 
-    icms_payload = _scenario_payloads_from_manager(getattr(tax_class, "icms_scenarios"))
-    ipi_payload = _scenario_payloads_from_manager(getattr(tax_class, "ipi_scenarios"))
-    pis_payload = _scenario_payloads_from_manager(getattr(tax_class, "pis_scenarios"))
-    cofins_payload = _scenario_payloads_from_manager(getattr(tax_class, "cofins_scenarios"))
+    icms_payload = _serialize_icms_scenarios(tax_class)
+    ipi_payload = _serialize_ipi_scenarios(tax_class)
+    pis_payload = _serialize_pis_scenarios(tax_class)
+    cofins_payload = _serialize_cofins_scenarios(tax_class)
 
     if icms_payload:
         payload["icms"] = icms_payload
@@ -337,10 +492,10 @@ def _upsert_local_nfe_tax_class(*, workshop: Workshop, payload: dict[str, Any]) 
             },
         )
 
-        _replace_nfe_scenarios(tax_class=tax_class, model_class=TaxClassNfeIcmsScenario, items=_normalize_scenarios(payload.get("icms")))
-        _replace_nfe_scenarios(tax_class=tax_class, model_class=TaxClassNfeIpiScenario, items=_normalize_scenarios(payload.get("ipi")))
-        _replace_nfe_scenarios(tax_class=tax_class, model_class=TaxClassNfePisScenario, items=_normalize_scenarios(payload.get("pis")))
-        _replace_nfe_scenarios(tax_class=tax_class, model_class=TaxClassNfeCofinsScenario, items=_normalize_scenarios(payload.get("cofins")))
+        _replace_icms_scenarios(tax_class=tax_class, items=_normalize_scenarios(payload.get("icms")))
+        _replace_ipi_scenarios(tax_class=tax_class, items=_normalize_scenarios(payload.get("ipi")))
+        _replace_pis_scenarios(tax_class=tax_class, items=_normalize_scenarios(payload.get("pis")))
+        _replace_cofins_scenarios(tax_class=tax_class, items=_normalize_scenarios(payload.get("cofins")))
 
     TaxClassNfse.objects.filter(workshop=workshop, reference=reference).delete()
     return _serialize_nfe_tax_class(tax_class)

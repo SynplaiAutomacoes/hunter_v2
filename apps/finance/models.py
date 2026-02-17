@@ -70,7 +70,14 @@ class TaxClassNfe(TimeStampedModel):
 class TaxClassNfeIcmsScenario(models.Model):
     tax_class = models.ForeignKey(TaxClassNfe, verbose_name="Classe NF-e", on_delete=models.CASCADE, related_name="icms_scenarios")
     position = models.PositiveIntegerField(verbose_name="Posição", default=0)
-    data = models.JSONField(verbose_name="Cenário ICMS", blank=True, default=dict)
+    tipo_tributacao = models.CharField(verbose_name="Tipo tributação", max_length=30, blank=True, default="")
+    cenario = models.CharField(verbose_name="Cenário", max_length=30, blank=True, default="")
+    tipo_pessoa = models.CharField(verbose_name="Tipo pessoa", max_length=20, blank=True, default="")
+    nao_contribuinte = models.BooleanField(verbose_name="Não contribuinte", null=True, blank=True)
+    codigo_cfop = models.CharField(verbose_name="Código CFOP", max_length=20, blank=True, default="")
+    situacao_tributaria = models.CharField(verbose_name="Situação tributária", max_length=10, blank=True, default="")
+    aliquota_credito = models.DecimalField(verbose_name="Alíquota crédito", max_digits=7, decimal_places=2, null=True, blank=True)
+    aliquota_importacao = models.DecimalField(verbose_name="Alíquota importação", max_digits=7, decimal_places=2, null=True, blank=True)
 
     class Meta:
         ordering = ["position", "id"]
@@ -82,7 +89,11 @@ class TaxClassNfeIcmsScenario(models.Model):
 class TaxClassNfeIpiScenario(models.Model):
     tax_class = models.ForeignKey(TaxClassNfe, verbose_name="Classe NF-e", on_delete=models.CASCADE, related_name="ipi_scenarios")
     position = models.PositiveIntegerField(verbose_name="Posição", default=0)
-    data = models.JSONField(verbose_name="Cenário IPI", blank=True, default=dict)
+    cenario = models.CharField(verbose_name="Cenário", max_length=30, blank=True, default="")
+    tipo_pessoa = models.CharField(verbose_name="Tipo pessoa", max_length=20, blank=True, default="")
+    situacao_tributaria = models.CharField(verbose_name="Situação tributária", max_length=10, blank=True, default="")
+    codigo_enquadramento = models.CharField(verbose_name="Código enquadramento", max_length=10, blank=True, default="")
+    aliquota = models.DecimalField(verbose_name="Alíquota", max_digits=7, decimal_places=2, null=True, blank=True)
 
     class Meta:
         ordering = ["position", "id"]
@@ -94,7 +105,10 @@ class TaxClassNfeIpiScenario(models.Model):
 class TaxClassNfePisScenario(models.Model):
     tax_class = models.ForeignKey(TaxClassNfe, verbose_name="Classe NF-e", on_delete=models.CASCADE, related_name="pis_scenarios")
     position = models.PositiveIntegerField(verbose_name="Posição", default=0)
-    data = models.JSONField(verbose_name="Cenário PIS", blank=True, default=dict)
+    cenario = models.CharField(verbose_name="Cenário", max_length=30, blank=True, default="")
+    tipo_pessoa = models.CharField(verbose_name="Tipo pessoa", max_length=20, blank=True, default="")
+    situacao_tributaria = models.CharField(verbose_name="Situação tributária", max_length=10, blank=True, default="")
+    aliquota = models.DecimalField(verbose_name="Alíquota", max_digits=7, decimal_places=2, null=True, blank=True)
 
     class Meta:
         ordering = ["position", "id"]
@@ -106,7 +120,10 @@ class TaxClassNfePisScenario(models.Model):
 class TaxClassNfeCofinsScenario(models.Model):
     tax_class = models.ForeignKey(TaxClassNfe, verbose_name="Classe NF-e", on_delete=models.CASCADE, related_name="cofins_scenarios")
     position = models.PositiveIntegerField(verbose_name="Posição", default=0)
-    data = models.JSONField(verbose_name="Cenário COFINS", blank=True, default=dict)
+    cenario = models.CharField(verbose_name="Cenário", max_length=30, blank=True, default="")
+    tipo_pessoa = models.CharField(verbose_name="Tipo pessoa", max_length=20, blank=True, default="")
+    situacao_tributaria = models.CharField(verbose_name="Situação tributária", max_length=10, blank=True, default="")
+    aliquota = models.DecimalField(verbose_name="Alíquota", max_digits=7, decimal_places=2, null=True, blank=True)
 
     class Meta:
         ordering = ["position", "id"]
