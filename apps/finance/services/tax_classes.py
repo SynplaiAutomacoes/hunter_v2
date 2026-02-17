@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
+import re
 from typing import Any
 
 import requests
@@ -57,25 +58,49 @@ def _build_endpoint_url() -> str:
     return f"{base_url}/1/nfe/classe-imposto/"
 
 
+def _sanitize_tax_class_api_message(message: str) -> str:
+    normalized_message = str(message or "").strip()
+    if not normalized_message:
+        return ""
+
+    normalized_message = re.sub(r"\s*Endpoint\s*:\s*.+$", "", normalized_message, flags=re.IGNORECASE).strip()
+    normalized_message = re.sub(r"\s{2,}", " ", normalized_message).strip()
+
+    if normalized_message.endswith(":"):
+        normalized_message = normalized_message[:-1].strip()
+
+    lowered_message = normalized_message.lower()
+    if "configurar empresa" in lowered_message:
+        return "Configure a empresa na Webmania antes de continuar com classes de imposto."
+
+    return normalized_message
+
+
 def _extract_error_message(payload: Any) -> str:
     if isinstance(payload, str):
-        return payload.strip()
+        return _sanitize_tax_class_api_message(payload)
 
     if isinstance(payload, dict):
         for key in ("error", "message", "msg", "detail"):
             value = payload.get(key)
             if isinstance(value, str) and value.strip():
-                return value.strip()
+                sanitized = _sanitize_tax_class_api_message(value)
+                if sanitized:
+                    return sanitized
 
         parts: list[str] = []
         for value in payload.values():
             if isinstance(value, str) and value.strip():
-                parts.append(value.strip())
+                sanitized = _sanitize_tax_class_api_message(value)
+                if sanitized:
+                    parts.append(sanitized)
                 continue
             if isinstance(value, list):
                 for item in value:
                     if isinstance(item, str) and item.strip():
-                        parts.append(item.strip())
+                        sanitized = _sanitize_tax_class_api_message(item)
+                        if sanitized:
+                            parts.append(sanitized)
 
         return "; ".join(parts)
 
@@ -598,6 +623,9 @@ def _list_tax_classes_remote(*, workshop: Workshop) -> list[dict[str, Any]]:
 
     payload = _parse_json_response(response)
     if not isinstance(payload, list):
+        extracted = _extract_error_message(payload)
+        if extracted:
+            raise TaxClassServiceError(extracted)
         raise TaxClassServiceError("Resposta inválida da API ao listar classes de imposto.")
 
     return [item for item in payload if isinstance(item, dict)]

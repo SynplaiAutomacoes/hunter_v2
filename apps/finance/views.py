@@ -1148,11 +1148,20 @@ class WebmaniaCompanyListView(LoginRequiredMixin, DirectorWorkshopAccessMixin, T
     required_webmania_permission_codename = "view_webmaniacompany"
 
     @staticmethod
+    def _latest_sync_error(companies: list[WebmaniaCompany]) -> str:
+        companies_with_error = [company for company in companies if str(company.last_sync_error or "").strip()]
+        if not companies_with_error:
+            return ""
+
+        latest_error_company = max(
+            companies_with_error,
+            key=lambda company: company.last_sync_at or company.atualizado_em or company.criado_em,
+        )
+        return str(latest_error_company.last_sync_error or "").strip()
+
+    @staticmethod
     def _build_company_row(company: WebmaniaCompany) -> dict[str, object]:
-        if company.cnpj:
-            formatted_document = _format_cnpj(company.cnpj)
-        else:
-            formatted_document = _format_cpf(company.cpf)
+        formatted_document = _format_cnpj(company.cnpj)
 
         return {
             "pk": company.pk,
@@ -1169,20 +1178,50 @@ class WebmaniaCompanyListView(LoginRequiredMixin, DirectorWorkshopAccessMixin, T
     def get_context_data(self, **kwargs: object) -> dict[str, object]:
         context = super().get_context_data(**kwargs)
 
-        try:
-            sync_b2b_companies_to_database()
-        except WebmaniaB2BServiceError as exc:
-            messages.error(self.request, str(exc))
-
         local_companies = list_local_b2b_companies()
         company_rows = [self._build_company_row(company) for company in local_companies]
+        sync_candidates = [company.last_sync_at for company in local_companies if company.last_sync_at is not None]
+        latest_sync_at = max(sync_candidates) if sync_candidates else None
+
+        can_sync_webmania_companies = has_workshop_perm(
+            user=self.request.user,
+            workshop=self.workshop,
+            app_label=WebmaniaCompany._meta.app_label,
+            model=str(WebmaniaCompany._meta.model_name),
+            codename="change_webmaniacompany",
+            request=self.request,
+        )
 
         context.update(
             {
                 "webmania_companies": company_rows,
+                "webmania_company_count": len(company_rows),
+                "webmania_last_sync_at": latest_sync_at,
+                "webmania_last_sync_error": self._latest_sync_error(local_companies),
+                "can_sync_webmania_companies": can_sync_webmania_companies,
             }
         )
         return context
+
+
+class WebmaniaCompanySyncView(LoginRequiredMixin, DirectorWorkshopAccessMixin, View):
+    required_webmania_permission_codename = "change_webmaniacompany"
+
+    def post(self, request, *args, **kwargs):
+        try:
+            synced_companies = sync_b2b_companies_to_database()
+        except WebmaniaB2BServiceError as exc:
+            messages.error(request, str(exc))
+        else:
+            synced_count = len(synced_companies)
+            if synced_count <= 0:
+                messages.warning(request, "Sincronização concluída, mas nenhuma empresa foi retornada pela Webmania.")
+            elif synced_count == 1:
+                messages.success(request, "Sincronização concluída com sucesso. 1 empresa atualizada.")
+            else:
+                messages.success(request, f"Sincronização concluída com sucesso. {synced_count} empresas atualizadas.")
+
+        return redirect("finance:webmania_company_list")
 
 
 class WebmaniaCompanyDetailView(LoginRequiredMixin, DirectorWorkshopAccessMixin, TemplateView):

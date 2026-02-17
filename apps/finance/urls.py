@@ -11,6 +11,7 @@ from apps.finance.views import (
     WebhookView,
     WebmaniaCompanyDetailView,
     WebmaniaCompanyListView,
+    WebmaniaCompanySyncView,
     WebmaniaCompanyUpdateView,
     WebmaniaRequestsView,
 )
@@ -27,6 +28,7 @@ urlpatterns = [
     path("nfse/create/", NfseRequestCreateView.as_view(), name="nfse_create"),
     path("nfse/<int:pk>/edit/", NfseRequestUpdateView.as_view(), name="nfse_update"),
     path("webmania/empresas/", WebmaniaCompanyListView.as_view(), name="webmania_company_list"),
+    path("webmania/empresas/sync/", WebmaniaCompanySyncView.as_view(), name="webmania_company_sync"),
     path("webmania/empresas/<int:pk>/", WebmaniaCompanyDetailView.as_view(), name="webmania_company_detail"),
     path("webmania/empresas/<int:pk>/editar/", WebmaniaCompanyUpdateView.as_view(), name="webmania_company_update"),
     path("webmania/requisicoes/", WebmaniaRequestsView.as_view(), name="webmania_requests"),
