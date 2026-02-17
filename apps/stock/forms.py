@@ -793,7 +793,6 @@ class ImportStepSupplierManualForm(forms.ModelForm):
                                 </div>
                                 <div>
                                     <p class="text-xs text-indigo-600 font-bold uppercase tracking-wider mb-1">Dados da Nota</p>
-                                    <p class="font-bold text-gray-900 text-lg" x-text="supNFe ? 'NF-e: ' + supNFe : 'NF-e: ---'"></p>
                                     <p class="text-xs text-gray-500 italic">Os itens serão conciliados na próxima etapa.</p>
                                 </div>
                             </div>"""),
@@ -804,53 +803,30 @@ class ImportStepSupplierManualForm(forms.ModelForm):
                 #
                 # Coluna Direita
                 Div(
-                    Div(
-                        #
-                        Div(
-                            HTML(f"""<div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                                    <div class="card bg-base-200 shadow-sm">
-                                        <div class="card-body p-4">
-                                            <h3 class="text-base font-bold uppercase mb-3">Detalhes e Contato</h3>
-                                            <div class="grid grid-cols-1 gap-3 text-sm" id="sup-contact-info">
-                                                <div class="flex flex-col">
-                                                    <span class="opacity-50 text-[10px] uppercase">Endereço</span><span id="sup-addr">Não informado</span>
-                                                </div>
-                                                <div class="grid grid-cols-2 gap-2">
-                                                    <div class="flex flex-col">
-                                                        <span class="opacity-50 text-[10px] uppercase">Telefone</span><span id="sup-phone">---</span>
-                                                    </div>
-                                                    <div class="flex flex-col">
-                                                        <span class="opacity-50 text-[10px] uppercase">E-mail</span>
-                                                        <span id="sup-email" class="truncate">---</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    
-                                    <div class="card bg-base-200 shadow-sm">
-                                        <div class="card-body p-4">
-                                            <h3 class="text-base font-bold uppercase mb-3">Histórico de Fornecedor</h3>
-                                            <div class="overflow-x-auto min-h-[200px]" id="sup-history-table">
-                                                <table class="table table-xs w-full">
-                                                    <thead><tr class="opacity-60"><th>Data</th><th>NF</th><th>Total</th></tr></thead>
-                                                    <tbody id="sup-history-rows">
-                                                        <tr><td colspan="3" class="text-center py-8 opacity-40">Aguardando seleção...</td></tr>
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        </div>
-                                    </div>
+                    HTML(f"""
+                        <div class="space-y-6">
+                            <div class="card bg-base-200 shadow-sm">
+                                <div class="card-body p-4">
+                                    <h3 class="text-base font-bold uppercase mb-3">Detalhes e Contato</h3>
+                                    <p class="text-base font-semibold">Responsável: </p>
+                                    <p class="text-base font-semibold">Telefone: </p>
+                                    <p class="text-base font-semibold">Email: </p>
+                                    <p class="text-base font-semibold">Endereço: </p>
                                 </div>
-                            """),
-                        ),
-                        id="supplier-details-root",
-                    ),
-                    css_class="flex flex-col",
+                            </div>
+    
+                            <div class="card bg-base-200 shadow-sm">
+                                <div class="card-body p-4">
+                                    <h3 class="text-base font-bold uppercase mb-3">Histórico de Fornecedor</h3>
+                                </div>
+                            </div>
+                        </div>
+                    """),
+                    css_class="col-span-12 lg:col-span-6",
                 ),
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-6",
-                x_data="{ supName: '', supCnpj: '', supNFe: ''}",
-                x_on_update_supplier_info_window="supName = $event.detail.name; supCnpj = $event.detail.cnpj; supNFe = $event.detail.nfe",
+                x_data="{ supName: '', supCnpj: ''}",
+                x_on_update_supplier_info_window="supName = $event.detail.name; supCnpj = $event.detail.cnpj;",
             )
         )
 
