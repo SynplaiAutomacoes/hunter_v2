@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
-import re
 from typing import Any
 
 import requests
@@ -18,6 +17,7 @@ from apps.finance.models import (
     TaxClassSyncState,
 )
 from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers, sanitize_webmania_setting
+from apps.finance.services.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
 from apps.workshops.models.workshops import Workshop
 
 
@@ -58,61 +58,8 @@ def _build_endpoint_url() -> str:
     return f"{base_url}/1/nfe/classe-imposto/"
 
 
-def _sanitize_tax_class_api_message(message: str) -> str:
-    normalized_message = str(message or "").strip()
-    if not normalized_message:
-        return ""
-
-    normalized_message = re.sub(r"\s*Endpoint\s*:\s*.+$", "", normalized_message, flags=re.IGNORECASE).strip()
-    normalized_message = re.sub(r"\s{2,}", " ", normalized_message).strip()
-
-    if normalized_message.endswith(":"):
-        normalized_message = normalized_message[:-1].strip()
-
-    lowered_message = normalized_message.lower()
-    if "configurar empresa" in lowered_message:
-        return "Configure a empresa na Webmania antes de continuar com classes de imposto."
-
-    return normalized_message
-
-
 def _extract_error_message(payload: Any) -> str:
-    if isinstance(payload, str):
-        return _sanitize_tax_class_api_message(payload)
-
-    if isinstance(payload, dict):
-        for key in ("error", "message", "msg", "detail"):
-            value = payload.get(key)
-            if isinstance(value, str) and value.strip():
-                sanitized = _sanitize_tax_class_api_message(value)
-                if sanitized:
-                    return sanitized
-
-        parts: list[str] = []
-        for value in payload.values():
-            if isinstance(value, str) and value.strip():
-                sanitized = _sanitize_tax_class_api_message(value)
-                if sanitized:
-                    parts.append(sanitized)
-                continue
-            if isinstance(value, list):
-                for item in value:
-                    if isinstance(item, str) and item.strip():
-                        sanitized = _sanitize_tax_class_api_message(item)
-                        if sanitized:
-                            parts.append(sanitized)
-
-        return "; ".join(parts)
-
-    if isinstance(payload, list):
-        list_parts: list[str] = []
-        for item in payload:
-            message = _extract_error_message(item)
-            if message:
-                list_parts.append(message)
-        return "; ".join(list_parts)
-
-    return ""
+    return extract_webmania_error_message(payload, scope="tax_class")
 
 
 def _parse_json_response(response: requests.Response) -> Any:
@@ -123,23 +70,7 @@ def _parse_json_response(response: requests.Response) -> Any:
 
 
 def _request_exception_message(exc: requests.RequestException, *, default: str) -> str:
-    if exc.response is None:
-        return f"{default}: {exc}"
-
-    payload: Any | None
-    try:
-        payload = exc.response.json()
-    except ValueError:
-        payload = exc.response.text
-
-    extracted = _extract_error_message(payload)
-    if extracted:
-        return extracted
-
-    if exc.response.text.strip():
-        return f"{default}: {exc.response.text.strip()}"
-
-    return f"{default}: {exc}"
+    return build_webmania_request_exception_message(exc, default=default, scope="tax_class")
 
 
 def _clean_string(value: Any) -> str:

@@ -16,6 +16,7 @@ from django.urls import reverse
 from apps.finance.models import NfseBatch, NfseItem, NfseRequest
 from apps.finance.services.mappers import extract_items_from_batch, map_batch_payload, map_item_payload
 from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers, redact_webmania_headers, sanitize_webmania_setting
+from apps.finance.services.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
 
 
 logger = logging.getLogger(__name__)
@@ -183,10 +184,10 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request=None) -> dict[str, A
         _debug_print("Body bruto da emissao", response.text)
         response.raise_for_status()
     except requests.RequestException as exc:
-        response_text = exc.response.text if exc.response is not None else ""
-        _debug_print("Falha HTTP na emissao", response_text or str(exc))
+        error_message = build_webmania_request_exception_message(exc, default="Falha ao emitir NFS-e", scope="nfse")
+        _debug_print("Falha HTTP na emissao", error_message)
         logger.exception("Erro ao emitir NFS-e", extra={"workorder_id": nfse_request.workorder.pk})
-        raise NfseEmissionError(f"Falha ao emitir NFS-e: {response_text or str(exc)}") from exc
+        raise NfseEmissionError(error_message) from exc
 
     try:
         data = response.json()
@@ -199,13 +200,15 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request=None) -> dict[str, A
     if not isinstance(data, dict):
         raise NfseEmissionError("Resposta inválida da API de emissão de NFS-e.")
 
-    if data.get("error"):
-        error_message = str(data.get("error"))
+    error_message = extract_webmania_error_message(data.get("error"), scope="nfse")
+    if error_message:
         _debug_print("Erro de negocio retornado pela API", error_message)
         raise NfseEmissionError(error_message)
 
     if not data.get("modelo") and not data.get("uuid"):
-        message = str(data.get("msg") or data.get("message") or "Resposta da API sem modelo/uuid.")
+        message = extract_webmania_error_message(data.get("msg") or data.get("message"), scope="nfse")
+        if not message:
+            message = "Resposta da API sem modelo/uuid."
         _debug_print("Resposta sem dados esperados de emissao", data)
         raise NfseEmissionError(message)
 

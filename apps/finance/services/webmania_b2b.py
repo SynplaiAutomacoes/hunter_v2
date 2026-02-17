@@ -13,6 +13,7 @@ from apps.finance.services.webmania_auth import (
     build_webmania_headers_for_company,
     sanitize_webmania_setting,
 )
+from apps.finance.services.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
 from apps.finance.services.webmania_secrets import encrypt_secret
 from apps.workshops.models.workshops import Workshop
 
@@ -52,37 +53,11 @@ def _build_nfe_company_url() -> str:
 
 
 def _extract_error_message(payload: Any) -> str:
-    if isinstance(payload, str):
-        return payload.strip()
-
-    if isinstance(payload, dict):
-        for key in ("error", "message", "msg", "detail"):
-            value = payload.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-
-    return ""
+    return extract_webmania_error_message(payload)
 
 
 def _request_exception_message(exc: requests.RequestException, *, default: str) -> str:
-    if exc.response is None:
-        return f"{default}: {exc}"
-
-    payload: Any | None
-    try:
-        payload = exc.response.json()
-    except ValueError:
-        payload = exc.response.text
-
-    extracted = _extract_error_message(payload)
-    if extracted:
-        return extracted
-
-    response_text = str(exc.response.text or "").strip()
-    if response_text:
-        return f"{default}: {response_text}"
-
-    return f"{default}: {exc}"
+    return build_webmania_request_exception_message(exc, default=default)
 
 
 def _parse_json_response(response: requests.Response, *, error_message: str) -> Any:
