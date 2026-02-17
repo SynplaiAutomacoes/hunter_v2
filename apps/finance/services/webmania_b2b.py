@@ -27,6 +27,10 @@ _SENSITIVE_COMPANY_FIELDS = (
     "access_token",
     "access_token_secret",
     "bearer_access_token",
+    "nfse_password",
+    "nfse_token",
+    "certificado_senha",
+    "certificado",
 )
 
 
@@ -126,6 +130,13 @@ def _extract_credentials(payload: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def _extract_sensitive_field_value(*, payload: dict[str, Any], credentials: dict[str, str], field_name: str) -> str:
+    credential_value = credentials.get(field_name)
+    if credential_value:
+        return credential_value
+    return _clean_string(payload.get(field_name))
+
+
 def _upsert_company_from_payload(*, payload: dict[str, Any], workshop: Workshop | None = None) -> WebmaniaCompany | None:
     company_id = _clean_string(payload.get("id"))
     if not company_id:
@@ -143,7 +154,7 @@ def _upsert_company_from_payload(*, payload: dict[str, Any], workshop: Workshop 
 
     credentials = _extract_credentials(payload)
     for field_name in _SENSITIVE_COMPANY_FIELDS:
-        raw_value = credentials.get(field_name)
+        raw_value = _extract_sensitive_field_value(payload=payload, credentials=credentials, field_name=field_name)
         if raw_value:
             setattr(company, field_name, encrypt_secret(raw_value))
 

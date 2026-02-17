@@ -4,7 +4,7 @@ from copy import deepcopy
 from datetime import date
 import json
 import logging
-from typing import Any
+from typing import Any, cast
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -13,6 +13,7 @@ from django.db import transaction
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
+from django.utils.crypto import constant_time_compare
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views import View
@@ -40,7 +41,7 @@ from apps.finance.forms import (
     WebmaniaCompanyUpdateForm,
 )
 from apps.finance.models import NfseBatch, NfseItem, NfseRequest, NfseRequestStatus, WebmaniaCompany, WebmaniaCompanyTaxType
-from apps.finance.services.emission import NfseEmissionError, emit_nfse_request, sync_emission_response
+from apps.finance.services.emission import NfseEmissionError, build_webmania_webhook_token, emit_nfse_request, sync_emission_response
 from apps.finance.services.mappers import extract_items_from_batch, map_batch_payload, map_item_payload
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
 from apps.finance.services.webmania_b2b import (
@@ -50,9 +51,8 @@ from apps.finance.services.webmania_b2b import (
     sync_b2b_companies_to_database,
     update_webmania_company,
 )
-from apps.finance.services.webmania_secrets import decrypt_secret
 from apps.workshops.mixin import WorkshopScopedMixin
-from apps.workshops.util.workshops import get_active_workshop_or_404, is_workshop_director
+from apps.workshops.util.workshops import get_active_workshop_or_404, has_workshop_perm, is_workshop_director
 
 
 logger = logging.getLogger(__name__)
@@ -93,9 +93,32 @@ def _format_tax_type(value: object) -> str:
 
 
 class DirectorWorkshopAccessMixin(View):
+    required_webmania_permission_codename: str | None = None
+
+    def _has_required_webmania_permission(self, request) -> bool:
+        codename = self.required_webmania_permission_codename
+        if not codename:
+            return True
+
+        model_name = str(WebmaniaCompany._meta.model_name)
+
+        return has_workshop_perm(
+            user=request.user,
+            workshop=self.workshop,
+            app_label=WebmaniaCompany._meta.app_label,
+            model=model_name,
+            codename=codename,
+            request=request,
+        )
+
     def dispatch(self, request, *args, **kwargs):
         self.workshop = get_active_workshop_or_404(request)
-        if not is_workshop_director(user=request.user, workshop=self.workshop, request=request):
+        if not request.user.is_authenticated:
+            raise PermissionDenied
+        user = cast(Any, request.user)
+        if not is_workshop_director(user=user, workshop=self.workshop, request=request):
+            raise PermissionDenied
+        if not self._has_required_webmania_permission(request):
             raise PermissionDenied
         return super().dispatch(request, *args, **kwargs)
 
@@ -105,7 +128,21 @@ class WebhookView(View):
     def get(self, request):
         return JsonResponse({"ok": True, "message": "Pong"}, status=200)
 
+    @staticmethod
+    def _request_webhook_token(request) -> str:
+        header_token = request.headers.get("X-Webhook-Token", "")
+        return str(request.GET.get("token") or header_token or "").strip()
+
+    def _is_authorized_request(self, request) -> bool:
+        expected_token = build_webmania_webhook_token()
+        provided_token = self._request_webhook_token(request)
+        return bool(provided_token) and constant_time_compare(provided_token, expected_token)
+
     def post(self, request):
+        if not self._is_authorized_request(request):
+            logger.warning("Webhook de NFS-e rejeitado por token invalido")
+            return JsonResponse({"ok": False, "message": "Unauthorized webhook request"}, status=403)
+
         try:
             payload = json.loads(request.body)
         except json.JSONDecodeError:
@@ -1108,6 +1145,7 @@ class TaxClassUpdateView(TaxClassFormBaseView):
 
 class WebmaniaCompanyListView(LoginRequiredMixin, DirectorWorkshopAccessMixin, TemplateView):
     template_name = "finance/webmania_company_list.html"
+    required_webmania_permission_codename = "view_webmaniacompany"
 
     @staticmethod
     def _build_company_row(company: WebmaniaCompany) -> dict[str, object]:
@@ -1149,12 +1187,15 @@ class WebmaniaCompanyListView(LoginRequiredMixin, DirectorWorkshopAccessMixin, T
 
 class WebmaniaCompanyDetailView(LoginRequiredMixin, DirectorWorkshopAccessMixin, TemplateView):
     template_name = "finance/webmania_company_detail.html"
+    required_webmania_permission_codename = "view_webmaniacompany"
 
     @staticmethod
-    def _secret_field(label: str, value: object) -> dict[str, str]:
+    def _secret_field(label: str, value: object) -> dict[str, object]:
+        has_value = bool(str(value or "").strip())
         return {
             "label": label,
-            "value": decrypt_secret(value),
+            "value": "********" if has_value else "-",
+            "has_value": has_value,
         }
 
     @staticmethod
@@ -1215,6 +1256,7 @@ class WebmaniaCompanyDetailView(LoginRequiredMixin, DirectorWorkshopAccessMixin,
                     self._secret_field("Bearer Access Token", company.bearer_access_token),
                     self._secret_field("Senha NFS-e", company.nfse_password),
                     self._secret_field("Token NFS-e", company.nfse_token),
+                    self._secret_field("Certificado A1 Base64", company.certificado),
                     self._secret_field("Senha Certificado A1", company.certificado_senha),
                 ],
                 "fiscal_fields": [
@@ -1252,7 +1294,6 @@ class WebmaniaCompanyDetailView(LoginRequiredMixin, DirectorWorkshopAccessMixin,
                     self._regular_field("E-mail automático NFS-e", company.email_automatico_nfse),
                     self._regular_field("Desativar EPEC", company.desativar_epec),
                     self._regular_field("Ocultar total etiqueta", company.ocultar_total_etiqueta),
-                    self._regular_field("Certificado A1 Base64", company.certificado),
                     self._regular_field("Última sincronização", company.last_sync_at),
                     self._regular_field("Último erro de sincronização", company.last_sync_error),
                 ],
@@ -1265,6 +1306,7 @@ class WebmaniaCompanyUpdateView(LoginRequiredMixin, DirectorWorkshopAccessMixin,
     template_name = "finance/webmania_company_update.html"
     model = WebmaniaCompany
     form_class = WebmaniaCompanyUpdateForm
+    required_webmania_permission_codename = "change_webmaniacompany"
 
     def get_object(self, queryset=None) -> WebmaniaCompany:
         return get_object_or_404(WebmaniaCompany, pk=self.kwargs.get("pk"))
@@ -1301,6 +1343,7 @@ class WebmaniaCompanyUpdateView(LoginRequiredMixin, DirectorWorkshopAccessMixin,
 
 class WebmaniaRequestsView(LoginRequiredMixin, DirectorWorkshopAccessMixin, TemplateView):
     template_name = "finance/webmania_requests_list.html"
+    required_webmania_permission_codename = "view_webmaniacompany"
 
     @staticmethod
     def _parse_competencia(value: str | None) -> tuple[int, int] | None:

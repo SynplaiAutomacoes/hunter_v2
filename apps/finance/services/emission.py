@@ -5,9 +5,11 @@ import logging
 import re
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
+from urllib.parse import urlencode
 
 import requests
 from django.conf import settings
+from django.core import signing
 from django.db import transaction
 from django.urls import reverse
 
@@ -47,16 +49,28 @@ def _redact_headers(headers: dict[str, str]) -> dict[str, str]:
     return redact_webmania_headers(headers)
 
 
+def build_webmania_webhook_token() -> str:
+    explicit_token = sanitize_webmania_setting(getattr(settings, "WEBMANIA_WEBHOOK_TOKEN", ""))
+    if explicit_token:
+        return explicit_token
+
+    signer = signing.Signer(salt="finance.webmania.webhook")
+    return signer.sign("webmania")
+
+
 def build_webmania_webhook_url(*, request=None) -> str:
     path = reverse("finance:webhook")
+    token = build_webmania_webhook_token()
+    path_with_query = f"{path}?{urlencode({'token': token})}"
+
     base_url = sanitize_webmania_setting(getattr(settings, "APP_BASE_URL", "")).rstrip("/")
     if base_url:
-        return f"{base_url}{path}"
+        return f"{base_url}{path_with_query}"
 
     if request is not None:
-        return request.build_absolute_uri(path)
+        return request.build_absolute_uri(path_with_query)
 
-    return f"http://localhost:8000{path}"
+    return f"http://localhost:8000{path_with_query}"
 
 
 def _build_headers(*, workshop) -> dict[str, str]:

@@ -44,7 +44,7 @@
                         <label class="label pt-0 pb-1"><span class="label-text text-xs">{{ field.label }}</span></label>
                         <div class="join w-full">
                             <input id="secret-field-{{ forloop.counter }}" type="password" value="{{ field.value }}" readonly class="input input-bordered join-item w-full font-mono text-sm">
-                            <button type="button" class="btn btn-outline join-item" onclick="toggleSecretField('secret-field-{{ forloop.counter }}', this)">Mostrar</button>
+                            <button type="button" class="btn btn-outline join-item" onclick="toggleSecretField('secret-field-{{ forloop.counter }}', this)" {% if not field.has_value %}disabled{% endif %}>{% if field.has_value %}Mostrar{% else %}Vazio{% endif %}</button>
                         </div>
                     </div>
                 {% endfor %}

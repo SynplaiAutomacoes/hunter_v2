@@ -302,7 +302,7 @@ WEBMANIA_ENABLED_FLAG_CHOICES = [
 
 
 class WebmaniaCompanyUpdateForm(forms.ModelForm):
-    secret_fields = ("nfse_password", "nfse_token", "certificado_senha")
+    secret_fields = ("nfse_password", "nfse_token", "certificado", "certificado_senha")
     nullable_boolean_fields = (
         "partilha_icms_contribuinte",
         "partilha_icms_isento",
@@ -446,7 +446,14 @@ class WebmaniaCompanyUpdateForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        self._initial_model_values = {field_name: getattr(self.instance, field_name, "") for field_name in self.Meta.fields}
+        self._initial_secret_values = {field_name: getattr(self.instance, field_name, "") for field_name in self.secret_fields}
+
         self.fields["email"].required = True
+
+        for field_name in self.secret_fields:
+            if field_name in self.fields:
+                self.initial[field_name] = ""
 
         for field_name in self.nullable_boolean_fields:
             if getattr(self.instance, field_name, None) is None:
@@ -625,8 +632,8 @@ class WebmaniaCompanyUpdateForm(forms.ModelForm):
         return payload
 
     def save(self, commit: bool = True) -> WebmaniaCompany:
-        original_values = {field_name: getattr(self.instance, field_name) for field_name in self.Meta.fields}
-        existing_secret_values = {field_name: getattr(self.instance, field_name, "") for field_name in self.secret_fields}
+        original_values = dict(getattr(self, "_initial_model_values", {}))
+        existing_secret_values = dict(getattr(self, "_initial_secret_values", {}))
         instance: WebmaniaCompany = super().save(commit=False)
 
         for field_name in self.Meta.fields:
