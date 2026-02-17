@@ -12,7 +12,7 @@ from django.db import transaction
 import gzip
 import base64
 from lxml import etree
-from django.urls import reverse
+from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from djmoney.forms import MoneyField
 from djmoney.money import Money
@@ -746,6 +746,113 @@ class ImportSefazListForm(forms.ModelForm):
             self.add_error(None, "Selecione uma NF antes de avançar.")
 
         return cleaned_data
+
+
+class ImportStepSupplierManualForm(forms.ModelForm):
+    supplier_select = forms.ChoiceField(label="Selecione o Fornecedor", required=True)
+
+    class Meta:
+        model = StockImport
+        fields = []
+
+    def __init__(self, *args, **kwargs):
+        self.workshop = kwargs.pop("workshop", None)
+        self.request = kwargs.pop("request", None)
+        self.nf_data = kwargs.pop("nf_data", {})
+        self.import_items = kwargs.pop("import_items", [])
+        self.import_payments = kwargs.pop("import_payments", [])
+        super().__init__(*args, **kwargs)
+
+        suppliers = Supplier.objects.filter(workshop=self.workshop, is_active=True)
+        choices = [("", "Selecione um fornecedor...")] + [(str(s.id), f"{s.name} ({s.cnpj})") for s in suppliers]
+
+        self.fields["supplier_select"].choices = choices
+        self.fields["supplier_select"].widget = SelectInput(choices=choices)
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout(
+            Div(
+                # Coluna Esquerda
+                Div(
+                    HTML('<h2 class="text-2xl font-bold mb-6 text-base-content">Fornecedor</h2>'),
+                    Div(
+                        Div(
+                            Field("supplier_select", hx_get=reverse("stock:supplier_details"),
+                                hx_target="#supplier-details-root", hx_swap="innerHTML",),
+                            css_class="flex-grow",
+                        ),
+                        css_class="flex items-end mb-6",
+                    ),
+                    #
+                    HTML(f"""<div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-base-300 p-6 rounded-lg mb-6">
+                                <div>
+                                    <p class="text-xs text-indigo-600 font-bold uppercase tracking-wider mb-1">Emitente (Fornecedor)</p>
+                                    <p class="font-bold text-gray-900 text-lg" x-text="supName || 'Não informado'"></p>
+                                    <p class="text-sm text-gray-600 font-mono" x-text="supCnpj ? 'CNPJ: ' + supCnpj : 'CNPJ: Não informado'"></p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-indigo-600 font-bold uppercase tracking-wider mb-1">Dados da Nota</p>
+                                    <p class="font-bold text-gray-900 text-lg" x-text="supNFe ? 'NF-e: ' + supNFe : 'NF-e: ---'"></p>
+                                    <p class="text-xs text-gray-500 italic">Os itens serão conciliados na próxima etapa.</p>
+                                </div>
+                            </div>"""),
+                    css_class="col-span-12 lg:col-span-5",
+                ),
+                #
+                Div(css_class="hidden lg:block lg:col-span-1"),
+                #
+                # Coluna Direita
+                Div(
+                    Div(
+                        #
+                        Div(
+                            HTML(f"""<div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                                    <div class="card bg-base-200 shadow-sm">
+                                        <div class="card-body p-4">
+                                            <h3 class="text-base font-bold uppercase mb-3">Detalhes e Contato</h3>
+                                            <div class="grid grid-cols-1 gap-3 text-sm" id="sup-contact-info">
+                                                <div class="flex flex-col">
+                                                    <span class="opacity-50 text-[10px] uppercase">Endereço</span><span id="sup-addr">Não informado</span>
+                                                </div>
+                                                <div class="grid grid-cols-2 gap-2">
+                                                    <div class="flex flex-col">
+                                                        <span class="opacity-50 text-[10px] uppercase">Telefone</span><span id="sup-phone">---</span>
+                                                    </div>
+                                                    <div class="flex flex-col">
+                                                        <span class="opacity-50 text-[10px] uppercase">E-mail</span>
+                                                        <span id="sup-email" class="truncate">---</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="card bg-base-200 shadow-sm">
+                                        <div class="card-body p-4">
+                                            <h3 class="text-base font-bold uppercase mb-3">Histórico de Fornecedor</h3>
+                                            <div class="overflow-x-auto min-h-[200px]" id="sup-history-table">
+                                                <table class="table table-xs w-full">
+                                                    <thead><tr class="opacity-60"><th>Data</th><th>NF</th><th>Total</th></tr></thead>
+                                                    <tbody id="sup-history-rows">
+                                                        <tr><td colspan="3" class="text-center py-8 opacity-40">Aguardando seleção...</td></tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            """),
+                        ),
+                        id="supplier-details-root",
+                    ),
+                    css_class="flex flex-col",
+                ),
+                css_class="grid grid-cols-1 lg:grid-cols-12 gap-6",
+                x_data="{ supName: '', supCnpj: '', supNFe: ''}",
+                x_on_update_supplier_info_window="supName = $event.detail.name; supCnpj = $event.detail.cnpj; supNFe = $event.detail.nfe",
+            )
+        )
 
 
 class QuickProductForm(forms.ModelForm):
