@@ -36,6 +36,7 @@ class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
 
         return context
 
+
 class CustomerCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
     model = Customer
     form_class = CustomerForm
@@ -68,6 +69,7 @@ class CustomerCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
             vehicles.save()
             return super().form_valid(form)
         return self.render_to_response(self.get_context_data(form=form))
+
 
 class CustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
     model = Customer
@@ -110,6 +112,7 @@ class CustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
 
         return self.render_to_response(self.get_context_data(form=form))
 
+
 class CustomerHistoryListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = Customer
     template_name = "history/customer-history_list.html"
@@ -132,6 +135,7 @@ class CustomerHistoryListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempl
 
         return context
 
+
 class CustomerHistoryDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
     model = Customer
     template_name = "history/customer-history_detail.html"
@@ -139,7 +143,7 @@ class CustomerHistoryDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailV
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        
+
         context["vehicle_fields"] = [
             TableColumn(Vehicle.plate.field.verbose_name, attr=Vehicle.plate.field.name),
             TableColumn("Marca / Modelo", attr=lambda x: f"{x.brand} {x.model}"),
@@ -151,15 +155,17 @@ class CustomerHistoryDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailV
         context["vehicle_actions"] = [
             TableActionDefaults.view("customer:vehicle_history_detail"),
         ]
-        
+
         context["vehicles"] = self.object.vehicles.all()
 
         return context
+
 
 class VehicleHistoryDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
     model = Vehicle
     template_name = "history/vehicle-history_detail.html"
     context_object_name = "vehicle"
+
 
 class CustomerDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResponseMixin, DeleteView):
     model = Customer
@@ -190,10 +196,20 @@ class QuickCustomerCreateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModal
     model = Customer
     form_class = QuickCustomerForm
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["workshop"] = self.workshop
+        return kwargs
+
 
 class QuickCustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalFormView, UpdateView):
     model = Customer
     form_class = QuickCustomerForm
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["workshop"] = self.workshop
+        return kwargs
 
 
 class QuickVehicleCreateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalFormView, CreateView):
