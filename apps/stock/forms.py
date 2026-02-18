@@ -764,11 +764,25 @@ class ImportStepSupplierManualForm(forms.ModelForm):
         self.import_payments = kwargs.pop("import_payments", [])
         super().__init__(*args, **kwargs)
 
+        current_supplier = None
+        if self.instance and self.instance.supplier_cnpj:
+            current_supplier = Supplier.objects.filter(workshop=self.workshop, cnpj=self.instance.supplier_cnpj).first()
+
         suppliers = Supplier.objects.filter(workshop=self.workshop, is_active=True).order_by("name")
         choices = [("", "Pesquisar fornecedor...")] + [(str(s.id), f"{s.name} ({s.cnpj})") for s in suppliers]
 
         self.fields["supplier_select"].choices = choices
-        self.fields["supplier_select"].widget = SelectInput(choices=choices, attrs={"hx-get": reverse("stock:supplier_details"), "hx-target": "#supplier-info-container", "hx-trigger": "change", "class": "w-full", "x-model": "supplierId", "@change": "supplierId = $el.value"})
+
+        if current_supplier:
+            self.initial["supplier_select"] = str(current_supplier.id)
+
+        self.fields["supplier_select"].widget = SelectInput(choices=choices, attrs={"hx-get": reverse("stock:supplier_details"), "hx-target": "#supplier-info-container", "hx-trigger": "change, load", "class": "w-full", "x-model": "supplierId", "@change": "supplierId = $el.value"})
+
+        initial_alpine = {
+            "supName": self.instance.supplier_name or '',
+            "supCnpj": self.instance.supplier_cnpj or '',
+            "supplierId": str(current_supplier.id) if current_supplier else ''
+        }
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -808,26 +822,10 @@ class ImportStepSupplierManualForm(forms.ModelForm):
                         css_class="flex items-end mb-6",
                     ),
                     #
-                    HTML("""
-                        <div class="mt-6 bg-base-300 p-6 rounded-xl border border-base-content/5 shadow-inner"
-                             x-show="supName" x-transition>
-                            <div class="flex items-start gap-4">
-                                <div class="bg-primary/10 p-3 rounded-lg text-primary">
-                                    <span class="material-icons">business</span>
-                                </div>
-                                <div>
-                                    <p class="text-[10px] font-bold uppercase tracking-widest text-primary mb-1">Fornecedor Selecionado</p>
-                                    <h3 class="text-xl font-black leading-none mb-1" x-text="supName"></h3>
-                                    <p class="text-sm font-mono opacity-60" x-text="'CNPJ: ' + supCnpj"></p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="alert mt-4 bg-info/10 text-info border-none" x-show="!supName">
+                    HTML("""<div class="alert mt-4 bg-info/10 text-info border-none">
                              <span class="material-icons">help_outline</span>
                              <span class="text-xs">Selecione um fornecedor acima para prosseguir com a importação manual.</span>
-                        </div>
-                    """),
+                    </div>"""),
                     css_class="col-span-12 lg:col-span-5",
                 ),
                 #
@@ -855,7 +853,7 @@ class ImportStepSupplierManualForm(forms.ModelForm):
                     css_class="col-span-12 lg:col-span-6",
                 ),
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch",
-                x_data=f"{{ supName: '', supCnpj: '', supplierId: '' }}",
+                x_data=f"{{ supName: '{initial_alpine['supName']}', supCnpj: '{initial_alpine['supCnpj']}', supplierId: '{initial_alpine['supplierId']}' }}",
                 x_on_update_supplier_info_window="supName = $event.detail.name; supCnpj = $event.detail.cnpj;",
             ),
         )
