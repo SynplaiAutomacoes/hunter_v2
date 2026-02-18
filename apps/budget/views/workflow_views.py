@@ -133,6 +133,46 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
         kwargs["instance"] = self.get_object()
         return kwargs
 
+    def _block_step5_advance_if_needed(self, current_step):
+        if current_step != 5 or self._is_step5_calculation_done():
+            return None
+
+        warning_message = "Realize o cálculo da etapa 5 antes de avançar para a revisão."
+        if self.kwargs.get("pk"):
+            current_url = f"{reverse('budget:budget_update', kwargs={'pk': self.object.pk})}?step={current_step}"
+        else:
+            current_url = f"{reverse('budget:budget_create')}?step={current_step}&pk={self.object.pk}"
+
+        if self.request.htmx:
+            response = redirect(current_url)
+            response["HX-Push-Url"] = current_url
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": warning_message, "type": "warning"}})
+            return response
+
+        messages.warning(self.request, warning_message)
+        return redirect(current_url)
+
+    def _is_step5_calculation_done(self):
+        if not self.object:
+            return False
+        return bool(self.object.step5_calculation_viewed or self.object.current_step > 5)
+
+    def _sync_step5_calculation_viewed_from_post(self, current_step):
+        if current_step != 5:
+            return
+
+        if self.object.current_step > 5 and not self.object.step5_calculation_viewed:
+            self.object.step5_calculation_viewed = True
+            self.object.save(update_fields=["step5_calculation_viewed"])
+            return
+
+        step5_calculated = self.request.POST.get("step5_calculated")
+        if step5_calculated != "1" or self._is_step5_calculation_done():
+            return
+
+        self.object.step5_calculation_viewed = True
+        self.object.save(update_fields=["step5_calculation_viewed"])
+
     def form_valid(self, form):
         form.instance.workshop = self.workshop
         form.instance.cost_estimator = self.request.user
@@ -146,6 +186,11 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
             logger.exception("Falha ao aplicar status automatico no create do budget", extra={"budget_id": self.object.pk})
 
         current_step = self.get_current_step()
+        self._sync_step5_calculation_viewed_from_post(current_step)
+        block_step5_response = self._block_step5_advance_if_needed(current_step)
+        if block_step5_response:
+            return block_step5_response
+
         if self.object.current_step < current_step + 1:
             self.object.current_step = current_step + 1
             self.object.save(update_fields=["current_step"])
@@ -227,6 +272,10 @@ class BudgetUpdateView(BudgetCreateView):
             logger.exception("Falha ao aplicar status automatico no update do budget", extra={"budget_id": self.object.pk})
 
         current_step = self.get_current_step()
+        self._sync_step5_calculation_viewed_from_post(current_step)
+        block_step5_response = self._block_step5_advance_if_needed(current_step)
+        if block_step5_response:
+            return block_step5_response
 
         # Lógica de progressão de etapa (opcional em Update, mas útil se ele puder avançar)
         if self.object.current_step < current_step + 1:
