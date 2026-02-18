@@ -279,6 +279,7 @@ class BudgetStep1Form(forms.ModelForm):
         )
 
         self.fields["vehicle"].widget.attrs.update({"id": "id_vehicle"})
+        self.fields["fuel_level"].required = False
 
         # Preenchimento inicial
         if self.workshop:

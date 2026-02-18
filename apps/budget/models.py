@@ -83,7 +83,7 @@ class Budget(TimeStampedModel):
     technical_diagnosis = models.TextField(verbose_name="Observações Técnicas", blank=True, null=True)
     notes = models.TextField(verbose_name="Observações Complementares", blank=True, null=True)
     current_km = models.PositiveIntegerField(verbose_name="KM Atual", default=0)
-    fuel_level = models.PositiveIntegerField(verbose_name="Nível do Tanque", choices=FuelLevel.choices, default=FuelLevel.FULL)
+    fuel_level = models.PositiveIntegerField(verbose_name="Nível do Tanque", choices=FuelLevel.choices, null=True, blank=True)
     defect = models.ForeignKey(Defect, on_delete=models.SET_NULL, related_name="budgets", null=True)
 
     # Financeiro
