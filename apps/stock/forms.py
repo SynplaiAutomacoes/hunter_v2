@@ -324,8 +324,8 @@ class ImportStepPaymentForm(forms.ModelForm):
     payment_date = forms.DateField(label="Data de Vencimento", widget=CalendarDateInput, required=False)
 
     total_nf_display = forms.CharField(label="Valor Total", required=False, widget=MoneyInput)
-    total_allocated_display = forms.CharField(label="Valor Pago", required=False, widget=MoneyInput)
-    pending_display = forms.CharField(label="Valor Pendente", required=False, widget=MoneyInput)
+    total_allocated_display = forms.CharField(label="Valor total a ser pago", required=False, widget=MoneyInput)
+    pending_display = forms.CharField(label="Valor total pendente", required=False, widget=MoneyInput)
 
     class Meta:
         model = StockImport
@@ -369,13 +369,13 @@ class ImportStepPaymentForm(forms.ModelForm):
                 HTML('<h3 class="font-bold text-2xl pb-2 mb-2">Configuração das Formas de Pagamento</h3>'),
                 HTML('<h5 class="text-lg pb-2 mb-4">Adicione, edite e salve múltiplos planos de pagamentos para esta importação.</h5>'),
                 #
-                Div(Field("total_nf_display", wrapper_class="col-span-12 lg:col-span-4"), Field("total_allocated_display", wrapper_class="col-span-12 lg:col-span-4"), Field("pending_display", wrapper_class="col-span-12 lg:col-span-4"), css_class="grid grid-cols-12 gap-4 mb-2 pb-4"),
+                Div(Field("total_nf_display", wrapper_class="col-span-12 lg:col-span-4"), Field("total_allocated_display", wrapper_class="col-span-12 lg:col-span-4"), Field("pending_display", wrapper_class="col-span-12 lg:col-span-4"), css_class="grid grid-cols-12 gap-4 mb-2 pb-4 border-b-2 border-base-50"),
                 #
                 Div(
                     Field("payment_method", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("installments_count", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("first_amount", wrapper_class="col-span-12 lg:col-span-4"),
-                    css_class="grid grid-cols-12 gap-4 mb-2 pb-4",
+                    css_class="grid grid-cols-12 gap-4 mb-2 mt-4 pb-4",
                 ),
                 #
                 Div(
