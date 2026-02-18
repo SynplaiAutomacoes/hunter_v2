@@ -26,4 +26,5 @@ urlpatterns = [
     path("products/quick-create/", views.ProductQuickCreateView.as_view(), name="product_quick_create"),
     path("groups/quick-create/", views.CatalogGroupQuickCreateView.as_view(), name="group_quick_create"),
     path("supplier/quick-create/", views.SupplierQuickCreateView.as_view(), name="supplier_quick_create"),
+    path("supplier/quick-update/<int:pk>/", views.SupplierQuickUpdateView.as_view(), name="supplier_quick_update"),
 ]

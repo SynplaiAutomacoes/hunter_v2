@@ -812,12 +812,13 @@ class ImportStepSupplierManualForm(forms.ModelForm):
                     HTML('<h2 class="text-2xl font-bold mb-6 text-base-content">Fornecedor</h2>'),
                     Div(
                         Div(Field("supplier_select"), css_class="flex-grow"),
-                        HTML("""<button type="button" class="btn btn-circle mb-2 ml-2" title="Cadastrar Fornecedor"
-                                        :class="'btn-primary'"
-                                        @click="const url = '/stock/supplier/quick-create/';
+                        HTML("""<button type="button" class="btn btn-circle mb-2 ml-2" 
+                                     :title="supplierId ? 'Editar Fornecedor' : 'Cadastrar Fornecedor'"
+                                     :class="supplierId ? 'btn-warning' : 'btn-primary'"
+                                     @click="const url = supplierId ? '/stock/supplier/quick-update/' + supplierId + '/' : '/stock/supplier/quick-create/';
                                             htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
                                             document.getElementById('form_modal').showModal();">
-                                <span class="material-icons" x-text="'local_shipping'"></span>
+                                     <span class="material-icons" x-text="supplierId ? 'edit' : 'local_shipping'"></span>
                         </button>"""),
                         css_class="flex items-end mb-6",
                     ),
@@ -912,7 +913,6 @@ class ImportManualItemsForm(forms.ModelForm):
         items = self.instance.items_data or []
         rows = ""
         total_geral = Decimal("0.00")
-        print(items)
 
         for idx, item in enumerate(items):
             product_id = item.get("linked_product_id")

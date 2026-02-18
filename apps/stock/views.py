@@ -6,7 +6,7 @@ from django.core.paginator import Paginator
 from django.http import HttpResponse
 from django.urls import reverse, reverse_lazy
 from django.views import View
-from django.views.generic import ListView, CreateView, DeleteView
+from django.views.generic import ListView, CreateView, DeleteView, UpdateView
 from django.shortcuts import get_object_or_404, redirect, render
 from django.contrib import messages
 from django.db import transaction
@@ -663,6 +663,32 @@ class SupplierQuickCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateVie
     form_class = QuickSupplierForm
     template_name = "stock/partials/modal/supplier_quick_create_modal.html"
     workshop_permission_codename = "add_supplier"
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["workshop"] = self.workshop
+        return kwargs
+
+    def form_valid(self, form):
+        self.object = form.save(commit=False)
+        self.object.workshop = self.workshop
+        self.object.save()
+
+        if self.request.headers.get("HX-Request"):
+            response = HttpResponse()
+            response["HX-Trigger"] = json.dumps({
+                    "supplierCreated": {"id": str(self.object.id), "name": self.object.name, "cnpj": self.object.cnpj},
+                    "closeModal": True,
+            })
+            return response
+
+        return super().form_valid(form)
+
+class SupplierQuickUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
+    model = Supplier
+    form_class = QuickSupplierForm
+    template_name = "stock/partials/modal/supplier_quick_create_modal.html"
+    workshop_permission_codename = "change_supplier"
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
