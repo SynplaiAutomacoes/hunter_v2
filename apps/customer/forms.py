@@ -5,7 +5,7 @@ from crispy_forms.layout import Layout, Div, Field, HTML, Submit, Button
 from django.urls import reverse
 
 from .models import Customer, Vehicle
-from apps.core.widgets import CPForCNPJInput, CalendarDateInput, TextInput, SelectInput, RGInput, PhoneInput, EmailInput, CheckboxInput, CEPInput, NumberInput
+from apps.core.widgets import CPForCNPJInput, CalendarDateInput, TextInput, SelectInput, RGInput, PhoneInput, EmailInput, CheckboxInput, NumberInput
 from .cpf_cnpj_validator import is_valid_cpf, is_valid_cnpj
 from ..core.forms import AddressFormMixin, address_layout
 from ..workshops.models.workshops import Workshop
@@ -239,7 +239,7 @@ class CustomerForm(AddressFormMixin, forms.ModelForm):
           quando aplicável.
         """
 
-        cleaned_data = super().clean()
+        cleaned_data = super().clean() or {}
 
         tipo = cleaned_data.get("customer_type")
         documento = cleaned_data.get("cpf_or_cnpj")
@@ -284,11 +284,37 @@ class CustomerForm(AddressFormMixin, forms.ModelForm):
 class QuickCustomerForm(AddressFormMixin, forms.ModelForm):
     class Meta:
         model = Customer
-        fields = ["cpf_or_cnpj", "name", "phone", "email", "birth_date", "cep", "logradouro", "numero", "complemento", "bairro", "cidade", "estado"]
+        fields = [
+            "customer_type",
+            "cpf_or_cnpj",
+            "name",
+            "fantasy_name",
+            "municipal_registration",
+            "state_registration",
+            "foundation_date",
+            "rg",
+            "birth_date",
+            "sex",
+            "phone",
+            "email",
+            "cep",
+            "logradouro",
+            "numero",
+            "complemento",
+            "bairro",
+            "cidade",
+            "estado",
+        ]
         widgets = {
             "cpf_or_cnpj": CPForCNPJInput(mode="both"),
             "name": TextInput(),
+            "fantasy_name": TextInput(),
+            "municipal_registration": TextInput(),
+            "state_registration": TextInput(),
+            "foundation_date": CalendarDateInput(),
+            "rg": RGInput(),
             "birth_date": CalendarDateInput(),
+            "sex": SelectInput(),
             "phone": PhoneInput(),
             "email": EmailInput(),
         }
@@ -297,20 +323,124 @@ class QuickCustomerForm(AddressFormMixin, forms.ModelForm):
         self.workshop = kwargs.pop("workshop", None)
         super().__init__(*args, **kwargs)
         self.setup_address_fields()
+
+        initial_customer_type = str(self.data.get("customer_type") or self.initial.get("customer_type") or getattr(self.instance, "customer_type", "PF") or "PF").upper()
+        if initial_customer_type not in {"PF", "PJ"}:
+            initial_customer_type = "PF"
+
+        self.fields["customer_type"].required = False
+        self.fields["customer_type"].initial = initial_customer_type
+        self.initial["customer_type"] = initial_customer_type
+
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
             Div(
+                HTML(
+                    f"""
+                    <div
+                        x-data="{{ tipo: '{initial_customer_type}' }}"
+                        class="col-span-12 grid grid-cols-1 lg:grid-cols-12 gap-2"
+                    >
+                    """
+                ),
+                HTML(
+                    """
+                    <div class="col-span-12 flex flex-wrap items-center gap-4 pb-1">
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input
+                                type="radio"
+                                class="radio radio-primary"
+                                value="PF"
+                                x-model="tipo"
+                            >
+                            <span class="font-medium">Pessoa Física</span>
+                        </label>
+
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input
+                                type="radio"
+                                class="radio radio-primary"
+                                value="PJ"
+                                x-model="tipo"
+                            >
+                            <span class="font-medium">Pessoa Jurídica</span>
+                        </label>
+
+                        <input type="hidden" name="customer_type" :value="tipo">
+                    </div>
+                    """
+                ),
                 Field("cpf_or_cnpj", wrapper_class="col-span-12"),
                 Field("name", wrapper_class="col-span-12 lg:col-span-6"),
-                Field("birth_date", wrapper_class="col-span-12 lg:col-span-6"),
+                HTML('<div x-show="tipo === \'PJ\'" class="col-span-12 lg:col-span-6">'),
+                Field("fantasy_name", wrapper_class="col-span-12"),
+                HTML("</div>"),
+                HTML('<div x-show="tipo === \'PJ\'" class="col-span-12 lg:col-span-4">'),
+                Field("municipal_registration", wrapper_class="col-span-12"),
+                HTML("</div>"),
+                HTML('<div x-show="tipo === \'PJ\'" class="col-span-12 lg:col-span-4">'),
+                Field("state_registration", wrapper_class="col-span-12"),
+                HTML("</div>"),
+                HTML('<div x-show="tipo === \'PJ\'" class="col-span-12 lg:col-span-4">'),
+                Field("foundation_date", wrapper_class="col-span-12"),
+                HTML("</div>"),
                 Field("phone", wrapper_class="col-span-12 lg:col-span-6"),
                 Field("email", wrapper_class="col-span-12 lg:col-span-6"),
+                HTML('<div x-show="tipo === \'PF\'" class="col-span-12 lg:col-span-6">'),
+                Field("birth_date", wrapper_class="col-span-12"),
+                HTML("</div>"),
+                HTML('<div x-show="tipo === \'PF\'" class="col-span-12 lg:col-span-6">'),
+                Field("rg", wrapper_class="col-span-12"),
+                HTML("</div>"),
+                HTML('<div x-show="tipo === \'PF\'" class="col-span-12 lg:col-span-12">'),
+                Field("sex", wrapper_class="col-span-12"),
+                HTML("</div>"),
                 HTML('<div class="col-span-12 divider my-1"></div>'),
                 address_layout(),
+                HTML("</div>"),
                 css_class="grid grid-cols-12 gap-2",
             )
         )
+
+    def clean(self):
+        cleaned_data = super().clean() or {}
+
+        customer_type = str(cleaned_data.get("customer_type") or "PF").upper()
+        cleaned_data["customer_type"] = customer_type
+        document = cleaned_data.get("cpf_or_cnpj")
+        name = cleaned_data.get("name")
+
+        if customer_type == "PF":
+            if not document:
+                self.add_error("cpf_or_cnpj", "CPF é obrigatório para pessoa física.")
+            elif not is_valid_cpf(document):
+                self.add_error("cpf_or_cnpj", "Informe um CPF válido.")
+
+            if not name:
+                self.add_error("name", "Nome é obrigatório para pessoa física.")
+
+        elif customer_type == "PJ":
+            if not document:
+                self.add_error("cpf_or_cnpj", "CNPJ é obrigatório para pessoa jurídica.")
+            elif not is_valid_cnpj(document):
+                self.add_error("cpf_or_cnpj", "Informe um CNPJ válido.")
+
+            if not name:
+                self.add_error("name", "Razão social é obrigatória para pessoa jurídica.")
+
+        else:
+            self.add_error("customer_type", "Selecione o tipo de cliente (PF ou PJ).")
+
+        if document and self.workshop:
+            queryset = Customer.objects.filter(workshop=self.workshop, cpf_or_cnpj=document)
+            if self.instance.pk:
+                queryset = queryset.exclude(pk=self.instance.pk)
+
+            if queryset.exists():
+                self.add_error("cpf_or_cnpj", "Já existe um cliente cadastrado com este documento nesta oficina.")
+
+        return cleaned_data
 
 
 class QuickVehicleForm(forms.ModelForm):
