@@ -1002,7 +1002,7 @@ class QuickProductForm(forms.ModelForm):
             "group": SelectInput(),
             "cost_price": MoneyInput(),
             "selling_price": MoneyInput(),
-            "profit_margin": PercentageInput(attrs={"readonly": True}),
+            "profit_margin": PercentageInput(),
             "origin_cst": SelectInput(),
             "purpose": SelectInput(),
         }
@@ -1015,10 +1015,9 @@ class QuickProductForm(forms.ModelForm):
             self.fields["group"].queryset = self.fields["group"].queryset.filter(workshop=workshop)
 
         self.helper = FormHelper()
-        self.helper.form_tag = False  # Importante para o modal
+        self.helper.form_tag = False
         self.helper.layout = Layout(
             Div(
-                # Usando x-data para o cálculo de margem idêntico ao original
                 Div(
                     Field("code", wrapper_class="col-span-12 lg:col-span-3"),
                     Field("name", wrapper_class="col-span-12 lg:col-span-9"),
@@ -1043,7 +1042,7 @@ class QuickProductForm(forms.ModelForm):
                         HTML('<div class="text-error text-xs" x-show="priceError" x-cloak>⚠️ Menor que o custo</div>'),
                         css_class="col-span-12 lg:col-span-4",
                     ),
-                    Field("profit_margin", wrapper_class="col-span-12 lg:col-span-4", css_class="opacity-50"),
+                    Field("profit_margin", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("origin_cst", wrapper_class="col-span-12 lg:col-span-6"),
                     Field("purpose", wrapper_class="col-span-12 lg:col-span-6"),
                     css_class="grid grid-cols-12 gap-3",
