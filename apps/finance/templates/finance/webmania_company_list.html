@@ -1,0 +1,80 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Listar Empresas{% endblock %}
+{% block crud_subtitle %}Lista de empresas cadastradas{% endblock %}
+
+{% block crud_header_actions %}
+    {% if can_sync_webmania_companies %}
+        <form method="post" action="{% url 'finance:webmania_company_sync' %}" onsubmit="this.querySelector('button[type=submit]').disabled = true;">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-primary btn-sm gap-2">
+                <span class="material-icons text-base">sync</span>
+                Atualizar agora
+            </button>
+        </form>
+    {% endif %}
+{% endblock %}
+
+{% block crud_table %}
+    <div class="mb-4 rounded-lg border border-base-300 bg-base-200/50 p-4">
+        <p class="text-sm text-base-content/70">Empresas locais sincronizadas</p>
+        <p class="text-xl font-semibold">{{ webmania_company_count }}</p>
+        <p class="mt-2 text-sm text-base-content/70">
+            Última sincronização:
+            {% if webmania_last_sync_at %}
+                {{ webmania_last_sync_at|date:'d/m/Y H:i' }}
+            {% else %}
+                ainda não sincronizado
+            {% endif %}
+        </p>
+        {% if webmania_last_sync_error %}
+            <p class="mt-2 text-sm text-error">Último erro: {{ webmania_last_sync_error }}</p>
+        {% endif %}
+    </div>
+
+    <div class="overflow-x-auto">
+        <table class="table table-zebra w-full">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Empresa</th>
+                    <th>Documento</th>
+                    <th>IE</th>
+                    <th>Cidade/UF</th>
+                    <th>Unidade</th>
+                    <th>Tributação</th>
+                    <th class="text-center">Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for company in webmania_companies %}
+                    <tr>
+                        <td class="font-mono">{{ company.id }}</td>
+                        <td>{{ company.name }}</td>
+                        <td>
+                            <div class="font-mono">{{ company.document }}</div>
+                        </td>
+                        <td>{{ company.ie }}</td>
+                        <td>{{ company.city }} / {{ company.state }}</td>
+                        <td>{{ company.unit }}</td>
+                        <td>{{ company.tax_type }}</td>
+                        <td class="text-center">
+                            <div class="inline-flex items-center justify-center gap-2">
+                                <a href="{% url 'finance:webmania_company_detail' pk=company.pk %}" class="btn btn-sm btn-success text-white" title="Visualizar empresa" aria-label="Visualizar empresa">
+                                    <span class="material-icons text-base">visibility</span>
+                                </a>
+                                <a href="{% url 'finance:webmania_company_update' pk=company.pk %}" class="btn-table-edit" title="Editar empresa" aria-label="Editar empresa">
+                                    <span class="material-icons text-base">edit</span>
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="8" class="text-center text-base-content/60 py-6">Nenhuma empresa encontrada.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endblock %}

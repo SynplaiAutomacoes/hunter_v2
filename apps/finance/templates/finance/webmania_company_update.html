@@ -1,0 +1,117 @@
+{% extends 'crud/form_page.html' %}
+
+{% block crud_title %}Editar Empresa{% endblock %}
+{% block crud_subtitle %}Atualize os dados da empresa vinculada à oficina ativa na Webmania.{% endblock %}
+{% block crud_back_url %}{% url 'finance:webmania_company_detail' pk=object.pk %}{% endblock %}
+
+{% block crud_form %}
+    <div id="identity-required-hint" class="mb-4 rounded-lg border border-base-300 bg-base-200/40 px-4 py-3 text-sm text-base-content/80">
+        Preencha CNPJ + Razão Social ou CPF + Nome Completo.
+    </div>
+
+    {% crispy form %}
+
+    <script>
+        (function () {
+            function resolveFieldPair(fieldId) {
+                const hiddenInput = document.getElementById(fieldId);
+                if (!hiddenInput) {
+                    return null;
+                }
+
+                const wrapper = hiddenInput.closest("div[x-data]") || hiddenInput.parentElement;
+                const displayInput = wrapper ? wrapper.querySelector("input[type='text']:not([name])") : null;
+
+                return {
+                    hidden: hiddenInput,
+                    display: displayInput || hiddenInput,
+                };
+            }
+
+            const cnpjField = resolveFieldPair("id_cnpj");
+            const cpfField = resolveFieldPair("id_cpf");
+            const razaoSocialField = resolveFieldPair("id_razao_social");
+            const nomeCompletoField = resolveFieldPair("id_nome_completo");
+            const hint = document.getElementById("identity-required-hint");
+
+            if (!cnpjField || !cpfField || !razaoSocialField || !nomeCompletoField || !hint) {
+                return;
+            }
+
+            function setFieldRequiredVisual(field, required) {
+                const label = document.querySelector(`label[for="${field.hidden.id}"]`);
+                if (!label) {
+                    return;
+                }
+
+                let marker = label.querySelector(".dynamic-required-marker");
+                if (required) {
+                    if (!marker) {
+                        marker = document.createElement("span");
+                        marker.className = "dynamic-required-marker text-error ml-1";
+                        marker.textContent = "*";
+                        label.appendChild(marker);
+                    }
+                    field.display.setAttribute("required", "required");
+                    field.display.classList.add("input-error");
+                    return;
+                }
+
+                if (marker) {
+                    marker.remove();
+                }
+                field.display.removeAttribute("required");
+                field.display.classList.remove("input-error");
+            }
+
+            function hasValue(field) {
+                const displayValue = String(field.display.value || "").trim();
+                const hiddenValue = String(field.hidden.value || "").trim();
+                return displayValue.length > 0 || hiddenValue.length > 0;
+            }
+
+            function applyIdentityMode() {
+                const hasCnpj = hasValue(cnpjField);
+                const hasRazaoSocial = hasValue(razaoSocialField);
+                const hasCpf = hasValue(cpfField);
+                const hasNomeCompleto = hasValue(nomeCompletoField);
+
+                const hasPjData = hasCnpj || hasRazaoSocial;
+                const hasPfData = hasCpf || hasNomeCompleto;
+
+                if (hasPjData) {
+                    setFieldRequiredVisual(cnpjField, true);
+                    setFieldRequiredVisual(razaoSocialField, true);
+                    setFieldRequiredVisual(cpfField, false);
+                    setFieldRequiredVisual(nomeCompletoField, false);
+                    hint.textContent = "Modo pessoa jurídica: CNPJ e Razão Social são obrigatórios.";
+                    return;
+                }
+
+                if (hasPfData) {
+                    setFieldRequiredVisual(cnpjField, false);
+                    setFieldRequiredVisual(razaoSocialField, false);
+                    setFieldRequiredVisual(cpfField, true);
+                    setFieldRequiredVisual(nomeCompletoField, true);
+                    hint.textContent = "Modo pessoa física: CPF e Nome Completo são obrigatórios.";
+                    return;
+                }
+
+                setFieldRequiredVisual(cnpjField, true);
+                setFieldRequiredVisual(razaoSocialField, true);
+                setFieldRequiredVisual(cpfField, true);
+                setFieldRequiredVisual(nomeCompletoField, true);
+                hint.textContent = "Preencha CNPJ + Razão Social ou CPF + Nome Completo.";
+            }
+
+            [cnpjField, cpfField, razaoSocialField, nomeCompletoField].forEach((field) => {
+                [field.display, field.hidden].forEach((input) => {
+                    input.addEventListener("input", applyIdentityMode);
+                    input.addEventListener("change", applyIdentityMode);
+                });
+            });
+
+            applyIdentityMode();
+        })();
+    </script>
+{% endblock %}

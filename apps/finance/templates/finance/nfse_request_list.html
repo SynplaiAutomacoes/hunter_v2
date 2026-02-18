@@ -1,0 +1,16 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}NFS-e Emitidas{% endblock %}
+{% block crud_subtitle %}Acompanhe as solicitações de emissão de NFS-e vinculadas às ordens de serviço.{% endblock %}
+
+{% block crud_header_actions %}
+    <a href="{% url 'finance:nfse_create' %}" class="btn btn-primary">Emitir nova NFS-e</a>
+{% endblock %}
+
+{% block crud_table_wrapper_id %}nfse-request-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'finance:nfse_list' %}{% endblock %}
+{% block crud_table_hx_trigger %}nfse-request-table-refresh from:body{% endblock %}
+
+{% block crud_table %}
+    {% include 'finance/partials/nfse_request_table.html' %}
+{% endblock %}

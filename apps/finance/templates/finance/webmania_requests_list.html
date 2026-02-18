@@ -1,0 +1,94 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Visualizar Requisições{% endblock %}
+{% block crud_subtitle %}Consulta de consumo de requisições por mês e ano.{% endblock %}
+
+{% block crud_header_actions %}
+    <form
+        method="get"
+        class="flex items-end gap-2"
+        x-data="{
+            open: false,
+            year: Number('{{ selected_year_str }}'),
+            month: Number('{{ selected_month_str }}'),
+            months: ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'],
+            get label() {
+                if (!this.month || this.month < 1 || this.month > 12) {
+                    return 'Selecione o período';
+                }
+                return this.months[this.month - 1] + '/' + this.year;
+            },
+            setMonth(value) {
+                this.month = value;
+                this.open = false;
+            }
+        }"
+    >
+        <input type="hidden" name="mes" :value="month">
+        <input type="hidden" name="ano" :value="year">
+
+        <div class="relative" @keydown.escape.window="open = false" @click.outside="open = false">
+            <label class="label pt-0 pb-1"><span class="label-text text-xs">Competência</span></label>
+            <button type="button" class="input input-bordered input-sm w-44 flex items-center justify-between" @click="open = !open">
+                <span x-text="label"></span>
+                <span class="material-icons text-base-content/70">calendar_month</span>
+            </button>
+
+            <div x-show="open" x-cloak class="absolute right-0 mt-2 w-64 rounded-lg border border-base-300 bg-base-100 shadow-xl p-3 z-20">
+                <div class="flex items-center justify-between mb-3">
+                    <button type="button" class="btn btn-ghost btn-xs" @click="year = year - 1">&lt;</button>
+                    <span class="font-semibold" x-text="year"></span>
+                    <button type="button" class="btn btn-ghost btn-xs" @click="year = year + 1">&gt;</button>
+                </div>
+
+                <div class="grid grid-cols-4 gap-1">
+                    <template x-for="(monthLabel, index) in months" :key="monthLabel">
+                        <button
+                            type="button"
+                            class="btn btn-xs"
+                            :class="month === (index + 1) ? 'btn-primary' : 'btn-ghost'"
+                            @click="setMonth(index + 1)"
+                            x-text="monthLabel"
+                        ></button>
+                    </template>
+                </div>
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-sm">Consultar</button>
+    </form>
+{% endblock %}
+
+{% block crud_table %}
+    <div class="mb-4 p-4 rounded-lg border border-base-300 bg-base-200/50">
+        <p class="text-sm text-base-content/70">Total de notas processadas no período</p>
+        <p class="text-2xl font-semibold">{{ total_notas_processadas }}</p>
+    </div>
+
+    <div class="overflow-x-auto">
+        <table class="table table-zebra w-full">
+            <thead>
+                <tr>
+                    <th>Empresa</th>
+                    <th>Documento</th>
+                    <th>IE</th>
+                    <th class="text-right">Notas processadas</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in request_rows %}
+                    <tr>
+                        <td>{{ row.name }}</td>
+                        <td class="font-mono">{{ row.document }}</td>
+                        <td>{{ row.ie }}</td>
+                        <td class="text-right font-semibold">{{ row.notas_processadas }}</td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="4" class="text-center text-base-content/60 py-6">Nenhuma informação de requisições encontrada para o período selecionado.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endblock %}

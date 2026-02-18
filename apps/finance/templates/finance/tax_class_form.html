@@ -1,0 +1,184 @@
+{% extends 'crud/form_page.html' %}
+{% load crispy_forms_tags %}
+
+{% block crud_title %}{% if is_update and edit_reference %}Classe {{ edit_reference }}{% elif is_update %}Atualizar Classe de Imposto{% else %}Criar Classe de Imposto{% endif %}{% endblock %}
+{% block crud_subtitle %}{% if is_update %}Edite os dados da classe fiscal sem alternar o tipo do documento.{% else %}Preencha os campos da classe fiscal sem editar JSON manualmente.{% endif %}{% endblock %}
+{% block crud_back_url %}{% url 'finance:tax_class_list' %}?tab={{ active_tab }}{% endblock %}
+
+{% block crud_form %}
+    {% if is_update and edit_reference %}
+        {% url 'finance:tax_class_update' reference=edit_reference as form_base_url %}
+    {% else %}
+        {% url 'finance:tax_class_create' as form_base_url %}
+    {% endif %}
+
+    {% if is_update and edit_reference %}
+        <div class="mb-6 rounded-lg border border-base-300 bg-base-200/50 px-4 py-3">
+            <p class="text-sm text-base-content/70">Referência da classe de imposto</p>
+            <h2 class="font-mono text-xl font-semibold">{{ edit_reference }}</h2>
+        </div>
+    {% else %}
+        <div class="tabs tabs-lift mb-6">
+            <a href="{{ form_base_url }}?tab=nfe" class="tab {% if active_tab == 'nfe' %}tab-active{% endif %}">NF-e</a>
+            <a href="{{ form_base_url }}?tab=nfse" class="tab {% if active_tab == 'nfse' %}tab-active{% endif %}">NFS-e</a>
+        </div>
+    {% endif %}
+
+    {% if active_tab == 'nfe' %}
+        <form method="post" class="space-y-6">
+            {% csrf_token %}
+            <input type="hidden" name="tab" value="nfe">
+
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-3 items-end p-4 border border-base-300 rounded-xl bg-base-200/50">
+                <div class="lg:col-span-8">
+                    <label class="label"><span class="label-text font-semibold">Preset pronto</span></label>
+                    <select name="preset_key" class="select select-bordered w-full">
+                        <option value="">Selecione um preset</option>
+                        {% for preset in nfe_presets %}
+                            <option value="{{ preset.key }}" {% if selected_preset_key == preset.key %}selected{% endif %}>{{ preset.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="lg:col-span-4">
+                    <button type="submit" name="form_action" value="apply_preset" class="btn btn-outline w-full" formnovalidate>Aplicar preset</button>
+                </div>
+            </div>
+
+            {% crispy nfe_form %}
+
+            {% for section in nfe_formset_sections %}
+                <section class="border border-base-300 rounded-xl p-4">
+                    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                        <div>
+                            <h3 class="font-semibold">{{ section.title }}</h3>
+                            <p class="text-sm text-base-content/70">{{ section.description }}</p>
+                        </div>
+                        <button
+                            type="button"
+                            class="btn btn-outline btn-sm add-scenario-row"
+                            data-prefix="{{ section.formset.prefix }}"
+                            data-container="{{ section.key }}-rows"
+                            data-template-id="{{ section.key }}-empty-row"
+                        >
+                            Adicionar cenario
+                        </button>
+                    </div>
+
+                    {{ section.formset.management_form }}
+
+                    <div class="overflow-x-auto">
+                        <table class="table table-zebra w-full table-fixed">
+                            <thead>
+                                <tr>
+                                    {% for field in section.formset.empty_form.visible_fields %}
+                                        {% if field.name != 'DELETE' %}
+                                            <th class="align-top">
+                                                {{ field.label }}
+                                                {% if field.name in section.required_fields %}
+                                                    <span class="text-error">*</span>
+                                                {% endif %}
+                                            </th>
+                                        {% endif %}
+                                    {% endfor %}
+                                    <th class="text-center align-top w-20">Remover</th>
+                                </tr>
+                            </thead>
+                            <tbody id="{{ section.key }}-rows">
+                                {% for row_form in section.formset.forms %}
+                                    <tr>
+                                        {% for field in row_form.visible_fields %}
+                                            {% if field.name != 'DELETE' %}
+                                                <td class="align-top min-w-44">{{ field }}</td>
+                                            {% endif %}
+                                        {% endfor %}
+                                        <td class="text-center align-top">
+                                            {{ row_form.DELETE }}
+                                            {% for hidden_field in row_form.hidden_fields %}
+                                                {{ hidden_field }}
+                                            {% endfor %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <template id="{{ section.key }}-empty-row">
+                        <tr>
+                            {% for field in section.formset.empty_form.visible_fields %}
+                                {% if field.name != 'DELETE' %}
+                                    <td class="align-top min-w-44">{{ field }}</td>
+                                {% endif %}
+                            {% endfor %}
+                            <td class="text-center align-top">
+                                {{ section.formset.empty_form.DELETE }}
+                                {% for hidden_field in section.formset.empty_form.hidden_fields %}
+                                    {{ hidden_field }}
+                                {% endfor %}
+                            </td>
+                        </tr>
+                    </template>
+                </section>
+            {% endfor %}
+
+            <div class="flex flex-wrap justify-end gap-2">
+                <a href="{% url 'finance:tax_class_list' %}?tab={{ active_tab }}" class="btn btn-ghost">Cancelar</a>
+                <button type="submit" name="form_action" value="save" class="btn btn-primary">{% if is_update %}Atualizar classe{% else %}Salvar classe{% endif %}</button>
+            </div>
+        </form>
+    {% else %}
+        <form method="post" class="space-y-4">
+            {% csrf_token %}
+            <input type="hidden" name="tab" value="nfse">
+
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-3 items-end p-4 border border-base-300 rounded-xl bg-base-200/50">
+                <div class="lg:col-span-8">
+                    <label class="label"><span class="label-text font-semibold">Preset pronto</span></label>
+                    <select name="preset_key" class="select select-bordered w-full">
+                        <option value="">Selecione um preset</option>
+                        {% for preset in nfse_presets %}
+                            <option value="{{ preset.key }}" {% if selected_preset_key == preset.key %}selected{% endif %}>{{ preset.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="lg:col-span-4">
+                    <button type="submit" name="form_action" value="apply_preset" class="btn btn-outline w-full" formnovalidate>Aplicar preset</button>
+                </div>
+            </div>
+
+            {% crispy nfse_form %}
+
+            <div class="flex flex-wrap justify-end gap-2">
+                <a href="{% url 'finance:tax_class_list' %}?tab={{ active_tab }}" class="btn btn-ghost">Cancelar</a>
+                <button type="submit" name="form_action" value="save" class="btn btn-primary">{% if is_update %}Atualizar classe{% else %}Salvar classe{% endif %}</button>
+            </div>
+        </form>
+    {% endif %}
+
+    <script>
+    document.addEventListener("click", function (event) {
+        const button = event.target.closest(".add-scenario-row");
+        if (!button) {
+            return;
+        }
+
+        const prefix = button.dataset.prefix;
+        const containerId = button.dataset.container;
+        const templateId = button.dataset.templateId;
+
+        const totalFormsInput = document.getElementById(`id_${prefix}-TOTAL_FORMS`);
+        const container = document.getElementById(containerId);
+        const template = document.getElementById(templateId);
+
+        if (!totalFormsInput || !container || !template) {
+            return;
+        }
+
+        const nextIndex = Number.parseInt(totalFormsInput.value, 10);
+        const rowHtml = template.innerHTML.replaceAll("__prefix__", String(nextIndex));
+
+        container.insertAdjacentHTML("beforeend", rowHtml);
+        totalFormsInput.value = String(nextIndex + 1);
+    });
+    </script>
+{% endblock %}

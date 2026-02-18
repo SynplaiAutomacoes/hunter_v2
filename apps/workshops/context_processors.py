@@ -1,4 +1,5 @@
 from apps.workshops.models.workshops import Workshop
+from apps.workshops.util.workshops import is_workshop_director
 
 
 def active_workshops(request):
@@ -10,6 +11,7 @@ def active_workshops(request):
         payload = {
             "active_workshops": Workshop.objects.none(),
             "active_workshop_id": None,
+            "active_workshop_is_director": False,
         }
         setattr(request, "_active_workshops_payload", payload)
         return payload
@@ -37,9 +39,16 @@ def active_workshops(request):
         else:
             request.session["active_workshop_id"] = active_workshop_id
 
+    active_workshop_is_director = False
+    if active_workshop_id is not None:
+        active_workshop = next((workshop for workshop in workshops if workshop.pk == active_workshop_id), None)
+        if active_workshop is not None:
+            active_workshop_is_director = is_workshop_director(user=request.user, workshop=active_workshop, request=request)
+
     payload = {
         "active_workshops": workshops,
         "active_workshop_id": active_workshop_id,
+        "active_workshop_is_director": active_workshop_is_director,
     }
     setattr(request, "_active_workshops_payload", payload)
     return payload

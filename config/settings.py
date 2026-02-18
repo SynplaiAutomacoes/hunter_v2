@@ -40,6 +40,20 @@ PERF_LOGGING_ENABLED = os.getenv("PERF_LOGGING_ENABLED", "0").lower() in ("1", "
 PERF_LOG_QUERIES = os.getenv("PERF_LOG_QUERIES", "0").lower() in ("1", "true", "yes")
 PERF_LOG_MIN_MS = int(os.getenv("PERF_LOG_MIN_MS", "300"))
 
+WEBMANIA_BASE_URL = "https://api.webmania.com.br/2/"
+WEBMANIA_B2B_BASE_URL = os.getenv("WEBMANIA_B2B_BASE_URL", "https://webmania.com.br/api")
+WEBMANIA_AMBIENT = os.getenv("WEBMANIA_AMBIENT", "2") #1. Prod, 2. Homolog
+WEBMANIA_API_KEY = os.getenv("WEBMANIA_API_KEY", "")
+WEBMANIA_CONSUMER_KEY = os.getenv("WEBMANIA_CONSUMER_KEY", "")
+WEBMANIA_CONSUMER_SECRET = os.getenv("WEBMANIA_CONSUMER_SECRET", "")
+WEBMANIA_ACCESS_TOKEN = os.getenv("WEBMANIA_ACCESS_TOKEN", "")
+WEBMANIA_ACCESS_TOKEN_SECRET = os.getenv("WEBMANIA_ACCESS_TOKEN_SECRET", "")
+WEBMANIA_B2B_CONSUMER_KEY = os.getenv("WEBMANIA_B2B_CONSUMER_KEY", "")
+WEBMANIA_B2B_CONSUMER_SECRET = os.getenv("WEBMANIA_B2B_CONSUMER_SECRET", "")
+WEBMANIA_B2B_ACCESS_TOKEN = os.getenv("WEBMANIA_B2B_ACCESS_TOKEN", "")
+WEBMANIA_B2B_ACCESS_TOKEN_SECRET = os.getenv("WEBMANIA_B2B_ACCESS_TOKEN_SECRET", "")
+WEBMANIA_WEBHOOK_TOKEN = os.getenv("WEBMANIA_WEBHOOK_TOKEN", "")
+
 SUPERSIGN_BASE_URL = os.getenv("SUPERSIGN_BASE_URL", "https://api.sign.supersign.com.br")
 SUPERSIGN_ACCOUNT_ID = os.getenv("SUPERSIGN_ACCOUNT_ID", "")
 SUPERSIGN_API_KEY = os.getenv("SUPERSIGN_API_KEY", "")
@@ -90,6 +104,7 @@ INSTALLED_APPS = [
     "apps.customer",
     "apps.workorder",
     "apps.stock",
+    "apps.finance",
 ]
 
 MIDDLEWARE = [
