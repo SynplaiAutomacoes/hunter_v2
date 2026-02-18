@@ -2,7 +2,7 @@ import re
 import logging
 import time
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django import forms
 from django.conf import settings
@@ -867,6 +867,137 @@ class ImportStepSupplierManualForm(forms.ModelForm):
             self.instance.supplier_name = supplier.name
             self.instance.supplier_cnpj = supplier.cnpj
         return super().save(commit=commit)
+
+
+class ImportManualItemsForm(forms.ModelForm):
+    class Meta:
+        model = StockImport
+        fields = []
+
+    def __init__(self, *args, **kwargs):
+        self.workshop = kwargs.pop("workshop", None)
+        self.request = kwargs.pop("request", None)
+        self.nf_data = kwargs.pop("nf_data", {})
+        self.import_items = kwargs.pop("import_items", [])
+        self.import_payments = kwargs.pop("import_payments", [])
+        super().__init__(*args, **kwargs)
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout(
+            Div(
+                HTML('<h2 class="text-2xl font-bold mb-6 text-base-content">Peças Selecionadas</h2>'),
+                HTML(self._generate_manual_table_html()),
+                css_class="mt-4")
+        )
+
+    def _generate_manual_table_html(self):
+        items = self.instance.items_data or []
+        rows = ""
+        total_geral = Decimal("0.00")
+
+        for idx, item in enumerate(items):
+            product_id = item.get("linked_product_id")
+            product = Product.objects.filter(id=product_id, workshop=self.workshop).first()
+
+            try:
+                raw_qtd = str(item.get("qtd", "1")).replace(",", ".")
+                quantidade = Decimal(raw_qtd) if raw_qtd.strip() else Decimal("1")
+            except (InvalidOperation, ValueError, TypeError):
+                quantidade = Decimal("1")
+
+            try:
+                raw_valor = str(item.get("valor", "0")).replace(",", ".")
+                valor = Decimal(raw_valor) if raw_valor.strip() else Decimal("0")
+            except (InvalidOperation, ValueError, TypeError):
+                valor = Decimal("0")
+
+            subtotal = quantidade * valor
+            total_geral += subtotal
+
+            if product:
+                rows += f"""
+                <tr class="h-16 border-b border-base-300">
+                    <td>
+                        <div class="font-medium">{product.name}</div>
+                        <div class="text-xs opacity-50">{product.code}</div>
+                    </td>
+                    <td class="w-24">
+                        <input type="number" name="qty_{idx}" value="{quantidade}" 
+                               hx-post="{reverse("stock:update_manual_item", kwargs={"pk": self.instance.pk})}?idx={idx}&field=qtd"
+                               hx-trigger="change" hx-swap="none"
+                               class="input input-bordered input-sm w-full text-center">
+                    </td>
+                    <td class="w-32">
+                        <input type="text" name="val_{idx}" value="{valor}" 
+                               hx-post="{reverse("stock:update_manual_item", kwargs={"pk": self.instance.pk})}?idx={idx}&field=valor"
+                               hx-trigger="change" hx-swap="none"
+                               class="input input-bordered input-sm w-full text-right">
+                    </td>
+                    <td class="text-right font-bold">{Money(subtotal, "BRL")}</td>
+                    <td class="text-center">
+                        <button type="button" class="btn btn-ghost btn-circle btn-sm text-error" title="Desvincular Item"
+                                hx-post="{reverse("stock:unlink_item")}?item_idx={idx}&pk={self.instance.pk}"
+                                hx-target="#step-container">
+                            <span class="material-icons text-sm">link_off</span>
+                        </button>
+                    </td>
+                </tr>"""
+
+        # Linha de Adição (Footer da Tabela)
+        add_row = f"""<tr class="h-16 border-b border-base-300">
+            <td class="italic text-sm">
+                <button type="button" class="btn btn-success btn-sm" title="Criar Novo Item"
+                            hx-get="{reverse("stock:product_quick_create")}?pk={self.instance.pk}&manual=true"
+                            hx-target="#modal-container">
+                    <span class="flex items-center gap-1"><span class="material-icons text-sm">add</span> Criar Novo Item</span>
+                </button>
+            </td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td class="text-center">
+                <button type="button" class="btn btn-ghost btn-circle btn-sm text-success" title="Vincular Item"
+                        hx-get="{reverse("stock:link_product_manual")}?pk={self.instance.pk}&manual=true"
+                        hx-target="#modal-container">
+                    <span class="material-icons text-sm">link</span>
+                </button>
+            </td>
+        </tr>"""
+
+        return f"""
+        <div class="overflow-x-auto rounded-xl border border-base-300">
+            <table class="table w-full">
+                <thead>
+                    <tr class="bg-base-300">
+                        <th>Produto</th>
+                        <th class="text-center">Quantidade</th>
+                        <th class="text-right">Valor Unitário</th>
+                        <th class="text-right">Subtotal</th>
+                        <th class="text-center">Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows if rows else '<tr><td colspan="5" class="text-center italic py-8">Nenhum item adicionado.</td></tr>'}
+                    {add_row}
+                </tbody>
+                <tfoot>
+                    <tr class="bg-base-300">
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td><p class="text-right font-black text-lg">Total: {Money(total_geral, "BRL")}</p></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>"""
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if not self.instance.items_data or len(self.instance.items_data) == 0:
+            raise forms.ValidationError("Adicione pelo menos um item para prosseguir.")
+        return cleaned_data
 
 
 class QuickProductForm(forms.ModelForm):
