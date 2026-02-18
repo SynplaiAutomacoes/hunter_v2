@@ -11,6 +11,8 @@ from crispy_forms.layout import Layout, Div, Field, HTML
 from django.db import transaction
 import gzip
 import base64
+
+from django.utils.safestring import mark_safe
 from lxml import etree
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
@@ -361,6 +363,11 @@ class ImportStepPaymentForm(forms.ModelForm):
                 self.data._mutable = False
 
             self.fields[field_name].widget.attrs.update({"readonly": True, "class": "cursor-not-allowed opacity-75"})
+
+        self.fields["payment_method"].label = mark_safe('Forma de Pagamento <span class="text-error">*</span>')
+        self.fields['installments_count'].label = mark_safe('Número de Parcelas <span class="text-error">*</span>')
+        self.fields['first_amount'].label = mark_safe('Valor Pago <span class="text-error">*</span>')
+        self.fields['payment_date'].label = mark_safe('Data de Vencimento <span class="text-error">*</span>')
 
         self.helper = FormHelper()
         self.helper.form_tag = False

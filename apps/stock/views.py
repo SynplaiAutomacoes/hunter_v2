@@ -355,29 +355,40 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def post(self, request, *args, **kwargs):
         pk = request.GET.get("pk")
         obj = get_object_or_404(StockImport, id=pk, workshop=self.workshop)
-        payments = obj.payments_data
 
         method_code = request.POST.get("payment_method")
         payment_date = request.POST.get("payment_date")
-        first_amount = Decimal(request.POST.get("first_amount_0", "0"))
-        installments = Decimal(request.POST.get("installments_count", "1"))
-        total_paid = first_amount * installments
+        first_amount_str = request.POST.get("first_amount_0", "0")
+        installments_str = request.POST.get("installments_count", "1")
 
-        new_payment = {
-            "id": len(payments) + 1,
-            "method": method_code,
-            "method_display": dict(StockPaymentMethod.PAYMENT_METHOD_CHOICES).get(method_code),
-            "installments": str(installments),
-            "first_amount": str(first_amount),
-            "total_paid": str(total_paid),
-            "payment_date": payment_date,
-        }
+        if not all([method_code, payment_date, installments_str]) or Decimal(first_amount_str or 0) <= 0:
+            messages.error(request, "Preencha todos os campos do pagamento antes de incluir.")
+            return HttpResponse(headers={"HX-Refresh": "true"})
 
-        payments.append(new_payment)
-        obj.payments_data = payments
-        obj.save(update_fields=["payments_data"])
+        try:
+            first_amount = Decimal(first_amount_str)
+            installments = Decimal(installments_str)
+            total_paid = first_amount * installments
 
-        return HttpResponse(headers={"HX-Refresh": "true"})
+            payments = obj.payments_data
+            new_payment = {
+                "id": len(payments) + 1,
+                "method": method_code,
+                "method_display": dict(StockPaymentMethod.PAYMENT_METHOD_CHOICES).get(method_code),
+                "installments": str(installments),
+                "first_amount": str(first_amount),
+                "total_paid": str(total_paid),
+                "payment_date": payment_date,
+            }
+
+            payments.append(new_payment)
+            obj.payments_data = payments
+            obj.save(update_fields=["payments_data"])
+
+            return HttpResponse(headers={"HX-Refresh": "true"})
+        except Exception:
+            messages.error(request, "Erro ao processar valores do pagamento.")
+            return HttpResponse(headers={"HX-Refresh": "true"})
 
 
 class RemovePaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
