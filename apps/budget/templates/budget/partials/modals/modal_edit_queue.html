@@ -75,10 +75,10 @@
         <div class="flex justify-end items-center gap-3">
             <button type="button"
                     class="btn btn-ghost gap-2"
-                    onclick="window.queueEditor.skipCurrentItem()"
-                    title="Pular sem salvar (Shift+Enter)">
+                    onclick="window.queueEditor.skipAllItems()"
+                    title="Pular edição de todos os itens (Shift+Enter)">
                 <span class="material-icons">skip_next</span>
-                Pular
+                Pular Todos
             </button>
 
             <button type="button"
@@ -103,7 +103,7 @@
         <!-- Keyboard shortcuts hint -->
         <div class="text-xs text-base-content/50 mt-3 flex gap-4 justify-end">
             <span><kbd class="kbd kbd-xs">Enter</kbd> Salvar</span>
-            <span><kbd class="kbd kbd-xs">Shift</kbd>+<kbd class="kbd kbd-xs">Enter</kbd> Pular</span>
+            <span><kbd class="kbd kbd-xs">Shift</kbd>+<kbd class="kbd kbd-xs">Enter</kbd> Pular Todos</span>
             <span><kbd class="kbd kbd-xs">Esc</kbd> Fechar</span>
         </div>
     </div>
@@ -163,7 +163,7 @@
                         this.finishQueue();
                     } else if (e.key === 'Enter' && e.shiftKey) {
                         e.preventDefault();
-                        this.skipCurrentItem();
+                        this.skipAllItems();
                     } else if (e.key === 'Enter') {
                         e.preventDefault();
                         this.saveAndNext();
@@ -330,6 +330,12 @@
                 this.showToast('Item pulado', 'info');
             }
 
+            skipAllItems() {
+                if (this.isSaving) return;
+
+                this.finishQueue('Edição individual pulada para todos os itens.', 'info');
+            }
+
 
             async saveAndFinish() {
                 // Save the current (last) item first
@@ -338,7 +344,7 @@
                 // loadNextItem will call finishQueue automatically
             }
 
-            finishQueue() {
+            finishQueue(message = 'Edição em fila concluída! 🎉', type = 'success') {
 
                 // Close modal
                 const modal = document.getElementById('form_modal');
@@ -347,7 +353,7 @@
                 }
 
                 // Show success message
-                this.showToast('Edição em fila concluída! 🎉', 'success');
+                this.showToast(message, type);
 
                 // Redirect to correct step instead of simple reload
                 setTimeout(() => {
