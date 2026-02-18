@@ -74,9 +74,9 @@ def build_webmania_webhook_url(*, request=None) -> str:
     return f"http://localhost:8000{path_with_query}"
 
 
-def _build_headers(*, workshop) -> dict[str, str]:
+def _build_headers() -> dict[str, str]:
     try:
-        return build_webmania_headers(workshop=workshop)
+        return build_webmania_headers()
     except WebmaniaAuthError as exc:
         raise NfseEmissionError(str(exc)) from exc
 
@@ -160,7 +160,7 @@ def build_nfse_payload(*, nfse_request: NfseRequest, request=None) -> dict[str, 
 def emit_nfse_request(*, nfse_request: NfseRequest, request=None) -> dict[str, Any]:
     payload = build_nfse_payload(nfse_request=nfse_request, request=request)
     emit_url = _build_emit_url()
-    headers = _build_headers(workshop=nfse_request.workshop)
+    headers = _build_headers()
 
     _debug_print(
         "Iniciando emissao de NFS-e",
