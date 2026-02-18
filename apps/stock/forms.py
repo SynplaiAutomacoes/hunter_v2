@@ -895,10 +895,14 @@ class ImportManualItemsForm(forms.ModelForm):
         items = self.instance.items_data or []
         rows = ""
         total_geral = Decimal("0.00")
+        print(items)
 
         for idx, item in enumerate(items):
             product_id = item.get("linked_product_id")
             product = Product.objects.filter(id=product_id, workshop=self.workshop).first()
+
+            if not product_id:
+                continue
 
             try:
                 raw_qtd = str(item.get("qtd", "1")).replace(",", ".")
@@ -916,24 +920,28 @@ class ImportManualItemsForm(forms.ModelForm):
             total_geral += subtotal
 
             if product:
+                num_html = NumberInput(mode="positive").render(
+                    name=f"items_qty_{idx}", value=str(quantidade), attrs={"class": "text-center", "hx-post": reverse("stock:update_manual_item_data", kwargs={"pk": self.instance.pk}), "hx-trigger": "change delay:500ms", "hx-vals": f"js:{{item_idx: {idx}}}", "hx-target": "#step-container"})
+
+                money_html = MoneyInput().render(
+                    name=f"items_price_{idx}",
+                    value=Money(valor, "BRL"),
+                    attrs={
+                        "class": "text-right",
+                        "hx-post": reverse("stock:update_manual_item_data", kwargs={"pk": self.instance.pk}),
+                        "hx-trigger": "change delay:500ms",
+                        "hx-vals": f'js:{{item_idx: {idx}}}',
+                        "hx-target": "#step-container"
+                    })
+
                 rows += f"""
                 <tr class="h-16 border-b border-base-300">
                     <td>
                         <div class="font-medium">{product.name}</div>
                         <div class="text-xs opacity-50">{product.code}</div>
                     </td>
-                    <td class="w-24">
-                        <input type="number" name="qty_{idx}" value="{quantidade}" 
-                               hx-post="{reverse("stock:update_manual_item", kwargs={"pk": self.instance.pk})}?idx={idx}&field=qtd"
-                               hx-trigger="change" hx-swap="none"
-                               class="input input-bordered input-sm w-full text-center">
-                    </td>
-                    <td class="w-32">
-                        <input type="text" name="val_{idx}" value="{valor}" 
-                               hx-post="{reverse("stock:update_manual_item", kwargs={"pk": self.instance.pk})}?idx={idx}&field=valor"
-                               hx-trigger="change" hx-swap="none"
-                               class="input input-bordered input-sm w-full text-right">
-                    </td>
+                    <td>{num_html}</td>
+                    <td>{money_html}</td>
                     <td class="text-right font-bold">{Money(subtotal, "BRL")}</td>
                     <td class="text-center">
                         <button type="button" class="btn btn-ghost btn-circle btn-sm text-error" title="Desvincular Item"

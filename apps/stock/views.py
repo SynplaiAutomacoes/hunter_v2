@@ -13,8 +13,7 @@ from django.db import transaction
 from django.db.models import F, ExpressionWrapper, IntegerField, Q
 from djmoney.money import Money
 
-from .forms import ImportStep1Form, ImportStepSupplierForm, ImportStepItemsForm, ImportStepPaymentForm, QuickProductForm, ImportStepSummaryForm, ImportSefazListForm, CatalogGroupQuickForm, ImportStepSupplierManualForm, \
-    QuickSupplierForm
+from .forms import ImportStep1Form, ImportStepSupplierForm, ImportStepItemsForm, ImportStepPaymentForm, QuickProductForm, ImportStepSummaryForm, ImportSefazListForm, CatalogGroupQuickForm, ImportStepSupplierManualForm, QuickSupplierForm, ImportManualItemsForm
 from .models import StockProduct, StockMovement, StockPaymentMethod, StockImport
 from ..catalog.models.groups import CatalogGroup
 from ..catalog.models.products import Product
@@ -195,7 +194,7 @@ class StockImportCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFo
                 base_steps.extend(
                     [
                         {"title": "Fornecedor", "form_class": ImportStepSupplierManualForm},
-                        # {"title": "Importar Itens", "form_class": ImportManualItemsForm},
+                        {"title": "Importar Itens", "form_class": ImportManualItemsForm},
                     ]
                 )
             else:
@@ -397,28 +396,40 @@ class RemovePaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
 
 class LinkProductManualView(LoginRequiredMixin, WorkshopScopedMixin, View):
-    model = Product
-    workshop_permission_codename = "view_product"
+    model = StockImport
+    workshop_permission_codename = "change_stockimport"
 
     def get(self, request):
         item_idx = request.GET.get("item_idx")
         pk = request.GET.get("pk")
-        context = {"item_idx": item_idx, "workshop": self.workshop, "pk": pk}
+        is_manual = request.GET.get("manual") == "true"
+        context = {"item_idx": item_idx, "workshop": self.workshop, "pk": pk, "is_manual": is_manual}
         return render(request, "stock/partials/modal/link_manual_modal.html", context)
 
     @transaction.atomic
     def post(self, request):
-        item_idx = int(request.POST.get("item_idx"))
+        raw_item_idx = request.POST.get("item_idx")
         product_id = request.POST.get("product_id")
         pk = request.POST.get("pk")
+        is_manual = request.GET.get("manual") == "true" or request.POST.get("manual") == "true"
 
         obj = get_object_or_404(StockImport, id=pk, workshop=self.workshop)
-        import_items = obj.items_data
+        product = get_object_or_404(Product, id=product_id, workshop=self.workshop)
+        import_items = list(obj.items_data)
 
-        if 0 <= item_idx < len(import_items):
-            import_items[item_idx]["linked_product_id"] = product_id
-            obj.items_data = import_items
-            obj.save(update_fields=["items_data"])
+        if is_manual:
+            new_item = {"ref": product.code, "desc": product.name, "qtd": 1, "valor": str(product.cost_price.amount), "linked_product_id": str(product_id)}
+            import_items.append(new_item)
+        else:
+            try:
+                item_idx = int(raw_item_idx)
+                if 0 <= item_idx < len(import_items):
+                    import_items[item_idx]["linked_product_id"] = product_id
+            except (ValueError, TypeError):
+                return HttpResponse("Índice de item inválido", status=400)
+
+        obj.items_data = import_items
+        obj.save(update_fields=["items_data"])
 
         response = HttpResponse("")
         response["HX-Trigger"] = "productCreated"
@@ -426,9 +437,10 @@ class LinkProductManualView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
 
 class UnlinkItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
-    model = Product
-    workshop_permission_codename = "view_product"
+    model = StockImport
+    workshop_permission_codename = "change_stockimport"
 
+    @transaction.atomic
     def post(self, request, *args, **kwargs):
         item_idx = request.POST.get("item_idx") or request.GET.get("item_idx")
         pk = request.POST.get("pk") or request.GET.get("pk")
@@ -436,10 +448,19 @@ class UnlinkItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
         obj = get_object_or_404(StockImport, id=pk, workshop=self.workshop)
         import_items = obj.items_data
 
-        if 0 <= int(item_idx) < len(import_items):
-            import_items[int(item_idx)]["linked_product_id"] = None
-            obj.items_data = import_items
-            obj.save(update_fields=["items_data"])
+        try:
+            idx = int(item_idx)
+            if 0 <= idx < len(import_items):
+                if obj.method == StockImport.ImportMethods.MANUAL:
+                    import_items.pop(idx)
+                else:
+                    # Se for XML/SEFAZ/KEY, apenas limpamos o vínculo
+                    import_items[idx]["linked_product_id"] = None
+
+                obj.items_data = import_items
+                obj.save(update_fields=["items_data"])
+        except (ValueError, TypeError, IndexError):
+            return HttpResponse("Erro ao processar índice do item", status=400)
 
         response = HttpResponse("")
         response["HX-Trigger"] = "productCreated"
@@ -662,3 +683,42 @@ class SupplierQuickCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateVie
             return response
 
         return super().form_valid(form)
+
+
+class UpdateManualItemDataView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = StockImport
+    workshop_permission_codename = "change_stockimport"
+
+    @transaction.atomic
+    def post(self, request, pk):
+        obj = get_object_or_404(StockImport, id=pk, workshop=self.workshop)
+        item_idx = request.POST.get("item_idx")
+
+        if item_idx is None:
+            return HttpResponse(status=400)
+
+        idx = int(item_idx)
+        items = list(obj.items_data)
+
+        if 0 <= idx < len(items):
+            new_qty = request.POST.get(f"items_qty_{idx}")
+            if new_qty is not None:
+                try:
+                    items[idx]["qtd"] = str(Decimal(new_qty.replace(",", ".")))
+                except (InvalidOperation, ValueError):
+                    pass
+
+            new_val = request.POST.get(f"items_price_{idx}_0")
+            if new_val is not None:
+                try:
+                    items[idx]["valor"] = str(Decimal(new_val.replace(",", ".")))
+                except (InvalidOperation, ValueError):
+                    pass
+
+            obj.items_data = items
+            obj.save(update_fields=["items_data"])
+
+
+        response = HttpResponse("")
+        response["HX-Trigger"] = "productCreated"
+        return response

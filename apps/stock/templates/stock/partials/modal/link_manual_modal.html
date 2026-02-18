@@ -1,9 +1,9 @@
 <div class="modal modal-open" x-data="{
     searchQuery: '',
     confirmLink(product) {
-        htmx.ajax('POST', '{% url 'stock:link_product_manual' %}', {
+        htmx.ajax('POST', '{% url 'stock:link_product_manual' %}?manual={{ is_manual|yesno:'true,false' }}', {
             values: {
-                item_idx: '{{ item_idx }}',
+                item_idx: '{{ item_idx|default:'' }}',
                 pk: '{{ pk }}',
                 product_id: product.id
             },
