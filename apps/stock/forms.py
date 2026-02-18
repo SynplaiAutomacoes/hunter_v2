@@ -2,7 +2,7 @@ import re
 import logging
 import time
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django import forms
 from django.conf import settings
@@ -11,8 +11,10 @@ from crispy_forms.layout import Layout, Div, Field, HTML
 from django.db import transaction
 import gzip
 import base64
+
+from django.utils.safestring import mark_safe
 from lxml import etree
-from django.urls import reverse
+from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from djmoney.forms import MoneyField
 from djmoney.money import Money
@@ -20,7 +22,8 @@ from pynfe.processamento import ComunicacaoSefaz
 
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
-from apps.core.widgets import TextInput, SelectInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput
+from apps.core.forms import address_layout, AddressFormMixin
+from apps.core.widgets import TextInput, SelectInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput, PhoneInput, EmailInput
 
 from apps.stock.models import StockPaymentMethod, StockImport, StockProduct, StockMovement, SefazZipCache
 
@@ -323,8 +326,8 @@ class ImportStepPaymentForm(forms.ModelForm):
     payment_date = forms.DateField(label="Data de Vencimento", widget=CalendarDateInput, required=False)
 
     total_nf_display = forms.CharField(label="Valor Total", required=False, widget=MoneyInput)
-    total_allocated_display = forms.CharField(label="Valor Pago", required=False, widget=MoneyInput)
-    pending_display = forms.CharField(label="Valor Pendente", required=False, widget=MoneyInput)
+    total_allocated_display = forms.CharField(label="Valor total a ser pago", required=False, widget=MoneyInput)
+    pending_display = forms.CharField(label="Valor total pendente", required=False, widget=MoneyInput)
 
     class Meta:
         model = StockImport
@@ -361,6 +364,11 @@ class ImportStepPaymentForm(forms.ModelForm):
 
             self.fields[field_name].widget.attrs.update({"readonly": True, "class": "cursor-not-allowed opacity-75"})
 
+        self.fields["payment_method"].label = mark_safe('Forma de Pagamento <span class="text-error">*</span>')
+        self.fields['installments_count'].label = mark_safe('Número de Parcelas <span class="text-error">*</span>')
+        self.fields['first_amount'].label = mark_safe('Valor Pago <span class="text-error">*</span>')
+        self.fields['payment_date'].label = mark_safe('Data de Vencimento <span class="text-error">*</span>')
+
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
@@ -368,13 +376,13 @@ class ImportStepPaymentForm(forms.ModelForm):
                 HTML('<h3 class="font-bold text-2xl pb-2 mb-2">Configuração das Formas de Pagamento</h3>'),
                 HTML('<h5 class="text-lg pb-2 mb-4">Adicione, edite e salve múltiplos planos de pagamentos para esta importação.</h5>'),
                 #
-                Div(Field("total_nf_display", wrapper_class="col-span-12 lg:col-span-4"), Field("total_allocated_display", wrapper_class="col-span-12 lg:col-span-4"), Field("pending_display", wrapper_class="col-span-12 lg:col-span-4"), css_class="grid grid-cols-12 gap-4 mb-2 pb-4"),
+                Div(Field("total_nf_display", wrapper_class="col-span-12 lg:col-span-4"), Field("total_allocated_display", wrapper_class="col-span-12 lg:col-span-4"), Field("pending_display", wrapper_class="col-span-12 lg:col-span-4"), css_class="grid grid-cols-12 gap-4 mb-2 pb-4 border-b-2 border-base-50"),
                 #
                 Div(
                     Field("payment_method", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("installments_count", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("first_amount", wrapper_class="col-span-12 lg:col-span-4"),
-                    css_class="grid grid-cols-12 gap-4 mb-2 pb-4",
+                    css_class="grid grid-cols-12 gap-4 mb-2 mt-4 pb-4",
                 ),
                 #
                 Div(
@@ -748,6 +756,241 @@ class ImportSefazListForm(forms.ModelForm):
         return cleaned_data
 
 
+class ImportStepSupplierManualForm(forms.ModelForm):
+    supplier_select = forms.ChoiceField(label="Selecione o Fornecedor", required=True)
+
+    class Meta:
+        model = StockImport
+        fields = []
+
+    def __init__(self, *args, **kwargs):
+        self.workshop = kwargs.pop("workshop", None)
+        self.request = kwargs.pop("request", None)
+        self.nf_data = kwargs.pop("nf_data", {})
+        self.import_items = kwargs.pop("import_items", [])
+        self.import_payments = kwargs.pop("import_payments", [])
+        super().__init__(*args, **kwargs)
+
+        current_supplier = None
+        if self.instance and self.instance.supplier_cnpj:
+            current_supplier = Supplier.objects.filter(workshop=self.workshop, cnpj=self.instance.supplier_cnpj).first()
+
+        suppliers = Supplier.objects.filter(workshop=self.workshop, is_active=True).order_by("name")
+        choices = [("", "Pesquisar fornecedor...")] + [(str(s.id), f"{s.name} ({s.cnpj})") for s in suppliers]
+
+        self.fields["supplier_select"].choices = choices
+
+        if current_supplier:
+            self.initial["supplier_select"] = str(current_supplier.id)
+
+        self.fields["supplier_select"].widget = SelectInput(choices=choices, attrs={"hx-get": reverse("stock:supplier_details"), "hx-target": "#supplier-info-container", "hx-trigger": "change, load", "class": "w-full", "x-model": "supplierId", "@change": "supplierId = $el.value"})
+
+        initial_alpine = {
+            "supName": self.instance.supplier_name or '',
+            "supCnpj": self.instance.supplier_cnpj or '',
+            "supplierId": str(current_supplier.id) if current_supplier else ''
+        }
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout(
+            Div(
+                # Coluna Esquerda
+                Div(
+                    HTML('<h2 class="text-2xl font-bold mb-6 text-base-content">Fornecedor</h2>'),
+                    Div(
+                        Div(Field("supplier_select"), css_class="flex-grow"),
+                        HTML("""<button type="button" class="btn btn-circle mb-2 ml-2" 
+                                     :title="supplierId ? 'Editar Fornecedor' : 'Cadastrar Fornecedor'"
+                                     :class="supplierId ? 'btn-warning' : 'btn-primary'"
+                                     @click="const url = supplierId ? '/stock/supplier/quick-update/' + supplierId + '/' : '/stock/supplier/quick-create/';
+                                            htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
+                                            document.getElementById('form_modal').showModal();">
+                                     <span class="material-icons" x-text="supplierId ? 'edit' : 'local_shipping'"></span>
+                        </button>"""),
+                        css_class="flex items-end mb-6",
+                    ),
+                    #
+                    HTML("""<div class="alert mt-4 bg-info/10 text-info border-none">
+                             <span class="material-icons">help_outline</span>
+                             <span class="text-xs">Selecione um fornecedor acima para prosseguir com a importação manual.</span>
+                    </div>"""),
+                    css_class="col-span-12 lg:col-span-5",
+                ),
+                #
+                Div(css_class="hidden lg:block lg:col-span-1"),
+                #
+                # Coluna Direita
+                Div(
+                    HTML("""
+                        <div class="card bg-base-200 shadow-sm min-h-full">
+                            <div class="card-body p-6">
+                                <h2 class="text-xl font-bold mb-6 uppercase text-base-content opacity-70 flex items-center gap-2">
+                                    <span class="material-icons text-sm">analytics</span> 
+                                    Perfil do Fornecedor
+                                </h2>
+
+                                <div id="supplier-info-container" class="flex-grow flex flex-col justify-center">
+                                    <div class="text-center opacity-30 py-10">
+                                        <span class="material-icons text-5xl mb-2">manage_search</span>
+                                        <p class="text-xs">Aguardando seleção de fornecedor...</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    """),
+                    css_class="col-span-12 lg:col-span-6",
+                ),
+                css_class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch",
+                x_data=f"{{ supName: '{initial_alpine['supName']}', supCnpj: '{initial_alpine['supCnpj']}', supplierId: '{initial_alpine['supplierId']}' }}",
+                x_on_update_supplier_info_window="supName = $event.detail.name; supCnpj = $event.detail.cnpj;",
+            ),
+        )
+
+    def save(self, commit=True):
+        supplier_id = self.cleaned_data.get("supplier_select")
+        if supplier_id:
+            supplier = Supplier.objects.get(id=supplier_id)
+            self.instance.supplier_name = supplier.name
+            self.instance.supplier_cnpj = supplier.cnpj
+        return super().save(commit=commit)
+
+
+class ImportManualItemsForm(forms.ModelForm):
+    class Meta:
+        model = StockImport
+        fields = []
+
+    def __init__(self, *args, **kwargs):
+        self.workshop = kwargs.pop("workshop", None)
+        self.request = kwargs.pop("request", None)
+        self.nf_data = kwargs.pop("nf_data", {})
+        self.import_items = kwargs.pop("import_items", [])
+        self.import_payments = kwargs.pop("import_payments", [])
+        super().__init__(*args, **kwargs)
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout(
+            Div(
+                Div(
+                    HTML('<h2 class="text-2xl font-bold text-base-content">Peças Selecionadas</h2>'),
+                    Div(
+                        HTML(f"""<button type="button" class="btn btn-outline btn-success btn-sm" 
+                                        hx-get="{reverse("stock:link_product_manual") + f"?pk={self.instance.pk}&manual=true"}" hx-target="#modal-container">
+                                        <span class="flex items-center gap-1">
+                                            <span class="material-icons text-sm">link</span> Vincular ao Item
+                                        </span>
+                        </button>"""),
+                        HTML(f"""<button type="button" class="btn btn-success btn-sm" 
+                                    hx-get="{reverse("stock:product_quick_create") + f"?pk={self.instance.pk}&manual=true"}" hx-target="#modal-container">
+                                    <span class="flex items-center gap-1">
+                                        <span class="material-icons text-sm">add</span> Criar Novo Item
+                                    </span>
+                        </button>"""),
+                        css_class="flex gap-2",
+                    ),
+                    css_class="flex justify-between items-center mb-6",
+                ),
+                HTML(self._generate_manual_table_html()),
+                css_class="mt-4",
+            )
+        )
+
+    def _generate_manual_table_html(self):
+        items = self.instance.items_data or []
+        rows = ""
+        total_geral = Decimal("0.00")
+
+        for idx, item in enumerate(items):
+            product_id = item.get("linked_product_id")
+            product = Product.objects.filter(id=product_id, workshop=self.workshop).first()
+
+            if not product_id:
+                continue
+
+            try:
+                raw_qtd = str(item.get("qtd", "1")).replace(",", ".")
+                quantidade = Decimal(raw_qtd) if raw_qtd.strip() else Decimal("1")
+            except (InvalidOperation, ValueError, TypeError):
+                quantidade = Decimal("1")
+
+            try:
+                raw_valor = str(item.get("valor", "0")).replace(",", ".")
+                valor = Decimal(raw_valor) if raw_valor.strip() else Decimal("0")
+            except (InvalidOperation, ValueError, TypeError):
+                valor = Decimal("0")
+
+            subtotal = quantidade * valor
+            total_geral += subtotal
+
+            if product:
+                num_html = NumberInput(mode="positive").render(
+                    name=f"items_qty_{idx}", value=str(quantidade), attrs={"class": "text-center", "hx-post": reverse("stock:update_manual_item_data", kwargs={"pk": self.instance.pk}), "hx-trigger": "change delay:500ms", "hx-vals": f"js:{{item_idx: {idx}}}", "hx-target": "#step-container"})
+
+                money_html = MoneyInput().render(
+                    name=f"items_price_{idx}",
+                    value=Money(valor, "BRL"),
+                    attrs={
+                        "class": "text-right",
+                        "hx-post": reverse("stock:update_manual_item_data", kwargs={"pk": self.instance.pk}),
+                        "hx-trigger": "change delay:500ms",
+                        "hx-vals": f'js:{{item_idx: {idx}}}',
+                        "hx-target": "#step-container"
+                    })
+
+                rows += f"""
+                <tr class="h-16 border-b border-base-300">
+                    <td>
+                        <div class="font-medium">{product.name}</div>
+                        <div class="text-xs opacity-50">{product.code}</div>
+                    </td>
+                    <td>{num_html}</td>
+                    <td>{money_html}</td>
+                    <td class="text-right font-bold">{Money(subtotal, "BRL")}</td>
+                    <td class="text-center">
+                        <button type="button" class="btn btn-ghost btn-circle btn-sm text-error" title="Desvincular Item"
+                                hx-post="{reverse("stock:unlink_item")}?item_idx={idx}&pk={self.instance.pk}"
+                                hx-target="#step-container">
+                            <span class="material-icons text-sm">link_off</span>
+                        </button>
+                    </td>
+                </tr>"""
+
+        return f"""
+        <div class="overflow-x-auto rounded-xl border border-base-300">
+            <table class="table w-full">
+                <thead>
+                    <tr class="bg-base-300">
+                        <th>Produto</th>
+                        <th class="text-center">Quantidade</th>
+                        <th class="text-right">Valor Unitário</th>
+                        <th class="text-right">Subtotal</th>
+                        <th class="text-center">Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows if rows else '<tr><td colspan="5" class="text-center italic py-8">Nenhum item adicionado.</td></tr>'}
+                </tbody>
+                <tfoot>
+                    <tr class="bg-base-300">
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td><p class="text-right font-black text-lg">Total: {Money(total_geral, "BRL")}</p></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>"""
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if not self.instance.items_data or len(self.instance.items_data) == 0:
+            raise forms.ValidationError("Adicione pelo menos um item para prosseguir.")
+        return cleaned_data
+
+
 class QuickProductForm(forms.ModelForm):
     class Meta:
         model = Product
@@ -759,7 +1002,7 @@ class QuickProductForm(forms.ModelForm):
             "group": SelectInput(),
             "cost_price": MoneyInput(),
             "selling_price": MoneyInput(),
-            "profit_margin": PercentageInput(attrs={"readonly": True}),
+            "profit_margin": PercentageInput(),
             "origin_cst": SelectInput(),
             "purpose": SelectInput(),
         }
@@ -772,10 +1015,9 @@ class QuickProductForm(forms.ModelForm):
             self.fields["group"].queryset = self.fields["group"].queryset.filter(workshop=workshop)
 
         self.helper = FormHelper()
-        self.helper.form_tag = False  # Importante para o modal
+        self.helper.form_tag = False
         self.helper.layout = Layout(
             Div(
-                # Usando x-data para o cálculo de margem idêntico ao original
                 Div(
                     Field("code", wrapper_class="col-span-12 lg:col-span-3"),
                     Field("name", wrapper_class="col-span-12 lg:col-span-9"),
@@ -800,7 +1042,7 @@ class QuickProductForm(forms.ModelForm):
                         HTML('<div class="text-error text-xs" x-show="priceError" x-cloak>⚠️ Menor que o custo</div>'),
                         css_class="col-span-12 lg:col-span-4",
                     ),
-                    Field("profit_margin", wrapper_class="col-span-12 lg:col-span-4", css_class="opacity-50"),
+                    Field("profit_margin", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("origin_cst", wrapper_class="col-span-12 lg:col-span-6"),
                     Field("purpose", wrapper_class="col-span-12 lg:col-span-6"),
                     css_class="grid grid-cols-12 gap-3",
@@ -825,6 +1067,67 @@ class QuickProductForm(forms.ModelForm):
                 },
             )
         )
+
+
+class QuickSupplierForm(AddressFormMixin, forms.ModelForm):
+    class Meta:
+        model = Supplier
+        fields = ["cnpj", "name", "contact_person", "phone", "mobile", "email", "registration_date", "is_active", "cep", "logradouro", "numero", "complemento", "bairro", "cidade", "estado"]
+        widgets = {
+            "cnpj": CPForCNPJInput(mode="cnpj"),
+            "name": TextInput(),
+            "contact_person": TextInput(),
+            "phone": PhoneInput(),
+            "mobile": PhoneInput(),
+            "email": EmailInput(),
+            "registration_date": CalendarDateInput(),
+            "is_active": CheckboxInput(),
+        }
+
+    def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.workshop = workshop
+        self.setup_address_fields()
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout(
+            Div(
+                Field("cnpj", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("name", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("contact_person", wrapper_class="col-span-12 lg:col-span-4"),
+                #
+                Field("phone", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("mobile", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("email", wrapper_class="col-span-12 lg:col-span-4"),
+                #
+                Field("registration_date", wrapper_class="col-span-12 lg:col-span-6"),
+                Field("is_active", wrapper_class="col-span-12 lg:col-span-6"),
+                #
+                HTML('<div class="col-span-12 divider"></div>'),
+                #
+                # Seção: Endereço
+                address_layout(),
+                css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
+            ),
+        )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        cnpj = cleaned_data.get("cnpj")
+
+        # Só validamos se tivermos o CNPJ e a workshop disponível
+        if cnpj and self.workshop:
+            queryset = Supplier.objects.filter(workshop=self.workshop, cnpj=cnpj)
+
+            # Se for edição (update), ignoramos o próprio objeto
+            if self.instance.pk:
+                queryset = queryset.exclude(pk=self.instance.pk)
+
+            if queryset.exists():
+                # Adiciona o erro especificamente no campo CNPJ
+                self.add_error("cnpj", "Já existe um fornecedor cadastrado com este CNPJ nesta oficina.")
+
+        return cleaned_data
 
 
 class CatalogGroupQuickForm(forms.ModelForm):

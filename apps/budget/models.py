@@ -72,6 +72,7 @@ class Budget(TimeStampedModel):
     vehicle = models.ForeignKey("customer.Vehicle", verbose_name="Veículo", on_delete=models.SET_NULL, related_name="budgets", null=True)
     cost_estimator = models.ForeignKey(settings.AUTH_USER_MODEL, verbose_name="Orçamentista", on_delete=models.SET_NULL, related_name="budgets", null=True)
     collaborator = models.ForeignKey("collaborators.WorkshopCollaborator", verbose_name="Colaborador", on_delete=models.SET_NULL, related_name="budgets", null=True)
+    checklist = models.ForeignKey("checklist.Checklist", verbose_name="Checklist", on_delete=models.SET_NULL, related_name="budgets", null=True, blank=True)
 
     # Datas e Prazos
     expiration_date = models.DateField(verbose_name="Data de Validade", null=True, blank=True)
@@ -82,7 +83,7 @@ class Budget(TimeStampedModel):
     technical_diagnosis = models.TextField(verbose_name="Observações Técnicas", blank=True, null=True)
     notes = models.TextField(verbose_name="Observações Complementares", blank=True, null=True)
     current_km = models.PositiveIntegerField(verbose_name="KM Atual", default=0)
-    fuel_level = models.PositiveIntegerField(verbose_name="Nível do Tanque", choices=FuelLevel.choices, default=FuelLevel.FULL)
+    fuel_level = models.PositiveIntegerField(verbose_name="Nível do Tanque", choices=FuelLevel.choices, null=True, blank=True)
     defect = models.ForeignKey(Defect, on_delete=models.SET_NULL, related_name="budgets", null=True)
 
     # Financeiro
@@ -117,10 +118,11 @@ class Budget(TimeStampedModel):
             super().save(*args, **kwargs)
 
             if old_status != BudgetStatus.APPROVED and self.status == BudgetStatus.APPROVED:
-                WorkOrder.objects.get_or_create(
+                workorder, _ = WorkOrder.objects.get_or_create(
                     budget=self,
                     defaults={"workshop": self.workshop},
                 )
+                workorder.sync_from_budget()
 
             if self.status == BudgetStatus.APPROVED or self.status == BudgetStatus.REJECTED or self.status == BudgetStatus.CANCELLED:
                 self.signature_token_active = False

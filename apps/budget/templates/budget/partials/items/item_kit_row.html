@@ -1,13 +1,13 @@
 <tr id="budget-item-{{ item.id }}"
     {% if not is_full_render %}hx-swap-oob="true"{% endif %}>
 
-    <td>{{ item.kit.name }}</td>
+    <td class="budget-step4-description break-words whitespace-normal leading-snug">{{ item.kit.name }}</td>
     <td class="text-center">{{ item.quantity }}</td>
     <td class="text-center">{{ item.effective_kit_products_count }}</td>
     <td class="text-center">{{ item.effective_kit_services_count }}</td>
 
     <!-- AÇÕES -->
-    <td class="text-center">
+    <td class="text-center budget-step4-actions">
         {% if step6 %}
             <!-- BOTÃO VISUALIZAR (OLHO) -->
             <button

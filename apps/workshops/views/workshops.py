@@ -4,6 +4,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.shortcuts import redirect
+from django.http import HttpResponse
 from django.template.response import TemplateResponse
 from django.urls import reverse_lazy
 from django.views import View
@@ -182,4 +183,6 @@ class NavbarWorkshopSelectView(LoginRequiredMixin, View):
             else:
                 request.session.pop("active_workshop_id", None)
 
-        return TemplateResponse(request, "navbar/partials/workshop_select.html", {})
+        response = HttpResponse()
+        response["HX-Refresh"] = "true"
+        return response
