@@ -884,9 +884,28 @@ class ImportManualItemsForm(forms.ModelForm):
         self.helper.form_tag = False
         self.helper.layout = Layout(
             Div(
-                HTML('<h2 class="text-2xl font-bold mb-6 text-base-content">Peças Selecionadas</h2>'),
+                Div(
+                    HTML('<h2 class="text-2xl font-bold text-base-content">Peças Selecionadas</h2>'),
+                    Div(
+                        HTML(f"""<button type="button" class="btn btn-outline btn-success btn-sm" 
+                                        hx-get="{reverse("stock:link_product_manual") + f"?pk={self.instance.pk}&manual=true"}" hx-target="#modal-container">
+                                        <span class="flex items-center gap-1">
+                                            <span class="material-icons text-sm">link</span> Vincular ao Item
+                                        </span>
+                        </button>"""),
+                        HTML(f"""<button type="button" class="btn btn-success btn-sm" 
+                                    hx-get="{reverse("stock:product_quick_create") + f"?pk={self.instance.pk}&manual=true"}" hx-target="#modal-container">
+                                    <span class="flex items-center gap-1">
+                                        <span class="material-icons text-sm">add</span> Criar Novo Item
+                                    </span>
+                        </button>"""),
+                        css_class="flex gap-2",
+                    ),
+                    css_class="flex justify-between items-center mb-6",
+                ),
                 HTML(self._generate_manual_table_html()),
-                css_class="mt-4")
+                css_class="mt-4",
+            )
         )
 
     def _generate_manual_table_html(self):
@@ -950,27 +969,6 @@ class ImportManualItemsForm(forms.ModelForm):
                     </td>
                 </tr>"""
 
-        # Linha de Adição (Footer da Tabela)
-        add_row = f"""<tr class="h-16 border-b border-base-300">
-            <td class="italic text-sm">
-                <button type="button" class="btn btn-success btn-sm" title="Criar Novo Item"
-                            hx-get="{reverse("stock:product_quick_create")}?pk={self.instance.pk}&manual=true"
-                            hx-target="#modal-container">
-                    <span class="flex items-center gap-1"><span class="material-icons text-sm">add</span> Criar Novo Item</span>
-                </button>
-            </td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td class="text-center">
-                <button type="button" class="btn btn-ghost btn-circle btn-sm text-success" title="Vincular Item"
-                        hx-get="{reverse("stock:link_product_manual")}?pk={self.instance.pk}&manual=true"
-                        hx-target="#modal-container">
-                    <span class="material-icons text-sm">link</span>
-                </button>
-            </td>
-        </tr>"""
-
         return f"""
         <div class="overflow-x-auto rounded-xl border border-base-300">
             <table class="table w-full">
@@ -985,7 +983,6 @@ class ImportManualItemsForm(forms.ModelForm):
                 </thead>
                 <tbody>
                     {rows if rows else '<tr><td colspan="5" class="text-center italic py-8">Nenhum item adicionado.</td></tr>'}
-                    {add_row}
                 </tbody>
                 <tfoot>
                     <tr class="bg-base-300">
