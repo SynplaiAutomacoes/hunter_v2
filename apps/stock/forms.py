@@ -21,7 +21,7 @@ from pynfe.processamento import ComunicacaoSefaz
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.core.forms import address_layout, AddressFormMixin
-from apps.core.widgets import TextInput, SelectInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput
+from apps.core.widgets import TextInput, SelectInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput, PhoneInput, EmailInput
 
 from apps.stock.models import StockPaymentMethod, StockImport, StockProduct, StockMovement, SefazZipCache
 
@@ -1085,10 +1085,14 @@ class QuickProductForm(forms.ModelForm):
 class QuickSupplierForm(AddressFormMixin, forms.ModelForm):
     class Meta:
         model = Supplier
-        fields = ["cnpj", "name", "registration_date", "is_active", "cep", "logradouro", "numero", "complemento", "bairro", "cidade", "estado"]
+        fields = ["cnpj", "name", "contact_person", "phone", "mobile", "email", "registration_date", "is_active", "cep", "logradouro", "numero", "complemento", "bairro", "cidade", "estado"]
         widgets = {
             "cnpj": CPForCNPJInput(mode="cnpj"),
             "name": TextInput(),
+            "contact_person": TextInput(),
+            "phone": PhoneInput(),
+            "mobile": PhoneInput(),
+            "email": EmailInput(),
             "registration_date": CalendarDateInput(),
             "is_active": CheckboxInput(),
         }
@@ -1101,8 +1105,13 @@ class QuickSupplierForm(AddressFormMixin, forms.ModelForm):
         self.helper.form_tag = False
         self.helper.layout = Layout(
             Div(
-                Field("cnpj", wrapper_class="col-span-12 lg:col-span-6"),
-                Field("name", wrapper_class="col-span-12 lg:col-span-6"),
+                Field("cnpj", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("name", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("contact_person", wrapper_class="col-span-12 lg:col-span-4"),
+                #
+                Field("phone", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("mobile", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("email", wrapper_class="col-span-12 lg:col-span-4"),
                 #
                 Field("registration_date", wrapper_class="col-span-12 lg:col-span-6"),
                 Field("is_active", wrapper_class="col-span-12 lg:col-span-6"),
