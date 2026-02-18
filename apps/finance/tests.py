@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import Mock, patch
 
@@ -9,9 +10,9 @@ from django.urls import reverse
 
 from apps.accounts.models import Account, User
 from apps.collaborators.models import WorkshopMember
-from apps.finance.forms import WebmaniaCompanyUpdateForm
+from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm
 from apps.finance.models import TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassSyncState, WebmaniaCompany
-from apps.finance.services.emission import build_webmania_webhook_token
+from apps.finance.services.emission import _build_taker_payload, build_webmania_webhook_token
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
 from apps.finance.services.webmania_b2b import (
     WebmaniaB2BServiceError,
@@ -110,7 +111,7 @@ class TaxClassServiceTests(TestCase):
             status="ativo",
             remote_date="2026-02-17",
             tipo_emissao="1",
-            codigo_servico="010101",
+            codigo_servico="01.05",
         )
 
         with patch("apps.finance.services.tax_classes.requests.get") as get_mock:
@@ -140,7 +141,7 @@ class TaxClassServiceTests(TestCase):
                 "status": "ativo",
                 "data": "2026-02-17",
                 "tipo_emissao": "1",
-                "codigo_servico": "010101",
+                "codigo_servico": "01.05",
                 "cst_pis_cofins": "00",
             },
         ]
@@ -172,6 +173,102 @@ class TaxClassServiceTests(TestCase):
                 "Configure a empresa na Webmania antes de continuar com classes de imposto.",
             ):
                 list_tax_classes(workshop=workshop)
+
+    def test_list_tax_classes_does_not_send_authorization_header(self) -> None:
+        workshop = create_workshop()
+        response_payload: list[dict[str, str]] = []
+
+        with (
+            patch(
+                "apps.finance.services.tax_classes._build_headers",
+                return_value={
+                    "Content-Type": "application/json",
+                    "X-Consumer-Key": "consumer-key",
+                    "X-Consumer-Secret": "consumer-secret",
+                    "X-Access-Token": "access-token",
+                    "X-Access-Token-Secret": "access-token-secret",
+                    "Authorization": "Bearer should-not-be-sent",
+                },
+            ),
+            patch("apps.finance.services.tax_classes.requests.get", return_value=_mock_response(response_payload)) as get_mock,
+        ):
+            list_tax_classes(workshop=workshop)
+
+        sent_headers = get_mock.call_args.kwargs.get("headers", {})
+        self.assertNotIn("Authorization", sent_headers)
+        self.assertEqual(sent_headers.get("X-Consumer-Key"), "consumer-key")
+        self.assertEqual(sent_headers.get("X-Consumer-Secret"), "consumer-secret")
+        self.assertEqual(sent_headers.get("X-Access-Token"), "access-token")
+        self.assertEqual(sent_headers.get("X-Access-Token-Secret"), "access-token-secret")
+
+    def test_save_tax_class_does_not_send_authorization_header(self) -> None:
+        workshop = create_workshop()
+        payload = {
+            "descricao": "Classe NFE",
+            "tipo": "nfe",
+        }
+        response_payload = {
+            "referencia": "REFAUTH001",
+            "tipo": "nfe",
+            "status": "ativo",
+            "data": "2026-02-18",
+        }
+
+        with (
+            patch(
+                "apps.finance.services.tax_classes._build_headers",
+                return_value={
+                    "Content-Type": "application/json",
+                    "X-Consumer-Key": "consumer-key",
+                    "X-Consumer-Secret": "consumer-secret",
+                    "X-Access-Token": "access-token",
+                    "X-Access-Token-Secret": "access-token-secret",
+                    "Authorization": "Bearer should-not-be-sent",
+                },
+            ),
+            patch("apps.finance.services.tax_classes.requests.post", return_value=_mock_response(response_payload)) as post_mock,
+        ):
+            save_tax_class(workshop=workshop, payload=payload)
+
+        sent_headers = post_mock.call_args.kwargs.get("headers", {})
+        self.assertNotIn("Authorization", sent_headers)
+        self.assertEqual(sent_headers.get("X-Consumer-Key"), "consumer-key")
+        self.assertEqual(sent_headers.get("X-Consumer-Secret"), "consumer-secret")
+        self.assertEqual(sent_headers.get("X-Access-Token"), "access-token")
+        self.assertEqual(sent_headers.get("X-Access-Token-Secret"), "access-token-secret")
+
+    def test_delete_tax_class_does_not_send_authorization_header(self) -> None:
+        workshop = create_workshop()
+
+        TaxClassNfe.objects.create(
+            workshop=workshop,
+            reference="REFAUTHDEL",
+            description="Classe NFE",
+            status="ativo",
+        )
+
+        with (
+            patch(
+                "apps.finance.services.tax_classes._build_headers",
+                return_value={
+                    "Content-Type": "application/json",
+                    "X-Consumer-Key": "consumer-key",
+                    "X-Consumer-Secret": "consumer-secret",
+                    "X-Access-Token": "access-token",
+                    "X-Access-Token-Secret": "access-token-secret",
+                    "Authorization": "Bearer should-not-be-sent",
+                },
+            ),
+            patch("apps.finance.services.tax_classes.requests.delete", return_value=_mock_response([{"msg": "sucesso"}])) as delete_mock,
+        ):
+            delete_tax_class(workshop=workshop, reference="REFAUTHDEL")
+
+        sent_headers = delete_mock.call_args.kwargs.get("headers", {})
+        self.assertNotIn("Authorization", sent_headers)
+        self.assertEqual(sent_headers.get("X-Consumer-Key"), "consumer-key")
+        self.assertEqual(sent_headers.get("X-Consumer-Secret"), "consumer-secret")
+        self.assertEqual(sent_headers.get("X-Access-Token"), "access-token")
+        self.assertEqual(sent_headers.get("X-Access-Token-Secret"), "access-token-secret")
 
     def test_save_tax_class_persists_nfe(self) -> None:
         workshop = create_workshop()
@@ -208,7 +305,7 @@ class TaxClassServiceTests(TestCase):
             "descricao": "Classe NFSE",
             "tipo": "nfse",
             "tipo_emissao": "1",
-            "codigo_servico": "010101",
+            "codigo_servico": "0105",
             "iss": "2.00",
             "ibs_cbs": {
                 "situacao_tributaria": "1",
@@ -223,13 +320,16 @@ class TaxClassServiceTests(TestCase):
 
         with (
             patch("apps.finance.services.tax_classes._build_headers", return_value={}),
-            patch("apps.finance.services.tax_classes.requests.post", return_value=_mock_response(response_payload)),
+            patch("apps.finance.services.tax_classes.requests.post", return_value=_mock_response(response_payload)) as post_mock,
         ):
             saved = save_tax_class(workshop=workshop, payload=payload)
 
+        sent_payload = post_mock.call_args.kwargs.get("json", {})
+        self.assertEqual(sent_payload.get("codigo_servico"), "01.05")
+
         tax_class = TaxClassNfse.objects.get(workshop=workshop, reference="REFNFSE002")
         self.assertEqual(saved.get("tipo"), "nfse")
-        self.assertEqual(tax_class.codigo_servico, "010101")
+        self.assertEqual(tax_class.codigo_servico, "01.05")
         self.assertEqual(str(tax_class.iss), "2.00")
         self.assertEqual(str(tax_class.ibs_aliquota_diferimento_estadual), "1.25")
         self.assertTrue(TaxClassSyncState.objects.filter(workshop=workshop, synced_once=True).exists())
@@ -248,7 +348,7 @@ class TaxClassServiceTests(TestCase):
             description="Classe NFS-e",
             status="ativo",
             tipo_emissao="1",
-            codigo_servico="010101",
+            codigo_servico="01.05",
         )
 
         with (
@@ -259,6 +359,102 @@ class TaxClassServiceTests(TestCase):
 
         self.assertFalse(TaxClassNfe.objects.filter(workshop=workshop, reference="REF000030").exists())
         self.assertFalse(TaxClassNfse.objects.filter(workshop=workshop, reference="REF000031").exists())
+
+
+class NfseTaxClassFormTests(TestCase):
+    def test_unbound_form_sets_default_exigibilidade_and_iss_retido(self) -> None:
+        form = NfseTaxClassForm()
+
+        self.assertEqual(form.initial.get("natureza_operacao"), "1")
+        self.assertEqual(form.initial.get("exigibilidade_iss"), "1")
+        self.assertEqual(form.initial.get("iss_retido"), "2")
+
+    def test_build_payload_formats_service_code_as_xx_xx(self) -> None:
+        form = NfseTaxClassForm(
+            data={
+                "descricao": "Classe NFS-e",
+                "codigo_servico": "0105",
+                "codigo_tributacao_municipio": "",
+                "natureza_operacao": "1",
+                "exigibilidade_iss": "1",
+                "iss_retido": "2",
+                "base_payload_json": "{}",
+            }
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        payload = form.build_payload()
+
+        self.assertEqual(payload.get("codigo_servico"), "01.05")
+        self.assertNotIn("codigo_tributacao_municipio", payload)
+        self.assertNotIn("tipo_emissao", payload)
+        self.assertNotIn("tributacao_iss", payload)
+        self.assertNotIn("retencao_iss", payload)
+        self.assertNotIn("cst_pis_cofins", payload)
+        self.assertNotIn("retencao_pis_cofins", payload)
+
+    def test_initial_from_tax_class_formats_service_code_for_display(self) -> None:
+        initial = NfseTaxClassForm.initial_from_tax_class(
+            {
+                "tipo": "nfse",
+                "descricao": "Classe NFS-e",
+                "codigo_servico": "0105",
+                "natureza_operacao": "1",
+                "exigibilidade_iss": "1",
+                "iss_retido": "2",
+            }
+        )
+
+        self.assertEqual(initial.get("codigo_servico"), "01.05")
+
+    def test_requires_exigibilidade_and_iss_retido(self) -> None:
+        form = NfseTaxClassForm(
+            data={
+                "descricao": "Classe NFS-e",
+                "codigo_servico": "01.05",
+                "natureza_operacao": "1",
+                "exigibilidade_iss": "",
+                "iss_retido": "",
+                "base_payload_json": "{}",
+            }
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("Este campo é obrigatório.", form.errors.get("exigibilidade_iss", []))
+        self.assertIn("Este campo é obrigatório.", form.errors.get("iss_retido", []))
+
+    def test_requires_service_code_in_xx_xx_format(self) -> None:
+        form = NfseTaxClassForm(
+            data={
+                "descricao": "Classe NFS-e",
+                "codigo_servico": "01.05.01",
+                "natureza_operacao": "1",
+                "exigibilidade_iss": "1",
+                "iss_retido": "2",
+                "base_payload_json": "{}",
+            }
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("Informe o código do serviço no formato XX.XX.", form.errors.get("codigo_servico", []))
+
+
+class NfseEmissionPayloadTests(TestCase):
+    def test_build_taker_payload_uses_razao_social_for_cnpj(self) -> None:
+        customer = SimpleNamespace(cpf_or_cnpj="11.222.333/0001-81", name="Empresa Teste LTDA")
+        nfse_request = SimpleNamespace(
+            workorder=SimpleNamespace(
+                budget=SimpleNamespace(
+                    customer=customer,
+                )
+            )
+        )
+
+        payload = _build_taker_payload(nfse_request)  # type: ignore[arg-type]
+
+        self.assertEqual(payload.get("cnpj"), "11.222.333/0001-81")
+        self.assertEqual(payload.get("razao_social"), "Empresa Teste LTDA")
+        self.assertNotIn("nome_completo", payload)
 
 
 @override_settings(WEBMANIA_AMBIENT="2")

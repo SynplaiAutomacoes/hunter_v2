@@ -90,6 +90,21 @@ def _format_decimal(value: Decimal, *, places: int = 2) -> str:
     return f"{value.quantize(quantizer):f}"
 
 
+def _service_code_digits(value: object) -> str:
+    return "".join(char for char in str(value or "") if char.isdigit())
+
+
+def _format_service_code_for_api(value: object) -> str:
+    digits = _service_code_digits(value)
+    if len(digits) == 4:
+        return f"{digits[:2]}.{digits[2:]}"
+    return str(value or "").strip()
+
+
+def _is_service_code_xx_xx(value: str) -> bool:
+    return len(value) == 5 and value[2] == "." and value.replace(".", "").isdigit()
+
+
 class TaxClassFormBase(forms.Form):
     referencia = forms.CharField(label="Referência", required=False, max_length=30, widget=TextInput())
     descricao = forms.CharField(label="Descrição", required=True, max_length=255, widget=TextInput())
@@ -126,13 +141,6 @@ class TaxClassFormBase(forms.Form):
 class NfeTaxClassForm(TaxClassFormBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if not self.is_bound:
-            self.initial.setdefault("tipo_emissao", "1")
-            self.initial.setdefault("tributacao_iss", "1")
-            self.initial.setdefault("retencao_iss", "1")
-            self.initial.setdefault("cst_pis_cofins", "00")
-            self.initial.setdefault("retencao_pis_cofins", "0")
-
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
@@ -157,17 +165,17 @@ class NfeTaxClassForm(TaxClassFormBase):
 
 class NfseTaxClassForm(TaxClassFormBase):
     codigo_servico = forms.CharField(label="Código do serviço", required=True, widget=TextInput())
-    tipo_emissao = forms.ChoiceField(label="Tipo de emissão", required=True, choices=TIPO_EMISSAO_NFSE_CHOICES, widget=SelectInput(choices=TIPO_EMISSAO_NFSE_CHOICES))
+    tipo_emissao = forms.ChoiceField(label="Tipo de emissão", required=False, choices=TIPO_EMISSAO_NFSE_CHOICES, widget=SelectInput(choices=TIPO_EMISSAO_NFSE_CHOICES))
     codigo_tributacao_municipio = forms.CharField(label="Código tributação município", required=False, widget=TextInput())
-    tributacao_iss = forms.ChoiceField(label="Tributação ISS", required=True, choices=TRIBUTACAO_ISS_CHOICES, widget=SelectInput(choices=TRIBUTACAO_ISS_CHOICES))
+    tributacao_iss = forms.ChoiceField(label="Tributação ISS", required=False, choices=TRIBUTACAO_ISS_CHOICES, widget=SelectInput(choices=TRIBUTACAO_ISS_CHOICES))
     tipo_imunidade = forms.ChoiceField(label="Tipo imunidade", required=False, choices=TIPO_IMUNIDADE_CHOICES, widget=SelectInput(choices=TIPO_IMUNIDADE_CHOICES))
-    retencao_iss = forms.ChoiceField(label="Retenção ISS", required=True, choices=RETENCAO_ISS_NACIONAL_CHOICES, widget=SelectInput(choices=RETENCAO_ISS_NACIONAL_CHOICES))
+    retencao_iss = forms.ChoiceField(label="Retenção ISS", required=False, choices=RETENCAO_ISS_NACIONAL_CHOICES, widget=SelectInput(choices=RETENCAO_ISS_NACIONAL_CHOICES))
     cst_pis_cofins = forms.ChoiceField(label="CST PIS/COFINS", required=False, choices=CST_PIS_COFINS_CHOICES, widget=SelectInput(choices=CST_PIS_COFINS_CHOICES))
     retencao_pis_cofins = forms.ChoiceField(label="Retenção PIS/COFINS", required=False, choices=RETENCAO_PIS_COFINS_CHOICES, widget=SelectInput(choices=RETENCAO_PIS_COFINS_CHOICES))
 
     natureza_operacao = forms.ChoiceField(label="Natureza da operação (ABRASF)", required=False, choices=NATUREZA_OPERACAO_CHOICES, widget=SelectInput(choices=NATUREZA_OPERACAO_CHOICES))
-    exigibilidade_iss = forms.ChoiceField(label="Exigibilidade ISS (ABRASF)", required=False, choices=EXIGIBILIDADE_ISS_CHOICES, widget=SelectInput(choices=EXIGIBILIDADE_ISS_CHOICES))
-    iss_retido = forms.ChoiceField(label="ISS retido (ABRASF)", required=False, choices=ISS_RETIDO_CHOICES, widget=SelectInput(choices=ISS_RETIDO_CHOICES))
+    exigibilidade_iss = forms.ChoiceField(label="Exigibilidade ISS (ABRASF)", required=True, choices=EXIGIBILIDADE_ISS_CHOICES, widget=SelectInput(choices=EXIGIBILIDADE_ISS_CHOICES))
+    iss_retido = forms.ChoiceField(label="ISS retido (ABRASF)", required=True, choices=ISS_RETIDO_CHOICES, widget=SelectInput(choices=ISS_RETIDO_CHOICES))
     responsavel_retencao = forms.ChoiceField(label="Responsável retenção", required=False, choices=RESPONSAVEL_RETENCAO_CHOICES, widget=SelectInput(choices=RESPONSAVEL_RETENCAO_CHOICES))
     codigo_cnae = forms.CharField(label="Código CNAE", required=False, widget=TextInput())
 
@@ -214,7 +222,11 @@ class NfseTaxClassForm(TaxClassFormBase):
             "csll",
         ):
             if field_name in payload and payload.get(field_name) not in (None, ""):
-                initial[field_name] = str(payload.get(field_name))
+                value = payload.get(field_name)
+                if field_name == "codigo_servico":
+                    initial[field_name] = _format_service_code_for_api(value)
+                else:
+                    initial[field_name] = str(value)
 
         ibs_cbs_payload = payload.get("ibs_cbs")
         if isinstance(ibs_cbs_payload, dict):
@@ -243,6 +255,11 @@ class NfseTaxClassForm(TaxClassFormBase):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        if not self.is_bound:
+            self.initial.setdefault("natureza_operacao", "1")
+            self.initial.setdefault("exigibilidade_iss", "1")
+            self.initial.setdefault("iss_retido", "2")
+
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
@@ -316,18 +333,15 @@ class NfseTaxClassForm(TaxClassFormBase):
     def clean(self) -> dict[str, Any]:
         cleaned_data = super().clean() or {}
 
-        codigo_servico = str(cleaned_data.get("codigo_servico") or "")
-        codigo_servico_digits = "".join(char for char in codigo_servico if char.isdigit())
-        if len(codigo_servico_digits) != 6:
-            self.add_error("codigo_servico", "Informe um código de serviço com 6 dígitos para o padrão nacional.")
-        else:
-            cleaned_data["codigo_servico"] = codigo_servico_digits
+        codigo_servico = _format_service_code_for_api(cleaned_data.get("codigo_servico"))
+        if codigo_servico and not _is_service_code_xx_xx(codigo_servico):
+            self.add_error("codigo_servico", "Informe o código do serviço no formato XX.XX.")
+        elif codigo_servico:
+            cleaned_data["codigo_servico"] = codigo_servico
 
         codigo_tributacao = str(cleaned_data.get("codigo_tributacao_municipio") or "")
-        codigo_tributacao_digits = "".join(char for char in codigo_tributacao if char.isdigit())
-        if not codigo_tributacao_digits and len(codigo_servico_digits) == 6:
-            cleaned_data["codigo_tributacao_municipio"] = codigo_servico_digits[:3]
-        elif codigo_tributacao_digits:
+        codigo_tributacao_digits = _service_code_digits(codigo_tributacao)
+        if codigo_tributacao_digits:
             if len(codigo_tributacao_digits) != 3:
                 self.add_error("codigo_tributacao_municipio", "Informe o código de tributação com 3 dígitos.")
             cleaned_data["codigo_tributacao_municipio"] = codigo_tributacao_digits
@@ -393,9 +407,6 @@ class NfseTaxClassForm(TaxClassFormBase):
                 payload.pop(field_name, None)
                 continue
             payload[field_name] = str(value).strip()
-
-        payload.setdefault("cst_pis_cofins", "00")
-        payload.setdefault("retencao_pis_cofins", "0")
 
         for field_name in ("iss", "pis", "cofins", "inss", "ir", "csll"):
             value = self.cleaned_data.get(field_name)

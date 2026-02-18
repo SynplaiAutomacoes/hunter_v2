@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -16,9 +17,18 @@ from apps.finance.models import (
     TaxClassNfse,
     TaxClassSyncState,
 )
-from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers, sanitize_webmania_setting, should_use_global_webmania_auth
+from apps.finance.services.webmania_auth import (
+    WebmaniaAuthError,
+    build_webmania_headers,
+    redact_webmania_headers,
+    sanitize_webmania_setting,
+    should_use_global_webmania_auth,
+)
 from apps.finance.services.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
 from apps.workshops.models.workshops import Workshop
+
+
+logger = logging.getLogger(__name__)
 
 
 class TaxClassServiceError(Exception):
@@ -48,6 +58,21 @@ def _build_headers(*, workshop: Workshop) -> dict[str, str]:
         return build_webmania_headers(workshop=workshop)
     except WebmaniaAuthError as exc:
         raise TaxClassServiceError(str(exc)) from exc
+
+
+def _redact_headers(headers: dict[str, str]) -> dict[str, str]:
+    return redact_webmania_headers(headers)
+
+
+def _remove_authorization_header(*, headers: dict[str, str]) -> dict[str, str]:
+    sanitized_headers = dict(headers)
+    if "Authorization" in sanitized_headers:
+        sanitized_headers.pop("Authorization", None)
+    return sanitized_headers
+
+
+def _build_tax_class_headers(*, workshop: Workshop) -> dict[str, str]:
+    return _remove_authorization_header(headers=_build_headers(workshop=workshop))
 
 
 def _build_endpoint_url() -> str:
@@ -125,6 +150,23 @@ def _normalize_tax_class_payload(payload: dict[str, Any]) -> dict[str, Any]:
         normalized_payload["tipo"] = tax_type
         normalized_payload["type"] = tax_type
 
+    return normalized_payload
+
+
+def _format_nfse_service_code_for_api(value: Any) -> str:
+    raw_value = _clean_string(value)
+    code_digits = _digits_only(raw_value)
+    if len(code_digits) == 4:
+        return f"{code_digits[:2]}.{code_digits[2:]}"
+    return raw_value
+
+
+def _normalize_payload_for_api(payload: dict[str, Any]) -> dict[str, Any]:
+    normalized_payload = dict(payload)
+    if _looks_like_nfse(normalized_payload):
+        service_code = normalized_payload.get("codigo_servico")
+        if service_code not in (None, ""):
+            normalized_payload["codigo_servico"] = _format_nfse_service_code_for_api(service_code)
     return normalized_payload
 
 
@@ -484,8 +526,8 @@ def _upsert_local_nfse_tax_class(*, workshop: Workshop, payload: dict[str, Any])
             "informacoes_fisco": _clean_string(payload.get("informacoes_fisco")),
             "informacoes_complementares": _clean_string(payload.get("informacoes_complementares")),
             "tipo_emissao": _clean_string(payload.get("tipo_emissao")),
-            "codigo_servico": _digits_only(payload.get("codigo_servico")) or _clean_string(payload.get("codigo_servico")),
-            "codigo_tributacao_municipio": _digits_only(payload.get("codigo_tributacao_municipio")) or _clean_string(payload.get("codigo_tributacao_municipio")),
+            "codigo_servico": _format_nfse_service_code_for_api(payload.get("codigo_servico")),
+            "codigo_tributacao_municipio": _clean_string(payload.get("codigo_tributacao_municipio")),
             "tributacao_iss": _clean_string(payload.get("tributacao_iss")),
             "tipo_imunidade": _clean_string(payload.get("tipo_imunidade")),
             "retencao_iss": _clean_string(payload.get("retencao_iss") or payload.get("iss_retido")),
@@ -543,10 +585,13 @@ def _list_local_tax_classes(*, workshop: Workshop) -> list[dict[str, Any]]:
 
 def _list_tax_classes_remote(*, workshop: Workshop) -> list[dict[str, Any]]:
     endpoint = _build_endpoint_url()
+    headers = _build_tax_class_headers(workshop=workshop)
+
     _debug_print("GET endpoint", endpoint)
+    _debug_print("GET headers", _redact_headers(headers))
 
     try:
-        response = requests.get(endpoint, headers=_build_headers(workshop=workshop), timeout=30)
+        response = requests.get(endpoint, headers=headers, timeout=30)
         _debug_print("GET status", response.status_code)
         _debug_print("GET body", response.text)
         response.raise_for_status()
@@ -597,13 +642,16 @@ def save_tax_class(*, workshop: Workshop, payload: dict[str, Any]) -> dict[str, 
     if not payload:
         raise TaxClassServiceError("Informe o payload da classe de imposto.")
 
+    normalized_payload = _normalize_payload_for_api(payload)
     endpoint = _build_endpoint_url()
+    headers = _build_tax_class_headers(workshop=workshop)
 
     try:
-        response = requests.post(endpoint, json=payload, headers=_build_headers(workshop=workshop), timeout=30)
+        response = requests.post(endpoint, json=normalized_payload, headers=headers, timeout=30)
         response.raise_for_status()
     except requests.RequestException as exc:
         message = _request_exception_message(exc, default="Falha ao salvar classe de imposto")
+        logger.exception("Erro ao salvar classe de imposto", extra={"workshop_id": getattr(workshop, "pk", None)})
         raise TaxClassServiceError(message) from exc
 
     data = _parse_json_response(response)
@@ -614,7 +662,7 @@ def save_tax_class(*, workshop: Workshop, payload: dict[str, Any]) -> dict[str, 
     if error_message:
         raise TaxClassServiceError(error_message)
 
-    merged_payload = _merge_tax_class_payloads(sent_payload=payload, response_payload=data)
+    merged_payload = _merge_tax_class_payloads(sent_payload=normalized_payload, response_payload=data)
     saved_payload = _upsert_local_tax_class(workshop=workshop, payload=merged_payload)
     _mark_initial_sync_done(workshop=workshop)
     return saved_payload
@@ -635,12 +683,21 @@ def delete_tax_class(*, workshop: Workshop, reference: str | list[str]) -> list[
         references_to_delete = references
 
     endpoint = _build_endpoint_url()
+    headers = _build_tax_class_headers(workshop=workshop)
+    delete_payload = {"referencia": payload_reference}
+
+    _debug_print("DELETE endpoint", endpoint)
+    _debug_print("DELETE headers", _redact_headers(headers))
+    _debug_print("DELETE payload", delete_payload)
 
     try:
-        response = requests.delete(endpoint, json={"referencia": payload_reference}, headers=_build_headers(workshop=workshop), timeout=30)
+        response = requests.delete(endpoint, json=delete_payload, headers=headers, timeout=30)
+        _debug_print("DELETE status", response.status_code)
+        _debug_print("DELETE body", response.text)
         response.raise_for_status()
     except requests.RequestException as exc:
         message = _request_exception_message(exc, default="Falha ao excluir classe de imposto")
+        _debug_print("DELETE request exception", message)
         raise TaxClassServiceError(message) from exc
 
     data = _parse_json_response(response)

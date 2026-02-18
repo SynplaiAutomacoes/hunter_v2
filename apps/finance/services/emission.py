@@ -106,9 +106,13 @@ def _build_taker_payload(nfse_request: NfseRequest) -> dict[str, str]:
             "nome_completo": customer.name,
         }
     if len(document) == 14:
+        razao_social = (customer.name or "").strip()
+        if not razao_social:
+            raise NfseEmissionError("Razão social do cliente é obrigatória para emissão da NFS-e com CNPJ.")
+
         return {
             "cnpj": customer.cpf_or_cnpj,
-            "nome_completo": customer.name,
+            "razao_social": razao_social,
         }
 
     raise NfseEmissionError("Documento do cliente inválido para emissão da NFS-e.")
@@ -162,6 +166,23 @@ def build_nfse_payload(*, nfse_request: NfseRequest, request=None) -> dict[str, 
             }
         ],
     }
+
+    first_rps = payload["rps"][0]
+    taker_payload = first_rps.get("tomador") if isinstance(first_rps, dict) else {}
+    taker_type = "pj" if isinstance(taker_payload, dict) and taker_payload.get("cnpj") else "pf"
+
+    _debug_print(
+        "Payload de emissao montado",
+        {
+            "nfse_request_id": nfse_request.pk,
+            "workorder_id": nfse_request.workorder.pk,
+            "ambiente": ambiente,
+            "tax_class": nfse_request.tax_class,
+            "taker_type": taker_type,
+            "notification_url": notification_url,
+        },
+    )
+
     return payload
 
 
@@ -219,6 +240,16 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request=None) -> dict[str, A
             message = "Resposta da API sem modelo/uuid."
         _debug_print("Resposta sem dados esperados de emissao", data)
         raise NfseEmissionError(message)
+
+    _debug_print(
+        "Emissao de NFS-e aceita",
+        {
+            "modelo": data.get("modelo"),
+            "status": data.get("status"),
+            "uuid": data.get("uuid"),
+            "motivo": data.get("motivo"),
+        },
+    )
 
     return data
 
