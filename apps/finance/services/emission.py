@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 import logging
 import re
@@ -92,6 +93,188 @@ def _build_headers(*, workshop=None) -> dict[str, str]:
 def _build_emit_url() -> str:
     base_url = sanitize_webmania_setting(getattr(settings, "WEBMANIA_BASE_URL", "https://api.webmania.com.br/2/")).rstrip("/")
     return f"{base_url}/nfse/emissao/"
+
+
+def _build_tax_class_url() -> str:
+    custom_endpoint = sanitize_webmania_setting(getattr(settings, "WEBMANIA_TAX_CLASS_ENDPOINT", ""))
+    if custom_endpoint:
+        endpoint = custom_endpoint.rstrip("/")
+        return f"{endpoint}/"
+
+    base_url = sanitize_webmania_setting(getattr(settings, "WEBMANIA_TAX_CLASS_BASE_URL", "https://webmania.com.br/api")).rstrip("/")
+    return f"{base_url}/1/nfe/classe-imposto/"
+
+
+def _has_payload_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (dict, list, tuple, set)):
+        return bool(value)
+    return True
+
+
+def _is_tax_class_not_found_error(message: str) -> bool:
+    normalized_message = (message or "").strip().lower()
+    if "classe de imposto" not in normalized_message:
+        return False
+    return "nao encontrada" in normalized_message or "não encontrada" in normalized_message
+
+
+def _is_nfse_tax_class(payload: dict[str, Any]) -> bool:
+    tax_type = str(payload.get("tipo") or payload.get("type") or "").strip().lower()
+    if tax_type in {"nfse", "nfs-e", "nsfe"}:
+        return True
+
+    return bool(str(payload.get("tipo_emissao") or "").strip()) and bool(str(payload.get("codigo_servico") or "").strip())
+
+
+def _validate_tax_class_for_emission(*, nfse_request: NfseRequest, headers: dict[str, str]) -> dict[str, Any]:
+    reference = str(nfse_request.tax_class or "").strip()
+    if not reference:
+        raise NfseEmissionError("Selecione uma classe de imposto para emitir a NFS-e.")
+
+    endpoint = _build_tax_class_url()
+    _debug_print("Validando classe de imposto para emissao", {"reference": reference, "endpoint": endpoint})
+
+    try:
+        response = requests.get(endpoint, headers=headers, timeout=30)
+        _debug_print("Status HTTP da validacao de classe", response.status_code)
+        _debug_print("Body bruto da validacao de classe", response.text)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        message = build_webmania_request_exception_message(exc, default="Falha ao validar classe de imposto para emissão", scope="tax_class")
+        _debug_print("Falha HTTP na validacao de classe", message)
+        raise NfseEmissionError(message) from exc
+
+    try:
+        data = response.json()
+    except ValueError as exc:
+        _debug_print("Resposta da validacao de classe nao e JSON", response.text)
+        raise NfseEmissionError("Resposta inválida da API ao validar classe de imposto.") from exc
+
+    _debug_print("JSON parseado da validacao de classe", data)
+    if not isinstance(data, list):
+        if isinstance(data, dict):
+            error_message = extract_webmania_error_message(data.get("error") or data.get("message") or data.get("msg"), scope="tax_class")
+            if error_message:
+                raise NfseEmissionError(error_message)
+        raise NfseEmissionError("Resposta inválida da API ao validar classe de imposto.")
+
+    matched_tax_class: dict[str, Any] | None = None
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        candidate_reference = str(item.get("referencia") or "").strip()
+        if candidate_reference == reference:
+            matched_tax_class = item
+            break
+
+    if not matched_tax_class:
+        raise NfseEmissionError("A classe de imposto selecionada não está disponível para estas credenciais da Webmania. Atualize as classes e selecione uma referência válida.")
+
+    if not _is_nfse_tax_class(matched_tax_class):
+        raise NfseEmissionError("A classe de imposto selecionada não é do tipo NFS-e.")
+
+    _debug_print(
+        "Classe de imposto validada para emissao",
+        {
+            "reference": reference,
+            "tipo": matched_tax_class.get("tipo") or matched_tax_class.get("type"),
+            "status": matched_tax_class.get("status"),
+        },
+    )
+    return matched_tax_class
+
+
+def _build_fallback_payload_with_explicit_tax_data(*, payload: dict[str, Any], tax_class_payload: dict[str, Any]) -> dict[str, Any]:
+    fallback_payload = deepcopy(payload)
+
+    rps = fallback_payload.get("rps")
+    if not isinstance(rps, list) or not rps:
+        return fallback_payload
+    first_rps = rps[0]
+    if not isinstance(first_rps, dict):
+        return fallback_payload
+
+    service_payload = first_rps.get("servico")
+    if not isinstance(service_payload, dict):
+        service_payload = {}
+        first_rps["servico"] = service_payload
+
+    service_payload.pop("classe_imposto", None)
+
+    service_fields = (
+        "codigo_servico",
+        "natureza_operacao",
+        "iss_retido",
+        "exigibilidade_iss",
+        "tributacao_iss",
+        "tipo_emissao",
+        "codigo_tributacao_municipio",
+        "tipo_imunidade",
+        "responsavel_retencao",
+        "codigo_cnae",
+        "finalidade",
+        "consumidor_final",
+        "cod_indicador_operacao",
+        "codigo_nbs",
+        "cidade_local_prestacao",
+        "uf_local_prestacao",
+        "numero_processo",
+        "deducoes",
+        "desconto_incondicionado",
+        "desconto_condicionado",
+        "outras_retencoes",
+    )
+    for field_name in service_fields:
+        if _has_payload_value(service_payload.get(field_name)):
+            continue
+        value = tax_class_payload.get(field_name)
+        if _has_payload_value(value):
+            service_payload[field_name] = value
+
+    if not _has_payload_value(service_payload.get("iss_retido")):
+        legacy_retencao_iss = tax_class_payload.get("retencao_iss")
+        if _has_payload_value(legacy_retencao_iss):
+            service_payload["iss_retido"] = legacy_retencao_iss
+
+    impostos_payload_raw = service_payload.get("impostos")
+    impostos_payload = dict(impostos_payload_raw) if isinstance(impostos_payload_raw, dict) else {}
+
+    class_impostos_raw = tax_class_payload.get("impostos")
+    class_impostos_payload = dict(class_impostos_raw) if isinstance(class_impostos_raw, dict) else {}
+    for field_name, value in class_impostos_payload.items():
+        if _has_payload_value(impostos_payload.get(field_name)):
+            continue
+        if _has_payload_value(value):
+            impostos_payload[field_name] = value
+
+    tax_fields = (
+        "iss",
+        "iss_simples_nacional",
+        "reducao",
+        "cst_pis_cofins",
+        "pis",
+        "cofins",
+        "inss",
+        "ir",
+        "csll",
+        "cp",
+        "ibs_cbs",
+    )
+    for field_name in tax_fields:
+        if _has_payload_value(impostos_payload.get(field_name)):
+            continue
+        value = tax_class_payload.get(field_name)
+        if _has_payload_value(value):
+            impostos_payload[field_name] = value
+
+    if impostos_payload:
+        service_payload["impostos"] = impostos_payload
+
+    return fallback_payload
 
 
 def _build_taker_payload(nfse_request: NfseRequest) -> dict[str, str]:
@@ -191,6 +374,8 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request=None) -> dict[str, A
     emit_url = _build_emit_url()
     headers = _build_headers(workshop=nfse_request.workshop)
 
+    tax_class_payload = _validate_tax_class_for_emission(nfse_request=nfse_request, headers=headers)
+
     _debug_print(
         "Iniciando emissao de NFS-e",
         {
@@ -229,9 +414,65 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request=None) -> dict[str, A
     if not isinstance(data, dict):
         raise NfseEmissionError("Resposta inválida da API de emissão de NFS-e.")
 
-    error_message = extract_webmania_error_message(data.get("error"), scope="nfse")
+    error_message = extract_webmania_error_message(data.get("error") or data.get("msg") or data.get("message"), scope="nfse")
     if error_message:
         _debug_print("Erro de negocio retornado pela API", error_message)
+
+        if _is_tax_class_not_found_error(error_message):
+            fallback_payload = _build_fallback_payload_with_explicit_tax_data(payload=payload, tax_class_payload=tax_class_payload)
+            _debug_print("Tentando emissao com impostos explicitos", fallback_payload)
+
+            try:
+                fallback_response = requests.post(
+                    emit_url,
+                    json=fallback_payload,
+                    headers=headers,
+                    timeout=30,
+                )
+                _debug_print("Status HTTP da emissao com impostos explicitos", fallback_response.status_code)
+                _debug_print("Body bruto da emissao com impostos explicitos", fallback_response.text)
+                fallback_response.raise_for_status()
+            except requests.RequestException as exc:
+                fallback_error_message = build_webmania_request_exception_message(exc, default="Falha ao emitir NFS-e", scope="nfse")
+                _debug_print("Falha HTTP na emissao com impostos explicitos", fallback_error_message)
+                raise NfseEmissionError(fallback_error_message) from exc
+
+            try:
+                fallback_data = fallback_response.json()
+            except ValueError as exc:
+                _debug_print("Resposta da emissao com impostos explicitos nao e JSON", fallback_response.text)
+                raise NfseEmissionError("Resposta inválida da API de emissão de NFS-e.") from exc
+
+            _debug_print("JSON parseado da emissao com impostos explicitos", fallback_data)
+            if not isinstance(fallback_data, dict):
+                raise NfseEmissionError("Resposta inválida da API de emissão de NFS-e.")
+
+            fallback_business_error = extract_webmania_error_message(
+                fallback_data.get("error") or fallback_data.get("msg") or fallback_data.get("message"),
+                scope="nfse",
+            )
+            if fallback_business_error:
+                _debug_print("Erro de negocio na emissao com impostos explicitos", fallback_business_error)
+                raise NfseEmissionError(fallback_business_error)
+
+            if not fallback_data.get("modelo") and not fallback_data.get("uuid"):
+                fallback_message = extract_webmania_error_message(fallback_data.get("msg") or fallback_data.get("message"), scope="nfse")
+                if not fallback_message:
+                    fallback_message = "Resposta da API sem modelo/uuid."
+                _debug_print("Resposta sem dados esperados na emissao com impostos explicitos", fallback_data)
+                raise NfseEmissionError(fallback_message)
+
+            _debug_print(
+                "Emissao de NFS-e aceita com impostos explicitos",
+                {
+                    "modelo": fallback_data.get("modelo"),
+                    "status": fallback_data.get("status"),
+                    "uuid": fallback_data.get("uuid"),
+                    "motivo": fallback_data.get("motivo"),
+                },
+            )
+            return fallback_data
+
         raise NfseEmissionError(error_message)
 
     if not data.get("modelo") and not data.get("uuid"):

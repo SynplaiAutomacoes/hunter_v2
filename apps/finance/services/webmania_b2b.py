@@ -6,6 +6,7 @@ import requests
 from django.conf import settings
 from django.utils import timezone
 
+from apps.collaborators.models import WorkshopMember
 from apps.finance.models import WebmaniaCompany, WebmaniaCompanyTaxType
 from apps.finance.services.webmania_auth import (
     WebmaniaAuthError,
@@ -16,7 +17,9 @@ from apps.finance.services.webmania_auth import (
 )
 from apps.finance.services.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
 from apps.finance.services.webmania_secrets import encrypt_secret
+from apps.iam.utils import get_or_create_director_role
 from apps.workshops.models.workshops import Workshop
+from apps.workshops.util.monthly_costs import create_default_monthly_costs
 
 
 class WebmaniaB2BServiceError(Exception):
@@ -94,6 +97,101 @@ def _build_company_headers(company: WebmaniaCompany) -> dict[str, str]:
 
 def _clean_string(value: object) -> str:
     return str(value or "").strip()
+
+
+def _only_digits(value: object) -> str:
+    return "".join(char for char in str(value or "") if char.isdigit())
+
+
+def _format_cnpj_for_workshop(value: object) -> str:
+    digits = _only_digits(value)
+    if len(digits) != 14:
+        return ""
+    return f"{digits[:2]}.{digits[2:5]}.{digits[5:8]}/{digits[8:12]}-{digits[12:]}"
+
+
+def _normalize_workshop_uf(value: object) -> str:
+    raw_uf = _clean_string(value).upper()
+    if len(raw_uf) == 2 and raw_uf.isalpha():
+        return raw_uf
+    return "SP"
+
+
+def _normalize_workshop_phone(value: object) -> str:
+    raw_phone = _clean_string(value)
+    if raw_phone:
+        return raw_phone
+    return "+5511999999999"
+
+
+def _build_workshop_name(payload: dict[str, Any]) -> str:
+    return _clean_string(payload.get("razao_social")) or _clean_string(payload.get("nome_fantasia")) or _clean_string(payload.get("nome_completo")) or f"Oficina Webmania {(_clean_string(payload.get('id')) or '-')}"
+
+
+def _build_workshop_address(payload: dict[str, Any]) -> str:
+    address = _clean_string(payload.get("endereco"))
+    number = _clean_string(payload.get("numero"))
+    complement = _clean_string(payload.get("complemento"))
+
+    if not address:
+        return "Endereco nao informado"
+
+    parts = [address]
+    if number:
+        parts.append(number)
+    if complement:
+        parts.append(complement)
+    return ", ".join(parts)
+
+
+def _ensure_workshop_for_company_payload(*, payload: dict[str, Any], base_workshop: Workshop, actor_user: Any | None = None) -> Workshop | None:
+    account = getattr(base_workshop, "account", None)
+    account_id = getattr(base_workshop, "account_id", None)
+    if account is None or account_id is None:
+        return None
+
+    workshop_cnpj = _format_cnpj_for_workshop(payload.get("cnpj"))
+    if not workshop_cnpj:
+        return None
+
+    workshop = Workshop.objects.filter(cnpj=workshop_cnpj).first()
+    if workshop is not None and workshop.account_id != account_id:
+        return None
+
+    if workshop is None:
+        workshop = Workshop.objects.create(
+            account=account,
+            name=_build_workshop_name(payload),
+            cnpj=workshop_cnpj,
+            phone=_normalize_workshop_phone(payload.get("telefone")),
+            address=_build_workshop_address(payload),
+            uf=_normalize_workshop_uf(payload.get("estado") or payload.get("uf")),
+            is_active=True,
+        )
+        create_default_monthly_costs(workshop=workshop)
+
+    if actor_user is not None:
+        director_role = get_or_create_director_role(account=account)
+        member, _ = WorkshopMember.objects.get_or_create(
+            user=actor_user,
+            workshop=workshop,
+            defaults={
+                "role": director_role,
+                "is_active": True,
+            },
+        )
+
+        update_member_fields: list[str] = []
+        if not member.is_active:
+            member.is_active = True
+            update_member_fields.append("is_active")
+        if member.role is None:
+            member.role = director_role
+            update_member_fields.append("role")
+        if update_member_fields:
+            member.save(update_fields=update_member_fields)
+
+    return workshop
 
 
 def _normalize_tax_type(value: object) -> str:
@@ -195,11 +293,11 @@ def create_b2b_companies(*, quantity: int, workshop: Workshop | None = None, for
     return companies
 
 
-def list_b2b_companies(*, workshop: Workshop | None = None) -> list[dict[str, Any]]:
+def list_b2b_companies(*, workshop: Workshop | None = None, force_global_auth: bool = False) -> list[dict[str, Any]]:
     url = _build_companies_url()
 
     try:
-        response = requests.get(url, headers=_build_headers(workshop=workshop), timeout=30)
+        response = requests.get(url, headers=_build_headers(workshop=workshop, force_global=force_global_auth), timeout=30)
         response.raise_for_status()
     except requests.RequestException as exc:
         message = _request_exception_message(exc, default="Falha ao listar empresas na Webmania")
@@ -216,19 +314,37 @@ def list_b2b_companies(*, workshop: Workshop | None = None) -> list[dict[str, An
     return [item for item in data if isinstance(item, dict)]
 
 
-def sync_b2b_companies_to_database(*, workshop: Workshop | None = None) -> list[WebmaniaCompany]:
-    companies_payload = list_b2b_companies(workshop=workshop)
-    upsert_workshop = None if should_use_global_webmania_auth() else workshop
+def sync_b2b_companies_to_database(*, workshop: Workshop | None = None, actor_user: Any | None = None, force_global_auth: bool = False) -> list[WebmaniaCompany]:
+    companies_payload = list_b2b_companies(workshop=workshop, force_global_auth=force_global_auth)
+    remote_company_ids = {_clean_string(item.get("id")) for item in companies_payload if _clean_string(item.get("id"))}
+
     synced_companies: list[WebmaniaCompany] = []
     for payload in companies_payload:
-        company = _upsert_company_from_payload(payload=payload, workshop=upsert_workshop)
+        linked_workshop: Workshop | None = None
+        if workshop is not None:
+            linked_workshop = _ensure_workshop_for_company_payload(payload=payload, base_workshop=workshop, actor_user=actor_user)
+
+        company = _upsert_company_from_payload(payload=payload, workshop=linked_workshop)
         if company is not None:
             synced_companies.append(company)
+
+    account_id = getattr(workshop, "account_id", None)
+    if account_id is not None:
+        stale_companies = WebmaniaCompany.objects.filter(workshop__account_id=account_id).exclude(webmania_company_id="")
+        if remote_company_ids:
+            stale_companies = stale_companies.exclude(webmania_company_id__in=remote_company_ids)
+        stale_companies.delete()
+
     return synced_companies
 
 
-def list_local_b2b_companies() -> list[WebmaniaCompany]:
-    queryset = WebmaniaCompany.objects.exclude(webmania_company_id="").order_by("razao_social", "nome_completo", "webmania_company_id")
+def list_local_b2b_companies(*, workshop: Workshop | None = None) -> list[WebmaniaCompany]:
+    queryset = WebmaniaCompany.objects.exclude(webmania_company_id="")
+    account_id = getattr(workshop, "account_id", None)
+    if account_id is not None:
+        queryset = queryset.filter(workshop__account_id=account_id)
+
+    queryset = queryset.order_by("razao_social", "nome_completo", "webmania_company_id")
     return list(queryset)
 
 

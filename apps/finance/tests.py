@@ -12,7 +12,7 @@ from apps.accounts.models import Account, User
 from apps.collaborators.models import WorkshopMember
 from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm
 from apps.finance.models import TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassSyncState, WebmaniaCompany
-from apps.finance.services.emission import _build_taker_payload, build_webmania_webhook_token
+from apps.finance.services.emission import NfseEmissionError, _build_taker_payload, build_webmania_webhook_token, emit_nfse_request
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
 from apps.finance.services.webmania_b2b import (
     WebmaniaB2BServiceError,
@@ -160,6 +160,41 @@ class TaxClassServiceTests(TestCase):
         self.assertTrue(TaxClassSyncState.objects.filter(workshop=workshop, synced_once=True).exists())
         self.assertEqual(get_mock.call_count, 1)
 
+    def test_list_tax_classes_force_refresh_replaces_stale_local_cache(self) -> None:
+        workshop = create_workshop()
+        TaxClassNfse.objects.create(
+            workshop=workshop,
+            reference="REFOLD001",
+            description="Classe antiga",
+            status="ativo",
+            remote_date="2026-02-17",
+            codigo_servico="01.05",
+        )
+
+        remote_payload = [
+            {
+                "referencia": "REFNEW001",
+                "descricao": "Classe nova",
+                "tipo": "nfse",
+                "status": "ativo",
+                "data": "2026-02-18",
+                "codigo_servico": "14.01",
+            }
+        ]
+
+        with (
+            patch("apps.finance.services.tax_classes._build_headers", return_value={}),
+            patch("apps.finance.services.tax_classes.requests.get", return_value=_mock_response(remote_payload)) as get_mock,
+        ):
+            result = list_tax_classes(workshop=workshop, force_refresh=True)
+
+        references = {str(item.get("referencia")) for item in result}
+        self.assertIn("REFNEW001", references)
+        self.assertNotIn("REFOLD001", references)
+        self.assertFalse(TaxClassNfse.objects.filter(workshop=workshop, reference="REFOLD001").exists())
+        self.assertTrue(TaxClassNfse.objects.filter(workshop=workshop, reference="REFNEW001").exists())
+        self.assertEqual(get_mock.call_count, 1)
+
     def test_list_tax_classes_surfaces_api_error_message_without_endpoint(self) -> None:
         workshop = create_workshop()
         response_payload = {"error": "Obrigatório configurar empresa antes de prosseguir. Endpoint: api/1/nfe/classe-imposto"}
@@ -174,7 +209,7 @@ class TaxClassServiceTests(TestCase):
             ):
                 list_tax_classes(workshop=workshop)
 
-    def test_list_tax_classes_does_not_send_authorization_header(self) -> None:
+    def test_list_tax_classes_keeps_authorization_header_when_provided(self) -> None:
         workshop = create_workshop()
         response_payload: list[dict[str, str]] = []
 
@@ -195,13 +230,13 @@ class TaxClassServiceTests(TestCase):
             list_tax_classes(workshop=workshop)
 
         sent_headers = get_mock.call_args.kwargs.get("headers", {})
-        self.assertNotIn("Authorization", sent_headers)
+        self.assertEqual(sent_headers.get("Authorization"), "Bearer should-not-be-sent")
         self.assertEqual(sent_headers.get("X-Consumer-Key"), "consumer-key")
         self.assertEqual(sent_headers.get("X-Consumer-Secret"), "consumer-secret")
         self.assertEqual(sent_headers.get("X-Access-Token"), "access-token")
         self.assertEqual(sent_headers.get("X-Access-Token-Secret"), "access-token-secret")
 
-    def test_save_tax_class_does_not_send_authorization_header(self) -> None:
+    def test_save_tax_class_keeps_authorization_header_when_provided(self) -> None:
         workshop = create_workshop()
         payload = {
             "descricao": "Classe NFE",
@@ -231,13 +266,13 @@ class TaxClassServiceTests(TestCase):
             save_tax_class(workshop=workshop, payload=payload)
 
         sent_headers = post_mock.call_args.kwargs.get("headers", {})
-        self.assertNotIn("Authorization", sent_headers)
+        self.assertEqual(sent_headers.get("Authorization"), "Bearer should-not-be-sent")
         self.assertEqual(sent_headers.get("X-Consumer-Key"), "consumer-key")
         self.assertEqual(sent_headers.get("X-Consumer-Secret"), "consumer-secret")
         self.assertEqual(sent_headers.get("X-Access-Token"), "access-token")
         self.assertEqual(sent_headers.get("X-Access-Token-Secret"), "access-token-secret")
 
-    def test_delete_tax_class_does_not_send_authorization_header(self) -> None:
+    def test_delete_tax_class_keeps_authorization_header_when_provided(self) -> None:
         workshop = create_workshop()
 
         TaxClassNfe.objects.create(
@@ -264,7 +299,7 @@ class TaxClassServiceTests(TestCase):
             delete_tax_class(workshop=workshop, reference="REFAUTHDEL")
 
         sent_headers = delete_mock.call_args.kwargs.get("headers", {})
-        self.assertNotIn("Authorization", sent_headers)
+        self.assertEqual(sent_headers.get("Authorization"), "Bearer should-not-be-sent")
         self.assertEqual(sent_headers.get("X-Consumer-Key"), "consumer-key")
         self.assertEqual(sent_headers.get("X-Consumer-Secret"), "consumer-secret")
         self.assertEqual(sent_headers.get("X-Access-Token"), "access-token")
@@ -457,6 +492,248 @@ class NfseEmissionPayloadTests(TestCase):
         self.assertNotIn("nome_completo", payload)
 
 
+class NfseEmissionServiceTests(TestCase):
+    def test_emit_nfse_validates_tax_class_reference_before_emission(self) -> None:
+        nfse_request = SimpleNamespace(
+            pk=2,
+            workshop=SimpleNamespace(pk=1),
+            workorder=SimpleNamespace(pk=10),
+            tax_class="REF999999",
+        )
+        payload = {
+            "ambiente": 2,
+            "rps": [
+                {
+                    "servico": {
+                        "classe_imposto": "REF999999",
+                    }
+                }
+            ],
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "X-Consumer-Key": "consumer-key",
+            "X-Consumer-Secret": "consumer-secret",
+            "X-Access-Token": "access-token",
+            "X-Access-Token-Secret": "access-token-secret",
+            "Authorization": "Bearer bearer-token",
+        }
+
+        tax_class_response = _mock_response(
+            [
+                {
+                    "referencia": "REF999999",
+                    "tipo": "nfse",
+                    "status": "ativo",
+                }
+            ]
+        )
+        emission_response = _mock_response({"modelo": "nfse", "status": "processando", "uuid": "uuid-123"})
+
+        with (
+            patch("apps.finance.services.emission.build_nfse_payload", return_value=payload),
+            patch("apps.finance.services.emission._build_tax_class_url", return_value="https://webmania.com.br/api/1/nfe/classe-imposto/"),
+            patch("apps.finance.services.emission._build_emit_url", return_value="https://api.webmania.com.br/2/nfse/emissao/"),
+            patch("apps.finance.services.emission._build_headers", return_value=headers),
+            patch("apps.finance.services.emission.requests.get", return_value=tax_class_response) as get_mock,
+            patch("apps.finance.services.emission.requests.post", return_value=emission_response) as post_mock,
+        ):
+            response_payload = emit_nfse_request(nfse_request=nfse_request)  # type: ignore[arg-type]
+
+        self.assertEqual(response_payload.get("uuid"), "uuid-123")
+        self.assertEqual(get_mock.call_count, 1)
+        self.assertEqual(post_mock.call_count, 1)
+        self.assertEqual(post_mock.call_args.kwargs.get("headers", {}).get("Authorization"), "Bearer bearer-token")
+
+    def test_emit_nfse_retries_with_explicit_tax_data_when_class_reference_not_found(self) -> None:
+        nfse_request = SimpleNamespace(
+            pk=2,
+            workshop=SimpleNamespace(pk=1),
+            workorder=SimpleNamespace(pk=10),
+            tax_class="REF411894131",
+        )
+        payload = {
+            "ambiente": 2,
+            "rps": [
+                {
+                    "servico": {
+                        "valor_servicos": "435.43",
+                        "discriminacao": "Emissão de teste",
+                        "classe_imposto": "REF411894131",
+                    },
+                    "tomador": {
+                        "cpf": "52369654031",
+                        "nome_completo": "Rogério",
+                    },
+                }
+            ],
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "X-Consumer-Key": "consumer-key",
+            "X-Consumer-Secret": "consumer-secret",
+            "X-Access-Token": "access-token",
+            "X-Access-Token-Secret": "access-token-secret",
+            "Authorization": "Bearer bearer-token",
+        }
+
+        tax_class_response = _mock_response(
+            [
+                {
+                    "referencia": "REF411894131",
+                    "tipo": "nfse",
+                    "status": "ativo",
+                    "codigo_servico": "01.03",
+                    "natureza_operacao": "1",
+                    "exigibilidade_iss": "1",
+                    "iss_retido": "2",
+                    "cst_pis_cofins": "00",
+                }
+            ]
+        )
+        first_emission_response = _mock_response({"error": "RPS[0] Classe de imposto não encontrada: REF411894131"})
+        second_emission_response = _mock_response({"modelo": "nfse", "status": "processando", "uuid": "uuid-fallback"})
+
+        with (
+            patch("apps.finance.services.emission.build_nfse_payload", return_value=payload),
+            patch("apps.finance.services.emission._build_tax_class_url", return_value="https://webmania.com.br/api/1/nfe/classe-imposto/"),
+            patch("apps.finance.services.emission._build_emit_url", return_value="https://api.webmania.com.br/2/nfse/emissao/"),
+            patch("apps.finance.services.emission._build_headers", return_value=headers),
+            patch("apps.finance.services.emission.requests.get", return_value=tax_class_response),
+            patch("apps.finance.services.emission.requests.post", side_effect=[first_emission_response, second_emission_response]) as post_mock,
+        ):
+            response_payload = emit_nfse_request(nfse_request=nfse_request)  # type: ignore[arg-type]
+
+        self.assertEqual(response_payload.get("uuid"), "uuid-fallback")
+        self.assertEqual(post_mock.call_count, 2)
+
+        first_payload = post_mock.call_args_list[0].kwargs.get("json", {})
+        second_payload = post_mock.call_args_list[1].kwargs.get("json", {})
+
+        first_service = first_payload.get("rps", [{}])[0].get("servico", {})
+        second_service = second_payload.get("rps", [{}])[0].get("servico", {})
+
+        self.assertEqual(first_service.get("classe_imposto"), "REF411894131")
+        self.assertNotIn("classe_imposto", second_service)
+        self.assertEqual(second_service.get("codigo_servico"), "01.03")
+        self.assertEqual(second_service.get("natureza_operacao"), "1")
+        self.assertEqual(second_service.get("iss_retido"), "2")
+        self.assertEqual(second_service.get("exigibilidade_iss"), "1")
+        self.assertEqual(second_service.get("impostos", {}).get("cst_pis_cofins"), "00")
+
+    def test_emit_nfse_returns_fallback_business_error_when_retry_with_explicit_tax_data_fails(self) -> None:
+        nfse_request = SimpleNamespace(
+            pk=2,
+            workshop=SimpleNamespace(pk=1),
+            workorder=SimpleNamespace(pk=10),
+            tax_class="REF411894131",
+        )
+        payload = {
+            "ambiente": 2,
+            "rps": [
+                {
+                    "servico": {
+                        "valor_servicos": "435.43",
+                        "discriminacao": "Emissão de teste",
+                        "classe_imposto": "REF411894131",
+                    },
+                    "tomador": {
+                        "cpf": "52369654031",
+                        "nome_completo": "Rogério",
+                    },
+                }
+            ],
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "X-Consumer-Key": "consumer-key",
+            "X-Consumer-Secret": "consumer-secret",
+            "X-Access-Token": "access-token",
+            "X-Access-Token-Secret": "access-token-secret",
+            "Authorization": "Bearer bearer-token",
+        }
+
+        tax_class_response = _mock_response(
+            [
+                {
+                    "referencia": "REF411894131",
+                    "tipo": "nfse",
+                    "status": "ativo",
+                    "codigo_servico": "01.03",
+                    "natureza_operacao": "1",
+                    "iss_retido": "2",
+                }
+            ]
+        )
+        first_emission_response = _mock_response({"error": "RPS[0] Classe de imposto não encontrada: REF411894131"})
+        second_emission_response = _mock_response({"error": "RPS[0] Campo servico.codigo_servico inválido."})
+
+        with (
+            patch("apps.finance.services.emission.build_nfse_payload", return_value=payload),
+            patch("apps.finance.services.emission._build_tax_class_url", return_value="https://webmania.com.br/api/1/nfe/classe-imposto/"),
+            patch("apps.finance.services.emission._build_emit_url", return_value="https://api.webmania.com.br/2/nfse/emissao/"),
+            patch("apps.finance.services.emission._build_headers", return_value=headers),
+            patch("apps.finance.services.emission.requests.get", return_value=tax_class_response),
+            patch("apps.finance.services.emission.requests.post", side_effect=[first_emission_response, second_emission_response]) as post_mock,
+        ):
+            with self.assertRaisesMessage(NfseEmissionError, "RPS[0] Campo servico.codigo_servico inválido."):
+                emit_nfse_request(nfse_request=nfse_request)  # type: ignore[arg-type]
+
+        self.assertEqual(post_mock.call_count, 2)
+
+    def test_emit_nfse_fails_when_tax_class_not_in_current_auth_context(self) -> None:
+        nfse_request = SimpleNamespace(
+            pk=2,
+            workshop=SimpleNamespace(pk=1),
+            workorder=SimpleNamespace(pk=10),
+            tax_class="REF999999",
+        )
+        payload = {
+            "ambiente": 2,
+            "rps": [
+                {
+                    "servico": {
+                        "classe_imposto": "REF999999",
+                    }
+                }
+            ],
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "X-Consumer-Key": "consumer-key",
+            "X-Consumer-Secret": "consumer-secret",
+            "X-Access-Token": "access-token",
+            "X-Access-Token-Secret": "access-token-secret",
+            "Authorization": "Bearer bearer-token",
+        }
+
+        tax_class_response = _mock_response(
+            [
+                {
+                    "referencia": "REFOUR001",
+                    "tipo": "nfse",
+                    "status": "ativo",
+                }
+            ]
+        )
+
+        with (
+            patch("apps.finance.services.emission.build_nfse_payload", return_value=payload),
+            patch("apps.finance.services.emission._build_tax_class_url", return_value="https://webmania.com.br/api/1/nfe/classe-imposto/"),
+            patch("apps.finance.services.emission._build_emit_url", return_value="https://api.webmania.com.br/2/nfse/emissao/"),
+            patch("apps.finance.services.emission._build_headers", return_value=headers),
+            patch("apps.finance.services.emission.requests.get", return_value=tax_class_response),
+            patch("apps.finance.services.emission.requests.post") as post_mock,
+        ):
+            with self.assertRaisesMessage(
+                NfseEmissionError,
+                "A classe de imposto selecionada não está disponível para estas credenciais da Webmania.",
+            ):
+                emit_nfse_request(nfse_request=nfse_request)  # type: ignore[arg-type]
+
+        post_mock.assert_not_called()
+
+
 @override_settings(WEBMANIA_AMBIENT="2")
 class WebmaniaB2BServiceTests(TestCase):
     def test_create_b2b_companies_returns_payload(self) -> None:
@@ -497,6 +774,21 @@ class WebmaniaB2BServiceTests(TestCase):
 
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].get("razao_social"), "Empresa Teste")
+
+    def test_list_b2b_companies_force_global_auth_uses_global_headers(self) -> None:
+        workshop = create_workshop(suffix=95)
+        response_payload = [{"id": "1234", "razao_social": "Empresa Teste", "cnpj": "11222333000181"}]
+
+        with (
+            patch("apps.finance.services.webmania_b2b._build_headers", return_value={}) as headers_mock,
+            patch(
+                "apps.finance.services.webmania_b2b.requests.get",
+                return_value=_mock_response(response_payload),
+            ),
+        ):
+            list_b2b_companies(workshop=workshop, force_global_auth=True)
+
+        headers_mock.assert_called_once_with(workshop=workshop, force_global=True)
 
     def test_list_b2b_companies_sanitizes_api_error_without_endpoint(self) -> None:
         response_payload = {"error": "Obrigatório configurar empresa antes de prosseguir. Endpoint: api/1/b2b/empresas"}
@@ -609,6 +901,112 @@ class WebmaniaB2BServiceTests(TestCase):
         self.assertEqual(company.razao_social, "Empresa A")
         self.assertTrue(is_encrypted_secret(company.consumer_secret))
         self.assertEqual(decrypt_secret(company.consumer_secret), "cs_a")
+
+    def test_sync_b2b_companies_force_global_auth_passes_flag_to_listing(self) -> None:
+        workshop = create_workshop(suffix=96)
+
+        with patch("apps.finance.services.webmania_b2b.list_b2b_companies", return_value=[]) as list_mock:
+            result = sync_b2b_companies_to_database(workshop=workshop, force_global_auth=True)
+
+        self.assertEqual(result, [])
+        list_mock.assert_called_once_with(workshop=workshop, force_global_auth=True)
+
+    def test_sync_b2b_companies_creates_workshops_and_links_company(self) -> None:
+        user, active_workshop = create_director_user_with_workshop(suffix=91)
+        response_payload = [
+            {
+                "id": "2001",
+                "razao_social": "Oficina Webmania Nova",
+                "cnpj": "11.222.333/0001-77",
+                "estado": "SP",
+                "endereco": "Rua Nova, 100",
+                "telefone": "+5511988887777",
+                "credenciais": {
+                    "consumer_key": "ck_nova",
+                    "consumer_secret": "cs_nova",
+                    "access_token": "at_nova",
+                    "access_token_secret": "ats_nova",
+                    "bearer_access_token": "ba_nova",
+                },
+            }
+        ]
+
+        with (
+            patch("apps.finance.services.webmania_b2b._build_headers", return_value={}),
+            patch(
+                "apps.finance.services.webmania_b2b.requests.get",
+                return_value=_mock_response(response_payload),
+            ),
+        ):
+            synced = sync_b2b_companies_to_database(workshop=active_workshop, actor_user=user)
+
+        self.assertEqual(len(synced), 1)
+        company = WebmaniaCompany.objects.get(webmania_company_id="2001")
+        if company.workshop is None:
+            self.fail("A empresa sincronizada deveria estar vinculada a uma oficina.")
+
+        self.assertEqual(company.workshop.account, active_workshop.account)
+        self.assertEqual("".join(char for char in str(company.workshop.cnpj) if char.isdigit()), "11222333000177")
+        self.assertTrue(WorkshopMember.objects.filter(user=user, workshop=company.workshop, is_active=True).exists())
+
+    def test_sync_b2b_companies_removes_stale_local_companies_from_account(self) -> None:
+        user, active_workshop = create_director_user_with_workshop(suffix=92)
+        stale_workshop = Workshop.objects.create(
+            account=active_workshop.account,
+            name="Oficina Antiga",
+            cnpj="22.333.444/0001-92",
+            phone="+5511977776666",
+            address="Rua Antiga, 10",
+            uf="SP",
+        )
+        stale_company = WebmaniaCompany.objects.create(
+            workshop=stale_workshop,
+            webmania_company_id="OLD-001",
+            razao_social="Empresa Antiga",
+            cnpj="22.333.444/0001-92",
+        )
+
+        response_payload = [
+            {
+                "id": "NEW-001",
+                "razao_social": "Empresa Nova",
+                "cnpj": "33.444.555/0001-93",
+            }
+        ]
+
+        with (
+            patch("apps.finance.services.webmania_b2b._build_headers", return_value={}),
+            patch(
+                "apps.finance.services.webmania_b2b.requests.get",
+                return_value=_mock_response(response_payload),
+            ),
+        ):
+            sync_b2b_companies_to_database(workshop=active_workshop, actor_user=user)
+
+        self.assertFalse(WebmaniaCompany.objects.filter(pk=stale_company.pk).exists())
+        self.assertTrue(WebmaniaCompany.objects.filter(webmania_company_id="NEW-001").exists())
+
+    def test_list_local_b2b_companies_filters_by_workshop_account(self) -> None:
+        _, workshop_a = create_director_user_with_workshop(suffix=93)
+        _, workshop_b = create_director_user_with_workshop(suffix=94)
+
+        WebmaniaCompany.objects.create(
+            workshop=workshop_a,
+            webmania_company_id="ACC-A-001",
+            razao_social="Empresa Conta A",
+            cnpj="11.222.333/0001-93",
+        )
+        WebmaniaCompany.objects.create(
+            workshop=workshop_b,
+            webmania_company_id="ACC-B-001",
+            razao_social="Empresa Conta B",
+            cnpj="11.222.333/0001-94",
+        )
+
+        filtered_companies = list_local_b2b_companies(workshop=workshop_a)
+        filtered_ids = {company.webmania_company_id for company in filtered_companies}
+
+        self.assertEqual(filtered_ids, {"ACC-A-001"})
 
     def test_sync_b2b_companies_encrypts_nfse_sensitive_fields(self) -> None:
         response_payload = [
@@ -1105,7 +1503,7 @@ class WebmaniaCompanySyncFlowTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.headers.get("Location"), reverse("finance:webmania_company_list"))
-        sync_mock.assert_called_once()
+        sync_mock.assert_called_once_with(workshop=self.workshop, actor_user=self.user, force_global_auth=True)
 
     def test_company_sync_endpoint_requires_change_permission(self) -> None:
         view_permission = Permission.objects.get(

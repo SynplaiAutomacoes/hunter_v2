@@ -42,7 +42,7 @@ PERF_LOG_MIN_MS = int(os.getenv("PERF_LOG_MIN_MS", "300"))
 
 WEBMANIA_BASE_URL = "https://api.webmania.com.br/2/"
 WEBMANIA_B2B_BASE_URL = os.getenv("WEBMANIA_B2B_BASE_URL", "https://webmania.com.br/api")
-WEBMANIA_AMBIENT = os.getenv("WEBMANIA_AMBIENT", "2") #1. Prod, 2. Homolog
+WEBMANIA_AMBIENT = os.getenv("WEBMANIA_AMBIENT", "1") #1. Prod, 2. Homolog
 WEBMANIA_API_KEY = os.getenv("WEBMANIA_API_KEY", "")
 WEBMANIA_CONSUMER_KEY = os.getenv("WEBMANIA_CONSUMER_KEY", "")
 WEBMANIA_CONSUMER_SECRET = os.getenv("WEBMANIA_CONSUMER_SECRET", "")

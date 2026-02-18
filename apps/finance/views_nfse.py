@@ -83,7 +83,7 @@ class NfseRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFo
 
     def _get_nfse_tax_class_choices(self) -> list[tuple[str, str]]:
         try:
-            tax_classes = list_tax_classes(workshop=self.workshop)
+            tax_classes = list_tax_classes(workshop=self.workshop, force_refresh=True)
         except TaxClassServiceError as exc:
             messages.warning(self.request, f"Nao foi possivel carregar classes de imposto de NFS-e: {exc}")
             return []
@@ -112,7 +112,6 @@ class NfseRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFo
                 label = reference
             choices.append((reference, label))
 
-        print("[TAX CLASS POST DEBUG] NFS-e choices", {"count": len(choices), "references": [value for value, _ in choices]})
         return choices
 
     def get_context_data(self, **kwargs):
@@ -131,28 +130,16 @@ class NfseRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFo
 
     def _finalize_emission(self) -> bool:
         try:
-            print(
-                "[NFS-E DEBUG] Finalizando emissao",
-                {
-                    "nfse_request_id": self.object.pk,
-                    "workorder_id": self.object.workorder_id,
-                    "tax_class": self.object.tax_class,
-                },
-            )
             response_payload = emit_nfse_request(nfse_request=self.object, request=self.request)
-            print("[NFS-E DEBUG] Resposta recebida na finalizacao", response_payload)
             sync_emission_response(nfse_request=self.object, response_payload=response_payload)
 
             if not self.object.update_status_based_on_request(response_payload.get("status")):
                 self.object.set_status(NfseRequestStatus.PROCESSING)
 
-            print("[NFS-E DEBUG] Status final da request", {"nfse_request_id": self.object.pk, "status": self.object.status})
-
             messages.success(self.request, "Solicitação de NFS-e enviada com sucesso.")
             return True
         except NfseEmissionError as exc:
             logger.exception("Falha ao emitir NFS-e", extra={"nfse_request_id": self.object.pk})
-            print("[NFS-E DEBUG] Erro na finalizacao", str(exc))
             messages.error(self.request, str(exc))
             return False
 

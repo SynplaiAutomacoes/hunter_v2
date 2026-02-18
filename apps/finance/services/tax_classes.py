@@ -64,15 +64,8 @@ def _redact_headers(headers: dict[str, str]) -> dict[str, str]:
     return redact_webmania_headers(headers)
 
 
-def _remove_authorization_header(*, headers: dict[str, str]) -> dict[str, str]:
-    sanitized_headers = dict(headers)
-    if "Authorization" in sanitized_headers:
-        sanitized_headers.pop("Authorization", None)
-    return sanitized_headers
-
-
 def _build_tax_class_headers(*, workshop: Workshop) -> dict[str, str]:
-    return _remove_authorization_header(headers=_build_headers(workshop=workshop))
+    return _build_headers(workshop=workshop)
 
 
 def _build_endpoint_url() -> str:
@@ -573,6 +566,22 @@ def _upsert_local_tax_classes(*, workshop: Workshop, tax_classes: list[dict[str,
         _upsert_local_tax_class(workshop=workshop, payload=item)
 
 
+def _replace_local_tax_classes(*, workshop: Workshop, tax_classes: list[dict[str, Any]]) -> None:
+    references: set[str] = set()
+    for item in tax_classes:
+        if not isinstance(item, dict):
+            continue
+        reference = _clean_string(item.get("referencia"))
+        if reference:
+            references.add(reference)
+
+    if references:
+        TaxClassNfe.objects.filter(workshop=workshop).exclude(reference__in=references).delete()
+        TaxClassNfse.objects.filter(workshop=workshop).exclude(reference__in=references).delete()
+
+    _upsert_local_tax_classes(workshop=workshop, tax_classes=tax_classes)
+
+
 def _list_local_tax_classes(*, workshop: Workshop) -> list[dict[str, Any]]:
     nfe_tax_classes = TaxClassNfe.objects.filter(workshop=workshop).prefetch_related("icms_scenarios", "ipi_scenarios", "pis_scenarios", "cofins_scenarios")
     nfse_tax_classes = TaxClassNfse.objects.filter(workshop=workshop)
@@ -623,7 +632,13 @@ def _merge_tax_class_payloads(*, sent_payload: dict[str, Any], response_payload:
     return _normalize_tax_class_payload(merged_payload)
 
 
-def list_tax_classes(*, workshop: Workshop) -> list[dict[str, Any]]:
+def list_tax_classes(*, workshop: Workshop, force_refresh: bool = False) -> list[dict[str, Any]]:
+    if force_refresh:
+        remote_tax_classes = _list_tax_classes_remote(workshop=workshop)
+        _replace_local_tax_classes(workshop=workshop, tax_classes=remote_tax_classes)
+        _mark_initial_sync_done(workshop=workshop)
+        return _list_local_tax_classes(workshop=workshop)
+
     local_tax_classes = _list_local_tax_classes(workshop=workshop)
     if local_tax_classes:
         return local_tax_classes
@@ -632,7 +647,7 @@ def list_tax_classes(*, workshop: Workshop) -> list[dict[str, Any]]:
         return []
 
     remote_tax_classes = _list_tax_classes_remote(workshop=workshop)
-    _upsert_local_tax_classes(workshop=workshop, tax_classes=remote_tax_classes)
+    _replace_local_tax_classes(workshop=workshop, tax_classes=remote_tax_classes)
     _mark_initial_sync_done(workshop=workshop)
 
     return _list_local_tax_classes(workshop=workshop)

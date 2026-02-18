@@ -58,7 +58,7 @@ class WebmaniaCompanyListView(LoginRequiredMixin, DirectorWorkshopAccessMixin, T
     def get_context_data(self, **kwargs: object) -> dict[str, object]:
         context = super().get_context_data(**kwargs)
 
-        local_companies = list_local_b2b_companies()
+        local_companies = list_local_b2b_companies(workshop=self.workshop)
         company_rows = [self._build_company_row(company) for company in local_companies]
         sync_candidates = [company.last_sync_at for company in local_companies if company.last_sync_at is not None]
         latest_sync_at = max(sync_candidates) if sync_candidates else None
@@ -89,7 +89,11 @@ class WebmaniaCompanySyncView(LoginRequiredMixin, DirectorWorkshopAccessMixin, V
 
     def post(self, request, *args, **kwargs):
         try:
-            synced_companies = sync_b2b_companies_to_database(workshop=self.workshop)
+            synced_companies = sync_b2b_companies_to_database(
+                workshop=self.workshop,
+                actor_user=request.user,
+                force_global_auth=True,
+            )
         except WebmaniaB2BServiceError as exc:
             messages.error(request, str(exc))
         else:
