@@ -11,6 +11,8 @@ from crispy_forms.layout import Layout, Div, Field, HTML
 from django.db import transaction
 import gzip
 import base64
+
+from django.utils.safestring import mark_safe
 from lxml import etree
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
@@ -21,7 +23,7 @@ from pynfe.processamento import ComunicacaoSefaz
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.core.forms import address_layout, AddressFormMixin
-from apps.core.widgets import TextInput, SelectInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput
+from apps.core.widgets import TextInput, SelectInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput, PhoneInput, EmailInput
 
 from apps.stock.models import StockPaymentMethod, StockImport, StockProduct, StockMovement, SefazZipCache
 
@@ -324,8 +326,8 @@ class ImportStepPaymentForm(forms.ModelForm):
     payment_date = forms.DateField(label="Data de Vencimento", widget=CalendarDateInput, required=False)
 
     total_nf_display = forms.CharField(label="Valor Total", required=False, widget=MoneyInput)
-    total_allocated_display = forms.CharField(label="Valor Pago", required=False, widget=MoneyInput)
-    pending_display = forms.CharField(label="Valor Pendente", required=False, widget=MoneyInput)
+    total_allocated_display = forms.CharField(label="Valor total a ser pago", required=False, widget=MoneyInput)
+    pending_display = forms.CharField(label="Valor total pendente", required=False, widget=MoneyInput)
 
     class Meta:
         model = StockImport
@@ -362,6 +364,11 @@ class ImportStepPaymentForm(forms.ModelForm):
 
             self.fields[field_name].widget.attrs.update({"readonly": True, "class": "cursor-not-allowed opacity-75"})
 
+        self.fields["payment_method"].label = mark_safe('Forma de Pagamento <span class="text-error">*</span>')
+        self.fields['installments_count'].label = mark_safe('Número de Parcelas <span class="text-error">*</span>')
+        self.fields['first_amount'].label = mark_safe('Valor Pago <span class="text-error">*</span>')
+        self.fields['payment_date'].label = mark_safe('Data de Vencimento <span class="text-error">*</span>')
+
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
@@ -369,13 +376,13 @@ class ImportStepPaymentForm(forms.ModelForm):
                 HTML('<h3 class="font-bold text-2xl pb-2 mb-2">Configuração das Formas de Pagamento</h3>'),
                 HTML('<h5 class="text-lg pb-2 mb-4">Adicione, edite e salve múltiplos planos de pagamentos para esta importação.</h5>'),
                 #
-                Div(Field("total_nf_display", wrapper_class="col-span-12 lg:col-span-4"), Field("total_allocated_display", wrapper_class="col-span-12 lg:col-span-4"), Field("pending_display", wrapper_class="col-span-12 lg:col-span-4"), css_class="grid grid-cols-12 gap-4 mb-2 pb-4"),
+                Div(Field("total_nf_display", wrapper_class="col-span-12 lg:col-span-4"), Field("total_allocated_display", wrapper_class="col-span-12 lg:col-span-4"), Field("pending_display", wrapper_class="col-span-12 lg:col-span-4"), css_class="grid grid-cols-12 gap-4 mb-2 pb-4 border-b-2 border-base-50"),
                 #
                 Div(
                     Field("payment_method", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("installments_count", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("first_amount", wrapper_class="col-span-12 lg:col-span-4"),
-                    css_class="grid grid-cols-12 gap-4 mb-2 pb-4",
+                    css_class="grid grid-cols-12 gap-4 mb-2 mt-4 pb-4",
                 ),
                 #
                 Div(
@@ -787,37 +794,19 @@ class ImportStepSupplierManualForm(forms.ModelForm):
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
-            HTML(r"""<script>
-                document.body.addEventListener('supplierCreated', function(evt) {
-                    const data = evt.detail;
-                    const select = document.querySelector('select[name="supplier_select"]');
-    
-                    const newOption = new Option(`${data.name} (${data.cnpj})`, data.id, true, true);
-                    select.add(newOption);
-    
-                    const alpineDiv = select.closest('[x-data]');
-                    if (alpineDiv) {
-                        const scope = Alpine.$data(alpineDiv);
-                        scope.supplierId = data.id;
-                        scope.supName = data.name;
-                        scope.supCnpj = data.cnpj;
-                    }
-    
-                    select.dispatchEvent(new Event('change'));
-                });
-            </script>"""),
             Div(
                 # Coluna Esquerda
                 Div(
                     HTML('<h2 class="text-2xl font-bold mb-6 text-base-content">Fornecedor</h2>'),
                     Div(
                         Div(Field("supplier_select"), css_class="flex-grow"),
-                        HTML("""<button type="button" class="btn btn-circle mb-2 ml-2" title="Cadastrar Fornecedor"
-                                        :class="'btn-primary'"
-                                        @click="const url = '/stock/supplier/quick-create/';
+                        HTML("""<button type="button" class="btn btn-circle mb-2 ml-2" 
+                                     :title="supplierId ? 'Editar Fornecedor' : 'Cadastrar Fornecedor'"
+                                     :class="supplierId ? 'btn-warning' : 'btn-primary'"
+                                     @click="const url = supplierId ? '/stock/supplier/quick-update/' + supplierId + '/' : '/stock/supplier/quick-create/';
                                             htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
                                             document.getElementById('form_modal').showModal();">
-                                <span class="material-icons" x-text="'local_shipping'"></span>
+                                     <span class="material-icons" x-text="supplierId ? 'edit' : 'local_shipping'"></span>
                         </button>"""),
                         css_class="flex items-end mb-6",
                     ),
@@ -884,16 +873,34 @@ class ImportManualItemsForm(forms.ModelForm):
         self.helper.form_tag = False
         self.helper.layout = Layout(
             Div(
-                HTML('<h2 class="text-2xl font-bold mb-6 text-base-content">Peças Selecionadas</h2>'),
+                Div(
+                    HTML('<h2 class="text-2xl font-bold text-base-content">Peças Selecionadas</h2>'),
+                    Div(
+                        HTML(f"""<button type="button" class="btn btn-outline btn-success btn-sm" 
+                                        hx-get="{reverse("stock:link_product_manual") + f"?pk={self.instance.pk}&manual=true"}" hx-target="#modal-container">
+                                        <span class="flex items-center gap-1">
+                                            <span class="material-icons text-sm">link</span> Vincular ao Item
+                                        </span>
+                        </button>"""),
+                        HTML(f"""<button type="button" class="btn btn-success btn-sm" 
+                                    hx-get="{reverse("stock:product_quick_create") + f"?pk={self.instance.pk}&manual=true"}" hx-target="#modal-container">
+                                    <span class="flex items-center gap-1">
+                                        <span class="material-icons text-sm">add</span> Criar Novo Item
+                                    </span>
+                        </button>"""),
+                        css_class="flex gap-2",
+                    ),
+                    css_class="flex justify-between items-center mb-6",
+                ),
                 HTML(self._generate_manual_table_html()),
-                css_class="mt-4")
+                css_class="mt-4",
+            )
         )
 
     def _generate_manual_table_html(self):
         items = self.instance.items_data or []
         rows = ""
         total_geral = Decimal("0.00")
-        print(items)
 
         for idx, item in enumerate(items):
             product_id = item.get("linked_product_id")
@@ -950,27 +957,6 @@ class ImportManualItemsForm(forms.ModelForm):
                     </td>
                 </tr>"""
 
-        # Linha de Adição (Footer da Tabela)
-        add_row = f"""<tr class="h-16 border-b border-base-300">
-            <td class="italic text-sm">
-                <button type="button" class="btn btn-success btn-sm" title="Criar Novo Item"
-                            hx-get="{reverse("stock:product_quick_create")}?pk={self.instance.pk}&manual=true"
-                            hx-target="#modal-container">
-                    <span class="flex items-center gap-1"><span class="material-icons text-sm">add</span> Criar Novo Item</span>
-                </button>
-            </td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td class="text-center">
-                <button type="button" class="btn btn-ghost btn-circle btn-sm text-success" title="Vincular Item"
-                        hx-get="{reverse("stock:link_product_manual")}?pk={self.instance.pk}&manual=true"
-                        hx-target="#modal-container">
-                    <span class="material-icons text-sm">link</span>
-                </button>
-            </td>
-        </tr>"""
-
         return f"""
         <div class="overflow-x-auto rounded-xl border border-base-300">
             <table class="table w-full">
@@ -985,7 +971,6 @@ class ImportManualItemsForm(forms.ModelForm):
                 </thead>
                 <tbody>
                     {rows if rows else '<tr><td colspan="5" class="text-center italic py-8">Nenhum item adicionado.</td></tr>'}
-                    {add_row}
                 </tbody>
                 <tfoot>
                     <tr class="bg-base-300">
@@ -1017,7 +1002,7 @@ class QuickProductForm(forms.ModelForm):
             "group": SelectInput(),
             "cost_price": MoneyInput(),
             "selling_price": MoneyInput(),
-            "profit_margin": PercentageInput(attrs={"readonly": True}),
+            "profit_margin": PercentageInput(),
             "origin_cst": SelectInput(),
             "purpose": SelectInput(),
         }
@@ -1030,10 +1015,9 @@ class QuickProductForm(forms.ModelForm):
             self.fields["group"].queryset = self.fields["group"].queryset.filter(workshop=workshop)
 
         self.helper = FormHelper()
-        self.helper.form_tag = False  # Importante para o modal
+        self.helper.form_tag = False
         self.helper.layout = Layout(
             Div(
-                # Usando x-data para o cálculo de margem idêntico ao original
                 Div(
                     Field("code", wrapper_class="col-span-12 lg:col-span-3"),
                     Field("name", wrapper_class="col-span-12 lg:col-span-9"),
@@ -1058,7 +1042,7 @@ class QuickProductForm(forms.ModelForm):
                         HTML('<div class="text-error text-xs" x-show="priceError" x-cloak>⚠️ Menor que o custo</div>'),
                         css_class="col-span-12 lg:col-span-4",
                     ),
-                    Field("profit_margin", wrapper_class="col-span-12 lg:col-span-4", css_class="opacity-50"),
+                    Field("profit_margin", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("origin_cst", wrapper_class="col-span-12 lg:col-span-6"),
                     Field("purpose", wrapper_class="col-span-12 lg:col-span-6"),
                     css_class="grid grid-cols-12 gap-3",
@@ -1088,10 +1072,14 @@ class QuickProductForm(forms.ModelForm):
 class QuickSupplierForm(AddressFormMixin, forms.ModelForm):
     class Meta:
         model = Supplier
-        fields = ["cnpj", "name", "registration_date", "is_active", "cep", "logradouro", "numero", "complemento", "bairro", "cidade", "estado"]
+        fields = ["cnpj", "name", "contact_person", "phone", "mobile", "email", "registration_date", "is_active", "cep", "logradouro", "numero", "complemento", "bairro", "cidade", "estado"]
         widgets = {
             "cnpj": CPForCNPJInput(mode="cnpj"),
             "name": TextInput(),
+            "contact_person": TextInput(),
+            "phone": PhoneInput(),
+            "mobile": PhoneInput(),
+            "email": EmailInput(),
             "registration_date": CalendarDateInput(),
             "is_active": CheckboxInput(),
         }
@@ -1104,8 +1092,13 @@ class QuickSupplierForm(AddressFormMixin, forms.ModelForm):
         self.helper.form_tag = False
         self.helper.layout = Layout(
             Div(
-                Field("cnpj", wrapper_class="col-span-12 lg:col-span-6"),
-                Field("name", wrapper_class="col-span-12 lg:col-span-6"),
+                Field("cnpj", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("name", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("contact_person", wrapper_class="col-span-12 lg:col-span-4"),
+                #
+                Field("phone", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("mobile", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("email", wrapper_class="col-span-12 lg:col-span-4"),
                 #
                 Field("registration_date", wrapper_class="col-span-12 lg:col-span-6"),
                 Field("is_active", wrapper_class="col-span-12 lg:col-span-6"),

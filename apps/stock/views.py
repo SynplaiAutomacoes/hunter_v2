@@ -6,7 +6,7 @@ from django.core.paginator import Paginator
 from django.http import HttpResponse
 from django.urls import reverse, reverse_lazy
 from django.views import View
-from django.views.generic import ListView, CreateView, DeleteView
+from django.views.generic import ListView, CreateView, DeleteView, UpdateView
 from django.shortcuts import get_object_or_404, redirect, render
 from django.contrib import messages
 from django.db import transaction
@@ -355,29 +355,40 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def post(self, request, *args, **kwargs):
         pk = request.GET.get("pk")
         obj = get_object_or_404(StockImport, id=pk, workshop=self.workshop)
-        payments = obj.payments_data
 
         method_code = request.POST.get("payment_method")
         payment_date = request.POST.get("payment_date")
-        first_amount = Decimal(request.POST.get("first_amount_0", "0"))
-        installments = Decimal(request.POST.get("installments_count", "1"))
-        total_paid = first_amount * installments
+        first_amount_str = request.POST.get("first_amount_0", "0")
+        installments_str = request.POST.get("installments_count", "1")
 
-        new_payment = {
-            "id": len(payments) + 1,
-            "method": method_code,
-            "method_display": dict(StockPaymentMethod.PAYMENT_METHOD_CHOICES).get(method_code),
-            "installments": str(installments),
-            "first_amount": str(first_amount),
-            "total_paid": str(total_paid),
-            "payment_date": payment_date,
-        }
+        if not all([method_code, payment_date, installments_str]) or Decimal(first_amount_str or 0) <= 0:
+            messages.error(request, "Preencha todos os campos do pagamento antes de incluir.")
+            return HttpResponse(headers={"HX-Refresh": "true"})
 
-        payments.append(new_payment)
-        obj.payments_data = payments
-        obj.save(update_fields=["payments_data"])
+        try:
+            first_amount = Decimal(first_amount_str)
+            installments = Decimal(installments_str)
+            total_paid = first_amount * installments
 
-        return HttpResponse(headers={"HX-Refresh": "true"})
+            payments = obj.payments_data
+            new_payment = {
+                "id": len(payments) + 1,
+                "method": method_code,
+                "method_display": dict(StockPaymentMethod.PAYMENT_METHOD_CHOICES).get(method_code),
+                "installments": str(installments),
+                "first_amount": str(first_amount),
+                "total_paid": str(total_paid),
+                "payment_date": payment_date,
+            }
+
+            payments.append(new_payment)
+            obj.payments_data = payments
+            obj.save(update_fields=["payments_data"])
+
+            return HttpResponse(headers={"HX-Refresh": "true"})
+        except Exception:
+            messages.error(request, "Erro ao processar valores do pagamento.")
+            return HttpResponse(headers={"HX-Refresh": "true"})
 
 
 class RemovePaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -675,12 +686,28 @@ class SupplierQuickCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateVie
         self.object.save()
 
         if self.request.headers.get("HX-Request"):
-            response = HttpResponse()
-            response["HX-Trigger"] = json.dumps({
-                    "supplierCreated": {"id": str(self.object.id), "name": self.object.name, "cnpj": self.object.cnpj},
-                    "closeModal": True,
-            })
-            return response
+            return HttpResponse(headers={"HX-Refresh": "true"})
+
+        return super().form_valid(form)
+
+class SupplierQuickUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
+    model = Supplier
+    form_class = QuickSupplierForm
+    template_name = "stock/partials/modal/supplier_quick_create_modal.html"
+    workshop_permission_codename = "change_supplier"
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["workshop"] = self.workshop
+        return kwargs
+
+    def form_valid(self, form):
+        self.object = form.save(commit=False)
+        self.object.workshop = self.workshop
+        self.object.save()
+
+        if self.request.headers.get("HX-Request"):
+            return HttpResponse(headers={"HX-Refresh": "true"})
 
         return super().form_valid(form)
 
