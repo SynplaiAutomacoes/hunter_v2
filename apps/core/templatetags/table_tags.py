@@ -100,7 +100,7 @@ def _resolve_attr(obj: Any, attr: str | Callable[[Any], Any] | None) -> Any:
 
         if callable(value):
             value = value()
-    return value
+    return value if value is not None else ""
 
 
 def _build_url(request: HttpRequest, *, updates: dict[str, Any]) -> str:
