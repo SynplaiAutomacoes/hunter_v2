@@ -16,7 +16,7 @@ from apps.finance.models import (
     TaxClassNfse,
     TaxClassSyncState,
 )
-from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers, sanitize_webmania_setting
+from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers, sanitize_webmania_setting, should_use_global_webmania_auth
 from apps.finance.services.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
 from apps.workshops.models.workshops import Workshop
 
@@ -43,6 +43,8 @@ def _debug_print(message: str, payload: Any | None = None) -> None:
 
 def _build_headers(*, workshop: Workshop) -> dict[str, str]:
     try:
+        if should_use_global_webmania_auth():
+            return build_webmania_headers()
         return build_webmania_headers(workshop=workshop)
     except WebmaniaAuthError as exc:
         raise TaxClassServiceError(str(exc)) from exc

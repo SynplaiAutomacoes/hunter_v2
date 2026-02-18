@@ -10,8 +10,9 @@ from apps.finance.models import WebmaniaCompany, WebmaniaCompanyTaxType
 from apps.finance.services.webmania_auth import (
     WebmaniaAuthError,
     build_webmania_b2b_headers,
-    build_webmania_headers_for_company,
+    build_webmania_headers,
     sanitize_webmania_setting,
+    should_use_global_webmania_auth,
 )
 from apps.finance.services.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
 from apps.finance.services.webmania_secrets import encrypt_secret
@@ -67,16 +68,26 @@ def _parse_json_response(response: requests.Response, *, error_message: str) -> 
         raise WebmaniaB2BServiceError(error_message) from exc
 
 
-def _build_headers() -> dict[str, str]:
+def _build_headers(*, workshop: Workshop | None = None, force_global: bool = False) -> dict[str, str]:
     try:
-        return build_webmania_b2b_headers()
+        if force_global or should_use_global_webmania_auth():
+            return build_webmania_b2b_headers()
+        if workshop is None:
+            raise WebmaniaB2BServiceError("A oficina ativa é obrigatória para autenticação da Webmania fora do ambiente 2.")
+        return build_webmania_headers(workshop=workshop)
     except WebmaniaAuthError as exc:
         raise WebmaniaB2BServiceError(str(exc)) from exc
 
 
 def _build_company_headers(company: WebmaniaCompany) -> dict[str, str]:
     try:
-        return build_webmania_headers_for_company(company)
+        if should_use_global_webmania_auth():
+            return build_webmania_headers()
+
+        workshop = getattr(company, "workshop", None)
+        if workshop is None:
+            raise WebmaniaB2BServiceError("A empresa precisa estar vinculada a uma oficina para autenticação fora do ambiente 2.")
+        return build_webmania_headers(workshop=workshop)
     except WebmaniaAuthError as exc:
         raise WebmaniaB2BServiceError(str(exc)) from exc
 
@@ -157,14 +168,14 @@ def _upsert_company_from_payload(*, payload: dict[str, Any], workshop: Workshop 
     return company
 
 
-def create_b2b_companies(*, quantity: int) -> list[dict[str, Any]]:
+def create_b2b_companies(*, quantity: int, workshop: Workshop | None = None, force_global: bool = False) -> list[dict[str, Any]]:
     if quantity <= 0:
         raise WebmaniaB2BServiceError("A quantidade de empresas deve ser maior que zero.")
 
     url = _build_companies_url()
 
     try:
-        response = requests.post(url, json={"quantidade": quantity}, headers=_build_headers(), timeout=30)
+        response = requests.post(url, json={"quantidade": quantity}, headers=_build_headers(workshop=workshop, force_global=force_global), timeout=30)
         response.raise_for_status()
     except requests.RequestException as exc:
         message = _request_exception_message(exc, default="Falha ao criar empresas na Webmania")
@@ -184,11 +195,11 @@ def create_b2b_companies(*, quantity: int) -> list[dict[str, Any]]:
     return companies
 
 
-def list_b2b_companies() -> list[dict[str, Any]]:
+def list_b2b_companies(*, workshop: Workshop | None = None) -> list[dict[str, Any]]:
     url = _build_companies_url()
 
     try:
-        response = requests.get(url, headers=_build_headers(), timeout=30)
+        response = requests.get(url, headers=_build_headers(workshop=workshop), timeout=30)
         response.raise_for_status()
     except requests.RequestException as exc:
         message = _request_exception_message(exc, default="Falha ao listar empresas na Webmania")
@@ -205,11 +216,12 @@ def list_b2b_companies() -> list[dict[str, Any]]:
     return [item for item in data if isinstance(item, dict)]
 
 
-def sync_b2b_companies_to_database() -> list[WebmaniaCompany]:
-    companies_payload = list_b2b_companies()
+def sync_b2b_companies_to_database(*, workshop: Workshop | None = None) -> list[WebmaniaCompany]:
+    companies_payload = list_b2b_companies(workshop=workshop)
+    upsert_workshop = None if should_use_global_webmania_auth() else workshop
     synced_companies: list[WebmaniaCompany] = []
     for payload in companies_payload:
-        company = _upsert_company_from_payload(payload=payload)
+        company = _upsert_company_from_payload(payload=payload, workshop=upsert_workshop)
         if company is not None:
             synced_companies.append(company)
     return synced_companies
@@ -220,7 +232,7 @@ def list_local_b2b_companies() -> list[WebmaniaCompany]:
     return list(queryset)
 
 
-def get_b2b_requests(*, month: int | None = None, year: int | None = None) -> dict[str, Any]:
+def get_b2b_requests(*, month: int | None = None, year: int | None = None, workshop: Workshop | None = None) -> dict[str, Any]:
     query_params: dict[str, str] = {}
     if month is not None:
         query_params["mes"] = f"{month:02d}"
@@ -228,7 +240,7 @@ def get_b2b_requests(*, month: int | None = None, year: int | None = None) -> di
         query_params["ano"] = str(year)
 
     try:
-        response = requests.get(_build_requests_url(), params=query_params, headers=_build_headers(), timeout=30)
+        response = requests.get(_build_requests_url(), params=query_params, headers=_build_headers(workshop=workshop), timeout=30)
         response.raise_for_status()
     except requests.RequestException as exc:
         message = _request_exception_message(exc, default="Falha ao consultar requisições na Webmania")
@@ -246,7 +258,7 @@ def get_b2b_requests(*, month: int | None = None, year: int | None = None) -> di
 
 
 def provision_webmania_company_for_workshop(*, workshop: Workshop) -> WebmaniaCompany:
-    companies = create_b2b_companies(quantity=1)
+    companies = create_b2b_companies(quantity=1, force_global=True)
     company_payload = companies[0]
     company = _upsert_company_from_payload(payload=company_payload, workshop=workshop)
     if company is None:

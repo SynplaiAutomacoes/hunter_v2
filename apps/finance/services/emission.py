@@ -15,7 +15,13 @@ from django.urls import reverse
 
 from apps.finance.models import NfseBatch, NfseItem, NfseRequest
 from apps.finance.services.mappers import extract_items_from_batch, map_batch_payload, map_item_payload
-from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers, redact_webmania_headers, sanitize_webmania_setting
+from apps.finance.services.webmania_auth import (
+    WebmaniaAuthError,
+    build_webmania_headers,
+    redact_webmania_headers,
+    sanitize_webmania_setting,
+    should_use_global_webmania_auth,
+)
 from apps.finance.services.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
 
 
@@ -74,9 +80,11 @@ def build_webmania_webhook_url(*, request=None) -> str:
     return f"http://localhost:8000{path_with_query}"
 
 
-def _build_headers() -> dict[str, str]:
+def _build_headers(*, workshop=None) -> dict[str, str]:
     try:
-        return build_webmania_headers()
+        if should_use_global_webmania_auth():
+            return build_webmania_headers()
+        return build_webmania_headers(workshop=workshop)
     except WebmaniaAuthError as exc:
         raise NfseEmissionError(str(exc)) from exc
 
@@ -160,7 +168,7 @@ def build_nfse_payload(*, nfse_request: NfseRequest, request=None) -> dict[str, 
 def emit_nfse_request(*, nfse_request: NfseRequest, request=None) -> dict[str, Any]:
     payload = build_nfse_payload(nfse_request=nfse_request, request=request)
     emit_url = _build_emit_url()
-    headers = _build_headers()
+    headers = _build_headers(workshop=nfse_request.workshop)
 
     _debug_print(
         "Iniciando emissao de NFS-e",

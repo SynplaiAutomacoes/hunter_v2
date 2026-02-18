@@ -4,7 +4,7 @@ from typing import Any
 from unittest.mock import Mock, patch
 
 from django.contrib.auth.models import Permission
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from apps.accounts.models import Account, User
@@ -25,6 +25,7 @@ from apps.finance.services.webmania_b2b import (
 )
 from apps.finance.services.webmania_errors import extract_webmania_error_message, sanitize_webmania_api_message
 from apps.finance.services.webmania_secrets import decrypt_secret, encrypt_secret, is_encrypted_secret
+from apps.finance.views_nfse import NfseRequestCreateView
 from apps.iam.utils import get_or_create_director_role
 from apps.workshops.models.workshops import Workshop
 
@@ -260,6 +261,7 @@ class TaxClassServiceTests(TestCase):
         self.assertFalse(TaxClassNfse.objects.filter(workshop=workshop, reference="REF000031").exists())
 
 
+@override_settings(WEBMANIA_AMBIENT="2")
 class WebmaniaB2BServiceTests(TestCase):
     def test_create_b2b_companies_returns_payload(self) -> None:
         response_payload = [
@@ -356,6 +358,24 @@ class WebmaniaB2BServiceTests(TestCase):
         self.assertEqual(decrypt_secret(company.access_token), "at_test")
         self.assertTrue(WebmaniaCompany.objects.filter(workshop=workshop).exists())
 
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_provision_webmania_company_for_workshop_always_uses_global_auth(self) -> None:
+        workshop = create_workshop(suffix=90)
+        response_payload = [
+            {
+                "id": "123490",
+                "consumer_key": "ck_test",
+                "consumer_secret": "cs_test",
+                "access_token": "at_test",
+                "access_token_secret": "ats_test",
+            }
+        ]
+
+        with patch("apps.finance.services.webmania_b2b.create_b2b_companies", return_value=response_payload) as create_mock:
+            provision_webmania_company_for_workshop(workshop=workshop)
+
+        create_mock.assert_called_once_with(quantity=1, force_global=True)
+
     def test_sync_b2b_companies_persists_companies_locally(self) -> None:
         response_payload = [
             {
@@ -431,6 +451,7 @@ class WebmaniaB2BServiceTests(TestCase):
         self.assertTrue(is_encrypted_secret(encrypted))
         self.assertEqual(decrypt_secret(encrypted), "secret-value")
 
+    @override_settings(WEBMANIA_AMBIENT="1")
     def test_update_webmania_company_uses_decrypted_company_credentials(self) -> None:
         workshop = create_workshop(suffix=10)
         company = WebmaniaCompany.objects.create(
@@ -456,6 +477,37 @@ class WebmaniaB2BServiceTests(TestCase):
         self.assertEqual(headers.get("X-Access-Token"), "at_local")
         self.assertEqual(headers.get("X-Access-Token-Secret"), "ats_local")
 
+    @override_settings(
+        WEBMANIA_AMBIENT="2",
+        WEBMANIA_CONSUMER_KEY="ck_global",
+        WEBMANIA_CONSUMER_SECRET="cs_global",
+        WEBMANIA_ACCESS_TOKEN="at_global",
+        WEBMANIA_ACCESS_TOKEN_SECRET="ats_global",
+    )
+    def test_update_webmania_company_uses_global_credentials_in_ambient_two(self) -> None:
+        workshop = create_workshop(suffix=52)
+        company = WebmaniaCompany.objects.create(
+            workshop=workshop,
+            webmania_company_id="123401",
+            consumer_key=encrypt_secret("ck_local"),
+            consumer_secret=encrypt_secret("cs_local"),
+            access_token=encrypt_secret("at_local"),
+            access_token_secret=encrypt_secret("ats_local"),
+        )
+
+        with patch(
+            "apps.finance.services.webmania_b2b.requests.post",
+            return_value=_mock_response({"success": "Empresa atualizada com sucesso."}),
+        ) as post_mock:
+            update_webmania_company(company=company, payload={"razao_social": "Empresa Atualizada"})
+
+        headers = post_mock.call_args.kwargs.get("headers", {})
+        self.assertEqual(headers.get("X-Consumer-Key"), "ck_global")
+        self.assertEqual(headers.get("X-Consumer-Secret"), "cs_global")
+        self.assertEqual(headers.get("X-Access-Token"), "at_global")
+        self.assertEqual(headers.get("X-Access-Token-Secret"), "ats_global")
+
+    @override_settings(WEBMANIA_AMBIENT="1")
     def test_update_webmania_company_raises_when_api_returns_error(self) -> None:
         workshop = create_workshop(suffix=11)
         company = WebmaniaCompany.objects.create(
@@ -473,6 +525,14 @@ class WebmaniaB2BServiceTests(TestCase):
         ):
             with self.assertRaisesMessage(WebmaniaB2BServiceError, "Falha no update"):
                 update_webmania_company(company=company, payload={"razao_social": "Empresa Atualizada"})
+
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_get_b2b_requests_requires_workshop_outside_ambient_two(self) -> None:
+        with self.assertRaisesRegex(
+            WebmaniaB2BServiceError,
+            "fora do ambiente 2",
+        ):
+            get_b2b_requests(month=1, year=2026)
 
 
 class WebmaniaCompanyUpdateFormTests(TestCase):
@@ -615,6 +675,188 @@ class WebmaniaCompanyUpdateFormTests(TestCase):
         kept_company = keep_form.save()
         self.assertTrue(is_encrypted_secret(kept_company.certificado))
         self.assertEqual(decrypt_secret(kept_company.certificado), "NOVO_CERTIFICADO")
+
+
+class WebmaniaCompanyDetailViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=40)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_detail_view_exposes_decrypted_secret_for_toggle(self) -> None:
+        company = WebmaniaCompany.objects.create(
+            workshop=self.workshop,
+            webmania_company_id="D-001",
+            consumer_key=encrypt_secret("ck_real"),
+        )
+
+        response = self.client.get(reverse("finance:webmania_company_detail", kwargs={"pk": company.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        credential_fields = response.context["credential_fields"]
+        consumer_key_field = next(field for field in credential_fields if str(field.get("label") or "") == "Consumer Key")
+        self.assertTrue(bool(consumer_key_field.get("has_value")))
+        self.assertEqual(str(consumer_key_field.get("value") or ""), "ck_real")
+
+
+class TaxClassPresetViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=41)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+        TaxClassSyncState.objects.update_or_create(workshop=self.workshop, defaults={"synced_once": True})
+
+    def test_preset_buttons_use_formnovalidate(self) -> None:
+        nfe_response = self.client.get(f"{reverse('finance:tax_class_create')}?tab=nfe")
+        nfse_response = self.client.get(f"{reverse('finance:tax_class_create')}?tab=nfse")
+
+        self.assertEqual(nfe_response.status_code, 200)
+        self.assertEqual(nfse_response.status_code, 200)
+        self.assertIn("formnovalidate", nfe_response.content.decode())
+        self.assertIn("formnovalidate", nfse_response.content.decode())
+
+    def test_apply_nfe_preset_keeps_reference_and_loads_scenarios(self) -> None:
+        response = self.client.post(
+            reverse("finance:tax_class_create"),
+            data={
+                "tab": "nfe",
+                "form_action": "apply_preset",
+                "preset_key": "simples_nacional_revenda",
+                "referencia": "REFPRE001",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        nfe_form = response.context["nfe_form"]
+        self.assertEqual(str(nfe_form["referencia"].value() or ""), "REFPRE001")
+        self.assertEqual(
+            str(nfe_form["descricao"].value() or ""),
+            "Classe de impostos para Saída de produtos de revenda",
+        )
+
+        nfe_formset_sections = response.context["nfe_formset_sections"]
+        icms_section = next(section for section in nfe_formset_sections if section["key"] == "icms")
+        self.assertGreaterEqual(icms_section["formset"].total_form_count(), 5)
+
+
+class NfseEmissionAuthTests(TestCase):
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_build_headers_uses_workshop_credentials_when_ambient_is_one(self) -> None:
+        workshop = create_workshop(suffix=42)
+
+        with patch("apps.finance.services.emission.build_webmania_headers", return_value={"X-Test": "ok"}) as headers_mock:
+            from apps.finance.services.emission import _build_headers
+
+            headers = _build_headers(workshop=workshop)
+
+        self.assertEqual(headers.get("X-Test"), "ok")
+        headers_mock.assert_called_once_with(workshop=workshop)
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_build_headers_uses_global_credentials_when_ambient_is_two(self) -> None:
+        workshop = create_workshop(suffix=43)
+
+        with patch("apps.finance.services.emission.build_webmania_headers", return_value={"X-Test": "ok"}) as headers_mock:
+            from apps.finance.services.emission import _build_headers
+
+            headers = _build_headers(workshop=workshop)
+
+        self.assertEqual(headers.get("X-Test"), "ok")
+        headers_mock.assert_called_once_with()
+
+    @override_settings(WEBMANIA_AMBIENT="3")
+    def test_build_headers_uses_workshop_credentials_when_ambient_is_not_two(self) -> None:
+        workshop = create_workshop(suffix=44)
+
+        with patch("apps.finance.services.emission.build_webmania_headers", return_value={"X-Test": "ok"}) as headers_mock:
+            from apps.finance.services.emission import _build_headers
+
+            headers = _build_headers(workshop=workshop)
+
+        self.assertEqual(headers.get("X-Test"), "ok")
+        headers_mock.assert_called_once_with(workshop=workshop)
+
+
+class TaxClassAuthRoutingTests(TestCase):
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_tax_class_headers_use_global_credentials_in_ambient_two(self) -> None:
+        workshop = create_workshop(suffix=50)
+
+        with patch("apps.finance.services.tax_classes.build_webmania_headers", return_value={"X-Test": "ok"}) as headers_mock:
+            from apps.finance.services.tax_classes import _build_headers
+
+            headers = _build_headers(workshop=workshop)
+
+        self.assertEqual(headers.get("X-Test"), "ok")
+        headers_mock.assert_called_once_with()
+
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_tax_class_headers_use_workshop_credentials_outside_ambient_two(self) -> None:
+        workshop = create_workshop(suffix=51)
+
+        with patch("apps.finance.services.tax_classes.build_webmania_headers", return_value={"X-Test": "ok"}) as headers_mock:
+            from apps.finance.services.tax_classes import _build_headers
+
+            headers = _build_headers(workshop=workshop)
+
+        self.assertEqual(headers.get("X-Test"), "ok")
+        headers_mock.assert_called_once_with(workshop=workshop)
+
+
+class NfseRequestCreateViewHtmxTests(TestCase):
+    @staticmethod
+    def _build_view_and_form(*, htmx: bool) -> tuple[NfseRequestCreateView, Mock]:
+        view = NfseRequestCreateView()
+
+        request = Mock()
+        request.htmx = htmx
+        request.path = "/finance/nfse/create/"
+        view.request = request
+        view.workshop = Mock()
+
+        form = Mock()
+        form.instance = Mock()
+
+        nfse_request = Mock()
+        nfse_request.current_step = 3
+        nfse_request.pk = 123
+        form.save.return_value = nfse_request
+
+        return view, form
+
+    def test_htmx_final_step_success_returns_hx_redirect(self) -> None:
+        view, form = self._build_view_and_form(htmx=True)
+
+        with (
+            patch.object(view, "get_current_step", return_value=3),
+            patch.object(view, "get_steps_config", return_value=[{}, {}, {}]),
+            patch.object(view, "_finalize_emission", return_value=True),
+        ):
+            response = view.form_valid(form)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("HX-Redirect"), reverse("finance:nfse_list"))
+
+    def test_htmx_final_step_error_returns_hx_redirect_to_current_step(self) -> None:
+        view, form = self._build_view_and_form(htmx=True)
+        step_url = "/finance/nfse/create/?step=3&pk=123"
+
+        with (
+            patch.object(view, "get_current_step", return_value=3),
+            patch.object(view, "get_steps_config", return_value=[{}, {}, {}]),
+            patch.object(view, "_step_url", return_value=step_url),
+            patch.object(view, "_finalize_emission", return_value=False),
+        ):
+            response = view.form_valid(form)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("HX-Redirect"), step_url)
 
 
 class WebhookSecurityTests(TestCase):

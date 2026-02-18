@@ -179,11 +179,16 @@ class NfseRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFo
             return redirect(success_url)
 
         if not self._finalize_emission():
-            return redirect(self._step_url(step=current_step))
+            step_url = self._step_url(step=current_step)
+            if self.request.htmx:
+                response = HttpResponse()
+                response["HX-Redirect"] = step_url
+                return response
+            return redirect(step_url)
 
         success_url = reverse("finance:nfse_list")
         if self.request.htmx:
-            response = HttpResponse(status=204)
+            response = HttpResponse()
             response["HX-Redirect"] = success_url
             return response
         return redirect(success_url)

@@ -39,6 +39,11 @@ def sanitize_webmania_setting(raw_value: object) -> str:
     return _sanitize_value(raw_value)
 
 
+def should_use_global_webmania_auth() -> bool:
+    ambient_value = _sanitize_value(getattr(settings, "WEBMANIA_AMBIENT", "2")) or "2"
+    return ambient_value == "2"
+
+
 def redact_webmania_headers(headers: dict[str, str]) -> dict[str, str]:
     safe_headers = dict(headers)
     for key in _SENSITIVE_HEADER_KEYS:

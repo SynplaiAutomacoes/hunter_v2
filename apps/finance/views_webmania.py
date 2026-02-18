@@ -18,6 +18,7 @@ from apps.finance.services.webmania_b2b import (
     sync_b2b_companies_to_database,
     update_webmania_company,
 )
+from apps.finance.services.webmania_secrets import decrypt_secret
 from apps.finance.views_common import DirectorWorkshopAccessMixin, _format_cnpj, _format_cpf, _format_tax_type, _format_unit
 from apps.workshops.util.workshops import has_workshop_perm
 
@@ -88,7 +89,7 @@ class WebmaniaCompanySyncView(LoginRequiredMixin, DirectorWorkshopAccessMixin, V
 
     def post(self, request, *args, **kwargs):
         try:
-            synced_companies = sync_b2b_companies_to_database()
+            synced_companies = sync_b2b_companies_to_database(workshop=self.workshop)
         except WebmaniaB2BServiceError as exc:
             messages.error(request, str(exc))
         else:
@@ -109,10 +110,11 @@ class WebmaniaCompanyDetailView(LoginRequiredMixin, DirectorWorkshopAccessMixin,
 
     @staticmethod
     def _secret_field(label: str, value: object) -> dict[str, object]:
-        has_value = bool(str(value or "").strip())
+        decrypted_value = decrypt_secret(value)
+        has_value = bool(decrypted_value.strip())
         return {
             "label": label,
-            "value": "********" if has_value else "-",
+            "value": decrypted_value,
             "has_value": has_value,
         }
 
@@ -318,7 +320,7 @@ class WebmaniaRequestsView(LoginRequiredMixin, DirectorWorkshopAccessMixin, Temp
             year = self._normalize_year(self.request.GET.get("ano"))
 
         try:
-            request_payload = get_b2b_requests(month=month, year=year)
+            request_payload = get_b2b_requests(month=month, year=year, workshop=self.workshop)
         except WebmaniaB2BServiceError as exc:
             messages.error(self.request, str(exc))
             total_notas_processadas = 0

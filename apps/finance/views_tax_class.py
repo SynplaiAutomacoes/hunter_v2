@@ -653,7 +653,9 @@ class TaxClassFormBaseView(TaxClassManagerView):
                     )
                 )
 
-            reference_to_keep = edit_reference if self.is_update else ""
+            reference_to_keep = str(request.POST.get("referencia") or "").strip()
+            if self.is_update:
+                reference_to_keep = edit_reference
             if reference_to_keep:
                 preset_payload["referencia"] = reference_to_keep
 
