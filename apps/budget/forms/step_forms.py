@@ -2288,6 +2288,10 @@ class BudgetStep6Form(forms.ModelForm):
 
         budget = _get_budget_with_prefetched_items(self.instance)
 
+        status_data = budget.budget_status_badge
+        status_label = status_data["text"]
+        status_class = status_data["class"]
+
         saved_observation = ""
         if self.workshop:
             saved_observation = self.workshop.pdf_observation or ""
@@ -2598,6 +2602,14 @@ class BudgetStep6Form(forms.ModelForm):
                 Div(css_class="hidden lg:block lg:col-span-1"),
                 # ===== COLUNA DIREITA =====
                 Div(
+                    Div(
+                        HTML(f"""
+                                <div class="w-full mb-4 py-3 px-4 rounded-lg flex items-center justify-between border-l-4 {status_class} bg-opacity-20">
+                                    <span class="font-bold text-sm uppercase tracking-wider">Status do Orçamento</span>
+                                    <span class="badge {status_class} font-bold p-3">{status_label}</span>
+                                </div>
+                                """),
+                    ),
                     # -------- PDF (RESTORED 1:1) --------
                     Div(
                         HTML('<h4 class="font-bold text-lg mb-2 border-b">PDF</h4>'),
