@@ -787,25 +787,6 @@ class ImportStepSupplierManualForm(forms.ModelForm):
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
-            HTML(r"""<script>
-                document.body.addEventListener('supplierCreated', function(evt) {
-                    const data = evt.detail;
-                    const select = document.querySelector('select[name="supplier_select"]');
-    
-                    const newOption = new Option(`${data.name} (${data.cnpj})`, data.id, true, true);
-                    select.add(newOption);
-    
-                    const alpineDiv = select.closest('[x-data]');
-                    if (alpineDiv) {
-                        const scope = Alpine.$data(alpineDiv);
-                        scope.supplierId = data.id;
-                        scope.supName = data.name;
-                        scope.supCnpj = data.cnpj;
-                    }
-    
-                    select.dispatchEvent(new Event('change'));
-                });
-            </script>"""),
             Div(
                 # Coluna Esquerda
                 Div(

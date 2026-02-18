@@ -675,12 +675,7 @@ class SupplierQuickCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateVie
         self.object.save()
 
         if self.request.headers.get("HX-Request"):
-            response = HttpResponse()
-            response["HX-Trigger"] = json.dumps({
-                    "supplierCreated": {"id": str(self.object.id), "name": self.object.name, "cnpj": self.object.cnpj},
-                    "closeModal": True,
-            })
-            return response
+            return HttpResponse(headers={"HX-Refresh": "true"})
 
         return super().form_valid(form)
 
@@ -701,12 +696,7 @@ class SupplierQuickUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateVie
         self.object.save()
 
         if self.request.headers.get("HX-Request"):
-            response = HttpResponse()
-            response["HX-Trigger"] = json.dumps({
-                    "supplierCreated": {"id": str(self.object.id), "name": self.object.name, "cnpj": self.object.cnpj},
-                    "closeModal": True,
-            })
-            return response
+            return HttpResponse(headers={"HX-Refresh": "true"})
 
         return super().form_valid(form)
 
