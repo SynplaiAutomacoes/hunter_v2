@@ -1815,9 +1815,11 @@ class BudgetStep5Form(forms.ModelForm):
         status_texto = "Ruim" if rentabilidade < 60 else "Médio" if (60 <= rentabilidade < 70) else "Bom"
         discount_amount = budget.discount_value.amount if budget.discount_value else Decimal("0")
         discount_display = budget.discount_value if discount_amount != Decimal("0") else Money(0, "BRL")
-        step5_calculation_viewed = bool(budget.pk and budget.step5_calculation_viewed)
-        step5_loading_hidden_class = "hidden" if step5_calculation_viewed else ""
-        step5_method_hidden_class = "" if step5_calculation_viewed else "hidden"
+        step5_calculation_done = bool(budget.pk and (budget.step5_calculation_viewed or budget.current_step > 5))
+        step5_loading_hidden_class = "hidden" if step5_calculation_done else ""
+        step5_method_hidden_class = "" if step5_calculation_done else "hidden"
+        step5_should_block_next_button = "true" if not step5_calculation_done else "false"
+        step5_calculated_input_value = "1" if step5_calculation_done else "0"
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -1969,13 +1971,25 @@ class BudgetStep5Form(forms.ModelForm):
                             const loadingCard = document.getElementById('step5-calc-loader-card');
                             const methodCard = document.getElementById('step5-method-card');
                             const controlsCard = document.getElementById('step5-controls-card');
+                            const submitButton = document.getElementById('budget-submit-btn');
+                            const calculatedInput = document.getElementById('id_step5_calculated');
+                            const shouldBlockNextStep = {step5_should_block_next_button};
 
                             if (!calculateButton || !loadingCard || !methodCard || !controlsCard || calculateButton.dataset.initialized === 'true') return;
+
+                            if (submitButton && shouldBlockNextStep) {{
+                                submitButton.disabled = true;
+                                submitButton.classList.add('btn-disabled');
+                            }}
 
                             calculateButton.dataset.initialized = 'true';
 
                             calculateButton.addEventListener('click', async () => {{
                                 if (calculateButton.disabled) return;
+
+                                if (calculatedInput) {{
+                                    calculatedInput.value = '1';
+                                }}
 
                                 calculateButton.disabled = true;
                                 calculateButton.classList.add('btn-disabled');
@@ -2006,6 +2020,11 @@ class BudgetStep5Form(forms.ModelForm):
                                     loadingCard.classList.add('hidden');
                                     methodCard.classList.remove('hidden');
                                     controlsCard.classList.remove('hidden');
+
+                                    if (submitButton) {{
+                                        submitButton.disabled = false;
+                                        submitButton.classList.remove('btn-disabled');
+                                    }}
 
                                     if (typeof window.step5InitSlider === 'function') {{
                                         window.step5InitSlider();
@@ -2097,6 +2116,7 @@ class BudgetStep5Form(forms.ModelForm):
                     }})();
                 </script>"""),
             Div(
+                HTML(f'<input type="hidden" name="step5_calculated" id="id_step5_calculated" value="{step5_calculated_input_value}">'),
                 HTML('<h3 class="text-2xl font-bold col-span-12">Método de Precificação</h3>'),
                 Div(
                     HTML(
