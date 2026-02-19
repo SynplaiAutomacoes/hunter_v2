@@ -135,6 +135,14 @@ def _get_workorder_workshop_cost(workorder: WorkOrder, workshop):
             return None
 
 
+def _build_customer_approvement_context(workorder: WorkOrder, attachment: WorkOrderAttachment | None = None) -> dict[str, object]:
+    latest_attachment = attachment if attachment is not None else workorder.attachments.last()
+    return {
+        "workorder": workorder,
+        "attachment_form": WorkOrderAttachmentForm(workorder=workorder, instance=latest_attachment),
+    }
+
+
 def _calculate_service_prices(duration: timedelta, workshop_cost) -> tuple[Money, Money]:
     duration_hours = Decimal(duration.total_seconds()) / Decimal(3600)
 
@@ -563,13 +571,7 @@ class UploadAttachmentView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if file:
             with transaction.atomic():
                 attachment = WorkOrderAttachment.objects.create(workorder=workorder, content=file.read(), content_name=file.name, content_type=file.content_type)
-                workorder.status = WorkOrderStatus.APPROVED
-                workorder.save()
-
-        context = {
-            "workorder": workorder,
-            "attachment_form": WorkOrderAttachmentForm(workorder=workorder, instance=attachment),
-        }
+        context = _build_customer_approvement_context(workorder, attachment)
 
         return render(request, "workorder/partials/customer_approvement_section.html", context)
 
@@ -593,11 +595,28 @@ class DeleteAttachmentView(LoginRequiredMixin, WorkshopScopedMixin, View):
             workorder = attachment.workorder
             attachment.delete()
 
-            workorder.status = WorkOrderStatus.DRAFT
-            workorder.save()
-
-        context = {
-            "workorder": workorder,
-            "attachment_form": WorkOrderAttachmentForm(workorder=workorder),
-        }
+        context = _build_customer_approvement_context(workorder)
         return render(request, "workorder/partials/customer_approvement_section.html", context)
+
+
+class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkOrder
+    workshop_permission_codename = "change_workorder"
+
+    def post(self, request, pk, status):
+        workorder = _get_workorder_for_workshop(self.workshop, pk)
+
+        status_map = {
+            "approve": WorkOrderStatus.APPROVED,
+            "reject": WorkOrderStatus.REJECTED,
+            "cancel": WorkOrderStatus.CANCELLED,
+        }
+
+        next_status = status_map.get(status)
+        if next_status is None:
+            return HttpResponse(status=400)
+
+        workorder.status = next_status
+        workorder.save(update_fields=["status"])
+
+        return HttpResponse(headers={"HX-Refresh": "true"})

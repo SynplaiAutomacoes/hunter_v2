@@ -22,6 +22,8 @@ from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 class WorkOrderStatus(models.TextChoices):
     DRAFT = "draft", "Em Aberto"
     APPROVED = "approved", "Aprovado"
+    REJECTED = "rejected", "Rejeitado"
+    CANCELLED = "cancelled", "Cancelado"
 
 
 class WorkOrder(TimeStampedModel):
@@ -35,6 +37,8 @@ class WorkOrder(TimeStampedModel):
         status_color = {
             WorkOrderStatus.DRAFT: "badge-soft badge-ghost min-w-sm",
             WorkOrderStatus.APPROVED: "badge-success min-w-sm",
+            WorkOrderStatus.REJECTED: "badge-error min-w-sm",
+            WorkOrderStatus.CANCELLED: "badge-warning min-w-sm",
         }
 
         return {"text": WorkOrderStatus(self.status).label, "class": status_color.get(self.status, "badge-ghost")}
