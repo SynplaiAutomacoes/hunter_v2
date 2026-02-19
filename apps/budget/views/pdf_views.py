@@ -1,6 +1,7 @@
 import logging
 
 from django.core import signing
+from django.core.exceptions import ObjectDoesNotExist
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, render
 from django.template.loader import render_to_string
@@ -70,7 +71,7 @@ def visualizar_pdf_mecanico(request, pk):
 @xframe_options_exempt
 def visualizar_pdf_checklist(request, pk):
     workshop = get_active_workshop_or_404(request)
-    budget = get_object_or_404(Budget, pk=pk, workshop=workshop)
+    budget = get_object_or_404(Budget.objects.select_related("customer", "vehicle"), pk=pk, workshop=workshop)
 
     checklist_id = request.GET.get("checklist")
     if not checklist_id:
@@ -84,10 +85,30 @@ def visualizar_pdf_checklist(request, pk):
     checklist = get_object_or_404(Checklist.objects.prefetch_related("items"), pk=checklist_id_int, workshop=workshop)
     checklist_items = checklist.items.all().order_by("order", "id")
 
+    try:
+        webmania_company = workshop.webmania_company
+    except ObjectDoesNotExist:
+        webmania_company = None
+
+    workshop_cep = (getattr(webmania_company, "cep", "") or "").strip()
+    workshop_city = (getattr(webmania_company, "cidade", "") or "").strip()
+    if workshop_cep and workshop_city:
+        workshop_cep_city = f"{workshop_cep} - {workshop_city}"
+    else:
+        workshop_cep_city = workshop_cep or workshop_city or "-"
+
+    workshop_header = {
+        "name": workshop.name or "-",
+        "address": workshop.address or "-",
+        "cep_city": workshop_cep_city,
+        "phone": workshop.phone,
+    }
+
     context = {
         "budget": budget,
         "checklist": checklist,
         "checklist_items": checklist_items,
+        "workshop_header": workshop_header,
         "auto_print": request.GET.get("autoprint") == "1",
     }
 
