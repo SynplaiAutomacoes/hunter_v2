@@ -5,7 +5,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.http import HttpResponse, HttpResponseRedirect
 from django.urls import reverse_lazy
-from django.views.generic import CreateView, DeleteView, ListView, TemplateView, UpdateView
+from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from apps.collaborators.forms import WorkshopCollaboratorCreateForm, WorkshopCollaboratorModalForm, WorkshopCollaboratorUpdateForm
 from apps.collaborators.models import WorkshopCollaborator, WorkshopMember
@@ -121,27 +121,44 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
             response = super().form_valid(form)
             collaborator = self.object
 
-            if collaborator.user_id:
-                if collaborator.system_access:
+            if collaborator.system_access:
+                role = form.cleaned_data["role"]
+
+                if collaborator.user_id:
                     user = collaborator.user
                     user.username = form.cleaned_data["system_username"]
                     user.email = collaborator.email or user.email
                     user.is_active = collaborator.is_active
                     user.save(update_fields=["username", "email", "is_active"])
-
-                    role = form.cleaned_data["role"]
-                    WorkshopMember.objects.update_or_create(
-                        user=user,
-                        workshop=self.workshop,
-                        defaults={
-                            "role": role,
-                            "is_active": collaborator.is_active,
-                        },
-                    )
                 else:
-                    WorkshopMember.objects.filter(user=collaborator.user, workshop=self.workshop).update(is_active=False)
-                    collaborator.user.is_active = False
-                    collaborator.user.save(update_fields=["is_active"])
+                    user = User(
+                        username=form.cleaned_data["system_username"],
+                        cpf=collaborator.cpf,
+                        email=collaborator.email or "",
+                        account=self.workshop.account,
+                        is_active=collaborator.is_active,
+                    )
+                    parts = (collaborator.name or "").split(" ", 1)
+                    user.first_name = parts[0] if parts else ""
+                    user.last_name = parts[1] if len(parts) > 1 else ""
+                    user.set_password(form.cleaned_data["password1"])
+                    user.save()
+
+                    collaborator.user = user
+                    collaborator.save(update_fields=["user"])
+
+                WorkshopMember.objects.update_or_create(
+                    user=user,
+                    workshop=self.workshop,
+                    defaults={
+                        "role": role,
+                        "is_active": collaborator.is_active,
+                    },
+                )
+            elif collaborator.user_id:
+                WorkshopMember.objects.filter(user=collaborator.user, workshop=self.workshop).update(is_active=False)
+                collaborator.user.is_active = False
+                collaborator.user.save(update_fields=["is_active"])
 
             return response
 
