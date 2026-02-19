@@ -5,7 +5,6 @@ from crispy_forms.layout import HTML, Div, Field, Layout, Submit
 from django import forms
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.db.models import CharField
 from django.urls import reverse
 
 from apps.collaborators.models import WorkshopCollaborator, WorkshopMember
@@ -219,16 +218,6 @@ class BaseWorkshopCollaboratorForm(forms.ModelForm):
             elif self.account and role.account_id != self.account.id:
                 raise ValidationError("Grupo inválido para esta conta.")
 
-            if not self.is_create:
-                if self.instance.system_access is False and cleaned.get("system_access") is True:
-                    self.add_error(
-                        "system_access",
-                        "Para liberar acesso ao sistema, use o fluxo de criação do colaborador com acesso.",
-                    )
-
-                if not getattr(self.instance, "user_id", None):
-                    self.add_error("system_access", "Este colaborador não possui usuário vinculado.")
-
         return cleaned
 
 
@@ -260,7 +249,33 @@ class WorkshopCollaboratorCreateForm(BaseWorkshopCollaboratorForm):
 
 
 class WorkshopCollaboratorUpdateForm(BaseWorkshopCollaboratorForm):
-    pass
+    password1 = forms.CharField(label="Senha", required=False, widget=PasswordInput())
+    password2 = forms.CharField(label="Confirmar senha", required=False, widget=PasswordInput())
+
+    def get_access_extra_layout_fields(self) -> list[Field]:
+        if getattr(self.instance, "user_id", None):
+            return []
+
+        return [
+            Field("password1", wrapper_class="col-span-12 lg:col-span-6", x_ref="password1"),
+            Field("password2", wrapper_class="col-span-12 lg:col-span-6", x_ref="password2"),
+        ]
+
+    def clean(self):
+        cleaned = super().clean()
+
+        if cleaned.get("system_access") and not getattr(self.instance, "user_id", None):
+            p1 = cleaned.get("password1")
+            p2 = cleaned.get("password2")
+
+            if not p1:
+                self.add_error("password1", "Informe a senha.")
+            if not p2:
+                self.add_error("password2", "Confirme a senha.")
+            if p1 and p2 and p1 != p2:
+                self.add_error("password2", "As senhas não conferem.")
+
+        return cleaned
 
 
 class WorkshopCollaboratorModalForm(forms.ModelForm):
@@ -290,8 +305,8 @@ class WorkshopCollaboratorModalForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         # Removemos kwargs que não são do ModelForm se existirem
-        account = kwargs.pop("account", None)
-        workshop = kwargs.pop("workshop", None)
+        kwargs.pop("account", None)
+        kwargs.pop("workshop", None)
 
         super().__init__(*args, **kwargs)
 
