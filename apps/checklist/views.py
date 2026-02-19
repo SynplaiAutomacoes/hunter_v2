@@ -27,17 +27,20 @@ def _extract_checklist_items(post_data):
 
     parsed_items = []
     for group, description, response_type in zip_longest(agrupamentos, descricoes, tipos, fillvalue=""):
+        cleaned_group = (group or "").strip()
         cleaned_description = (description or "").strip()
         cleaned_response_type = (response_type or "").strip()
 
         if not cleaned_description:
             continue
+        if not cleaned_group:
+            raise ValueError("Todos os itens devem possuir um agrupamento.")
         if cleaned_response_type not in VALID_RESPONSE_TYPES:
             continue
 
         parsed_items.append(
             {
-                "group": (group or "").strip(),
+                "group": cleaned_group,
                 "description": cleaned_description,
                 "response_type": cleaned_response_type,
             }
@@ -72,11 +75,16 @@ class ChecklistCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
     success_url = reverse_lazy("checklist:checklist_list")
 
     def form_valid(self, form):
+        try:
+            checklist_items = _extract_checklist_items(self.request.POST)
+        except ValueError as error:
+            form.add_error(None, str(error))
+            return self.form_invalid(form)
+
         with transaction.atomic():
             form.instance.workshop = self.workshop
             response = super().form_valid(form)
 
-            checklist_items = _extract_checklist_items(self.request.POST)
             ChecklistItem.objects.bulk_create(
                 [
                     ChecklistItem(
@@ -99,11 +107,16 @@ class ChecklistUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
     success_url = reverse_lazy("checklist:checklist_list")
 
     def form_valid(self, form):
+        try:
+            checklist_items = _extract_checklist_items(self.request.POST)
+        except ValueError as error:
+            form.add_error(None, str(error))
+            return self.form_invalid(form)
+
         with transaction.atomic():
             response = super().form_valid(form)
             self.object.items.all().delete()
 
-            checklist_items = _extract_checklist_items(self.request.POST)
             ChecklistItem.objects.bulk_create(
                 [
                     ChecklistItem(
@@ -131,6 +144,18 @@ class AddChecklistItemRowView(LoginRequiredMixin, View):
         group = (request.POST.get("agrupamento_input") or "").strip()
         description = (request.POST.get("item_input") or "").strip()
         response_type = (request.POST.get("tipo_resposta_select") or "").strip()
+
+        if not group:
+            response = HttpResponse("", status=200)
+            response["HX-Trigger"] = json.dumps(
+                {
+                    "showToast": {
+                        "type": "warning",
+                        "message": "Informe o agrupamento antes de adicionar ao checklist.",
+                    }
+                }
+            )
+            return response
 
         if not description:
             response = HttpResponse("", status=200)

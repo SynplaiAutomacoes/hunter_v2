@@ -1,6 +1,7 @@
 import logging
 
 from django.core import signing
+from django.core.exceptions import ObjectDoesNotExist
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, render
 from django.template.loader import render_to_string
@@ -9,6 +10,7 @@ from djmoney.money import Money
 
 from apps.budget.models import Budget, BudgetItem
 from apps.budget.pdf_context import build_budget_pdf_context
+from apps.checklist.models import Checklist
 from apps.core.pdf_playwright import render_pdf_from_html
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
@@ -64,6 +66,78 @@ def visualizar_pdf_mecanico(request, pk):
     context = {"budget": budget, "produtos": produtos, "servicos": servicos, "observacao": workshop.pdf_observation}
 
     return render(request, "budget/partials/pdf/visualizarPDFMecanico.html", context)
+
+
+@xframe_options_exempt
+def visualizar_pdf_checklist(request, pk):
+    workshop = get_active_workshop_or_404(request)
+    budget = get_object_or_404(Budget.objects.select_related("customer", "vehicle"), pk=pk, workshop=workshop)
+
+    checklist_id = request.GET.get("checklist")
+    if not checklist_id:
+        raise Http404("Checklist nao informado")
+
+    try:
+        checklist_id_int = int(checklist_id)
+    except (TypeError, ValueError):
+        raise Http404("Checklist invalido")
+
+    checklist = get_object_or_404(Checklist.objects.prefetch_related("items"), pk=checklist_id_int, workshop=workshop)
+    checklist_items = checklist.items.all().order_by("order", "id")
+    checklist_rows = []
+    group_number_by_name = {}
+    item_counter_by_group = {}
+    next_group_number = 1
+
+    for checklist_item in checklist_items:
+        group_name = (checklist_item.group or "").strip() or "Geral"
+        item_description = (checklist_item.description or "").strip() or "-"
+
+        if group_name not in group_number_by_name:
+            group_number_by_name[group_name] = next_group_number
+            item_counter_by_group[group_name] = 0
+            next_group_number += 1
+
+        item_counter_by_group[group_name] += 1
+        group_number = group_number_by_name[group_name]
+        item_number_in_group = item_counter_by_group[group_name]
+
+        checklist_rows.append(
+            {
+                "index": f"{group_number}.{item_number_in_group}",
+                "description": f"{group_name} - {item_description}",
+                "response_type": checklist_item.response_type,
+            }
+        )
+
+    try:
+        webmania_company = workshop.webmania_company
+    except ObjectDoesNotExist:
+        webmania_company = None
+
+    workshop_cep = (getattr(webmania_company, "cep", "") or "").strip()
+    workshop_city = (getattr(webmania_company, "cidade", "") or "").strip()
+    if workshop_cep and workshop_city:
+        workshop_cep_city = f"{workshop_cep} - {workshop_city}"
+    else:
+        workshop_cep_city = workshop_cep or workshop_city or "-"
+
+    workshop_header = {
+        "name": workshop.name or "-",
+        "address": workshop.address or "-",
+        "cep_city": workshop_cep_city,
+        "phone": workshop.phone,
+    }
+
+    context = {
+        "budget": budget,
+        "checklist": checklist,
+        "checklist_rows": checklist_rows,
+        "workshop_header": workshop_header,
+        "auto_print": request.GET.get("autoprint") == "1",
+    }
+
+    return render(request, "budget/partials/pdf/pdf_checklist.html", context)
 
 
 def _get_budget_from_signature_token(token):

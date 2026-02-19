@@ -1,0 +1,411 @@
+{% load format_tags %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Checklist</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 8mm;
+        }
+
+        :root {
+            color-scheme: light;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: #eef2f7;
+            color: #111827;
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 12px;
+            line-height: 1.35;
+        }
+
+        .pdf-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            padding: 14px;
+        }
+
+        .pdf-actions button {
+            border: 0;
+            border-radius: 6px;
+            padding: 8px 14px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .btn-close {
+            background: #e5e7eb;
+            color: #111827;
+        }
+
+        .btn-print {
+            background: #1f5eb9;
+            color: #ffffff;
+        }
+
+        .pdf-wrapper {
+            max-width: 210mm;
+            margin: 0 auto 24px;
+            background: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 16px 32px rgb(17 24 39 / 0.12);
+            padding: 7mm;
+        }
+
+        .pdf-section {
+            border: 1px solid #d9dee7;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            padding: 10px;
+            background: #ffffff;
+        }
+
+        .section-title {
+            margin: 0 0 8px;
+            font-size: 14px;
+            font-weight: 700;
+            color: #0f172a;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: stretch;
+            gap: 10px;
+            padding: 10px;
+        }
+
+        .header-left {
+            width: 20%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .logo-placeholder {
+            width: 92px;
+            height: 58px;
+            border: 2px dashed #9ca3af;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #64748b;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+        }
+
+        .header-center {
+            width: 42%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 0 4px;
+        }
+
+        .header-center h1 {
+            margin: 0;
+            font-size: 20px;
+            line-height: 1.2;
+            font-weight: 800;
+            color: #0f172a;
+        }
+
+        .header-right {
+            width: 38%;
+            border-left: 1px solid #d9dee7;
+            padding-left: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            justify-content: center;
+        }
+
+        .header-line {
+            display: flex;
+            gap: 4px;
+        }
+
+        .header-label {
+            color: #475569;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+
+        .header-value {
+            color: #0f172a;
+            min-width: 0;
+            overflow-wrap: anywhere;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px 12px;
+        }
+
+        .info-item {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            min-width: 0;
+        }
+
+        .info-item-wide {
+            grid-column: span 2;
+        }
+
+        .info-label {
+            color: #475569;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        .info-value {
+            color: #0f172a;
+            min-height: 16px;
+            overflow-wrap: anywhere;
+        }
+
+        .complaint-block {
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            background: #f8fafc;
+            padding: 8px;
+            margin-bottom: 0;
+        }
+
+        .checklist-name {
+            margin: -2px 0 10px;
+            color: #334155;
+            font-size: 12px;
+        }
+
+        .checklist-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11.5px;
+        }
+
+        .checklist-table th,
+        .checklist-table td {
+            border: 1px solid #d1d5db;
+            padding: 6px;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        .checklist-table th {
+            background: #f1f5f9;
+            font-weight: 700;
+            text-transform: uppercase;
+            font-size: 10.5px;
+            letter-spacing: 0.03em;
+        }
+
+        .checklist-col-seq {
+            width: 42px;
+            text-align: center !important;
+        }
+
+        .checklist-col-response {
+            width: 34%;
+        }
+
+        .checklist-option {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            margin-right: 8px;
+            margin-bottom: 4px;
+            white-space: nowrap;
+        }
+
+        .checklist-box {
+            width: 12px;
+            height: 12px;
+            border: 1px solid #374151;
+            display: inline-block;
+            flex-shrink: 0;
+        }
+
+        .checklist-line {
+            border-bottom: 1px solid #9ca3af;
+            min-height: 15px;
+        }
+
+        .section-header,
+        .section-customer,
+        .section-vehicle,
+        .section-complaints {
+            break-inside: avoid;
+            page-break-inside: avoid;
+        }
+
+        @media print {
+            body {
+                background: #ffffff;
+            }
+
+            .no-print {
+                display: none !important;
+            }
+
+            .pdf-wrapper {
+                max-width: none;
+                margin: 0;
+                border-radius: 0;
+                box-shadow: none;
+                padding: 0;
+            }
+
+            .pdf-section {
+                border-radius: 0;
+            }
+
+            .checklist-table tr {
+                break-inside: avoid;
+                page-break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="pdf-actions no-print">
+        <button type="button" class="btn-close" onclick="window.close()">Fechar</button>
+        <button type="button" class="btn-print" onclick="window.print()">Imprimir</button>
+    </div>
+
+    <div class="pdf-wrapper">
+        <div class="pdf-section section-header">
+            <div class="header-left">
+                <div class="logo-placeholder">LOGO</div>
+            </div>
+
+            <div class="header-center">
+                <h1>Plano de Revisão Personalizado</h1>
+            </div>
+
+            <div class="header-right">
+                <div class="header-line"><span class="header-label">Oficina:</span><span class="header-value">{{ workshop_header.name|default:"-" }}</span></div>
+                <div class="header-line"><span class="header-label">Endereço:</span><span class="header-value">{{ workshop_header.address|default:"-" }}</span></div>
+                <div class="header-line"><span class="header-label">CEP-Cidade:</span><span class="header-value">{{ workshop_header.cep_city|default:"-" }}</span></div>
+                <div class="header-line"><span class="header-label">Telefone:</span><span class="header-value">{{ workshop_header.phone|phone_br|default:"-" }}</span></div>
+            </div>
+        </div>
+
+        <div class="pdf-section section-customer">
+            <h2 class="section-title">Dados do Cliente</h2>
+            {% with customer=budget.customer %}
+                <div class="info-grid">
+                    <div class="info-item"><span class="info-label">Nome</span><span class="info-value">{{ customer.name|default:"-" }}</span></div>
+                    <div class="info-item"><span class="info-label">Telefone</span><span class="info-value">{{ customer.phone|phone_br|default:"-" }}</span></div>
+                    <div class="info-item"><span class="info-label">CPF</span><span class="info-value">{{ customer.cpf_or_cnpj_formatted|default:customer.cpf_or_cnpj|default:"-" }}</span></div>
+                    <div class="info-item"><span class="info-label">Email</span><span class="info-value">{{ customer.email|default:"-" }}</span></div>
+                </div>
+            {% endwith %}
+        </div>
+
+        <div class="pdf-section section-vehicle">
+            <h2 class="section-title">Dados do Veículo</h2>
+            {% with vehicle=budget.vehicle %}
+                <div class="info-grid">
+                    <div class="info-item"><span class="info-label">Placa</span><span class="info-value">{{ vehicle.plate|default:"-" }}</span></div>
+                    <div class="info-item"><span class="info-label">Marca</span><span class="info-value">{{ vehicle.brand|default:"-" }}</span></div>
+                    <div class="info-item"><span class="info-label">Modelo</span><span class="info-value">{{ vehicle.model|default:"-" }}</span></div>
+                    <div class="info-item"><span class="info-label">Ano/Fab</span><span class="info-value">{{ vehicle.year_fabrication|default:"-" }}</span></div>
+                    <div class="info-item"><span class="info-label">Ano/Mod</span><span class="info-value">{{ vehicle.year_model|default:"-" }}</span></div>
+                    <div class="info-item"><span class="info-label">Cor</span><span class="info-value">{{ vehicle.color|default:"-" }}</span></div>
+                    <div class="info-item"><span class="info-label">KM</span><span class="info-value">{{ budget.current_km|default_if_none:vehicle.km|default:"-" }}</span></div>
+                </div>
+            {% endwith %}
+        </div>
+
+        <div class="pdf-section section-complaints">
+            <h2 class="section-title">Reclamações/Problemas Relatados</h2>
+
+            <div class="complaint-block">
+                <div class="info-label">Relato principal do cliente</div>
+                <div class="info-value">{{ budget.problem_description|default:"Não informado." }}</div>
+            </div>
+        </div>
+
+        <div class="pdf-section section-checklist">
+            <h2 class="section-title">Checklist</h2>
+            <p class="checklist-name">Checklist selecionado: {{ checklist.name|default:"Checklist" }}</p>
+
+            <table class="checklist-table">
+                <thead>
+                    <tr>
+                        <th class="checklist-col-seq">Índice</th>
+                        <th>Descrição</th>
+                        <th class="checklist-col-response">Resposta</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in checklist_rows %}
+                        <tr>
+                            <td class="checklist-col-seq">{{ row.index }}</td>
+                            <td>{{ row.description|default:"-" }}</td>
+                            <td>
+                                {% if row.response_type == "SIM_NAO" %}
+                                    <span class="checklist-option"><span class="checklist-box"></span>Sim</span>
+                                    <span class="checklist-option"><span class="checklist-box"></span>Não</span>
+                                {% elif row.response_type == "BOM_REGULAR_RUIM" %}
+                                    <span class="checklist-option"><span class="checklist-box"></span>Bom</span>
+                                    <span class="checklist-option"><span class="checklist-box"></span>Regular</span>
+                                    <span class="checklist-option"><span class="checklist-box"></span>Ruim</span>
+                                {% elif row.response_type == "NIVEL" %}
+                                    <span class="checklist-option"><span class="checklist-box"></span>Vazio</span>
+                                    <span class="checklist-option"><span class="checklist-box"></span>1/4</span>
+                                    <span class="checklist-option"><span class="checklist-box"></span>1/2</span>
+                                    <span class="checklist-option"><span class="checklist-box"></span>3/4</span>
+                                    <span class="checklist-option"><span class="checklist-box"></span>Cheio</span>
+                                {% else %}
+                                    <div class="checklist-line"></div>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td class="checklist-col-seq">-</td>
+                            <td colspan="2">Checklist selecionado não possui itens para impressão.</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            const autoPrint = "{{ auto_print|yesno:'1,0' }}" === "1";
+            if (!autoPrint) {
+                return;
+            }
+
+            window.addEventListener("load", function () {
+                window.setTimeout(function () {
+                    window.print();
+                }, 80);
+            });
+        })();
+    </script>
+</body>
+</html>

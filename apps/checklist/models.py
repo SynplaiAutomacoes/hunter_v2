@@ -6,7 +6,7 @@ class Checklist(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="checklists")
     name = models.CharField(verbose_name="Nome do Checklist", max_length=255)
 
-    class Meta:
+    class Meta(TimeStampedModel.Meta):
         verbose_name = "Checklist"
         verbose_name_plural = "Checklists"
 
@@ -23,10 +23,18 @@ class ChecklistItem(models.Model):
     ]
 
     checklist = models.ForeignKey(Checklist, on_delete=models.CASCADE, related_name="items")
-    group = models.CharField(verbose_name="Agrupamento", max_length=100, blank=True)
+    group = models.CharField(verbose_name="Agrupamento", max_length=100)
     description = models.CharField(verbose_name="Descrição", max_length=500)
     response_type = models.CharField(verbose_name="Tipo de Resposta", max_length=30, choices=TIPO_RESPOSTA_CHOICES)
     order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=~models.Q(group=""),
+                name="checklist_item_group_not_blank",
+            )
+        ]
 
     def __str__(self):
         return f"{self.group} - {self.description}"
