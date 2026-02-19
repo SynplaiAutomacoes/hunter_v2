@@ -31,8 +31,8 @@
 {% block modal_content %}
     <form {% if is_register_mode %}hx-post="{% url 'budget:register_local_item' budget_id item_id %}"
           hx-swap="none"{% else %}hx-post="{% url 'budget:quick_create_item' budget_id item_type %}"
-          hx-target="#modal-item-list-container"
-          hx-swap="outerHTML"{% endif %}
+          hx-target="#modal-container"
+          hx-swap="innerHTML"{% endif %}
           id="quick-create-form"
           class="space-y-4">
         {% csrf_token %}

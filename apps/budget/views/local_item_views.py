@@ -8,11 +8,11 @@ from django.template.loader import render_to_string
 from django.views import View
 
 from apps.budget.forms import LocalProductForm, LocalServiceForm
-from apps.budget.models import Budget
+from apps.budget.models import Budget, BudgetItem
 from apps.budget.utils import HtmxResponseHelper
 from apps.workshops.mixin import WorkshopScopedMixin
 
-from .shared import _calculate_service_prices, _get_budget_for_workshop, _get_budget_item_for_workshop, _get_budget_workshop_cost, _local_item_kind, _parse_duration_from_string, reset_steps_after_step_4
+from .shared import _calculate_service_prices, _get_budget_for_workshop, _get_budget_item_for_workshop, _get_budget_workshop_cost, _get_current_step_from_referer, _local_item_kind, _parse_duration_from_string, reset_steps_after_step_4
 
 
 class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -105,7 +105,7 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "name": item.description,
                 "cost_price": item.product_cost_price,
                 "selling_price": item.product_selling_price,
-                "code": f"TEMP-{item.id}",  # Código temporário
+                "code": f"TEMP-{item_id}",  # Código temporário
                 "unit": "UND",  # Unidade padrão
             }
             form = QuickProductForm(initial=initial, workshop=self.workshop)
@@ -272,38 +272,50 @@ class QuickCreateProductView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return HttpResponse("Tipo inválido", status=400)
 
         if form.is_valid():
-            item = form.save(commit=False)
-            item.workshop = self.workshop
-            item.save()
-
-            # Retornar a lista atualizada de itens
-            from apps.catalog.models.products import Product
-            from apps.catalog.models.services import Service
+            catalog_item = form.save(commit=False)
+            catalog_item.workshop = self.workshop
+            catalog_item.save()
 
             if item_type == "product":
-                model_class = Product
+                budget_item = BudgetItem.objects.create(
+                    workshop=self.workshop,
+                    budget=budget,
+                    product=catalog_item,
+                    quantity=1,
+                )
             else:
-                model_class = Service
+                budget_item = BudgetItem.objects.create(
+                    workshop=self.workshop,
+                    budget=budget,
+                    service=catalog_item,
+                    quantity=1,
+                )
 
-            queryset = model_class.objects.filter(workshop=self.workshop, is_active=True)
+            # Reset etapas 5 e 6 após modificar a etapa 4
+            reset_steps_after_step_4(budget)
 
-            # Get already added items
-            existing_items = set()
-            if item_type == "product":
-                existing_items = set(budget.items.filter(product__isnull=False).values_list("product_id", flat=True))
-            elif item_type == "service":
-                existing_items = set(budget.items.filter(service__isnull=False).values_list("service_id", flat=True))
+            created_budget_item_id = getattr(budget_item, "pk")
 
+            current_step = _get_current_step_from_referer(request, budget.current_step)
             context = {
-                "items": queryset,
                 "budget": budget,
                 "item_type": item_type,
-                "modal_title": f"Selecionar {'Produto' if item_type == 'product' else 'Serviço'}",
-                "existing_items": existing_items,
-                "newly_created_id": item.id,  # ID do item recém-criado
+                "item_ids": [created_budget_item_id],
+                "total_items": 1,
+                "current_index": 0,
+                "current_step": current_step,
             }
 
-            return HtmxResponseHelper.render_and_trigger("budget/partials/modals/modal_item_list.html", context, {"showToast": {"message": f"{'Produto' if item_type == 'product' else 'Serviço'} cadastrado com sucesso!", "type": "success"}})
+            return HtmxResponseHelper.render_and_trigger(
+                "budget/partials/modals/modal_edit_queue.html",
+                context,
+                {
+                    "showToast": {
+                        "message": f"{'Produto' if item_type == 'product' else 'Serviço'} cadastrado e adicionado ao orçamento!",
+                        "type": "success",
+                    }
+                },
+            )
 
         # Se form inválido
         context = {
