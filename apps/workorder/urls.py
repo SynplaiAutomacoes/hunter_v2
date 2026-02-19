@@ -15,6 +15,7 @@ urlpatterns = [
     path("<int:pk>/item/<int:item_id>/edit/", views.WorkOrderItemUpdateView.as_view(), name="edit_item"),
     path("<int:pk>/item/<int:item_id>/remove/", views.WorkOrderRemoveItemView.as_view(), name="remove_item"),
     path("<int:pk>/kit/<int:item_id>/edit/", views.WorkOrderKitEditView.as_view(), name="edit_kit"),
+    path("<int:pk>/status/<str:status>/", views.UpdateWorkOrderStatusView.as_view(), name="update_status"),
     path("add_payment/<int:pk>/", views.AddPaymentMethodView.as_view(), name="add_payment"),
     path("delete_payment/<int:pk>/", views.DeletePaymentMethodView.as_view(), name="delete_payment"),
     path("attachment/<int:pk>/upload/", views.UploadAttachmentView.as_view(), name="upload_attachment"),

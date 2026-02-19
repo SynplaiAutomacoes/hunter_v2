@@ -7,4 +7,37 @@
     <div id="attachment-section-container">
         {% crispy attachment_form %}
     </div>
+
+    <div class="mt-6 pt-4 border-t border-base-300">
+        <h5 class="font-semibold text-lg pb-2">Atualizar Status da Ordem de Serviço</h5>
+
+        <div class="flex flex-wrap gap-3">
+            <form
+                method="post"
+                hx-post="{% url 'workorder:update_status' workorder.pk 'approve' %}"
+                hx-target="#customer-approvement-section"
+                hx-swap="innerHTML">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-success" {% if workorder.status == 'approved' %}disabled{% endif %}>Aprovar</button>
+            </form>
+
+            <form
+                method="post"
+                hx-post="{% url 'workorder:update_status' workorder.pk 'reject' %}"
+                hx-target="#customer-approvement-section"
+                hx-swap="innerHTML">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-error" {% if workorder.status == 'rejected' %}disabled{% endif %}>Rejeitar</button>
+            </form>
+
+            <form
+                method="post"
+                hx-post="{% url 'workorder:update_status' workorder.pk 'cancel' %}"
+                hx-target="#customer-approvement-section"
+                hx-swap="innerHTML">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-warning" {% if workorder.status == 'cancelled' %}disabled{% endif %}>Cancelar</button>
+            </form>
+        </div>
+    </div>
 </div>
