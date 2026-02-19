@@ -1,5 +1,8 @@
+import json
+
 from django.shortcuts import get_object_or_404
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.http import HttpResponse
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 
@@ -201,6 +204,18 @@ class QuickCustomerCreateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModal
         kwargs["workshop"] = self.workshop
         return kwargs
 
+    def form_valid(self, form):
+        if not bool(getattr(self.request, "htmx", False)):
+            return super().form_valid(form)
+
+        form.instance.workshop = self.workshop
+        customer = form.save()
+        self.object = customer
+
+        response = HttpResponse(status=204)
+        response["HX-Trigger"] = json.dumps({"customerSaved": {"id": str(customer.pk), "name": customer.name}})
+        return response
+
 
 class QuickCustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalFormView, UpdateView):
     model = Customer
@@ -210,6 +225,18 @@ class QuickCustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModal
         kwargs = super().get_form_kwargs()
         kwargs["workshop"] = self.workshop
         return kwargs
+
+    def form_valid(self, form):
+        if not bool(getattr(self.request, "htmx", False)):
+            return super().form_valid(form)
+
+        form.instance.workshop = self.workshop
+        customer = form.save()
+        self.object = customer
+
+        response = HttpResponse(status=204)
+        response["HX-Trigger"] = json.dumps({"customerSaved": {"id": str(customer.pk), "name": customer.name}})
+        return response
 
 
 class QuickVehicleCreateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalFormView, CreateView):

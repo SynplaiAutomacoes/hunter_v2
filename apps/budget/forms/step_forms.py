@@ -353,6 +353,77 @@ class BudgetStep1Form(forms.ModelForm):
                         optionsUl.appendChild(li);
                     });
                 }
+
+                function selectCustomerFromQuickForm(customer) {
+                    if (!customer || !customer.id) {
+                        return;
+                    }
+
+                    const customerInput = document.querySelector('[name="customer"]');
+                    if (!customerInput || typeof Alpine === 'undefined') {
+                        return;
+                    }
+
+                    const customerEl = customerInput.closest('[x-data]');
+                    if (!customerEl) {
+                        return;
+                    }
+
+                    const customerData = Alpine.$data(customerEl);
+                    const optionsUl = customerEl.querySelector('ul[role="listbox"]');
+                    if (!customerData || !optionsUl) {
+                        return;
+                    }
+
+                    const customerId = String(customer.id);
+                    const customerName = customer.name || 'Cliente';
+                    let option = optionsUl.querySelector(`li[data-value='${customerId}']`);
+
+                    if (!option) {
+                        option = document.createElement('li');
+                        option.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white group transition-colors';
+                        option.setAttribute('data-value', customerId);
+                        option.setAttribute('data-label', customerName);
+
+                        const labelSpan = document.createElement('span');
+                        labelSpan.className = 'block truncate';
+                        labelSpan.textContent = customerName;
+                        option.appendChild(labelSpan);
+
+                        option.addEventListener('click', () => customerData.select(option));
+                        optionsUl.appendChild(option);
+                    } else {
+                        option.setAttribute('data-label', customerName);
+                        const currentLabel = option.querySelector('span');
+                        if (currentLabel) {
+                            currentLabel.textContent = customerName;
+                        }
+                    }
+
+                    if (typeof customerData.select === 'function') {
+                        customerData.select(option);
+                        return;
+                    }
+
+                    customerData.value = customerId;
+                    customerData.label = customerName;
+                    if (typeof customerData.dispatchEvents === 'function') {
+                        customerData.dispatchEvents();
+                    }
+                }
+
+                if (!window.__budgetStep1CustomerSavedBound) {
+                    window.__budgetStep1CustomerSavedBound = true;
+                    document.body.addEventListener('customerSaved', function (evt) {
+                        const modal = document.getElementById('form_modal');
+                        if (modal) {
+                            modal.close();
+                        }
+
+                        const customer = evt && evt.detail ? evt.detail : null;
+                        selectCustomerFromQuickForm(customer);
+                    });
+                }
             </script>
             """),
             Div(
