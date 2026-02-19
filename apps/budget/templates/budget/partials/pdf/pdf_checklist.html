@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Checklist</title>
+    <style>
+        :root {
+            color-scheme: light;
+        }
+
+        body {
+            margin: 0;
+            background: #f3f4f6;
+            color: #111827;
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        .checklist-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            padding: 16px;
+        }
+
+        .checklist-actions button {
+            border: 0;
+            border-radius: 6px;
+            padding: 8px 14px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .checklist-actions .btn-primary {
+            color: #ffffff;
+            background: #2563eb;
+        }
+
+        .checklist-actions .btn-secondary {
+            color: #111827;
+            background: #e5e7eb;
+        }
+
+        .checklist-print-sheet {
+            max-width: 210mm;
+            margin: 0 auto 24px;
+            background: #ffffff;
+            border-radius: 10px;
+            box-shadow: 0 10px 25px rgb(17 24 39 / 0.12);
+            padding: 12mm;
+        }
+
+        .checklist-print-title {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 700;
+        }
+
+        .checklist-print-subtitle {
+            margin: 6px 0 16px;
+            color: #4b5563;
+            font-size: 13px;
+        }
+
+        .checklist-print-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+
+        .checklist-print-table th,
+        .checklist-print-table td {
+            border: 1px solid #d1d5db;
+            padding: 7px;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        .checklist-print-table th {
+            background: #f3f4f6;
+            font-weight: 700;
+        }
+
+        .checklist-print-col-seq {
+            width: 48px;
+            text-align: center !important;
+        }
+
+        .checklist-print-option {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            margin-right: 10px;
+            margin-bottom: 3px;
+        }
+
+        .checklist-print-box {
+            width: 13px;
+            height: 13px;
+            border: 1px solid #374151;
+            display: inline-block;
+        }
+
+        .checklist-print-line {
+            border-bottom: 1px solid #9ca3af;
+            min-height: 16px;
+        }
+
+        @media print {
+            @page {
+                size: A4;
+                margin: 12mm;
+            }
+
+            body {
+                margin: 0;
+                background: #ffffff;
+            }
+
+            .no-print {
+                display: none !important;
+            }
+
+            .checklist-print-sheet {
+                max-width: none;
+                margin: 0;
+                border-radius: 0;
+                box-shadow: none;
+                padding: 0;
+            }
+
+            .checklist-print-table tr {
+                break-inside: avoid;
+                page-break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="checklist-actions no-print">
+        <button type="button" class="btn-secondary" onclick="window.close()">Fechar</button>
+        <button type="button" class="btn-primary" onclick="window.print()">Imprimir</button>
+    </div>
+
+    <div class="checklist-print-sheet">
+        <h2 class="checklist-print-title">{{ checklist.name|default:"Checklist" }}</h2>
+        <p class="checklist-print-subtitle">
+            Orçamento #{{ budget.pk }} - {{ budget.customer.name|default:"Cliente" }} - {{ budget.vehicle.plate|default:"Placa" }}
+        </p>
+
+        <table class="checklist-print-table">
+            <thead>
+                <tr>
+                    <th class="checklist-print-col-seq">#</th>
+                    <th>Agrupamento</th>
+                    <th>Item</th>
+                    <th>Resposta</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in checklist_items %}
+                    <tr>
+                        <td class="checklist-print-col-seq">{{ forloop.counter }}</td>
+                        <td>{{ item.group|default:"Sem grupo" }}</td>
+                        <td>{{ item.description|default:"-" }}</td>
+                        <td>
+                            {% if item.response_type == "SIM_NAO" %}
+                                <span class="checklist-print-option"><span class="checklist-print-box"></span>Sim</span>
+                                <span class="checklist-print-option"><span class="checklist-print-box"></span>Nao</span>
+                            {% elif item.response_type == "BOM_REGULAR_RUIM" %}
+                                <span class="checklist-print-option"><span class="checklist-print-box"></span>Bom</span>
+                                <span class="checklist-print-option"><span class="checklist-print-box"></span>Regular</span>
+                                <span class="checklist-print-option"><span class="checklist-print-box"></span>Ruim</span>
+                            {% elif item.response_type == "NIVEL" %}
+                                <span class="checklist-print-option"><span class="checklist-print-box"></span>Vazio</span>
+                                <span class="checklist-print-option"><span class="checklist-print-box"></span>1/4</span>
+                                <span class="checklist-print-option"><span class="checklist-print-box"></span>1/2</span>
+                                <span class="checklist-print-option"><span class="checklist-print-box"></span>3/4</span>
+                                <span class="checklist-print-option"><span class="checklist-print-box"></span>Cheio</span>
+                            {% else %}
+                                <div class="checklist-print-line"></div>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td class="checklist-print-col-seq">-</td>
+                        <td colspan="3">Checklist selecionado nao possui itens para impressao.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        (function () {
+            const autoPrint = "{{ auto_print|yesno:'1,0' }}" === "1";
+            if (!autoPrint) {
+                return;
+            }
+
+            window.addEventListener("load", function () {
+                window.setTimeout(function () {
+                    window.print();
+                }, 80);
+            });
+        })();
+    </script>
+</body>
+</html>
