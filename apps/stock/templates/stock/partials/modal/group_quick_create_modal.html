@@ -1,6 +1,6 @@
 <div class="modal modal-open" id="group-quick-create-modal">
     <div class="modal-box w-11/12 max-w-md">
-        <h3 class="font-bold text-lg mb-4 uppercase">Formulário Rápido de Grupo</h3>
+        <h3 class="font-bold text-lg mb-4 uppercase">Criação Rápida de Grupo</h3>
 
         <form hx-post="{% url 'stock:group_quick_create' %}" hx-target="#group-modal-container">
             {% csrf_token %}

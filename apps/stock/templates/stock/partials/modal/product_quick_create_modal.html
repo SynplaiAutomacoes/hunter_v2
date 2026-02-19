@@ -1,6 +1,6 @@
 <div class="modal modal-open">
     <div class="modal-box w-10/12 max-w-3xl">
-        <h3 class="font-bold text-lg mb-4 uppercase">Formulário Rápido de Produto</h3>
+        <h3 class="font-bold text-lg mb-4 uppercase">Criação Rápida de Produto</h3>
         <form hx-post="{% url 'stock:product_quick_create' %}?item_idx={{ item_idx }}&pk={{ pk_import }}" hx-target="#modal-container">
             {% csrf_token %}
             {% crispy form %}
