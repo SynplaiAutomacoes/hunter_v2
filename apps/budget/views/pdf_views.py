@@ -84,6 +84,31 @@ def visualizar_pdf_checklist(request, pk):
 
     checklist = get_object_or_404(Checklist.objects.prefetch_related("items"), pk=checklist_id_int, workshop=workshop)
     checklist_items = checklist.items.all().order_by("order", "id")
+    checklist_rows = []
+    group_number_by_name = {}
+    item_counter_by_group = {}
+    next_group_number = 1
+
+    for checklist_item in checklist_items:
+        group_name = (checklist_item.group or "").strip() or "Geral"
+        item_description = (checklist_item.description or "").strip() or "-"
+
+        if group_name not in group_number_by_name:
+            group_number_by_name[group_name] = next_group_number
+            item_counter_by_group[group_name] = 0
+            next_group_number += 1
+
+        item_counter_by_group[group_name] += 1
+        group_number = group_number_by_name[group_name]
+        item_number_in_group = item_counter_by_group[group_name]
+
+        checklist_rows.append(
+            {
+                "index": f"{group_number}.{item_number_in_group}",
+                "description": f"{group_name} - {item_description}",
+                "response_type": checklist_item.response_type,
+            }
+        )
 
     try:
         webmania_company = workshop.webmania_company
@@ -107,7 +132,7 @@ def visualizar_pdf_checklist(request, pk):
     context = {
         "budget": budget,
         "checklist": checklist,
-        "checklist_items": checklist_items,
+        "checklist_rows": checklist_rows,
         "workshop_header": workshop_header,
         "auto_print": request.GET.get("autoprint") == "1",
     }

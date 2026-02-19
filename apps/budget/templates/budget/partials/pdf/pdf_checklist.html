@@ -353,27 +353,25 @@
             <table class="checklist-table">
                 <thead>
                     <tr>
-                        <th class="checklist-col-seq">#</th>
-                        <th>Agrupamento</th>
-                        <th>Item</th>
+                        <th class="checklist-col-seq">Índice</th>
+                        <th>Descrição</th>
                         <th class="checklist-col-response">Resposta</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for item in checklist_items %}
+                    {% for row in checklist_rows %}
                         <tr>
-                            <td class="checklist-col-seq">{{ forloop.counter }}</td>
-                            <td>{{ item.group|default:"Sem grupo" }}</td>
-                            <td>{{ item.description|default:"-" }}</td>
+                            <td class="checklist-col-seq">{{ row.index }}</td>
+                            <td>{{ row.description|default:"-" }}</td>
                             <td>
-                                {% if item.response_type == "SIM_NAO" %}
+                                {% if row.response_type == "SIM_NAO" %}
                                     <span class="checklist-option"><span class="checklist-box"></span>Sim</span>
                                     <span class="checklist-option"><span class="checklist-box"></span>Não</span>
-                                {% elif item.response_type == "BOM_REGULAR_RUIM" %}
+                                {% elif row.response_type == "BOM_REGULAR_RUIM" %}
                                     <span class="checklist-option"><span class="checklist-box"></span>Bom</span>
                                     <span class="checklist-option"><span class="checklist-box"></span>Regular</span>
                                     <span class="checklist-option"><span class="checklist-box"></span>Ruim</span>
-                                {% elif item.response_type == "NIVEL" %}
+                                {% elif row.response_type == "NIVEL" %}
                                     <span class="checklist-option"><span class="checklist-box"></span>Vazio</span>
                                     <span class="checklist-option"><span class="checklist-box"></span>1/4</span>
                                     <span class="checklist-option"><span class="checklist-box"></span>1/2</span>
@@ -387,7 +385,7 @@
                     {% empty %}
                         <tr>
                             <td class="checklist-col-seq">-</td>
-                            <td colspan="3">Checklist selecionado não possui itens para impressão.</td>
+                            <td colspan="2">Checklist selecionado não possui itens para impressão.</td>
                         </tr>
                     {% endfor %}
                 </tbody>
