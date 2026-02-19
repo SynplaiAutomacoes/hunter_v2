@@ -23,8 +23,8 @@
 
 {% block modal_content %}
     <form hx-post="{% url 'budget:create_local_item' budget_id item_type %}"
-          hx-target="{% if item_type == 'product' %}#product-list-body{% else %}#service-list-body{% endif %}"
-          hx-swap="beforeend"
+          hx-target="#modal-container"
+          hx-swap="innerHTML"
           id="local-item-form"
           class="space-y-4">
         {% csrf_token %}

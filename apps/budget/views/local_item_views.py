@@ -61,18 +61,22 @@ class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
             # Reset etapas 5 e 6 após modificar a etapa 4
             reset_steps_after_step_4(budget)
 
-            # Retornar HTML da linha do item criado
-            if item_type == "product":
-                template = "budget/partials/items/item_product_row.html"
-            else:
-                template = "budget/partials/items/item_service_row.html"
+            # Re-renderiza a seção inteira para remover placeholders de "Nenhum item"
+            # quando o primeiro item local é adicionado.
+            from apps.budget.forms.shared import _render_budget_items_rows
 
-            context = {"item": item, "budget": budget, "is_full_render": True}
+            rows = _render_budget_items_rows(budget, step6=False)
+            target_selector = "#product-list-body" if item_type == "product" else "#service-list-body"
 
-            row_html = render_to_string(template, context)
-
-            # Fechar modal e adicionar linha na tabela
-            return HtmxResponseHelper.success(f"{'Produto' if item_type == 'product' else 'Serviço'} local criado com sucesso!", close_modal=True, update_summary=True, content=row_html)
+            response = HtmxResponseHelper.success(
+                f"{'Produto' if item_type == 'product' else 'Serviço'} local criado com sucesso!",
+                close_modal=True,
+                update_summary=True,
+                content=rows[item_type],
+            )
+            response["HX-Retarget"] = target_selector
+            response["HX-Reswap"] = "innerHTML"
+            return response
 
         context = {
             "form": form,
