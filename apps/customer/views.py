@@ -16,6 +16,18 @@ from .forms import CustomerForm, VehicleFormSet
 from .models import Customer, Vehicle
 
 
+def _build_vehicle_saved_trigger(vehicle: Vehicle) -> str:
+    return json.dumps(
+        {
+            "vehicleSaved": {
+                "id": str(vehicle.pk),
+                "label": str(vehicle),
+                "customer_id": str(vehicle.customer_id),
+            }
+        }
+    )
+
+
 class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = Customer
     template_name = "customer/customer_list.html"
@@ -254,8 +266,20 @@ class QuickVehicleCreateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalF
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["customer_id_persist"] = self.request.GET.get("customer_id")
+        context["customer_id_persist"] = self.request.GET.get("customer_id") or self.request.POST.get("customer_id_persist")
         return context
+
+    def form_valid(self, form):
+        if not bool(getattr(self.request, "htmx", False)):
+            return super().form_valid(form)
+
+        form.instance.workshop = self.workshop
+        vehicle = form.save()
+        self.object = vehicle
+
+        response = HttpResponse(status=204)
+        response["HX-Trigger"] = _build_vehicle_saved_trigger(vehicle)
+        return response
 
 
 class QuickVehicleUpdateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalFormView, UpdateView):
@@ -266,3 +290,15 @@ class QuickVehicleUpdateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalF
         kwargs = super().get_form_kwargs()
         kwargs["workshop"] = self.workshop
         return kwargs
+
+    def form_valid(self, form):
+        if not bool(getattr(self.request, "htmx", False)):
+            return super().form_valid(form)
+
+        form.instance.workshop = self.workshop
+        vehicle = form.save()
+        self.object = vehicle
+
+        response = HttpResponse(status=204)
+        response["HX-Trigger"] = _build_vehicle_saved_trigger(vehicle)
+        return response

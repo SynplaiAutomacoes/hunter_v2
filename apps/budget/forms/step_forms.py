@@ -322,36 +322,54 @@ class BudgetStep1Form(forms.ModelForm):
                     }
                 });
                 
-                async function updateVehicleList(customerId) {
-                    // 1. Busca os dados da sua VehicleListView (JSON)
-                    const response = await fetch(`/budget/get-vehicles/?customer=${customerId}`);
-                    const vehicles = await response.json();
-                    
-                    // 2. Localiza o Alpine Data do widget de veículo
-                    // 'id_vehicle' deve ser o ID do input hidden dentro do widget
-                    const vehicleEl = document.querySelector('[name="vehicle"]').closest('[x-data]');
+                async function updateVehicleList(customerId, selectedVehicleId = null) {
+                    if (typeof Alpine === 'undefined') {
+                        return;
+                    }
+
+                    const vehicleInput = document.querySelector('[name="vehicle"]');
+                    if (!vehicleInput) {
+                        return;
+                    }
+
+                    const vehicleEl = vehicleInput.closest('[x-data]');
+                    if (!vehicleEl) {
+                        return;
+                    }
+
                     const vehicleData = Alpine.$data(vehicleEl);
-            
-                    // 3. Limpa o valor atual e as opções no DOM
-                    vehicleData.clear();
                     const optionsUl = vehicleEl.querySelector('ul[role="listbox"]');
-                    
-                    // Remove todos os <li> que não sejam o "Limpar seleção"
+                    if (!vehicleData || !optionsUl) {
+                        return;
+                    }
+
+                    const response = await fetch(`/budget/get-vehicles/?customer=${customerId || ''}`);
+                    const vehicles = await response.json();
+
+                    vehicleData.clear();
                     optionsUl.querySelectorAll('li[data-value]').forEach(li => li.remove());
-            
-                    // 4. Adiciona as novas opções dinamicamente
+
+                    let optionToSelect = null;
+                    const selectedVehicleIdStr = selectedVehicleId ? String(selectedVehicleId) : '';
+
                     vehicles.forEach(v => {
+                        const optionValue = String(v.id);
                         const li = document.createElement('li');
                         li.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white group transition-colors';
-                        li.setAttribute('data-value', v.id);
+                        li.setAttribute('data-value', optionValue);
                         li.setAttribute('data-label', v.label);
                         li.innerHTML = `<span class="block truncate">${v.label}</span>`;
-                        
-                        // Adiciona o evento de clique que o seu widget espera
                         li.addEventListener('click', () => vehicleData.select(li));
-                        
                         optionsUl.appendChild(li);
+
+                        if (selectedVehicleIdStr && optionValue === selectedVehicleIdStr) {
+                            optionToSelect = li;
+                        }
                     });
+
+                    if (optionToSelect && typeof vehicleData.select === 'function') {
+                        vehicleData.select(optionToSelect);
+                    }
                 }
 
                 function selectCustomerFromQuickForm(customer) {
@@ -422,6 +440,29 @@ class BudgetStep1Form(forms.ModelForm):
 
                         const customer = evt && evt.detail ? evt.detail : null;
                         selectCustomerFromQuickForm(customer);
+                    });
+                }
+
+                if (!window.__budgetStep1VehicleSavedBound) {
+                    window.__budgetStep1VehicleSavedBound = true;
+                    document.body.addEventListener('vehicleSaved', function (evt) {
+                        const modal = document.getElementById('form_modal');
+                        if (modal) {
+                            modal.close();
+                        }
+
+                        const vehicle = evt && evt.detail ? evt.detail : null;
+                        if (!vehicle || !vehicle.id) {
+                            return;
+                        }
+
+                        const customerInput = document.querySelector('[name="customer"]');
+                        const customerId = customerInput && customerInput.value ? customerInput.value : (vehicle.customer_id || '');
+                        if (!customerId) {
+                            return;
+                        }
+
+                        updateVehicleList(customerId, vehicle.id);
                     });
                 }
             </script>
@@ -861,43 +902,45 @@ class BudgetStep3Form(forms.ModelForm):
                     document.body.addEventListener('collaboratorSaved', function(evt) {{
                         const modal = document.getElementById('form_modal');
                         if (modal) modal.close();
-                        
-                        // Get current collaborator selection
+
+                        const eventDetail = evt && evt.detail ? evt.detail : null;
+                        const createdCollaboratorId = eventDetail && eventDetail.id ? String(eventDetail.id) : '';
+
                         const selectElement = document.querySelector('#id_collaborator');
                         const currentValue = selectElement ? selectElement.value : '';
-                        
-                        // Save to localStorage before refresh
-                        if (currentValue) {{
-                            localStorage.setItem('budget_step3_collaborator', currentValue);
+
+                        const collaboratorIdToSelect = createdCollaboratorId || currentValue;
+                        if (collaboratorIdToSelect) {{
+                            localStorage.setItem('budget_step3_collaborator', collaboratorIdToSelect);
                         }}
-                        
-                        // Refresh the collaborator dropdown via HTMX
+
                         const budgetId = {self.instance.pk if self.instance.pk else "null"};
-                        if (budgetId) {{
-                            const savedId = localStorage.getItem('budget_step3_collaborator');
-                            const url = `/budget/${{budgetId}}/collaborator-field/` + (savedId ? `?selected=${{savedId}}` : '');
-                            
-                            htmx.ajax('GET', url, {{
-                                target: '#collaborator-field-container',
-                                swap: 'outerHTML'
-                            }}).then(() => {{
-                                // After refresh, update Alpine.js model with the saved value
-                                if (savedId) {{
-                                    setTimeout(() => {{
-                                        const alpineContainer = document.querySelector('[x-data*="collaboratorId"]');
-                                        if (alpineContainer && typeof Alpine !== 'undefined') {{
-                                            const alpineData = Alpine.$data(alpineContainer);
-                                            if (alpineData) {{
-                                                alpineData.collaboratorId = savedId;
-                                            }}
-                                        }}
-                                    }}, 100);
-                                }}
-                                
-                                // Clear localStorage after use
-                                localStorage.removeItem('budget_step3_collaborator');
-                            }});
+                        if (!budgetId) {{
+                            localStorage.removeItem('budget_step3_collaborator');
+                            return;
                         }}
+
+                        const savedId = localStorage.getItem('budget_step3_collaborator');
+                        const url = `/budget/${{budgetId}}/collaborator-field/` + (savedId ? `?selected=${{savedId}}` : '');
+
+                        htmx.ajax('GET', url, {{
+                            target: '#collaborator-field-container',
+                            swap: 'outerHTML'
+                        }}).then(() => {{
+                            if (savedId) {{
+                                setTimeout(() => {{
+                                    const alpineContainer = document.querySelector('[x-data*="collaboratorId"]');
+                                    if (alpineContainer && typeof Alpine !== 'undefined') {{
+                                        const alpineData = Alpine.$data(alpineContainer);
+                                        if (alpineData) {{
+                                            alpineData.collaboratorId = savedId;
+                                        }}
+                                    }}
+                                }}, 100);
+                            }}
+
+                            localStorage.removeItem('budget_step3_collaborator');
+                        }});
                     }});
                 </script>"""),
             Div(
