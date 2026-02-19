@@ -191,6 +191,24 @@
             margin-bottom: 0;
         }
 
+        .observation-block {
+            margin-top: 8px;
+        }
+
+        .observation-lines {
+            margin-top: 4px;
+        }
+
+        .observation-line {
+            border-bottom: 1px solid #9ca3af;
+            min-height: 16px;
+            margin-bottom: 6px;
+        }
+
+        .observation-line:last-child {
+            margin-bottom: 0;
+        }
+
         .checklist-name {
             margin: -2px 0 10px;
             color: #334155;
@@ -343,6 +361,16 @@
             <div class="complaint-block">
                 <div class="info-label">Relato principal do cliente</div>
                 <div class="info-value">{{ budget.problem_description|default:"Não informado." }}</div>
+            </div>
+
+            <div class="complaint-block observation-block">
+                <div class="info-label">Observação</div>
+                <div class="observation-lines">
+                    <div class="observation-line"></div>
+                    <div class="observation-line"></div>
+                    <div class="observation-line"></div>
+                    <div class="observation-line"></div>
+                </div>
             </div>
         </div>
 
