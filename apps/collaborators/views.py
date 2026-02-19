@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
@@ -210,7 +212,7 @@ class WorkshopCollaboratorModalCreateView(LoginRequiredMixin, WorkshopScopedMixi
             self.object.save()
 
         response = HttpResponse(status=204)
-        response["HX-Trigger"] = "collaboratorSaved"
+        response["HX-Trigger"] = json.dumps({"collaboratorSaved": {"id": str(self.object.pk), "name": self.object.name}})
         return response
 
 
@@ -235,5 +237,5 @@ class WorkshopCollaboratorModalUpdateView(LoginRequiredMixin, WorkshopScopedMixi
                     user.save(update_fields=["email"])
 
         response = HttpResponse(status=204)
-        response["HX-Trigger"] = "collaboratorSaved"
+        response["HX-Trigger"] = json.dumps({"collaboratorSaved": {"id": str(self.object.pk), "name": self.object.name}})
         return response
