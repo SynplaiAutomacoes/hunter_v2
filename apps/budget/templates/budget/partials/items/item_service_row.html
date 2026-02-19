@@ -1,4 +1,6 @@
-<tr id="budget-item-{{ item.id }}" {% if not is_full_render %}hx-swap-oob="true"{% endif %}>
+<tr id="budget-item-{{ item.id }}"
+    class="{% if item.is_local %}bg-warning/20{% endif %}"
+    {% if not is_full_render %}hx-swap-oob="true"{% endif %}>
     <td class="budget-step4-description">
         <div class="flex items-center gap-2 min-w-0">
             <span class="break-words whitespace-normal leading-snug">{{ item.description }}</span>
