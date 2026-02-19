@@ -80,6 +80,26 @@
             letter-spacing: 0.03em;
         }
 
+        .section-customer,
+        .section-vehicle {
+            padding: 8px;
+        }
+
+        .section-customer .section-title,
+        .section-vehicle .section-title {
+            margin-bottom: 6px;
+        }
+
+        .section-customer .info-grid,
+        .section-vehicle .info-grid {
+            gap: 6px 10px;
+        }
+
+        .section-customer .info-value,
+        .section-vehicle .info-value {
+            min-height: 14px;
+        }
+
         .section-header {
             display: flex;
             align-items: stretch;
@@ -225,7 +245,11 @@
         }
 
         .checklist-col-response {
-            width: 34%;
+            width: 30%;
+        }
+
+        .checklist-col-annotation {
+            width: 22%;
         }
 
         .checklist-option {
@@ -248,6 +272,10 @@
         .checklist-line {
             border-bottom: 1px solid #9ca3af;
             min-height: 15px;
+        }
+
+        .checklist-line + .checklist-line {
+            margin-top: 4px;
         }
 
         .section-header,
@@ -355,6 +383,7 @@
                     <tr>
                         <th class="checklist-col-seq">Índice</th>
                         <th>Descrição</th>
+                        <th class="checklist-col-annotation">Anotação</th>
                         <th class="checklist-col-response">Resposta</th>
                     </tr>
                 </thead>
@@ -363,6 +392,7 @@
                         <tr>
                             <td class="checklist-col-seq">{{ row.index }}</td>
                             <td>{{ row.description|default:"-" }}</td>
+                            <td class="checklist-col-annotation"></td>
                             <td>
                                 {% if row.response_type == "SIM_NAO" %}
                                     <span class="checklist-option"><span class="checklist-box"></span>Sim</span>
@@ -385,7 +415,7 @@
                     {% empty %}
                         <tr>
                             <td class="checklist-col-seq">-</td>
-                            <td colspan="2">Checklist selecionado não possui itens para impressão.</td>
+                            <td colspan="3">Checklist selecionado não possui itens para impressão.</td>
                         </tr>
                     {% endfor %}
                 </tbody>
