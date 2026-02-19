@@ -693,8 +693,12 @@ class SupplierQuickCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateVie
 class SupplierQuickUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
     model = Supplier
     form_class = QuickSupplierForm
-    template_name = "stock/partials/modal/supplier_quick_create_modal.html"
+    template_name = "stock/partials/modal/supplier_quick_update_modal.html"
     workshop_permission_codename = "change_supplier"
+
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        return super().post(request, *args, **kwargs)
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
