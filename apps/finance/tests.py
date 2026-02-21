@@ -26,7 +26,7 @@ from apps.finance.services.webmania_b2b import (
 )
 from apps.finance.services.webmania_errors import extract_webmania_error_message, sanitize_webmania_api_message
 from apps.finance.services.webmania_secrets import decrypt_secret, encrypt_secret, is_encrypted_secret
-from apps.finance.views_nfse import NfseRequestCreateView
+from apps.finance.views.nfse import NfseRequestCreateView
 from apps.iam.utils import get_or_create_director_role
 from apps.workshops.models.workshops import Workshop
 
@@ -1491,14 +1491,14 @@ class WebmaniaCompanySyncFlowTests(TestCase):
             cnpj="11.222.333/0001-81",
         )
 
-        with patch("apps.finance.views_webmania.sync_b2b_companies_to_database") as sync_mock:
+        with patch("apps.finance.views.webmania.sync_b2b_companies_to_database") as sync_mock:
             response = self.client.get(reverse("finance:webmania_company_list"))
 
         self.assertEqual(response.status_code, 200)
         sync_mock.assert_not_called()
 
     def test_company_sync_endpoint_runs_manual_sync_and_redirects(self) -> None:
-        with patch("apps.finance.views_webmania.sync_b2b_companies_to_database", return_value=[Mock(), Mock()]) as sync_mock:
+        with patch("apps.finance.views.webmania.sync_b2b_companies_to_database", return_value=[Mock(), Mock()]) as sync_mock:
             response = self.client.post(reverse("finance:webmania_company_sync"))
 
         self.assertEqual(response.status_code, 302)
