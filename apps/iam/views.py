@@ -20,7 +20,7 @@ class WorkshopRoleListView(AccountOwnerRequiredMixin, HtmxTemplateResponseMixin,
     htmx_template_name = "iam/partials/role_table.html"
 
     def get_queryset(self):
-        return super().get_queryset().filter(account=self.request.user.account)
+        return super().get_queryset().filter(account=self.request.user.account).order_by("-criado_em")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

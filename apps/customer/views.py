@@ -34,6 +34,9 @@ class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
     context_object_name = "customer"
     htmx_template_name = "customer/partials/customer_table.html"
 
+    def get_queryset(self):
+        return super().get_queryset().order_by("-criado_em")
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
 

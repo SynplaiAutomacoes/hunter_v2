@@ -123,6 +123,9 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
     htmx_template_name = "stock/partials/stock_table.html"
     workshop_permission_codename = "view_stockimport"
 
+    def get_queryset(self):
+        return super().get_queryset().order_by("-criado_em")
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["fields"] = [
