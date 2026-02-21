@@ -422,7 +422,6 @@ class LinkProductManualView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     @transaction.atomic
     def post(self, request):
-        # Captura a lista de IDs enviada pelo HTMX/Alpine
         product_ids = request.POST.getlist("product_ids[]")
         pk = request.POST.get("pk")
         is_manual = request.GET.get("manual") == "true" or request.POST.get("manual") == "true"
@@ -431,21 +430,32 @@ class LinkProductManualView(LoginRequiredMixin, WorkshopScopedMixin, View):
         import_items = list(obj.items_data)
 
         if product_ids:
-            # Buscamos todos os produtos selecionados de uma vez
             products = Product.objects.filter(id__in=product_ids, workshop=self.workshop)
 
             for product in products:
-                if is_manual:
-                    new_item = {"ref": product.code, "desc": product.name, "qtd": 1, "valor": str(product.cost_price.amount), "linked_product_id": str(product.id)}
-                    import_items.append(new_item)
-                # Nota: Caso não seja manual, você pode implementar a lógica de vínculo
-                # por índice aqui se necessário, mas para importação manual o fluxo é append.
+                product_id_str = str(product.id)
+
+                # Tenta encontrar o produto na lista atual
+                existing_item = next((item for item in import_items if item.get("linked_product_id") == product_id_str), None)
+
+                if existing_item:
+                    # Se já existe, apenas aumenta a quantidade em 1
+                    try:
+                        current_qtd = int(existing_item.get("qtd", 1))
+                        existing_item["qtd"] = current_qtd + 1
+                    except (ValueError, TypeError):
+                        existing_item["qtd"] = 2  # Fallback caso o dado esteja corrompido
+                else:
+                    # Se não existe, cria um novo item (comportamento original)
+                    if is_manual:
+                        new_item = {"ref": product.code, "desc": product.name, "qtd": 1, "valor": str(product.cost_price.amount), "linked_product_id": product_id_str}
+                        import_items.append(new_item)
 
             obj.items_data = import_items
             obj.save(update_fields=["items_data"])
 
         response = HttpResponse("")
-        response["HX-Trigger"] = "productCreated" # Dispara o refresh no import_step_content.html
+        response["HX-Trigger"] = "productCreated"
         return response
 
 
