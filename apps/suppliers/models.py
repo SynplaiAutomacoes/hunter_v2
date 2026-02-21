@@ -11,7 +11,7 @@ class Supplier(TimeStampedModel, Address):
         related_name="suppliers",
     )
     cnpj = BRCNPJField(verbose_name="CNPJ")
-    name = models.CharField(verbose_name="Nome", max_length=255)
+    name = models.CharField(verbose_name="Razão Social", max_length=255)
     contact_person = models.CharField(verbose_name="Responsável", max_length=255, default="", blank=True)
     phone = PhoneNumberField(region="BR", verbose_name="Telefone", max_length=20, default="", blank=True)
     mobile = PhoneNumberField(region="BR", verbose_name="Celular", max_length=20, default="", blank=True)

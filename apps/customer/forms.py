@@ -135,7 +135,22 @@ class CustomerForm(AddressFormMixin, forms.ModelForm):
                 # CPF/CNPJ | Nome | Nome Fantasia (PJ)
                 # ─────────────────────────────
                 Field("cpf_or_cnpj", wrapper_class="col-span-12 lg:col-span-4"),
-                Field("name", wrapper_class="col-span-12 lg:col-span-4"),
+                Div(Field("name", wrapper_class="col-span-12"),
+                    x_init="""
+                                $watch('tipo', value => {
+                                    let label = $el.querySelector('label');
+                                    if (label) {
+                                        let hasAsterisk = label.querySelector('.asteriskField');
+                                        label.firstChild.textContent = value === 'PJ' ? 'Razão Social ' : 'Nome ';
+                                    }
+                                });
+                                let label = $el.querySelector('label');
+                                if (label) {
+                                    label.firstChild.textContent = tipo === 'PJ' ? 'Razão Social ' : 'Nome ';
+                                }
+                            """,
+                    css_class="col-span-12 lg:col-span-4",
+                ),
                 HTML('<div x-show="tipo === \'PJ\'" class="col-span-12 lg:col-span-4">'),
                 Field("fantasy_name", wrapper_class="col-span-12"),
                 HTML("</div>"),
