@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
@@ -14,7 +15,9 @@ from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.workshops.mixin import WorkshopScopedMixin
 
-from .shared import _calculate_service_prices, _get_budget_for_workshop, _get_budget_item_for_workshop, _get_budget_workshop_cost, _parse_duration_from_string, logger, reset_steps_after_step_4
+from .shared import _calculate_service_prices, _get_budget_for_workshop, _get_budget_item_for_workshop, _get_budget_workshop_cost, _parse_duration_from_string, reset_steps_after_step_4
+
+logger = logging.getLogger(__name__)
 
 
 class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -117,79 +120,119 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
         item = _get_budget_item_for_workshop(self.workshop, budget_id, item_id, kit__isnull=False)
 
-        # Parse products data
         products_json = request.POST.get("products", "[]")
-        products_data = json.loads(products_json)
+        try:
+            products_data = json.loads(products_json)
+        except json.JSONDecodeError:
+            logger.exception(
+                "JSON invalido ao salvar produtos do kit no orcamento",
+                extra={"budget_id": budget_id, "item_id": item_id, "products_payload": products_json},
+            )
+            raise
+
+        services_json = request.POST.get("services", "[]")
+        try:
+            services_data = json.loads(services_json)
+        except json.JSONDecodeError:
+            logger.exception(
+                "JSON invalido ao salvar servicos do kit no orcamento",
+                extra={"budget_id": budget_id, "item_id": item_id, "services_payload": services_json},
+            )
+            raise
+
+        logger.info(
+            "Iniciando salvamento de override de kit no orcamento",
+            extra={"budget_id": budget_id, "item_id": item_id, "products_count": len(products_data), "services_count": len(services_data)},
+        )
 
         for product_data in products_data:
             product_id = product_data.get("id")
-            product = get_object_or_404(Product, id=product_id, workshop=self.workshop)
+            try:
+                product = get_object_or_404(Product, id=product_id, workshop=self.workshop)
 
-            # Create or update override
-            override, created = BudgetKitItemOverride.objects.update_or_create(
-                workshop=self.workshop,
-                budget_item=item,
-                product=product,
-                defaults={
-                    "quantity": max(0, int(product_data.get("quantity", 1))),
-                    "product_cost_price": Money(Decimal(str(product_data.get("cost", 0))), "BRL"),
-                    "product_selling_price": Money(Decimal(str(product_data.get("price", 0))), "BRL"),
-                    "shipping": Money(Decimal(str(product_data.get("shipping", 0))), "BRL"),
-                },
-            )
-
-        # Parse services data
-        services_json = request.POST.get("services", "[]")
-        services_data = json.loads(services_json)
-
-        logger.debug(
-            "Salvando overrides de kit",
-            extra={"budget_item_id": item.id, "products_count": len(products_data), "services_count": len(services_data)},
-        )
+                BudgetKitItemOverride.objects.update_or_create(
+                    workshop=self.workshop,
+                    budget_item=item,
+                    product=product,
+                    defaults={
+                        "quantity": max(0, int(product_data.get("quantity", 1))),
+                        "product_cost_price": Money(Decimal(str(product_data.get("cost", 0))), "BRL"),
+                        "product_selling_price": Money(Decimal(str(product_data.get("price", 0))), "BRL"),
+                        "shipping": Money(Decimal(str(product_data.get("shipping", 0))), "BRL"),
+                    },
+                )
+            except Exception:
+                logger.exception(
+                    "Falha ao salvar produto do kit no orcamento",
+                    extra={
+                        "budget_id": budget_id,
+                        "item_id": item_id,
+                        "product_id": product_id,
+                        "payload": product_data,
+                    },
+                )
+                raise
 
         for service_data in services_data:
             service_id = service_data.get("id")
-            service = get_object_or_404(Service, id=service_id, workshop=self.workshop)
+            try:
+                service = get_object_or_404(Service, id=service_id, workshop=self.workshop)
 
-            # Parse duration string (HH:MM:SS)
-            duration_str = service_data.get("duration", "00:00:00")
-            duration = None
-            if duration_str:
-                try:
-                    parts = duration_str.split(":")
-                    if len(parts) == 3:
-                        hours = int(parts[0])
-                        minutes = int(parts[1])
-                        seconds = int(parts[2])
-                        duration = timedelta(hours=hours, minutes=minutes, seconds=seconds)
-                    elif len(parts) == 2:
-                        hours = int(parts[0])
-                        minutes = int(parts[1])
-                        duration = timedelta(hours=hours, minutes=minutes)
-                except (ValueError, IndexError):
-                    duration = timedelta(0)
+                duration_str = service_data.get("duration", "00:00:00")
+                duration = None
+                if duration_str:
+                    try:
+                        parts = duration_str.split(":")
+                        if len(parts) == 3:
+                            hours = int(parts[0])
+                            minutes = int(parts[1])
+                            seconds = int(parts[2])
+                            duration = timedelta(hours=hours, minutes=minutes, seconds=seconds)
+                        elif len(parts) == 2:
+                            hours = int(parts[0])
+                            minutes = int(parts[1])
+                            duration = timedelta(hours=hours, minutes=minutes)
+                    except (ValueError, IndexError):
+                        logger.warning(
+                            "Duracao invalida ao salvar servico do kit no orcamento",
+                            extra={"budget_id": budget_id, "item_id": item_id, "service_id": service_id, "duration": duration_str},
+                        )
+                        duration = timedelta(0)
 
-            # Create or update override
-            override, created = BudgetKitItemOverride.objects.update_or_create(
-                workshop=self.workshop,
-                budget_item=item,
-                service=service,
-                defaults={
-                    "quantity": max(0, int(service_data.get("quantity", 1))),
-                    "service_cost_price": Money(Decimal(str(service_data.get("cost", 0))), "BRL"),
-                    "service_selling_price": Money(Decimal(str(service_data.get("price", 0))), "BRL"),
-                    "duration": duration,
-                },
-            )
+                override, created = BudgetKitItemOverride.objects.update_or_create(
+                    workshop=self.workshop,
+                    budget_item=item,
+                    service=service,
+                    defaults={
+                        "quantity": max(0, int(service_data.get("quantity", 1))),
+                        "service_cost_price": Money(Decimal(str(service_data.get("cost", 0))), "BRL"),
+                        "service_selling_price": Money(Decimal(str(service_data.get("price", 0))), "BRL"),
+                        "duration": duration,
+                    },
+                )
 
-            logger.debug(
-                "Override de servico salvo",
-                extra={
-                    "service_id": service.id,
-                    "quantity": override.quantity,
-                    "duration": str(override.duration) if override.duration else "",
-                },
-            )
+                logger.info(
+                    "Servico do kit salvo no orcamento",
+                    extra={
+                        "budget_id": budget_id,
+                        "item_id": item_id,
+                        "service_id": service.id,
+                        "override_created": created,
+                        "quantity": override.quantity,
+                        "duration": str(override.duration) if override.duration else "",
+                    },
+                )
+            except Exception:
+                logger.exception(
+                    "Falha ao salvar servico do kit no orcamento",
+                    extra={
+                        "budget_id": budget_id,
+                        "item_id": item_id,
+                        "service_id": service_id,
+                        "payload": service_data,
+                    },
+                )
+                raise
 
         # Reset etapas 5 e 6 após modificar a etapa 4
         reset_steps_after_step_4(budget)

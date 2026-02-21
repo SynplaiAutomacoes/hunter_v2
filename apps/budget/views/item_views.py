@@ -133,7 +133,19 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         form = BudgetItemEditForm(request.POST, instance=item, budget_id=budget_id)
         if form.is_valid():
             action = request.POST.get("action")
-            item = form.save()
+            try:
+                item = form.save()
+            except Exception:
+                logger.exception(
+                    "Falha ao salvar item do orcamento",
+                    extra={
+                        "budget_id": budget_id,
+                        "item_id": item_id,
+                        "item_type": "service" if item.service_id else "product" if item.product_id else "kit" if item.kit_id else "unknown",
+                        "action": action,
+                    },
+                )
+                raise
 
             # Reset etapas 5 e 6 após modificar a etapa 4
             reset_steps_after_step_4(budget)
@@ -144,6 +156,16 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
             # Mantém o mesmo comportamento de create/delete: recarrega etapa atual
             # para refletir imediatamente o reset das etapas 5 e 6.
             return _step_redirect_response(request, budget, fallback_step=4)
+
+        logger.warning(
+            "Formulario invalido ao salvar item do orcamento",
+            extra={
+                "budget_id": budget_id,
+                "item_id": item_id,
+                "item_type": "service" if item.service_id else "product" if item.product_id else "kit" if item.kit_id else "unknown",
+                "errors": form.errors.get_json_data(),
+            },
+        )
 
         return render(request, "budget/partials/modals/modal_edit_item.html", {"form": form, "item": item, "budget_id": budget_id})
 
@@ -273,7 +295,12 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         # Recebe IDs dos checkboxes marcados
         selected_ids = request.POST.getlist("selected_items")
+
         if not selected_ids:
+            logger.warning(
+                "Tentativa de adicionar itens em lote sem selecao",
+                extra={"budget_id": budget_id, "item_type": item_type},
+            )
             # Return error message in the modal container
             error_html = """
             <div class="modal-box w-11/12 max-w-md bg-base-100">

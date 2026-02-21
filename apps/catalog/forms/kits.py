@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import timedelta
 from typing import Any, cast
 
@@ -15,6 +16,8 @@ from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.core.widgets import CheckboxInput, TextInput, TextareaInput
 from apps.workshops.models.workshops import Workshop
+
+logger = logging.getLogger(__name__)
 
 
 # TODO: Improve mobile visibility of table
@@ -699,8 +702,16 @@ class KitForm(forms.ModelForm):
                 seen.add(sid)
 
         if len(unique_product_ids) != len(product_ids):
+            logger.warning(
+                "Produtos duplicados detectados no envio de kit",
+                extra={"kit_id": self.instance.pk, "product_ids": product_ids},
+            )
             self.add_error(None, "Existem produtos repetidos no kit.")
         if len(unique_service_ids) != len(service_ids):
+            logger.warning(
+                "Servicos duplicados detectados no envio de kit",
+                extra={"kit_id": self.instance.pk, "service_ids": service_ids},
+            )
             self.add_error(None, "Existem serviços repetidos no kit.")
 
         cleaned_data["_kit_products_ids"] = unique_product_ids
@@ -714,6 +725,10 @@ class KitForm(forms.ModelForm):
             except (TypeError, ValueError):
                 qty = 0
             if qty < 1:
+                logger.warning(
+                    "Quantidade invalida para produto no kit",
+                    extra={"kit_id": self.instance.pk, "product_id": pid, "raw_quantity": raw},
+                )
                 self.add_error(None, "Quantidade inválida para produto.")
             product_qty[pid] = qty if qty >= 1 else 1
 
@@ -726,12 +741,20 @@ class KitForm(forms.ModelForm):
             except (TypeError, ValueError):
                 qty = 0
             if qty < 1:
+                logger.warning(
+                    "Quantidade invalida para servico no kit",
+                    extra={"kit_id": self.instance.pk, "service_id": sid, "raw_quantity": raw},
+                )
                 self.add_error(None, "Quantidade inválida para serviço.")
             service_qty[sid] = qty if qty >= 1 else 1
 
             raw_duration = str(self.data.get(f"kit_service_duration_{sid}", "") or "").strip()
             duration_value = self._parse_duration_value(raw_duration)
             if duration_value is None:
+                logger.warning(
+                    "Duracao invalida para servico no kit",
+                    extra={"kit_id": self.instance.pk, "service_id": sid, "raw_duration": raw_duration},
+                )
                 self.add_error(None, "Duração inválida para serviço.")
                 duration_value = timedelta()
             service_duration[sid] = duration_value
@@ -744,11 +767,19 @@ class KitForm(forms.ModelForm):
             if unique_product_ids:
                 valid_products = set(Product.objects.filter(workshop=self.workshop, id__in=unique_product_ids).values_list("id", flat=True))
                 if set(map(int, unique_product_ids)) != valid_products:
+                    logger.warning(
+                        "Produto de outra oficina detectado no kit",
+                        extra={"kit_id": self.instance.pk, "requested_product_ids": unique_product_ids, "valid_product_ids": list(valid_products)},
+                    )
                     self.add_error(None, "Alguns produtos selecionados não pertencem à oficina ativa.")
 
             if unique_service_ids:
                 valid_services = set(Service.objects.filter(workshop=self.workshop, id__in=unique_service_ids).values_list("id", flat=True))
                 if set(map(int, unique_service_ids)) != valid_services:
+                    logger.warning(
+                        "Servico de outra oficina detectado no kit",
+                        extra={"kit_id": self.instance.pk, "requested_service_ids": unique_service_ids, "valid_service_ids": list(valid_services)},
+                    )
                     self.add_error(None, "Alguns serviços selecionados não pertencem à oficina ativa.")
 
         return cleaned_data
@@ -769,21 +800,40 @@ class KitForm(forms.ModelForm):
         KitService.objects.filter(kit=instance).exclude(service_id__in=service_ids).delete()
 
         for pid in product_ids:
-            KitProduct.objects.update_or_create(
-                kit=instance,
-                product_id=int(pid),
-                defaults={"quantity": int(product_qty.get(pid, 1) or 1)},
-            )
+            try:
+                KitProduct.objects.update_or_create(
+                    kit=instance,
+                    product_id=int(pid),
+                    defaults={"quantity": int(product_qty.get(pid, 1) or 1)},
+                )
+            except Exception:
+                logger.exception(
+                    "Falha ao persistir produto no kit",
+                    extra={"kit_id": instance.pk, "product_id": pid, "quantity": product_qty.get(pid, 1)},
+                )
+                raise
 
         for sid in service_ids:
-            KitService.objects.update_or_create(
-                kit=instance,
-                service_id=int(sid),
-                defaults={
-                    "quantity": int(service_qty.get(sid, 1) or 1),
-                    "duration": service_duration.get(sid, timedelta()),
-                },
-            )
+            try:
+                KitService.objects.update_or_create(
+                    kit=instance,
+                    service_id=int(sid),
+                    defaults={
+                        "quantity": int(service_qty.get(sid, 1) or 1),
+                        "duration": service_duration.get(sid, timedelta()),
+                    },
+                )
+            except Exception:
+                logger.exception(
+                    "Falha ao persistir servico no kit",
+                    extra={
+                        "kit_id": instance.pk,
+                        "service_id": sid,
+                        "quantity": service_qty.get(sid, 1),
+                        "duration": str(service_duration.get(sid, timedelta())),
+                    },
+                )
+                raise
 
         return instance
 

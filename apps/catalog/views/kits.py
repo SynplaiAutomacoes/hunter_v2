@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
@@ -9,7 +11,6 @@ from django.shortcuts import render
 from django.urls import reverse_lazy
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
-from django.http import JsonResponse
 
 from apps.catalog.forms.kits import KitForm
 from apps.catalog.models.kits import Kit
@@ -19,6 +20,8 @@ from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.workshops.mixin import WorkshopScopedMixin
+
+logger = logging.getLogger(__name__)
 
 
 class KitListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
@@ -59,10 +62,25 @@ class KitCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
         try:
             return super().form_valid(form)
         except IntegrityError:
+            logger.exception(
+                "Falha de integridade ao criar kit",
+                extra={
+                    "workshop_id": getattr(self.workshop, "id", None),
+                    "kit_name": form.cleaned_data.get("name"),
+                },
+            )
             form.add_error("name", "Já existe um kit com este nome na oficina ativa.")
             return self.form_invalid(form)
 
     def form_invalid(self, form):
+        logger.warning(
+            "Formulario invalido ao criar kit",
+            extra={
+                "workshop_id": getattr(self.workshop, "id", None),
+                "errors": form.errors.get_json_data(),
+                "non_field_errors": [str(error) for error in form.non_field_errors()],
+            },
+        )
         if form.errors.get("name"):
             messages.error(self.request, form.errors["name"][0])
         return super().form_invalid(form)
@@ -83,10 +101,27 @@ class KitUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         try:
             return super().form_valid(form)
         except IntegrityError:
+            logger.exception(
+                "Falha de integridade ao atualizar kit",
+                extra={
+                    "workshop_id": getattr(self.workshop, "id", None),
+                    "kit_id": getattr(self.object, "id", None),
+                    "kit_name": form.cleaned_data.get("name"),
+                },
+            )
             form.add_error("name", "Já existe um kit com este nome na oficina ativa.")
             return self.form_invalid(form)
 
     def form_invalid(self, form):
+        logger.warning(
+            "Formulario invalido ao atualizar kit",
+            extra={
+                "workshop_id": getattr(self.workshop, "id", None),
+                "kit_id": getattr(self.object, "id", None),
+                "errors": form.errors.get_json_data(),
+                "non_field_errors": [str(error) for error in form.non_field_errors()],
+            },
+        )
         if form.errors.get("name"):
             messages.error(self.request, form.errors["name"][0])
         return super().form_invalid(form)
