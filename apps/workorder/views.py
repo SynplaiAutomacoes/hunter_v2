@@ -23,6 +23,7 @@ from apps.catalog.models.kits import Kit
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxTemplateResponseMixin
+from apps.workorder.approval import WorkOrderApprovalError, approve_workorder_with_stock
 from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderItemEditForm, WorkOrderKitProductEditRowForm, WorkOrderKitServiceEditRowForm, WorkOrderPaymentForm
 from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderStatus
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -674,6 +675,21 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
         next_status = status_map.get(status)
         if next_status is None:
             return HttpResponse(status=400)
+
+        if next_status == WorkOrderStatus.APPROVED:
+            try:
+                approve_workorder_with_stock(workorder=workorder, user=request.user)
+            except WorkOrderApprovalError as exc:
+                response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder))
+                response["HX-Trigger"] = json.dumps({"showToast": {"message": str(exc), "type": "error"}})
+                return response
+            except Exception:
+                logger.exception("Falha ao aprovar ordem de servico", extra={"workorder_id": workorder.pk})
+                response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder))
+                response["HX-Trigger"] = json.dumps({"showToast": {"message": "Erro interno ao aprovar ordem de serviço.", "type": "error"}})
+                return response
+
+            return HttpResponse(headers={"HX-Refresh": "true"})
 
         workorder.status = next_status
         workorder.save(update_fields=["status"])
