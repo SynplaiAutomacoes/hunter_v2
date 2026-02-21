@@ -101,7 +101,13 @@ def _validate_uploaded_images(images):
             allowed = ", ".join(sorted(ALLOWED_IMAGE_EXTENSIONS))
             raise forms.ValidationError(f"Formato de arquivo '{image_name}' não permitido. Use: {allowed}")
 
-        image_size = int(getattr(image, "size", 0) or 0)
-        if image_size > MAX_IMAGE_SIZE_BYTES:
-            size_mb = image_size / 1024 / 1024
-            raise forms.ValidationError(f"Imagem '{image_name}' excede o tamanho máximo de 10MB ({size_mb:.2f}MB).")
+    _validate_uploaded_files(images)
+
+
+def _validate_uploaded_files(files):
+    for uploaded_file in files:
+        file_name = getattr(uploaded_file, "name", "") or ""
+        file_size = int(getattr(uploaded_file, "size", 0) or 0)
+        if file_size > MAX_IMAGE_SIZE_BYTES:
+            size_mb = file_size / 1024 / 1024
+            raise forms.ValidationError(f"Arquivo '{file_name}' excede o tamanho máximo de 10MB ({size_mb:.2f}MB).")

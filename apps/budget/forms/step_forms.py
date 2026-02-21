@@ -1,5 +1,6 @@
 import base64
 from decimal import Decimal
+from html import escape
 
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import HTML, Div, Field, Layout
@@ -18,7 +19,7 @@ from apps.core.widgets import CalendarDateInput, MoneyInput, NumberInput, Select
 from apps.customer.models import Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
 
-from .shared import MAX_BUDGET_IMAGES, _get_budget_with_prefetched_items, _render_budget_items_rows, _validate_uploaded_images
+from .shared import MAX_BUDGET_IMAGES, _get_budget_with_prefetched_items, _render_budget_items_rows, _validate_uploaded_files, _validate_uploaded_images
 from .widgets import MultipleFileField, MultipleFileInput
 
 
@@ -54,6 +55,29 @@ SLOT_PLACEHOLDER_PATHS = {
     BudgetImageType.CHASSI: "image/chassi.png",
     BudgetImageType.MOTOR: "image/motor.png",
 }
+
+
+def _format_file_size(size_bytes: int) -> str:
+    units = ["B", "kB", "MB", "GB", "TB"]
+    size = float(max(size_bytes, 0))
+    unit_index = 0
+
+    while size >= 1000 and unit_index < len(units) - 1:
+        size /= 1000
+        unit_index += 1
+
+    if size >= 999.5 and unit_index < len(units) - 1:
+        size /= 1000
+        unit_index += 1
+
+    if unit_index == 0:
+        formatted = str(int(size))
+    elif size >= 100:
+        formatted = str(int(round(size)))
+    else:
+        formatted = f"{size:.1f}".rstrip("0").rstrip(".")
+
+    return f"{formatted} {units[unit_index]}"
 
 
 def _build_step3_slot_fallback_html(slot_placeholder_urls):
@@ -213,20 +237,21 @@ def _build_step3_images_initial_html(budget, slot_placeholder_urls):
 
     additional_html = []
     for img in additional_images:
-        img_data = base64.b64encode(img.content).decode("utf-8")
-        img_src = f"data:{img.content_type or 'image/jpeg'};base64,{img_data}"
-        img_name = img.content_name or f"Imagem {img.id}"
+        file_name = escape(img.content_name or f"Arquivo {img.id}")
+        file_size = _format_file_size(len(img.content or b""))
         additional_html.append(
             f"""
-            <div class="relative border-2 border-gray-200 rounded-lg p-2 hover:border-primary transition-colors" id="additional-image-{img.id}">
-                <img src="{img_src}" alt="{img_name}" class="w-full h-32 object-cover rounded mb-2">
+            <div class="flex items-center justify-between gap-3 border border-gray-200 rounded-lg px-3 py-2 hover:border-primary transition-colors" id="additional-image-{img.id}">
+                <div class="min-w-0 flex-1">
+                    <p class="text-sm font-semibold text-gray-700 truncate" title="{file_name}">{file_name}</p>
+                    <p class="text-xs text-gray-500">{file_size}</p>
+                </div>
                 <input type="hidden" name="images_to_delete" value="" id="delete-flag-{img.id}">
                 <button type="button" 
-                        onclick="document.getElementById('delete-flag-{img.id}').value='{img.id}'; document.getElementById('additional-image-{img.id}').classList.add('opacity-50'); this.disabled=true; this.textContent='Será excluída';"
-                        class="btn btn-xs btn-error w-full gap-1"
+                        onclick="document.getElementById('delete-flag-{img.id}').value='{img.id}'; document.getElementById('additional-image-{img.id}').classList.add('opacity-50'); this.disabled=true; this.textContent='Será excluído';"
+                        class="btn btn-xs btn-error text-white"
                         title="Marcar para exclusão">
-                    <span class="material-icons text-xs">delete</span>
-                    Remover
+                    Excluir
                 </button>
             </div>
             """
@@ -636,7 +661,7 @@ class BudgetStep3Form(forms.ModelForm):
     new_defect = forms.CharField(label=False, required=False, widget=TextInput(attrs={"id": "id_new_defect", "placeholder": "Digite um defeito e clique em Adicionar", "onkeypress": "if(event.keyCode==13){ event.preventDefault(); addDefectRow(); }"}))
     checklist = forms.ModelChoiceField(label="Selecione o Checklist", queryset=Checklist.objects.none(), required=False, widget=SelectInput())
     collaborator = forms.ModelChoiceField(label="Selecione o colaborador que realizará o serviço", required=True, queryset=WorkshopCollaborator.objects.none(), widget=SelectInput())
-    images = MultipleFileField(label=None, required=False, widget=MultipleFileInput(attrs={"accept": "image/*", "class": "file-input file-input-bordered w-full"}))
+    images = MultipleFileField(label=None, required=False, widget=MultipleFileInput(attrs={"class": "file-input file-input-bordered w-full"}))
 
     class Meta:
         model = Budget
@@ -814,10 +839,10 @@ class BudgetStep3Form(forms.ModelForm):
                     Div(
                         HTML('<h3 class="text-2xl font-bold mb-4">Anexar Imagens do Veículo</h3>'),
                         HTML(f'<div id="vehicle-images-slots">{slots_initial_html}</div>'),
-                        HTML('<h4 class="text-lg font-semibold mt-6 mb-2">Imagens Adicionais</h4>'),
-                        HTML(f'<div id="additional-images-container" class="grid grid-cols-2 gap-4 mb-4">{additional_initial_html}</div>'),
+                        HTML('<h4 class="text-lg font-semibold mt-6 mb-2">Arquivos Adicionais</h4>'),
+                        HTML(f'<div id="additional-images-container" class="space-y-2 mb-4">{additional_initial_html}</div>'),
                         Field("images", label=False, wrapper_class="mb-0"),
-                        HTML('<p class="text-sm text-gray-500 mt-2">Use os slots acima para fotos específicas do veículo. Aqui você pode adicionar imagens adicionais.</p>'),
+                        HTML('<p class="text-sm text-gray-500 mt-2">Use os slots acima para fotos específicas do veículo. Aqui você pode adicionar arquivos adicionais.</p>'),
                         css_class="mb-6",
                     ),
                     css_class="col-span-12 lg:col-span-6",
@@ -1054,19 +1079,20 @@ class BudgetStep3Form(forms.ModelForm):
                 additional_images_html = []
                 for img in additional_images:
                     if img.content:
-                        img_data = base64.b64encode(img.content).decode("utf-8")
-                        img_src = f"data:{img.content_type or 'image/jpeg'};base64,{img_data}"
-                        img_name = img.content_name or f"Imagem {img.id}"
+                        file_name = escape(img.content_name or f"Arquivo {img.id}")
+                        file_size = _format_file_size(len(img.content or b""))
                         additional_images_html.append(f"""
-                        <div class="relative border-2 border-gray-200 rounded-lg p-2 hover:border-primary transition-colors" id="additional-image-{img.id}">
-                            <img src="{img_src}" alt="{img_name}" class="w-full h-32 object-cover rounded mb-2">
+                        <div class="flex items-center justify-between gap-3 border border-gray-200 rounded-lg px-3 py-2 hover:border-primary transition-colors" id="additional-image-{img.id}">
+                            <div class="min-w-0 flex-1">
+                                <p class="text-sm font-semibold text-gray-700 truncate" title="{file_name}">{file_name}</p>
+                                <p class="text-xs text-gray-500">{file_size}</p>
+                            </div>
                             <input type="hidden" name="images_to_delete" value="" id="delete-flag-{img.id}">
                             <button type="button" 
-                                    onclick="document.getElementById('delete-flag-{img.id}').value='{img.id}'; document.getElementById('additional-image-{img.id}').classList.add('opacity-50'); this.disabled=true; this.textContent='Será excluída';"
-                                    class="btn btn-xs btn-error w-full gap-1"
+                                    onclick="document.getElementById('delete-flag-{img.id}').value='{img.id}'; document.getElementById('additional-image-{img.id}').classList.add('opacity-50'); this.disabled=true; this.textContent='Será excluído';"
+                                    class="btn btn-xs btn-error text-white"
                                     title="Marcar para exclusão">
-                                <span class="material-icons text-xs">delete</span>
-                                Remover
+                                Excluir
                             </button>
                         </div>
                         """)
@@ -1303,7 +1329,7 @@ class BudgetStep3Form(forms.ModelForm):
 
         new_additional_images = self.files.getlist("images")
         if new_additional_images:
-            _validate_uploaded_images(new_additional_images)
+            _validate_uploaded_files(new_additional_images)
 
         uploaded_slot_files = []
         uploaded_slot_types = set()
@@ -1334,7 +1360,7 @@ class BudgetStep3Form(forms.ModelForm):
             final_count = len(uploaded_slot_types) + len(new_additional_images)
 
         if final_count > MAX_BUDGET_IMAGES:
-            raise forms.ValidationError(f"Máximo de {MAX_BUDGET_IMAGES} imagens permitido. Você terá {final_count} imagens após esta operação.")
+            raise forms.ValidationError(f"Máximo de {MAX_BUDGET_IMAGES} anexos permitido. Você terá {final_count} anexos após esta operação.")
 
         return cleaned_data
 
@@ -1386,11 +1412,11 @@ class BudgetStep3Form(forms.ModelForm):
         # Handle new additional images upload
         new_images = self.request.FILES.getlist("images")
         if new_images:
-            _validate_uploaded_images(new_images)
+            _validate_uploaded_files(new_images)
 
             for new_image in new_images:
                 if new_image and hasattr(new_image, "read"):
-                    BudgetImage.objects.create(workshop=self.workshop, budget=budget, content=new_image.read(), content_name=new_image.name, content_type=getattr(new_image, "content_type", "image/jpeg"), image_type=BudgetImageType.ADDITIONAL)
+                    BudgetImage.objects.create(workshop=self.workshop, budget=budget, content=new_image.read(), content_name=new_image.name, content_type=getattr(new_image, "content_type", "application/octet-stream"), image_type=BudgetImageType.ADDITIONAL)
 
         return budget
 
