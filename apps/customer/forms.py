@@ -5,7 +5,7 @@ from crispy_forms.layout import Layout, Div, Field, HTML, Submit, Button
 from django.urls import reverse
 
 from .models import Customer, Vehicle
-from apps.core.widgets import CPForCNPJInput, CalendarDateInput, TextInput, SelectInput, RGInput, PhoneInput, EmailInput, CheckboxInput, NumberInput
+from apps.core.widgets import CPForCNPJInput, CalendarDateInput, TextInput, SelectInput, RGInput, PhoneInput, EmailInput, CheckboxInput, NumberInput, PlateInput
 from .cpf_cnpj_validator import is_valid_cpf, is_valid_cnpj
 from ..core.forms import AddressFormMixin, address_layout
 from ..workshops.models.workshops import Workshop
@@ -31,7 +31,7 @@ VehicleFormSet = inlineformset_factory(
     extra=0,
     can_delete=True,
     widgets={
-        "plate": TextInput(),
+        "plate": PlateInput(),
         "brand": TextInput(),
         "model": TextInput(),
         "year_fabrication": TextInput(),
@@ -409,7 +409,7 @@ class QuickVehicleForm(forms.ModelForm):
         model = Vehicle
         fields = ["plate", "brand", "model", "year_fabrication", "year_model", "color", "fuel", "engine", "type", "renavam", "chassi", "km"]
         widgets = {
-            "plate": TextInput(),
+            "plate": PlateInput(),
             "brand": TextInput(),
             "model": TextInput(),
             "year_fabrication": TextInput(),

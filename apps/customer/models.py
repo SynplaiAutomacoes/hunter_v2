@@ -78,5 +78,10 @@ class Vehicle(TimeStampedModel):
     renavam = models.CharField(verbose_name="Renavam", max_length=500, null=True, blank=True)
     chassi = models.CharField(verbose_name="Chassi", max_length=500, null=True, blank=True)
 
+    def save(self, *args, **kwargs):
+        if self.plate:
+            self.plate = self.plate.upper()
+        return super().save(*args, **kwargs)
+
     def __str__(self):
         return f"{self.plate} - {self.model}"
