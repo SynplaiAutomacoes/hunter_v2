@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import timedelta
+from decimal import Decimal
 from typing import Any, cast
 
 from django import forms
@@ -10,6 +11,7 @@ from django.urls import reverse
 
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
+from djmoney.money import Money
 
 from apps.catalog.models.kits import Kit, KitProduct, KitService
 from apps.catalog.models.products import Product
@@ -835,6 +837,17 @@ class KitForm(forms.ModelForm):
                 )
                 raise
 
+        totals = self._calculate_total_kits(
+            service_ids=service_ids,
+            service_qty=service_qty,
+            service_duration=service_duration,
+            product_ids=product_ids,
+            product_qty=product_qty,
+        )
+
+        instance.total_price = totals["total_sell"]
+        instance.total_duration = totals["services_total_duration"]
+
         return instance
 
     @staticmethod
@@ -893,3 +906,51 @@ class KitForm(forms.ModelForm):
         if isinstance(value, (list, tuple)):
             return [str(v) for v in value]
         return [str(value)]
+
+    def _calculate_total_kits(self,
+                              service_ids: list[str],
+                              service_qty: list[str, int],
+                              service_duration: dict[str, timedelta],
+                              product_ids: list[str],
+                              product_qty: list[str, int]
+                              ) -> dict[str, timedelta | Any]:
+
+        products_map = {
+            str(p.id): p
+            for p in Product.objects.filter(workshop=self.workshop, id__in=product_ids).only(
+                "id", "selling_price", "selling_price_currency"
+            )
+        }
+
+        services_map = {
+            str(s.id): s
+            for s in Service.objects.filter(workshop=self.workshop, id__in=service_ids).only(
+                "id", "selling_price", "selling_price_currency", "duration"
+            )
+        }
+
+        products_sell = Decimal(0)
+        services_sell = Decimal(0)
+        services_total_duration = timedelta()
+
+        for pid in product_ids:
+            product = products_map.get(str(pid))
+            if not product:
+                continue
+            qty = int(product_qty.get(pid, 1) or 1)
+            products_sell += (product.selling_price.amount if product.selling_price else Decimal("0")) * qty
+        for sid in service_ids:
+            service = services_map.get(str(sid))
+            if not service:
+                continue
+            qty = int(service_qty.get(sid, 1) or 1)
+            services_sell += (service.selling_price.amount if service.selling_price else Decimal("0")) * qty
+
+            row_duration = service_duration.get(sid, service.duration or timedelta())
+            services_total_duration += row_duration
+        total_sell = products_sell + services_sell
+
+        return {
+            "total_sell": Money(total_sell, "BRL"),
+            "services_total_duration": services_total_duration,
+        }

@@ -36,6 +36,8 @@ class KitListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseM
         context["fields"] = [
             TableColumn(Kit.name.field.verbose_name, attr="name"),
             TableColumn(Kit.is_active.field.verbose_name, attr="is_active"),
+            TableColumn(Kit.total_price.field.verbose_name, attr="total_price"),
+            TableColumn(Kit.total_duration.field.verbose_name, attr="total_duration"),
         ]
 
         context["actions"] = [

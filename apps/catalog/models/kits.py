@@ -34,6 +34,9 @@ class Kit(TimeStampedModel):
         blank=True,
     )
 
+    total_price = models.DecimalField(verbose_name="Valor Total", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
+    total_duration = models.DateTimeField(verbose_name="Duração Total", null=True, blank=True)
+
     class Meta:
         verbose_name = "Kit"
         verbose_name_plural = "Kits"
