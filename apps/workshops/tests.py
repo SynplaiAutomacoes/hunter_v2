@@ -7,7 +7,16 @@ from django.urls import reverse
 
 from apps.accounts.models import Account, User
 from apps.finance.services.webmania_b2b import WebmaniaB2BServiceError
+from apps.workshops.forms.workshops import WorkshopForm
 from apps.workshops.models.workshops import Workshop
+
+
+class WorkshopFormTests(TestCase):
+    def test_create_form_uf_starts_empty_and_uses_placeholder(self) -> None:
+        form = WorkshopForm()
+
+        self.assertEqual(form.initial["uf"], "")
+        self.assertEqual(form.fields["uf"].widget.attrs["placeholder"], "SP")
 
 
 class WorkshopCreateViewTests(TestCase):
