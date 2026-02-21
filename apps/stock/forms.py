@@ -925,6 +925,10 @@ class ImportManualItemsForm(forms.ModelForm):
             total_geral += subtotal
 
             if product:
+                estoque_atual = 0
+                if hasattr(product, "stock_products"):
+                    estoque_atual = product.stock_products.current_quantity
+
                 num_html = NumberInput(mode="positive").render(
                     name=f"items_qty_{idx}", value=str(quantidade), attrs={"class": "text-center", "hx-post": reverse("stock:update_manual_item_data", kwargs={"pk": self.instance.pk}), "hx-trigger": "change delay:500ms", "hx-vals": f"js:{{item_idx: {idx}}}", "hx-target": "#step-container"})
 
@@ -945,6 +949,9 @@ class ImportManualItemsForm(forms.ModelForm):
                         <div class="font-medium">{product.name}</div>
                         <div class="text-xs opacity-50">{product.code}</div>
                     </td>
+                    <td class="text-center">
+                        <span class="badge badge-ghost font-mono">{estoque_atual}</span>
+                    </td>
                     <td>{num_html}</td>
                     <td>{money_html}</td>
                     <td class="text-right font-bold">{Money(subtotal, "BRL")}</td>
@@ -963,6 +970,7 @@ class ImportManualItemsForm(forms.ModelForm):
                 <thead>
                     <tr class="bg-base-300">
                         <th>Produto</th>
+                        <th class="text-center">Em estoque</th>
                         <th class="text-center">Quantidade</th>
                         <th class="text-right">Valor Unitário</th>
                         <th class="text-right">Subtotal</th>
@@ -970,10 +978,11 @@ class ImportManualItemsForm(forms.ModelForm):
                     </tr>
                 </thead>
                 <tbody>
-                    {rows if rows else '<tr><td colspan="5" class="text-center italic py-8">Nenhum item adicionado.</td></tr>'}
+                    {rows if rows else '<tr><td colspan="6" class="text-center italic py-8">Nenhum item adicionado.</td></tr>'}
                 </tbody>
                 <tfoot>
                     <tr class="bg-base-300">
+                        <td></td>
                         <td></td>
                         <td></td>
                         <td></td>
