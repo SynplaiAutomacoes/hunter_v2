@@ -22,6 +22,9 @@ class WorkshopCostListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplate
     context_object_name = "workshop_costs"
     htmx_template_name = "workshop_costs/partials/workshop_cost_table.html"
 
+    def get_queryset(self):
+        return super().get_queryset().order_by("-criado_em")
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
 

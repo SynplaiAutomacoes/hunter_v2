@@ -30,6 +30,9 @@ class KitListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseM
     context_object_name = "kits"
     htmx_template_name = "kits/partials/kits_table.html"
 
+    def get_queryset(self):
+        return super().get_queryset().order_by("-criado_em")
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
 

@@ -19,6 +19,9 @@ class MonthlyCostListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
     context_object_name = "monthly_costs"
     htmx_template_name = "monthly_costs/partials/cost_table.html"
 
+    def get_queryset(self):
+        return super().get_queryset().order_by("-criado_em")
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
 
