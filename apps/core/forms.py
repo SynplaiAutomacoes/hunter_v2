@@ -36,7 +36,7 @@ class AddressFormMixin:
                 self.fields[field].widget.attrs.update({"readonly": True, "style": "cursor: not-allowed;", "title": "Preencha o campo de CEP"})
 
 
-def address_layout() -> Div:
+def address_layout(include_complemento: bool = True) -> Div:
     return Div(
         HTML("""
             <div class="col-span-12" style="display: flex; align-items: center; gap: 25px;">
@@ -50,7 +50,7 @@ def address_layout() -> Div:
         Field("logradouro", wrapper_class="col-span-12 lg:col-span-4"),
         Field("numero", wrapper_class="col-span-12 lg:col-span-4"),
         #
-        Field("complemento", wrapper_class="col-span-12 lg:col-span-4"),
+        *([Field("complemento", wrapper_class="col-span-12 lg:col-span-4")] if include_complemento else []),
         Field("bairro", wrapper_class="col-span-12 lg:col-span-4"),
         Field("cidade", wrapper_class="col-span-12 lg:col-span-4"),
         #
@@ -113,7 +113,7 @@ class MultiStepFormMixin:
             kwargs.pop("instance")
 
         if hasattr(self, "workshop"):
-            kwargs.update({'workshop': self.workshop})
+            kwargs.update({"workshop": self.workshop})
         return kwargs
 
     def get_context_data(self, **kwargs):
@@ -130,11 +130,8 @@ class MultiStepFormMixin:
         if steps and current_step <= len(steps):
             step_config = steps[current_step - 1]
             if "formset_class" in step_config:
-                obj = getattr(self, 'object', self.model_instance)
-                context["step_formset"] = step_config["formset_class"](
-                    instance=obj,
-                    data=self.request.POST if self.request.method == "POST" else None
-                )
+                obj = getattr(self, "object", self.model_instance)
+                context["step_formset"] = step_config["formset_class"](instance=obj, data=self.request.POST if self.request.method == "POST" else None)
         return context
 
     def render_next_step(self, form):
@@ -164,7 +161,7 @@ class MultiStepFormMixin:
 
             context = self.get_context_data(form=next_form)
             context["current_step"] = next_step
-            return render(self.request, 'stock/partials/import_step_content.html', context)
+            return render(self.request, "stock/partials/import_step_content.html", context)
 
         return redirect(next_url)
 
@@ -185,7 +182,7 @@ class MultiStepFormMixin:
         steps = self.get_steps_config()
 
         if budget is None:
-            budget = getattr(self, 'object', None) or getattr(self, 'budget_object', None)
+            budget = getattr(self, "object", None) or getattr(self, "budget_object", None)
         if budget is None:
             return False
 
@@ -197,8 +194,8 @@ class MultiStepFormMixin:
             return False
 
         step_config = steps[current_step - 1]
-        auto_apply = step_config.get('auto_apply', False)
-        desired = step_config.get('status', None)
+        auto_apply = step_config.get("auto_apply", False)
+        desired = step_config.get("status", None)
 
         if not auto_apply or not desired:
             return False
@@ -210,7 +207,7 @@ class MultiStepFormMixin:
         # Normalize desired status to a string value
         try:
             # If provided as TextChoices member, .value exists
-            new_status = desired.value if hasattr(desired, 'value') else str(desired)
+            new_status = desired.value if hasattr(desired, "value") else str(desired)
         except Exception:
             new_status = str(desired)
 
@@ -231,7 +228,7 @@ class MultiStepFormMixin:
             return False
 
         # Apply change atomically
-        actor = actor or getattr(self, 'request', None) and getattr(self.request, 'user', None)
+        actor = actor or getattr(self, "request", None) and getattr(self.request, "user", None)
         with transaction.atomic():
             # reload instance with select_for_update if possible to avoid races
             try:
@@ -241,6 +238,6 @@ class MultiStepFormMixin:
 
             locked.status = new_status
             # Persist only status
-            locked.save(update_fields=['status'])
+            locked.save(update_fields=["status"])
 
         return True
