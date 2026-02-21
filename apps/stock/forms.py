@@ -418,7 +418,7 @@ class ImportStepPaymentForm(forms.ModelForm):
             rows += f"""<tr>
                     <td>{p["method_display"]}</td>
                     <td>{p["installments"]}x</td>
-                    <td>{payment_date}x</td>
+                    <td>{payment_date}</td>
                     <td class="font-bold">{Money(p["total_paid"], "BRL")}</td>
                     <td class="text-center">
                         <button type="button" 
