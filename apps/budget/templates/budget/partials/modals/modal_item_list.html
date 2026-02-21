@@ -68,7 +68,7 @@
                     <td class="text-center">
                         <input type="checkbox"
                                name="selected_items"
-                               value="{{ item.id }}"
+                               value="{{ item.id|stringformat:'d' }}"
                                class="checkbox checkbox-success item-checkbox"
                                checked
                                disabled
@@ -79,7 +79,7 @@
                     <td class="text-center">
                         <input type="checkbox"
                                name="selected_items"
-                               value="{{ item.id }}"
+                               value="{{ item.id|stringformat:'d' }}"
                                class="checkbox checkbox-primary item-checkbox">
                     </td>
                 {% endif %}
@@ -254,7 +254,7 @@
 
         // Destacar item recém-criado
         {% if newly_created_id %}
-        const newlyCreatedCheckbox = modal.querySelector('input[value="{{ newly_created_id }}"]');
+        const newlyCreatedCheckbox = modal.querySelector('input[value="{{ newly_created_id|stringformat:'d' }}"]');
         if (newlyCreatedCheckbox) {
             const row = newlyCreatedCheckbox.closest('tr');
             if (row) {

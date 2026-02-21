@@ -47,12 +47,12 @@
                     {% if item.id in existing_items %}
                     <tr class="bg-success/10 hover:bg-success/20 transition-colors">
                         <td class="text-center">
-                            <input type="checkbox" name="selected_items" value="{{ item.id }}" class="checkbox checkbox-success item-checkbox" checked disabled title="Item já adicionado à O.S.">
+                            <input type="checkbox" name="selected_items" value="{{ item.id|stringformat:'d' }}" class="checkbox checkbox-success item-checkbox" checked disabled title="Item já adicionado à O.S.">
                         </td>
                     {% else %}
                     <tr class="hover:bg-base-200/50 transition-colors">
                         <td class="text-center">
-                            <input type="checkbox" name="selected_items" value="{{ item.id }}" class="checkbox checkbox-primary item-checkbox">
+                            <input type="checkbox" name="selected_items" value="{{ item.id|stringformat:'d' }}" class="checkbox checkbox-primary item-checkbox">
                         </td>
                     {% endif %}
 

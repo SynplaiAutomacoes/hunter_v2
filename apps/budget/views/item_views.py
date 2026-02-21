@@ -1,4 +1,5 @@
 import json
+import re
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -16,6 +17,34 @@ from apps.catalog.models.services import Service
 from apps.workshops.mixin import WorkshopScopedMixin
 
 from .shared import _calculate_service_prices, _get_budget_for_workshop, _get_budget_item_for_workshop, _get_budget_workshop_cost, _get_current_step_from_referer, _parse_duration_from_string, _step_redirect_response, logger, reset_steps_after_step_4
+
+
+THOUSAND_SEPARATED_INT_PATTERN = re.compile(r"^\d{1,3}(?:[\s.,]\d{3})+$")
+
+
+def _normalize_selected_item_ids(raw_ids: list[str]) -> tuple[list[int], list[str]]:
+    normalized_ids: list[int] = []
+    invalid_ids: list[str] = []
+
+    for raw_id in raw_ids:
+        value = str(raw_id).strip()
+        if not value:
+            invalid_ids.append(value)
+            continue
+
+        if value.isdigit():
+            normalized_ids.append(int(value))
+            continue
+
+        if THOUSAND_SEPARATED_INT_PATTERN.fullmatch(value):
+            normalized_ids.append(int(re.sub(r"[\s.,]", "", value)))
+            continue
+
+        invalid_ids.append(value)
+
+    # Evita processamento repetido para IDs duplicados
+    deduplicated_ids = list(dict.fromkeys(normalized_ids))
+    return deduplicated_ids, invalid_ids
 
 
 class ItemSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
@@ -293,8 +322,27 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def post(self, request, budget_id, item_type):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
 
+        if item_type not in {"product", "service", "kit"}:
+            logger.warning(
+                "Tentativa de adicionar itens em lote com tipo invalido",
+                extra={"budget_id": budget_id, "item_type": item_type},
+            )
+            return HttpResponse("Tipo de item inválido.", status=400)
+
         # Recebe IDs dos checkboxes marcados
-        selected_ids = request.POST.getlist("selected_items")
+        raw_selected_ids = request.POST.getlist("selected_items")
+        selected_ids, invalid_ids = _normalize_selected_item_ids(raw_selected_ids)
+
+        if invalid_ids:
+            logger.warning(
+                "IDs invalidos enviados para adicao em lote",
+                extra={
+                    "budget_id": budget_id,
+                    "item_type": item_type,
+                    "invalid_count": len(invalid_ids),
+                    "invalid_ids": invalid_ids[:10],
+                },
+            )
 
         if not selected_ids:
             logger.warning(
@@ -315,22 +363,45 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
             """
             return HttpResponse(error_html)
 
-        if item_type == "kit":
+        try:
+            if item_type == "kit":
+                for item_id in selected_ids:
+                    BudgetItem.objects.get_or_create(workshop=self.workshop, budget=budget, kit_id=item_id, defaults={"quantity": 1})
+
+                # Reset etapas 5 e 6 após modificar a etapa 4
+                reset_steps_after_step_4(budget)
+
+                return _step_redirect_response(request, budget, fallback_step=4)
+
+            created_items = []
             for item_id in selected_ids:
-                BudgetItem.objects.get_or_create(workshop=self.workshop, budget=budget, kit_id=item_id, defaults={"quantity": 1})
+                item_filter = {f"{item_type}_id": item_id}
 
-            # Reset etapas 5 e 6 após modificar a etapa 4
-            reset_steps_after_step_4(budget)
+                budget_item, created = BudgetItem.objects.get_or_create(workshop=self.workshop, budget=budget, **item_filter, defaults={"quantity": 1})
 
-            return _step_redirect_response(request, budget, fallback_step=4)
-
-        created_items = []
-        for item_id in selected_ids:
-            item_filter = {f"{item_type}_id": item_id}
-
-            budget_item, created = BudgetItem.objects.get_or_create(workshop=self.workshop, budget=budget, **item_filter, defaults={"quantity": 1})
-
-            created_items.append(budget_item.id)
+                created_items.append(budget_item.id)
+        except Exception:
+            logger.exception(
+                "Falha ao adicionar itens em lote ao orcamento",
+                extra={
+                    "budget_id": budget_id,
+                    "item_type": item_type,
+                    "selected_count": len(raw_selected_ids),
+                    "selected_ids": raw_selected_ids[:20],
+                },
+            )
+            error_html = """
+            <div class="modal-box w-11/12 max-w-md bg-base-100">
+                <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick="form_modal.close()">✕</button>
+                <div class="flex flex-col items-center justify-center py-8">
+                    <span class="material-icons text-error text-6xl mb-4">error</span>
+                    <h3 class="font-bold text-xl mb-2">Não foi possível adicionar os itens</h3>
+                    <p class="text-base-content/70 mb-6">Tente novamente em instantes. Se o problema persistir, contate o suporte.</p>
+                    <button class="btn btn-primary" onclick="form_modal.close()">Fechar</button>
+                </div>
+            </div>
+            """
+            return HttpResponse(error_html)
 
         # Reset etapas 5 e 6 após modificar a etapa 4
         reset_steps_after_step_4(budget)

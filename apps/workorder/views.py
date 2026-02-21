@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import re
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
@@ -25,6 +27,10 @@ from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderItemEditForm,
 from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderStatus
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.models.workshop_costs import WorkshopCost
+
+
+logger = logging.getLogger(__name__)
+THOUSAND_SEPARATED_INT_PATTERN = re.compile(r"^\d{1,3}(?:[\s.,]\d{3})+$")
 
 
 def _get_workorder_for_workshop(workshop, workorder_id: int) -> WorkOrder:
@@ -68,6 +74,29 @@ def _parse_duration_from_string(raw_duration: str | None) -> timedelta:
         parsed = None
 
     return parsed or timedelta()
+
+
+def _normalize_selected_item_ids(raw_ids: list[str]) -> tuple[list[int], list[str]]:
+    normalized_ids: list[int] = []
+    invalid_ids: list[str] = []
+
+    for raw_id in raw_ids:
+        value = str(raw_id).strip()
+        if not value:
+            invalid_ids.append(value)
+            continue
+
+        if value.isdigit():
+            normalized_ids.append(int(value))
+            continue
+
+        if THOUSAND_SEPARATED_INT_PATTERN.fullmatch(value):
+            normalized_ids.append(int(re.sub(r"[\s.,]", "", value)))
+            continue
+
+        invalid_ids.append(value)
+
+    return list(dict.fromkeys(normalized_ids)), invalid_ids
 
 
 def _active_tab_from_item(item: WorkOrderItem) -> str:
@@ -314,16 +343,45 @@ class WorkOrderAddItemsBatchView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if item_type not in {"product", "service", "kit"}:
             return _render_edit_items_modal(request, workorder, "products")
 
-        selected_ids = request.POST.getlist("selected_items")
+        raw_selected_ids = request.POST.getlist("selected_items")
+        selected_ids, invalid_ids = _normalize_selected_item_ids(raw_selected_ids)
 
-        for item_id in selected_ids:
-            item_filter = {f"{item_type}_id": item_id}
-            WorkOrderItem.objects.get_or_create(
-                workshop=self.workshop,
-                workorder=workorder,
-                **item_filter,
-                defaults={"quantity": 1},
+        if invalid_ids:
+            logger.warning(
+                "IDs invalidos enviados para adicao em lote na ordem de servico",
+                extra={
+                    "workorder_id": pk,
+                    "item_type": item_type,
+                    "invalid_count": len(invalid_ids),
+                    "invalid_ids": invalid_ids[:10],
+                },
             )
+
+        try:
+            for item_id in selected_ids:
+                item_filter = {f"{item_type}_id": item_id}
+                WorkOrderItem.objects.get_or_create(
+                    workshop=self.workshop,
+                    workorder=workorder,
+                    **item_filter,
+                    defaults={"quantity": 1},
+                )
+        except Exception:
+            active_tab = {
+                "product": "products",
+                "service": "services",
+                "kit": "kits",
+            }.get(item_type, "products")
+            logger.exception(
+                "Falha ao adicionar itens em lote na ordem de servico",
+                extra={
+                    "workorder_id": pk,
+                    "item_type": item_type,
+                    "selected_count": len(raw_selected_ids),
+                    "selected_ids": raw_selected_ids[:20],
+                },
+            )
+            return _render_edit_items_modal(request, workorder, active_tab)
 
         active_tab = request.POST.get("active_tab") or {
             "product": "products",
