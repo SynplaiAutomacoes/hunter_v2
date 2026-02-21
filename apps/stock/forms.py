@@ -615,7 +615,7 @@ class ImportStepSummaryForm(forms.ModelForm):
             if installments > 1:
                 remaining_amount = (total_val - first_amount) / (installments - 1)
 
-            StockPaymentMethod.objects.create(workshop=workshop, payment_method=pay.get("method", "BOLETO"), installments_count=installments, first_installment_amount=Money(first_amount, "BRL"), remaining_installments_amount=Money(remaining_amount, "BRL"), nf_number=instance.nf_number, due_date=payment_due_date)
+            StockPaymentMethod.objects.create(workshop=workshop, payment_method=pay.get("method", "BOLETO"), installments_count=installments, first_installment_amount=Money(first_amount, "BRL"), remaining_installments_amount=Money(remaining_amount, "BRL"), nf_number=instance.nf_number or "MANUAL", due_date=payment_due_date)
 
         instance.status = StockImport.ImportStatus.COMPLETED
         if commit:
