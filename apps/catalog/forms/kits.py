@@ -848,6 +848,8 @@ class KitForm(forms.ModelForm):
         instance.total_price = totals["total_sell"]
         instance.total_duration = totals["services_total_duration"]
 
+        instance.save(update_fields=["total_price", "total_duration"])
+
         return instance
 
     @staticmethod
@@ -946,7 +948,7 @@ class KitForm(forms.ModelForm):
             qty = int(service_qty.get(sid, 1) or 1)
             services_sell += (service.selling_price.amount if service.selling_price else Decimal("0")) * qty
 
-            row_duration = service_duration.get(sid, service.duration or timedelta())
+            row_duration = service_duration.get(sid, service.duration or timedelta()) * qty
             services_total_duration += row_duration
         total_sell = products_sell + services_sell
 

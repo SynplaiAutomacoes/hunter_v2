@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 from django.db import models
+from djmoney.models.fields import MoneyField
 
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
@@ -34,8 +35,8 @@ class Kit(TimeStampedModel):
         blank=True,
     )
 
-    total_price = models.DecimalField(verbose_name="Valor Total", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
-    total_duration = models.DateTimeField(verbose_name="Duração Total", null=True, blank=True)
+    total_price = MoneyField(verbose_name="Preço Total", max_digits=14, decimal_places=2, default=0.00)
+    total_duration = models.DurationField(verbose_name="Duração Total", null=True, blank=True)
 
     class Meta:
         verbose_name = "Kit"
