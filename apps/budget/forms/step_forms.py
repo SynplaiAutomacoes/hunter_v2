@@ -706,7 +706,14 @@ class BudgetStep3Form(forms.ModelForm):
         model = Budget
         fields = ["collaborator", "checklist", "technical_diagnosis"]
         widgets = {
-            "technical_diagnosis": forms.Textarea(attrs={"rows": 10, "placeholder": "Descreva detalhadamente as observações técnicas, diagnósticos preliminares, testes realizados...", "class": "textarea textarea-bordered w-full !bg-transparent"}),
+            "technical_diagnosis": TextareaInput(
+                attrs={
+                    "rows": 10,
+                    "placeholder": "Descreva detalhadamente as observações técnicas, diagnósticos preliminares, testes realizados...",
+                    "class": "bg-base-200",
+                    "style": "background-color: var(--color-base-200); resize: none;",
+                }
+            ),
         }
 
     def __init__(self, *args, **kwargs):
