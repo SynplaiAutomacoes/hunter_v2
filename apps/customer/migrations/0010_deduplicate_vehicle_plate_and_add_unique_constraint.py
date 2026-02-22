@@ -40,6 +40,8 @@ def deduplicate_vehicle_plates(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
+    atomic = False
+
     dependencies = [
         ("budget", "0025_alter_budget_fuel_level"),
         ("customer", "0009_alter_vehicle_km"),
