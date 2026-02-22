@@ -118,7 +118,8 @@ class MultiStepFormMixin:
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        current_step = self.get_current_step()
+        forced_current_step = kwargs.get("current_step")
+        current_step = forced_current_step if forced_current_step is not None else self.get_current_step()
         steps = self.get_steps_config()
 
         context["steps_config"] = [{"number": i + 1, "title": step["title"]} for i, step in enumerate(steps)]

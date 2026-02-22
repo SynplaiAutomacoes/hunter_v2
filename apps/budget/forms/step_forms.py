@@ -725,6 +725,8 @@ class BudgetStep3Form(forms.ModelForm):
             self.fields["collaborator"].queryset = WorkshopCollaborator.objects.filter(workshop=self.workshop, is_active=True)
             self.fields["checklist"].queryset = Checklist.objects.filter(workshop=self.workshop).order_by("name")
 
+        self.fields["collaborator"].error_messages["required"] = "Selecione um colaborador para continuar."
+
         checklist_pdf_base_url = reverse("budget:visualizar_pdf_checklist", args=[self.instance.pk]) if self.instance.pk else ""
 
         initial_collab_id = ""
