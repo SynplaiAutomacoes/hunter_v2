@@ -16,7 +16,7 @@ from apps.budget.models import Budget, BudgetImage, BudgetImageType, Defect
 from apps.checklist.models import Checklist
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.utils import alert_confirm_layout
-from apps.core.widgets import CalendarDateInput, MoneyInput, NumberInput, SelectInput, TextInput
+from apps.core.widgets import CalendarDateInput, MoneyInput, NumberInput, SelectInput, TextInput, TextareaInput
 from apps.customer.models import Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
 
@@ -604,7 +604,22 @@ class BudgetStep2Form(forms.ModelForm):
         model = Budget
         fields = ["problem_description", "notes"]
         widgets = {
-            "notes": forms.Textarea(attrs={"rows": 4, "cols": 40, "class": "!bg-transparent"}),
+            "problem_description": TextareaInput(
+                attrs={
+                    "rows": 4,
+                    "cols": 40,
+                    "class": "bg-base-200",
+                    "style": "background-color: var(--color-base-200); resize: none; height: 40vh; min-height: 40vh; max-height: 40vh; overflow-y: auto;",
+                }
+            ),
+            "notes": TextareaInput(
+                attrs={
+                    "rows": 4,
+                    "cols": 40,
+                    "class": "bg-base-200",
+                    "style": "background-color: var(--color-base-200); resize: none;",
+                }
+            ),
         }
 
     def __init__(self, *args, **kwargs):
@@ -655,16 +670,16 @@ class BudgetStep2Form(forms.ModelForm):
             Div(
                 HTML('<h3 class="text-2xl font-bold col-span-12">Relato do Cliente</h3>'),
                 # Descrição do Problema
-                Div(Field("problem_description", wrapper_class="flex flex-col h-full", css_class="flex-1 !bg-transparent"), css_class="col-span-12 lg:col-span-6 flex flex-col"),
+                Div(Field("problem_description", wrapper_class="flex flex-col h-full", css_class="flex-1"), css_class="col-span-12 lg:col-span-6 flex flex-col"),
                 # Perguntas Investigativas
                 Div(
                     HTML('<h5 class="font-bold mb-2">Perguntas Investigativas</h5>'),
-                    Div(*question_layout_fields, css_class="border px-4 py-2 rounded-lg pr-4 overflow-y-auto min-h-[40vh] max-h-[40vh] scrollbar-thin scrollbar-thumb-gray-400"),
+                    Div(*question_layout_fields, css_class="border bg-base-200 px-4 py-2 rounded-lg pr-4 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400", style="border-color: var(--color-input-ring); height: 40vh; min-height: 40vh; max-height: 40vh;"),
                     css_class="col-span-12 lg:col-span-6",
                 ),
                 # Observações
-                Div(Field("notes", wrapper_class="w-full"), css_class="col-span-12"),
-                css_class="grid grid-cols-12 gap-6",
+                Div(Field("notes", wrapper_class="w-full", css_class="bg-base-200"), css_class="col-span-12"),
+                css_class="budget-step2-client-report grid grid-cols-12 gap-6",
             ),
         )
 
@@ -1152,6 +1167,46 @@ class BudgetStep3Form(forms.ModelForm):
                             if (slotType === '{BudgetImageType.PAINEL}' || slotType === '{BudgetImageType.CHASSI}' || slotType === '{BudgetImageType.MOTOR}') return 'h-40';
                             return 'h-32';
                         }}
+
+                        function getSlotEmptyImageHeightClass(slotType) {{
+                            if (slotType === '{BudgetImageType.PRINCIPAL}') return 'h-32';
+                            if (slotType === '{BudgetImageType.PAINEL}' || slotType === '{BudgetImageType.CHASSI}' || slotType === '{BudgetImageType.MOTOR}') return 'h-24';
+                            return 'h-16';
+                        }}
+
+                        function getSlotHintMarginClass(slotType) {{
+                            if (slotType === '{BudgetImageType.PRINCIPAL}' || slotType === '{BudgetImageType.PAINEL}' || slotType === '{BudgetImageType.CHASSI}' || slotType === '{BudgetImageType.MOTOR}') return ' mt-1';
+                            return '';
+                        }}
+
+                        function removeNewSlotImage(slotType) {{
+                            const slotDiv = document.getElementById('slot-' + slotType);
+                            const input = document.getElementById('file-input-' + slotType);
+                            if (!slotDiv || !input) {{
+                                return;
+                            }}
+
+                            const labelElement = slotDiv.querySelector('p');
+                            const label = labelElement ? labelElement.textContent : '';
+                            const height = getSlotHeightClass(slotType);
+                            const imageHeight = getSlotEmptyImageHeightClass(slotType);
+                            const hintMargin = getSlotHintMarginClass(slotType);
+                            const placeholderSrc = slotPlaceholders[slotType] || '';
+
+                            input.value = '';
+                            slotDiv.classList.remove('bg-white', 'opacity-50');
+                            slotDiv.classList.add('border-dashed', 'bg-gray-50', 'hover:bg-gray-100');
+
+                            slotDiv.innerHTML = `
+                                <div class="flex flex-col items-center justify-center ${{height}}">
+                                    <img src="${{placeholderSrc}}" alt="Placeholder ${{label}}" class="w-full ${{imageHeight}} object-contain rounded mb-1 opacity-40">
+                                    <p class="text-center text-sm font-semibold text-gray-600">${{label}}</p>
+                                    <p class="text-center text-xs text-gray-400${{hintMargin}}">Clique para adicionar</p>
+                                </div>
+                            `;
+
+                            slotDiv.appendChild(input);
+                        }}
                         
                         function previewSlotImage(slotType, input) {{
                             if (input.files && input.files[0]) {{
@@ -1163,7 +1218,13 @@ class BudgetStep3Form(forms.ModelForm):
                                     slotDiv.innerHTML = `
                                         <img src="${{e.target.result}}" alt="${{label}}" class="w-full ${{height}} object-contain rounded mb-2">
                                         <p class="text-center text-sm font-semibold text-gray-600">${{label}}</p>
-                                        <div class="absolute top-2 right-2 badge badge-success gap-1">
+                                        <button type="button"
+                                                onclick="event.stopPropagation(); removeNewSlotImage('${{slotType}}')"
+                                                class="absolute top-2 right-2 btn btn-xs btn-error text-white"
+                                                title="Remover imagem">
+                                            <span class="material-icons text-xs">delete</span>
+                                        </button>
+                                        <div class="absolute top-2 left-2 badge badge-success gap-1">
                                             <span class="material-icons text-xs">check</span>
                                             Nova
                                         </div>
@@ -1314,6 +1375,46 @@ class BudgetStep3Form(forms.ModelForm):
                             if (slotType === '{BudgetImageType.PAINEL}' || slotType === '{BudgetImageType.CHASSI}' || slotType === '{BudgetImageType.MOTOR}') return 'h-40';
                             return 'h-32';
                         }}
+
+                        function getSlotEmptyImageHeightClass(slotType) {{
+                            if (slotType === '{BudgetImageType.PRINCIPAL}') return 'h-32';
+                            if (slotType === '{BudgetImageType.PAINEL}' || slotType === '{BudgetImageType.CHASSI}' || slotType === '{BudgetImageType.MOTOR}') return 'h-24';
+                            return 'h-16';
+                        }}
+
+                        function getSlotHintMarginClass(slotType) {{
+                            if (slotType === '{BudgetImageType.PRINCIPAL}' || slotType === '{BudgetImageType.PAINEL}' || slotType === '{BudgetImageType.CHASSI}' || slotType === '{BudgetImageType.MOTOR}') return ' mt-1';
+                            return '';
+                        }}
+
+                        function removeNewSlotImage(slotType) {{
+                            const slotDiv = document.getElementById('slot-' + slotType);
+                            const input = document.getElementById('file-input-' + slotType);
+                            if (!slotDiv || !input) {{
+                                return;
+                            }}
+
+                            const labelElement = slotDiv.querySelector('p');
+                            const label = labelElement ? labelElement.textContent : '';
+                            const height = getSlotHeightClass(slotType);
+                            const imageHeight = getSlotEmptyImageHeightClass(slotType);
+                            const hintMargin = getSlotHintMarginClass(slotType);
+                            const placeholderSrc = slotPlaceholders[slotType] || '';
+
+                            input.value = '';
+                            slotDiv.classList.remove('bg-white', 'opacity-50');
+                            slotDiv.classList.add('border-dashed', 'bg-gray-50', 'hover:bg-gray-100');
+
+                            slotDiv.innerHTML = `
+                                <div class="flex flex-col items-center justify-center ${{height}}">
+                                    <img src="${{placeholderSrc}}" alt="Placeholder ${{label}}" class="w-full ${{imageHeight}} object-contain rounded mb-1 opacity-40">
+                                    <p class="text-center text-sm font-semibold text-gray-600">${{label}}</p>
+                                    <p class="text-center text-xs text-gray-400${{hintMargin}}">Clique para adicionar</p>
+                                </div>
+                            `;
+
+                            slotDiv.appendChild(input);
+                        }}
                         
                         function previewSlotImage(slotType, input) {{
                             if (input.files && input.files[0]) {{
@@ -1326,7 +1427,13 @@ class BudgetStep3Form(forms.ModelForm):
                                     slotDiv.innerHTML = `
                                         <img src="${{e.target.result}}" alt="${{label}}" class="w-full ${{height}} object-contain rounded mb-2">
                                         <p class="text-center text-sm font-semibold text-gray-600">${{label}}</p>
-                                        <div class="absolute top-2 right-2 badge badge-success gap-1">
+                                        <button type="button"
+                                                onclick="event.stopPropagation(); removeNewSlotImage('${{slotType}}')"
+                                                class="absolute top-2 right-2 btn btn-xs btn-error text-white"
+                                                title="Remover imagem">
+                                            <span class="material-icons text-xs">delete</span>
+                                        </button>
+                                        <div class="absolute top-2 left-2 badge badge-success gap-1">
                                             <span class="material-icons text-xs">check</span>
                                             Nova
                                         </div>
