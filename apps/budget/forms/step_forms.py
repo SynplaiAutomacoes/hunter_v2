@@ -1,4 +1,5 @@
 import base64
+import json
 from decimal import Decimal
 from html import escape
 
@@ -304,6 +305,7 @@ class BudgetStep1Form(forms.ModelForm):
 
         self.fields["vehicle"].widget.attrs.update({"id": "id_vehicle"})
         self.fields["fuel_level"].required = False
+        self.fields["current_km"].error_messages["required"] = "Preencha o KM atual para continuar."
 
         # Preenchimento inicial
         if self.workshop:
@@ -333,6 +335,20 @@ class BudgetStep1Form(forms.ModelForm):
         if self.request and self.request.user:
             user = self.request.user
             self.fields["cost_estimator"].initial = user.get_full_name() or user.username
+
+        selected_customer_id = ""
+        selected_vehicle_id = ""
+        if self.is_bound:
+            selected_customer_id = (self.data.get("customer") or "").strip()
+            selected_vehicle_id = (self.data.get("vehicle") or "").strip()
+
+        if not selected_customer_id and self.instance and self.instance.customer_id:
+            selected_customer_id = str(self.instance.customer_id)
+
+        if not selected_vehicle_id and self.instance and self.instance.vehicle_id:
+            selected_vehicle_id = str(self.instance.vehicle_id)
+
+        customer_vehicle_x_data = json.dumps({"customerId": selected_customer_id, "vehicleId": selected_vehicle_id})
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -532,7 +548,7 @@ class BudgetStep1Form(forms.ModelForm):
                                 css_class="flex items-end gap-2 w-full",
                                 **{":class": "{ 'pointer-events-none': !customerId }"},
                             ),
-                            x_data=f"{{ customerId: '{self.instance.customer.id if self.instance and self.instance.customer else ''}', vehicleId: '{self.instance.vehicle.id if self.instance and self.instance.vehicle else ''}' }}",
+                            x_data=customer_vehicle_x_data,
                             css_class="grid grid-cols-1 gap-2",
                         ),
                         css_class="mb-6",
@@ -567,10 +583,18 @@ class BudgetStep1Form(forms.ModelForm):
         )
 
     def clean(self):
-        cleaned_data = super().clean()
+        cleaned_data = super().clean() or {}
+
+        current_km = cleaned_data.get("current_km")
+        vehicle = cleaned_data.get("vehicle")
+
+        if vehicle and current_km is not None and vehicle.km is not None and current_km < vehicle.km:
+            formatted_previous_km = f"{vehicle.km:,}".replace(",", ".")
+            self.add_error("current_km", f"O KM informado não pode ser menor que o KM anterior do veículo ({formatted_previous_km}).")
 
         cleaned_data["workshop"] = self.workshop
-        cleaned_data["cost_estimator"] = self.request.user
+        if self.request and self.request.user:
+            cleaned_data["cost_estimator"] = self.request.user
 
         return cleaned_data
 
