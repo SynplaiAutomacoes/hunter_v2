@@ -13,6 +13,7 @@ from apps.catalog.views.services import (
     ServiceUpdateView,
     ServiceDeleteView,
     ServiceNameSearchView,
+    CalculateServiceCatalogPricesView,
 )
 
 from apps.catalog.views.products import (
@@ -59,4 +60,5 @@ urlpatterns = [
     path("kits/products/search/", KitProductSearchView.as_view(), name="kits_product_search"),
     path("kits/services/search/", KitServiceSearchView.as_view(), name="kits_service_search"),
     path("hx/kits-by-product/", KitsByProductHXView.as_view(), name="kits-by-product-hx"),
+path("calculate-prices/", CalculateServiceCatalogPricesView.as_view(), name="calculate_service_prices"),
 ]
