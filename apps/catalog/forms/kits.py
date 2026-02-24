@@ -16,7 +16,7 @@ from djmoney.money import Money
 from apps.catalog.models.kits import Kit, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
-from apps.core.widgets import CheckboxInput, TextInput, TextareaInput
+from apps.core.widgets import CheckboxInput, TextInput, TextareaInput, SelectInput, MoneyInput, PercentageInput, ImageInput, DurationInput
 from apps.workshops.models.workshops import Workshop
 
 logger = logging.getLogger(__name__)
@@ -252,6 +252,16 @@ class KitForm(forms.ModelForm):
                                                         <input type="number" min="1" step="1" class="input-theme w-20 text-center" x-model.number="item.qty" />
                                                     </td>
                                                     <td class="text-right">
+                                                        <button type="button" 
+                                                                class="btn-table-edit mx-1"
+                                                                @click="
+                                                                    document.getElementById('edit-item-modal').checked = true;
+                                                                    htmx.ajax('GET', `/catalog/edit_product_modal_form/${{item.id}}/`, {{target:'#edit-modal-content', swap:'innerHTML'}})
+                                                                "
+                                                                title="Editar Produto">
+                                                            <span class="material-icons text-base">edit</span>
+                                                        </button>
+                                                        
                                                         <button type="button" class="btn-table-delete" @click="removeProduct(index)" title="Remover">
                                                             <span class="material-icons text-base">delete</span>
                                                         </button>
@@ -301,6 +311,16 @@ class KitForm(forms.ModelForm):
                                                         <span x-text="formatDurationForDisplay(item.duration)"></span>
                                                     </td>
                                                     <td class="text-right">
+                                                        <button type="button" 
+                                                                class="btn-table-edit mx-1"
+                                                                @click="
+                                                                    document.getElementById('edit-item-modal').checked = true;
+                                                                    htmx.ajax('GET', `/catalog/edit_service_modal_form/${{item.id}}/`, {{target:'#edit-modal-content', swap:'innerHTML'}})
+                                                                "
+                                                                title="Editar Serviço">
+                                                            <span class="material-icons text-base">edit</span>
+                                                        </button>
+
                                                         <button type="button" class="btn-table-delete" @click="removeService(index)" title="Remover">
                                                             <span class="material-icons text-base">delete</span>
                                                         </button>
@@ -670,6 +690,16 @@ class KitForm(forms.ModelForm):
                                 }}
                             }}
                         </script>
+                        
+                        <input type="checkbox" id="edit-item-modal" class="modal-toggle" />
+                        <div class="modal" role="dialog">
+                            <div class="modal-box w-11/12 max-w-5xl relative bg-base-100">
+                                <label for="edit-item-modal" class="btn btn-sm btn-circle absolute right-2 top-2">✕</label>
+                                
+                                <div id="edit-modal-content">
+                                    </div>
+                            </div>
+                        </div>
                         """
                     ),
                     css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
@@ -956,3 +986,338 @@ class KitForm(forms.ModelForm):
             "total_sell": Money(total_sell, "BRL"),
             "services_total_duration": services_total_duration,
         }
+
+
+class QuickProductEditForm(forms.ModelForm):
+    equivalent_search = forms.CharField(required=False, label="Produtos Equivalentes")
+
+    class Meta:
+        model = Product
+        fields = [
+            # Identificação
+            "code",
+            "name",
+            "description",
+            "unit",
+            "group",
+            "brand",
+            "model",
+            # Estoque
+            "sku",
+            "barcode",
+            "location",
+            "equivalent_parts",
+            # Financeiro
+            "cost_price",
+            "selling_price",
+            "profit_margin",
+            # Fiscal
+            "ncm",
+            "cest",
+            "origin_cst",
+            "purpose",
+            # Detalhes
+            "image",
+            "application",
+            "is_active",
+        ]
+        widgets = {
+            "code": TextInput(),
+            "name": TextInput(),
+            "description": TextareaInput(attrs={"class": "!bg-transparent"}),
+            "unit": SelectInput(),
+            "group": SelectInput(),
+            "brand": TextInput(),
+            "model": TextInput(),
+            "sku": TextInput(),
+            "barcode": TextInput(),
+            "location": TextInput(),
+            "cost_price": MoneyInput(),
+            "selling_price": MoneyInput(),
+            "profit_margin": PercentageInput(attrs={"readonly": True}),
+            "ncm": TextInput(),
+            "cest": TextInput(),
+            "origin_cst": SelectInput(),
+            "purpose": SelectInput(),
+            "image": ImageInput(),
+            "application": TextareaInput(),
+            "is_active": CheckboxInput(),
+        }
+
+    def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.workshop = workshop
+
+        if workshop:
+            self.fields["group"].queryset = self.fields["group"].queryset.filter(workshop=workshop)
+            self.fields["equivalent_parts"].queryset = Product.objects.filter(workshop=workshop)
+
+            if self.instance.pk:
+                self.fields["equivalent_parts"].queryset = self.fields["equivalent_parts"].queryset.exclude(pk=self.instance.pk)
+
+        self.helper = FormHelper()
+        self.helper.form_method = "post"
+        self.helper.layout = self.get_layout()
+
+    def get_layout(self):
+        search_product_url = reverse("catalog:product_search")
+
+        initial_equivalents = []
+        if self.instance.pk:
+            initial_equivalents = [{"id": p.id, "name": str(p)} for p in self.instance.equivalent_parts.all()]
+
+        equivalents_json = json.dumps(initial_equivalents)
+
+        return Layout(
+            Div(
+                Div(
+                    # --- DADOS GERAIS ---
+                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Dados Gerais</h3>'),
+                    Field("code", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("name", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("unit", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("group", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("brand", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("model", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("description", wrapper_class="col-span-12 lg:col-span-11"),
+                    Field("is_active", wrapper_class="col-span-12 lg:col-span-1"),
+                    HTML('<div class="col-span-12 divider my-1"></div>'),
+                    # --- FINANCEIRO ---
+                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Financeiro</h3>'),
+                    Div(
+                        Field("cost_price", wrapper_class="col-span-12 lg:col-span-4"),
+                        Div(
+                            Field("selling_price", wrapper_class="w-full"),
+                            HTML("""
+                                <div class="text-error text-xs mt-1" 
+                                     x-show="priceError" 
+                                     x-cloak 
+                                     x-transition>
+                                    ⚠️ O preço de venda está menor que o custo!
+                                </div>
+                            """),
+                            css_class="col-span-12 lg:col-span-4",
+                        ),
+                        Field("profit_margin", wrapper_class="col-span-12 lg:col-span-4", css_class="opacity-50 cursor-not-allowed"),
+                        css_class="contents",
+                        **{
+                            "@input": "calculateMargin()",
+                        },
+                    ),
+                    HTML('<div class="col-span-12 divider my-1"></div>'),
+                    # --- ESTOQUE E LOGÍSTICA ---
+                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Estoque e Logística</h3>'),
+                    Field("location", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("barcode", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("sku", wrapper_class="col-span-12 lg:col-span-4"),
+                    # --- Peças Equivalentes ---
+                    Div(
+                        Div(
+                            Field(
+                                "equivalent_search",
+                                css_class="input-theme border-none !bg-transparent",
+                                wrapper_class="w-full !bg-transparent",
+                                autocomplete="off",
+                                placeholder="Buscar...",
+                                hx_get=search_product_url,
+                                hx_trigger="keyup changed delay:500ms",
+                                hx_target="#product-suggestions",
+                                hx_swap="innerHTML",
+                                id="equivalent-search-input",
+                                hx_vals=json.dumps({"ignore_id": self.instance.pk}) if self.instance.pk else "{}",
+                            ),
+                            HTML('<div id="product-suggestions" class="absolute z-50 w-full top-full left-0"></div>'),
+                            css_class="relative w-full mb-3",
+                        ),
+                        HTML("""
+                            <ul class="flex flex-col gap-2">
+                                <template x-for="(item, index) in selecteds" :key="item.id">
+                                    <li class="flex gap-2 items-center">
+                                        <div class="p-2 rounded-md w-full flex items-center bg-base-200 text-base-content cursor-default border border-base-300">
+                                            <span x-text="item.name"></span>
+                                        </div>
+
+                                        <button type="button" class="btn-table-delete" @click="remove(index)" title="Remover">
+                                            <span class="material-icons text-base">delete</span>
+                                        </button>
+                                    </li>
+                                </template>
+
+                                <li x-show="selecteds.length === 0" class="text-sm text-gray-500 italic">
+                                    Nenhum produto equivalente adicionado.
+                                </li>
+                            </ul>
+                            """),
+                        # Select Oculto para salvar
+                        HTML("""
+                            <select name="equivalent_parts" multiple class="hidden">
+                                <template x-for="item in selecteds" :key="item.id">
+                                    <option :value="item.id" selected></option>
+                                </template>
+                            </select>
+                            """),
+                        **{
+                            "x-data": f"""{{ selecteds: {equivalents_json},remove(index) {{ this.selecteds.splice(index, 1); }}}}""",
+                            "id": "equivalents-manager",
+                            "@add-equivalent.window": """
+                                if(!selecteds.find(i=>i.id==$event.detail.id)) {
+                                    selecteds.push($event.detail);
+                                    // Limpa input e sugestões
+                                    document.getElementById('equivalent-search-input').value = '';
+                                    document.getElementById('product-suggestions').innerHTML = '';
+                                }
+                            """,
+                        },
+                        css_class="col-span-12 p-4 bg-base-300 rounded-box",
+                    ),
+                    HTML('<div class="col-span-12 divider my-1"></div>'),
+                    # --- FISCAL ---
+                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Fiscal</h3>'),
+                    Field("ncm", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("cest", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("origin_cst", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("purpose", wrapper_class="col-span-12"),
+                    HTML('<div class="col-span-12 divider my-1"></div>'),
+                    # --- DETALHES ---
+                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Detalhes</h3>'),
+                    Field("image", wrapper_class="col-span-12 lg:col-span- 6"),
+                    Field("application", wrapper_class="col-span-12"),
+                    css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
+                ),
+                **{
+                    "x-data": """{
+                        priceError: false,
+                        calculateMargin() {
+                            const getRawValue = (fieldId) => {
+                                const el = document.getElementById(fieldId);
+                                return el ? parseFloat(el.value) || 0 : 0;
+                            }
+
+                            let cost = getRawValue("id_cost_price_0");
+                            let sell = getRawValue("id_selling_price_0");
+
+                            if (sell > 0 && sell < cost) {
+                                this.priceError = true;
+                            } else {
+                                this.priceError = false;
+                            }
+
+                            let marginEl = document.getElementById("id_profit_margin_display");
+
+                            if (sell > 0) {
+                                let margin = ((sell - cost) / sell) * 100;
+                                if (marginEl) {
+                                    marginEl.value = margin.toFixed(2).replace(".", ",");
+                                    marginEl.dispatchEvent(new Event('input', { bubbles: true }));
+                                }
+                            } else {
+                                if (marginEl) {
+                                    marginEl.value = "0,00";
+                                    marginEl.dispatchEvent(new Event('input', { bubbles: true }));
+                                }
+                            }
+                        }
+                    }"""
+                },
+            ),
+        )
+
+    def clean_code(self):
+        code = self.cleaned_data.get("code")
+
+        if code and self.workshop:
+            qs = Product.objects.filter(workshop=self.workshop, code__iexact=code)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+
+            if qs.exists():
+                raise forms.ValidationError("Já existe um produto cadastrado com este código.")
+
+        return code
+
+    def clean(self):
+        cleaned_data = super().clean()
+        cost_price = cleaned_data.get("cost_price")
+        selling_price = cleaned_data.get("selling_price")
+
+        if cost_price and selling_price:
+            if selling_price < cost_price:
+                self.add_error("selling_price", "O preço de venda não pode ser menor que o valor de custo.")
+
+        return cleaned_data
+
+
+class QuickServiceEditForm(forms.ModelForm):
+    class Meta:
+        model = Service
+        fields = ["name", "is_third_party", "duration", "selling_price", "suggested_cost", "description", "is_active"]
+        widgets = {
+            "name": TextInput(attrs={"placeholder": "Ex: Troca de Óleo, Alinhamento..."}),
+            "is_third_party": CheckboxInput(),
+            "duration": DurationInput(),
+            "selling_price": MoneyInput(),
+            "suggested_cost": MoneyInput(),
+            "description": TextareaInput(attrs={"class": "!bg-transparent"}),
+            "is_active": CheckboxInput(),
+        }
+
+    def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.workshop = workshop
+
+        if self.workshop:
+            self.fields["duration"].widget.attrs.update(
+                {
+                    "hx-post": reverse("catalog:calculate_service_prices"),
+                    "hx-trigger": "keyup changed delay:300ms",
+                    "hx-target": "#div_id_suggested_cost",  # Alvo principal (o resto vai via OOB)
+                    "hx-include": "closest form",
+                }
+            )
+
+        self.helper = FormHelper()
+        self.helper.form_method = "post"
+        self.helper.layout = self.get_layout()
+
+    def get_layout(self):
+        cancel_url = reverse("catalog:services_list")
+        search_url = reverse("catalog:services_search")
+
+        return Layout(
+            Div(
+                # Linha 1: Nome e Checkbox Terceiro
+                Div(
+                    Field(
+                        "name",
+                        hx_get=search_url,
+                        hx_trigger="keyup changed delay:500ms",
+                        hx_target="#name-suggestions",  # Onde renderizar o resultado
+                        hx_swap="innerHTML",
+                        autocomplete="off",
+                        wrapper_class="w-full",
+                    ),
+                    # Container VAZIO para as sugestões (Preenchido via HTMX)
+                    HTML('<div id="name-suggestions" class="absolute z-50 w-full top-full left-0"></div>'),
+                    css_class="relative col-span-12 lg:col-span-9",
+                ),
+                Field("is_third_party", wrapper_class="col-span-12 lg:col-span-2 text-nowrap"),
+                # Linha 2: Valores e Duração
+                Field("duration", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("suggested_cost", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("selling_price", wrapper_class="col-span-12 lg:col-span-4"),
+                # Linha 3: Descrição e Ativo
+                Field("description", wrapper_class="col-span-12"),
+                Field("is_active", wrapper_class="col-span-12"),
+                css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
+            ),
+        )
+
+    def clean_name(self):
+        name = self.cleaned_data.get("name")
+        if name and self.workshop:
+            qs = Service.objects.filter(workshop=self.workshop, name__iexact=name)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise forms.ValidationError("Já existe um serviço com este nome.")
+        return name

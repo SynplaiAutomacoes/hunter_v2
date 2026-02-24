@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 
 from django.contrib import messages
@@ -7,12 +8,14 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
 from django.db import IntegrityError
 from django.db.models import Q
+from django.http import HttpResponse
 from django.shortcuts import render
 from django.urls import reverse_lazy
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
-from apps.catalog.forms.kits import KitForm
+from apps.catalog.forms.kits import KitForm, QuickProductEditForm, QuickServiceEditForm
+from apps.catalog.forms.products import ProductForm
 from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
@@ -180,6 +183,38 @@ class KitProductSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "query": query,
             },
         )
+
+
+class ProductQuickUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
+    model = Product
+    workshop_permission_codename = "change_product"
+    template_name = "kits/partials/generic_form.html"
+    form_class = QuickProductEditForm
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["workshop"] = self.workshop
+        return kwargs
+
+    def form_valid(self, form):
+        form.save()
+        return HttpResponse(headers={"HX-Refresh": "true"})
+
+
+class ServiceQuickUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
+    model = Service
+    workshop_permission_codename = "change_service"
+    template_name = "kits/partials/generic_form.html"
+    form_class = QuickServiceEditForm
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["workshop"] = self.workshop
+        return kwargs
+
+    def form_valid(self, form):
+        form.save()
+        return HttpResponse(headers={"HX-Refresh": "true"})
 
 
 class KitServiceSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
