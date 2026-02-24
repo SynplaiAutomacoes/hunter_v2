@@ -29,6 +29,16 @@ class ServiceForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.workshop = workshop
 
+        if self.workshop:
+            self.fields["duration"].widget.attrs.update(
+                {
+                    "hx-post": reverse("catalog:calculate_service_prices"),
+                    "hx-trigger": "keyup changed delay:300ms",
+                    "hx-target": "#div_id_suggested_cost",  # Alvo principal (o resto vai via OOB)
+                    "hx-include": "closest form",
+                }
+            )
+
         self.helper = FormHelper()
         self.helper.form_method = "post"
         self.helper.layout = self.get_layout()
