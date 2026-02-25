@@ -1936,7 +1936,7 @@ class BudgetStep5Form(forms.ModelForm):
                 </script>"""),
             Div(
                 HTML(f'<input type="hidden" name="step5_calculated" id="id_step5_calculated" value="{step5_calculated_input_value}">'),
-                HTML('<h3 class="text-2xl font-bold col-span-12">Método de Precificação</h3>'),
+                HTML('<h3 class="text-2xl font-bold col-span-12">Precificação</h3>'),
                 Div(
                     HTML(
                         """
