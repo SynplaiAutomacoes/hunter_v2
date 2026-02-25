@@ -1,5 +1,5 @@
 import json
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -356,7 +356,7 @@ class UpdateBudgetDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):
             val = request.POST.get("discount_value_0", "0").replace(",", ".") or "0"
             budget.discount_value = Decimal(val)
             budget.save()
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, InvalidOperation):
             logger.warning("Valor de desconto invalido recebido", extra={"budget_id": budget_id, "raw_discount": request.POST.get("discount_value_0")})
 
         return HttpResponse(headers={"HX-Refresh": "true"})

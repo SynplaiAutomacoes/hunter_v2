@@ -2280,6 +2280,18 @@ class BudgetStep5Form(forms.ModelForm):
             ),
         )
 
+    def clean_discount_value(self):
+        discount_value = self.cleaned_data.get("discount_value")
+        if discount_value is None:
+            return Money(0, "BRL")
+        return discount_value
+
+    def clean_slider(self):
+        slider = self.cleaned_data.get("slider")
+        if slider is None:
+            return 0
+        return slider
+
 
 class BudgetStep6Form(forms.ModelForm):
     class Meta:
