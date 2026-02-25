@@ -311,6 +311,63 @@
                 break-inside: avoid;
                 page-break-inside: avoid;
             }
+
+            .container-split {
+                display: flex;
+                align-items: stretch;
+                width: 100%;
+                border: 1px solid #d9dee7;
+                border-radius: 10px;
+                margin-bottom: 10px;
+                overflow: hidden;
+                background: #ffffff;
+            }
+
+            .col-cliente {
+                flex: 1;
+                padding: 12px;
+                border-right: 1px solid #d9dee7;
+                background-color: #fcfcfc;
+            }
+
+            .col-veiculo {
+                flex: 2;
+                padding: 12px;
+            }
+
+            .label-topo {
+                font-size: 10px;
+                font-weight: 800;
+                color: #64748b;
+                text-transform: uppercase;
+                margin-bottom: 8px;
+                display: block;
+            }
+
+            .valor-destaque {
+                font-size: 14px;
+                color: #0f172a;
+                font-weight: 700;
+            }
+
+            .grid-veiculo-compacto {
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+                gap: 8px;
+            }
+
+            .grid-veiculo-triplo {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 8px 12px;
+            }
+
+            .col-cliente-ajustada {
+                flex: 0 0 30%;
+                padding: 12px;
+                border-right: 1px solid #d9dee7;
+                background-color: #fcfcfc;
+            }
         }
     </style>
 </head>
@@ -338,31 +395,41 @@
             </div>
         </div>
 
-        <div class="pdf-section section-customer">
-            <h2 class="section-title">Dados do Cliente</h2>
-            {% with customer=budget.customer %}
-                <div class="info-grid">
-                    <div class="info-item"><span class="info-label">Nome</span><span class="info-value">{{ customer.name|default:"-" }}</span></div>
-                    <div class="info-item"><span class="info-label">Telefone</span><span class="info-value">{{ customer.phone|phone_br|default:"-" }}</span></div>
-                    <div class="info-item"><span class="info-label">CPF</span><span class="info-value">{{ customer.cpf_or_cnpj_formatted|default:customer.cpf_or_cnpj|default:"-" }}</span></div>
-                    <div class="info-item"><span class="info-label">Email</span><span class="info-value">{{ customer.email|default:"-" }}</span></div>
+        <div class="container-split">
+            <div class="col-cliente-ajustada">
+                <span class="label-topo">Informações do Cliente</span>
+                <div class="valor-destaque">
+                    {{ budget.customer.name|default:"-" }}
                 </div>
-            {% endwith %}
-        </div>
+            </div>
 
-        <div class="pdf-section section-vehicle">
-            <h2 class="section-title">Dados do Veículo</h2>
-            {% with vehicle=budget.vehicle %}
-                <div class="info-grid">
-                    <div class="info-item"><span class="info-label">Placa</span><span class="info-value">{{ vehicle.plate|default:"-" }}</span></div>
-                    <div class="info-item"><span class="info-label">Marca</span><span class="info-value">{{ vehicle.brand|default:"-" }}</span></div>
-                    <div class="info-item"><span class="info-label">Modelo</span><span class="info-value">{{ vehicle.model|default:"-" }}</span></div>
-                    <div class="info-item"><span class="info-label">Ano/Fab</span><span class="info-value">{{ vehicle.year_fabrication|default:"-" }}</span></div>
-                    <div class="info-item"><span class="info-label">Ano/Mod</span><span class="info-value">{{ vehicle.year_model|default:"-" }}</span></div>
-                    <div class="info-item"><span class="info-label">Cor</span><span class="info-value">{{ vehicle.color|default:"-" }}</span></div>
-                    <div class="info-item"><span class="info-label">KM</span><span class="info-value">{{ budget.current_km|default_if_none:vehicle.km|default:"-" }}</span></div>
-                </div>
-            {% endwith %}
+            <div class="col-veiculo">
+                <span class="label-topo">Informações do Veículo</span>
+                {% with vehicle=budget.vehicle %}
+                <div class="grid-veiculo-triplo">
+                    <div class="info-item">
+                        <span class="info-label">Placa</span>
+                        <span class="info-value">{{ vehicle.plate|default:"-" }}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Marca/Modelo</span>
+                        <span class="info-value">{{ vehicle.brand|default:"" }} {{ vehicle.model|default:"-" }}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">KM Atual</span>
+                        <span class="info-value">{{ budget.current_km|default_if_none:vehicle.km|default:"-" }}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Ano Fab/Mod</span>
+                        <span class="info-value">{{ vehicle.year_fabrication|default:"-" }}/{{ vehicle.year_model|default:"-" }}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Cor</span>
+                        <span class="info-value">{{ vehicle.color|default:"-" }}</span>
+                    </div>
+                    </div>
+                {% endwith %}
+            </div>
         </div>
 
         <div class="pdf-section section-complaints">
