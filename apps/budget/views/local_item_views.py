@@ -158,7 +158,6 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 row_html = render_to_string("budget/partials/items/item_product_row.html", context)
 
                 response = HtmxResponseHelper.success("Produto cadastrado com sucesso!", close_modal=True, update_summary=True, content=row_html)
-                response["HX-Refresh"] = "true"
                 return response
 
         else:
@@ -180,7 +179,6 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 row_html = render_to_string("budget/partials/items/item_service_row.html", context)
 
                 response = HtmxResponseHelper.success("Serviço cadastrado com sucesso!", close_modal=True, update_summary=True, content=row_html)
-                response["HX-Refresh"] = "true"
                 return response
 
         # Se form inválido, retorna com erros
@@ -193,7 +191,10 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
             "title": f"Cadastrar {'Produto' if item_type == 'product' else 'Serviço'} no Banco de Dados",
             "is_register_mode": True,
         }
-        return render(request, "budget/partials/modals/modal_quick_create.html", context)
+        response = render(request, "budget/partials/modals/modal_quick_create.html", context)
+        response["HX-Retarget"] = "#modal-container"
+        response["HX-Reswap"] = "innerHTML"
+        return response
 
 
 class CalculateLocalServiceView(LoginRequiredMixin, WorkshopScopedMixin, View):

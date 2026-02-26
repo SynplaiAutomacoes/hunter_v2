@@ -1,6 +1,8 @@
+{% load format_tags %}
+
 <table class="table table-compact w-full border rounded-none mb-10">
     <tr><th class="bg-base-200 w-1/3">Cliente</th><td>{{ customer.name|default:"-" }}</td></tr>
-    <tr><th class="bg-base-200">CPF/CNPJ</th><td>{{ customer.cpf_or_cnpj|default:"-" }}</td></tr>
+    <tr><th class="bg-base-200">CPF/CNPJ</th><td>{{ customer.cpf_or_cnpj|cpf_cnpj|default:"-" }}</td></tr>
     <tr><th class="bg-base-200">Telefone</th><td>{{ customer.phone|default:"-" }}</td></tr>
     <tr><th class="bg-base-200">E-mail</th><td>{{ customer.email|default:"-" }}</td></tr>
 </table>

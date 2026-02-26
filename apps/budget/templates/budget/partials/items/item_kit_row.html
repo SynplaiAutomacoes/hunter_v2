@@ -5,6 +5,10 @@
     <td class="text-center">{{ item.quantity }}</td>
     <td class="text-center">{{ item.effective_kit_products_count }}</td>
     <td class="text-center">{{ item.effective_kit_services_count }}</td>
+    {% if not step6 %}
+    <td class="text-right">{{ item.kit_unit_cost }}</td>
+    <td class="text-right">{{ item.kit_unit_price }}</td>
+    {% endif %}
 
     <!-- AÇÕES -->
     <td class="text-center budget-step4-actions">
