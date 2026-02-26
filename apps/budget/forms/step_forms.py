@@ -1602,6 +1602,10 @@ class BudgetStep4Form(forms.ModelForm):
                     .budget-step4-table .budget-step4-actions {
                         white-space: nowrap;
                     }
+
+                    .budget-step4-table .budget-step4-select-col {
+                        width: 3.25rem;
+                    }
                 </style>
                 """
             ),
@@ -1613,7 +1617,28 @@ class BudgetStep4Form(forms.ModelForm):
                     Div(
                         Div(
                             HTML('<h3 class="text-xl font-semibold text-gray-700">Produtos</h3>'),
-                            HTML(f'<button type="button" class="btn btn-primary w-full sm:w-auto" hx-get="{reverse("budget:item_selection", kwargs={"budget_id": budget.pk, "item_type": "product"})}" hx-target="#modal-container" onclick="form_modal.showModal()">Inserir Produto</button>'),
+                            HTML(f'''
+                                <div class="flex flex-wrap gap-2 w-full sm:w-auto justify-end">
+                                    <button
+                                        type="button"
+                                        id="delete-selected-products-btn"
+                                        class="btn btn-error btn-outline w-full sm:w-auto hidden"
+                                        disabled
+                                        hx-post="{reverse("budget:remove_products_batch", kwargs={"budget_id": budget.pk})}"
+                                        hx-include="#product-list-body input[name='selected_product_items']:checked"
+                                        data-confirm="Deseja remover as peças selecionadas?">
+                                        Deletar todos
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="btn btn-primary w-full sm:w-auto"
+                                        hx-get="{reverse("budget:item_selection", kwargs={"budget_id": budget.pk, "item_type": "product"})}"
+                                        hx-target="#modal-container"
+                                        onclick="form_modal.showModal()">
+                                        Inserir Produto
+                                    </button>
+                                </div>
+                            '''),
                             css_class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-4",
                         ),
                         Div(
@@ -1621,13 +1646,16 @@ class BudgetStep4Form(forms.ModelForm):
                                 <table class="table table-sm table-zebra w-full budget-step4-table">
                                     <thead class="bg-primary text-primary-content">
                                         <tr>
-                                            <th class="w-[30%] text-left">DESCRIÇÃO</th>
+                                            <th class="budget-step4-select-col text-center">
+                                                <input type="checkbox" id="select-all-products" class="checkbox checkbox-primary checkbox-sm" aria-label="Selecionar todas as peças">
+                                            </th>
+                                            <th class="w-[24%] text-left">DESCRIÇÃO</th>
                                             <th class="w-[8%] text-center">QTD.</th>
-                                            <th class="w-[13%] text-right">CUSTO</th>
-                                            <th class="w-[15%] text-right">VALOR VENDA</th>
+                                            <th class="w-[12%] text-right">CUSTO</th>
+                                            <th class="w-[14%] text-right">VALOR VENDA</th>
                                             <th class="w-[10%] text-right">FRETE</th>
                                             <th class="w-[14%] text-right">TOTAL</th>
-                                            <th class="w-[10%] text-center budget-step4-actions">AÇÕES</th>
+                                            <th class="w-[12%] text-center budget-step4-actions">AÇÕES</th>
                                         </tr>
                                     </thead>
                                     <tbody id="product-list-body">
@@ -1643,7 +1671,28 @@ class BudgetStep4Form(forms.ModelForm):
                     Div(
                         Div(
                             HTML('<h3 class="text-xl font-semibold text-gray-700">Serviços</h3>'),
-                            HTML(f'<button type="button" class="btn btn-primary w-full sm:w-auto" hx-get="{reverse("budget:item_selection", kwargs={"budget_id": budget.pk, "item_type": "service"})}" hx-target="#modal-container" onclick="form_modal.showModal()">Inserir Serviço</button>'),
+                            HTML(f'''
+                                <div class="flex flex-wrap gap-2 w-full sm:w-auto justify-end">
+                                    <button
+                                        type="button"
+                                        id="delete-selected-services-btn"
+                                        class="btn btn-error btn-outline w-full sm:w-auto hidden"
+                                        disabled
+                                        hx-post="{reverse("budget:remove_services_batch", kwargs={"budget_id": budget.pk})}"
+                                        hx-include="#service-list-body input[name='selected_service_items']:checked"
+                                        data-confirm="Deseja remover os serviços selecionados?">
+                                        Deletar todos
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="btn btn-primary w-full sm:w-auto"
+                                        hx-get="{reverse("budget:item_selection", kwargs={"budget_id": budget.pk, "item_type": "service"})}"
+                                        hx-target="#modal-container"
+                                        onclick="form_modal.showModal()">
+                                        Inserir Serviço
+                                    </button>
+                                </div>
+                            '''),
                             css_class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-4",
                         ),
                         Div(
@@ -1651,13 +1700,16 @@ class BudgetStep4Form(forms.ModelForm):
                                 <table class="table table-sm table-zebra w-full budget-step4-table">
                                     <thead class="bg-primary text-primary-content">
                                         <tr>
-                                            <th class="w-[30%] text-left">DESCRIÇÃO</th>
+                                            <th class="budget-step4-select-col text-center">
+                                                <input type="checkbox" id="select-all-services" class="checkbox checkbox-primary checkbox-sm" aria-label="Selecionar todos os serviços">
+                                            </th>
+                                            <th class="w-[24%] text-left">DESCRIÇÃO</th>
                                             <th class="w-[8%] text-center">QTD.</th>
-                                            <th class="w-[13%] text-right">CUSTO</th>
-                                            <th class="w-[15%] text-right">VALOR VENDA</th>
+                                            <th class="w-[12%] text-right">CUSTO</th>
+                                            <th class="w-[14%] text-right">VALOR VENDA</th>
                                             <th class="w-[10%] text-center">TEMPO</th>
                                             <th class="w-[14%] text-right">TOTAL</th>
-                                            <th class="w-[10%] text-center budget-step4-actions">AÇÕES</th>
+                                            <th class="w-[12%] text-center budget-step4-actions">AÇÕES</th>
                                         </tr>
                                     </thead>
                                     <tbody id="service-list-body">
@@ -1673,7 +1725,28 @@ class BudgetStep4Form(forms.ModelForm):
                     Div(
                         Div(
                             HTML('<h3 class="text-xl font-semibold text-gray-700">Kits</h3>'),
-                            HTML(f'<button type="button" class="btn btn-primary w-full sm:w-auto" hx-get="{reverse("budget:item_selection", kwargs={"budget_id": budget.pk, "item_type": "kit"})}" hx-target="#modal-container" onclick="form_modal.showModal()">Inserir Kit</button>'),
+                            HTML(f'''
+                                <div class="flex flex-wrap gap-2 w-full sm:w-auto justify-end">
+                                    <button
+                                        type="button"
+                                        id="delete-selected-kits-btn"
+                                        class="btn btn-error btn-outline w-full sm:w-auto hidden"
+                                        disabled
+                                        hx-post="{reverse("budget:remove_kits_batch", kwargs={"budget_id": budget.pk})}"
+                                        hx-include="#kit-list-body input[name='selected_kit_items']:checked"
+                                        data-confirm="Deseja remover os kits selecionados?">
+                                        Deletar todos
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="btn btn-primary w-full sm:w-auto"
+                                        hx-get="{reverse("budget:item_selection", kwargs={"budget_id": budget.pk, "item_type": "kit"})}"
+                                        hx-target="#modal-container"
+                                        onclick="form_modal.showModal()">
+                                        Inserir Kit
+                                    </button>
+                                </div>
+                            '''),
                             css_class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-4",
                         ),
                         Div(
@@ -1725,13 +1798,93 @@ class BudgetStep4Form(forms.ModelForm):
         self.helper.layout.append(
             HTML(f"""
             <script>
-            document.body.addEventListener('update-summary', function() {{
-                // Recarrega apenas a coluna de resumo via HTMX
-                htmx.ajax('GET', '{reverse("budget:budget_summary", kwargs={"budget_id": budget.pk})}', {{
-                    target: '#budget-summary',
-                    swap: 'innerHTML'
+            (function() {{
+                document.body.addEventListener('update-summary', function() {{
+                    // Recarrega apenas a coluna de resumo via HTMX
+                    htmx.ajax('GET', '{reverse("budget:budget_summary", kwargs={"budget_id": budget.pk})}', {{
+                        target: '#budget-summary',
+                        swap: 'innerHTML'
+                    }});
                 }});
-            }});
+
+                function setupBatchDeleteSelection(config) {{
+                    const listBody = document.getElementById(config.listBodyId);
+                    const selectAll = document.getElementById(config.selectAllId);
+                    const deleteBtn = document.getElementById(config.deleteBtnId);
+
+                    if (!listBody || !selectAll || !deleteBtn) {{
+                        return;
+                    }}
+
+                    function getCheckboxes() {{
+                        return Array.from(listBody.querySelectorAll(config.checkboxSelector));
+                    }}
+
+                    function updateState() {{
+                        const checkboxes = getCheckboxes();
+                        const selectedCount = checkboxes.filter((cb) => cb.checked).length;
+
+                        const canDeleteBatch = selectedCount > 1;
+                        deleteBtn.classList.toggle('hidden', !canDeleteBatch);
+                        deleteBtn.disabled = !canDeleteBatch;
+
+                        if (checkboxes.length === 0) {{
+                            selectAll.checked = false;
+                            selectAll.indeterminate = false;
+                            selectAll.disabled = true;
+                            return;
+                        }}
+
+                        selectAll.disabled = false;
+                        const allChecked = selectedCount === checkboxes.length;
+                        const someChecked = selectedCount > 0 && !allChecked;
+                        selectAll.checked = allChecked;
+                        selectAll.indeterminate = someChecked;
+                    }}
+
+                    selectAll.addEventListener('change', function(event) {{
+                        const checkboxes = getCheckboxes();
+                        checkboxes.forEach((checkbox) => {{
+                            checkbox.checked = event.target.checked;
+                        }});
+                        updateState();
+                    }});
+
+                    listBody.addEventListener('change', function(event) {{
+                        if (!event.target.matches(config.checkboxSelector)) {{
+                            return;
+                        }}
+                        updateState();
+                    }});
+
+                    listBody.addEventListener('htmx:afterSwap', function() {{
+                        updateState();
+                    }});
+
+                    updateState();
+                }}
+
+                setupBatchDeleteSelection({{
+                    listBodyId: 'product-list-body',
+                    selectAllId: 'select-all-products',
+                    deleteBtnId: 'delete-selected-products-btn',
+                    checkboxSelector: '.budget-product-select',
+                }});
+
+                setupBatchDeleteSelection({{
+                    listBodyId: 'service-list-body',
+                    selectAllId: 'select-all-services',
+                    deleteBtnId: 'delete-selected-services-btn',
+                    checkboxSelector: '.budget-service-select',
+                }});
+
+                setupBatchDeleteSelection({{
+                    listBodyId: 'kit-list-body',
+                    selectAllId: 'select-all-kits',
+                    deleteBtnId: 'delete-selected-kits-btn',
+                    checkboxSelector: '.budget-kit-select',
+                }});
+            }})();
             </script>
             """)
         )
