@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Any, cast
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.shortcuts import get_object_or_404, redirect
@@ -21,6 +23,14 @@ from apps.finance.services.webmania_b2b import (
 from apps.finance.services.webmania_secrets import decrypt_secret
 from .common import DirectorWorkshopAccessMixin, _format_cnpj, _format_cpf, _format_tax_type, _format_unit
 from apps.workshops.util.workshops import has_workshop_perm
+
+
+def _is_webmania_homolog_environment() -> bool:
+    raw_value = getattr(settings, "WEBMANIA_AMBIENT", "2")
+    try:
+        return int(str(raw_value).strip()) == 2
+    except (TypeError, ValueError):
+        return False
 
 
 class WebmaniaCompanyListView(LoginRequiredMixin, DirectorWorkshopAccessMixin, TemplateView):
@@ -63,14 +73,16 @@ class WebmaniaCompanyListView(LoginRequiredMixin, DirectorWorkshopAccessMixin, T
         sync_candidates = [company.last_sync_at for company in local_companies if company.last_sync_at is not None]
         latest_sync_at = max(sync_candidates) if sync_candidates else None
 
+        user = cast(Any, self.request.user)
         can_sync_webmania_companies = has_workshop_perm(
-            user=self.request.user,
+            user=user,
             workshop=self.workshop,
             app_label=WebmaniaCompany._meta.app_label,
             model=str(WebmaniaCompany._meta.model_name),
             codename="change_webmaniacompany",
             request=self.request,
-        )
+        )  # type: ignore[arg-type]
+        is_webmania_homolog_environment = _is_webmania_homolog_environment()
 
         context.update(
             {
@@ -78,7 +90,8 @@ class WebmaniaCompanyListView(LoginRequiredMixin, DirectorWorkshopAccessMixin, T
                 "webmania_company_count": len(company_rows),
                 "webmania_last_sync_at": latest_sync_at,
                 "webmania_last_sync_error": self._latest_sync_error(local_companies),
-                "can_sync_webmania_companies": can_sync_webmania_companies,
+                "can_sync_webmania_companies": can_sync_webmania_companies and is_webmania_homolog_environment,
+                "is_webmania_homolog_environment": is_webmania_homolog_environment,
             }
         )
         return context
@@ -88,6 +101,10 @@ class WebmaniaCompanySyncView(LoginRequiredMixin, DirectorWorkshopAccessMixin, V
     required_webmania_permission_codename = "change_webmaniacompany"
 
     def post(self, request, *args, **kwargs):
+        if not _is_webmania_homolog_environment():
+            messages.error(request, "A sincronizacao manual com a Webmania esta disponivel apenas quando WEBMANIA_AMBIENT = 2.")
+            return redirect("finance:webmania_company_list")
+
         try:
             synced_companies = sync_b2b_companies_to_database(
                 workshop=self.workshop,
@@ -134,9 +151,16 @@ class WebmaniaCompanyDetailView(LoginRequiredMixin, DirectorWorkshopAccessMixin,
             "value": normalized_value,
         }
 
+    def _get_company(self) -> WebmaniaCompany:
+        workshop_account_id = getattr(self.workshop, "account_id", None)
+        return get_object_or_404(
+            WebmaniaCompany.objects.select_related("workshop").filter(workshop__account_id=workshop_account_id),
+            pk=self.kwargs.get("pk"),
+        )
+
     def get_context_data(self, **kwargs: object) -> dict[str, object]:
         context = super().get_context_data(**kwargs)
-        company = get_object_or_404(WebmaniaCompany, pk=self.kwargs.get("pk"))
+        company = self._get_company()
 
         context.update(
             {
@@ -151,7 +175,7 @@ class WebmaniaCompanyDetailView(LoginRequiredMixin, DirectorWorkshopAccessMixin,
                     self._regular_field("Inscrição Estadual", company.ie),
                     self._regular_field("Inscrição Municipal", company.im),
                     self._regular_field("Unidade", _format_unit(company.unidade_empresa)),
-                    self._regular_field("Tipo Tributação", company.get_tipo_tributacao_display() or company.tipo_tributacao),
+                    self._regular_field("Tipo Tributação", _format_tax_type(company.tipo_tributacao)),
                     self._regular_field("Regime Tributário", company.regime_tributario),
                 ],
                 "contact_fields": [
@@ -233,7 +257,9 @@ class WebmaniaCompanyUpdateView(LoginRequiredMixin, DirectorWorkshopAccessMixin,
     required_webmania_permission_codename = "change_webmaniacompany"
 
     def get_object(self, queryset=None) -> WebmaniaCompany:
-        return get_object_or_404(WebmaniaCompany, pk=self.kwargs.get("pk"))
+        workshop_account_id = getattr(self.workshop, "account_id", None)
+        scoped_queryset = WebmaniaCompany.objects.select_related("workshop").filter(workshop__account_id=workshop_account_id)
+        return get_object_or_404(scoped_queryset, pk=self.kwargs.get("pk"))
 
     def get(self, request, *args, **kwargs):
         self.object = self.get_object()
@@ -331,7 +357,8 @@ class WebmaniaRequestsView(LoginRequiredMixin, DirectorWorkshopAccessMixin, Temp
             request_rows: list[dict[str, str]] = []
         else:
             total_notas_processadas = int(request_payload.get("total_notas_processadas") or 0)
-            empresas_payload = request_payload.get("empresas") if isinstance(request_payload.get("empresas"), list) else []
+            empresas_payload_raw = request_payload.get("empresas")
+            empresas_payload = empresas_payload_raw if isinstance(empresas_payload_raw, list) else []
 
             request_rows = []
             for item in empresas_payload:
