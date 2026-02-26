@@ -14,8 +14,8 @@ from djmoney.models.fields import MoneyField
 
 from apps.workorder.models import WorkOrder
 
-from apps.workshops.models.monthly_costs import MonthlyCost
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
+from apps.workshops.util.monthly_costs import get_mechanic_salary_monthly_cost
 from django.utils import timezone
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -118,6 +118,12 @@ class Budget(TimeStampedModel):
             super().save(*args, **kwargs)
 
             if old_status != BudgetStatus.APPROVED and self.status == BudgetStatus.APPROVED:
+                if self.vehicle_id and self.current_km is not None:
+                    vehicle = self.vehicle
+                    if vehicle and vehicle.km != self.current_km:
+                        vehicle.km = self.current_km
+                        vehicle.save(update_fields=["km"])
+
                 workorder, _ = WorkOrder.objects.get_or_create(
                     budget=self,
                     defaults={"workshop": self.workshop},
@@ -135,6 +141,8 @@ class Budget(TimeStampedModel):
         verbose_name_plural = "Orçamentos"
 
     def calculate_pricing_methods(self):
+        fallback_data = self._build_pricing_fallback_data()
+
         try:
             reference_date = self.criado_em if self.criado_em else timezone.now()
             workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=reference_date.month, year=reference_date.year)
@@ -142,16 +150,16 @@ class Budget(TimeStampedModel):
             try:
                 workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=timezone.now().month, year=timezone.now().year)
             except WorkshopCost.DoesNotExist:
-                return None
+                return fallback_data
+
+        mechanic_salary_obj = get_mechanic_salary_monthly_cost(workshop=self.workshop)
+        if mechanic_salary_obj is None:
+            return fallback_data
 
         try:
-            mechanic_salary_obj = MonthlyCost.objects.get(workshop=self.workshop, name__iexact="Salários mecânicos produtivos")
             salario_mecanicos = WorkshopCostItem.objects.get(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_obj).amount
-        except (WorkshopCost.DoesNotExist, MonthlyCost.DoesNotExist, WorkshopCostItem.DoesNotExist):
-            return {
-                "valor_orcamento": self.total_products_value + self.total_services_value,
-                "rentabilidade": Decimal("0.00"),
-            }
+        except WorkshopCostItem.DoesNotExist:
+            return fallback_data
 
         # Índices
         mlr = workshop_cost.profitability_multiplier
@@ -159,10 +167,7 @@ class Budget(TimeStampedModel):
         horas_uteis_mes = workshop_cost.working_hours_per_month
 
         if not horas_uteis_mes or horas_uteis_mes == 0:
-            return {
-                "valor_orcamento": self.total_products_value + self.total_services_value,
-                "rentabilidade": Decimal("0.00"),
-            }
+            return fallback_data
 
         # Custos
         custo_pecas = self.total_costs_products_value
@@ -235,6 +240,42 @@ class Budget(TimeStampedModel):
         }
 
         return data_trad if rentabilidade_trad > rentabilidade_hun else data_hun
+
+    def _build_pricing_fallback_data(self) -> dict[str, Any]:
+        custo_pecas = self.total_costs_products_value
+        custo_frete_pecas = self.total_products_shipping
+        custo_servico_terceiro = self.total_third_party_services_cost
+        custo_hora_mecanico = Money(0, "BRL")
+        custo_total_mao_obra = Money(0, "BRL")
+
+        venda_pecas = self.total_products_value - custo_frete_pecas
+        venda_servico_terceiro = self.total_third_party_services_selling
+        venda_mao_obra = self.total_services_value - venda_servico_terceiro
+        valor_orcamento = self.total_products_value + self.total_services_value
+        lucro_operacional = valor_orcamento - (custo_pecas + custo_frete_pecas + custo_total_mao_obra + custo_servico_terceiro)
+
+        if valor_orcamento.amount > 0:
+            rentabilidade = ((lucro_operacional.amount / valor_orcamento.amount) * 100).quantize(Decimal("0.01"), ROUND_HALF_UP)
+        else:
+            rentabilidade = Decimal("0.00")
+
+        return {
+            "method_name": "Base",
+            "custo_pecas": custo_pecas,
+            "custo_frete_pecas": custo_frete_pecas,
+            "custo_servico_terceiro": custo_servico_terceiro,
+            "custo_hora_mecanico": custo_hora_mecanico,
+            "custo_total_mao_obra": custo_total_mao_obra,
+            "duracao_total": self.total_duration_display,
+            "lucro_operacional": lucro_operacional,
+            "mlr": Decimal("0.00"),
+            "venda_pecas": venda_pecas,
+            "venda_servico_terceiro": venda_servico_terceiro,
+            "venda_mao_obra": venda_mao_obra,
+            "rentabilidade": rentabilidade,
+            "mlo": Decimal("0.00"),
+            "valor_orcamento": valor_orcamento,
+        }
 
     def revoke_signature_token(self) -> None:
         self.signature_token_active = False

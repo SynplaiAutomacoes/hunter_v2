@@ -26,12 +26,13 @@ def _budget_item_type(item):
 
 
 def _empty_rows(step6=False):
-    product_colspan = 5 if step6 else 6
-    service_colspan = 5 if step6 else 6
+    product_colspan = 6 if step6 else 8
+    service_colspan = 6 if step6 else 8
+    kit_colspan = 5 if step6 else 6
     return {
         "product": f'<tr><td colspan="{product_colspan}" class="text-center text-gray-400 py-4">Nenhum produto adicionado</td></tr>',
         "service": f'<tr><td colspan="{service_colspan}" class="text-center text-gray-400 py-4">Nenhum serviço adicionado</td></tr>',
-        "kit": '<tr><td colspan="5" class="text-center text-gray-400 py-4">Nenhum kit adicionado</td></tr>',
+        "kit": f'<tr><td colspan="{kit_colspan}" class="text-center text-gray-400 py-4">Nenhum kit adicionado</td></tr>',
     }
 
 
@@ -101,7 +102,13 @@ def _validate_uploaded_images(images):
             allowed = ", ".join(sorted(ALLOWED_IMAGE_EXTENSIONS))
             raise forms.ValidationError(f"Formato de arquivo '{image_name}' não permitido. Use: {allowed}")
 
-        image_size = int(getattr(image, "size", 0) or 0)
-        if image_size > MAX_IMAGE_SIZE_BYTES:
-            size_mb = image_size / 1024 / 1024
-            raise forms.ValidationError(f"Imagem '{image_name}' excede o tamanho máximo de 10MB ({size_mb:.2f}MB).")
+    _validate_uploaded_files(images)
+
+
+def _validate_uploaded_files(files):
+    for uploaded_file in files:
+        file_name = getattr(uploaded_file, "name", "") or ""
+        file_size = int(getattr(uploaded_file, "size", 0) or 0)
+        if file_size > MAX_IMAGE_SIZE_BYTES:
+            size_mb = file_size / 1024 / 1024
+            raise forms.ValidationError(f"Arquivo '{file_name}' excede o tamanho máximo de 10MB ({size_mb:.2f}MB).")
