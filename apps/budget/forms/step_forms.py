@@ -1,5 +1,7 @@
 import base64
+import json
 from decimal import Decimal
+from html import escape
 
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import HTML, Div, Field, Layout
@@ -14,11 +16,11 @@ from apps.budget.models import Budget, BudgetImage, BudgetImageType, Defect
 from apps.checklist.models import Checklist
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.utils import alert_confirm_layout
-from apps.core.widgets import CalendarDateInput, MoneyInput, NumberInput, SelectInput, TextInput
+from apps.core.widgets import CalendarDateInput, MoneyInput, NumberInput, SelectInput, TextInput, TextareaInput
 from apps.customer.models import Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
 
-from .shared import MAX_BUDGET_IMAGES, _get_budget_with_prefetched_items, _render_budget_items_rows, _validate_uploaded_images
+from .shared import MAX_BUDGET_IMAGES, _get_budget_with_prefetched_items, _render_budget_items_rows, _validate_uploaded_files, _validate_uploaded_images
 from .widgets import MultipleFileField, MultipleFileInput
 
 
@@ -54,6 +56,29 @@ SLOT_PLACEHOLDER_PATHS = {
     BudgetImageType.CHASSI: "image/chassi.png",
     BudgetImageType.MOTOR: "image/motor.png",
 }
+
+
+def _format_file_size(size_bytes: int) -> str:
+    units = ["B", "kB", "MB", "GB", "TB"]
+    size = float(max(size_bytes, 0))
+    unit_index = 0
+
+    while size >= 1000 and unit_index < len(units) - 1:
+        size /= 1000
+        unit_index += 1
+
+    if size >= 999.5 and unit_index < len(units) - 1:
+        size /= 1000
+        unit_index += 1
+
+    if unit_index == 0:
+        formatted = str(int(size))
+    elif size >= 100:
+        formatted = str(int(round(size)))
+    else:
+        formatted = f"{size:.1f}".rstrip("0").rstrip(".")
+
+    return f"{formatted} {units[unit_index]}"
 
 
 def _build_step3_slot_fallback_html(slot_placeholder_urls):
@@ -213,20 +238,21 @@ def _build_step3_images_initial_html(budget, slot_placeholder_urls):
 
     additional_html = []
     for img in additional_images:
-        img_data = base64.b64encode(img.content).decode("utf-8")
-        img_src = f"data:{img.content_type or 'image/jpeg'};base64,{img_data}"
-        img_name = img.content_name or f"Imagem {img.id}"
+        file_name = escape(img.content_name or f"Arquivo {img.id}")
+        file_size = _format_file_size(len(img.content or b""))
         additional_html.append(
             f"""
-            <div class="relative border-2 border-gray-200 rounded-lg p-2 hover:border-primary transition-colors" id="additional-image-{img.id}">
-                <img src="{img_src}" alt="{img_name}" class="w-full h-32 object-cover rounded mb-2">
+            <div class="flex items-center justify-between gap-3 border border-gray-200 rounded-lg px-3 py-2 hover:border-primary transition-colors" id="additional-image-{img.id}">
+                <div class="min-w-0 flex-1">
+                    <p class="text-sm font-semibold text-gray-700 truncate" title="{file_name}">{file_name}</p>
+                    <p class="text-xs text-gray-500">{file_size}</p>
+                </div>
                 <input type="hidden" name="images_to_delete" value="" id="delete-flag-{img.id}">
                 <button type="button" 
-                        onclick="document.getElementById('delete-flag-{img.id}').value='{img.id}'; document.getElementById('additional-image-{img.id}').classList.add('opacity-50'); this.disabled=true; this.textContent='Será excluída';"
-                        class="btn btn-xs btn-error w-full gap-1"
+                        onclick="document.getElementById('delete-flag-{img.id}').value='{img.id}'; document.getElementById('additional-image-{img.id}').classList.add('opacity-50'); this.disabled=true; this.textContent='Será excluído';"
+                        class="btn btn-xs btn-error text-white"
                         title="Marcar para exclusão">
-                    <span class="material-icons text-xs">delete</span>
-                    Remover
+                    Excluir
                 </button>
             </div>
             """
@@ -279,6 +305,7 @@ class BudgetStep1Form(forms.ModelForm):
 
         self.fields["vehicle"].widget.attrs.update({"id": "id_vehicle"})
         self.fields["fuel_level"].required = False
+        self.fields["current_km"].error_messages["required"] = "Preencha o KM atual para continuar."
 
         # Preenchimento inicial
         if self.workshop:
@@ -308,6 +335,20 @@ class BudgetStep1Form(forms.ModelForm):
         if self.request and self.request.user:
             user = self.request.user
             self.fields["cost_estimator"].initial = user.get_full_name() or user.username
+
+        selected_customer_id = ""
+        selected_vehicle_id = ""
+        if self.is_bound:
+            selected_customer_id = (self.data.get("customer") or "").strip()
+            selected_vehicle_id = (self.data.get("vehicle") or "").strip()
+
+        if not selected_customer_id and self.instance and self.instance.customer_id:
+            selected_customer_id = str(self.instance.customer_id)
+
+        if not selected_vehicle_id and self.instance and self.instance.vehicle_id:
+            selected_vehicle_id = str(self.instance.vehicle_id)
+
+        customer_vehicle_x_data = json.dumps({"customerId": selected_customer_id, "vehicleId": selected_vehicle_id})
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -507,7 +548,7 @@ class BudgetStep1Form(forms.ModelForm):
                                 css_class="flex items-end gap-2 w-full",
                                 **{":class": "{ 'pointer-events-none': !customerId }"},
                             ),
-                            x_data=f"{{ customerId: '{self.instance.customer.id if self.instance and self.instance.customer else ''}', vehicleId: '{self.instance.vehicle.id if self.instance and self.instance.vehicle else ''}' }}",
+                            x_data=customer_vehicle_x_data,
                             css_class="grid grid-cols-1 gap-2",
                         ),
                         css_class="mb-6",
@@ -542,10 +583,18 @@ class BudgetStep1Form(forms.ModelForm):
         )
 
     def clean(self):
-        cleaned_data = super().clean()
+        cleaned_data = super().clean() or {}
+
+        current_km = cleaned_data.get("current_km")
+        vehicle = cleaned_data.get("vehicle")
+
+        if vehicle and current_km is not None and vehicle.km is not None and current_km < vehicle.km:
+            formatted_previous_km = f"{vehicle.km:,}".replace(",", ".")
+            self.add_error("current_km", f"O KM informado não pode ser menor que o KM anterior do veículo ({formatted_previous_km}).")
 
         cleaned_data["workshop"] = self.workshop
-        cleaned_data["cost_estimator"] = self.request.user
+        if self.request and self.request.user:
+            cleaned_data["cost_estimator"] = self.request.user
 
         return cleaned_data
 
@@ -555,7 +604,22 @@ class BudgetStep2Form(forms.ModelForm):
         model = Budget
         fields = ["problem_description", "notes"]
         widgets = {
-            "notes": forms.Textarea(attrs={"rows": 4, "cols": 40, "class": "!bg-transparent"}),
+            "problem_description": TextareaInput(
+                attrs={
+                    "rows": 4,
+                    "cols": 40,
+                    "class": "bg-base-200",
+                    "style": "background-color: var(--color-base-200); resize: none; height: 40vh; min-height: 40vh; max-height: 40vh; overflow-y: auto;",
+                }
+            ),
+            "notes": TextareaInput(
+                attrs={
+                    "rows": 4,
+                    "cols": 40,
+                    "class": "bg-base-200",
+                    "style": "background-color: var(--color-base-200); resize: none;",
+                }
+            ),
         }
 
     def __init__(self, *args, **kwargs):
@@ -606,16 +670,16 @@ class BudgetStep2Form(forms.ModelForm):
             Div(
                 HTML('<h3 class="text-2xl font-bold col-span-12">Relato do Cliente</h3>'),
                 # Descrição do Problema
-                Div(Field("problem_description", wrapper_class="flex flex-col h-full", css_class="flex-1 !bg-transparent"), css_class="col-span-12 lg:col-span-6 flex flex-col"),
+                Div(Field("problem_description", wrapper_class="flex flex-col h-full", css_class="flex-1"), css_class="col-span-12 lg:col-span-6 flex flex-col"),
                 # Perguntas Investigativas
                 Div(
                     HTML('<h5 class="font-bold mb-2">Perguntas Investigativas</h5>'),
-                    Div(*question_layout_fields, css_class="border px-4 py-2 rounded-lg pr-4 overflow-y-auto min-h-[40vh] max-h-[40vh] scrollbar-thin scrollbar-thumb-gray-400"),
+                    Div(*question_layout_fields, css_class="border bg-base-200 px-4 py-2 rounded-lg pr-4 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400", style="border-color: var(--color-input-ring); height: 40vh; min-height: 40vh; max-height: 40vh;"),
                     css_class="col-span-12 lg:col-span-6",
                 ),
                 # Observações
-                Div(Field("notes", wrapper_class="w-full"), css_class="col-span-12"),
-                css_class="grid grid-cols-12 gap-6",
+                Div(Field("notes", wrapper_class="w-full", css_class="bg-base-200"), css_class="col-span-12"),
+                css_class="budget-step2-client-report grid grid-cols-12 gap-6",
             ),
         )
 
@@ -636,13 +700,20 @@ class BudgetStep3Form(forms.ModelForm):
     new_defect = forms.CharField(label=False, required=False, widget=TextInput(attrs={"id": "id_new_defect", "placeholder": "Digite um defeito e clique em Adicionar", "onkeypress": "if(event.keyCode==13){ event.preventDefault(); addDefectRow(); }"}))
     checklist = forms.ModelChoiceField(label="Selecione o Checklist", queryset=Checklist.objects.none(), required=False, widget=SelectInput())
     collaborator = forms.ModelChoiceField(label="Selecione o colaborador que realizará o serviço", required=True, queryset=WorkshopCollaborator.objects.none(), widget=SelectInput())
-    images = MultipleFileField(label=None, required=False, widget=MultipleFileInput(attrs={"accept": "image/*", "class": "file-input file-input-bordered w-full"}))
+    images = MultipleFileField(label=None, required=False, widget=MultipleFileInput(attrs={"class": "file-input file-input-bordered w-full"}))
 
     class Meta:
         model = Budget
         fields = ["collaborator", "checklist", "technical_diagnosis"]
         widgets = {
-            "technical_diagnosis": forms.Textarea(attrs={"rows": 10, "placeholder": "Descreva detalhadamente as observações técnicas, diagnósticos preliminares, testes realizados...", "class": "textarea textarea-bordered w-full !bg-transparent"}),
+            "technical_diagnosis": TextareaInput(
+                attrs={
+                    "rows": 10,
+                    "placeholder": "Descreva detalhadamente as observações técnicas, diagnósticos preliminares, testes realizados...",
+                    "class": "bg-base-200",
+                    "style": "background-color: var(--color-base-200); resize: none;",
+                }
+            ),
         }
 
     def __init__(self, *args, **kwargs):
@@ -653,6 +724,8 @@ class BudgetStep3Form(forms.ModelForm):
         if self.workshop:
             self.fields["collaborator"].queryset = WorkshopCollaborator.objects.filter(workshop=self.workshop, is_active=True)
             self.fields["checklist"].queryset = Checklist.objects.filter(workshop=self.workshop).order_by("name")
+
+        self.fields["collaborator"].error_messages["required"] = "Selecione um colaborador para continuar."
 
         checklist_pdf_base_url = reverse("budget:visualizar_pdf_checklist", args=[self.instance.pk]) if self.instance.pk else ""
 
@@ -814,10 +887,10 @@ class BudgetStep3Form(forms.ModelForm):
                     Div(
                         HTML('<h3 class="text-2xl font-bold mb-4">Anexar Imagens do Veículo</h3>'),
                         HTML(f'<div id="vehicle-images-slots">{slots_initial_html}</div>'),
-                        HTML('<h4 class="text-lg font-semibold mt-6 mb-2">Imagens Adicionais</h4>'),
-                        HTML(f'<div id="additional-images-container" class="grid grid-cols-2 gap-4 mb-4">{additional_initial_html}</div>'),
+                        HTML('<h4 class="text-lg font-semibold mt-6 mb-2">Arquivos Adicionais</h4>'),
+                        HTML(f'<div id="additional-images-container" class="space-y-2 mb-4">{additional_initial_html}</div>'),
                         Field("images", label=False, wrapper_class="mb-0"),
-                        HTML('<p class="text-sm text-gray-500 mt-2">Use os slots acima para fotos específicas do veículo. Aqui você pode adicionar imagens adicionais.</p>'),
+                        HTML('<p class="text-sm text-gray-500 mt-2">Use os slots acima para fotos específicas do veículo. Aqui você pode adicionar arquivos adicionais.</p>'),
                         css_class="mb-6",
                     ),
                     css_class="col-span-12 lg:col-span-6",
@@ -1054,19 +1127,20 @@ class BudgetStep3Form(forms.ModelForm):
                 additional_images_html = []
                 for img in additional_images:
                     if img.content:
-                        img_data = base64.b64encode(img.content).decode("utf-8")
-                        img_src = f"data:{img.content_type or 'image/jpeg'};base64,{img_data}"
-                        img_name = img.content_name or f"Imagem {img.id}"
+                        file_name = escape(img.content_name or f"Arquivo {img.id}")
+                        file_size = _format_file_size(len(img.content or b""))
                         additional_images_html.append(f"""
-                        <div class="relative border-2 border-gray-200 rounded-lg p-2 hover:border-primary transition-colors" id="additional-image-{img.id}">
-                            <img src="{img_src}" alt="{img_name}" class="w-full h-32 object-cover rounded mb-2">
+                        <div class="flex items-center justify-between gap-3 border border-gray-200 rounded-lg px-3 py-2 hover:border-primary transition-colors" id="additional-image-{img.id}">
+                            <div class="min-w-0 flex-1">
+                                <p class="text-sm font-semibold text-gray-700 truncate" title="{file_name}">{file_name}</p>
+                                <p class="text-xs text-gray-500">{file_size}</p>
+                            </div>
                             <input type="hidden" name="images_to_delete" value="" id="delete-flag-{img.id}">
                             <button type="button" 
-                                    onclick="document.getElementById('delete-flag-{img.id}').value='{img.id}'; document.getElementById('additional-image-{img.id}').classList.add('opacity-50'); this.disabled=true; this.textContent='Será excluída';"
-                                    class="btn btn-xs btn-error w-full gap-1"
+                                    onclick="document.getElementById('delete-flag-{img.id}').value='{img.id}'; document.getElementById('additional-image-{img.id}').classList.add('opacity-50'); this.disabled=true; this.textContent='Será excluído';"
+                                    class="btn btn-xs btn-error text-white"
                                     title="Marcar para exclusão">
-                                <span class="material-icons text-xs">delete</span>
-                                Remover
+                                Excluir
                             </button>
                         </div>
                         """)
@@ -1102,6 +1176,46 @@ class BudgetStep3Form(forms.ModelForm):
                             if (slotType === '{BudgetImageType.PAINEL}' || slotType === '{BudgetImageType.CHASSI}' || slotType === '{BudgetImageType.MOTOR}') return 'h-40';
                             return 'h-32';
                         }}
+
+                        function getSlotEmptyImageHeightClass(slotType) {{
+                            if (slotType === '{BudgetImageType.PRINCIPAL}') return 'h-32';
+                            if (slotType === '{BudgetImageType.PAINEL}' || slotType === '{BudgetImageType.CHASSI}' || slotType === '{BudgetImageType.MOTOR}') return 'h-24';
+                            return 'h-16';
+                        }}
+
+                        function getSlotHintMarginClass(slotType) {{
+                            if (slotType === '{BudgetImageType.PRINCIPAL}' || slotType === '{BudgetImageType.PAINEL}' || slotType === '{BudgetImageType.CHASSI}' || slotType === '{BudgetImageType.MOTOR}') return ' mt-1';
+                            return '';
+                        }}
+
+                        function removeNewSlotImage(slotType) {{
+                            const slotDiv = document.getElementById('slot-' + slotType);
+                            const input = document.getElementById('file-input-' + slotType);
+                            if (!slotDiv || !input) {{
+                                return;
+                            }}
+
+                            const labelElement = slotDiv.querySelector('p');
+                            const label = labelElement ? labelElement.textContent : '';
+                            const height = getSlotHeightClass(slotType);
+                            const imageHeight = getSlotEmptyImageHeightClass(slotType);
+                            const hintMargin = getSlotHintMarginClass(slotType);
+                            const placeholderSrc = slotPlaceholders[slotType] || '';
+
+                            input.value = '';
+                            slotDiv.classList.remove('bg-white', 'opacity-50');
+                            slotDiv.classList.add('border-dashed', 'bg-gray-50', 'hover:bg-gray-100');
+
+                            slotDiv.innerHTML = `
+                                <div class="flex flex-col items-center justify-center ${{height}}">
+                                    <img src="${{placeholderSrc}}" alt="Placeholder ${{label}}" class="w-full ${{imageHeight}} object-contain rounded mb-1 opacity-40">
+                                    <p class="text-center text-sm font-semibold text-gray-600">${{label}}</p>
+                                    <p class="text-center text-xs text-gray-400${{hintMargin}}">Clique para adicionar</p>
+                                </div>
+                            `;
+
+                            slotDiv.appendChild(input);
+                        }}
                         
                         function previewSlotImage(slotType, input) {{
                             if (input.files && input.files[0]) {{
@@ -1113,7 +1227,13 @@ class BudgetStep3Form(forms.ModelForm):
                                     slotDiv.innerHTML = `
                                         <img src="${{e.target.result}}" alt="${{label}}" class="w-full ${{height}} object-contain rounded mb-2">
                                         <p class="text-center text-sm font-semibold text-gray-600">${{label}}</p>
-                                        <div class="absolute top-2 right-2 badge badge-success gap-1">
+                                        <button type="button"
+                                                onclick="event.stopPropagation(); removeNewSlotImage('${{slotType}}')"
+                                                class="absolute top-2 right-2 btn btn-xs btn-error text-white"
+                                                title="Remover imagem">
+                                            <span class="material-icons text-xs">delete</span>
+                                        </button>
+                                        <div class="absolute top-2 left-2 badge badge-success gap-1">
                                             <span class="material-icons text-xs">check</span>
                                             Nova
                                         </div>
@@ -1264,6 +1384,46 @@ class BudgetStep3Form(forms.ModelForm):
                             if (slotType === '{BudgetImageType.PAINEL}' || slotType === '{BudgetImageType.CHASSI}' || slotType === '{BudgetImageType.MOTOR}') return 'h-40';
                             return 'h-32';
                         }}
+
+                        function getSlotEmptyImageHeightClass(slotType) {{
+                            if (slotType === '{BudgetImageType.PRINCIPAL}') return 'h-32';
+                            if (slotType === '{BudgetImageType.PAINEL}' || slotType === '{BudgetImageType.CHASSI}' || slotType === '{BudgetImageType.MOTOR}') return 'h-24';
+                            return 'h-16';
+                        }}
+
+                        function getSlotHintMarginClass(slotType) {{
+                            if (slotType === '{BudgetImageType.PRINCIPAL}' || slotType === '{BudgetImageType.PAINEL}' || slotType === '{BudgetImageType.CHASSI}' || slotType === '{BudgetImageType.MOTOR}') return ' mt-1';
+                            return '';
+                        }}
+
+                        function removeNewSlotImage(slotType) {{
+                            const slotDiv = document.getElementById('slot-' + slotType);
+                            const input = document.getElementById('file-input-' + slotType);
+                            if (!slotDiv || !input) {{
+                                return;
+                            }}
+
+                            const labelElement = slotDiv.querySelector('p');
+                            const label = labelElement ? labelElement.textContent : '';
+                            const height = getSlotHeightClass(slotType);
+                            const imageHeight = getSlotEmptyImageHeightClass(slotType);
+                            const hintMargin = getSlotHintMarginClass(slotType);
+                            const placeholderSrc = slotPlaceholders[slotType] || '';
+
+                            input.value = '';
+                            slotDiv.classList.remove('bg-white', 'opacity-50');
+                            slotDiv.classList.add('border-dashed', 'bg-gray-50', 'hover:bg-gray-100');
+
+                            slotDiv.innerHTML = `
+                                <div class="flex flex-col items-center justify-center ${{height}}">
+                                    <img src="${{placeholderSrc}}" alt="Placeholder ${{label}}" class="w-full ${{imageHeight}} object-contain rounded mb-1 opacity-40">
+                                    <p class="text-center text-sm font-semibold text-gray-600">${{label}}</p>
+                                    <p class="text-center text-xs text-gray-400${{hintMargin}}">Clique para adicionar</p>
+                                </div>
+                            `;
+
+                            slotDiv.appendChild(input);
+                        }}
                         
                         function previewSlotImage(slotType, input) {{
                             if (input.files && input.files[0]) {{
@@ -1276,7 +1436,13 @@ class BudgetStep3Form(forms.ModelForm):
                                     slotDiv.innerHTML = `
                                         <img src="${{e.target.result}}" alt="${{label}}" class="w-full ${{height}} object-contain rounded mb-2">
                                         <p class="text-center text-sm font-semibold text-gray-600">${{label}}</p>
-                                        <div class="absolute top-2 right-2 badge badge-success gap-1">
+                                        <button type="button"
+                                                onclick="event.stopPropagation(); removeNewSlotImage('${{slotType}}')"
+                                                class="absolute top-2 right-2 btn btn-xs btn-error text-white"
+                                                title="Remover imagem">
+                                            <span class="material-icons text-xs">delete</span>
+                                        </button>
+                                        <div class="absolute top-2 left-2 badge badge-success gap-1">
                                             <span class="material-icons text-xs">check</span>
                                             Nova
                                         </div>
@@ -1303,7 +1469,7 @@ class BudgetStep3Form(forms.ModelForm):
 
         new_additional_images = self.files.getlist("images")
         if new_additional_images:
-            _validate_uploaded_images(new_additional_images)
+            _validate_uploaded_files(new_additional_images)
 
         uploaded_slot_files = []
         uploaded_slot_types = set()
@@ -1334,7 +1500,7 @@ class BudgetStep3Form(forms.ModelForm):
             final_count = len(uploaded_slot_types) + len(new_additional_images)
 
         if final_count > MAX_BUDGET_IMAGES:
-            raise forms.ValidationError(f"Máximo de {MAX_BUDGET_IMAGES} imagens permitido. Você terá {final_count} imagens após esta operação.")
+            raise forms.ValidationError(f"Máximo de {MAX_BUDGET_IMAGES} anexos permitido. Você terá {final_count} anexos após esta operação.")
 
         return cleaned_data
 
@@ -1386,11 +1552,11 @@ class BudgetStep3Form(forms.ModelForm):
         # Handle new additional images upload
         new_images = self.request.FILES.getlist("images")
         if new_images:
-            _validate_uploaded_images(new_images)
+            _validate_uploaded_files(new_images)
 
             for new_image in new_images:
                 if new_image and hasattr(new_image, "read"):
-                    BudgetImage.objects.create(workshop=self.workshop, budget=budget, content=new_image.read(), content_name=new_image.name, content_type=getattr(new_image, "content_type", "image/jpeg"), image_type=BudgetImageType.ADDITIONAL)
+                    BudgetImage.objects.create(workshop=self.workshop, budget=budget, content=new_image.read(), content_name=new_image.name, content_type=getattr(new_image, "content_type", "application/octet-stream"), image_type=BudgetImageType.ADDITIONAL)
 
         return budget
 
@@ -1436,6 +1602,10 @@ class BudgetStep4Form(forms.ModelForm):
                     .budget-step4-table .budget-step4-actions {
                         white-space: nowrap;
                     }
+
+                    .budget-step4-table .budget-step4-select-col {
+                        width: 3.25rem;
+                    }
                 </style>
                 """
             ),
@@ -1447,7 +1617,28 @@ class BudgetStep4Form(forms.ModelForm):
                     Div(
                         Div(
                             HTML('<h3 class="text-xl font-semibold text-gray-700">Produtos</h3>'),
-                            HTML(f'<button type="button" class="btn btn-primary w-full sm:w-auto" hx-get="{reverse("budget:item_selection", kwargs={"budget_id": budget.pk, "item_type": "product"})}" hx-target="#modal-container" onclick="form_modal.showModal()">Inserir Produto</button>'),
+                            HTML(f'''
+                                <div class="flex flex-wrap gap-2 w-full sm:w-auto justify-end">
+                                    <button
+                                        type="button"
+                                        id="delete-selected-products-btn"
+                                        class="btn btn-error btn-outline w-full sm:w-auto hidden"
+                                        disabled
+                                        hx-post="{reverse("budget:remove_products_batch", kwargs={"budget_id": budget.pk})}"
+                                        hx-include="#product-list-body input[name='selected_product_items']:checked"
+                                        data-confirm="Deseja remover as peças selecionadas?">
+                                        Deletar todos
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="btn btn-primary w-full sm:w-auto"
+                                        hx-get="{reverse("budget:item_selection", kwargs={"budget_id": budget.pk, "item_type": "product"})}"
+                                        hx-target="#modal-container"
+                                        onclick="form_modal.showModal()">
+                                        Inserir Produto
+                                    </button>
+                                </div>
+                            '''),
                             css_class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-4",
                         ),
                         Div(
@@ -1455,13 +1646,16 @@ class BudgetStep4Form(forms.ModelForm):
                                 <table class="table table-sm table-zebra w-full budget-step4-table">
                                     <thead class="bg-primary text-primary-content">
                                         <tr>
-                                            <th class="w-[30%] text-left">DESCRIÇÃO</th>
+                                            <th class="budget-step4-select-col text-center">
+                                                <input type="checkbox" id="select-all-products" class="checkbox checkbox-primary checkbox-sm" aria-label="Selecionar todas as peças">
+                                            </th>
+                                            <th class="w-[24%] text-left">DESCRIÇÃO</th>
                                             <th class="w-[8%] text-center">QTD.</th>
-                                            <th class="w-[13%] text-right">CUSTO</th>
-                                            <th class="w-[15%] text-right">VALOR VENDA</th>
+                                            <th class="w-[12%] text-right">CUSTO</th>
+                                            <th class="w-[14%] text-right">VALOR VENDA</th>
                                             <th class="w-[10%] text-right">FRETE</th>
                                             <th class="w-[14%] text-right">TOTAL</th>
-                                            <th class="w-[10%] text-center budget-step4-actions">AÇÕES</th>
+                                            <th class="w-[12%] text-center budget-step4-actions">AÇÕES</th>
                                         </tr>
                                     </thead>
                                     <tbody id="product-list-body">
@@ -1477,7 +1671,28 @@ class BudgetStep4Form(forms.ModelForm):
                     Div(
                         Div(
                             HTML('<h3 class="text-xl font-semibold text-gray-700">Serviços</h3>'),
-                            HTML(f'<button type="button" class="btn btn-primary w-full sm:w-auto" hx-get="{reverse("budget:item_selection", kwargs={"budget_id": budget.pk, "item_type": "service"})}" hx-target="#modal-container" onclick="form_modal.showModal()">Inserir Serviço</button>'),
+                            HTML(f'''
+                                <div class="flex flex-wrap gap-2 w-full sm:w-auto justify-end">
+                                    <button
+                                        type="button"
+                                        id="delete-selected-services-btn"
+                                        class="btn btn-error btn-outline w-full sm:w-auto hidden"
+                                        disabled
+                                        hx-post="{reverse("budget:remove_services_batch", kwargs={"budget_id": budget.pk})}"
+                                        hx-include="#service-list-body input[name='selected_service_items']:checked"
+                                        data-confirm="Deseja remover os serviços selecionados?">
+                                        Deletar todos
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="btn btn-primary w-full sm:w-auto"
+                                        hx-get="{reverse("budget:item_selection", kwargs={"budget_id": budget.pk, "item_type": "service"})}"
+                                        hx-target="#modal-container"
+                                        onclick="form_modal.showModal()">
+                                        Inserir Serviço
+                                    </button>
+                                </div>
+                            '''),
                             css_class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-4",
                         ),
                         Div(
@@ -1485,13 +1700,16 @@ class BudgetStep4Form(forms.ModelForm):
                                 <table class="table table-sm table-zebra w-full budget-step4-table">
                                     <thead class="bg-primary text-primary-content">
                                         <tr>
-                                            <th class="w-[30%] text-left">DESCRIÇÃO</th>
+                                            <th class="budget-step4-select-col text-center">
+                                                <input type="checkbox" id="select-all-services" class="checkbox checkbox-primary checkbox-sm" aria-label="Selecionar todos os serviços">
+                                            </th>
+                                            <th class="w-[24%] text-left">DESCRIÇÃO</th>
                                             <th class="w-[8%] text-center">QTD.</th>
-                                            <th class="w-[13%] text-right">CUSTO</th>
-                                            <th class="w-[15%] text-right">VALOR VENDA</th>
+                                            <th class="w-[12%] text-right">CUSTO</th>
+                                            <th class="w-[14%] text-right">VALOR VENDA</th>
                                             <th class="w-[10%] text-center">TEMPO</th>
                                             <th class="w-[14%] text-right">TOTAL</th>
-                                            <th class="w-[10%] text-center budget-step4-actions">AÇÕES</th>
+                                            <th class="w-[12%] text-center budget-step4-actions">AÇÕES</th>
                                         </tr>
                                     </thead>
                                     <tbody id="service-list-body">
@@ -1507,7 +1725,28 @@ class BudgetStep4Form(forms.ModelForm):
                     Div(
                         Div(
                             HTML('<h3 class="text-xl font-semibold text-gray-700">Kits</h3>'),
-                            HTML(f'<button type="button" class="btn btn-primary w-full sm:w-auto" hx-get="{reverse("budget:item_selection", kwargs={"budget_id": budget.pk, "item_type": "kit"})}" hx-target="#modal-container" onclick="form_modal.showModal()">Inserir Kit</button>'),
+                            HTML(f'''
+                                <div class="flex flex-wrap gap-2 w-full sm:w-auto justify-end">
+                                    <button
+                                        type="button"
+                                        id="delete-selected-kits-btn"
+                                        class="btn btn-error btn-outline w-full sm:w-auto hidden"
+                                        disabled
+                                        hx-post="{reverse("budget:remove_kits_batch", kwargs={"budget_id": budget.pk})}"
+                                        hx-include="#kit-list-body input[name='selected_kit_items']:checked"
+                                        data-confirm="Deseja remover os kits selecionados?">
+                                        Deletar todos
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="btn btn-primary w-full sm:w-auto"
+                                        hx-get="{reverse("budget:item_selection", kwargs={"budget_id": budget.pk, "item_type": "kit"})}"
+                                        hx-target="#modal-container"
+                                        onclick="form_modal.showModal()">
+                                        Inserir Kit
+                                    </button>
+                                </div>
+                            '''),
                             css_class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-4",
                         ),
                         Div(
@@ -1515,10 +1754,12 @@ class BudgetStep4Form(forms.ModelForm):
                                 <table class="table table-sm w-full budget-step4-table">
                                     <thead class="bg-primary text-primary-content">
                                         <tr>
-                                            <th class="w-[38%] text-left">NOME</th>
-                                            <th class="w-[10%] text-center">QTD.</th>
-                                            <th class="w-[16%] text-center">PRODUTOS</th>
-                                            <th class="w-[16%] text-center">SERVIÇOS</th>
+                                            <th class="w-[24%] text-left">NOME</th>
+                                            <th class="w-[8%] text-center">QTD.</th>
+                                            <th class="w-[10%] text-center">PRODUTOS</th>
+                                            <th class="w-[10%] text-center">SERVIÇOS</th>
+                                            <th class="w-[14%] text-right">CUSTOS</th>
+                                            <th class="w-[14%] text-right">PREÇO</th>
                                             <th class="w-[20%] text-center budget-step4-actions">AÇÕES</th>
                                         </tr>
                                     </thead>
@@ -1557,13 +1798,93 @@ class BudgetStep4Form(forms.ModelForm):
         self.helper.layout.append(
             HTML(f"""
             <script>
-            document.body.addEventListener('update-summary', function() {{
-                // Recarrega apenas a coluna de resumo via HTMX
-                htmx.ajax('GET', '{reverse("budget:budget_summary", kwargs={"budget_id": budget.pk})}', {{
-                    target: '#budget-summary',
-                    swap: 'innerHTML'
+            (function() {{
+                document.body.addEventListener('update-summary', function() {{
+                    // Recarrega apenas a coluna de resumo via HTMX
+                    htmx.ajax('GET', '{reverse("budget:budget_summary", kwargs={"budget_id": budget.pk})}', {{
+                        target: '#budget-summary',
+                        swap: 'innerHTML'
+                    }});
                 }});
-            }});
+
+                function setupBatchDeleteSelection(config) {{
+                    const listBody = document.getElementById(config.listBodyId);
+                    const selectAll = document.getElementById(config.selectAllId);
+                    const deleteBtn = document.getElementById(config.deleteBtnId);
+
+                    if (!listBody || !selectAll || !deleteBtn) {{
+                        return;
+                    }}
+
+                    function getCheckboxes() {{
+                        return Array.from(listBody.querySelectorAll(config.checkboxSelector));
+                    }}
+
+                    function updateState() {{
+                        const checkboxes = getCheckboxes();
+                        const selectedCount = checkboxes.filter((cb) => cb.checked).length;
+
+                        const canDeleteBatch = selectedCount > 1;
+                        deleteBtn.classList.toggle('hidden', !canDeleteBatch);
+                        deleteBtn.disabled = !canDeleteBatch;
+
+                        if (checkboxes.length === 0) {{
+                            selectAll.checked = false;
+                            selectAll.indeterminate = false;
+                            selectAll.disabled = true;
+                            return;
+                        }}
+
+                        selectAll.disabled = false;
+                        const allChecked = selectedCount === checkboxes.length;
+                        const someChecked = selectedCount > 0 && !allChecked;
+                        selectAll.checked = allChecked;
+                        selectAll.indeterminate = someChecked;
+                    }}
+
+                    selectAll.addEventListener('change', function(event) {{
+                        const checkboxes = getCheckboxes();
+                        checkboxes.forEach((checkbox) => {{
+                            checkbox.checked = event.target.checked;
+                        }});
+                        updateState();
+                    }});
+
+                    listBody.addEventListener('change', function(event) {{
+                        if (!event.target.matches(config.checkboxSelector)) {{
+                            return;
+                        }}
+                        updateState();
+                    }});
+
+                    listBody.addEventListener('htmx:afterSwap', function() {{
+                        updateState();
+                    }});
+
+                    updateState();
+                }}
+
+                setupBatchDeleteSelection({{
+                    listBodyId: 'product-list-body',
+                    selectAllId: 'select-all-products',
+                    deleteBtnId: 'delete-selected-products-btn',
+                    checkboxSelector: '.budget-product-select',
+                }});
+
+                setupBatchDeleteSelection({{
+                    listBodyId: 'service-list-body',
+                    selectAllId: 'select-all-services',
+                    deleteBtnId: 'delete-selected-services-btn',
+                    checkboxSelector: '.budget-service-select',
+                }});
+
+                setupBatchDeleteSelection({{
+                    listBodyId: 'kit-list-body',
+                    selectAllId: 'select-all-kits',
+                    deleteBtnId: 'delete-selected-kits-btn',
+                    checkboxSelector: '.budget-kit-select',
+                }});
+            }})();
             </script>
             """)
         )
@@ -1936,7 +2257,7 @@ class BudgetStep5Form(forms.ModelForm):
                 </script>"""),
             Div(
                 HTML(f'<input type="hidden" name="step5_calculated" id="id_step5_calculated" value="{step5_calculated_input_value}">'),
-                HTML('<h3 class="text-2xl font-bold col-span-12">Método de Precificação</h3>'),
+                HTML('<h3 class="text-2xl font-bold col-span-12">Precificação</h3>'),
                 Div(
                     HTML(
                         """
@@ -2113,6 +2434,18 @@ class BudgetStep5Form(forms.ModelForm):
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch",
             ),
         )
+
+    def clean_discount_value(self):
+        discount_value = self.cleaned_data.get("discount_value")
+        if discount_value is None:
+            return Money(0, "BRL")
+        return discount_value
+
+    def clean_slider(self):
+        slider = self.cleaned_data.get("slider")
+        if slider is None:
+            return 0
+        return slider
 
 
 class BudgetStep6Form(forms.ModelForm):

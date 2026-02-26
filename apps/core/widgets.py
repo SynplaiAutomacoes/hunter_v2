@@ -112,6 +112,14 @@ class TextInput(forms.TextInput):
     template_name = "widgets/text_input.html"
 
 
+class PlateInput(TextInput):
+    def __init__(self, *args, **kwargs):
+        attrs = kwargs.setdefault("attrs", {})
+        attrs.setdefault("oninput", "this.value = this.value.toUpperCase()")
+        attrs.setdefault("autocapitalize", "characters")
+        super().__init__(*args, **kwargs)
+
+
 class TextareaInput(forms.Textarea):
     template_name = "widgets/textarea_input.html"
 
