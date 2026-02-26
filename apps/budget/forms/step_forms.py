@@ -1754,13 +1754,16 @@ class BudgetStep4Form(forms.ModelForm):
                                 <table class="table table-sm w-full budget-step4-table">
                                     <thead class="bg-primary text-primary-content">
                                         <tr>
-                                            <th class="w-[24%] text-left">NOME</th>
+                                            <th class="budget-step4-select-col text-center">
+                                                <input type="checkbox" id="select-all-kits" class="checkbox checkbox-primary checkbox-sm" aria-label="Selecionar todos os kits">
+                                            </th>
+                                            <th class="w-[22%] text-left">NOME</th>
                                             <th class="w-[8%] text-center">QTD.</th>
                                             <th class="w-[10%] text-center">PRODUTOS</th>
                                             <th class="w-[10%] text-center">SERVIÇOS</th>
                                             <th class="w-[14%] text-right">CUSTOS</th>
                                             <th class="w-[14%] text-right">PREÇO</th>
-                                            <th class="w-[20%] text-center budget-step4-actions">AÇÕES</th>
+                                            <th class="w-[12%] text-center budget-step4-actions">AÇÕES</th>
                                         </tr>
                                     </thead>
                                     <tbody id="kit-list-body">
