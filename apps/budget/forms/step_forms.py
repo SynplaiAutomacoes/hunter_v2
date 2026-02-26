@@ -1754,13 +1754,12 @@ class BudgetStep4Form(forms.ModelForm):
                                 <table class="table table-sm w-full budget-step4-table">
                                     <thead class="bg-primary text-primary-content">
                                         <tr>
-                                            <th class="budget-step4-select-col text-center">
-                                                <input type="checkbox" id="select-all-kits" class="checkbox checkbox-primary checkbox-sm" aria-label="Selecionar todos os kits">
-                                            </th>
-                                            <th class="w-[32%] text-left">NOME</th>
-                                            <th class="w-[10%] text-center">QTD.</th>
-                                            <th class="w-[15%] text-center">PRODUTOS</th>
-                                            <th class="w-[15%] text-center">SERVIÇOS</th>
+                                            <th class="w-[24%] text-left">NOME</th>
+                                            <th class="w-[8%] text-center">QTD.</th>
+                                            <th class="w-[10%] text-center">PRODUTOS</th>
+                                            <th class="w-[10%] text-center">SERVIÇOS</th>
+                                            <th class="w-[14%] text-right">CUSTOS</th>
+                                            <th class="w-[14%] text-right">PREÇO</th>
                                             <th class="w-[20%] text-center budget-step4-actions">AÇÕES</th>
                                         </tr>
                                     </thead>
@@ -2258,7 +2257,7 @@ class BudgetStep5Form(forms.ModelForm):
                 </script>"""),
             Div(
                 HTML(f'<input type="hidden" name="step5_calculated" id="id_step5_calculated" value="{step5_calculated_input_value}">'),
-                HTML('<h3 class="text-2xl font-bold col-span-12">Método de Precificação</h3>'),
+                HTML('<h3 class="text-2xl font-bold col-span-12">Precificação</h3>'),
                 Div(
                     HTML(
                         """

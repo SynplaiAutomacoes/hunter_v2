@@ -57,6 +57,29 @@ class WorkOrderPaymentForm(forms.ModelForm):
             Div(Submit("submit", "Salvar Plano de Pagamento", css_class="btn-form-save"), css_class="flex justify-end mt-4"),
         )
 
+    def clean(self):
+        cleaned_data = super().clean() or {}
+
+        if not self.workorder:
+            return cleaned_data
+
+        installments_count = cleaned_data.get("installments_count")
+        first_installment_amount = cleaned_data.get("first_installment_amount")
+        remaining_installments_amount = cleaned_data.get("remaining_installments_amount") or Money(0, "BRL")
+
+        if not installments_count or first_installment_amount is None:
+            return cleaned_data
+
+        total = self.workorder.total_budget_value
+        paid = Money(sum(payment.total_paid.amount for payment in self.workorder.payments.all()), "BRL")
+        pending = total - paid
+
+        plan_total = first_installment_amount + ((installments_count - 1) * remaining_installments_amount)
+        if plan_total > pending:
+            self.add_error(None, "O valor do plano de pagamento não pode ultrapassar o valor pendente da OS.")
+
+        return cleaned_data
+
 
 class WorkOrderAttachmentForm(forms.ModelForm):
     file_upload = forms.FileField(

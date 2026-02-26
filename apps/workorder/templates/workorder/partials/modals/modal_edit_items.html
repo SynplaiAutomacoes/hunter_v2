@@ -1,4 +1,4 @@
-<div class="modal-box w-11/12 max-w-7xl bg-base-100 p-0 overflow-hidden">
+<div class="modal-box w-11/12 max-w-7xl max-h-[90vh] bg-base-100 p-0 overflow-hidden flex flex-col">
     <div class="p-6 border-b border-base-200 flex justify-between items-center bg-base-50">
         <h3 class="font-bold text-2xl flex items-center gap-3">
             <span class="material-icons">edit_note</span>
@@ -7,7 +7,7 @@
         <button type="button" class="btn btn-sm btn-circle btn-ghost" onclick="document.getElementById('form_modal').close()">✕</button>
     </div>
 
-    <div class="p-6">
+    <div class="p-6 flex-1 min-h-0 overflow-hidden">
         <div role="tablist" class="tabs tabs-lifted tabs-lg">
             <input type="radio" name="workorder_items_tabs" role="tab" class="tab" aria-label="Peças" {% if active_tab == 'products' %}checked{% endif %} />
             <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-4">
@@ -23,9 +23,9 @@
                     </button>
                 </div>
 
-                <div class="overflow-x-auto rounded-lg border border-base-200">
+                <div class="overflow-x-auto overflow-y-auto max-h-[60vh] rounded-lg border border-base-200">
                     <table class="table table-zebra w-full">
-                        <thead class="bg-base-200">
+                        <thead class="bg-base-200 sticky top-0 z-10">
                             <tr>
                                 <th>Descrição</th>
                                 <th class="text-center">Qtd.</th>
@@ -51,7 +51,7 @@
                                                 type="button"
                                                 class="btn btn-ghost btn-xs text-info"
                                                 hx-get="{% url 'workorder:edit_item' workorder.pk item.pk %}?tab=products"
-                                                hx-target="#modal-container"
+                                                hx-target="#item-modal-container"
                                                 hx-swap="innerHTML">
                                                 <span class="material-icons text-sm">edit</span>
                                             </button>
@@ -92,9 +92,9 @@
                     </button>
                 </div>
 
-                <div class="overflow-x-auto rounded-lg border border-base-200">
+                <div class="overflow-x-auto overflow-y-auto max-h-[60vh] rounded-lg border border-base-200">
                     <table class="table table-zebra w-full">
-                        <thead class="bg-base-200">
+                        <thead class="bg-base-200 sticky top-0 z-10">
                             <tr>
                                 <th>Descrição</th>
                                 <th class="text-center">Qtd.</th>
@@ -120,7 +120,7 @@
                                                 type="button"
                                                 class="btn btn-ghost btn-xs text-info"
                                                 hx-get="{% url 'workorder:edit_item' workorder.pk item.pk %}?tab=services"
-                                                hx-target="#modal-container"
+                                                hx-target="#item-modal-container"
                                                 hx-swap="innerHTML">
                                                 <span class="material-icons text-sm">edit</span>
                                             </button>
@@ -161,9 +161,9 @@
                     </button>
                 </div>
 
-                <div class="overflow-x-auto rounded-lg border border-base-200">
+                <div class="overflow-x-auto overflow-y-auto max-h-[60vh] rounded-lg border border-base-200">
                     <table class="table table-zebra w-full">
-                        <thead class="bg-base-200">
+                        <thead class="bg-base-200 sticky top-0 z-10">
                             <tr>
                                 <th>Kit</th>
                                 <th class="text-center">Qtd.</th>
@@ -187,7 +187,7 @@
                                                 type="button"
                                                 class="btn btn-ghost btn-xs text-info"
                                                 hx-get="{% url 'workorder:edit_kit' workorder.pk item.pk %}"
-                                                hx-target="#modal-container"
+                                                hx-target="#item-modal-container"
                                                 hx-swap="innerHTML">
                                                 <span class="material-icons text-sm">edit</span>
                                             </button>
