@@ -1,68 +1,19 @@
 from django import forms
 from django.forms import inlineformset_factory
-from django.forms.models import BaseInlineFormSet
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, HTML, Submit, Button
 from django.urls import reverse
 
 from .models import Customer, Vehicle
-from apps.core.widgets import CPForCNPJInput, CalendarDateInput, TextInput, SelectInput, RGInput, PhoneInput, EmailInput, CheckboxInput, NumberInput, PlateInput
+from apps.core.widgets import CPForCNPJInput, CalendarDateInput, TextInput, SelectInput, RGInput, PhoneInput, EmailInput, CheckboxInput, NumberInput
 from .cpf_cnpj_validator import is_valid_cpf, is_valid_cnpj
 from ..core.forms import AddressFormMixin, address_layout
 from ..workshops.models.workshops import Workshop
 
 
-class VehicleInlineForm(forms.ModelForm):
-    class Meta:
-        model = Vehicle
-        fields = "__all__"
-
-    def __init__(self, *args, **kwargs):
-        self.workshop = kwargs.pop("workshop", None)
-        super().__init__(*args, **kwargs)
-
-    def clean_plate(self):
-        plate = (self.cleaned_data.get("plate") or "").strip().upper()
-        workshop = self.workshop or getattr(self.instance, "workshop", None)
-
-        if not plate or not workshop:
-            return plate
-
-        queryset = Vehicle.objects.filter(workshop=workshop, plate=plate)
-        if self.instance.pk:
-            queryset = queryset.exclude(pk=self.instance.pk)
-
-        if queryset.exists():
-            raise forms.ValidationError("Já existe um veículo com esta placa nesta oficina.")
-
-        return plate
-
-
-class VehicleInlineFormSet(BaseInlineFormSet):
-    def clean(self):
-        super().clean()
-
-        seen_plates = set()
-        for form in self.forms:
-            if not hasattr(form, "cleaned_data") or form.cleaned_data.get("DELETE"):
-                continue
-
-            plate = (form.cleaned_data.get("plate") or "").strip().upper()
-            if not plate:
-                continue
-
-            if plate in seen_plates:
-                form.add_error("plate", "Não é permitido repetir a mesma placa na lista de veículos.")
-                continue
-
-            seen_plates.add(plate)
-
-
 VehicleFormSet = inlineformset_factory(
     parent_model=Customer,
     model=Vehicle,
-    form=VehicleInlineForm,
-    formset=VehicleInlineFormSet,
     fields=[
         "plate",
         "brand",
@@ -80,7 +31,7 @@ VehicleFormSet = inlineformset_factory(
     extra=0,
     can_delete=True,
     widgets={
-        "plate": PlateInput(),
+        "plate": TextInput(),
         "brand": TextInput(),
         "model": TextInput(),
         "year_fabrication": TextInput(),
@@ -352,10 +303,19 @@ class QuickCustomerForm(AddressFormMixin, forms.ModelForm):
             "customer_type",
             "cpf_or_cnpj",
             "name",
+            "fantasy_name",
+            "municipal_registration",
+            "state_registration",
+            "foundation_date",
+            "rg",
+            "birth_date",
+            "sex",
+            "phone",
             "email",
             "cep",
             "logradouro",
             "numero",
+            "complemento",
             "bairro",
             "cidade",
             "estado",
@@ -363,6 +323,14 @@ class QuickCustomerForm(AddressFormMixin, forms.ModelForm):
         widgets = {
             "cpf_or_cnpj": CPForCNPJInput(mode="both"),
             "name": TextInput(),
+            "fantasy_name": TextInput(),
+            "municipal_registration": TextInput(),
+            "state_registration": TextInput(),
+            "foundation_date": CalendarDateInput(),
+            "rg": RGInput(),
+            "birth_date": CalendarDateInput(),
+            "sex": SelectInput(),
+            "phone": PhoneInput(),
             "email": EmailInput(),
         }
 
@@ -420,9 +388,31 @@ class QuickCustomerForm(AddressFormMixin, forms.ModelForm):
                 ),
                 Field("cpf_or_cnpj", wrapper_class="col-span-12"),
                 Field("name", wrapper_class="col-span-12 lg:col-span-6"),
+                HTML('<div x-show="tipo === \'PJ\'" class="col-span-12 lg:col-span-6">'),
+                Field("fantasy_name", wrapper_class="col-span-12"),
+                HTML("</div>"),
+                HTML('<div x-show="tipo === \'PJ\'" class="col-span-12 lg:col-span-4">'),
+                Field("municipal_registration", wrapper_class="col-span-12"),
+                HTML("</div>"),
+                HTML('<div x-show="tipo === \'PJ\'" class="col-span-12 lg:col-span-4">'),
+                Field("state_registration", wrapper_class="col-span-12"),
+                HTML("</div>"),
+                HTML('<div x-show="tipo === \'PJ\'" class="col-span-12 lg:col-span-4">'),
+                Field("foundation_date", wrapper_class="col-span-12"),
+                HTML("</div>"),
+                Field("phone", wrapper_class="col-span-12 lg:col-span-6"),
                 Field("email", wrapper_class="col-span-12 lg:col-span-6"),
+                HTML('<div x-show="tipo === \'PF\'" class="col-span-12 lg:col-span-6">'),
+                Field("birth_date", wrapper_class="col-span-12"),
+                HTML("</div>"),
+                HTML('<div x-show="tipo === \'PF\'" class="col-span-12 lg:col-span-6">'),
+                Field("rg", wrapper_class="col-span-12"),
+                HTML("</div>"),
+                HTML('<div x-show="tipo === \'PF\'" class="col-span-12 lg:col-span-12">'),
+                Field("sex", wrapper_class="col-span-12"),
+                HTML("</div>"),
                 HTML('<div class="col-span-12 divider my-1"></div>'),
-                address_layout(include_complemento=False),
+                address_layout(),
                 HTML("</div>"),
                 css_class="grid grid-cols-12 gap-2",
             )
@@ -471,14 +461,20 @@ class QuickCustomerForm(AddressFormMixin, forms.ModelForm):
 class QuickVehicleForm(forms.ModelForm):
     class Meta:
         model = Vehicle
-        fields = ["plate", "brand", "model", "year_fabrication", "year_model", "color"]
+        fields = ["plate", "brand", "model", "year_fabrication", "year_model", "color", "fuel", "engine", "type", "renavam", "chassi", "km"]
         widgets = {
-            "plate": PlateInput(),
+            "plate": TextInput(),
             "brand": TextInput(),
             "model": TextInput(),
             "year_fabrication": TextInput(),
             "year_model": TextInput(),
             "color": TextInput(),
+            "fuel": TextInput(),
+            "engine": TextInput(),
+            "type": TextInput(),
+            "renavam": TextInput(),
+            "chassi": TextInput(),
+            "km": NumberInput(),
         }
 
     def __init__(self, *args, **kwargs):
@@ -494,26 +490,16 @@ class QuickVehicleForm(forms.ModelForm):
                 Field("model", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("year_fabrication", wrapper_class="col-span-12 lg:col-span-3"),
                 Field("year_model", wrapper_class="col-span-12 lg:col-span-3"),
-                Field("color", wrapper_class="col-span-12 lg:col-span-6"),
+                Field("color", wrapper_class="col-span-12 lg:col-span-3"),
+                Field("fuel", wrapper_class="col-span-12 lg:col-span-3"),
+                Field("engine", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("type", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("km", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("renavam", wrapper_class="col-span-12 lg:col-span-6"),
+                Field("chassi", wrapper_class="col-span-12 lg:col-span-6"),
                 css_class="grid grid-cols-12 gap-2",
             )
         )
-
-    def clean_plate(self):
-        plate = (self.cleaned_data.get("plate") or "").strip().upper()
-        workshop = self.workshop or getattr(self.instance, "workshop", None)
-
-        if not plate or not workshop:
-            return plate
-
-        queryset = Vehicle.objects.filter(workshop=workshop, plate=plate)
-        if self.instance.pk:
-            queryset = queryset.exclude(pk=self.instance.pk)
-
-        if queryset.exists():
-            raise forms.ValidationError("Já existe um veículo com esta placa nesta oficina.")
-
-        return plate
 
     def save(self, commit=True):
         instance = super().save(commit=False)

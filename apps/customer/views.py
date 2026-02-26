@@ -69,9 +69,9 @@ class CustomerCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
     def get_context_data(self, **kwargs):
         data = super().get_context_data(**kwargs)
         if self.request.POST:
-            data["vehicles"] = VehicleFormSet(self.request.POST, prefix="vehicles", form_kwargs={"workshop": self.workshop})
+            data["vehicles"] = VehicleFormSet(self.request.POST, prefix="vehicles")
         else:
-            data["vehicles"] = VehicleFormSet(prefix="vehicles", form_kwargs={"workshop": self.workshop})
+            data["vehicles"] = VehicleFormSet(prefix="vehicles")
         return data
 
     def form_valid(self, form):
@@ -103,9 +103,9 @@ class CustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
     def get_context_data(self, **kwargs):
         data = super().get_context_data(**kwargs)
         if self.request.POST:
-            data["vehicles"] = VehicleFormSet(self.request.POST, instance=self.object, prefix="vehicles", form_kwargs={"workshop": self.workshop})
+            data["vehicles"] = VehicleFormSet(self.request.POST, instance=self.object, prefix="vehicles")
         else:
-            data["vehicles"] = VehicleFormSet(instance=self.object, prefix="vehicles", form_kwargs={"workshop": self.workshop})
+            data["vehicles"] = VehicleFormSet(instance=self.object, prefix="vehicles")
         return data
 
     def form_valid(self, form):
@@ -166,7 +166,7 @@ class CustomerHistoryDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailV
             TableColumn(Vehicle.plate.field.verbose_name, attr=Vehicle.plate.field.name),
             TableColumn("Marca / Modelo", attr=lambda x: f"{x.brand} {x.model}"),
             TableColumn("Ano (Fab/Mod)", attr=lambda x: f"{x.year_fabrication} / {x.year_model}"),
-            TableColumn(Vehicle.km.field.verbose_name, attr=lambda x: x.km if x.km is not None else "-"),
+            TableColumn(Vehicle.km.field.verbose_name, attr=Vehicle.km.field.name),
             TableColumn(Vehicle.chassi.field.verbose_name, attr=Vehicle.chassi.field.name),
         ]
 

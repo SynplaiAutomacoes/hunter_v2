@@ -1,5 +1,5 @@
 {% load crispy_forms_tags %}
-<div class="modal-box w-11/12 max-w-2xl min-h-[70vh] max-h-[90vh] overflow-y-auto bg-base-100 shadow-2xl border border-base-300">
+<div class="modal-box max-w-4xl bg-base-100 shadow-2xl border border-base-300">
     <h3 class="font-bold text-2xl mb-6 flex items-center gap-2">
       <span class="material-icons">{% if form.instance.pk %}edit{% else %}add_circle{% endif %}</span>
       {% if form.instance.pk %}Editar{% else %} Cadastro Rápido{% endif %}
