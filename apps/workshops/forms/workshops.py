@@ -36,9 +36,6 @@ class WorkshopForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        if not self.instance.pk and not self.data:
-            self.initial["uf"] = ""
-
         cancel_url = reverse("workshops:list")
 
         self.helper = FormHelper()

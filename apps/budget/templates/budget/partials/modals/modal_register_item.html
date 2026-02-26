@@ -28,23 +28,8 @@
 </div>
 
 <script>
-    document.body.addEventListener('closeModal', function(event) {
-        if (event && event.__budgetModalHandled) {
-            return;
-        }
-        if (event) {
-            event.__budgetModalHandled = true;
-        }
-
-        if (window.closeTopBudgetModal) {
-            window.closeTopBudgetModal();
-            return;
-        }
-
-        const modal = document.getElementById('form_modal');
-        if (modal && modal.open) {
-            modal.close();
-        }
+    document.body.addEventListener('closeModal', function() {
+        document.getElementById('form_modal').close();
     });
 
     document.body.addEventListener('refreshPage', function() {

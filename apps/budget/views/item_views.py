@@ -47,32 +47,6 @@ def _normalize_selected_item_ids(raw_ids: list[str]) -> tuple[list[int], list[st
     return deduplicated_ids, invalid_ids
 
 
-def _is_local_product_item(item: BudgetItem) -> bool:
-    has_product_cost = bool(item.product_cost_price and item.product_cost_price.amount > 0)
-    has_product_sale = bool(item.product_selling_price and item.product_selling_price.amount > 0)
-    has_shipping = bool(item.shipping and item.shipping.amount > 0)
-    return bool(item.is_local and (has_product_cost or has_product_sale or has_shipping))
-
-
-def _is_product_budget_item(item: BudgetItem) -> bool:
-    return bool(item.product is not None) or _is_local_product_item(item)
-
-
-def _is_local_service_item(item: BudgetItem) -> bool:
-    has_service_cost = bool(item.service_cost_price and item.service_cost_price.amount > 0)
-    has_service_sale = bool(item.service_selling_price and item.service_selling_price.amount > 0)
-    has_duration = bool(item.duration)
-    return bool(item.is_local and (has_service_cost or has_service_sale or has_duration))
-
-
-def _is_service_budget_item(item: BudgetItem) -> bool:
-    return bool(item.service is not None) or _is_local_service_item(item)
-
-
-def _is_kit_budget_item(item: BudgetItem) -> bool:
-    return bool(item.kit is not None)
-
-
 class ItemSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     model = Budget
     template_name = "budget/partials/modals/modal_item_list.html"
@@ -103,34 +77,7 @@ class ItemSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, TemplateVi
         elif item_type == "kit":
             existing_items = set(budget.items.filter(kit__isnull=False).values_list("kit_id", flat=True))
 
-        ordered_items = list(queryset)
-        if existing_items:
-            ordered_items.sort(key=lambda item: item.pk not in existing_items)
-
-        raw_selected_ids = self.request.GET.getlist("selected_ids")
-        selected_ids: set[int] = set()
-        for raw_id in raw_selected_ids:
-            value = str(raw_id).strip()
-            if value.isdigit():
-                selected_ids.add(int(value))
-
-        raw_newly_created_id = str(self.request.GET.get("newly_created_id", "")).strip()
-        newly_created_id = int(raw_newly_created_id) if raw_newly_created_id.isdigit() else None
-
-        if newly_created_id is not None:
-            selected_ids.add(newly_created_id)
-
-        context.update(
-            {
-                "items": ordered_items,
-                "budget": budget,
-                "item_type": item_type,
-                "modal_title": title,
-                "existing_items": existing_items,
-                "selected_ids": selected_ids,
-                "newly_created_id": newly_created_id,
-            }
-        )
+        context.update({"items": queryset, "budget": budget, "item_type": item_type, "modal_title": title, "existing_items": existing_items})
         return context
 
 
@@ -190,141 +137,6 @@ class RemoveBudgetItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
         item = _get_budget_item_for_workshop(self.workshop, budget_id, item_id)
 
         item.delete()
-
-        # Reset etapas 5 e 6 após modificar a etapa 4
-        reset_steps_after_step_4(budget)
-
-        return _step_redirect_response(request, budget, fallback_step=4)
-
-
-class RemoveProductItemsBatchFromBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
-    model = Budget
-    workshop_permission_codename = "add_budget"
-
-    def post(self, request, budget_id):
-        budget = _get_budget_for_workshop(self.workshop, budget_id)
-
-        raw_selected_ids = request.POST.getlist("selected_product_items")
-        selected_ids, invalid_ids = _normalize_selected_item_ids(raw_selected_ids)
-
-        if invalid_ids:
-            logger.warning(
-                "IDs invalidos enviados para remocao em lote de pecas",
-                extra={
-                    "budget_id": budget_id,
-                    "invalid_count": len(invalid_ids),
-                    "invalid_ids": invalid_ids[:10],
-                },
-            )
-
-        if not selected_ids:
-            logger.warning(
-                "Tentativa de remocao em lote de pecas sem selecao",
-                extra={"budget_id": budget_id},
-            )
-            return _step_redirect_response(request, budget, fallback_step=4)
-
-        budget_items = list(BudgetItem.objects.filter(workshop=self.workshop, budget=budget, id__in=selected_ids))
-        deletable_ids = [item.pk for item in budget_items if _is_product_budget_item(item)]
-
-        if not deletable_ids:
-            logger.warning(
-                "Tentativa de remocao em lote de pecas sem itens elegiveis",
-                extra={"budget_id": budget_id, "selected_count": len(selected_ids)},
-            )
-            return _step_redirect_response(request, budget, fallback_step=4)
-
-        BudgetItem.objects.filter(workshop=self.workshop, budget=budget, id__in=deletable_ids).delete()
-
-        # Reset etapas 5 e 6 após modificar a etapa 4
-        reset_steps_after_step_4(budget)
-
-        return _step_redirect_response(request, budget, fallback_step=4)
-
-
-class RemoveServiceItemsBatchFromBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
-    model = Budget
-    workshop_permission_codename = "add_budget"
-
-    def post(self, request, budget_id):
-        budget = _get_budget_for_workshop(self.workshop, budget_id)
-
-        raw_selected_ids = request.POST.getlist("selected_service_items")
-        selected_ids, invalid_ids = _normalize_selected_item_ids(raw_selected_ids)
-
-        if invalid_ids:
-            logger.warning(
-                "IDs invalidos enviados para remocao em lote de servicos",
-                extra={
-                    "budget_id": budget_id,
-                    "invalid_count": len(invalid_ids),
-                    "invalid_ids": invalid_ids[:10],
-                },
-            )
-
-        if not selected_ids:
-            logger.warning(
-                "Tentativa de remocao em lote de servicos sem selecao",
-                extra={"budget_id": budget_id},
-            )
-            return _step_redirect_response(request, budget, fallback_step=4)
-
-        budget_items = list(BudgetItem.objects.filter(workshop=self.workshop, budget=budget, id__in=selected_ids))
-        deletable_ids = [item.pk for item in budget_items if _is_service_budget_item(item)]
-
-        if not deletable_ids:
-            logger.warning(
-                "Tentativa de remocao em lote de servicos sem itens elegiveis",
-                extra={"budget_id": budget_id, "selected_count": len(selected_ids)},
-            )
-            return _step_redirect_response(request, budget, fallback_step=4)
-
-        BudgetItem.objects.filter(workshop=self.workshop, budget=budget, id__in=deletable_ids).delete()
-
-        # Reset etapas 5 e 6 após modificar a etapa 4
-        reset_steps_after_step_4(budget)
-
-        return _step_redirect_response(request, budget, fallback_step=4)
-
-
-class RemoveKitItemsBatchFromBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
-    model = Budget
-    workshop_permission_codename = "add_budget"
-
-    def post(self, request, budget_id):
-        budget = _get_budget_for_workshop(self.workshop, budget_id)
-
-        raw_selected_ids = request.POST.getlist("selected_kit_items")
-        selected_ids, invalid_ids = _normalize_selected_item_ids(raw_selected_ids)
-
-        if invalid_ids:
-            logger.warning(
-                "IDs invalidos enviados para remocao em lote de kits",
-                extra={
-                    "budget_id": budget_id,
-                    "invalid_count": len(invalid_ids),
-                    "invalid_ids": invalid_ids[:10],
-                },
-            )
-
-        if not selected_ids:
-            logger.warning(
-                "Tentativa de remocao em lote de kits sem selecao",
-                extra={"budget_id": budget_id},
-            )
-            return _step_redirect_response(request, budget, fallback_step=4)
-
-        budget_items = list(BudgetItem.objects.filter(workshop=self.workshop, budget=budget, id__in=selected_ids))
-        deletable_ids = [item.pk for item in budget_items if _is_kit_budget_item(item)]
-
-        if not deletable_ids:
-            logger.warning(
-                "Tentativa de remocao em lote de kits sem itens elegiveis",
-                extra={"budget_id": budget_id, "selected_count": len(selected_ids)},
-            )
-            return _step_redirect_response(request, budget, fallback_step=4)
-
-        BudgetItem.objects.filter(workshop=self.workshop, budget=budget, id__in=deletable_ids).delete()
 
         # Reset etapas 5 e 6 após modificar a etapa 4
         reset_steps_after_step_4(budget)
@@ -509,7 +321,6 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id, item_type):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
-        modal_context = request.POST.get("modal_context", "")
 
         if item_type not in {"product", "service", "kit"}:
             logger.warning(
@@ -568,7 +379,7 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
                 budget_item, created = BudgetItem.objects.get_or_create(workshop=self.workshop, budget=budget, **item_filter, defaults={"quantity": 1})
 
-                created_items.append(budget_item.pk)
+                created_items.append(budget_item.id)
         except Exception:
             logger.exception(
                 "Falha ao adicionar itens em lote ao orcamento",
@@ -606,10 +417,7 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
             "current_step": current_step,
         }
 
-        response = render(request, "budget/partials/modals/modal_edit_queue.html", context)
-        if modal_context == "child":
-            response["HX-Trigger-After-Swap"] = json.dumps({"closeParentBudgetModal": True})
-        return response
+        return render(request, "budget/partials/modals/modal_edit_queue.html", context)
 
 
 class BudgetSummaryView(LoginRequiredMixin, WorkshopScopedMixin, View):

@@ -23,7 +23,7 @@
                     <p><span class="font-bold">Cor:</span> {{ vehicle.color }}</p>
                 </div>
                 <div class="space-y-2">
-                    <p><span class="font-bold">Quilometragem:</span> {{ vehicle.km|default_if_none:"Não informado" }}</p>
+                    <p><span class="font-bold">Quilometragem:</span> {{ vehicle.km }} km</p>
                     <p><span class="font-bold">Combustível:</span> {{ vehicle.fuel|default:"Não informado" }}</p>
                     <p><span class="font-bold">Motor:</span> {{ vehicle.engine|default:"Não informado" }}</p>
                     <p><span class="font-bold">Tipo:</span> {{ vehicle.type|default:"Não informado" }}</p>

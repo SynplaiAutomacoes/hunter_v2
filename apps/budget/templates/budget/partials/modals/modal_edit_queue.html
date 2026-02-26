@@ -347,13 +347,9 @@
             finishQueue(message = 'Edição em fila concluída! 🎉', type = 'success') {
 
                 // Close modal
-                if (window.closeTopBudgetModal) {
-                    window.closeTopBudgetModal();
-                } else {
-                    const modal = document.getElementById('form_modal');
-                    if (modal && modal.open) {
-                        modal.close();
-                    }
+                const modal = document.getElementById('form_modal');
+                if (modal) {
+                    modal.close();
                 }
 
                 // Show success message
@@ -369,13 +365,9 @@
                 this.showToast('Edição em fila cancelada.', 'info');
 
                 // Close modal
-                if (window.closeTopBudgetModal) {
-                    window.closeTopBudgetModal();
-                } else {
-                    const modal = document.getElementById('form_modal');
-                    if (modal && modal.open) {
-                        modal.close();
-                    }
+                const modal = document.getElementById('form_modal');
+                if (modal) {
+                    modal.close();
                 }
             }
 

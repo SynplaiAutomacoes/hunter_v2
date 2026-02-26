@@ -1,25 +1,16 @@
 {% load crispy_forms_field %}
 
-<div class="w-full mb-6" x-data="{ collaboratorId: '{{ initial_collab_id }}' }" id="collaborator-field-container">
-    <h5 class="font-bold mb-2">Colaboradores</h5>
-
-    <div class="flex items-end gap-2 w-full">
-        <div class="flex-1" id="div_id_collaborator">
-            {% crispy_field field wrapper_class="mb-0" %}
-        </div>
-
-        <button type="button" class="btn btn-circle"
-                :class="collaboratorId ? 'btn-warning' : 'btn-primary'"
-                @click="
-                    localStorage.setItem('budget_step3_collaborator', collaboratorId || '');
-                    const url = collaboratorId ? `/collaborators/update/modal/${collaboratorId}/` : '/collaborators/create/modal/';
-                    htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
-                    document.getElementById('form_modal').showModal();">
-            <span class="material-icons" x-text="collaboratorId ? 'edit' : 'person_add'"></span>
-        </button>
+<div class="flex items-end gap-2 w-full mb-6" x-data="{ collaboratorId: '{{ initial_collab_id }}' }" id="collaborator-field-container">
+    <div class="flex-1" id="div_id_collaborator">
+        {% crispy_field field wrapper_class="mb-0" %}
     </div>
-
-    {% if field.errors %}
-        <span class="label-text-alt text-error mt-1 block">{{ field.errors.0 }}</span>
-    {% endif %}
+    <button type="button" class="btn btn-circle"
+            :class="collaboratorId ? 'btn-warning' : 'btn-primary'"
+            @click="
+                localStorage.setItem('budget_step3_collaborator', collaboratorId || '');
+                const url = collaboratorId ? `/collaborators/update/modal/${collaboratorId}/` : '/collaborators/create/modal/';
+                htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
+                document.getElementById('form_modal').showModal();">
+        <span class="material-icons" x-text="collaboratorId ? 'edit' : 'person_add'"></span>
+    </button>
 </div>

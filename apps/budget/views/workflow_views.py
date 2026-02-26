@@ -1,5 +1,5 @@
 import json
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -113,14 +113,6 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
             messages.warning(request, "Cadastre um custo mensal da oficina para este mês antes de prosseguir.")
             return redirect("budget:budget_list")
 
-        requested_step = request.GET.get("step")
-        budget_pk = request.GET.get("pk")
-        if budget_pk and not requested_step:
-            budget = self.get_object()
-            if budget:
-                target_url = f"{reverse('budget:budget_create')}?step={budget.current_step}&pk={budget.pk}"
-                return redirect(target_url)
-
         return super().get(request, *args, **kwargs)
 
     def get_template_names(self):
@@ -141,26 +133,6 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
         kwargs["instance"] = self.get_object()
         return kwargs
 
-    def _render_htmx_step_response(self, *, step: int, push_url: str, triggers: dict | None = None):
-        steps = self.get_steps_config()
-        idx = max(0, min(step - 1, len(steps) - 1))
-        form_class = steps[idx].get("form_class")
-        if form_class is None:
-            raise ValueError(f"Nenhum form configurado para etapa {step}.")
-
-        form_kwargs = self.get_form_kwargs()
-        form_kwargs["instance"] = self.object
-        next_form = form_class(**form_kwargs)
-        self._model_instance = self.object
-        context = self.get_context_data(form=next_form, current_step=step)
-        context["form"] = next_form
-
-        response = self.render_to_response(context)
-        response["HX-Push-Url"] = push_url
-        if triggers:
-            response["HX-Trigger"] = json.dumps(triggers)
-        return response
-
     def _block_step5_advance_if_needed(self, current_step):
         if current_step != 5 or self._is_step5_calculation_done():
             return None
@@ -172,7 +144,10 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
             current_url = f"{reverse('budget:budget_create')}?step={current_step}&pk={self.object.pk}"
 
         if self.request.htmx:
-            return self._render_htmx_step_response(step=current_step, push_url=current_url, triggers={"showToast": {"message": warning_message, "type": "warning"}})
+            response = redirect(current_url)
+            response["HX-Push-Url"] = current_url
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": warning_message, "type": "warning"}})
+            return response
 
         messages.warning(self.request, warning_message)
         return redirect(current_url)
@@ -225,7 +200,9 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
             success_url = f"{reverse('budget:budget_create')}?step={next_step}&pk={self.object.pk}"
 
             if self.request.htmx:
-                return self._render_htmx_step_response(step=next_step, push_url=success_url)
+                response = redirect(success_url)
+                response["HX-Push-Url"] = success_url
+                return response
 
             return redirect(success_url)
 
@@ -311,7 +288,9 @@ class BudgetUpdateView(BudgetCreateView):
             success_url = f"{reverse('budget:budget_update', kwargs={'pk': self.object.pk})}?step={next_step}"
 
             if self.request.htmx:
-                return self._render_htmx_step_response(step=next_step, push_url=success_url)
+                response = redirect(success_url)
+                response["HX-Push-Url"] = success_url
+                return response
 
             return redirect(success_url)
 
@@ -356,7 +335,7 @@ class UpdateBudgetDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):
             val = request.POST.get("discount_value_0", "0").replace(",", ".") or "0"
             budget.discount_value = Decimal(val)
             budget.save()
-        except (ValueError, TypeError, InvalidOperation):
+        except (ValueError, TypeError):
             logger.warning("Valor de desconto invalido recebido", extra={"budget_id": budget_id, "raw_discount": request.POST.get("discount_value_0")})
 
         return HttpResponse(headers={"HX-Refresh": "true"})

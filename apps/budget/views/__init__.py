@@ -1,19 +1,5 @@
 from .customer_vehicle_views import CustomerDetailView, VehicleDetailView, VehicleListView
-from .item_views import (
-    AddItemToBudgetView,
-    AddItemsBatchToBudgetView,
-    BudgetImageView,
-    BudgetItemCalculateView,
-    BudgetItemUpdateView,
-    BudgetStep3CollaboratorFieldView,
-    BudgetSummaryView,
-    ItemSelectionModalView,
-    RemoveBudgetItemView,
-    RemoveItemFromBudgetView,
-    RemoveKitItemsBatchFromBudgetView,
-    RemoveProductItemsBatchFromBudgetView,
-    RemoveServiceItemsBatchFromBudgetView,
-)
+from .item_views import AddItemToBudgetView, AddItemsBatchToBudgetView, BudgetImageView, BudgetItemCalculateView, BudgetItemUpdateView, BudgetStep3CollaboratorFieldView, BudgetSummaryView, ItemSelectionModalView, RemoveBudgetItemView, RemoveItemFromBudgetView
 from .kit_views import BudgetKitEditView, BudgetKitProductCalculateView, BudgetKitServiceCalculateView
 from .local_item_views import CalculateLocalServiceView, CreateLocalItemView, QuickCreateProductView, RegisterLocalItemView
 from .pdf_views import signature_file, signature_preview, visualizar_pdf, visualizar_pdf_checklist, visualizar_pdf_gestor, visualizar_pdf_mecanico
@@ -33,9 +19,6 @@ __all__ = [
     "ItemSelectionModalView",
     "AddItemToBudgetView",
     "RemoveItemFromBudgetView",
-    "RemoveProductItemsBatchFromBudgetView",
-    "RemoveServiceItemsBatchFromBudgetView",
-    "RemoveKitItemsBatchFromBudgetView",
     "RemoveBudgetItemView",
     "BudgetItemUpdateView",
     "BudgetItemCalculateView",

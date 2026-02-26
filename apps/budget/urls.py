@@ -16,9 +16,6 @@ urlpatterns = [
     path("<int:budget_id>/add-item/<int:item_id>/<str:item_type>/", views.AddItemToBudgetView.as_view(), name="add_item_to_budget"),
     path("<int:budget_id>/remove-item/<int:item_id>/<str:item_type>/", views.RemoveItemFromBudgetView.as_view(), name="remove_item_from_budget"),
     path("<int:budget_id>/remove-budget-item/<int:item_id>/", views.RemoveBudgetItemView.as_view(), name="remove_budget_item"),
-    path("<int:budget_id>/remove-products-batch/", views.RemoveProductItemsBatchFromBudgetView.as_view(), name="remove_products_batch"),
-    path("<int:budget_id>/remove-services-batch/", views.RemoveServiceItemsBatchFromBudgetView.as_view(), name="remove_services_batch"),
-    path("<int:budget_id>/remove-kits-batch/", views.RemoveKitItemsBatchFromBudgetView.as_view(), name="remove_kits_batch"),
     path("<int:budget_id>/item/<int:item_id>/edit/", views.BudgetItemUpdateView.as_view(), name="edit_item"),
     path("<int:budget_id>/item/<int:item_id>/calculate/", views.BudgetItemCalculateView.as_view(), name="calculate_item"),
     # Kit editing URLs
