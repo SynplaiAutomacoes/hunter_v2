@@ -1,5 +1,5 @@
-<div class="modal-box w-11/12 max-w-6xl max-h-[90vh] bg-base-100 p-0 overflow-hidden flex flex-col">
-    <div class="bg-gradient-to-r from-primary to-primary-focus p-6 text-primary-content">
+<div class="modal-box wo-item-modal-box w-11/12 max-w-6xl max-h-[90vh] bg-base-100 p-0 overflow-hidden flex flex-col">
+    <div class="bg-gradient-to-r from-primary to-primary-focus p-6 text-primary-content shrink-0">
         <div class="flex items-center justify-between">
             <div class="flex items-center gap-3">
                 <span class="material-icons text-4xl">inventory</span>
@@ -11,22 +11,20 @@
             <button
                 type="button"
                 class="btn btn-sm btn-circle btn-ghost hover:bg-primary-content/20"
-                hx-get="{% url 'workorder:edit_items_modal' workorder.pk %}?tab=kits"
-                hx-target="#modal-container"
-                hx-swap="innerHTML">✕</button>
+                onclick="window.closeWorkorderItemModal && window.closeWorkorderItemModal()">✕</button>
         </div>
     </div>
 
     <input type="hidden" id="kit-csrf-token" value="{{ csrf_token }}">
 
-    <div class="flex-1 min-h-0 overflow-y-auto">
-        <div role="tablist" class="tabs tabs-lifted tabs-lg px-6 pt-4 bg-base-200">
+    <div class="flex-1 min-h-0 overflow-hidden">
+        <div role="tablist" class="tabs tabs-lifted tabs-lg px-6 pt-4 bg-base-200 h-full overflow-y-auto">
             <input type="radio" name="kit_tabs" role="tab" class="tab [--tab-bg:hsl(var(--b1))]" aria-label="Produtos ({{ kit_products|length }})" checked />
             <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
-                <div class="overflow-x-auto">
+                <div class="overflow-x-auto overflow-y-auto max-h-[60vh] rounded-lg border border-base-200">
                     <table class="table table-zebra w-full">
-                        <thead>
-                            <tr class="bg-base-200">
+                        <thead class="sticky top-0 z-10 bg-base-200">
+                            <tr>
                                 <th class="w-1/3">Descrição</th>
                                 <th class="w-20 text-center">Qtd</th>
                                 <th class="w-32">Custo (R$)</th>
@@ -61,10 +59,10 @@
 
             <input type="radio" name="kit_tabs" role="tab" class="tab [--tab-bg:hsl(var(--b1))]" aria-label="Serviços ({{ kit_services|length }})" />
             <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
-                <div class="overflow-x-auto">
+                <div class="overflow-x-auto overflow-y-auto max-h-[60vh] rounded-lg border border-base-200">
                     <table class="table table-zebra w-full">
-                        <thead>
-                            <tr class="bg-base-200">
+                        <thead class="sticky top-0 z-10 bg-base-200">
+                            <tr>
                                 <th class="w-1/3">Descrição</th>
                                 <th class="w-20 text-center">Qtd</th>
                                 <th class="w-32">Custo (R$)</th>
@@ -99,13 +97,11 @@
         </div>
     </div>
 
-    <div class="p-6 border-t border-base-200 bg-base-50 flex justify-end gap-3">
+    <div class="p-6 border-t border-base-200 bg-base-50 flex justify-end gap-3 shrink-0">
         <button
             type="button"
             class="btn btn-ghost"
-            hx-get="{% url 'workorder:edit_items_modal' workorder.pk %}?tab=kits"
-            hx-target="#modal-container"
-            hx-swap="innerHTML">Cancelar</button>
+            onclick="window.closeWorkorderItemModal && window.closeWorkorderItemModal()">Cancelar</button>
         <button
             type="button"
             class="btn btn-primary gap-2"
@@ -221,7 +217,7 @@
             const csrfToken = document.getElementById('kit-csrf-token').value;
 
             htmx.ajax('POST', saveUrl, {
-                target: '#modal-container',
+                target: '#item-modal-container',
                 swap: 'innerHTML',
                 values: {
                     products: JSON.stringify(products),
