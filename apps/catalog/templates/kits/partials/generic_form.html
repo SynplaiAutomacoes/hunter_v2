@@ -1,0 +1,14 @@
+{% load crispy_forms_tags %}
+
+<div class="p-4">
+<h3 class="text-xl font-bold mb-6">Editar Item</h3>
+<form hx-post="{{ request.path }}" hx-target="#edit-modal-content" class="space-y-6">
+    {% csrf_token %}
+    {{ form|crispy }}
+
+    <div class="modal-action mt-8">
+        <button type="submit" class="btn btn-primary">Salvar Alterações</button>
+        <label for="edit-item-modal" class="btn btn-ghost">Cancelar</label>
+    </div>
+</form>
+</div>

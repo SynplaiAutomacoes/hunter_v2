@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 
 from django.contrib import messages
@@ -7,12 +8,14 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
 from django.db import IntegrityError
 from django.db.models import Q
+from django.http import HttpResponse
 from django.shortcuts import render
 from django.urls import reverse_lazy
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
-from apps.catalog.forms.kits import KitForm
+from apps.catalog.forms.kits import KitForm, QuickProductEditForm, QuickServiceEditForm
+from apps.catalog.forms.products import ProductForm
 from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
@@ -30,12 +33,17 @@ class KitListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseM
     context_object_name = "kits"
     htmx_template_name = "kits/partials/kits_table.html"
 
+    def get_queryset(self):
+        return super().get_queryset().order_by("-criado_em")
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
 
         context["fields"] = [
             TableColumn(Kit.name.field.verbose_name, attr="name"),
             TableColumn(Kit.is_active.field.verbose_name, attr="is_active"),
+            TableColumn(Kit.total_price.field.verbose_name, attr="total_price"),
+            TableColumn(Kit.total_duration.field.verbose_name, attr="total_duration"),
         ]
 
         context["actions"] = [
@@ -175,6 +183,38 @@ class KitProductSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "query": query,
             },
         )
+
+
+class ProductQuickUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
+    model = Product
+    workshop_permission_codename = "change_product"
+    template_name = "kits/partials/generic_form.html"
+    form_class = QuickProductEditForm
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["workshop"] = self.workshop
+        return kwargs
+
+    def form_valid(self, form):
+        form.save()
+        return HttpResponse(headers={"HX-Refresh": "true"})
+
+
+class ServiceQuickUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
+    model = Service
+    workshop_permission_codename = "change_service"
+    template_name = "kits/partials/generic_form.html"
+    form_class = QuickServiceEditForm
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["workshop"] = self.workshop
+        return kwargs
+
+    def form_valid(self, form):
+        form.save()
+        return HttpResponse(headers={"HX-Refresh": "true"})
 
 
 class KitServiceSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):

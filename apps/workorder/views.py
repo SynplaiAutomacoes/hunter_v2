@@ -23,6 +23,7 @@ from apps.catalog.models.kits import Kit
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxTemplateResponseMixin
+from apps.workorder.approval import WorkOrderApprovalError, approve_workorder_with_stock
 from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderItemEditForm, WorkOrderKitProductEditRowForm, WorkOrderKitServiceEditRowForm, WorkOrderPaymentForm
 from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderStatus
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -146,10 +147,27 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
     }
 
 
-def _render_edit_items_modal(request, workorder: WorkOrder, active_tab: str = "products", trigger_refresh: bool = False):
+def _render_edit_items_modal(
+    request,
+    workorder: WorkOrder,
+    active_tab: str = "products",
+    trigger_refresh: bool = False,
+    extra_triggers: list[str] | None = None,
+    retarget: str | None = None,
+):
     response = render(request, "workorder/partials/modals/modal_edit_items.html", _build_edit_items_context(workorder, active_tab))
+
+    triggers: list[str] = list(extra_triggers or [])
     if trigger_refresh:
-        response["HX-Trigger"] = "workorderItemsUpdated"
+        triggers.insert(0, "workorderItemsUpdated")
+
+    if triggers:
+        unique_triggers = list(dict.fromkeys(triggers))
+        response["HX-Trigger"] = ",".join(unique_triggers)
+
+    if retarget:
+        response["HX-Retarget"] = retarget
+
     return response
 
 
@@ -206,6 +224,7 @@ class WorkOrderListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRes
                     .order_by("id"),
                 )
             )
+            .order_by("-criado_em")
         )
 
     def get_context_data(self, **kwargs):
@@ -406,6 +425,7 @@ class WorkOrderRemoveItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
 class WorkOrderItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = WorkOrderItem
     workshop_permission_codename = "change_workorder"
+    workshop_permission_model = "workorder"
 
     def get(self, request, pk, item_id):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
@@ -429,7 +449,14 @@ class WorkOrderItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         form = WorkOrderItemEditForm(request.POST, instance=item)
         if form.is_valid():
             form.save()
-            return _render_edit_items_modal(request, workorder, active_tab, trigger_refresh=True)
+            return _render_edit_items_modal(
+                request,
+                workorder,
+                active_tab,
+                trigger_refresh=True,
+                extra_triggers=["workorderCloseItemModal"],
+                retarget="#modal-container",
+            )
 
         context = {
             "form": form,
@@ -443,6 +470,7 @@ class WorkOrderItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 class WorkOrderKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = WorkOrderItem
     workshop_permission_codename = "change_workorder"
+    workshop_permission_model = "workorder"
 
     def get(self, request, pk, item_id):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
@@ -579,7 +607,14 @@ class WorkOrderKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 },
             )
 
-        return _render_edit_items_modal(request, workorder, "kits", trigger_refresh=True)
+        return _render_edit_items_modal(
+            request,
+            workorder,
+            "kits",
+            trigger_refresh=True,
+            extra_triggers=["workorderCloseItemModal"],
+            retarget="#modal-container",
+        )
 
 
 class AddPaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -590,14 +625,16 @@ class AddPaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
         workorder = get_object_or_404(WorkOrder, pk=pk, workshop=self.workshop)
         form = WorkOrderPaymentForm(request.POST, workorder=workorder)
 
+        payment_form = form
         if form.is_valid():
             payment = form.save(commit=False)
             payment.workorder = workorder
             payment.save()
+            payment_form = WorkOrderPaymentForm(workorder=workorder)
 
         context = {
             "workorder": workorder,
-            "payment_form": WorkOrderPaymentForm(workorder=workorder),
+            "payment_form": payment_form,
         }
         return render(request, "workorder/partials/payment_section.html", context)
 
@@ -673,6 +710,21 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
         next_status = status_map.get(status)
         if next_status is None:
             return HttpResponse(status=400)
+
+        if next_status == WorkOrderStatus.APPROVED:
+            try:
+                approve_workorder_with_stock(workorder=workorder, user=request.user)
+            except WorkOrderApprovalError as exc:
+                response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder))
+                response["HX-Trigger"] = json.dumps({"showToast": {"message": str(exc), "type": "error"}})
+                return response
+            except Exception:
+                logger.exception("Falha ao aprovar ordem de servico", extra={"workorder_id": workorder.pk})
+                response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder))
+                response["HX-Trigger"] = json.dumps({"showToast": {"message": "Erro interno ao aprovar ordem de serviço.", "type": "error"}})
+                return response
+
+            return HttpResponse(headers={"HX-Refresh": "true"})
 
         workorder.status = next_status
         workorder.save(update_fields=["status"])

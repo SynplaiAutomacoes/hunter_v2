@@ -126,6 +126,7 @@ class WorkshopListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):
                 members__role__permissions__codename="view_workshop",
             )
             .distinct()
+            .order_by("-criado_em")
         )
 
     def get_context_data(self, **kwargs):

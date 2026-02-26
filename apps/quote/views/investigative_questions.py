@@ -18,6 +18,9 @@ class InvestigativeQuestionListView(LoginRequiredMixin, WorkshopScopedMixin, Htm
     context_object_name = "questions"
     htmx_template_name = "investigative_questions/partials/investigative_questions_table.html"
 
+    def get_queryset(self):
+        return super().get_queryset().order_by("-criado_em")
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
 

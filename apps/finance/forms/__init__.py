@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from apps.finance.forms_nfse import NfseRequestStep1Form, NfseRequestStep2Form, NfseRequestStep3Form
-from apps.finance.forms_tax_class import (
+from .nfse import NfseRequestStep1Form, NfseRequestStep2Form, NfseRequestStep3Form
+from .tax_class import (
     CST_PIS_COFINS_CHOICES,
     CofinsScenarioForm,
     CofinsScenarioFormSet,
@@ -27,7 +27,7 @@ from apps.finance.forms_tax_class import (
     TIPO_PESSOA_CHOICES,
     TRIBUTACAO_ISS_CHOICES,
 )
-from apps.finance.forms_webmania import (
+from .webmania import (
     WEBMANIA_ENABLED_FLAG_CHOICES,
     WEBMANIA_ORIENTACAO_DANFE_CHOICES,
     WEBMANIA_REGIME_TRIBUTARIO_CHOICES,

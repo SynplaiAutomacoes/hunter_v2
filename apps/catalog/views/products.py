@@ -26,7 +26,7 @@ class ProductListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespo
     htmx_template_name = "products/partials/product_table.html"
 
     def get_queryset(self):
-        return super().get_queryset().select_related("stock_products")
+        return super().get_queryset().select_related("stock_products").order_by("-criado_em")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

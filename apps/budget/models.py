@@ -652,6 +652,54 @@ class BudgetItem(TimeStampedModel):
             return self.get_kit_total_with_overrides()
         return ((self.product_selling_price + self.service_selling_price) * self.quantity) + self.shipping
 
+    def _get_kit_unit_cost_and_price(self) -> tuple[Money, Money]:
+        cache = getattr(self, "_kit_unit_totals_cache", None)
+        if cache is not None:
+            return cache
+
+        if not self.kit:
+            cache = (Money(0, "BRL"), Money(0, "BRL"))
+            setattr(self, "_kit_unit_totals_cache", cache)
+            return cache
+
+        unit_cost = Money(0, "BRL")
+        unit_price = Money(0, "BRL")
+        product_overrides, service_overrides = self._get_kit_override_maps()
+
+        for kit_product in self._iter_kit_products():
+            override = product_overrides.get(kit_product.product_id)
+            quantity = override.quantity if override else kit_product.quantity
+            if quantity <= 0:
+                continue
+
+            product_cost = override.product_cost_price if override else kit_product.product.cost_price
+            product_price = override.product_selling_price if override else kit_product.product.selling_price
+            unit_cost += product_cost * quantity
+            unit_price += product_price * quantity
+
+        for kit_service in self._iter_kit_services():
+            override = service_overrides.get(kit_service.service_id)
+            quantity = override.quantity if override else kit_service.quantity
+            if quantity <= 0:
+                continue
+
+            service_cost = override.service_cost_price if override else (kit_service.service.suggested_cost or Money(0, "BRL"))
+            service_price = override.service_selling_price if override else kit_service.service.selling_price
+            unit_cost += service_cost * quantity
+            unit_price += service_price * quantity
+
+        cache = (unit_cost, unit_price)
+        setattr(self, "_kit_unit_totals_cache", cache)
+        return cache
+
+    @property
+    def kit_unit_cost(self) -> Money:
+        return self._get_kit_unit_cost_and_price()[0]
+
+    @property
+    def kit_unit_price(self) -> Money:
+        return self._get_kit_unit_cost_and_price()[1]
+
     def get_kit_total_with_overrides(self):
         """Calcula o total do kit considerando os overrides
 

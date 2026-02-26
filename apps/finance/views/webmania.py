@@ -19,7 +19,7 @@ from apps.finance.services.webmania_b2b import (
     update_webmania_company,
 )
 from apps.finance.services.webmania_secrets import decrypt_secret
-from apps.finance.views_common import DirectorWorkshopAccessMixin, _format_cnpj, _format_cpf, _format_tax_type, _format_unit
+from .common import DirectorWorkshopAccessMixin, _format_cnpj, _format_cpf, _format_tax_type, _format_unit
 from apps.workshops.util.workshops import has_workshop_perm
 
 

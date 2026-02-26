@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, date
 from typing import Any, Callable, Sequence
 
 from django.core.exceptions import FieldError
@@ -100,6 +101,10 @@ def _resolve_attr(obj: Any, attr: str | Callable[[Any], Any] | None) -> Any:
 
         if callable(value):
             value = value()
+
+    if isinstance(value, (datetime, date)):
+        return value.strftime("%d/%m/%Y")
+
     return value if value is not None else ""
 
 

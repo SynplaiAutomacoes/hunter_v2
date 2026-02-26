@@ -1,0 +1,33 @@
+{% load crispy_forms_tags %}
+
+{# Usamos o wrapper_class do crispy ou um div manual com o ID que o HTMX espera #}
+<div id="div_id_suggested_cost" hx-swap-oob="true" class="col-span-12 lg:col-span-4">
+    <label for="{{ form.suggested_cost.id_for_label }}" class="label">
+        <span class="label-text font-bold">{{ form.suggested_cost.label }}</span>
+    </label>
+    {{ form.suggested_cost }}
+    {% if form.suggested_cost.errors %}
+        <p class="text-error text-sm">{{ form.suggested_cost.errors.0 }}</p>
+    {% endif %}
+</div>
+
+<div id="div_id_selling_price" hx-swap-oob="true" class="col-span-12 lg:col-span-4">
+    <label for="{{ form.selling_price.id_for_label }}" class="label">
+        <span class="label-text font-bold">{{ form.selling_price.label }}</span>
+    </label>
+    {{ form.selling_price }}
+    {% if form.selling_price.errors %}
+        <p class="text-error text-sm">{{ form.selling_price.errors.0 }}</p>
+    {% endif %}
+</div>
+
+{# Script para forçar o Alpine a reconhecer os novos campos #}
+<script hx-swap-oob="true">
+    document.querySelectorAll('#div_id_suggested_cost, #div_id_selling_price').forEach(el => {
+        if (window.Alpine) {
+            Alpine.discoverUninitializedComponents((componentEl) => {
+                Alpine.initializeComponent(componentEl);
+            });
+        }
+    });
+</script>
