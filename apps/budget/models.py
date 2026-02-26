@@ -435,18 +435,18 @@ class Budget(TimeStampedModel):
     @property
     def budget_status_badge(self):
         status_color = {
-            BudgetStatus.DRAFT: "badge-soft badge-ghost",
-            BudgetStatus.WAITING_CLIENT: "badge-soft badge-warning",
-            BudgetStatus.WAITING_DIAGNOSIS: "badge-soft badge-warning",
-            BudgetStatus.WAITING_ITEMS: "badge-soft badge-warning",
-            BudgetStatus.WAITING_PRICING: "badge-soft badge-info",
-            BudgetStatus.WAITING_REVIEW: "badge-soft badge-info",
+            BudgetStatus.DRAFT: "badge-neutral",
+            BudgetStatus.WAITING_CLIENT: "badge-warning",
+            BudgetStatus.WAITING_DIAGNOSIS: "badge-warning",
+            BudgetStatus.WAITING_ITEMS: "badge-warning",
+            BudgetStatus.WAITING_PRICING: "badge-info",
+            BudgetStatus.WAITING_REVIEW: "badge-info",
             BudgetStatus.APPROVED: "badge-success",
             BudgetStatus.REJECTED: "badge-error",
-            BudgetStatus.CANCELLED: "badge-soft badge-error",
+            BudgetStatus.CANCELLED: "badge-error",
         }
 
-        return {"text": BudgetStatus(self.status).label, "class": status_color.get(self.status, "badge-ghost")}
+        return {"text": BudgetStatus(self.status).label, "class": status_color.get(self.status, "badge-neutral")}
 
     ## Total
     @property
