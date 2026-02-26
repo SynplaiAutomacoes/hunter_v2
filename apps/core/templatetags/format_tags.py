@@ -25,6 +25,11 @@ def cnpj_br(value: object) -> str:
 
 
 @register.filter
+def cnpj_br(value):
+    return cpf_cnpj(value)
+
+
+@register.filter
 def phone_br(value: object) -> str:
     raw = str(value or "").strip()
     if not raw:
