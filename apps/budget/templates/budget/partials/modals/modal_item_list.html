@@ -1,4 +1,6 @@
-<div id="modal-item-list-container" class="modal-box w-screen max-w-[90vw] lg:max-w-6xl bg-base-100 shadow-2xl p-0 overflow-hidden">
+<div id="modal-item-list-container"
+     class="modal-box w-screen max-w-[90vw] lg:max-w-6xl bg-base-100 shadow-2xl p-0 overflow-hidden"
+     data-item-selection-url="{% url 'budget:item_selection' budget.id item_type %}">
 
     <div class="p-6 border-b border-base-200 flex justify-between items-center bg-base-50">
         <h3 class="font-bold text-2xl flex items-center gap-3">
@@ -33,10 +35,10 @@
 
                         <button type="button"
                                 class="btn btn-primary btn-sm gap-2"
-                                hx-get="{% url 'budget:quick_create_item' budget.id item_type %}"
-                                hx-target="#modal-container"
+                                hx-get="{% url 'budget:quick_create_item' budget.id item_type %}?modal_context=child"
+                                hx-target="#child-modal-container"
                                 hx-swap="innerHTML"
-                                onclick="form_modal.showModal()">
+                                onclick="window.openBudgetChildModal && window.openBudgetChildModal()">
                             <span class="material-icons text-sm">add_circle</span>
                             Cadastrar Novo
                         </button>
@@ -80,7 +82,8 @@
                         <input type="checkbox"
                                name="selected_items"
                                value="{{ item.id|stringformat:'d' }}"
-                               class="checkbox checkbox-primary item-checkbox">
+                               class="checkbox checkbox-primary item-checkbox"
+                               {% if item.id in selected_ids %}checked{% endif %}>
                     </td>
                 {% endif %}
 
@@ -149,9 +152,16 @@
                     class="btn btn-primary"
                     disabled
                     hx-post="{% url 'budget:add_items_batch' budget.id item_type %}"
+                    hx-include="[name='selected_items']:checked"
+                    {% if item_type == 'kit' %}
                     hx-target="#modal-container"
                     hx-swap="innerHTML"
-                    hx-include="[name='selected_items']:checked">
+                    {% else %}
+                    hx-target="#child-modal-container"
+                    hx-swap="innerHTML"
+                    hx-vals='{"modal_context":"child"}'
+                    onclick="window.openBudgetChildModal && window.openBudgetChildModal()"
+                    {% endif %}>
                 Adicionar Selecionados
             </button>
         </div>
@@ -251,6 +261,44 @@
         // Initial update
         updateCounter();
         updateSelectAllState();
+
+        function refreshSelectionModalWithState(newlyCreatedId) {
+            const selectionUrl = modal.dataset.itemSelectionUrl;
+            if (!selectionUrl) return;
+
+            const selectedIds = Array.from(modal.querySelectorAll('.item-checkbox:checked:not([disabled])')).map(cb => cb.value);
+            if (newlyCreatedId) {
+                const normalizedId = String(newlyCreatedId);
+                if (!selectedIds.includes(normalizedId)) {
+                    selectedIds.push(normalizedId);
+                }
+            }
+
+            const params = new URLSearchParams();
+            selectedIds.forEach(id => params.append('selected_ids', id));
+            if (newlyCreatedId) {
+                params.set('newly_created_id', String(newlyCreatedId));
+            }
+
+            const url = params.toString() ? `${selectionUrl}?${params.toString()}` : selectionUrl;
+            htmx.ajax('GET', url, {
+                target: '#modal-container',
+                swap: 'innerHTML'
+            });
+        }
+
+        if (window.__budgetQuickItemCreatedHandler) {
+            document.body.removeEventListener('quickItemCreated', window.__budgetQuickItemCreatedHandler);
+        }
+
+        window.__budgetQuickItemCreatedHandler = function(evt) {
+            const detail = evt && evt.detail ? evt.detail : {};
+            if (!detail.item_id) return;
+            if (detail.item_type && detail.item_type !== '{{ item_type }}') return;
+            refreshSelectionModalWithState(detail.item_id);
+        };
+
+        document.body.addEventListener('quickItemCreated', window.__budgetQuickItemCreatedHandler);
 
         // Destacar item recém-criado
         {% if newly_created_id %}
