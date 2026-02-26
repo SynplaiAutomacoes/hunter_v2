@@ -28,10 +28,11 @@ def _budget_item_type(item):
 def _empty_rows(step6=False):
     product_colspan = 5 if step6 else 6
     service_colspan = 5 if step6 else 6
+    kit_colspan = 5 if step6 else 7
     return {
         "product": f'<tr><td colspan="{product_colspan}" class="text-center text-gray-400 py-4">Nenhum produto adicionado</td></tr>',
         "service": f'<tr><td colspan="{service_colspan}" class="text-center text-gray-400 py-4">Nenhum serviço adicionado</td></tr>',
-        "kit": '<tr><td colspan="5" class="text-center text-gray-400 py-4">Nenhum kit adicionado</td></tr>',
+        "kit": f'<tr><td colspan="{kit_colspan}" class="text-center text-gray-400 py-4">Nenhum kit adicionado</td></tr>',
     }
 
 
