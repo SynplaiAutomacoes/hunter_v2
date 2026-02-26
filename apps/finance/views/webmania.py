@@ -33,6 +33,14 @@ def _is_webmania_homolog_environment() -> bool:
         return False
 
 
+def _to_public_integration_message(raw_message: object) -> str:
+    normalized_message = str(raw_message or "").strip()
+    if not normalized_message:
+        return "Nao foi possivel concluir a operacao de integracao."
+
+    return normalized_message.replace("WEBMANIA", "integracao").replace("Webmania", "integracao").replace("webmania", "integracao")
+
+
 class WebmaniaCompanyListView(LoginRequiredMixin, DirectorWorkshopAccessMixin, TemplateView):
     template_name = "finance/webmania_company_list.html"
     required_webmania_permission_codename = "view_webmaniacompany"
@@ -83,13 +91,14 @@ class WebmaniaCompanyListView(LoginRequiredMixin, DirectorWorkshopAccessMixin, T
             request=self.request,
         )  # type: ignore[arg-type]
         is_webmania_homolog_environment = _is_webmania_homolog_environment()
+        latest_sync_error = self._latest_sync_error(local_companies)
 
         context.update(
             {
                 "webmania_companies": company_rows,
                 "webmania_company_count": len(company_rows),
                 "webmania_last_sync_at": latest_sync_at,
-                "webmania_last_sync_error": self._latest_sync_error(local_companies),
+                "webmania_last_sync_error": _to_public_integration_message(latest_sync_error) if latest_sync_error else "",
                 "can_sync_webmania_companies": can_sync_webmania_companies and is_webmania_homolog_environment,
                 "is_webmania_homolog_environment": is_webmania_homolog_environment,
             }
@@ -102,7 +111,7 @@ class WebmaniaCompanySyncView(LoginRequiredMixin, DirectorWorkshopAccessMixin, V
 
     def post(self, request, *args, **kwargs):
         if not _is_webmania_homolog_environment():
-            messages.error(request, "A sincronizacao manual com a Webmania esta disponivel apenas quando WEBMANIA_AMBIENT = 2.")
+            messages.error(request, "A sincronizacao manual esta disponivel apenas em ambiente de homologacao.")
             return redirect("finance:webmania_company_list")
 
         try:
@@ -112,15 +121,15 @@ class WebmaniaCompanySyncView(LoginRequiredMixin, DirectorWorkshopAccessMixin, V
                 force_global_auth=True,
             )
         except WebmaniaB2BServiceError as exc:
-            messages.error(request, str(exc))
+            messages.error(request, _to_public_integration_message(str(exc)))
         else:
             synced_count = len(synced_companies)
             if synced_count <= 0:
-                messages.warning(request, "Sincronização concluída, mas nenhuma empresa foi retornada pela Webmania.")
+                messages.warning(request, "Sincronizacao concluida, mas nenhuma empresa foi retornada.")
             elif synced_count == 1:
-                messages.success(request, "Sincronização concluída com sucesso. 1 empresa atualizada.")
+                messages.success(request, "Sincronizacao concluida com sucesso. 1 empresa atualizada.")
             else:
-                messages.success(request, f"Sincronização concluída com sucesso. {synced_count} empresas atualizadas.")
+                messages.success(request, f"Sincronizacao concluida com sucesso. {synced_count} empresas atualizadas.")
 
         return redirect("finance:webmania_company_list")
 
@@ -166,7 +175,7 @@ class WebmaniaCompanyDetailView(LoginRequiredMixin, DirectorWorkshopAccessMixin,
             {
                 "company": company,
                 "identity_fields": [
-                    self._regular_field("ID Webmania", company.webmania_company_id),
+                    self._regular_field("ID da integracao", company.webmania_company_id),
                     self._regular_field("Razão Social", company.razao_social),
                     self._regular_field("CNPJ", _format_cnpj(company.cnpj)),
                     self._regular_field("CPF", _format_cpf(company.cpf)),
@@ -272,22 +281,22 @@ class WebmaniaCompanyUpdateView(LoginRequiredMixin, DirectorWorkshopAccessMixin,
     def form_valid(self, form: WebmaniaCompanyUpdateForm):
         payload = form.build_api_payload()
         if not payload:
-            messages.info(self.request, "Nenhuma alteração detectada para enviar à Webmania.")
+            messages.info(self.request, "Nenhuma alteracao detectada para sincronizar.")
             return redirect("finance:webmania_company_detail", pk=self.object.pk)
 
         try:
             update_webmania_company(company=self.object, payload=payload)
         except WebmaniaB2BServiceError as exc:
-            self.object.last_sync_error = str(exc)
+            self.object.last_sync_error = _to_public_integration_message(str(exc))
             self.object.save(update_fields=["last_sync_error"])
-            messages.error(self.request, str(exc))
+            messages.error(self.request, _to_public_integration_message(str(exc)))
             return self.form_invalid(form)
 
         self.object = form.save(commit=False)
         self.object.last_sync_at = timezone.now()
         self.object.last_sync_error = ""
         self.object.save()
-        messages.success(self.request, "Empresa atualizada com sucesso na Webmania.")
+        messages.success(self.request, "Empresa atualizada com sucesso.")
         return redirect("finance:webmania_company_detail", pk=self.object.pk)
 
 
@@ -352,7 +361,7 @@ class WebmaniaRequestsView(LoginRequiredMixin, DirectorWorkshopAccessMixin, Temp
         try:
             request_payload = get_b2b_requests(month=month, year=year, workshop=self.workshop)
         except WebmaniaB2BServiceError as exc:
-            messages.error(self.request, str(exc))
+            messages.error(self.request, _to_public_integration_message(str(exc)))
             total_notas_processadas = 0
             request_rows: list[dict[str, str]] = []
         else:

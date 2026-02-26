@@ -55,6 +55,14 @@ def _is_webmania_homolog_environment() -> bool:
         return False
 
 
+def _to_public_integration_message(raw_message: object) -> str:
+    normalized_message = str(raw_message or "").strip()
+    if not normalized_message:
+        return "Nao foi possivel concluir a operacao de integracao."
+
+    return normalized_message.replace("WEBMANIA", "integracao").replace("Webmania", "integracao").replace("webmania", "integracao")
+
+
 # TODO: Não permitir nome igual de oficina
 class WorkshopCreateView(LoginRequiredMixin, CreateView):
     model = Workshop
@@ -101,7 +109,7 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
 
                 self.object = workshop
         except WebmaniaB2BServiceError as exc:
-            form.add_error(None, str(exc))
+            form.add_error(None, _to_public_integration_message(str(exc)))
             self.object = None
             return self.form_invalid(form)
 
@@ -274,23 +282,23 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
 
         if has_certificate and has_password:
             return {
-                "label": "Certificado A1 Webmania configurado",
-                "description": "Certificado e senha da Webmania cadastrados.",
+                "label": "Certificado A1 da integracao configurado",
+                "description": "Certificado e senha da integracao cadastrados.",
             }
         if has_certificate:
             return {
-                "label": "Certificado A1 Webmania parcial",
+                "label": "Certificado A1 da integracao parcial",
                 "description": "Certificado cadastrado sem senha. Revise antes de emitir.",
             }
         if has_password:
             return {
-                "label": "Certificado A1 Webmania parcial",
+                "label": "Certificado A1 da integracao parcial",
                 "description": "Senha cadastrada sem certificado. Revise antes de emitir.",
             }
 
         return {
-            "label": "Certificado A1 Webmania nao cadastrado",
-            "description": "Informe certificado A1 e senha especificos da Webmania.",
+            "label": "Certificado A1 da integracao nao cadastrado",
+            "description": "Informe certificado A1 e senha especificos da integracao.",
         }
 
     def _sefaz_certificate_status(self) -> dict[str, str]:
@@ -326,8 +334,9 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
         return f"{reverse('workshops:update', kwargs={'pk': self.object.pk})}?tab={tab}&nf_tab={nf_subtab}"
 
     def _save_company_sync_metadata(self, *, error: str = "") -> None:
+        normalized_error = _to_public_integration_message(error) if str(error or "").strip() else ""
         self.company.last_sync_at = timezone.now() if not error else self.company.last_sync_at
-        self.company.last_sync_error = error
+        self.company.last_sync_error = normalized_error
 
         update_fields = ["last_sync_error"]
         if not error:
@@ -383,8 +392,9 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             if payload:
                 update_webmania_company(company=self.company, payload=payload)
         except WebmaniaB2BServiceError as exc:
-            self._save_company_sync_metadata(error=str(exc))
-            form.add_error(None, str(exc))
+            public_message = _to_public_integration_message(str(exc))
+            self._save_company_sync_metadata(error=public_message)
+            form.add_error(None, public_message)
             forms_map = self._build_forms(active_tab=tab)
             forms_map[form_key or tab] = form
             context = self._build_context(forms_map=forms_map, active_tab=tab, active_nf_subtab=nf_subtab)
@@ -400,7 +410,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
         if not payload:
             messages.success(self.request, "Dados locais atualizados com sucesso.")
         else:
-            messages.success(self.request, "Dados sincronizados com a Webmania com sucesso.")
+            messages.success(self.request, "Dados sincronizados com sucesso.")
 
         return redirect(self._build_update_url(tab=tab, nf_subtab=nf_subtab))
 
@@ -552,7 +562,6 @@ class WorkshopListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):
         context["fields"] = [
             TableColumn(label="Oficina", attr=Workshop.name.field.name),
             TableColumn(label="Empresa", attr="webmania_company_name_display", sortable=False, searchable=False),
-            TableColumn(label="ID Webmania", attr="webmania_company_id_display", sortable=False, searchable=False),
             TableColumn(label="Documento", attr="webmania_company_document_display", sortable=False, searchable=False),
             TableColumn(label="IE", attr="webmania_company_ie_display", sortable=False, searchable=False),
             TableColumn(label="Cidade/UF", attr="webmania_company_city_state_display", sortable=False, searchable=False),
@@ -586,12 +595,13 @@ class WorkshopListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):
         )
 
         is_webmania_homolog_environment = _is_webmania_homolog_environment()
+        latest_sync_error = self._latest_sync_error(account_companies)
 
         context.update(
             {
                 "webmania_company_count": len(account_companies),
                 "webmania_last_sync_at": latest_sync_at,
-                "webmania_last_sync_error": self._latest_sync_error(account_companies),
+                "webmania_last_sync_error": _to_public_integration_message(latest_sync_error) if latest_sync_error else "",
                 "can_sync_webmania_companies": can_sync_webmania_companies and is_webmania_homolog_environment,
                 "is_webmania_homolog_environment": is_webmania_homolog_environment,
             }
@@ -605,7 +615,7 @@ class WorkshopWebmaniaSyncView(LoginRequiredMixin, DirectorWorkshopAccessMixin, 
 
     def post(self, request, *args, **kwargs):
         if not _is_webmania_homolog_environment():
-            messages.error(request, "A sincronizacao manual com a Webmania esta disponivel apenas quando WEBMANIA_AMBIENT = 2.")
+            messages.error(request, "A sincronizacao manual esta disponivel apenas em ambiente de homologacao.")
             return redirect("workshops:list")
 
         try:
@@ -615,11 +625,11 @@ class WorkshopWebmaniaSyncView(LoginRequiredMixin, DirectorWorkshopAccessMixin, 
                 force_global_auth=True,
             )
         except WebmaniaB2BServiceError as exc:
-            messages.error(request, str(exc))
+            messages.error(request, _to_public_integration_message(str(exc)))
         else:
             synced_count = len(synced_companies)
             if synced_count <= 0:
-                messages.warning(request, "Sincronizacao concluida, mas nenhuma empresa foi retornada pela Webmania.")
+                messages.warning(request, "Sincronizacao concluida, mas nenhuma empresa foi retornada.")
             elif synced_count == 1:
                 messages.success(request, "Sincronizacao concluida com sucesso. 1 empresa atualizada.")
             else:
@@ -689,7 +699,7 @@ class WorkshopEmissionHistoryView(LoginRequiredMixin, DirectorWorkshopAccessMixi
         try:
             request_payload = get_b2b_requests(month=month, year=year, workshop=self.workshop)
         except WebmaniaB2BServiceError as exc:
-            messages.error(self.request, str(exc))
+            messages.error(self.request, _to_public_integration_message(str(exc)))
             total_notas_processadas = 0
             request_rows: list[dict[str, str]] = []
         else:

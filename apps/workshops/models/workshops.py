@@ -73,13 +73,6 @@ class Workshop(TimeStampedModel):
         return company.pk
 
     @property
-    def webmania_company_id_display(self) -> str:
-        company = self._get_webmania_company()
-        if company is None:
-            return "-"
-        return str(company.webmania_company_id or "").strip() or "-"
-
-    @property
     def webmania_company_name_display(self) -> str:
         company = self._get_webmania_company()
         if company is None:

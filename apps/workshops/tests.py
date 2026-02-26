@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import base64
 from unittest.mock import patch
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
@@ -66,7 +68,7 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
         self.assertContains(response, "Empresa")
         self.assertContains(response, "Endereco")
         self.assertContains(response, "Nota Fiscal")
-        self.assertContains(response, "Certificado A1")
+        self.assertContains(response, "Certificados")
         self.assertContains(response, "Opcionais")
         self.assertContains(response, "Credenciais")
 
@@ -130,6 +132,13 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
         self.assertEqual(self.workshop.certificate_password, "senha-sefaz")
 
     def test_webmania_certificate_save_keeps_sefaz_separated(self) -> None:
+        certificate_bytes = b"certificado-a1-binario"
+        certificate_file = SimpleUploadedFile(
+            "certificado.pfx",
+            certificate_bytes,
+            content_type="application/x-pkcs12",
+        )
+
         with patch("apps.workshops.views.workshops.update_webmania_company", return_value={"success": True}) as update_mock:
             response = self.client.post(
                 reverse("workshops:update", kwargs={"pk": self.workshop.pk}),
@@ -137,16 +146,18 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
                     "tab": "certificado",
                     "certificate_scope": "webmania",
                     "nf_tab": "nfe",
-                    "certificado": "YmFzZTY0LWNlcnQ=",
+                    "certificado_arquivo": certificate_file,
                     "certificado_senha": "senha-webmania",
                 },
             )
 
         self.assertEqual(response.status_code, 302)
         update_mock.assert_called_once()
+        payload = update_mock.call_args.kwargs["payload"]
+        self.assertEqual(payload.get("certificado"), base64.b64encode(certificate_bytes).decode())
 
         company = WebmaniaCompany.objects.get(workshop=self.workshop)
-        self.assertEqual(decrypt_secret(company.certificado), "YmFzZTY0LWNlcnQ=")
+        self.assertEqual(decrypt_secret(company.certificado), base64.b64encode(certificate_bytes).decode())
         self.assertEqual(decrypt_secret(company.certificado_senha), "senha-webmania")
 
         self.workshop.refresh_from_db()

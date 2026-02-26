@@ -5,7 +5,7 @@
     <div class="flex items-center justify-between gap-4">
         <div>
             <h1 class="text-3xl font-bold text-base-content">Configuracoes da Oficina</h1>
-            <p class="text-base-content/70 mt-1">Edite dados da oficina e da integracao Webmania em abas.</p>
+            <p class="text-base-content/70 mt-1">Edite dados da oficina e da integracao fiscal em abas.</p>
         </div>
 
         <a href="{% url 'workshops:list' %}" class="hidden md:flex btn btn-ghost gap-2 text-base-content/70">
@@ -23,7 +23,7 @@
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'empresa' }" @click="activeTab = 'empresa'">Empresa</button>
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'endereco' }" @click="activeTab = 'endereco'">Endereco</button>
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'nota_fiscal' }" @click="activeTab = 'nota_fiscal'">Nota Fiscal</button>
-                <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'certificado' }" @click="activeTab = 'certificado'">Certificado A1</button>
+                <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'certificado' }" @click="activeTab = 'certificado'">Certificados</button>
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'opcionais' }" @click="activeTab = 'opcionais'">Opcionais</button>
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'credenciais' }" @click="activeTab = 'credenciais'">Credenciais</button>
             </div>
@@ -74,7 +74,7 @@
                     {% if can_change_webmania_company %}
                         <button type="submit" class="btn-form-save">Salvar alteracoes</button>
                     {% else %}
-                        <span class="text-sm text-warning">Voce nao possui permissao para alterar dados Webmania desta oficina.</span>
+                        <span class="text-sm text-warning">Voce nao possui permissao para alterar dados de integracao desta oficina.</span>
                     {% endif %}
                 </div>
             </form>
@@ -112,7 +112,7 @@
                     {% if can_change_webmania_company %}
                         <button type="submit" class="btn-form-save">Salvar alteracoes</button>
                     {% else %}
-                        <span class="text-sm text-warning">Voce nao possui permissao para alterar dados Webmania desta oficina.</span>
+                        <span class="text-sm text-warning">Voce nao possui permissao para alterar dados de integracao desta oficina.</span>
                     {% endif %}
                 </div>
             </form>
@@ -180,7 +180,7 @@
                     {% if can_change_webmania_company %}
                         <button type="submit" class="btn-form-save">Salvar alteracoes</button>
                     {% else %}
-                        <span class="text-sm text-warning">Voce nao possui permissao para alterar dados Webmania desta oficina.</span>
+                        <span class="text-sm text-warning">Voce nao possui permissao para alterar dados de integracao desta oficina.</span>
                     {% endif %}
                 </div>
             </form>
@@ -193,7 +193,7 @@
                     <input type="hidden" name="nf_tab" :value="nfTab">
 
                     <div class="alert alert-info mb-4 text-sm">
-                        <span>Certificado A1 especifico para a Webmania.</span>
+                        <span>Certificado A1 da integracao fiscal.</span>
                     </div>
 
                     {% if certificate_webmania_form.non_field_errors %}
@@ -210,16 +210,16 @@
                     </div>
 
                     <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
-                        <div class="col-span-12">{{ certificate_webmania_form.certificado|as_crispy_field }}</div>
+                        <div class="col-span-12">{{ certificate_webmania_form.certificado_arquivo|as_crispy_field }}</div>
                         <div class="col-span-12 lg:col-span-6">{{ certificate_webmania_form.certificado_senha|as_crispy_field }}</div>
                     </div>
 
                     <div class="divider"></div>
                     <div class="flex items-center justify-end gap-2">
                         {% if can_change_webmania_company %}
-                            <button type="submit" class="btn-form-save">Salvar certificado Webmania</button>
+                            <button type="submit" class="btn-form-save">Salvar certificado da integracao</button>
                         {% else %}
-                            <span class="text-sm text-warning">Voce nao possui permissao para alterar certificado Webmania desta oficina.</span>
+                            <span class="text-sm text-warning">Voce nao possui permissao para alterar certificado da integracao desta oficina.</span>
                         {% endif %}
                     </div>
                 </form>
@@ -297,7 +297,7 @@
                     {% if can_change_webmania_company %}
                         <button type="submit" class="btn-form-save">Salvar alteracoes</button>
                     {% else %}
-                        <span class="text-sm text-warning">Voce nao possui permissao para alterar dados Webmania desta oficina.</span>
+                        <span class="text-sm text-warning">Voce nao possui permissao para alterar dados de integracao desta oficina.</span>
                     {% endif %}
                 </div>
             </form>
@@ -305,7 +305,7 @@
             <div x-show="activeTab === 'credenciais'" x-cloak>
                 <div class="flex items-center justify-between gap-3 mb-4">
                     <div class="alert alert-info text-sm flex-1">
-                        <span>Credenciais apenas para visualizacao. Edicao deve ser feita pela sincronizacao da Webmania.</span>
+                        <span>Credenciais apenas para visualizacao.</span>
                     </div>
 
                     <button

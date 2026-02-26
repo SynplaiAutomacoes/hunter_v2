@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import base64
 from decimal import Decimal
 from typing import Any
 
 from django import forms
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import UploadedFile
 from django.urls import reverse
 
 from crispy_forms.helper import FormHelper
@@ -409,15 +411,80 @@ class WorkshopOptionalsSectionForm(BaseWebmaniaCompanySectionForm):
 
 
 class WorkshopWebmaniaCertificateSectionForm(BaseWebmaniaCompanySectionForm):
-    secret_fields = ("certificado", "certificado_senha")
+    secret_fields = ("certificado_senha",)
+
+    certificado_arquivo = forms.FileField(
+        required=False,
+        label="Arquivo do Certificado A1",
+        help_text="Envie um arquivo .pfx ou .p12.",
+        widget=forms.ClearableFileInput(attrs={"accept": ".pfx,.p12"}),
+    )
+
+    max_certificate_size = 5 * 1024 * 1024
+    allowed_certificate_extensions = (".pfx", ".p12")
 
     class Meta:
         model = WebmaniaCompany
-        fields = ["certificado", "certificado_senha"]
+        fields = ["certificado_senha"]
         widgets = {
-            "certificado": TextareaInput(rows=4),
             "certificado_senha": PasswordInput(),
         }
+
+    @classmethod
+    def _encode_certificate_file(cls, uploaded_file: UploadedFile) -> str:
+        uploaded_file.seek(0)
+        raw_bytes = uploaded_file.read()
+        uploaded_file.seek(0)
+        if not raw_bytes:
+            return ""
+        return base64.b64encode(raw_bytes).decode()
+
+    def clean_certificado_arquivo(self) -> UploadedFile | None:
+        uploaded_file = self.cleaned_data.get("certificado_arquivo")
+        if uploaded_file is None:
+            return None
+
+        file_name = str(getattr(uploaded_file, "name", "") or "").lower()
+        if not file_name.endswith(self.allowed_certificate_extensions):
+            raise forms.ValidationError("Envie um arquivo de certificado no formato .pfx ou .p12.")
+
+        if int(getattr(uploaded_file, "size", 0) or 0) > self.max_certificate_size:
+            raise forms.ValidationError("O arquivo do certificado deve ter no maximo 5 MB.")
+
+        return uploaded_file
+
+    def clean(self) -> dict[str, Any]:
+        cleaned_data = super().clean()
+        uploaded_file = cleaned_data.get("certificado_arquivo")
+        has_existing_certificate = bool(str(getattr(self.instance, "certificado", "") or "").strip())
+
+        if uploaded_file is None and not has_existing_certificate:
+            self.add_error("certificado_arquivo", "Envie o arquivo do certificado A1 para continuar.")
+
+        return cleaned_data
+
+    def build_api_payload(self) -> dict[str, Any]:
+        payload = super().build_api_payload()
+        uploaded_certificate = self.cleaned_data.get("certificado_arquivo")
+        if isinstance(uploaded_certificate, UploadedFile):
+            encoded_certificate = self._encode_certificate_file(uploaded_certificate)
+            if encoded_certificate:
+                payload["certificado"] = encoded_certificate
+        return payload
+
+    def save(self, commit: bool = True) -> WebmaniaCompany:
+        instance = super().save(commit=False)
+
+        uploaded_certificate = self.cleaned_data.get("certificado_arquivo")
+        if isinstance(uploaded_certificate, UploadedFile):
+            encoded_certificate = self._encode_certificate_file(uploaded_certificate)
+            if encoded_certificate:
+                instance.certificado = encrypt_secret(encoded_certificate)
+
+        if commit:
+            instance.save()
+
+        return instance
 
 
 class WorkshopCertificateSectionForm(forms.ModelForm):
