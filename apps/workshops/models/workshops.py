@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import models
 from django.db.models import CharField, BooleanField
 from django.utils import timezone
@@ -37,6 +38,92 @@ class Workshop(TimeStampedModel):
         if not self.last_sefaz_search_date:
             return True
         return timezone.now() > self.last_sefaz_search_date + timedelta(hours=1)
+
+    def _get_webmania_company(self):
+        cache_attr = "_cached_webmania_company"
+        if hasattr(self, cache_attr):
+            return getattr(self, cache_attr)
+
+        company = None
+        try:
+            company = self.webmania_company
+        except ObjectDoesNotExist:
+            company = None
+
+        setattr(self, cache_attr, company)
+        return company
+
+    @staticmethod
+    def _format_document(*, cnpj: object, cpf: object) -> str:
+        cnpj_digits = "".join(ch for ch in str(cnpj or "") if ch.isdigit())
+        if len(cnpj_digits) == 14:
+            return f"{cnpj_digits[:2]}.{cnpj_digits[2:5]}.{cnpj_digits[5:8]}/{cnpj_digits[8:12]}-{cnpj_digits[12:]}"
+
+        cpf_digits = "".join(ch for ch in str(cpf or "") if ch.isdigit())
+        if len(cpf_digits) == 11:
+            return f"{cpf_digits[:3]}.{cpf_digits[3:6]}.{cpf_digits[6:9]}-{cpf_digits[9:]}"
+
+        return "-"
+
+    @property
+    def webmania_company_pk(self):
+        company = self._get_webmania_company()
+        if company is None:
+            return None
+        return company.pk
+
+    @property
+    def webmania_company_name_display(self) -> str:
+        company = self._get_webmania_company()
+        if company is None:
+            return "-"
+        return str(company.razao_social or company.nome_completo or "").strip() or "-"
+
+    @property
+    def webmania_company_document_display(self) -> str:
+        company = self._get_webmania_company()
+        if company is None:
+            return "-"
+        return self._format_document(cnpj=company.cnpj, cpf=company.cpf)
+
+    @property
+    def webmania_company_ie_display(self) -> str:
+        company = self._get_webmania_company()
+        if company is None:
+            return "-"
+        return str(company.ie or "").strip() or "-"
+
+    @property
+    def webmania_company_city_state_display(self) -> str:
+        company = self._get_webmania_company()
+        if company is None:
+            return "-"
+
+        city = str(company.cidade or "").strip()
+        state = str(company.uf or "").strip()
+        if city and state:
+            return f"{city} / {state}"
+        if city:
+            return city
+        if state:
+            return state
+        return "-"
+
+    @property
+    def webmania_company_unit_display(self) -> str:
+        company = self._get_webmania_company()
+        if company is None:
+            return "-"
+        return str(company.unidade_empresa or "").strip().replace("_", " ").title() or "-"
+
+    @property
+    def webmania_company_tax_type_display(self) -> str:
+        company = self._get_webmania_company()
+        if company is None:
+            return "-"
+
+        tax_type = str(company.get_tipo_tributacao_display() or company.tipo_tributacao or "").strip()
+        return tax_type or "-"
 
     def __str__(self):
         return self.name

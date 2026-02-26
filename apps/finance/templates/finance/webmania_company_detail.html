@@ -1,7 +1,7 @@
 {% extends 'crud/detail.html' %}
 
 {% block crud_title %}Detalhes da Empresa{% endblock %}
-{% block crud_subtitle %}Visualize os dados sincronizados da empresa na Webmania.{% endblock %}
+{% block crud_subtitle %}Visualize os dados sincronizados da empresa.{% endblock %}
 {% block crud_back_url %}{% url 'finance:webmania_company_list' %}{% endblock %}
 {% block crud_header_actions %}
     <a href="{% url 'finance:webmania_company_update' pk=company.pk %}" class="btn btn-sm btn-primary gap-2">
