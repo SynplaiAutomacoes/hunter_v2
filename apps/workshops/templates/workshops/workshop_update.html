@@ -1,5 +1,338 @@
-{% extends 'crud/form_page.html' %}
+{% extends 'crud/page.html' %}
+{% load crispy_forms_tags %}
 
-{% block crud_title %}Editar Oficina{% endblock %}
-{% block crud_subtitle %}Atualize os dados da unidade.{% endblock %}
-{% block crud_back_url %}{% url 'workshops:list' %}{% endblock %}
+{% block crud_content %}
+    <div class="flex items-center justify-between gap-4">
+        <div>
+            <h1 class="text-3xl font-bold text-base-content">Configuracoes da Oficina</h1>
+            <p class="text-base-content/70 mt-1">Edite dados da oficina e da integracao fiscal em abas.</p>
+        </div>
+
+        <a href="{% url 'workshops:list' %}" class="hidden md:flex btn btn-ghost gap-2 text-base-content/70">
+            <span class="material-icons text-sm">arrow_back</span>
+            Voltar
+        </a>
+    </div>
+
+    <div
+        class="card bg-base-100 shadow-xl"
+        x-data="{ activeTab: '{{ active_tab }}', nfTab: '{{ active_nf_subtab }}', showCredentials: false }"
+    >
+        <div class="card-body p-6 md:p-8 space-y-6">
+            <div class="tabs tabs-lift flex-wrap gap-1">
+                <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'empresa' }" @click="activeTab = 'empresa'">Empresa</button>
+                <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'endereco' }" @click="activeTab = 'endereco'">Endereco</button>
+                <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'nota_fiscal' }" @click="activeTab = 'nota_fiscal'">Nota Fiscal</button>
+                <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'certificado' }" @click="activeTab = 'certificado'">Certificados</button>
+                <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'opcionais' }" @click="activeTab = 'opcionais'">Opcionais</button>
+                <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'credenciais' }" @click="activeTab = 'credenciais'">Credenciais</button>
+            </div>
+
+            <form method="post" enctype="multipart/form-data" x-show="activeTab === 'empresa'" x-cloak>
+                {% csrf_token %}
+                <input type="hidden" name="tab" value="empresa">
+                <input type="hidden" name="nf_tab" :value="nfTab">
+
+                <div class="alert alert-warning mb-4 text-sm">
+                    <span>As informacoes da empresa devem estar alinhadas com o cadastro fiscal oficial.</span>
+                </div>
+
+                {% if company_form.non_field_errors %}
+                    <div class="alert alert-error mb-4">
+                        {% for error in company_form.non_field_errors %}
+                            <span>{{ error }}</span>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                    <div class="col-span-12 lg:col-span-4">{{ company_form.tipo_tributacao|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ company_form.cnpj|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ company_form.cpf|as_crispy_field }}</div>
+
+                    <div class="col-span-12 lg:col-span-8">{{ company_form.razao_social|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ company_form.nome_completo|as_crispy_field }}</div>
+
+                    <div class="col-span-12 lg:col-span-4">{{ company_form.nome_fantasia|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ company_form.ie|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ company_form.im|as_crispy_field }}</div>
+
+                    <div class="col-span-12 lg:col-span-4">{{ company_form.unidade_empresa|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ company_form.regime_tributario|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ company_form.telefone|as_crispy_field }}</div>
+
+                    <div class="col-span-12 lg:col-span-6">{{ company_form.email|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-6">{{ company_form.contabilidade|as_crispy_field }}</div>
+
+                    <div class="col-span-12">{{ company_form.logomarca|as_crispy_field }}</div>
+
+                    <div class="col-span-12 lg:col-span-3">{{ company_form.workshop_is_active|as_crispy_field }}</div>
+                </div>
+
+                <div class="divider"></div>
+                <div class="flex items-center justify-end gap-2">
+                    {% if can_change_webmania_company %}
+                        <button type="submit" class="btn-form-save">Salvar alteracoes</button>
+                    {% else %}
+                        <span class="text-sm text-warning">Voce nao possui permissao para alterar dados de integracao desta oficina.</span>
+                    {% endif %}
+                </div>
+            </form>
+
+            <form method="post" enctype="multipart/form-data" x-show="activeTab === 'endereco'" x-cloak>
+                {% csrf_token %}
+                <input type="hidden" name="tab" value="endereco">
+                <input type="hidden" name="nf_tab" :value="nfTab">
+
+                <div class="alert alert-warning mb-4 text-sm">
+                    <span>Revise endereco e dados de localizacao antes de salvar.</span>
+                </div>
+
+                {% if address_form.non_field_errors %}
+                    <div class="alert alert-error mb-4">
+                        {% for error in address_form.non_field_errors %}
+                            <span>{{ error }}</span>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                    <div class="col-span-12 lg:col-span-3">{{ address_form.cep|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-5">{{ address_form.endereco|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-2">{{ address_form.numero|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-2">{{ address_form.complemento|as_crispy_field }}</div>
+
+                    <div class="col-span-12 lg:col-span-4">{{ address_form.bairro|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ address_form.cidade|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-2">{{ address_form.uf|as_crispy_field }}</div>
+                </div>
+
+                <div class="divider"></div>
+                <div class="flex items-center justify-end gap-2">
+                    {% if can_change_webmania_company %}
+                        <button type="submit" class="btn-form-save">Salvar alteracoes</button>
+                    {% else %}
+                        <span class="text-sm text-warning">Voce nao possui permissao para alterar dados de integracao desta oficina.</span>
+                    {% endif %}
+                </div>
+            </form>
+
+            <form method="post" enctype="multipart/form-data" x-show="activeTab === 'nota_fiscal'" x-cloak>
+                {% csrf_token %}
+                <input type="hidden" name="tab" value="nota_fiscal">
+                <input type="hidden" name="nf_tab" :value="nfTab">
+
+                <div class="alert alert-info mb-4 text-sm">
+                    <span>Configure sequencias e parametros fiscais conforme o emissor oficial da empresa.</span>
+                </div>
+
+                {% if fiscal_form.non_field_errors %}
+                    <div class="alert alert-error mb-4">
+                        {% for error in fiscal_form.non_field_errors %}
+                            <span>{{ error }}</span>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+
+                <div class="tabs tabs-boxed mb-4 w-fit">
+                    <button type="button" class="tab" :class="{ 'tab-active': nfTab === 'nfe' }" @click="nfTab = 'nfe'">NF-e</button>
+                    <button type="button" class="tab" :class="{ 'tab-active': nfTab === 'nfce' }" @click="nfTab = 'nfce'">NFC-e</button>
+                    <button type="button" class="tab" :class="{ 'tab-active': nfTab === 'nfse' }" @click="nfTab = 'nfse'">NFS-e</button>
+                </div>
+
+                <div x-show="nfTab === 'nfe'" x-cloak class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                    <div class="col-span-12 lg:col-span-3">{{ fiscal_form.nfe_serie|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ fiscal_form.nfe_numero|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ fiscal_form.nfe_numero_dev|as_crispy_field }}</div>
+                    <div class="col-span-12">{{ fiscal_form.informacoes_fisco|as_crispy_field }}</div>
+                </div>
+
+                <div x-show="nfTab === 'nfce'" x-cloak class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                    <div class="col-span-12 lg:col-span-3">{{ fiscal_form.nfce_serie|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-3">{{ fiscal_form.nfce_numero|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-3">{{ fiscal_form.nfce_numero_dev|as_crispy_field }}</div>
+
+                    <div class="col-span-12 lg:col-span-6">{{ fiscal_form.nfce_id_csc|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-6">{{ fiscal_form.nfce_codigo_csc|as_crispy_field }}</div>
+
+                    <div class="col-span-12 lg:col-span-6">{{ fiscal_form.nfce_id_csc_dev|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-6">{{ fiscal_form.nfce_codigo_csc_dev|as_crispy_field }}</div>
+                </div>
+
+                <div x-show="nfTab === 'nfse'" x-cloak class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                    <div class="col-span-12 lg:col-span-3">{{ fiscal_form.nfse_rps_serie|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-3">{{ fiscal_form.nfse_rps_numero|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-3">{{ fiscal_form.nfse_lote_rps_numero|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-3">{{ fiscal_form.nfse_rps_numero_dev|as_crispy_field }}</div>
+
+                    <div class="col-span-12 lg:col-span-6">{{ fiscal_form.cnae_issqn|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-6">{{ fiscal_form.cnae|as_crispy_field }}</div>
+
+                    <div class="col-span-12 lg:col-span-4">{{ fiscal_form.regime_apuracao_sn|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ fiscal_form.regime_especial_nacional|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ fiscal_form.regime_especial_municipal|as_crispy_field }}</div>
+
+                    <div class="col-span-12">{{ fiscal_form.informacoes_fisco|as_crispy_field }}</div>
+                </div>
+
+                <div class="divider"></div>
+                <div class="flex items-center justify-end gap-2">
+                    {% if can_change_webmania_company %}
+                        <button type="submit" class="btn-form-save">Salvar alteracoes</button>
+                    {% else %}
+                        <span class="text-sm text-warning">Voce nao possui permissao para alterar dados de integracao desta oficina.</span>
+                    {% endif %}
+                </div>
+            </form>
+
+            <div x-show="activeTab === 'certificado'" x-cloak class="space-y-6">
+                <form method="post" enctype="multipart/form-data" class="rounded-xl border border-base-300 p-4">
+                    {% csrf_token %}
+                    <input type="hidden" name="tab" value="certificado">
+                    <input type="hidden" name="certificate_scope" value="webmania">
+                    <input type="hidden" name="nf_tab" :value="nfTab">
+
+                    <div class="alert alert-info mb-4 text-sm">
+                        <span>Certificado A1 da integracao fiscal.</span>
+                    </div>
+
+                    {% if certificate_webmania_form.non_field_errors %}
+                        <div class="alert alert-error mb-4">
+                            {% for error in certificate_webmania_form.non_field_errors %}
+                                <span>{{ error }}</span>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+
+                    <div class="mb-5 rounded-lg border border-success/30 bg-success/10 p-4">
+                        <p class="font-semibold text-success">{{ webmania_certificate_status.label }}</p>
+                        <p class="text-sm text-base-content/80 mt-1">{{ webmania_certificate_status.description }}</p>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                        <div class="col-span-12">{{ certificate_webmania_form.certificado_arquivo|as_crispy_field }}</div>
+                        <div class="col-span-12 lg:col-span-6">{{ certificate_webmania_form.certificado_senha|as_crispy_field }}</div>
+                    </div>
+
+                    <div class="divider"></div>
+                    <div class="flex items-center justify-end gap-2">
+                        {% if can_change_webmania_company %}
+                            <button type="submit" class="btn-form-save">Salvar certificado da integracao</button>
+                        {% else %}
+                            <span class="text-sm text-warning">Voce nao possui permissao para alterar certificado da integracao desta oficina.</span>
+                        {% endif %}
+                    </div>
+                </form>
+
+                <form method="post" enctype="multipart/form-data" class="rounded-xl border border-base-300 p-4">
+                    {% csrf_token %}
+                    <input type="hidden" name="tab" value="certificado">
+                    <input type="hidden" name="certificate_scope" value="sefaz">
+                    <input type="hidden" name="nf_tab" :value="nfTab">
+
+                    <div class="alert alert-info mb-4 text-sm">
+                        <span>Certificado especifico da SEFAZ utilizado no modulo de estoque/importacao.</span>
+                    </div>
+
+                    {% if certificate_sefaz_form.non_field_errors %}
+                        <div class="alert alert-error mb-4">
+                            {% for error in certificate_sefaz_form.non_field_errors %}
+                                <span>{{ error }}</span>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+
+                    <div class="mb-5 rounded-lg border border-success/30 bg-success/10 p-4">
+                        <p class="font-semibold text-success">{{ sefaz_certificate_status.label }}</p>
+                        <p class="text-sm text-base-content/80 mt-1">{{ sefaz_certificate_status.description }}</p>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                        <div class="col-span-12 lg:col-span-6">{{ certificate_sefaz_form.pfx_certificate|as_crispy_field }}</div>
+                        <div class="col-span-12 lg:col-span-6">{{ certificate_sefaz_form.certificate_password|as_crispy_field }}</div>
+                    </div>
+
+                    <div class="divider"></div>
+                    <div class="flex items-center justify-end gap-2">
+                        <button type="submit" class="btn-form-save">Salvar certificado SEFAZ</button>
+                    </div>
+                </form>
+            </div>
+
+            <form method="post" enctype="multipart/form-data" x-show="activeTab === 'opcionais'" x-cloak>
+                {% csrf_token %}
+                <input type="hidden" name="tab" value="opcionais">
+                <input type="hidden" name="nf_tab" :value="nfTab">
+
+                {% if optionals_form.non_field_errors %}
+                    <div class="alert alert-error mb-4">
+                        {% for error in optionals_form.non_field_errors %}
+                            <span>{{ error }}</span>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                    <div class="col-span-12 lg:col-span-4">{{ optionals_form.partilha_icms_contribuinte|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ optionals_form.partilha_icms_isento|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ optionals_form.microcervejaria|as_crispy_field }}</div>
+
+                    <div class="col-span-12 lg:col-span-4">{{ optionals_form.icms_ref_sp|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ optionals_form.refeicoes_sp|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ optionals_form.icms_ref_df|as_crispy_field }}</div>
+
+                    <div class="col-span-12 lg:col-span-4">{{ optionals_form.exclusao_icms_pis_cofins|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ optionals_form.exclusao_difal_pis_cofins|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ optionals_form.deduzir_desconto_ipi|as_crispy_field }}</div>
+
+                    <div class="col-span-12 lg:col-span-4">{{ optionals_form.email_automatico_nfse|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ optionals_form.orientacao_danfe|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ optionals_form.desativar_epec|as_crispy_field }}</div>
+
+                    <div class="col-span-12 lg:col-span-4">{{ optionals_form.ocultar_total_etiqueta|as_crispy_field }}</div>
+                </div>
+
+                <div class="divider"></div>
+                <div class="flex items-center justify-end gap-2">
+                    {% if can_change_webmania_company %}
+                        <button type="submit" class="btn-form-save">Salvar alteracoes</button>
+                    {% else %}
+                        <span class="text-sm text-warning">Voce nao possui permissao para alterar dados de integracao desta oficina.</span>
+                    {% endif %}
+                </div>
+            </form>
+
+            <div x-show="activeTab === 'credenciais'" x-cloak>
+                <div class="flex items-center justify-between gap-3 mb-4">
+                    <div class="alert alert-info text-sm flex-1">
+                        <span>Credenciais apenas para visualizacao.</span>
+                    </div>
+
+                    <button
+                        type="button"
+                        class="btn btn-outline btn-sm"
+                        @click="showCredentials = !showCredentials"
+                    >
+                        <span class="material-icons text-sm" x-text="showCredentials ? 'visibility_off' : 'visibility'"></span>
+                        <span x-text="showCredentials ? 'Ocultar credenciais' : 'Mostrar credenciais'"></span>
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-6">
+                    {% for field in credential_preview_fields %}
+                        <div class="col-span-12 lg:col-span-6">
+                            <label class="label pt-0 pb-1"><span class="label-text text-xs">{{ field.label }}</span></label>
+                            <input
+                                :type="showCredentials ? 'text' : 'password'"
+                                value="{{ field.value }}"
+                                readonly
+                                class="input input-bordered w-full font-mono text-sm"
+                                {% if not field.has_value %}placeholder="Sem valor"{% endif %}
+                            >
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

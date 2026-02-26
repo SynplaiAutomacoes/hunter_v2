@@ -158,7 +158,6 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 row_html = render_to_string("budget/partials/items/item_product_row.html", context)
 
                 response = HtmxResponseHelper.success("Produto cadastrado com sucesso!", close_modal=True, update_summary=True, content=row_html)
-                response["HX-Refresh"] = "true"
                 return response
 
         else:
@@ -180,7 +179,6 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 row_html = render_to_string("budget/partials/items/item_service_row.html", context)
 
                 response = HtmxResponseHelper.success("Serviço cadastrado com sucesso!", close_modal=True, update_summary=True, content=row_html)
-                response["HX-Refresh"] = "true"
                 return response
 
         # Se form inválido, retorna com erros
@@ -193,7 +191,10 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
             "title": f"Cadastrar {'Produto' if item_type == 'product' else 'Serviço'} no Banco de Dados",
             "is_register_mode": True,
         }
-        return render(request, "budget/partials/modals/modal_quick_create.html", context)
+        response = render(request, "budget/partials/modals/modal_quick_create.html", context)
+        response["HX-Retarget"] = "#modal-container"
+        response["HX-Reswap"] = "innerHTML"
+        return response
 
 
 class CalculateLocalServiceView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -241,6 +242,8 @@ class QuickCreateProductView(LoginRequiredMixin, WorkshopScopedMixin, View):
         from apps.budget.forms import QuickProductForm, QuickServiceForm
 
         _get_budget_for_workshop(self.workshop, budget_id)
+        modal_context = request.GET.get("modal_context", "parent")
+        modal_target = "#child-modal-container" if modal_context == "child" else "#modal-container"
 
         if item_type == "product":
             form = QuickProductForm(workshop=self.workshop)
@@ -256,6 +259,8 @@ class QuickCreateProductView(LoginRequiredMixin, WorkshopScopedMixin, View):
             "budget_id": budget_id,
             "item_type": item_type,
             "title": title,
+            "modal_context": modal_context,
+            "modal_target": modal_target,
         }
         return render(request, "budget/partials/modals/modal_quick_create.html", context)
 
@@ -263,6 +268,8 @@ class QuickCreateProductView(LoginRequiredMixin, WorkshopScopedMixin, View):
         from apps.budget.forms import QuickProductForm, QuickServiceForm
 
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        modal_context = request.POST.get("modal_context", "parent")
+        modal_target = "#child-modal-container" if modal_context == "child" else "#modal-container"
 
         if item_type == "product":
             form = QuickProductForm(request.POST, workshop=self.workshop)
@@ -275,6 +282,20 @@ class QuickCreateProductView(LoginRequiredMixin, WorkshopScopedMixin, View):
             catalog_item = form.save(commit=False)
             catalog_item.workshop = self.workshop
             catalog_item.save()
+
+            if modal_context == "child":
+                item_label = "Produto" if item_type == "product" else "Serviço"
+                return HtmxResponseHelper.success(
+                    f"{item_label} cadastrado com sucesso!",
+                    close_modal=True,
+                    additional_triggers={
+                        "quickItemCreated": {
+                            "item_id": catalog_item.pk,
+                            "item_type": item_type,
+                            "budget_id": budget_id,
+                        }
+                    },
+                )
 
             if item_type == "product":
                 budget_item = BudgetItem.objects.create(
@@ -323,5 +344,7 @@ class QuickCreateProductView(LoginRequiredMixin, WorkshopScopedMixin, View):
             "budget_id": budget_id,
             "item_type": item_type,
             "title": f"Cadastrar Novo {'Produto' if item_type == 'product' else 'Serviço'}",
+            "modal_context": modal_context,
+            "modal_target": modal_target,
         }
         return render(request, "budget/partials/modals/modal_quick_create.html", context)

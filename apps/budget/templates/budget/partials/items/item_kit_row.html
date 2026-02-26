@@ -1,10 +1,25 @@
 <tr id="budget-item-{{ item.id }}"
     {% if not is_full_render %}hx-swap-oob="true"{% endif %}>
 
+    {% if not step6 %}
+    <td class="budget-step4-select-col text-center">
+        <input
+            type="checkbox"
+            name="selected_kit_items"
+            value="{{ item.id|stringformat:'d' }}"
+            class="checkbox checkbox-primary checkbox-sm budget-kit-select"
+        >
+    </td>
+    {% endif %}
+
     <td class="budget-step4-description break-words whitespace-normal leading-snug">{{ item.kit.name }}</td>
     <td class="text-center">{{ item.quantity }}</td>
     <td class="text-center">{{ item.effective_kit_products_count }}</td>
     <td class="text-center">{{ item.effective_kit_services_count }}</td>
+    {% if not step6 %}
+    <td class="text-right">{{ item.kit_unit_cost }}</td>
+    <td class="text-right">{{ item.kit_unit_price }}</td>
+    {% endif %}
 
     <!-- AÇÕES -->
     <td class="text-center budget-step4-actions">

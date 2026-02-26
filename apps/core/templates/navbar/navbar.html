@@ -36,11 +36,7 @@
             items: [
                 { label: 'Emitir NF-e', href: '{% url "finance:nfe_emit" %}' },
                 { label: 'Classe de Imposto', href: '{% url "finance:tax_class_list" %}' },
-                { label: 'Emitir NFS-e', href: '{% url "finance:nfse_list" %}' },
-                {% if active_workshop_is_director %}
-                    { label: 'Listar Empresas', href: '{% url "finance:webmania_company_list" %}' },
-                    { label: 'Requisições Webmania', href: '{% url "finance:webmania_requests" %}' }
-                {% endif %}
+                { label: 'Emitir NFS-e', href: '{% url "finance:nfse_list" %}' }
             ]
         },
         {
@@ -53,6 +49,9 @@
             label: 'Gestão',
             items: [
                 { label: 'Gerenciar Oficinas', href: '{% url "workshops:list" %}' },
+                {% if active_workshop_is_director %}
+                    { label: 'Histórico de Emissões', href: '{% url "workshops:emission_history" %}' },
+                {% endif %}
                 { label: 'Gerenciar Permissões', href: '{% url "iam:role_list" %}' },
                 { label: 'Custos Mensais', href: '{% url "workshops:cost_list" %}' },
                 { label: 'Custo Mensal da Oficina', href: '{% url "workshops:workshop_cost_list" %}' },

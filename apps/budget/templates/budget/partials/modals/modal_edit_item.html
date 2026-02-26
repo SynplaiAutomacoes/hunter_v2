@@ -229,9 +229,21 @@
         });
 
         // Listen for closeModal event from server
-        document.body.addEventListener('closeModal', function() {
+        document.body.addEventListener('closeModal', function(event) {
+            if (event && event.__budgetModalHandled) {
+                return;
+            }
+            if (event) {
+                event.__budgetModalHandled = true;
+            }
+
+            if (window.closeTopBudgetModal) {
+                window.closeTopBudgetModal();
+                return;
+            }
+
             const modal = document.getElementById('form_modal');
-            if (modal) {
+            if (modal && modal.open) {
                 modal.close();
             }
         });

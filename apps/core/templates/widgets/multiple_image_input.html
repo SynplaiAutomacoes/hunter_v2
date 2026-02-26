@@ -1,8 +1,8 @@
 {% load i18n %}
 <div class="flex flex-col gap-3">
-    <!-- Preview area for new images -->
-    <div id="preview-container-{{ widget.attrs.id }}" class="grid grid-cols-2 gap-3">
-        <!-- Previews will be added here dynamically -->
+    <!-- List area for selected files -->
+    <div id="preview-container-{{ widget.attrs.id }}" class="space-y-2">
+        <!-- Selected files will be rendered here -->
     </div>
 
     <!-- File input -->
@@ -11,53 +11,86 @@
             type="file"
             name="{{ widget.name }}"
             id="{{ widget.attrs.id }}"
-            onchange="handleMultipleImages(event, '{{ widget.attrs.id }}')"
+            onchange="handleMultipleFiles(event, '{{ widget.attrs.id }}')"
             class="file-input file-input-bordered w-full"
-            accept="image/jpeg,image/jpg,image/png,image/gif"
+            {% if widget.attrs.accept %}accept="{{ widget.attrs.accept }}"{% endif %}
             multiple
             {% if widget.attrs.disabled %}disabled{% endif %}
         >
     </div>
 
     <p class="text-sm text-gray-500">
-        Você pode adicionar múltiplas imagens separadamente. Formatos aceitos: JPG, PNG, GIF. Máximo 10MB por imagem e 10 imagens por orçamento.
+        Você pode adicionar múltiplos arquivos. Máximo 10MB por arquivo e 10 anexos por orçamento.
     </p>
 </div>
 
 <script>
-// Store selected files globally per widget
-if (typeof window.selectedImageFiles === 'undefined') {
-    window.selectedImageFiles = {};
+if (typeof window.selectedUploadFiles === 'undefined') {
+    window.selectedUploadFiles = {};
 }
 
-function renderMultipleImagePreview(widgetId) {
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function formatFileSize(sizeInBytes) {
+    const units = ['B', 'kB', 'MB', 'GB', 'TB'];
+    let size = Number(sizeInBytes) || 0;
+    let unitIndex = 0;
+
+    while (size >= 1000 && unitIndex < units.length - 1) {
+        size /= 1000;
+        unitIndex += 1;
+    }
+
+    if (size >= 999.5 && unitIndex < units.length - 1) {
+        size /= 1000;
+        unitIndex += 1;
+    }
+
+    let formatted;
+    if (unitIndex === 0) {
+        formatted = String(Math.round(size));
+    } else if (size >= 100) {
+        formatted = String(Math.round(size));
+    } else {
+        formatted = size.toFixed(1).replace(/\.0$/, '');
+    }
+
+    return `${formatted} ${units[unitIndex]}`;
+}
+
+function renderSelectedFiles(widgetId) {
     const container = document.getElementById('preview-container-' + widgetId);
     if (!container) return;
 
-    const files = window.selectedImageFiles[widgetId] || [];
+    const files = window.selectedUploadFiles[widgetId] || [];
     container.innerHTML = '';
 
     files.forEach((file, index) => {
-        const reader = new FileReader();
-
-        reader.onload = (e) => {
-            const previewDiv = document.createElement('div');
-            previewDiv.className = 'relative w-full aspect-video bg-base-200 rounded-box border border-base-300 overflow-hidden group';
-            previewDiv.innerHTML = `
-                <img src="${e.target.result}" class="w-full h-full object-cover" alt="Preview ${index + 1}">
-                <div class="absolute top-2 right-2 badge badge-primary badge-sm">Nova</div>
-                <div class="absolute bottom-2 left-2 text-xs bg-black/50 text-white px-2 py-1 rounded">${file.name}</div>
-                <button type="button" 
-                        onclick="removeImagePreview('${widgetId}', ${index})"
-                        class="absolute top-2 left-2 btn btn-circle btn-xs btn-error opacity-0 group-hover:opacity-100 transition-opacity"
-                        title="Remover">
-                    ✕
-                </button>
-            `;
-            container.appendChild(previewDiv);
-        };
-
-        reader.readAsDataURL(file);
+        const safeName = escapeHtml(file.name);
+        const row = document.createElement('div');
+        row.className = 'flex items-center justify-between gap-3 border border-base-300 rounded-lg px-3 py-2 bg-base-100';
+        row.innerHTML = `
+            <div class="min-w-0 flex-1">
+                <p class="text-sm font-semibold truncate" title="${safeName}">${safeName}</p>
+                <p class="text-xs opacity-70">${formatFileSize(file.size)}</p>
+            </div>
+            <button
+                type="button"
+                onclick="removeSelectedFile('${widgetId}', ${index})"
+                class="btn btn-xs btn-error text-white"
+                title="Excluir"
+            >
+                Excluir
+            </button>
+        `;
+        container.appendChild(row);
     });
 }
 
@@ -65,80 +98,58 @@ function hydrateMultipleImageInput(widgetId) {
     const input = document.getElementById(widgetId);
     if (!input) return;
 
-    window.selectedImageFiles[widgetId] = input.files ? Array.from(input.files) : [];
+    window.selectedUploadFiles[widgetId] = input.files ? Array.from(input.files) : [];
 
-    renderMultipleImagePreview(widgetId);
+    renderSelectedFiles(widgetId);
 }
 
-function handleMultipleImages(event, widgetId) {
+function handleMultipleFiles(event, widgetId) {
     const files = event.target.files;
-    const container = document.getElementById('preview-container-' + widgetId);
-    
-    if (!container) return;
-    
+
     if (files.length === 0) {
         return;
     }
-    
-    // Initialize storage for this widget if not exists
-    if (!window.selectedImageFiles[widgetId]) {
-        window.selectedImageFiles[widgetId] = [];
+
+    if (!window.selectedUploadFiles[widgetId]) {
+        window.selectedUploadFiles[widgetId] = [];
     }
-    
-    const maxFileSize = 10 * 1024 * 1024; // 10MB
+
+    const maxFileSize = 10 * 1024 * 1024;
     const maxFiles = 10;
-    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
-    
-    // Add new files to existing ones
+
     Array.from(files).forEach((file) => {
-        // Validate file type
-        if (!allowedTypes.includes(file.type)) {
-            alert(`Arquivo "${file.name}" não é permitido. Use apenas JPG, PNG ou GIF.`);
-            return;
-        }
-        
-        // Validate file size
         if (file.size > maxFileSize) {
             alert(`Arquivo "${file.name}" excede o tamanho máximo de 10MB (${(file.size / 1024 / 1024).toFixed(2)}MB).`);
             return;
         }
-        
-        // Check total files limit
-        if (window.selectedImageFiles[widgetId].length >= maxFiles) {
-            alert(`Máximo de ${maxFiles} imagens atingido.`);
+
+        if (window.selectedUploadFiles[widgetId].length >= maxFiles) {
+            alert(`Máximo de ${maxFiles} arquivos atingido.`);
             return;
         }
-        
-        // Add file to storage
-        window.selectedImageFiles[widgetId].push(file);
+
+        window.selectedUploadFiles[widgetId].push(file);
     });
-    
-    renderMultipleImagePreview(widgetId);
-    
-    // Update file input with all selected files
+
+    renderSelectedFiles(widgetId);
     updateFileInput(widgetId);
-    
 }
 
-function removeImagePreview(widgetId, index) {
-    if (!window.selectedImageFiles[widgetId]) return;
-    
-    // Remove file from storage
-    window.selectedImageFiles[widgetId].splice(index, 1);
-    
-    renderMultipleImagePreview(widgetId);
-    
-    // Update file input
+function removeSelectedFile(widgetId, index) {
+    if (!window.selectedUploadFiles[widgetId]) return;
+
+    window.selectedUploadFiles[widgetId].splice(index, 1);
+
+    renderSelectedFiles(widgetId);
     updateFileInput(widgetId);
 }
 
 function updateFileInput(widgetId) {
     const input = document.getElementById(widgetId);
     if (!input) return;
-    
-    // Create a new FileList from our stored files
+
     const dt = new DataTransfer();
-    window.selectedImageFiles[widgetId].forEach(file => {
+    (window.selectedUploadFiles[widgetId] || []).forEach((file) => {
         dt.items.add(file);
     });
     input.files = dt.files;

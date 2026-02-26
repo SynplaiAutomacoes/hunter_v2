@@ -12,16 +12,26 @@ def _digits(value: object) -> str:
 
 
 @register.filter
-def cnpj_br(value: object) -> str:
-    raw = str(value or "").strip()
-    if not raw:
+def cpf_cnpj(value):
+    if not value:
         return ""
 
-    digits = _digits(raw)
-    if len(digits) != 14:
-        return raw
+    # remove qualquer coisa que não seja número
+    digits = re.sub(r"\D", "", str(value))
 
+    if len(digits) <= 11:
+        # CPF
+        digits = digits.zfill(11)
+        return f"{digits[:3]}.{digits[3:6]}.{digits[6:9]}-{digits[9:11]}"
+
+    # CNPJ
+    digits = digits.zfill(14)
     return f"{digits[:2]}.{digits[2:5]}.{digits[5:8]}/{digits[8:12]}-{digits[12:14]}"
+
+
+@register.filter
+def cnpj_br(value):
+    return cpf_cnpj(value)
 
 
 @register.filter

@@ -1,22 +1,45 @@
 from __future__ import annotations
 
+import base64
+from decimal import Decimal
+from typing import Any
+
 from django import forms
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import UploadedFile
 from django.urls import reverse
 
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 
 from apps.core.widgets import (
+    CEPInput,
     CheckboxInput,
     CPForCNPJInput,
+    EmailInput,
+    NumberInput,
+    SelectInput,
     PhoneInput,
     TextInput,
+    TextareaInput,
     PasswordInput,
 )
+from apps.finance.forms.webmania import (
+    WEBMANIA_ENABLED_FLAG_CHOICES,
+    WEBMANIA_ORIENTACAO_DANFE_CHOICES,
+    WEBMANIA_REGIME_TRIBUTARIO_CHOICES,
+    WEBMANIA_UNIDADE_EMPRESA_CHOICES,
+)
+from apps.finance.models import WebmaniaCompany, WebmaniaCompanyTaxType
+from apps.finance.services.webmania_secrets import encrypt_secret
 from apps.workshops.models.workshops import Workshop
 
 User = get_user_model()
+
+
+def _format_decimal(value: Decimal, *, places: int = 2) -> str:
+    quantizer = Decimal(1).scaleb(-places)
+    return f"{value.quantize(quantizer):f}"
 
 
 class WorkshopForm(forms.ModelForm):
@@ -35,6 +58,9 @@ class WorkshopForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        if not self.instance.pk and not self.data:
+            self.initial["uf"] = ""
 
         cancel_url = reverse("workshops:list")
 
@@ -62,3 +88,409 @@ class WorkshopForm(forms.ModelForm):
                 css_class="flex items-center justify-end gap-2",
             ),
         )
+
+
+class BaseWebmaniaCompanySectionForm(forms.ModelForm):
+    secret_fields: tuple[str, ...] = ()
+    nullable_boolean_fields: tuple[str, ...] = ()
+
+    def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
+        self.workshop = workshop
+        super().__init__(*args, **kwargs)
+
+        field_names = tuple(getattr(self.Meta, "fields", ()))
+        self._initial_model_values = {field_name: getattr(self.instance, field_name, "") for field_name in field_names}
+        self._initial_secret_values = {field_name: getattr(self.instance, field_name, "") for field_name in self.secret_fields}
+
+        for field_name in self.secret_fields:
+            if field_name in self.fields:
+                self.initial[field_name] = ""
+
+        for field_name in self.nullable_boolean_fields:
+            if field_name in self.fields and getattr(self.instance, field_name, None) is None:
+                self.initial[field_name] = False
+
+    def build_api_payload(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+
+        for field_name in getattr(self.Meta, "fields", ()):  # type: ignore[attr-defined]
+            if field_name not in self.changed_data:
+                continue
+
+            value = self.cleaned_data.get(field_name)
+
+            if field_name in self.secret_fields:
+                secret_value = str(value or "").strip()
+                if secret_value:
+                    payload[field_name] = secret_value
+                continue
+
+            if isinstance(value, bool):
+                payload[field_name] = value
+                continue
+
+            if isinstance(value, Decimal):
+                payload[field_name] = _format_decimal(value, places=2)
+                continue
+
+            if value is None:
+                payload[field_name] = ""
+                continue
+
+            if isinstance(value, int):
+                payload[field_name] = value
+                continue
+
+            payload[field_name] = str(value).strip()
+
+        return payload
+
+    def save(self, commit: bool = True) -> WebmaniaCompany:
+        original_values = dict(getattr(self, "_initial_model_values", {}))
+        existing_secret_values = dict(getattr(self, "_initial_secret_values", {}))
+        instance: WebmaniaCompany = super().save(commit=False)
+
+        for field_name in getattr(self.Meta, "fields", ()):  # type: ignore[attr-defined]
+            if field_name not in self.changed_data:
+                setattr(instance, field_name, original_values.get(field_name))
+
+        for field_name in self.secret_fields:
+            if field_name not in self.fields:
+                continue
+
+            raw_value = str(self.cleaned_data.get(field_name) or "").strip()
+            if raw_value:
+                setattr(instance, field_name, encrypt_secret(raw_value))
+                continue
+
+            setattr(instance, field_name, existing_secret_values.get(field_name, ""))
+
+        if commit:
+            instance.save()
+
+        return instance
+
+
+class WorkshopCompanySectionForm(BaseWebmaniaCompanySectionForm):
+    tipo_tributacao = forms.ChoiceField(
+        required=False,
+        choices=[("", "Selecione"), *WebmaniaCompanyTaxType.choices],
+        widget=SelectInput(choices=[("", "Selecione"), *WebmaniaCompanyTaxType.choices]),
+    )
+    regime_tributario = forms.ChoiceField(
+        required=False,
+        choices=WEBMANIA_REGIME_TRIBUTARIO_CHOICES,
+        widget=SelectInput(choices=WEBMANIA_REGIME_TRIBUTARIO_CHOICES),
+    )
+    unidade_empresa = forms.ChoiceField(
+        required=False,
+        choices=WEBMANIA_UNIDADE_EMPRESA_CHOICES,
+        widget=SelectInput(choices=WEBMANIA_UNIDADE_EMPRESA_CHOICES),
+    )
+    workshop_is_active = forms.BooleanField(
+        required=False,
+        label=Workshop.is_active.field.verbose_name,
+        widget=CheckboxInput(),
+    )
+
+    class Meta:
+        model = WebmaniaCompany
+        fields = [
+            "tipo_tributacao",
+            "regime_tributario",
+            "cnpj",
+            "razao_social",
+            "cpf",
+            "nome_completo",
+            "nome_fantasia",
+            "ie",
+            "im",
+            "unidade_empresa",
+            "email",
+            "telefone",
+            "contabilidade",
+            "logomarca",
+        ]
+        widgets = {
+            "cnpj": CPForCNPJInput(mode="cnpj"),
+            "cpf": CPForCNPJInput(mode="cpf"),
+            "email": EmailInput(),
+            "telefone": PhoneInput(),
+            "razao_social": TextInput(),
+            "nome_completo": TextInput(),
+            "nome_fantasia": TextInput(),
+            "ie": TextInput(),
+            "im": TextInput(),
+            "contabilidade": TextInput(),
+            "logomarca": TextInput(),
+        }
+
+    def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
+        super().__init__(*args, workshop=workshop, **kwargs)
+        self.fields["email"].required = True
+        if self.workshop is not None:
+            self.initial["workshop_is_active"] = bool(self.workshop.is_active)
+
+    def clean(self) -> dict[str, Any]:
+        cleaned_data_raw = super().clean()
+        cleaned_data: dict[str, Any] = dict(cleaned_data_raw or {})
+
+        cnpj = str(cleaned_data.get("cnpj") or "").strip()
+        cpf = str(cleaned_data.get("cpf") or "").strip()
+        razao_social = str(cleaned_data.get("razao_social") or "").strip()
+        nome_completo = str(cleaned_data.get("nome_completo") or "").strip()
+
+        has_pj_data = bool(cnpj or razao_social)
+        has_pf_data = bool(cpf or nome_completo)
+
+        if not has_pj_data and not has_pf_data:
+            message = "Preencha CNPJ + Razao Social ou CPF + Nome Completo."
+            self.add_error("cnpj", message)
+            self.add_error("cpf", message)
+            self.add_error("razao_social", message)
+            self.add_error("nome_completo", message)
+            return cleaned_data
+
+        if has_pj_data:
+            if not cnpj:
+                self.add_error("cnpj", "Ao informar Razao Social, o CNPJ e obrigatorio.")
+            if not razao_social:
+                self.add_error("razao_social", "Ao informar CNPJ, a Razao Social e obrigatoria.")
+            return cleaned_data
+
+        if not cpf:
+            self.add_error("cpf", "Ao informar Nome Completo, o CPF e obrigatorio.")
+        if not nome_completo:
+            self.add_error("nome_completo", "Ao informar CPF, o Nome Completo e obrigatorio.")
+
+        return cleaned_data
+
+    def save(self, commit: bool = True) -> WebmaniaCompany:
+        instance = super().save(commit=commit)
+
+        if commit and self.workshop is not None:
+            workshop_is_active = bool(self.cleaned_data.get("workshop_is_active"))
+            if self.workshop.is_active != workshop_is_active:
+                self.workshop.is_active = workshop_is_active
+                self.workshop.save(update_fields=["is_active"])
+
+        return instance
+
+
+class WorkshopAddressSectionForm(BaseWebmaniaCompanySectionForm):
+    class Meta:
+        model = WebmaniaCompany
+        fields = [
+            "cep",
+            "endereco",
+            "numero",
+            "complemento",
+            "bairro",
+            "cidade",
+            "uf",
+        ]
+        widgets = {
+            "cep": CEPInput(),
+            "endereco": TextInput(),
+            "numero": TextInput(),
+            "complemento": TextInput(),
+            "bairro": TextInput(),
+            "cidade": TextInput(),
+            "uf": TextInput(),
+        }
+
+
+class WorkshopFiscalSectionForm(BaseWebmaniaCompanySectionForm):
+    class Meta:
+        model = WebmaniaCompany
+        fields = [
+            "informacoes_fisco",
+            "nfe_serie",
+            "nfe_numero",
+            "nfe_numero_dev",
+            "nfce_serie",
+            "nfce_numero",
+            "nfce_id_csc",
+            "nfce_codigo_csc",
+            "nfce_numero_dev",
+            "nfce_id_csc_dev",
+            "nfce_codigo_csc_dev",
+            "nfse_rps_serie",
+            "nfse_rps_numero",
+            "nfse_lote_rps_numero",
+            "nfse_rps_numero_dev",
+            "cnae_issqn",
+            "cnae",
+            "regime_apuracao_sn",
+            "regime_especial_nacional",
+            "regime_especial_municipal",
+        ]
+        widgets = {
+            "informacoes_fisco": TextareaInput(rows=3),
+            "nfe_serie": NumberInput(),
+            "nfe_numero": NumberInput(),
+            "nfe_numero_dev": NumberInput(),
+            "nfce_serie": NumberInput(),
+            "nfce_numero": NumberInput(),
+            "nfce_id_csc": TextInput(),
+            "nfce_codigo_csc": TextInput(),
+            "nfce_numero_dev": NumberInput(),
+            "nfce_id_csc_dev": TextInput(),
+            "nfce_codigo_csc_dev": TextInput(),
+            "nfse_rps_serie": TextInput(),
+            "nfse_rps_numero": NumberInput(),
+            "nfse_lote_rps_numero": NumberInput(),
+            "nfse_rps_numero_dev": NumberInput(),
+            "cnae_issqn": TextInput(),
+            "cnae": TextInput(),
+            "regime_apuracao_sn": TextInput(),
+            "regime_especial_nacional": TextInput(),
+            "regime_especial_municipal": TextInput(),
+        }
+
+
+class WorkshopOptionalsSectionForm(BaseWebmaniaCompanySectionForm):
+    nullable_boolean_fields = (
+        "partilha_icms_contribuinte",
+        "partilha_icms_isento",
+        "microcervejaria",
+        "icms_ref_sp",
+        "refeicoes_sp",
+        "icms_ref_df",
+        "exclusao_icms_pis_cofins",
+        "exclusao_difal_pis_cofins",
+        "deduzir_desconto_ipi",
+        "email_automatico_nfse",
+    )
+
+    orientacao_danfe = forms.ChoiceField(
+        required=False,
+        choices=WEBMANIA_ORIENTACAO_DANFE_CHOICES,
+        widget=SelectInput(choices=WEBMANIA_ORIENTACAO_DANFE_CHOICES),
+    )
+    desativar_epec = forms.ChoiceField(
+        required=False,
+        choices=WEBMANIA_ENABLED_FLAG_CHOICES,
+        widget=SelectInput(choices=WEBMANIA_ENABLED_FLAG_CHOICES),
+    )
+    ocultar_total_etiqueta = forms.ChoiceField(
+        required=False,
+        choices=WEBMANIA_ENABLED_FLAG_CHOICES,
+        widget=SelectInput(choices=WEBMANIA_ENABLED_FLAG_CHOICES),
+    )
+
+    class Meta:
+        model = WebmaniaCompany
+        fields = [
+            "partilha_icms_contribuinte",
+            "partilha_icms_isento",
+            "orientacao_danfe",
+            "microcervejaria",
+            "icms_ref_sp",
+            "refeicoes_sp",
+            "icms_ref_df",
+            "exclusao_icms_pis_cofins",
+            "exclusao_difal_pis_cofins",
+            "deduzir_desconto_ipi",
+            "email_automatico_nfse",
+            "desativar_epec",
+            "ocultar_total_etiqueta",
+        ]
+        widgets = {
+            "partilha_icms_contribuinte": CheckboxInput(),
+            "partilha_icms_isento": CheckboxInput(),
+            "microcervejaria": CheckboxInput(),
+            "icms_ref_sp": CheckboxInput(),
+            "refeicoes_sp": CheckboxInput(),
+            "icms_ref_df": CheckboxInput(),
+            "exclusao_icms_pis_cofins": CheckboxInput(),
+            "exclusao_difal_pis_cofins": CheckboxInput(),
+            "deduzir_desconto_ipi": CheckboxInput(),
+            "email_automatico_nfse": CheckboxInput(),
+        }
+
+
+class WorkshopWebmaniaCertificateSectionForm(BaseWebmaniaCompanySectionForm):
+    secret_fields = ("certificado_senha",)
+
+    certificado_arquivo = forms.FileField(
+        required=False,
+        label="Arquivo do Certificado A1",
+        help_text="Envie um arquivo .pfx ou .p12.",
+        widget=forms.ClearableFileInput(attrs={"accept": ".pfx,.p12"}),
+    )
+
+    max_certificate_size = 5 * 1024 * 1024
+    allowed_certificate_extensions = (".pfx", ".p12")
+
+    class Meta:
+        model = WebmaniaCompany
+        fields = ["certificado_senha"]
+        widgets = {
+            "certificado_senha": PasswordInput(),
+        }
+
+    @classmethod
+    def _encode_certificate_file(cls, uploaded_file: UploadedFile) -> str:
+        uploaded_file.seek(0)
+        raw_bytes = uploaded_file.read()
+        uploaded_file.seek(0)
+        if not raw_bytes:
+            return ""
+        return base64.b64encode(raw_bytes).decode()
+
+    def clean_certificado_arquivo(self) -> UploadedFile | None:
+        uploaded_file = self.cleaned_data.get("certificado_arquivo")
+        if uploaded_file is None:
+            return None
+
+        file_name = str(getattr(uploaded_file, "name", "") or "").lower()
+        if not file_name.endswith(self.allowed_certificate_extensions):
+            raise forms.ValidationError("Envie um arquivo de certificado no formato .pfx ou .p12.")
+
+        if int(getattr(uploaded_file, "size", 0) or 0) > self.max_certificate_size:
+            raise forms.ValidationError("O arquivo do certificado deve ter no maximo 5 MB.")
+
+        return uploaded_file
+
+    def clean(self) -> dict[str, Any]:
+        cleaned_data = super().clean()
+        uploaded_file = cleaned_data.get("certificado_arquivo")
+        has_existing_certificate = bool(str(getattr(self.instance, "certificado", "") or "").strip())
+
+        if uploaded_file is None and not has_existing_certificate:
+            self.add_error("certificado_arquivo", "Envie o arquivo do certificado A1 para continuar.")
+
+        return cleaned_data
+
+    def build_api_payload(self) -> dict[str, Any]:
+        payload = super().build_api_payload()
+        uploaded_certificate = self.cleaned_data.get("certificado_arquivo")
+        if isinstance(uploaded_certificate, UploadedFile):
+            encoded_certificate = self._encode_certificate_file(uploaded_certificate)
+            if encoded_certificate:
+                payload["certificado"] = encoded_certificate
+        return payload
+
+    def save(self, commit: bool = True) -> WebmaniaCompany:
+        instance = super().save(commit=False)
+
+        uploaded_certificate = self.cleaned_data.get("certificado_arquivo")
+        if isinstance(uploaded_certificate, UploadedFile):
+            encoded_certificate = self._encode_certificate_file(uploaded_certificate)
+            if encoded_certificate:
+                instance.certificado = encrypt_secret(encoded_certificate)
+
+        if commit:
+            instance.save()
+
+        return instance
+
+
+class WorkshopCertificateSectionForm(forms.ModelForm):
+    class Meta:
+        model = Workshop
+        fields = ["pfx_certificate", "certificate_password"]
+        widgets = {
+            "certificate_password": PasswordInput(render_value=True),
+        }

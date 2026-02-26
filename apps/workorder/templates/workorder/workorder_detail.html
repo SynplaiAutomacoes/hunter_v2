@@ -43,19 +43,99 @@
     <dialog id="form_modal" class="modal">
         <div id="modal-container"></div>
     </dialog>
+
+    <dialog id="item_form_modal" class="modal">
+        <div id="item-modal-container"></div>
+    </dialog>
 </div>
 
 <script>
-    document.body.addEventListener('workorderItemsUpdated', function () {
-        htmx.ajax('GET', '{% url "workorder:resume_section" workorder.pk %}', {
-            target: '#resume-section',
-            swap: 'innerHTML'
-        });
+    (function () {
+        const formModal = document.getElementById('form_modal');
+        const itemFormModal = document.getElementById('item_form_modal');
+        const itemModalContainer = document.getElementById('item-modal-container');
 
-        htmx.ajax('GET', '{% url "workorder:payment_section" workorder.pk %}', {
-            target: '#payment-section',
-            swap: 'innerHTML'
+        function clearItemModalContainer() {
+            if (!itemModalContainer) {
+                return;
+            }
+            itemModalContainer.innerHTML = '';
+        }
+
+        window.closeWorkorderItemModal = function () {
+            if (!itemFormModal) {
+                return;
+            }
+
+            if (itemFormModal.open) {
+                itemFormModal.close();
+            }
+
+            clearItemModalContainer();
+        };
+
+        if (itemFormModal && itemModalContainer) {
+            itemFormModal.addEventListener('close', clearItemModalContainer);
+
+            document.body.addEventListener('htmx:afterSwap', function (event) {
+                const target = event.detail ? event.detail.target : null;
+                if (!target || target.id !== 'item-modal-container') {
+                    return;
+                }
+
+                if (!itemFormModal.open) {
+                    itemFormModal.showModal();
+                }
+
+                const itemModalBox = itemModalContainer.querySelector('.wo-item-modal-box');
+                if (itemModalBox) {
+                    itemModalBox.classList.add('wo-item-modal-enter');
+                    requestAnimationFrame(() => itemModalBox.classList.remove('wo-item-modal-enter'));
+                }
+            });
+
+            document.body.addEventListener('workorderCloseItemModal', function () {
+                window.closeWorkorderItemModal();
+            });
+        }
+
+        if (formModal) {
+            formModal.addEventListener('close', function () {
+                window.closeWorkorderItemModal();
+            });
+        }
+
+        document.body.addEventListener('workorderItemsUpdated', function () {
+            htmx.ajax('GET', '{% url "workorder:resume_section" workorder.pk %}', {
+                target: '#resume-section',
+                swap: 'innerHTML'
+            });
+
+            htmx.ajax('GET', '{% url "workorder:payment_section" workorder.pk %}', {
+                target: '#payment-section',
+                swap: 'innerHTML'
+            });
         });
-    });
+    })();
 </script>
+
+<style>
+    #item_form_modal .wo-item-modal-box {
+        transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+    }
+
+    #item_form_modal .wo-item-modal-box.wo-item-modal-enter {
+        opacity: 0;
+        transform: translateY(8px) scale(0.98);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        #item_form_modal .wo-item-modal-box,
+        #item_form_modal .wo-item-modal-box.wo-item-modal-enter {
+            transition: none;
+            transform: none;
+            opacity: 1;
+        }
+    }
+</style>
 {% endblock %}
