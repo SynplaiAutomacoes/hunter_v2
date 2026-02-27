@@ -719,7 +719,9 @@ class BudgetStep3Form(forms.ModelForm):
                         }}
 
                         const checklistPrintUrl = checklistPdfBaseUrl + '?checklist=' + encodeURIComponent(checklistId) + '&autoprint=1';
-                        window.open(checklistPrintUrl, '_blank', 'noopener');
+                        window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ 
+                            detail: {{ url: checklistPrintUrl }} 
+                        }}));
                     }}
                      
                     document.body.addEventListener('collaboratorSaved', function(evt) {{
@@ -824,6 +826,33 @@ class BudgetStep3Form(forms.ModelForm):
                 ),
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
             ),
+            HTML("""
+                <dialog id="pdfModal" class="modal" x-data="{ pdfUrl: '' }" @open-pdf-modal.window="pdfUrl = $event.detail.url; $el.showModal()">
+                    <div class="modal-box max-w-5xl w-full h-[90vh] p-0 flex flex-col">
+                        <div class="flex items-center justify-between px-6 py-4 border-b bg-base-200">
+                            <h3 class="text-xl font-bold flex items-center gap-2">
+                                <span class="material-icons">description</span>
+                                Visualização do Checklist
+                            </h3>
+                            <div class="flex gap-2">
+                                <button type="button" class="btn btn-sm btn-success"
+                                    onclick="const frame = document.querySelector('#pdfModal iframe'); frame.contentWindow.focus(); frame.contentWindow.print();">
+                                    Baixar PDF
+                                </button>
+                                <button type="button" class="btn btn-sm" onclick="document.getElementById('pdfModal').close()">
+                                    Fechar
+                                </button>
+                            </div>
+                        </div>
+                        <div class="flex-1 bg-gray-100">
+                            <template x-if="pdfUrl">
+                                <iframe :src="pdfUrl" class="w-full h-full" frameborder="0"></iframe>
+                            </template>
+                        </div>
+                    </div>
+                    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+                </dialog>
+            """),
         )
         self.helper.layout.append(
             HTML(
@@ -2453,6 +2482,7 @@ class BudgetStep6Form(forms.ModelForm):
                     # -------- PDF (RESTORED 1:1) --------
                     Div(
                         HTML('<h4 class="font-bold text-lg mb-2 border-b">PDF</h4>'),
+
                         HTML(f"""
                         <div class="grid grid-cols-12 gap-3 text-center mb-8">
                             <button type="button" class="btn btn-success col-span-4"
@@ -2551,6 +2581,7 @@ class BudgetStep6Form(forms.ModelForm):
             # =========================
             # MODAL DE PDF (RESTAURADO)
             # =========================
+
             HTML("""
             <dialog id="pdfModal"
                     class="modal"
