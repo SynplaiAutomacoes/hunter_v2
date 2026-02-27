@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import logging
 from typing import Any
 
 from django.contrib import messages
@@ -25,6 +26,9 @@ from apps.finance.forms import (
 from apps.finance.models import NfseRequest
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
 from apps.workshops.mixin import WorkshopScopedMixin
+
+
+logger = logging.getLogger(__name__)
 
 
 class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
@@ -180,10 +184,24 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
 
     def _load_tax_classes(self) -> list[dict[str, object]]:
         try:
-            return list_tax_classes(workshop=self.workshop)
+            tax_classes = list_tax_classes(workshop=self.workshop)
         except TaxClassServiceError as exc:
+            logger.warning(
+                "tax_class_list_load_failed workshop_id=%s user_id=%s error=%s",
+                getattr(self.workshop, "pk", None),
+                getattr(self.request.user, "id", None),
+                str(exc),
+            )
             messages.error(self.request, str(exc))
             return []
+
+        logger.info(
+            "tax_class_list_loaded workshop_id=%s user_id=%s total=%s",
+            getattr(self.workshop, "pk", None),
+            getattr(self.request.user, "id", None),
+            len(tax_classes),
+        )
+        return tax_classes
 
     @staticmethod
     def _build_formset_initial(payload_items: object, *, fields: tuple[str, ...]) -> list[dict[str, object]]:
@@ -408,6 +426,14 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
         form_action = str(request.POST.get("form_action") or "save").strip().lower()
         selected_preset_key = str(request.POST.get("preset_key") or "").strip()
 
+        logger.info(
+            "tax_class_manager_post workshop_id=%s user_id=%s tab=%s action=%s",
+            getattr(self.workshop, "pk", None),
+            getattr(request.user, "id", None),
+            active_tab,
+            form_action,
+        )
+
         tax_classes = self._load_tax_classes()
         edit_reference = str(request.GET.get("edit") or request.POST.get("referencia") or "").strip()
         editing_tax_class = self._find_tax_class_by_reference(tax_classes, edit_reference)
@@ -415,6 +441,13 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
         if form_action == "apply_preset":
             preset_payload = self._get_preset_payload(tab=active_tab, preset_key=selected_preset_key)
             if preset_payload is None:
+                logger.warning(
+                    "tax_class_preset_invalid workshop_id=%s user_id=%s tab=%s preset=%s",
+                    getattr(self.workshop, "pk", None),
+                    getattr(request.user, "id", None),
+                    active_tab,
+                    selected_preset_key,
+                )
                 messages.error(request, "Selecione um preset válido para aplicar.")
                 if active_tab == self.TAB_NFE:
                     return self.render_to_response(
@@ -475,9 +508,24 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
                 try:
                     saved_tax_class = save_tax_class(workshop=self.workshop, payload=payload)
                 except TaxClassServiceError as exc:
+                    logger.warning(
+                        "tax_class_save_failed workshop_id=%s user_id=%s tab=%s reference=%s error=%s",
+                        getattr(self.workshop, "pk", None),
+                        getattr(request.user, "id", None),
+                        active_tab,
+                        str(payload.get("referencia") or ""),
+                        str(exc),
+                    )
                     messages.error(request, str(exc))
                 else:
                     reference = str(saved_tax_class.get("referencia") or payload.get("referencia") or "").strip()
+                    logger.info(
+                        "tax_class_save_succeeded workshop_id=%s user_id=%s tab=%s reference=%s",
+                        getattr(self.workshop, "pk", None),
+                        getattr(request.user, "id", None),
+                        active_tab,
+                        reference,
+                    )
                     if reference:
                         action_label = "atualizada" if is_update else "criada"
                         messages.success(request, f"Classe de imposto {reference} {action_label} com sucesso.")
@@ -509,9 +557,24 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
             try:
                 saved_tax_class = save_tax_class(workshop=self.workshop, payload=payload)
             except TaxClassServiceError as exc:
+                logger.warning(
+                    "tax_class_save_failed workshop_id=%s user_id=%s tab=%s reference=%s error=%s",
+                    getattr(self.workshop, "pk", None),
+                    getattr(request.user, "id", None),
+                    active_tab,
+                    str(payload.get("referencia") or ""),
+                    str(exc),
+                )
                 messages.error(request, str(exc))
             else:
                 reference = str(saved_tax_class.get("referencia") or payload.get("referencia") or "").strip()
+                logger.info(
+                    "tax_class_save_succeeded workshop_id=%s user_id=%s tab=%s reference=%s",
+                    getattr(self.workshop, "pk", None),
+                    getattr(request.user, "id", None),
+                    active_tab,
+                    reference,
+                )
                 if reference:
                     action_label = "atualizada" if is_update else "criada"
                     messages.success(request, f"Classe de imposto {reference} {action_label} com sucesso.")
@@ -555,6 +618,14 @@ class TaxClassListView(TaxClassManagerView):
         form_action = str(request.POST.get("form_action") or "").strip().lower()
         active_tab = self._normalize_tab(request.POST.get("tab") or request.GET.get("tab"))
 
+        logger.info(
+            "tax_class_list_post workshop_id=%s user_id=%s tab=%s action=%s",
+            getattr(self.workshop, "pk", None),
+            getattr(request.user, "id", None),
+            active_tab,
+            form_action,
+        )
+
         if form_action != "delete":
             messages.error(request, "Acao invalida para a listagem de classe de imposto.")
             return redirect(f"{reverse('finance:tax_class_list')}?tab={active_tab}")
@@ -567,8 +638,21 @@ class TaxClassListView(TaxClassManagerView):
         try:
             delete_tax_class(workshop=self.workshop, reference=reference)
         except TaxClassServiceError as exc:
+            logger.warning(
+                "tax_class_delete_failed workshop_id=%s user_id=%s reference=%s error=%s",
+                getattr(self.workshop, "pk", None),
+                getattr(request.user, "id", None),
+                reference,
+                str(exc),
+            )
             messages.error(request, str(exc))
         else:
+            logger.info(
+                "tax_class_delete_succeeded workshop_id=%s user_id=%s reference=%s",
+                getattr(self.workshop, "pk", None),
+                getattr(request.user, "id", None),
+                reference,
+            )
             messages.success(request, f"Classe de imposto {reference} excluida com sucesso.")
 
         return redirect(f"{reverse('finance:tax_class_list')}?tab={active_tab}")
@@ -588,6 +672,13 @@ class TaxClassFormBaseView(TaxClassManagerView):
         return reference, self._find_tax_class_by_reference(tax_classes, reference)
 
     def get(self, request: HttpRequest, *args: object, **kwargs: object) -> HttpResponse:
+        logger.info(
+            "tax_class_form_loaded workshop_id=%s user_id=%s is_update=%s reference=%s",
+            getattr(self.workshop, "pk", None),
+            getattr(request.user, "id", None),
+            self.is_update,
+            self._resolve_reference(),
+        )
         tax_classes = self._load_tax_classes()
         edit_reference, editing_tax_class = self._resolve_target(tax_classes)
         if self.is_update and editing_tax_class is None:
@@ -610,6 +701,15 @@ class TaxClassFormBaseView(TaxClassManagerView):
         active_tab = self._normalize_tab(request.POST.get("tab"))
         form_action = str(request.POST.get("form_action") or "save").strip().lower()
         selected_preset_key = str(request.POST.get("preset_key") or "").strip()
+
+        logger.info(
+            "tax_class_form_post workshop_id=%s user_id=%s is_update=%s tab=%s action=%s",
+            getattr(self.workshop, "pk", None),
+            getattr(request.user, "id", None),
+            self.is_update,
+            active_tab,
+            form_action,
+        )
 
         tax_classes = self._load_tax_classes()
         edit_reference, editing_tax_class = self._resolve_target(tax_classes)
@@ -669,9 +769,25 @@ class TaxClassFormBaseView(TaxClassManagerView):
                 try:
                     saved_tax_class = save_tax_class(workshop=self.workshop, payload=payload)
                 except TaxClassServiceError as exc:
+                    logger.warning(
+                        "tax_class_form_save_failed workshop_id=%s user_id=%s tab=%s reference=%s error=%s",
+                        getattr(self.workshop, "pk", None),
+                        getattr(request.user, "id", None),
+                        active_tab,
+                        str(payload.get("referencia") or ""),
+                        str(exc),
+                    )
                     messages.error(request, str(exc))
                 else:
                     reference = str(saved_tax_class.get("referencia") or payload.get("referencia") or "").strip()
+                    logger.info(
+                        "tax_class_form_save_succeeded workshop_id=%s user_id=%s tab=%s reference=%s is_update=%s",
+                        getattr(self.workshop, "pk", None),
+                        getattr(request.user, "id", None),
+                        active_tab,
+                        reference,
+                        is_update_action,
+                    )
                     action_label = "atualizada" if is_update_action else "criada"
                     if reference:
                         messages.success(request, f"Classe de imposto {reference} {action_label} com sucesso.")
@@ -702,9 +818,25 @@ class TaxClassFormBaseView(TaxClassManagerView):
             try:
                 saved_tax_class = save_tax_class(workshop=self.workshop, payload=payload)
             except TaxClassServiceError as exc:
+                logger.warning(
+                    "tax_class_form_save_failed workshop_id=%s user_id=%s tab=%s reference=%s error=%s",
+                    getattr(self.workshop, "pk", None),
+                    getattr(request.user, "id", None),
+                    active_tab,
+                    str(payload.get("referencia") or ""),
+                    str(exc),
+                )
                 messages.error(request, str(exc))
             else:
                 reference = str(saved_tax_class.get("referencia") or payload.get("referencia") or "").strip()
+                logger.info(
+                    "tax_class_form_save_succeeded workshop_id=%s user_id=%s tab=%s reference=%s is_update=%s",
+                    getattr(self.workshop, "pk", None),
+                    getattr(request.user, "id", None),
+                    active_tab,
+                    reference,
+                    is_update_action,
+                )
                 action_label = "atualizada" if is_update_action else "criada"
                 if reference:
                     messages.success(request, f"Classe de imposto {reference} {action_label} com sucesso.")

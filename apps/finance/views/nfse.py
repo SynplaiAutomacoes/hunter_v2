@@ -35,6 +35,12 @@ class NfseRequestListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        logger.info(
+            "nfse_list_loaded workshop_id=%s user_id=%s total_items=%s",
+            getattr(self.workshop, "pk", None),
+            getattr(self.request.user, "id", None),
+            len(context.get("object_list") or []),
+        )
         context["fields"] = [
             TableColumn("ID", attr="id"),
             TableColumn("Ordem de Serviço", attr="workorder"),
@@ -85,6 +91,12 @@ class NfseRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFo
         try:
             tax_classes = list_tax_classes(workshop=self.workshop, force_refresh=True)
         except TaxClassServiceError as exc:
+            logger.warning(
+                "nfse_tax_class_choices_load_failed workshop_id=%s user_id=%s error=%s",
+                getattr(self.workshop, "pk", None),
+                getattr(self.request.user, "id", None),
+                str(exc),
+            )
             messages.warning(self.request, f"Nao foi possivel carregar classes de imposto de NFS-e: {exc}")
             return []
 
@@ -112,6 +124,12 @@ class NfseRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFo
                 label = reference
             choices.append((reference, label))
 
+        logger.info(
+            "nfse_tax_class_choices_loaded workshop_id=%s user_id=%s total_choices=%s",
+            getattr(self.workshop, "pk", None),
+            getattr(self.request.user, "id", None),
+            len(choices),
+        )
         return choices
 
     def get_context_data(self, **kwargs):
@@ -129,6 +147,12 @@ class NfseRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFo
             self.object.set_status(NfseRequestStatus.CHECKING_SERVICES)
 
     def _finalize_emission(self) -> bool:
+        logger.info(
+            "nfse_finalize_started nfse_request_id=%s workshop_id=%s user_id=%s",
+            getattr(self.object, "pk", None),
+            getattr(self.workshop, "pk", None),
+            getattr(self.request.user, "id", None),
+        )
         try:
             response_payload = emit_nfse_request(nfse_request=self.object, request=self.request)
             sync_emission_response(nfse_request=self.object, response_payload=response_payload)
@@ -137,6 +161,13 @@ class NfseRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFo
                 self.object.set_status(NfseRequestStatus.PROCESSING)
 
             messages.success(self.request, "Solicitação de NFS-e enviada com sucesso.")
+            logger.info(
+                "nfse_finalize_succeeded nfse_request_id=%s workshop_id=%s user_id=%s status=%s",
+                getattr(self.object, "pk", None),
+                getattr(self.workshop, "pk", None),
+                getattr(self.request.user, "id", None),
+                str(getattr(self.object, "status", "")),
+            )
             return True
         except NfseEmissionError as exc:
             logger.exception("Falha ao emitir NFS-e", extra={"nfse_request_id": self.object.pk})
@@ -150,6 +181,15 @@ class NfseRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFo
         current_step = self.get_current_step()
         total_steps = len(self.get_steps_config())
 
+        logger.info(
+            "nfse_form_step_saved nfse_request_id=%s workshop_id=%s user_id=%s step=%s total_steps=%s",
+            getattr(self.object, "pk", None),
+            getattr(self.workshop, "pk", None),
+            getattr(self.request.user, "id", None),
+            current_step,
+            total_steps,
+        )
+
         self._update_request_status_by_step(current_step=current_step)
 
         next_step_value = min(current_step + 1, total_steps)
@@ -159,6 +199,12 @@ class NfseRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFo
 
         if current_step < total_steps:
             success_url = self._step_url(step=current_step + 1)
+            logger.info(
+                "nfse_form_next_step_redirect nfse_request_id=%s next_step=%s user_id=%s",
+                getattr(self.object, "pk", None),
+                current_step + 1,
+                getattr(self.request.user, "id", None),
+            )
             if self.request.htmx:
                 response = redirect(success_url)
                 response["HX-Push-Url"] = success_url
@@ -167,6 +213,12 @@ class NfseRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFo
 
         if not self._finalize_emission():
             step_url = self._step_url(step=current_step)
+            logger.warning(
+                "nfse_finalize_failed_redirect nfse_request_id=%s step=%s user_id=%s",
+                getattr(self.object, "pk", None),
+                current_step,
+                getattr(self.request.user, "id", None),
+            )
             if self.request.htmx:
                 response = HttpResponse()
                 response["HX-Redirect"] = step_url
@@ -174,6 +226,11 @@ class NfseRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFo
             return redirect(step_url)
 
         success_url = reverse("finance:nfse_list")
+        logger.info(
+            "nfse_flow_completed nfse_request_id=%s user_id=%s",
+            getattr(self.object, "pk", None),
+            getattr(self.request.user, "id", None),
+        )
         if self.request.htmx:
             response = HttpResponse()
             response["HX-Redirect"] = success_url
@@ -195,6 +252,12 @@ class NfseRequestUpdateView(NfseRequestCreateView):
     def dispatch(self, request, *args, **kwargs):
         self.workshop = get_active_workshop_or_404(request)
         if not self.model_instance:
+            logger.warning(
+                "nfse_update_missing_instance workshop_id=%s user_id=%s pk=%s",
+                getattr(self.workshop, "pk", None),
+                getattr(request.user, "id", None),
+                kwargs.get("pk"),
+            )
             return redirect("finance:nfse_list")
         return super().dispatch(request, *args, **kwargs)
 
@@ -215,3 +278,10 @@ class NfseRequestUpdateView(NfseRequestCreateView):
 
 class NfePlaceholderView(LoginRequiredMixin, TemplateView):
     template_name = "finance/nfe_placeholder.html"
+
+    def get(self, request, *args, **kwargs):
+        logger.info(
+            "nfe_placeholder_accessed user_id=%s",
+            getattr(request.user, "id", None),
+        )
+        return super().get(request, *args, **kwargs)

@@ -14,6 +14,7 @@ from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm
 from apps.finance.models import TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassSyncState, WebmaniaCompany
 from apps.finance.services.emission import NfseEmissionError, _build_taker_payload, build_webmania_webhook_token, emit_nfse_request
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
+from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers
 from apps.finance.services.webmania_b2b import (
     WebmaniaB2BServiceError,
     create_b2b_companies,
@@ -85,6 +86,89 @@ class WebmaniaErrorMessageTests(TestCase):
             extract_webmania_error_message(payload, scope="nfse"),
             "Configure a empresa na Webmania antes de emitir NFS-e.",
         )
+
+
+class WebmaniaAuthHeaderFallbackTests(TestCase):
+    @override_settings(
+        WEBMANIA_CONSUMER_KEY="ck_global_fallback",
+        WEBMANIA_CONSUMER_SECRET="cs_global_fallback",
+        WEBMANIA_ACCESS_TOKEN="at_global_fallback",
+        WEBMANIA_ACCESS_TOKEN_SECRET="ats_global_fallback",
+        WEBMANIA_API_KEY="ba_global_fallback",
+    )
+    def test_build_headers_falls_back_to_global_when_workshop_has_no_company(self) -> None:
+        workshop = create_workshop(suffix=60)
+
+        headers = build_webmania_headers(workshop=workshop)
+
+        self.assertEqual(headers.get("X-Consumer-Key"), "ck_global_fallback")
+        self.assertEqual(headers.get("X-Consumer-Secret"), "cs_global_fallback")
+        self.assertEqual(headers.get("X-Access-Token"), "at_global_fallback")
+        self.assertEqual(headers.get("X-Access-Token-Secret"), "ats_global_fallback")
+        self.assertEqual(headers.get("Authorization"), "Bearer ba_global_fallback")
+
+    @override_settings(
+        WEBMANIA_CONSUMER_KEY="ck_global_fallback",
+        WEBMANIA_CONSUMER_SECRET="cs_global_fallback",
+        WEBMANIA_ACCESS_TOKEN="at_global_fallback",
+        WEBMANIA_ACCESS_TOKEN_SECRET="ats_global_fallback",
+        WEBMANIA_API_KEY="ba_global_fallback",
+    )
+    def test_build_headers_falls_back_to_global_when_company_credentials_are_incomplete(self) -> None:
+        workshop = create_workshop(suffix=61)
+        WebmaniaCompany.objects.create(
+            workshop=workshop,
+            webmania_company_id="FALLBACK-001",
+            consumer_key=encrypt_secret("ck_local_only"),
+        )
+
+        headers = build_webmania_headers(workshop=workshop)
+
+        self.assertEqual(headers.get("X-Consumer-Key"), "ck_global_fallback")
+        self.assertEqual(headers.get("X-Consumer-Secret"), "cs_global_fallback")
+        self.assertEqual(headers.get("X-Access-Token"), "at_global_fallback")
+        self.assertEqual(headers.get("X-Access-Token-Secret"), "ats_global_fallback")
+        self.assertEqual(headers.get("Authorization"), "Bearer ba_global_fallback")
+
+    @override_settings(
+        WEBMANIA_CONSUMER_KEY="ck_global",
+        WEBMANIA_CONSUMER_SECRET="cs_global",
+        WEBMANIA_ACCESS_TOKEN="at_global",
+        WEBMANIA_ACCESS_TOKEN_SECRET="ats_global",
+        WEBMANIA_API_KEY="ba_global",
+    )
+    def test_build_headers_prefers_company_credentials_when_complete(self) -> None:
+        workshop = create_workshop(suffix=62)
+        WebmaniaCompany.objects.create(
+            workshop=workshop,
+            webmania_company_id="LOCAL-001",
+            consumer_key=encrypt_secret("ck_local"),
+            consumer_secret=encrypt_secret("cs_local"),
+            access_token=encrypt_secret("at_local"),
+            access_token_secret=encrypt_secret("ats_local"),
+            bearer_access_token=encrypt_secret("ba_local"),
+        )
+
+        headers = build_webmania_headers(workshop=workshop)
+
+        self.assertEqual(headers.get("X-Consumer-Key"), "ck_local")
+        self.assertEqual(headers.get("X-Consumer-Secret"), "cs_local")
+        self.assertEqual(headers.get("X-Access-Token"), "at_local")
+        self.assertEqual(headers.get("X-Access-Token-Secret"), "ats_local")
+        self.assertEqual(headers.get("Authorization"), "Bearer ba_local")
+
+    @override_settings(
+        WEBMANIA_CONSUMER_KEY="",
+        WEBMANIA_CONSUMER_SECRET="",
+        WEBMANIA_ACCESS_TOKEN="",
+        WEBMANIA_ACCESS_TOKEN_SECRET="",
+        WEBMANIA_API_KEY="",
+    )
+    def test_build_headers_raises_when_no_local_or_global_credentials(self) -> None:
+        workshop = create_workshop(suffix=63)
+
+        with self.assertRaisesMessage(WebmaniaAuthError, "Configure as credenciais da Webmania no ambiente"):
+            build_webmania_headers(workshop=workshop)
 
 
 class TaxClassServiceTests(TestCase):

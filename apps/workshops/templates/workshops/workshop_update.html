@@ -189,72 +189,51 @@
                 <form method="post" enctype="multipart/form-data" class="rounded-xl border border-base-300 p-4">
                     {% csrf_token %}
                     <input type="hidden" name="tab" value="certificado">
-                    <input type="hidden" name="certificate_scope" value="webmania">
                     <input type="hidden" name="nf_tab" :value="nfTab">
 
                     <div class="alert alert-info mb-4 text-sm">
-                        <span>Certificado A1 da integracao fiscal.</span>
+                        <span>Este certificado sera usado em todas as operacoes fiscais da oficina.</span>
                     </div>
 
-                    {% if certificate_webmania_form.non_field_errors %}
+                    {% if certificate_form.non_field_errors %}
                         <div class="alert alert-error mb-4">
-                            {% for error in certificate_webmania_form.non_field_errors %}
+                            {% for error in certificate_form.non_field_errors %}
                                 <span>{{ error }}</span>
                             {% endfor %}
                         </div>
                     {% endif %}
 
-                    <div class="mb-5 rounded-lg border border-success/30 bg-success/10 p-4">
-                        <p class="font-semibold text-success">{{ webmania_certificate_status.label }}</p>
-                        <p class="text-sm text-base-content/80 mt-1">{{ webmania_certificate_status.description }}</p>
+                    <div class="mb-5 rounded-lg border p-4 {% if workshop.pfx_certificate and workshop.certificate_password %}border-success/30 bg-success/10{% elif workshop.pfx_certificate or workshop.certificate_password %}border-warning/30 bg-warning/10{% else %}border-base-300 bg-base-200/60{% endif %}">
+                        <p class="font-semibold {% if workshop.pfx_certificate and workshop.certificate_password %}text-success{% elif workshop.pfx_certificate or workshop.certificate_password %}text-warning{% else %}text-base-content{% endif %}">{{ certificate_status.label }}</p>
+                        <p class="text-sm text-base-content/80 mt-1">{{ certificate_status.description }}</p>
                     </div>
 
-                    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
-                        <div class="col-span-12">{{ certificate_webmania_form.certificado_arquivo|as_crispy_field }}</div>
-                        <div class="col-span-12 lg:col-span-6">{{ certificate_webmania_form.certificado_senha|as_crispy_field }}</div>
-                    </div>
-
-                    <div class="divider"></div>
-                    <div class="flex items-center justify-end gap-2">
-                        {% if can_change_webmania_company %}
-                            <button type="submit" class="btn-form-save">Salvar certificado da integracao</button>
-                        {% else %}
-                            <span class="text-sm text-warning">Voce nao possui permissao para alterar certificado da integracao desta oficina.</span>
-                        {% endif %}
-                    </div>
-                </form>
-
-                <form method="post" enctype="multipart/form-data" class="rounded-xl border border-base-300 p-4">
-                    {% csrf_token %}
-                    <input type="hidden" name="tab" value="certificado">
-                    <input type="hidden" name="certificate_scope" value="sefaz">
-                    <input type="hidden" name="nf_tab" :value="nfTab">
-
-                    <div class="alert alert-info mb-4 text-sm">
-                        <span>Certificado especifico da SEFAZ utilizado no modulo de estoque/importacao.</span>
-                    </div>
-
-                    {% if certificate_sefaz_form.non_field_errors %}
-                        <div class="alert alert-error mb-4">
-                            {% for error in certificate_sefaz_form.non_field_errors %}
-                                <span>{{ error }}</span>
-                            {% endfor %}
+                    {% if workshop.pfx_certificate %}
+                        <div class="mb-4 rounded-lg border border-base-300 bg-base-200/70 p-4">
+                            <p class="text-xs uppercase tracking-wide text-base-content/60">Arquivo atual do certificado</p>
+                            <p class="font-mono text-sm break-all mt-1">{{ workshop.pfx_certificate.name }}</p>
+                            <p class="text-xs text-base-content/70 mt-2">Para substituir, selecione um novo arquivo e clique em salvar.</p>
+                        </div>
+                    {% else %}
+                        <div class="mb-4 rounded-lg border border-dashed border-base-300 bg-base-200/50 p-4 text-sm text-base-content/70">
+                            Nenhum arquivo de certificado foi enviado ainda. Selecione um arquivo .pfx ou .p12 para continuar.
                         </div>
                     {% endif %}
 
-                    <div class="mb-5 rounded-lg border border-success/30 bg-success/10 p-4">
-                        <p class="font-semibold text-success">{{ sefaz_certificate_status.label }}</p>
-                        <p class="text-sm text-base-content/80 mt-1">{{ sefaz_certificate_status.description }}</p>
-                    </div>
-
                     <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
-                        <div class="col-span-12 lg:col-span-6">{{ certificate_sefaz_form.pfx_certificate|as_crispy_field }}</div>
-                        <div class="col-span-12 lg:col-span-6">{{ certificate_sefaz_form.certificate_password|as_crispy_field }}</div>
+                        <div class="col-span-12 lg:col-span-6">
+                            {{ certificate_form.pfx_certificate|as_crispy_field }}
+                            <p class="text-xs text-base-content/60 mt-1">Formatos aceitos: .pfx e .p12.</p>
+                        </div>
+                        <div class="col-span-12 lg:col-span-6">
+                            {{ certificate_form.certificate_password|as_crispy_field }}
+                            <p class="text-xs text-base-content/60 mt-1">A senha e obrigatoria para uso do certificado na emissao fiscal.</p>
+                        </div>
                     </div>
 
                     <div class="divider"></div>
                     <div class="flex items-center justify-end gap-2">
-                        <button type="submit" class="btn-form-save">Salvar certificado SEFAZ</button>
+                        <button type="submit" class="btn-form-save">Salvar certificados</button>
                     </div>
                 </form>
             </div>
