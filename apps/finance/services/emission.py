@@ -16,6 +16,7 @@ from django.urls import reverse
 
 from apps.finance.models import NfseBatch, NfseItem, NfseRequest
 from apps.finance.services.mappers import extract_items_from_batch, map_batch_payload, map_item_payload
+from apps.finance.services.pricing import build_slider_allocation_for_workorder
 from apps.finance.services.webmania_auth import (
     WebmaniaAuthError,
     build_webmania_headers,
@@ -323,10 +324,11 @@ def _default_service_description(nfse_request: NfseRequest) -> str:
 
 
 def _service_total_value(nfse_request: NfseRequest) -> str:
-    amount = Decimal(nfse_request.workorder.budget.total_services_value.amount).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    allocation = build_slider_allocation_for_workorder(workorder=nfse_request.workorder)
+    amount = allocation.services_target.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     if amount <= 0:
-        raise NfseEmissionError("A OS selecionada não possui valor de serviços para emissão de NFS-e.")
+        raise NfseEmissionError("A OS selecionada nao possui saldo de servicos para emissao de NFS-e com a configuracao atual do slider.")
 
     return str(amount)
 

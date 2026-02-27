@@ -372,9 +372,77 @@ class ImportStepPaymentForm(forms.ModelForm):
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
+            HTML(f"""
+            <script>
+                document.addEventListener('DOMContentLoaded', function() {{
+                    const checkPaymentLimit = () => {{
+                        const firstAmountHidden = document.getElementById('id_first_amount_0');
+                        const installmentsInput = document.getElementById('id_installments_count');
+                        
+                        const pendingValue = parseFloat("{str(valor_pendente).replace(',', '.')}") || 0;
+
+                        const btnAdd = document.querySelector('button[hx-post*="add_payment_session"]');
+                        const warningDiv = document.getElementById('payment-warning-js');
+
+                        if (!firstAmountHidden || !installmentsInput || !btnAdd) return;
+                        
+                        const unitAmount = parseFloat(firstAmountHidden.value) || 0;
+                        const qtyInstallments = parseInt(installmentsInput.value) || 1;
+                        const totalProposed = unitAmount * qtyInstallments;
+
+                        if (totalProposed > pendingValue) {{
+                            btnAdd.disabled = true;
+                            btnAdd.classList.add('btn-disabled', 'opacity-50');
+                            if (warningDiv) {{
+                                warningDiv.classList.remove('hidden');
+                                warningDiv.querySelector('.excess-amount').innerText =
+                                    "R$ " + (totalProposed - pendingValue).toLocaleString('pt-BR', {{minimumFractionDigits: 2}});
+                            }}
+                        }} else {{
+                            btnAdd.disabled = false;
+                            btnAdd.classList.remove('btn-disabled', 'opacity-50');
+                            if (warningDiv) warningDiv.classList.add('hidden');
+                        }}
+                    }};
+
+                    document.addEventListener('focusout', function(e) {{
+                        const target = e.target;
+
+                        if (target.id === 'id_first_amount_0_display') {{
+                            checkPaymentLimit();
+                        }}
+
+                        const instHidden = document.getElementById('id_installments_count');
+                        if (instHidden) {{
+                            const container = instHidden.closest('[x-data]');
+                            if (container && container.contains(target)) {{
+                                setTimeout(checkPaymentLimit, 50);
+                            }}
+                        }}
+                    }});
+
+                    setTimeout(checkPaymentLimit, 500);
+                }});
+            </script>
+            """),
             Div(
                 HTML('<h3 class="font-bold text-2xl pb-2 mb-2">Configuração das Formas de Pagamento</h3>'),
                 HTML('<h5 class="text-lg pb-2 mb-4">Adicione, edite e salve múltiplos planos de pagamentos para esta importação.</h5>'),
+                #
+                HTML(f"""
+                    <div id="payment-warning-js" class="hidden col-span-12 mb-4">
+                        <div class="alert alert-error shadow-lg border-2 border-error">
+                            <span class="material-icons">error_outline</span>
+                            <div>
+                                <h3 class="font-bold text-sm">Valor Não Permitido</h3>
+                                <div class="text-xs">
+                                    O valor excede o saldo disponível de <strong>R$ {valor_pendente:,.2f}</strong>. 
+                                    Excesso de <strong class="excess-amount"></strong>.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                """),
                 #
                 Div(Field("total_nf_display", wrapper_class="col-span-12 lg:col-span-4"), Field("total_allocated_display", wrapper_class="col-span-12 lg:col-span-4"), Field("pending_display", wrapper_class="col-span-12 lg:col-span-4"), css_class="grid grid-cols-12 gap-4 mb-2 pb-4 border-b-2 border-base-50"),
                 #

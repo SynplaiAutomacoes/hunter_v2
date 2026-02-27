@@ -373,6 +373,14 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
             installments = Decimal(installments_str)
             total_paid = first_amount * installments
 
+            valor_total_nf = sum(Decimal(str(item.get("valor", 0))) * Decimal(str(item.get("qtd", 0))) for item in obj.items_data)
+            valor_ja_pago = sum(Decimal(str(p.get("total_paid", 0))) for p in obj.payments_data)
+            valor_disponivel = valor_total_nf - valor_ja_pago
+
+            if total_paid > valor_disponivel:
+                messages.error(request, f"O valor informado (R$ {total_paid}) excede o saldo pendente (R$ {valor_disponivel}).")
+                return HttpResponse(headers={"HX-Refresh": "true"})
+
             payments = obj.payments_data
             new_payment = {
                 "id": len(payments) + 1,

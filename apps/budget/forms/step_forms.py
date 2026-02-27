@@ -791,8 +791,10 @@ class BudgetStep3Form(forms.ModelForm):
                             return;
                         }}
 
-                        const checklistPrintUrl = checklistPdfBaseUrl + '?checklist=' + encodeURIComponent(checklistId) + '&autoprint=1';
-                        window.open(checklistPrintUrl, '_blank', 'noopener');
+                        const checklistPrintUrl = checklistPdfBaseUrl + '?checklist=' + encodeURIComponent(checklistId);
+                        window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ 
+                            detail: {{ url: checklistPrintUrl }} 
+                        }}));
                     }}
                      
                     document.body.addEventListener('collaboratorSaved', function(evt) {{
@@ -897,6 +899,33 @@ class BudgetStep3Form(forms.ModelForm):
                 ),
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
             ),
+            HTML("""
+                <dialog id="pdfModal" class="modal" x-data="{ pdfUrl: '' }" @open-pdf-modal.window="pdfUrl = $event.detail.url; $el.showModal()">
+                    <div class="modal-box max-w-5xl w-full h-[90vh] p-0 flex flex-col">
+                        <div class="flex items-center justify-between px-6 py-4 border-b bg-base-200">
+                            <h3 class="text-xl font-bold flex items-center gap-2">
+                                <span class="material-icons">description</span>
+                                Visualização do Checklist
+                            </h3>
+                            <div class="flex gap-2">
+                                <button type="button" class="btn btn-sm btn-success"
+                                    onclick="const frame = document.querySelector('#pdfModal iframe'); frame.contentWindow.focus(); frame.contentWindow.print();">
+                                    Baixar PDF
+                                </button>
+                                <button type="button" class="btn btn-sm" onclick="document.getElementById('pdfModal').close()">
+                                    Fechar
+                                </button>
+                            </div>
+                        </div>
+                        <div class="flex-1 bg-gray-100">
+                            <template x-if="pdfUrl">
+                                <iframe :src="pdfUrl" class="w-full h-full" frameborder="0"></iframe>
+                            </template>
+                        </div>
+                    </div>
+                    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+                </dialog>
+            """),
         )
         self.helper.layout.append(
             HTML(
@@ -1926,13 +1955,13 @@ class BudgetStep5Form(forms.ModelForm):
 
         zerado = Money(0, "BRL")
 
-        # Custos
-        custo_pecas = dados.get("custo_pecas") or zerado
-        custo_frete_pecas = dados.get("custo_frete_pecas") or zerado
-        custo_servico_terceiros = dados.get("custo_servico_terceiro") or zerado
+        # Custos baseados sempre nos itens do orçamento
+        custo_pecas = budget.total_costs_products_value
+        custo_frete_pecas = budget.total_products_shipping
+        custo_servico_terceiros = budget.total_third_party_services_cost
         custo_hora_mecanico = dados.get("custo_hora_mecanico") or zerado
 
-        duracao_total = dados.get("duracao_total") or "00h 00m"
+        duracao_total = budget.total_duration_display
 
         def parse_duracao_em_horas(duracao):
             try:
@@ -1944,14 +1973,13 @@ class BudgetStep5Form(forms.ModelForm):
         duracao_em_horas = parse_duracao_em_horas(duracao_total)
         custo_total_mao_obra = custo_hora_mecanico * duracao_em_horas
 
-        # Valores Venda
-        venda_pecas = dados.get("venda_pecas") or zerado
-        venda_servico_terceiros = dados.get("venda_servico_terceiro") or zerado
-        venda_mao_obra = dados.get("venda_mao_obra") or zerado
+        # Valores de venda baseados sempre nos itens do orçamento
+        venda_servico_terceiros = budget.total_third_party_services_selling
+        venda_pecas = budget.total_products_value - custo_frete_pecas
+        venda_mao_obra = budget.total_services_value - venda_servico_terceiros
 
         # Extra
         metodo_precificacao = dados.get("method_name") or ""
-        duracao_total = dados.get("duracao_total") or "00h 00m"
         lucro_operacional = dados.get("lucro_operacional") or zerado
         rentabilidade = dados.get("rentabilidade") or 0
 
@@ -2789,6 +2817,7 @@ class BudgetStep6Form(forms.ModelForm):
                     # -------- PDF (RESTORED 1:1) --------
                     Div(
                         HTML('<h4 class="font-bold text-lg mb-2 border-b">PDF</h4>'),
+
                         HTML(f"""
                         <div class="grid grid-cols-12 gap-3 text-center mb-8">
                             <button type="button" class="btn btn-success col-span-4"
@@ -2887,6 +2916,7 @@ class BudgetStep6Form(forms.ModelForm):
             # =========================
             # MODAL DE PDF (RESTAURADO)
             # =========================
+
             HTML("""
             <dialog id="pdfModal"
                     class="modal"

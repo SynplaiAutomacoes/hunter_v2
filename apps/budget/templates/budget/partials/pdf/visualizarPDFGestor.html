@@ -63,67 +63,67 @@
             <p><span class="text-gray-500 italic">Observações da Oficina:</span> {{ budget.technical_diagnosis|default:"Não informado." }}</p>
         </div>
 
-        <div class="p-4 border-b border-gray-200">
-            <h4 class="font-bold mb-2 uppercase">Produtos</h4>
-            <table class="w-full text-left border-collapse text-[11px] mt-2">
+        <div class="p-3 border-b border-gray-200">
+            <h4 class="font-bold mb-1 uppercase">Produtos</h4>
+            <table class="w-full text-left border-collapse text-[10px] mt-1 leading-tight">
                 <thead>
                     <tr class="bg-gray-100 border-b-2 border-gray-200">
-                        <th class="p-2 font-semibold">Descrição</th>
-                        <th class="p-2 font-semibold text-center">Quantidade</th>
-                        <th class="p-2 font-semibold text-right">Valor Unitário</th>
-                        <th class="p-2 font-semibold text-right">Frete</th>
-                        <th class="p-2 font-semibold text-right">Total</th>
-                        <th class="p-2 font-semibold text-right">Custo</th>
-                        <th class="p-2 font-semibold text-right">Lucro</th>
+                        <th class="p-1 font-semibold">Descrição</th>
+                        <th class="p-1 font-semibold text-center">Quantidade</th>
+                        <th class="p-1 font-semibold text-right">Valor Unitário</th>
+                        <th class="p-1 font-semibold text-right">Frete</th>
+                        <th class="p-1 font-semibold text-right">Total</th>
+                        <th class="p-1 font-semibold text-right">Custo</th>
+                        <th class="p-1 font-semibold text-right">Lucro</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for p in produtos %}
                     <tr class="border-b border-gray-100">
-                        <td class="p-2">{{ p.description }}</td>
-                        <td class="p-2 text-center">{{ p.quantity }}</td>
-                        <td class="p-2 text-right">{{ p.unit_price }}</td>
-                        <td class="p-2 text-right">{{ p.shipping }}</td>
-                        <td class="p-2 text-right font-medium">{{ p.product_selling_price }}</td>
-                        <td class="p-2 text-right font-bold">{{ p.product_cost_price }}</td>
-                        <td class="p-2 text-right font-bold">{{ p.profit_value }}</td>
+                        <td class="p-1">{{ p.description }}</td>
+                        <td class="p-1 text-center">{{ p.quantity }}</td>
+                        <td class="p-1 text-right">{{ p.unit_price }}</td>
+                        <td class="p-1 text-right">{{ p.shipping }}</td>
+                        <td class="p-1 text-right font-medium">{{ p.product_selling_price }}</td>
+                        <td class="p-1 text-right font-bold">{{ p.product_cost_price }}</td>
+                        <td class="p-1 text-right font-bold">{{ p.profit_value }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
-            <div class="flex justify-end gap-6 mt-2 text-[12px] font-semibold">
+            <div class="flex justify-end gap-4 mt-1 text-[11px] font-semibold">
                 <div class="font-bold">Total Custos: {{ budget.total_costs_products_value }}</div>
                 <div class="font-bold">Total Lucro: {{ total_profit_product_value }}</div>
             </div>
         </div>
 
-        <div class="p-4 border-b border-gray-200">
-            <h4 class="font-bold mb-2 uppercase">Serviços</h4>
-            <table class="w-full text-left border-collapse text-[11px] mt-2">
+        <div class="p-3 border-b border-gray-200">
+            <h4 class="font-bold mb-1 uppercase">Serviços</h4>
+            <table class="w-full text-left border-collapse text-[10px] mt-1 leading-tight">
                 <thead>
                     <tr class="bg-gray-100 border-b-2 border-gray-200">
-                        <th class="p-2 font-semibold">Descrição</th>
-                        <th class="p-2 font-semibold text-center">Quantidade</th>
-                        <th class="p-2 font-semibold text-right">Valor Unitário</th>
-                        <th class="p-2 font-semibold text-right">Valor Total</th>
-                        <th class="p-2 font-semibold text-right">Custo</th>
-                        <th class="p-2 font-semibold text-right">Lucro</th>
+                        <th class="p-1 font-semibold">Descrição</th>
+                        <th class="p-1 font-semibold text-center">Quantidade</th>
+                        <th class="p-1 font-semibold text-right">Valor Unitário</th>
+                        <th class="p-1 font-semibold text-right">Valor Total</th>
+                        <th class="p-1 font-semibold text-right">Custo</th>
+                        <th class="p-1 font-semibold text-right">Lucro</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for s in servicos %}
                     <tr class="border-b border-gray-100">
-                        <td class="p-2">{{ s.description }}</td>
-                        <td class="p-2 text-center">{{ s.quantity }}</td>
-                        <td class="p-2 text-right">{{ s.unit_price }}</td>
-                        <td class="p-2 text-right">{{ s.total_price }}</td>
-                        <td class="p-2 text-right font-bold">{{ s.service_cost_price }}</td>
-                        <td class="p-2 text-right font-bold">{{ s.profit_value }}</td>
+                        <td class="p-1">{{ s.description }}</td>
+                        <td class="p-1 text-center">{{ s.quantity }}</td>
+                        <td class="p-1 text-right">{{ s.unit_price }}</td>
+                        <td class="p-1 text-right">{{ s.total_price }}</td>
+                        <td class="p-1 text-right font-bold">{{ s.service_cost_price }}</td>
+                        <td class="p-1 text-right font-bold">{{ s.profit_value }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
-            <div class="flex justify-end gap-6 mt-2 text-[12px] font-semibold">
+            <div class="flex justify-end gap-4 mt-1 text-[11px] font-semibold">
                 <div class="font-bold">Total Custos: {{ budget.total_costs_services_value }}</div>
                 <div class="font-bold">Total Lucro: {{ total_profit_service_value }}</div>
             </div>

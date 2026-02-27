@@ -1,6 +1,7 @@
 from django import forms
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, Submit, HTML
+from django.core.exceptions import ValidationError
 from django.urls import reverse
 from djmoney.forms import MoneyField
 from djmoney.money import Money
@@ -28,55 +29,116 @@ class WorkOrderPaymentForm(forms.ModelForm):
         self.workorder = kwargs.pop("workorder", None)
         super().__init__(*args, **kwargs)
 
-        self.fields["remaining_installments_amount"].required = False
+        total_os = self.workorder.total_budget_value.amount if self.workorder else 0
+        pago = sum(p.total_paid.amount for p in self.workorder.payments.all()) if self.workorder else 0
+        valor_pendente = total_os - pago
 
         for field in ["total_value", "paid_value", "pending_value"]:
             self.fields[field].widget.attrs.update({"readonly": True, "class": "cursor-not-allowed"})
 
         if self.workorder:
-            total = self.workorder.total_budget_value
-            pago = Money(sum(p.total_paid.amount for p in self.workorder.payments.all()), "BRL")
-
-            self.fields["total_value"].initial = total
-            self.fields["paid_value"].initial = pago
-            self.fields["pending_value"].initial = total - pago
+            self.initial["total_value"] = Money(total_os, "BRL")
+            self.initial["paid_value"] = Money(pago, "BRL")
+            self.initial["pending_value"] = Money(valor_pendente, "BRL")
 
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
-            # Resumo Financeiro
-            Div(Field("total_value", wrapper_class="col-span-12 lg:col-span-4"), Field("paid_value", wrapper_class="col-span-12 lg:col-span-4"), Field("pending_value", wrapper_class="col-span-12 lg:col-span-4"), css_class="grid grid-cols-12 gap-4 mb-2 pb-4"),
-            # Input de Dados
+            HTML(f"""
+            <script>
+                document.addEventListener('DOMContentLoaded', function() {{
+                    const checkWorkOrderLimit = () => {{
+                        const firstAmountInput = document.getElementById('id_first_installment_amount_0');
+                        const remainingAmountInput = document.getElementById('id_remaining_installments_amount_0');
+                        const installmentsInput = document.getElementById('id_installments_count');
+
+                        const pendingValue = parseFloat("{str(valor_pendente).replace(",", ".")}") || 0;
+                        const btnSave = document.querySelector('.btn-form-save');
+                        const warningDiv = document.getElementById('payment-warning-workorder-js');
+
+                        if (!firstAmountInput || !installmentsInput || !btnSave) return;
+
+                        const firstAmt = parseFloat(firstAmountInput.value) || 0;
+                        const remainingAmt = parseFloat(remainingAmountInput ? remainingAmountInput.value : 0) || 0;
+                        const qty = parseInt(installmentsInput.value) || 1;
+
+                        const totalProposed = firstAmt + (remainingAmt * (qty - 1));
+
+                        if (totalProposed > (pendingValue + 0.01)) {{
+                            btnSave.disabled = true;
+                            btnSave.classList.add('btn-disabled', 'opacity-50');
+                            if (warningDiv) {{
+                                warningDiv.classList.remove('hidden');
+                                const excess = totalProposed - pendingValue;
+                                warningDiv.querySelector('.excess-amount').innerText = 
+                                    "R$ " + excess.toLocaleString('pt-BR', {{minimumFractionDigits: 2, maximumFractionDigits: 2}});
+                            }}
+                        }} else {{
+                            btnSave.disabled = false;
+                            btnSave.classList.remove('btn-disabled', 'opacity-50');
+                            if (warningDiv) warningDiv.classList.add('hidden');
+                        }}
+                    }};
+
+                    document.addEventListener('focusout', function(e) {{
+                        const ids = ['id_first_installment_amount_0', 'id_remaining_installments_amount_0', 'id_installments_count'];
+                        if (ids.some(id => e.target.id.includes(id) || e.target.id === id + '_display')) {{
+                            setTimeout(checkWorkOrderLimit, 50);
+                        }}
+                    }});
+
+                    setTimeout(checkWorkOrderLimit, 500);
+                }});
+            </script>
+            """),
+            HTML(f"""
+                <div id="payment-warning-workorder-js" class="hidden col-span-12 mb-4">
+                    <div class="alert alert-error shadow-lg border-2 border-error">
+                        <span class="material-icons">error_outline</span>
+                        <div>
+                            <h3 class="font-bold text-sm">Valor Não Permitido</h3>
+                            <div class="text-xs">
+                                O valor excede o saldo disponível de <strong>R$ {valor_pendente:,.2f}</strong>. 
+                                Excesso de <strong class="excess-amount"></strong>.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            """),
+            Div(Field("total_value", wrapper_class="col-span-12 lg:col-span-4"), Field("paid_value", wrapper_class="col-span-12 lg:col-span-4"), Field("pending_value", wrapper_class="col-span-12 lg:col-span-4"), css_class="grid grid-cols-12 gap-4 mb-2 pb-4 border-b-2 border-base-50"),
             Div(
                 Field("payment_method", wrapper_class="col-span-12 lg:col-span-3"),
                 Field("installments_count", wrapper_class="col-span-12 lg:col-span-3"),
                 Field("first_installment_amount", wrapper_class="col-span-12 lg:col-span-3"),
                 Field("remaining_installments_amount", wrapper_class="col-span-12 lg:col-span-3"),
-                css_class="grid grid-cols-12 gap-4 mb-2 pb-4",
+                css_class="grid grid-cols-12 gap-4 mb-2 mt-4",
             ),
-            Div(Submit("submit", "Salvar Plano de Pagamento", css_class="btn-form-save"), css_class="flex justify-end mt-4"),
+            Div(
+                Submit("submit", "Salvar Plano de Pagamento", css_class="btn-form-save btn-primary"),
+                css_class="flex justify-end mt-4"
+            ),
         )
 
     def clean(self):
-        cleaned_data = super().clean() or {}
-
+        cleaned_data = super().clean()
         if not self.workorder:
             return cleaned_data
 
-        installments_count = cleaned_data.get("installments_count")
-        first_installment_amount = cleaned_data.get("first_installment_amount")
-        remaining_installments_amount = cleaned_data.get("remaining_installments_amount") or Money(0, "BRL")
+        first_amount = cleaned_data.get("first_installment_amount")
+        remaining_amount = cleaned_data.get("remaining_installments_amount") or 0
+        installments = cleaned_data.get("installments_count") or 1
 
-        if not installments_count or first_installment_amount is None:
-            return cleaned_data
+        total_proposed = first_amount.amount + ((installments - 1) * remaining_amount.amount)
 
-        total = self.workorder.total_budget_value
-        paid = Money(sum(payment.total_paid.amount for payment in self.workorder.payments.all()), "BRL")
-        pending = total - paid
+        total_os = self.workorder.total_budget_value.amount
+        ja_pago = sum(p.total_paid.amount for p in self.workorder.payments.all())
+        saldo_disponivel = total_os - ja_pago
 
-        plan_total = first_installment_amount + ((installments_count - 1) * remaining_installments_amount)
-        if plan_total > pending:
-            self.add_error(None, "O valor do plano de pagamento não pode ultrapassar o valor pendente da OS.")
+        if total_proposed > saldo_disponivel:
+            raise ValidationError(
+                f"O valor total deste pagamento (R$ {total_proposed:,.2f}) "
+                f"excede o saldo pendente da O.S. (R$ {saldo_disponivel:,.2f})."
+            )
 
         return cleaned_data
 

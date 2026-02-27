@@ -44,6 +44,27 @@ class NfseRequestStatus(models.TextChoices):
     CONTINGENCY = "contingency", "Contingência"
 
 
+class NfeItemStatus(models.TextChoices):
+    processando = "processando"
+    aprovado = "aprovado"
+    reprovado = "reprovado"
+    cancelado = "cancelado"
+    denegado = "denegado"
+    contingencia = "contingencia"
+
+
+class NfeRequestStatus(models.TextChoices):
+    WAITING_WO = "waiting_wo", "Aguardando Ordem de Serviço"
+    CHECKING_CLIENT = "checking_client", "Verificando Cliente"
+    CHECKING_PRODUCTS = "checking_products", "Verificando Produtos"
+    PROCESSING = "processing", "Processando"
+    APPROVED = "approved", "Aprovado"
+    REPROVED = "reproved", "Reprovado"
+    DENIED = "denied", "Denegado"
+    CANCELED = "canceled", "Cancelado"
+    CONTINGENCY = "contingency", "Contingência"
+
+
 class TaxClassNfe(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="tax_classes_nfe")
     reference = models.CharField(verbose_name="Referência", max_length=30)
@@ -362,6 +383,69 @@ class NfseRequest(TimeStampedModel):
         return f"NFS-e Request #{self.pk} - OS #{workorder_pk}"
 
 
+class NfeRequest(TimeStampedModel):
+    workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE)
+    workorder = models.ForeignKey("workorder.WorkOrder", verbose_name="Ordem de Serviço", on_delete=models.CASCADE)
+    current_step = models.PositiveIntegerField(default=1)
+    status = models.CharField(max_length=20, choices=NfeRequestStatus.choices, default=NfeRequestStatus.WAITING_WO)
+    tax_class = models.CharField(verbose_name="Classe de Imposto", max_length=30, default="REF000000")
+
+    def set_status(self, status: NfeRequestStatus):
+        self.status = status
+        self.save(update_fields=["status"])
+
+    @property
+    def customer_name(self) -> str:
+        customer = getattr(getattr(self.workorder, "budget", None), "customer", None)
+        if not customer:
+            return "-"
+        return customer.name
+
+    @property
+    def nfe_request_status_badge(self) -> dict[str, str]:
+        status_color = {
+            NfeRequestStatus.WAITING_WO: "badge-soft badge-ghost",
+            NfeRequestStatus.CHECKING_CLIENT: "badge-soft badge-info",
+            NfeRequestStatus.CHECKING_PRODUCTS: "badge-soft badge-info",
+            NfeRequestStatus.PROCESSING: "badge-soft badge-warning",
+            NfeRequestStatus.APPROVED: "badge-success",
+            NfeRequestStatus.REPROVED: "badge-error",
+            NfeRequestStatus.DENIED: "badge-soft badge-error",
+            NfeRequestStatus.CANCELED: "badge-soft badge-error",
+            NfeRequestStatus.CONTINGENCY: "badge-soft badge-warning",
+        }
+
+        return {
+            "text": str(NfeRequestStatus(self.status).label),
+            "class": status_color.get(self.status, "badge-ghost"),
+        }
+
+    def update_status_based_on_request(self, request_status: str | None) -> bool:
+        if not request_status:
+            return False
+
+        normalized_status = str(request_status).strip().lower()
+        status_mapping = {
+            "processando": NfeRequestStatus.PROCESSING,
+            "aprovado": NfeRequestStatus.APPROVED,
+            "reprovado": NfeRequestStatus.REPROVED,
+            "cancelado": NfeRequestStatus.CANCELED,
+            "denegado": NfeRequestStatus.DENIED,
+            "contingencia": NfeRequestStatus.CONTINGENCY,
+        }
+        mapped_status = status_mapping.get(normalized_status)
+        if not mapped_status:
+            logger.warning("Status desconhecido recebido no webhook de NF-e", extra={"request_status": request_status})
+            return False
+
+        self.set_status(mapped_status)
+        return True
+
+    def __str__(self):
+        workorder_pk = getattr(self, "workorder_id", None) or "-"
+        return f"NF-e Request #{self.pk} - OS #{workorder_pk}"
+
+
 class NfseBatch(models.Model):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE)
     workorder = models.ForeignKey("workorder.WorkOrder", verbose_name="Ordem de Serviço", on_delete=models.CASCADE)
@@ -410,6 +494,35 @@ class NfseItem(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["workorder", "uuid"], name="unique_nfse_item_per_workorder"),
+        ]
+
+        indexes = [
+            models.Index(fields=["workshop", "status"]),
+        ]
+
+
+class NfeItem(models.Model):
+    workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE)
+    workorder = models.ForeignKey("workorder.WorkOrder", verbose_name="Ordem de Serviço", on_delete=models.CASCADE)
+    request = models.ForeignKey(NfeRequest, verbose_name="Requisição de NF-e", related_name="items", on_delete=models.SET_NULL, null=True)
+    uuid = models.UUIDField(db_index=True)
+    model = models.CharField(max_length=255, default="nfe")
+    status = models.CharField(max_length=20, choices=NfeItemStatus.choices, default=NfeItemStatus.processando)
+    reason = models.TextField(blank=True, default="")
+    number = models.CharField(max_length=40, blank=True, default="")
+    series = models.CharField(max_length=20, blank=True, default="")
+    receipt = models.CharField(max_length=40, blank=True, default="")
+    access_key = models.CharField(max_length=60, blank=True, default="")
+    xml_url = models.URLField(blank=True, default="")
+    danfe_url = models.URLField(blank=True, default="")
+    danfe_simple_url = models.URLField(blank=True, default="")
+    danfe_label_url = models.URLField(blank=True, default="")
+    log_payload = models.JSONField(blank=True, default=dict)
+    raw_payload = models.JSONField(blank=True, default=dict)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["workorder", "uuid"], name="unique_nfe_item_per_workorder"),
         ]
 
         indexes = [

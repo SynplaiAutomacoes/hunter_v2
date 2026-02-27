@@ -625,12 +625,13 @@ class AddPaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
         workorder = get_object_or_404(WorkOrder, pk=pk, workshop=self.workshop)
         form = WorkOrderPaymentForm(request.POST, workorder=workorder)
 
-        payment_form = form
         if form.is_valid():
             payment = form.save(commit=False)
             payment.workorder = workorder
             payment.save()
             payment_form = WorkOrderPaymentForm(workorder=workorder)
+        else:
+            payment_form = form
 
         context = {
             "workorder": workorder,

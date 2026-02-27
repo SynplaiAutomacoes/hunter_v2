@@ -7,7 +7,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.urls import reverse
-from django.views.generic import CreateView, ListView, TemplateView
+from django.views.generic import CreateView, ListView
 
 from apps.core.forms import MultiStepFormMixin
 from apps.core.tables import TableActionDefaults
@@ -274,14 +274,3 @@ class NfseRequestUpdateView(NfseRequestCreateView):
 
     def _step_url(self, step: int) -> str:
         return f"{reverse('finance:nfse_update', kwargs={'pk': self.object.pk})}?step={step}"
-
-
-class NfePlaceholderView(LoginRequiredMixin, TemplateView):
-    template_name = "finance/nfe_placeholder.html"
-
-    def get(self, request, *args, **kwargs):
-        logger.info(
-            "nfe_placeholder_accessed user_id=%s",
-            getattr(request.user, "id", None),
-        )
-        return super().get(request, *args, **kwargs)

@@ -2,7 +2,9 @@ from django.urls import path
 from django.views.generic import RedirectView
 
 from apps.finance.views import (
-    NfePlaceholderView,
+    NfeRequestCreateView,
+    NfeRequestListView,
+    NfeRequestUpdateView,
     NfseRequestCreateView,
     NfseRequestListView,
     NfseRequestUpdateView,
@@ -19,7 +21,10 @@ from apps.finance.views import (
 app_name = "finance"
 
 urlpatterns = [
-    path("nfe/", NfePlaceholderView.as_view(), name="nfe_emit"),
+    path("nfe/", NfeRequestListView.as_view(), name="nfe_emit"),
+    path("nfe/list/", NfeRequestListView.as_view(), name="nfe_list"),
+    path("nfe/create/", NfeRequestCreateView.as_view(), name="nfe_create"),
+    path("nfe/<int:pk>/edit/", NfeRequestUpdateView.as_view(), name="nfe_update"),
     path("classe-imposto/", TaxClassListView.as_view(), name="tax_class_list"),
     path("classe-imposto/", TaxClassListView.as_view(), name="tax_class_manager"),
     path("classe-imposto/create/", TaxClassCreateView.as_view(), name="tax_class_create"),

@@ -283,9 +283,6 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def total_base_value(self) -> Money:
-        data = self.calculate_pricing_methods()
-        if data:
-            return data["valor_orcamento"]
         return self.total_products_value + self.total_services_value
 
     @property
