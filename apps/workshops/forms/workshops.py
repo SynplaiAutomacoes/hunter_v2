@@ -413,6 +413,7 @@ class WorkshopCertificateSectionForm(forms.ModelForm):
         model = Workshop
         fields = ["pfx_certificate", "certificate_password"]
         widgets = {
+            "pfx_certificate": forms.FileInput(attrs={"accept": ".pfx,.p12,application/x-pkcs12"}),
             "certificate_password": PasswordInput(render_value=True),
         }
 
@@ -423,7 +424,6 @@ class WorkshopCertificateSectionForm(forms.ModelForm):
         if certificate_field is not None:
             certificate_field.label = "Novo certificado A1 (.pfx ou .p12)"
             certificate_field.help_text = "Escolha o arquivo do certificado. Se ja existir um arquivo salvo, o novo upload vai substituir o atual."
-            certificate_field.widget.attrs.update({"accept": ".pfx,.p12,application/x-pkcs12"})
 
         password_field = self.fields.get("certificate_password")
         if password_field is not None:

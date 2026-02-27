@@ -272,10 +272,19 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
 
         return payload
 
+    def _current_certificate_name(self) -> str:
+        if not self.object.pfx_certificate:
+            return ""
+
+        raw_name = str(self.object.pfx_certificate.name or "")
+        if not raw_name:
+            return ""
+
+        normalized = raw_name.replace("\\", "/")
+        return normalized.split("/")[-1]
+
     def _certificate_status(self) -> dict[str, str]:
-        certificate_name = ""
-        if self.object.pfx_certificate:
-            certificate_name = str(self.object.pfx_certificate.name or "").split("/")[-1]
+        certificate_name = self._current_certificate_name()
 
         password = str(self.object.certificate_password or "").strip()
         has_certificate_file = bool(certificate_name)
@@ -284,12 +293,12 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
         if has_certificate_file and has_password:
             return {
                 "label": "Certificado A1 configurado",
-                "description": f"Arquivo atual: {certificate_name}",
+                "description": "Arquivo e senha configurados para emissao fiscal.",
             }
         if has_certificate_file:
             return {
                 "label": "Certificado A1 parcial",
-                "description": f"Arquivo atual: {certificate_name}. Informe a senha para completar a configuracao.",
+                "description": "Arquivo enviado, mas falta a senha para completar a configuracao.",
             }
         if has_password:
             return {
@@ -309,6 +318,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             "workshop": self.object,
             "active_tab": active_tab,
             "active_nf_subtab": active_nf_subtab,
+            "current_certificate_name": self._current_certificate_name(),
             "company_form": forms_map[self.TAB_EMPRESA],
             "address_form": forms_map[self.TAB_ENDERECO],
             "fiscal_form": forms_map[self.TAB_NOTA_FISCAL],

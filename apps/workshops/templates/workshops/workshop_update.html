@@ -208,32 +208,34 @@
                         <p class="text-sm text-base-content/80 mt-1">{{ certificate_status.description }}</p>
                     </div>
 
-                    {% if workshop.pfx_certificate %}
-                        <div class="mb-4 rounded-lg border border-base-300 bg-base-200/70 p-4">
-                            <p class="text-xs uppercase tracking-wide text-base-content/60">Arquivo atual do certificado</p>
-                            <p class="font-mono text-sm break-all mt-1">{{ workshop.pfx_certificate.name }}</p>
+                    <div class="mb-4 rounded-lg border border-base-300 bg-base-200/70 p-4">
+                        <p class="text-xs uppercase tracking-wide text-base-content/60">Arquivo atual do certificado</p>
+                        {% if current_certificate_name %}
+                            <p class="font-mono text-sm break-all mt-1">{{ current_certificate_name }}</p>
                             <p class="text-xs text-base-content/70 mt-2">Para substituir, selecione um novo arquivo e clique em salvar.</p>
-                        </div>
-                    {% else %}
-                        <div class="mb-4 rounded-lg border border-dashed border-base-300 bg-base-200/50 p-4 text-sm text-base-content/70">
-                            Nenhum arquivo de certificado foi enviado ainda. Selecione um arquivo .pfx ou .p12 para continuar.
-                        </div>
-                    {% endif %}
+                        {% else %}
+                            <p class="text-sm text-base-content/70 mt-1">Nenhum arquivo de certificado foi enviado ainda.</p>
+                            <p class="text-xs text-base-content/70 mt-2">Selecione um arquivo .pfx ou .p12 para continuar.</p>
+                        {% endif %}
+                    </div>
 
-                    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
-                        <div class="col-span-12 lg:col-span-6">
-                            {{ certificate_form.pfx_certificate|as_crispy_field }}
-                            <p class="text-xs text-base-content/60 mt-1">Formatos aceitos: .pfx e .p12.</p>
-                        </div>
-                        <div class="col-span-12 lg:col-span-6">
-                            {{ certificate_form.certificate_password|as_crispy_field }}
-                            <p class="text-xs text-base-content/60 mt-1">A senha e obrigatoria para uso do certificado na emissao fiscal.</p>
+                    <div class="rounded-lg border border-base-300 p-4">
+                        <p class="text-sm font-medium mb-3">Enviar novo certificado</p>
+                        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                            <div class="col-span-12 lg:col-span-6">
+                                {{ certificate_form.pfx_certificate|as_crispy_field }}
+                                <p class="text-xs text-base-content/60 mt-1">Formatos aceitos: .pfx e .p12.</p>
+                            </div>
+                            <div class="col-span-12 lg:col-span-6">
+                                {{ certificate_form.certificate_password|as_crispy_field }}
+                                <p class="text-xs text-base-content/60 mt-1">A senha e obrigatoria para uso do certificado na emissao fiscal.</p>
+                            </div>
                         </div>
                     </div>
 
                     <div class="divider"></div>
                     <div class="flex items-center justify-end gap-2">
-                        <button type="submit" class="btn-form-save">Salvar certificados</button>
+                        <button type="submit" class="btn-form-save">Salvar certificado</button>
                     </div>
                 </form>
             </div>
