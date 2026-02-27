@@ -62,7 +62,7 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
         sync_mock.assert_not_called()
 
     def test_workshop_update_page_renders_tabs_and_updates_company_data(self) -> None:
-        response = self.client.get(reverse("workshops:update", kwargs={"pk": self.workshop.pk}))
+        response = self.client.get(f"{reverse('workshops:update', kwargs={'pk': self.workshop.pk})}?tab=certificado")
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Empresa")
@@ -71,6 +71,9 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
         self.assertContains(response, "Certificados")
         self.assertContains(response, "Opcionais")
         self.assertContains(response, "Credenciais")
+        self.assertContains(response, "Nenhum arquivo de certificado foi enviado ainda.")
+        self.assertContains(response, "Formatos aceitos: .pfx e .p12.")
+        self.assertNotContains(response, "Atualmente:")
 
         with patch("apps.workshops.views.workshops.update_webmania_company", return_value={"success": True}) as update_mock:
             post_response = self.client.post(
@@ -112,26 +115,7 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
         self.assertNotContains(response, 'name="nfse_password"')
         self.assertNotContains(response, 'name="nfse_token"')
 
-    def test_sefaz_certificate_save_does_not_sync_webmania_certificate(self) -> None:
-        with patch("apps.workshops.views.workshops.update_webmania_company") as update_mock:
-            response = self.client.post(
-                reverse("workshops:update", kwargs={"pk": self.workshop.pk}),
-                data={
-                    "tab": "certificado",
-                    "certificate_scope": "sefaz",
-                    "nf_tab": "nfe",
-                    "certificate_password": "senha-sefaz",
-                },
-            )
-
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.headers.get("Location"), f"{reverse('workshops:update', kwargs={'pk': self.workshop.pk})}?tab=certificado&nf_tab=nfe")
-        update_mock.assert_not_called()
-
-        self.workshop.refresh_from_db()
-        self.assertEqual(self.workshop.certificate_password, "senha-sefaz")
-
-    def test_webmania_certificate_save_keeps_sefaz_separated(self) -> None:
+    def test_certificate_save_updates_workshop_and_syncs_integration(self) -> None:
         certificate_bytes = b"certificado-a1-binario"
         certificate_file = SimpleUploadedFile(
             "certificado.pfx",
@@ -144,10 +128,9 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
                 reverse("workshops:update", kwargs={"pk": self.workshop.pk}),
                 data={
                     "tab": "certificado",
-                    "certificate_scope": "webmania",
                     "nf_tab": "nfe",
-                    "certificado_arquivo": certificate_file,
-                    "certificado_senha": "senha-webmania",
+                    "pfx_certificate": certificate_file,
+                    "certificate_password": "senha-certificado",
                 },
             )
 
@@ -155,10 +138,34 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
         update_mock.assert_called_once()
         payload = update_mock.call_args.kwargs["payload"]
         self.assertEqual(payload.get("certificado"), base64.b64encode(certificate_bytes).decode())
+        self.assertEqual(payload.get("certificado_senha"), "senha-certificado")
 
         company = WebmaniaCompany.objects.get(workshop=self.workshop)
         self.assertEqual(decrypt_secret(company.certificado), base64.b64encode(certificate_bytes).decode())
-        self.assertEqual(decrypt_secret(company.certificado_senha), "senha-webmania")
+        self.assertEqual(decrypt_secret(company.certificado_senha), "senha-certificado")
 
         self.workshop.refresh_from_db()
-        self.assertFalse(bool(self.workshop.certificate_password))
+        self.assertEqual(self.workshop.certificate_password, "senha-certificado")
+
+        page_response = self.client.get(f"{reverse('workshops:update', kwargs={'pk': self.workshop.pk})}?tab=certificado")
+        self.assertEqual(page_response.status_code, 200)
+        self.assertContains(page_response, "Arquivo atual do certificado")
+        self.assertContains(page_response, ".pfx")
+        self.assertNotContains(page_response, "certificados/")
+        self.assertNotContains(page_response, "Atualmente:")
+
+    def test_delete_workshop_removes_local_records_only(self) -> None:
+        company = WebmaniaCompany.objects.create(workshop=self.workshop, webmania_company_id="DEL-01")
+
+        with patch("apps.workshops.views.workshops.update_webmania_company") as update_mock:
+            response = self.client.post(
+                reverse("workshops:delete", kwargs={"pk": self.workshop.pk}),
+                HTTP_HX_REQUEST="true",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Workshop.objects.filter(pk=self.workshop.pk).exists())
+        self.assertFalse(WebmaniaCompany.objects.filter(pk=company.pk).exists())
+        update_mock.assert_not_called()
+
+        self.assertNotIn("active_workshop_id", self.client.session)
