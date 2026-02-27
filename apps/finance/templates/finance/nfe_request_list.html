@@ -1,0 +1,16 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}NF-e Emitidas{% endblock %}
+{% block crud_subtitle %}Acompanhe as solicitacoes de emissao de NF-e vinculadas as ordens de servico.{% endblock %}
+
+{% block crud_header_actions %}
+    <a href="{% url 'finance:nfe_create' %}" class="btn btn-primary">Emitir nova NF-e</a>
+{% endblock %}
+
+{% block crud_table_wrapper_id %}nfe-request-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'finance:nfe_emit' %}{% endblock %}
+{% block crud_table_hx_trigger %}nfe-request-table-refresh from:body{% endblock %}
+
+{% block crud_table %}
+    {% include 'finance/partials/nfe_request_table.html' %}
+{% endblock %}

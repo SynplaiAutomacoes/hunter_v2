@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .nfe import NfeRequestStep1Form, NfeRequestStep2Form, NfeRequestStep3Form
 from .nfse import NfseRequestStep1Form, NfseRequestStep2Form, NfseRequestStep3Form
 from .tax_class import (
     CST_PIS_COFINS_CHOICES,
@@ -49,6 +50,9 @@ __all__ = [
     "IpiScenarioFormSet",
     "NATUREZA_OPERACAO_CHOICES",
     "NFE_SCENARIO_CHOICES",
+    "NfeRequestStep1Form",
+    "NfeRequestStep2Form",
+    "NfeRequestStep3Form",
     "NfseRequestStep1Form",
     "NfseRequestStep2Form",
     "NfseRequestStep3Form",

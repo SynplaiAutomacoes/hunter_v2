@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from apps.finance.services.webmania_b2b import sync_b2b_companies_to_database
 from .common import DirectorWorkshopAccessMixin
-from .nfse import NfePlaceholderView, NfseRequestCreateView, NfseRequestListView, NfseRequestUpdateView
+from .nfe import NfeRequestCreateView, NfeRequestListView, NfeRequestUpdateView
+from .nfse import NfseRequestCreateView, NfseRequestListView, NfseRequestUpdateView
 from .tax_class import TaxClassCreateView, TaxClassListView, TaxClassManagerView, TaxClassUpdateView
 from .webhook import WebhookView
 from .webmania import (
@@ -16,7 +17,9 @@ from .webmania import (
 
 __all__ = [
     "DirectorWorkshopAccessMixin",
-    "NfePlaceholderView",
+    "NfeRequestCreateView",
+    "NfeRequestListView",
+    "NfeRequestUpdateView",
     "NfseRequestCreateView",
     "NfseRequestListView",
     "NfseRequestUpdateView",
