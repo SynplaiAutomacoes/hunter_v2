@@ -172,61 +172,61 @@
         </div>
 
         <div class="p-4 border-b border-gray-200">
-            <h4 class="font-bold mb-2 uppercase">Produtos</h4>
-            <table class="products-table w-full text-left border-collapse text-[12px] mt-2">
+            <h4 class="font-bold mb-1 uppercase">Produtos</h4>
+            <table class="products-table w-full text-left border-collapse text-[10px] mt-1 leading-tight">
                 <thead>
                     <tr class="bg-gray-100 border-b-2 border-gray-200">
-                        <th class="p-2 font-semibold col-description">Descrição</th>
-                        <th class="p-2 font-semibold w-[15%] text-center">Qtd</th>
-                        <th class="p-2 font-semibold w-[15%] text-right">Valor Unitário</th>
-                        <th class="p-2 font-semibold w-[15%] text-right">Valor Total</th>
+                        <th class="p-1 font-semibold col-description">Descrição</th>
+                        <th class="p-1 font-semibold w-[10%] text-center">Qtd</th>
+                        <th class="p-1 font-semibold w-[15%] text-right">Valor Unitário</th>
+                        <th class="p-1 font-semibold w-[15%] text-right">Valor Total</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for p in page.produtos %}
                     <tr class="border-b border-gray-100">
-                        <td class="p-2"><span class="desc-truncate">{{ p.description }}</span></td>
-                        <td class="p-2 text-center">{{ p.quantity }}</td>
-                        <td class="p-2 text-right">{{ p.product_selling_price }}</td>
-                        <td class="p-2 text-right font-medium">{{ p.total_price }}</td>
+                        <td class="p-1"><span class="desc-truncate">{{ p.description }}</span></td>
+                        <td class="p-1 text-center">{{ p.quantity }}</td>
+                        <td class="p-1 text-right">{{ p.product_selling_price }}</td>
+                        <td class="p-1 text-right font-medium">{{ p.total_price }}</td>
                     </tr>
                     {% endfor %}
                     {% for _ in page.empty_product_rows %}
                     <tr class="border-b border-gray-100">
-                        <td class="p-2">&nbsp;</td>
-                        <td class="p-2 text-center">&nbsp;</td>
-                        <td class="p-2 text-right">&nbsp;</td>
-                        <td class="p-2 text-right">&nbsp;</td>
+                        <td class="p-1">&nbsp;</td>
+                        <td class="p-1 text-center">&nbsp;</td>
+                        <td class="p-1 text-right">&nbsp;</td>
+                        <td class="p-1 text-right">&nbsp;</td>
                     </tr>
                     {% endfor %}
                     <tr class="bg-gray-50 border-t-2 border-gray-200">
-                        <td colspan="4" class="p-2 text-right font-bold">TOTAL DAS PEÇAS ACIMA: {{ total_produtos }}</td>
+                        <td colspan="4" class="p-1 text-right font-bold text-[11px]">TOTAL DAS PEÇAS: {{ total_produtos }}</td>
                     </tr>
                 </tbody>
             </table>
         </div>
 
         <div class="p-4 border-b border-gray-200">
-            <h4 class="font-bold mb-2 uppercase">Serviços</h4>
-            <table class="w-full text-left border-collapse text-[12px] mt-2">
+            <h4 class="font-bold mb-1 uppercase">Serviços</h4>
+            <table class="w-full text-left border-collapse text-[10px] mt-1 leading-tight">
                 <thead>
                     <tr class="bg-gray-100 border-b-2 border-gray-200">
-                        <th class="p-2 font-semibold">Descrição do Serviço</th>
+                        <th class="p-1 font-semibold">Descrição do Serviço</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for s in page.servicos %}
                     <tr class="border-b border-gray-100">
-                        <td class="p-2 font-medium"><span class="desc-truncate">{{ s.description }}</span></td>
+                        <td class="p-1 font-medium"><span class="desc-truncate">{{ s.description }}</span></td>
                     </tr>
                     {% endfor %}
                     {% for _ in page.empty_service_rows %}
                     <tr class="border-b border-gray-100">
-                        <td class="p-2">&nbsp;</td>
+                        <td class="p-1">&nbsp;</td>
                     </tr>
                     {% endfor %}
                     <tr class="bg-gray-50 border-t-2 border-gray-200">
-                        <td class="p-2 text-right font-bold">TOTAL DOS SERVIÇOS ACIMA: {{ total_servicos }}</td>
+                        <td class="p-1 text-right font-bold text-[11px]">TOTAL DOS SERVIÇOS: {{ total_servicos }}</td>
                     </tr>
                 </tbody>
             </table>
