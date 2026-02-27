@@ -211,6 +211,50 @@
             margin-bottom: 0;
         }
 
+        .container-split {
+            display: flex;
+            align-items: stretch;
+            width: 100%;
+            border: 1px solid #d9dee7;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            overflow: hidden;
+            background: #ffffff;
+        }
+
+        .col-cliente-ajustada {
+            flex: 0 0 30%;
+            padding: 12px;
+            border-right: 1px solid #d9dee7;
+            background-color: #fcfcfc;
+        }
+
+        .col-veiculo {
+            flex: 1; /* Ocupa o restante do espaço */
+            padding: 12px;
+        }
+
+        .label-topo {
+            font-size: 10px;
+            font-weight: 800;
+            color: #64748b;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+            display: block;
+        }
+
+        .valor-destaque {
+            font-size: 14px;
+            color: #0f172a;
+            font-weight: 700;
+        }
+
+        .grid-veiculo-triplo {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px 12px;
+        }
+
         .checklist-name {
             margin: -2px 0 10px;
             color: #334155;
@@ -372,11 +416,6 @@
     </style>
 </head>
 <body>
-    <div class="pdf-actions no-print">
-        <button type="button" class="btn-close" onclick="window.close()">Fechar</button>
-        <button type="button" class="btn-print" onclick="window.print()">Imprimir</button>
-    </div>
-
     <div class="pdf-wrapper">
         <div class="pdf-section section-header">
             <div class="header-left">
