@@ -718,7 +718,7 @@ class BudgetStep3Form(forms.ModelForm):
                             return;
                         }}
 
-                        const checklistPrintUrl = checklistPdfBaseUrl + '?checklist=' + encodeURIComponent(checklistId) + '&autoprint=1';
+                        const checklistPrintUrl = checklistPdfBaseUrl + '?checklist=' + encodeURIComponent(checklistId);
                         window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ 
                             detail: {{ url: checklistPrintUrl }} 
                         }}));
