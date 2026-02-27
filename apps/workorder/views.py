@@ -596,10 +596,13 @@ class AddPaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
             payment = form.save(commit=False)
             payment.workorder = workorder
             payment.save()
+            payment_form = WorkOrderPaymentForm(workorder=workorder)
+        else:
+            payment_form = form
 
         context = {
             "workorder": workorder,
-            "payment_form": WorkOrderPaymentForm(workorder=workorder),
+            "payment_form": payment_form,
         }
         return render(request, "workorder/partials/payment_section.html", context)
 
