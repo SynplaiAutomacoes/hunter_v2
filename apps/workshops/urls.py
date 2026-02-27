@@ -2,9 +2,11 @@ from django.urls import path
 
 from .views.workshops import (
     NavbarWorkshopSelectView,
+    WorkshopEmissionHistoryView,
     WorkshopCreateView,
     WorkshopDeleteView,
     WorkshopListView,
+    WorkshopWebmaniaSyncView,
     WorkshopUpdateView,
 )
 
@@ -28,6 +30,8 @@ app_name = "workshops"
 
 urlpatterns = [
     path("", WorkshopListView.as_view(), name="list"),
+    path("webmania/empresas/sync/", WorkshopWebmaniaSyncView.as_view(), name="webmania_company_sync"),
+    path("historico-emissoes/", WorkshopEmissionHistoryView.as_view(), name="emission_history"),
     path("create/", WorkshopCreateView.as_view(), name="create"),
     path("<int:pk>/edit/", WorkshopUpdateView.as_view(), name="update"),
     path("<int:pk>/delete/", WorkshopDeleteView.as_view(), name="delete"),

@@ -1,4 +1,4 @@
-<div class="modal-box w-11/12 max-w-4xl bg-base-100 p-0 overflow-hidden">
+<div class="modal-box wo-item-modal-box w-11/12 max-w-4xl bg-base-100 p-0 overflow-hidden">
     <div class="p-6 border-b border-base-200 flex justify-between items-center bg-base-50">
         <h3 class="font-bold text-xl flex items-center gap-2">
             <span class="material-icons text-primary">edit</span>
@@ -7,14 +7,12 @@
         <button
             type="button"
             class="btn btn-sm btn-circle btn-ghost"
-            hx-get="{% url 'workorder:edit_items_modal' workorder.pk %}?tab={{ active_tab }}"
-            hx-target="#modal-container"
-            hx-swap="innerHTML">✕</button>
+            onclick="window.closeWorkorderItemModal && window.closeWorkorderItemModal()">✕</button>
     </div>
 
     <form
         hx-post="{% url 'workorder:edit_item' workorder.pk item.pk %}?tab={{ active_tab }}"
-        hx-target="#modal-container"
+        hx-target="#item-modal-container"
         hx-swap="innerHTML"
         class="p-6 space-y-4">
         {% csrf_token %}
@@ -28,9 +26,7 @@
             <button
                 type="button"
                 class="btn btn-ghost"
-                hx-get="{% url 'workorder:edit_items_modal' workorder.pk %}?tab={{ active_tab }}"
-                hx-target="#modal-container"
-                hx-swap="innerHTML">Cancelar</button>
+                onclick="window.closeWorkorderItemModal && window.closeWorkorderItemModal()">Cancelar</button>
             <button type="submit" class="btn btn-primary">Salvar</button>
         </div>
     </form>

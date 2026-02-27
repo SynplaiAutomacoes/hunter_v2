@@ -49,6 +49,8 @@ class WebhookView(View):
             logger.warning("Payload recebido sem campo 'modelo' no webhook de NFS-e")
             return JsonResponse({"ok": False, "message": "Missing 'modelo' field"}, status=400)
 
+        logger.info("nfse_webhook_received model=%s", str(model))
+
         if model == "lote_rps":
             batch_payload = map_batch_payload(payload)
             batch_uuid = batch_payload.get("uuid")
@@ -96,6 +98,12 @@ class WebhookView(View):
                 if batch.request:
                     batch.request.update_status_based_on_request(payload.get("status"))
 
+            logger.info(
+                "nfse_webhook_batch_processed batch_uuid=%s items=%s",
+                str(batch_uuid),
+                len(items),
+            )
+
             return JsonResponse({"ok": True, "message": "Payload processed successfully"}, status=200)
 
         if model == "nfse":
@@ -116,6 +124,11 @@ class WebhookView(View):
 
             if item.request:
                 item.request.update_status_based_on_request(payload.get("status"))
+
+            logger.info(
+                "nfse_webhook_item_processed item_uuid=%s",
+                str(item_uuid),
+            )
 
             return JsonResponse({"ok": True, "message": "Payload processed successfully"}, status=200)
 
