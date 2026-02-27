@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import base64
 from decimal import Decimal
 from typing import Any
 
 from django import forms
 from django.contrib.auth import get_user_model
-from django.core.files.uploadedfile import UploadedFile
 from django.urls import reverse
 
 from crispy_forms.helper import FormHelper
@@ -410,87 +408,23 @@ class WorkshopOptionalsSectionForm(BaseWebmaniaCompanySectionForm):
         }
 
 
-class WorkshopWebmaniaCertificateSectionForm(BaseWebmaniaCompanySectionForm):
-    secret_fields = ("certificado_senha",)
-
-    certificado_arquivo = forms.FileField(
-        required=False,
-        label="Arquivo do Certificado A1",
-        help_text="Envie um arquivo .pfx ou .p12.",
-        widget=forms.ClearableFileInput(attrs={"accept": ".pfx,.p12"}),
-    )
-
-    max_certificate_size = 5 * 1024 * 1024
-    allowed_certificate_extensions = (".pfx", ".p12")
-
-    class Meta:
-        model = WebmaniaCompany
-        fields = ["certificado_senha"]
-        widgets = {
-            "certificado_senha": PasswordInput(),
-        }
-
-    @classmethod
-    def _encode_certificate_file(cls, uploaded_file: UploadedFile) -> str:
-        uploaded_file.seek(0)
-        raw_bytes = uploaded_file.read()
-        uploaded_file.seek(0)
-        if not raw_bytes:
-            return ""
-        return base64.b64encode(raw_bytes).decode()
-
-    def clean_certificado_arquivo(self) -> UploadedFile | None:
-        uploaded_file = self.cleaned_data.get("certificado_arquivo")
-        if uploaded_file is None:
-            return None
-
-        file_name = str(getattr(uploaded_file, "name", "") or "").lower()
-        if not file_name.endswith(self.allowed_certificate_extensions):
-            raise forms.ValidationError("Envie um arquivo de certificado no formato .pfx ou .p12.")
-
-        if int(getattr(uploaded_file, "size", 0) or 0) > self.max_certificate_size:
-            raise forms.ValidationError("O arquivo do certificado deve ter no maximo 5 MB.")
-
-        return uploaded_file
-
-    def clean(self) -> dict[str, Any]:
-        cleaned_data = super().clean()
-        uploaded_file = cleaned_data.get("certificado_arquivo")
-        has_existing_certificate = bool(str(getattr(self.instance, "certificado", "") or "").strip())
-
-        if uploaded_file is None and not has_existing_certificate:
-            self.add_error("certificado_arquivo", "Envie o arquivo do certificado A1 para continuar.")
-
-        return cleaned_data
-
-    def build_api_payload(self) -> dict[str, Any]:
-        payload = super().build_api_payload()
-        uploaded_certificate = self.cleaned_data.get("certificado_arquivo")
-        if isinstance(uploaded_certificate, UploadedFile):
-            encoded_certificate = self._encode_certificate_file(uploaded_certificate)
-            if encoded_certificate:
-                payload["certificado"] = encoded_certificate
-        return payload
-
-    def save(self, commit: bool = True) -> WebmaniaCompany:
-        instance = super().save(commit=False)
-
-        uploaded_certificate = self.cleaned_data.get("certificado_arquivo")
-        if isinstance(uploaded_certificate, UploadedFile):
-            encoded_certificate = self._encode_certificate_file(uploaded_certificate)
-            if encoded_certificate:
-                instance.certificado = encrypt_secret(encoded_certificate)
-
-        if commit:
-            instance.save()
-
-        return instance
-
-
 class WorkshopCertificateSectionForm(forms.ModelForm):
     class Meta:
         model = Workshop
         fields = ["pfx_certificate", "certificate_password"]
         widgets = {
+            "pfx_certificate": forms.FileInput(attrs={"accept": ".pfx,.p12,application/x-pkcs12"}),
             "certificate_password": PasswordInput(render_value=True),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        certificate_field = self.fields.get("pfx_certificate")
+        if certificate_field is not None:
+            certificate_field.label = "Novo certificado A1 (.pfx ou .p12)"
+            certificate_field.help_text = "Escolha o arquivo do certificado. Se ja existir um arquivo salvo, o novo upload vai substituir o atual."
+
+        password_field = self.fields.get("certificate_password")
+        if password_field is not None:
+            password_field.help_text = "Informe a senha do certificado para concluir a configuracao."

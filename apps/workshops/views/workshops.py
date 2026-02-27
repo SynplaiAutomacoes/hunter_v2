@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 from datetime import date
+import logging
 from typing import Any, cast
 
 from django import forms
@@ -29,7 +31,7 @@ from apps.finance.services.webmania_b2b import (
     sync_b2b_companies_to_database,
     update_webmania_company,
 )
-from apps.finance.services.webmania_secrets import decrypt_secret
+from apps.finance.services.webmania_secrets import decrypt_secret, encrypt_secret
 from apps.finance.views.common import DirectorWorkshopAccessMixin
 from apps.iam.utils import get_or_create_director_role
 from apps.workshops.forms.workshops import (
@@ -40,11 +42,13 @@ from apps.workshops.forms.workshops import (
     WorkshopFiscalSectionForm,
     WorkshopForm,
     WorkshopOptionalsSectionForm,
-    WorkshopWebmaniaCertificateSectionForm,
 )
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.monthly_costs import create_default_monthly_costs
 from apps.workshops.util.workshops import has_workshop_perm
+
+
+logger = logging.getLogger(__name__)
 
 
 def _is_webmania_homolog_environment() -> bool:
@@ -87,6 +91,12 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
         if user_account is None:
             raise PermissionDenied
 
+        logger.info(
+            "workshop_create_started user_id=%s account_id=%s",
+            getattr(user, "id", None),
+            getattr(user_account, "id", None),
+        )
+
         try:
             with transaction.atomic():
                 workshop = form.save(commit=False)
@@ -108,7 +118,18 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
                 create_default_monthly_costs(workshop=workshop)
 
                 self.object = workshop
+                logger.info(
+                    "workshop_create_succeeded workshop_id=%s account_id=%s user_id=%s",
+                    getattr(workshop, "pk", None),
+                    getattr(user_account, "id", None),
+                    getattr(user, "id", None),
+                )
         except WebmaniaB2BServiceError as exc:
+            logger.exception(
+                "workshop_create_failed_integration user_id=%s account_id=%s",
+                getattr(user, "id", None),
+                getattr(user_account, "id", None),
+            )
             form.add_error(None, _to_public_integration_message(str(exc)))
             self.object = None
             return self.form_invalid(form)
@@ -142,15 +163,6 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
         NF_SUBTAB_NFCE,
         NF_SUBTAB_NFSE,
     }
-
-    CERTIFICATE_SCOPE_WEBMANIA = "webmania"
-    CERTIFICATE_SCOPE_SEFAZ = "sefaz"
-    CERTIFICATE_SCOPES = {
-        CERTIFICATE_SCOPE_WEBMANIA,
-        CERTIFICATE_SCOPE_SEFAZ,
-    }
-    CERTIFICATE_WEBMANIA_FORM_KEY = "certificate_webmania_form"
-    CERTIFICATE_SEFAZ_FORM_KEY = "certificate_sefaz_form"
 
     def dispatch(self, request, *args, **kwargs):
         self.object = self._get_workshop()
@@ -193,13 +205,6 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             return subtab
         return WorkshopUpdateView.NF_SUBTAB_NFE
 
-    @staticmethod
-    def _normalize_certificate_scope(value: object) -> str:
-        scope = str(value or "").strip().lower()
-        if scope in WorkshopUpdateView.CERTIFICATE_SCOPES:
-            return scope
-        return WorkshopUpdateView.CERTIFICATE_SCOPE_SEFAZ
-
     def _can_change_webmania_company(self) -> bool:
         user = cast(Any, self.request.user)
         return has_workshop_perm(
@@ -217,15 +222,13 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
         active_tab: str,
         data=None,
         files=None,
-        certificate_scope: str | None = None,
     ) -> dict[str, forms.BaseForm]:
         form_map: dict[str, forms.BaseForm] = {
             self.TAB_EMPRESA: WorkshopCompanySectionForm(instance=self.company, workshop=self.object),
             self.TAB_ENDERECO: WorkshopAddressSectionForm(instance=self.company, workshop=self.object),
             self.TAB_NOTA_FISCAL: WorkshopFiscalSectionForm(instance=self.company, workshop=self.object),
+            self.TAB_CERTIFICADO: WorkshopCertificateSectionForm(instance=self.object),
             self.TAB_OPCIONAIS: WorkshopOptionalsSectionForm(instance=self.company, workshop=self.object),
-            self.CERTIFICATE_WEBMANIA_FORM_KEY: WorkshopWebmaniaCertificateSectionForm(instance=self.company, workshop=self.object),
-            self.CERTIFICATE_SEFAZ_FORM_KEY: WorkshopCertificateSectionForm(instance=self.object),
         }
 
         if data is None and files is None:
@@ -238,11 +241,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
         elif active_tab == self.TAB_NOTA_FISCAL:
             form_map[self.TAB_NOTA_FISCAL] = WorkshopFiscalSectionForm(data=data, files=files, instance=self.company, workshop=self.object)
         elif active_tab == self.TAB_CERTIFICADO:
-            normalized_scope = self._normalize_certificate_scope(certificate_scope)
-            if normalized_scope == self.CERTIFICATE_SCOPE_WEBMANIA:
-                form_map[self.CERTIFICATE_WEBMANIA_FORM_KEY] = WorkshopWebmaniaCertificateSectionForm(data=data, files=files, instance=self.company, workshop=self.object)
-            else:
-                form_map[self.CERTIFICATE_SEFAZ_FORM_KEY] = WorkshopCertificateSectionForm(data=data, files=files, instance=self.object)
+            form_map[self.TAB_CERTIFICADO] = WorkshopCertificateSectionForm(data=data, files=files, instance=self.object)
         elif active_tab == self.TAB_OPCIONAIS:
             form_map[self.TAB_OPCIONAIS] = WorkshopOptionalsSectionForm(data=data, files=files, instance=self.company, workshop=self.object)
 
@@ -273,42 +272,43 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
 
         return payload
 
-    def _webmania_certificate_status(self) -> dict[str, str]:
-        webmania_certificate = decrypt_secret(self.company.certificado)
-        webmania_certificate_password = decrypt_secret(self.company.certificado_senha)
+    def _current_certificate_name(self) -> str:
+        if not self.object.pfx_certificate:
+            return ""
 
-        has_certificate = bool(webmania_certificate.strip())
-        has_password = bool(webmania_certificate_password.strip())
+        raw_name = str(self.object.pfx_certificate.name or "")
+        if not raw_name:
+            return ""
 
-        if has_certificate and has_password:
+        normalized = raw_name.replace("\\", "/")
+        return normalized.split("/")[-1]
+
+    def _certificate_status(self) -> dict[str, str]:
+        certificate_name = self._current_certificate_name()
+
+        password = str(self.object.certificate_password or "").strip()
+        has_certificate_file = bool(certificate_name)
+        has_password = bool(password)
+
+        if has_certificate_file and has_password:
             return {
-                "label": "Certificado A1 da integracao configurado",
-                "description": "Certificado e senha da integracao cadastrados.",
+                "label": "Certificado A1 configurado",
+                "description": "Arquivo e senha configurados para emissao fiscal.",
             }
-        if has_certificate:
+        if has_certificate_file:
             return {
-                "label": "Certificado A1 da integracao parcial",
-                "description": "Certificado cadastrado sem senha. Revise antes de emitir.",
+                "label": "Certificado A1 parcial",
+                "description": "Arquivo enviado, mas falta a senha para completar a configuracao.",
             }
         if has_password:
             return {
-                "label": "Certificado A1 da integracao parcial",
-                "description": "Senha cadastrada sem certificado. Revise antes de emitir.",
+                "label": "Certificado A1 parcial",
+                "description": "Senha cadastrada sem arquivo de certificado. Envie o arquivo .pfx ou .p12.",
             }
 
         return {
-            "label": "Certificado A1 da integracao nao cadastrado",
-            "description": "Informe certificado A1 e senha especificos da integracao.",
-        }
-
-    def _sefaz_certificate_status(self) -> dict[str, str]:
-        certificate_name = ""
-        if self.object.pfx_certificate:
-            certificate_name = str(self.object.pfx_certificate.name or "").split("/")[-1]
-
-        return {
-            "label": "Certificado SEFAZ cadastrado" if self.object.pfx_certificate else "Certificado SEFAZ nao cadastrado",
-            "description": (f"Arquivo atual: {certificate_name}" if certificate_name else "Envie um certificado .pfx ou .p12 para consultas da SEFAZ."),
+            "label": "Certificado A1 nao cadastrado",
+            "description": "Envie um certificado .pfx ou .p12 para consultas da SEFAZ e emissao fiscal.",
         }
 
     def _build_context(self, *, forms_map: dict[str, forms.BaseForm], active_tab: str, active_nf_subtab: str) -> dict[str, object]:
@@ -318,15 +318,14 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             "workshop": self.object,
             "active_tab": active_tab,
             "active_nf_subtab": active_nf_subtab,
+            "current_certificate_name": self._current_certificate_name(),
             "company_form": forms_map[self.TAB_EMPRESA],
             "address_form": forms_map[self.TAB_ENDERECO],
             "fiscal_form": forms_map[self.TAB_NOTA_FISCAL],
-            "certificate_webmania_form": forms_map[self.CERTIFICATE_WEBMANIA_FORM_KEY],
-            "certificate_sefaz_form": forms_map[self.CERTIFICATE_SEFAZ_FORM_KEY],
+            "certificate_form": forms_map[self.TAB_CERTIFICADO],
             "optionals_form": forms_map[self.TAB_OPCIONAIS],
             "credential_preview_fields": self._credential_preview_fields(),
-            "webmania_certificate_status": self._webmania_certificate_status(),
-            "sefaz_certificate_status": self._sefaz_certificate_status(),
+            "certificate_status": self._certificate_status(),
             "can_change_webmania_company": can_change_webmania_company,
         }
 
@@ -383,10 +382,23 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
         form_key: str | None = None,
     ):
         if not form.changed_data:
+            logger.info(
+                "workshop_update_tab_no_changes workshop_id=%s tab=%s user_id=%s",
+                getattr(self.object, "pk", None),
+                tab,
+                getattr(self.request.user, "id", None),
+            )
             messages.info(self.request, "Nenhuma alteracao detectada.")
             return redirect(self._build_update_url(tab=tab, nf_subtab=nf_subtab))
 
         payload = form.build_api_payload()
+        logger.info(
+            "workshop_update_tab_save_started workshop_id=%s tab=%s has_sync_payload=%s user_id=%s",
+            getattr(self.object, "pk", None),
+            tab,
+            bool(payload),
+            getattr(self.request.user, "id", None),
+        )
 
         try:
             if payload:
@@ -394,6 +406,13 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
         except WebmaniaB2BServiceError as exc:
             public_message = _to_public_integration_message(str(exc))
             self._save_company_sync_metadata(error=public_message)
+            logger.warning(
+                "workshop_update_tab_sync_failed workshop_id=%s tab=%s error=%s user_id=%s",
+                getattr(self.object, "pk", None),
+                tab,
+                public_message,
+                getattr(self.request.user, "id", None),
+            )
             form.add_error(None, public_message)
             forms_map = self._build_forms(active_tab=tab)
             forms_map[form_key or tab] = form
@@ -412,17 +431,119 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
         else:
             messages.success(self.request, "Dados sincronizados com sucesso.")
 
+        logger.info(
+            "workshop_update_tab_save_succeeded workshop_id=%s tab=%s synced=%s user_id=%s",
+            getattr(self.object, "pk", None),
+            tab,
+            bool(payload),
+            getattr(self.request.user, "id", None),
+        )
+
         return redirect(self._build_update_url(tab=tab, nf_subtab=nf_subtab))
 
-    def _save_sefaz_certificate_form(self, *, form: WorkshopCertificateSectionForm, tab: str, nf_subtab: str):
+    @staticmethod
+    def _encode_workshop_certificate(workshop: Workshop) -> str:
+        if not workshop.pfx_certificate:
+            return ""
+
+        try:
+            workshop.pfx_certificate.open("rb")
+            try:
+                raw_bytes = workshop.pfx_certificate.read()
+            finally:
+                workshop.pfx_certificate.close()
+        except OSError:
+            return ""
+
+        if not raw_bytes:
+            return ""
+
+        return base64.b64encode(raw_bytes).decode()
+
+    def _update_company_certificate_snapshot(self, *, encoded_certificate: str, certificate_password: str) -> None:
+        update_fields: list[str] = []
+
+        new_certificate_value = encrypt_secret(encoded_certificate) if encoded_certificate else ""
+        if self.company.certificado != new_certificate_value:
+            self.company.certificado = new_certificate_value
+            update_fields.append("certificado")
+
+        new_password_value = encrypt_secret(certificate_password) if certificate_password else ""
+        if self.company.certificado_senha != new_password_value:
+            self.company.certificado_senha = new_password_value
+            update_fields.append("certificado_senha")
+
+        if update_fields:
+            self.company.save(update_fields=update_fields)
+
+    def _save_certificate_form(self, *, form: WorkshopCertificateSectionForm, tab: str, nf_subtab: str):
         if not form.changed_data:
+            logger.info(
+                "workshop_certificate_no_changes workshop_id=%s user_id=%s",
+                getattr(self.object, "pk", None),
+                getattr(self.request.user, "id", None),
+            )
             messages.info(self.request, "Nenhuma alteracao detectada.")
             return redirect(self._build_update_url(tab=tab, nf_subtab=nf_subtab))
+
+        logger.info(
+            "workshop_certificate_save_started workshop_id=%s user_id=%s",
+            getattr(self.object, "pk", None),
+            getattr(self.request.user, "id", None),
+        )
 
         with transaction.atomic():
             self.object = form.save()
 
-        messages.success(self.request, "Certificado SEFAZ atualizado com sucesso.")
+        encoded_certificate = self._encode_workshop_certificate(self.object)
+        certificate_password = str(self.object.certificate_password or "").strip()
+        self._update_company_certificate_snapshot(encoded_certificate=encoded_certificate, certificate_password=certificate_password)
+
+        payload: dict[str, str] = {}
+        if encoded_certificate:
+            payload["certificado"] = encoded_certificate
+        if certificate_password:
+            payload["certificado_senha"] = certificate_password
+
+        if not payload:
+            messages.success(self.request, "Certificados locais atualizados com sucesso.")
+            logger.info(
+                "workshop_certificate_saved_local_only workshop_id=%s reason=no_payload user_id=%s",
+                getattr(self.object, "pk", None),
+                getattr(self.request.user, "id", None),
+            )
+            return redirect(self._build_update_url(tab=tab, nf_subtab=nf_subtab))
+
+        if not self._can_change_webmania_company():
+            messages.warning(self.request, "Certificados locais atualizados. Sem permissao para sincronizar na integracao.")
+            logger.warning(
+                "workshop_certificate_saved_without_sync_permission workshop_id=%s user_id=%s",
+                getattr(self.object, "pk", None),
+                getattr(self.request.user, "id", None),
+            )
+            return redirect(self._build_update_url(tab=tab, nf_subtab=nf_subtab))
+
+        try:
+            update_webmania_company(company=self.company, payload=payload)
+        except WebmaniaB2BServiceError as exc:
+            public_message = _to_public_integration_message(str(exc))
+            self._save_company_sync_metadata(error=public_message)
+            logger.warning(
+                "workshop_certificate_sync_failed workshop_id=%s error=%s user_id=%s",
+                getattr(self.object, "pk", None),
+                public_message,
+                getattr(self.request.user, "id", None),
+            )
+            messages.warning(self.request, f"Certificados locais atualizados, mas a sincronizacao falhou: {public_message}")
+            return redirect(self._build_update_url(tab=tab, nf_subtab=nf_subtab))
+
+        self._save_company_sync_metadata(error="")
+        messages.success(self.request, "Certificados atualizados e sincronizados com sucesso.")
+        logger.info(
+            "workshop_certificate_sync_succeeded workshop_id=%s user_id=%s",
+            getattr(self.object, "pk", None),
+            getattr(self.request.user, "id", None),
+        )
         return redirect(self._build_update_url(tab=tab, nf_subtab=nf_subtab))
 
     def get(self, request, *args, **kwargs):
@@ -436,9 +557,16 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         active_tab = self._normalize_tab(request.POST.get("tab"))
         active_nf_subtab = self._normalize_nf_subtab(request.POST.get("nf_tab"))
-        certificate_scope = self._normalize_certificate_scope(request.POST.get("certificate_scope"))
 
-        forms_map = self._build_forms(active_tab=active_tab, data=request.POST, files=request.FILES, certificate_scope=certificate_scope)
+        logger.info(
+            "workshop_update_post_started workshop_id=%s tab=%s nf_tab=%s user_id=%s",
+            getattr(self.object, "pk", None),
+            active_tab,
+            active_nf_subtab,
+            getattr(request.user, "id", None),
+        )
+
+        forms_map = self._build_forms(active_tab=active_tab, data=request.POST, files=request.FILES)
 
         restricted_webmania_tabs = {
             self.TAB_EMPRESA,
@@ -447,8 +575,6 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             self.TAB_OPCIONAIS,
         }
         if active_tab in restricted_webmania_tabs and not self._can_change_webmania_company():
-            raise PermissionDenied
-        if active_tab == self.TAB_CERTIFICADO and certificate_scope == self.CERTIFICATE_SCOPE_WEBMANIA and not self._can_change_webmania_company():
             raise PermissionDenied
 
         if active_tab == self.TAB_EMPRESA:
@@ -464,19 +590,9 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             if fiscal_form.is_valid():
                 return self._save_company_tab_form(form=fiscal_form, tab=active_tab, nf_subtab=active_nf_subtab)
         elif active_tab == self.TAB_CERTIFICADO:
-            if certificate_scope == self.CERTIFICATE_SCOPE_WEBMANIA:
-                webmania_certificate_form = cast(WorkshopWebmaniaCertificateSectionForm, forms_map[self.CERTIFICATE_WEBMANIA_FORM_KEY])
-                if webmania_certificate_form.is_valid():
-                    return self._save_company_tab_form(
-                        form=webmania_certificate_form,
-                        tab=active_tab,
-                        nf_subtab=active_nf_subtab,
-                        form_key=self.CERTIFICATE_WEBMANIA_FORM_KEY,
-                    )
-
-            sefaz_certificate_form = cast(WorkshopCertificateSectionForm, forms_map[self.CERTIFICATE_SEFAZ_FORM_KEY])
-            if sefaz_certificate_form.is_valid():
-                return self._save_sefaz_certificate_form(form=sefaz_certificate_form, tab=active_tab, nf_subtab=active_nf_subtab)
+            certificate_form = cast(WorkshopCertificateSectionForm, forms_map[self.TAB_CERTIFICADO])
+            if certificate_form.is_valid():
+                return self._save_certificate_form(form=certificate_form, tab=active_tab, nf_subtab=active_nf_subtab)
         elif active_tab == self.TAB_OPCIONAIS:
             optionals_form = cast(WorkshopOptionalsSectionForm, forms_map[self.TAB_OPCIONAIS])
             if optionals_form.is_valid():
@@ -509,6 +625,40 @@ class WorkshopDeleteView(LoginRequiredMixin, HtmxDeleteResponseMixin, DeleteView
             )
             .distinct()
         )
+
+    def form_valid(self, form):
+        workshop_pk = self.object.pk
+
+        logger.info(
+            "workshop_delete_started workshop_id=%s user_id=%s",
+            workshop_pk,
+            getattr(self.request.user, "id", None),
+        )
+
+        with transaction.atomic():
+            self.object.delete()
+
+        if self.request.session.get("active_workshop_id") == workshop_pk:
+            self.request.session.pop("active_workshop_id", None)
+
+        if bool(getattr(self.request, "htmx", False)):
+            response = HttpResponse()
+            if self.htmx_trigger:
+                response["HX-Trigger"] = self.htmx_trigger
+            logger.info(
+                "workshop_delete_succeeded_htmx workshop_id=%s user_id=%s",
+                workshop_pk,
+                getattr(self.request.user, "id", None),
+            )
+            return response
+
+        messages.success(self.request, "Oficina excluida com sucesso no sistema.")
+        logger.info(
+            "workshop_delete_succeeded workshop_id=%s user_id=%s",
+            workshop_pk,
+            getattr(self.request.user, "id", None),
+        )
+        return redirect(self.get_success_url())
 
 
 class WorkshopListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):

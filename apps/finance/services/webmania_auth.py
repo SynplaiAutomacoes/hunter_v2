@@ -101,14 +101,7 @@ def build_webmania_headers_for_company(company: WebmaniaCompany) -> dict[str, st
     )
 
 
-def build_webmania_headers(*, workshop=None) -> dict[str, str]:
-    if workshop is not None:
-        company = WebmaniaCompany.objects.filter(workshop=workshop).first()
-        if company is None:
-            raise WebmaniaAuthError("A oficina ativa não possui empresa Webmania vinculada.")
-
-        return build_webmania_headers_for_company(company)
-
+def _build_webmania_headers_from_settings() -> dict[str, str]:
     consumer_key = _sanitize_value(getattr(settings, "WEBMANIA_CONSUMER_KEY", ""))
     consumer_secret = _sanitize_value(getattr(settings, "WEBMANIA_CONSUMER_SECRET", ""))
     access_token = _sanitize_value(getattr(settings, "WEBMANIA_ACCESS_TOKEN", ""))
@@ -136,6 +129,20 @@ def build_webmania_headers(*, workshop=None) -> dict[str, str]:
         access_token_secret=access_token_secret,
         api_key=api_key,
     )
+
+
+def build_webmania_headers(*, workshop=None) -> dict[str, str]:
+    if workshop is None:
+        return _build_webmania_headers_from_settings()
+
+    company = WebmaniaCompany.objects.filter(workshop=workshop).first()
+    if company is not None:
+        try:
+            return build_webmania_headers_for_company(company)
+        except WebmaniaAuthError:
+            pass
+
+    return _build_webmania_headers_from_settings()
 
 
 def build_webmania_b2b_headers() -> dict[str, str]:
