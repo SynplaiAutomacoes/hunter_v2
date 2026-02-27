@@ -10,9 +10,10 @@ from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
-from apps.finance.models import NfseBatch, NfseItem
+from apps.finance.models import NfeItem, NfseBatch, NfseItem
 from apps.finance.services.emission import build_webmania_webhook_token
 from apps.finance.services.mappers import extract_items_from_batch, map_batch_payload, map_item_payload
+from apps.finance.services.nfe_emission import map_nfe_item_payload
 
 
 logger = logging.getLogger(__name__)
@@ -41,8 +42,10 @@ class WebhookView(View):
         try:
             payload = json.loads(request.body)
         except json.JSONDecodeError:
-            logger.warning("Erro ao decodificar payload JSON no webhook de NFS-e")
-            return JsonResponse({"ok": False, "message": "Invalid JSON"}, status=400)
+            payload = request.POST.dict()
+            if not payload:
+                logger.warning("Erro ao decodificar payload JSON no webhook de NFS-e")
+                return JsonResponse({"ok": False, "message": "Invalid JSON"}, status=400)
 
         model = payload.get("modelo")
         if not model:
@@ -127,6 +130,32 @@ class WebhookView(View):
 
             logger.info(
                 "nfse_webhook_item_processed item_uuid=%s",
+                str(item_uuid),
+            )
+
+            return JsonResponse({"ok": True, "message": "Payload processed successfully"}, status=200)
+
+        if model == "nfe":
+            item_payload = map_nfe_item_payload(payload)
+            item_uuid = item_payload.get("uuid")
+            if not item_uuid:
+                return JsonResponse({"ok": False, "message": "Missing item uuid"}, status=400)
+
+            item = NfeItem.objects.filter(uuid=item_uuid).select_related("request").order_by("-id").first()
+            if item is None:
+                return JsonResponse({"ok": False, "message": f"Item nao encontrado para UUID: {item_uuid}"}, status=404)
+
+            with transaction.atomic():
+                for key, value in item_payload.items():
+                    setattr(item, key, value)
+                item.raw_payload = payload
+                item.save()
+
+            if item.request:
+                item.request.update_status_based_on_request(payload.get("status"))
+
+            logger.info(
+                "nfe_webhook_item_processed item_uuid=%s",
                 str(item_uuid),
             )
 

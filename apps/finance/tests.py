@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import Mock, patch
@@ -12,7 +13,8 @@ from apps.accounts.models import Account, User
 from apps.collaborators.models import WorkshopMember
 from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm
 from apps.finance.models import TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassSyncState, WebmaniaCompany
-from apps.finance.services.emission import NfseEmissionError, _build_taker_payload, build_webmania_webhook_token, emit_nfse_request
+from apps.finance.services.emission import NfseEmissionError, _build_taker_payload, _service_total_value, build_webmania_webhook_token, emit_nfse_request
+from apps.finance.services.pricing import build_slider_allocation_for_workorder, compute_slider_allocation, distribute_total_proportionally
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
 from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers
 from apps.finance.services.webmania_b2b import (
@@ -574,6 +576,84 @@ class NfseEmissionPayloadTests(TestCase):
         self.assertEqual(payload.get("cnpj"), "11.222.333/0001-81")
         self.assertEqual(payload.get("razao_social"), "Empresa Teste LTDA")
         self.assertNotIn("nome_completo", payload)
+
+
+class SliderPricingAllocationTests(TestCase):
+    def test_compute_slider_allocation_transfers_full_service_to_products(self) -> None:
+        products_target, services_target = compute_slider_allocation(
+            products_base=Decimal("400.00"),
+            services_base=Decimal("600.00"),
+            slider=-100,
+        )
+
+        self.assertEqual(products_target, Decimal("1000.00"))
+        self.assertEqual(services_target, Decimal("0.00"))
+        self.assertEqual(products_target + services_target, Decimal("1000.00"))
+
+    def test_compute_slider_allocation_transfers_full_products_to_services(self) -> None:
+        products_target, services_target = compute_slider_allocation(
+            products_base=Decimal("400.00"),
+            services_base=Decimal("600.00"),
+            slider=100,
+        )
+
+        self.assertEqual(products_target, Decimal("0.00"))
+        self.assertEqual(services_target, Decimal("1000.00"))
+        self.assertEqual(products_target + services_target, Decimal("1000.00"))
+
+    def test_distribute_total_proportionally_respects_representation(self) -> None:
+        distributed = distribute_total_proportionally(
+            base_values=[Decimal("10.00"), Decimal("30.00"), Decimal("60.00")],
+            target_total=Decimal("500.00"),
+        )
+
+        self.assertEqual(distributed, [Decimal("50.00"), Decimal("150.00"), Decimal("300.00")])
+
+    def test_build_slider_allocation_caps_totals_to_budget_final_value(self) -> None:
+        workorder = SimpleNamespace(
+            total_products_value=SimpleNamespace(amount=Decimal("500.00")),
+            total_services_value=SimpleNamespace(amount=Decimal("300.00")),
+            budget=SimpleNamespace(
+                slider=-100,
+                total_budget_value=SimpleNamespace(amount=Decimal("700.00")),
+            ),
+        )
+
+        allocation = build_slider_allocation_for_workorder(workorder=workorder)  # type: ignore[arg-type]
+
+        self.assertEqual(allocation.total_base, Decimal("700.00"))
+        self.assertEqual(allocation.products_target, Decimal("700.00"))
+        self.assertEqual(allocation.services_target, Decimal("0.00"))
+        self.assertEqual(allocation.products_target + allocation.services_target, Decimal("700.00"))
+
+    def test_nfse_service_total_uses_slider_distribution(self) -> None:
+        workorder = SimpleNamespace(
+            total_products_value=SimpleNamespace(amount=Decimal("400.00")),
+            total_services_value=SimpleNamespace(amount=Decimal("600.00")),
+            budget=SimpleNamespace(
+                slider=-50,
+                total_budget_value=SimpleNamespace(amount=Decimal("1000.00")),
+            ),
+        )
+        nfse_request = SimpleNamespace(workorder=workorder)
+
+        service_total = _service_total_value(nfse_request=nfse_request)  # type: ignore[arg-type]
+
+        self.assertEqual(service_total, "300.00")
+
+    def test_nfse_service_total_raises_when_slider_100_to_products(self) -> None:
+        workorder = SimpleNamespace(
+            total_products_value=SimpleNamespace(amount=Decimal("400.00")),
+            total_services_value=SimpleNamespace(amount=Decimal("600.00")),
+            budget=SimpleNamespace(
+                slider=-100,
+                total_budget_value=SimpleNamespace(amount=Decimal("1000.00")),
+            ),
+        )
+        nfse_request = SimpleNamespace(workorder=workorder)
+
+        with self.assertRaisesMessage(NfseEmissionError, "nao possui saldo de servicos"):
+            _service_total_value(nfse_request=nfse_request)  # type: ignore[arg-type]
 
 
 class NfseEmissionServiceTests(TestCase):
@@ -1535,6 +1615,31 @@ class NfseRequestCreateViewHtmxTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers.get("HX-Redirect"), step_url)
+
+
+class NfePermissionFallbackTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=84)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_nfe_list_access_works_with_nfserequest_permission(self) -> None:
+        view_permission = Permission.objects.get(
+            content_type__app_label="finance",
+            content_type__model="nfserequest",
+            codename="view_nfserequest",
+        )
+
+        membership = WorkshopMember.objects.get(user=self.user, workshop=self.workshop)
+        if membership.role is None:
+            self.fail("Role de diretor nao encontrada para o usuario de teste.")
+        membership.role.permissions.set([view_permission])
+
+        response = self.client.get(reverse("finance:nfe_emit"))
+        self.assertEqual(response.status_code, 200)
 
 
 class WebhookSecurityTests(TestCase):
