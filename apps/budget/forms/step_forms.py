@@ -1926,13 +1926,13 @@ class BudgetStep5Form(forms.ModelForm):
 
         zerado = Money(0, "BRL")
 
-        # Custos
-        custo_pecas = dados.get("custo_pecas") or zerado
-        custo_frete_pecas = dados.get("custo_frete_pecas") or zerado
-        custo_servico_terceiros = dados.get("custo_servico_terceiro") or zerado
+        # Custos baseados sempre nos itens do orçamento
+        custo_pecas = budget.total_costs_products_value
+        custo_frete_pecas = budget.total_products_shipping
+        custo_servico_terceiros = budget.total_third_party_services_cost
         custo_hora_mecanico = dados.get("custo_hora_mecanico") or zerado
 
-        duracao_total = dados.get("duracao_total") or "00h 00m"
+        duracao_total = budget.total_duration_display
 
         def parse_duracao_em_horas(duracao):
             try:
@@ -1944,14 +1944,13 @@ class BudgetStep5Form(forms.ModelForm):
         duracao_em_horas = parse_duracao_em_horas(duracao_total)
         custo_total_mao_obra = custo_hora_mecanico * duracao_em_horas
 
-        # Valores Venda
-        venda_pecas = dados.get("venda_pecas") or zerado
-        venda_servico_terceiros = dados.get("venda_servico_terceiro") or zerado
-        venda_mao_obra = dados.get("venda_mao_obra") or zerado
+        # Valores de venda baseados sempre nos itens do orçamento
+        venda_servico_terceiros = budget.total_third_party_services_selling
+        venda_pecas = budget.total_products_value - custo_frete_pecas
+        venda_mao_obra = budget.total_services_value - venda_servico_terceiros
 
         # Extra
         metodo_precificacao = dados.get("method_name") or ""
-        duracao_total = dados.get("duracao_total") or "00h 00m"
         lucro_operacional = dados.get("lucro_operacional") or zerado
         rentabilidade = dados.get("rentabilidade") or 0
 
