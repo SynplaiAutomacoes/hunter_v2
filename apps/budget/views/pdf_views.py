@@ -10,6 +10,7 @@ from djmoney.money import Money
 
 from apps.budget.models import Budget, BudgetItem
 from apps.budget.pdf_context import build_budget_pdf_context
+from apps.budget.service import SuperSignError, download_supersign_signed_pdf
 from apps.checklist.models import Checklist
 from apps.core.pdf_playwright import render_pdf_from_html
 from apps.workshops.util.workshops import get_active_workshop_or_404
@@ -184,3 +185,52 @@ def signature_file(request, token):
     response["Cache-Control"] = "no-store"
 
     return response
+
+
+def _build_budget_pdf_file_response(*, budget: Budget, download: bool, use_signed_name: bool, pdf_bytes: bytes) -> HttpResponse:
+    disposition = "attachment" if download else "inline"
+    filename_suffix = "assinado" if use_signed_name else "base"
+
+    response = HttpResponse(pdf_bytes, content_type="application/pdf")
+    response["Content-Disposition"] = f'{disposition}; filename="orcamento_{budget.id}_{filename_suffix}.pdf"'
+    response["X-Content-Type-Options"] = "nosniff"
+    response["Cache-Control"] = "no-store"
+    return response
+
+
+@xframe_options_exempt
+def visualizar_pdf_assinatura(request, pk):
+    workshop = get_active_workshop_or_404(request)
+    budget = get_object_or_404(Budget.objects.select_related("workshop"), pk=pk, workshop=workshop)
+    should_download = request.GET.get("download") == "1"
+
+    if budget.signature_external_id:
+        try:
+            signed_pdf = download_supersign_signed_pdf(document_id=budget.signature_external_id)
+            return _build_budget_pdf_file_response(
+                budget=budget,
+                download=should_download,
+                use_signed_name=True,
+                pdf_bytes=signed_pdf,
+            )
+        except SuperSignError:
+            logger.warning(
+                "Falha ao carregar PDF assinado; retornando PDF base",
+                extra={"budget_id": budget.id, "envelope_id": budget.signature_external_id},
+            )
+
+    context = build_budget_pdf_context(budget=budget, observacao=budget.workshop.pdf_observation, request=request)
+    html = render_to_string("budget/partials/pdf/visualizarPDF.html", context)
+
+    try:
+        base_pdf = render_pdf_from_html(html)
+    except Exception:
+        logger.exception("Falha ao gerar PDF base para visualizacao", extra={"budget_id": budget.id})
+        return HttpResponse("Erro ao gerar PDF", status=500)
+
+    return _build_budget_pdf_file_response(
+        budget=budget,
+        download=should_download,
+        use_signed_name=False,
+        pdf_bytes=base_pdf,
+    )
