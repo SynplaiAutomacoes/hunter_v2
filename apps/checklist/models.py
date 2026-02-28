@@ -29,6 +29,8 @@ class ChecklistItem(models.Model):
     order = models.PositiveIntegerField(default=0)
 
     class Meta:
+        verbose_name = "Item do Checklist"
+        verbose_name_plural = "Itens do Checklist"
         constraints = [
             models.CheckConstraint(
                 condition=~models.Q(group=""),

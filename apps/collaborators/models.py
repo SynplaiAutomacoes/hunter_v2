@@ -29,6 +29,8 @@ class WorkshopMember(models.Model):
     is_active = models.BooleanField(default=True)
 
     class Meta:
+        verbose_name = "Membro da Oficina"
+        verbose_name_plural = "Membros da Oficina"
         constraints = [
             models.UniqueConstraint(
                 fields=("user", "workshop"),
@@ -100,6 +102,8 @@ class WorkshopCollaborator(models.Model):
     system_access = models.BooleanField(verbose_name="Acesso ao Sistema", default=False)
 
     class Meta:
+        verbose_name = "Colaborador da Oficina"
+        verbose_name_plural = "Colaboradores da Oficina"
         constraints = [
             models.UniqueConstraint(
                 fields=("workshop", "cpf"),

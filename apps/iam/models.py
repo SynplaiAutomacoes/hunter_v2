@@ -26,6 +26,8 @@ class WorkshopRole(TimeStampedModel):
     is_editable = models.BooleanField(default=True)
 
     class Meta:
+        verbose_name = "Cargo da Oficina"
+        verbose_name_plural = "Cargos da Oficina"
         constraints = [
             models.UniqueConstraint(
                 fields=("account", "name"),
