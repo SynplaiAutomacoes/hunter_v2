@@ -1,10 +1,36 @@
-<div class="space-y-8">
+<div class="space-y-8" id="permissions-container">
+
+    <div class="flex items-center justify-between border-b pb-4 mb-6 bg-base-200 p-4 rounded-lg">
+        <div>
+            <h3 class="text-xl font-bold text-base-content">Configurações de Acesso</h3>
+            <p class="text-xs opacity-60">Gerencie todas as permissões do cargo</p>
+        </div>
+        <div class="form-control">
+            <label class="label cursor-pointer gap-4">
+                <span class="label-text font-bold">Selecionar Tudo</span>
+                <input type="checkbox" id="global-master-check" class="checkbox checkbox-primary" onclick="toggleAllPermissions(this.checked)">
+            </label>
+        </div>
+    </div>
+
     {% for app_label, models in form.grouped_permissions.items %}
-    <div class="app-group">
-        <h4 class="text-lg font-black text-primary uppercase tracking-wider mb-2 mt-4 flex items-center gap-2">
-            <span class="w-2 h-6 bg-primary rounded-full"></span>
-            {{ app_label }}
-        </h4>
+    {% with app_id=app_label|slugify %}
+    <div class="app-group p-4 border rounded-lg bg-base-100" data-app="{{ app_id }}">
+
+        <div class="flex items-center justify-between mb-4 border-b border-dashed pb-2">
+            <h4 class="text-lg font-black text-primary uppercase tracking-wider flex items-center gap-2">
+                <span class="w-2 h-6 bg-primary rounded-full"></span>
+                {{ app_label }}
+            </h4>
+            <div class="form-control">
+                <label class="label cursor-pointer gap-2">
+                    <span class="text-xs opacity-70">Marcar módulo</span>
+                    <input type="checkbox"
+                           class="checkbox checkbox-sm checkbox-secondary app-master-check"
+                           onclick="toggleAppPermissions('{{ app_id }}', this.checked)">
+                </label>
+            </div>
+        </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {% for model_name, perms in models.items %}
@@ -17,7 +43,11 @@
                     <div class="flex flex-col gap-2">
                         {% for perm in perms %}
                         <label class="flex items-center gap-2 cursor-pointer hover:bg-base-300 rounded p-1 transition-all">
-                            <input type="checkbox" name="permissions" value="{{ perm.id }}" class="checkbox checkbox-xs checkbox-primary"
+                            <input type="checkbox"
+                                   name="permissions"
+                                   value="{{ perm.id }}"
+                                   class="checkbox checkbox-xs checkbox-primary permission-checkbox"
+                                   data-parent-app="{{ app_id }}"
                                    {% if perm.id in form.permissions.value or perm in form.permissions.value %}checked{% endif %}>
                             <span class="text-xs">
                                 {% if "Can add" in perm.name %}Criar
@@ -34,5 +64,45 @@
             {% endfor %}
         </div>
     </div>
+    {% endwith %}
     {% endfor %}
 </div>
+
+<script>
+    // Lógica para o Master Global
+    function toggleAllPermissions(isChecked) {
+        document.querySelectorAll('.permission-checkbox').forEach(cb => {
+            cb.checked = isChecked;
+        });
+        // Atualiza todos os masters de App para ficarem sincronizados
+        document.querySelectorAll('.app-master-check').forEach(cb => {
+            cb.checked = isChecked;
+        });
+    }
+
+    // Lógica para o Master do App
+    function toggleAppPermissions(appId, isChecked) {
+        const container = document.querySelector(`[data-app="${appId}"]`);
+        if (container) {
+            container.querySelectorAll('.permission-checkbox').forEach(cb => {
+                cb.checked = isChecked;
+            });
+        }
+    }
+
+    // Lógica reversa: Se desmarcar um filho manualmente, desmarca o "Marcar Tudo"
+    document.addEventListener('change', function(e) {
+        if (e.target.classList.contains('permission-checkbox')) {
+            const appId = e.target.getAttribute('data-parent-app');
+            const container = document.querySelector(`[data-app="${appId}"]`);
+            const appMaster = container.querySelector('.app-master-check');
+            const globalMaster = document.getElementById('global-master-check');
+
+            // Se um checkbox for desmarcado, os masters não podem estar marcados
+            if (!e.target.checked) {
+                appMaster.checked = false;
+                globalMaster.checked = false;
+            }
+        }
+    });
+</script>

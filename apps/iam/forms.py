@@ -62,7 +62,6 @@ class WorkshopRoleForm(forms.ModelForm):
 
         self.helper.layout = Layout(
             Div(Field("name", wrapper_class="w-full"), css_class="mb-6"),
-            HTML('<h3 class="text-xl font-bold mb-4 border-b pb-2">Configurações de Acesso</h3>'),
             HTML('{% include "iam/partials/permissions_grid.html" %}'),
             Div(
                 HTML(f'<a href="{cancel_url}" class="btn-form-cancel">Cancelar</a>'),
