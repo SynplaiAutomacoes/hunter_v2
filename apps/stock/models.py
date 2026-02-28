@@ -16,6 +16,10 @@ class StockProduct(TimeStampedModel):
     restock_quantity = models.IntegerField(default=0, verbose_name="Estoque Reposição")
     last_nf = models.CharField(max_length=50, blank=True, null=True, verbose_name="Última NF")
 
+    class Meta:
+        verbose_name = "Produto do Estoque"
+        verbose_name_plural = "Produtos do Estoque"
+
     def __str__(self):
         return f"{self.product.name} - {self.current_quantity} unidades"
 
@@ -36,6 +40,10 @@ class StockMovement(TimeStampedModel):
     transcation_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, related_name="movements", null=True)
     quantity = models.IntegerField(default=1, verbose_name="Quantidade")
     status = models.CharField(max_length=10, choices=MovementStatus.choices, verbose_name="Status", default=MovementStatus.WAITING)
+
+    class Meta:
+        verbose_name = "Movimentação de Estoque"
+        verbose_name_plural = "Movimentações de Estoque"
 
     @property
     def stockmovement_status_badge(self):
@@ -83,6 +91,10 @@ class StockPaymentMethod(TimeStampedModel):
     due_date = models.DateTimeField(default=timezone.now)
     nf_number = models.CharField(max_length=60, verbose_name="Número da NF", null=False, blank=False)
 
+    class Meta:
+        verbose_name = "Forma de Pagamento"
+        verbose_name_plural = "Formas de Pagamento"
+
     @property
     def total_paid(self):
         return self.first_installment_amount.amount + ((self.installments_count - 1) * self.remaining_installments_amount.amount)
@@ -97,6 +109,10 @@ class SefazZipCache(TimeStampedModel):
     issuer_cnpj = models.CharField(max_length=20, null=True, blank=True)
     total_value = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
     is_imported = models.BooleanField(default=False)
+
+    class Meta:
+        verbose_name = "Cache do Sefaz (zip)"
+        verbose_name_plural = "Cache do Sefaz (zip)"
 
     class Meta:
         unique_together = ("workshop", "key")
@@ -128,6 +144,10 @@ class StockImport(TimeStampedModel):
     payments_data = models.JSONField(default=list)
     method = models.CharField(verbose_name="Selecione o método de Importação de Itens",max_length=30, choices=ImportMethods.choices, default=ImportMethods.XML)
     status = models.CharField(max_length=20, choices=ImportStatus.choices, default=ImportStatus.DRAFT)
+
+    class Meta:
+        verbose_name = "Importação de Estoque"
+        verbose_name_plural = "Importações de Estoque"
 
     def __str__(self):
         return f"Importação {self.nf_number} - {self.workshop}"

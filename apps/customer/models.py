@@ -79,6 +79,8 @@ class Vehicle(TimeStampedModel):
     chassi = models.CharField(verbose_name="Chassi", max_length=500, null=True, blank=True)
 
     class Meta:
+        verbose_name = "Veículo"
+        verbose_name_plural = "Veículos"
         constraints = [models.UniqueConstraint(fields=("workshop", "plate"), name="unique_vehicle_plate_per_workshop")]
 
     def save(self, *args, **kwargs):

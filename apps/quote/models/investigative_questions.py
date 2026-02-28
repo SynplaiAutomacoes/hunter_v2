@@ -50,6 +50,8 @@ class InvestigativeResponse(TimeStampedModel):
     response = models.TextField(verbose_name="Resposta")
 
     class Meta:
+        verbose_name = "Resposta da Pergunta Investigativa"
+        verbose_name_plural = "Respostas das Perguntas Investigativas"
         unique_together = ["budget", "question"]
 
     def __str__(self):
