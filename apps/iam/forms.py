@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from django import forms
+from django.apps import apps
 from django.contrib.auth.models import Permission
 from django.urls import reverse
 
@@ -31,15 +32,27 @@ class WorkshopRoleForm(forms.ModelForm):
 
         grouped = {}
         for p in perms:
-            app = p.content_type.app_label.capitalize()
-            model = p.content_type.model_class()._meta.verbose_name.capitalize() if p.content_type.model_class() else p.content_type.model.capitalize()
+            app_label = p.content_type.app_label
 
-            if app not in grouped:
-                grouped[app] = {}
-            if model not in grouped[app]:
-                grouped[app][model] = []
+            try:
+                # Tenta pegar o verbose_name definido no apps.py
+                app_name = apps.get_app_config(app_label).verbose_name
+            except LookupError:
+                app_name = app_label.capitalize()
 
-            grouped[app][model].append(p)
+            # Pega o nome amigável do Modelo
+            model_class = p.content_type.model_class()
+            if model_class:
+                model_name = model_class._meta.verbose_name.capitalize()
+            else:
+                model_name = p.content_type.model.capitalize()
+
+            if app_name not in grouped:
+                grouped[app_name] = {}
+            if model_name not in grouped[app_name]:
+                grouped[app_name][model_name] = []
+
+            grouped[app_name][model_name].append(p)
 
         self.grouped_permissions = grouped
 
