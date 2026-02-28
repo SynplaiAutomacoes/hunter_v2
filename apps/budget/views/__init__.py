@@ -16,7 +16,7 @@ from .item_views import (
 )
 from .kit_views import BudgetKitEditView, BudgetKitProductCalculateView, BudgetKitServiceCalculateView
 from .local_item_views import CalculateLocalServiceView, CreateLocalItemView, QuickCreateProductView, RegisterLocalItemView
-from .pdf_views import signature_file, signature_preview, visualizar_pdf, visualizar_pdf_checklist, visualizar_pdf_gestor, visualizar_pdf_mecanico
+from .pdf_views import signature_file, signature_preview, visualizar_pdf, visualizar_pdf_assinatura, visualizar_pdf_checklist, visualizar_pdf_gestor, visualizar_pdf_mecanico
 from .realtime_views import BudgetEventsView
 from .shared import reset_steps_after_step_4
 from .webhook_views import SuperSignWebhookView
@@ -50,6 +50,7 @@ __all__ = [
     "SendBudgetSignatureView",
     "BudgetImageView",
     "visualizar_pdf",
+    "visualizar_pdf_assinatura",
     "visualizar_pdf_checklist",
     "visualizar_pdf_gestor",
     "visualizar_pdf_mecanico",
