@@ -8,6 +8,7 @@ from django.utils import timezone
 from djmoney.money import Money
 
 from apps.budget.models import Budget, BudgetItem
+from apps.budget.service import SuperSignError, get_supersign_signed_document_download_url
 from apps.workshops.models.workshops import Workshop
 
 
@@ -74,3 +75,50 @@ class BudgetTotalsConsistencyTests(TestCase):
 
         self.assertEqual(budget.total_base_value, Money("0.01", "BRL"))
         self.assertEqual(budget.total_budget_value, Money("0.00", "BRL"))
+
+
+class BudgetSignaturePersistenceTests(TestCase):
+    def test_mark_signature_sent_persists_envelope_id(self) -> None:
+        workshop = create_workshop(suffix=73)
+        budget = create_budget(workshop=workshop)
+
+        budget.mark_signature_sent("env-123")
+        budget.refresh_from_db()
+
+        self.assertEqual(budget.signature_external_id, "env-123")
+
+
+class SuperSignDownloadUrlTests(TestCase):
+    @patch("apps.budget.service.requests.get")
+    def test_returns_download_url_from_supersign_payload(self, requests_get) -> None:
+        response = requests_get.return_value
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"downloadUrl": "https://files.example.com/signed.pdf"}
+
+        with self.settings(
+            SUPERSIGN_BASE_URL="https://api.sign.supersign.com.br",
+            SUPERSIGN_ACCOUNT_ID="acc-1",
+            SUPERSIGN_API_KEY="secret",
+        ):
+            download_url = get_supersign_signed_document_download_url(document_id="doc-999")
+
+        self.assertEqual(download_url, "https://files.example.com/signed.pdf")
+        requests_get.assert_called_once()
+        _, kwargs = requests_get.call_args
+        self.assertIn("headers", kwargs)
+        self.assertEqual(kwargs["headers"]["x-account-id"], "acc-1")
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer secret")
+
+    @patch("apps.budget.service.requests.get")
+    def test_raises_when_download_url_is_missing(self, requests_get) -> None:
+        response = requests_get.return_value
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"foo": "bar"}
+
+        with self.settings(
+            SUPERSIGN_BASE_URL="https://api.sign.supersign.com.br",
+            SUPERSIGN_ACCOUNT_ID="acc-1",
+            SUPERSIGN_API_KEY="secret",
+        ):
+            with self.assertRaises(SuperSignError):
+                get_supersign_signed_document_download_url(document_id="doc-999")

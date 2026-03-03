@@ -72,7 +72,8 @@ class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespon
                     )
                     .order_by("id"),
                 )
-            ).order_by("-criado_em")
+            )
+            .order_by("-criado_em")
         )
 
     def get_context_data(self, **kwargs):

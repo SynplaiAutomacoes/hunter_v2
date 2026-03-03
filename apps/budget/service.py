@@ -151,6 +151,49 @@ def ensure_supersign_webhook(*, webhook_url: str) -> dict:
     return create_supersign_webhook(url=webhook_url, events=["ENVELOPE_COMPLETED"], is_active=True)
 
 
+def get_supersign_signed_document_download_url(*, document_id: str) -> str:
+    base_url = settings.SUPERSIGN_BASE_URL.rstrip("/")
+    try:
+        response = requests.get(
+            f"{base_url}/v2/documents/{document_id}/download",
+            headers=_supersign_headers(),
+            timeout=20,
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        response_text = exc.response.text if exc.response is not None else ""
+        raise SuperSignError(f"Erro ao buscar downloadUrl do documento assinado: {exc}. Resposta: {response_text}") from exc
+
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise SuperSignError("Resposta invalida ao buscar downloadUrl do documento assinado") from exc
+
+    download_url = data.get("downloadUrl") if isinstance(data, dict) else None
+    if not isinstance(download_url, str) or not download_url.strip():
+        raise SuperSignError("Resposta sem downloadUrl para documento assinado")
+
+    return download_url.strip()
+
+
+def download_supersign_signed_pdf(*, document_id: str) -> bytes:
+    download_url = get_supersign_signed_document_download_url(document_id=document_id)
+
+    try:
+        response = requests.get(download_url, timeout=30)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        response_text = exc.response.text if exc.response is not None else ""
+        raise SuperSignError(f"Erro ao baixar PDF assinado: {exc}. Resposta: {response_text}") from exc
+
+    content_type = (response.headers.get("Content-Type") or "").lower()
+    pdf_signature = b"%PDF"
+    if "application/pdf" not in content_type and not response.content.startswith(pdf_signature):
+        raise SuperSignError("Arquivo retornado nao possui formato PDF")
+
+    return response.content
+
+
 def _calculate_pdf_total_pages(budget) -> int:
     products_count = budget.items.filter(product__isnull=False).count()
     services_count = budget.items.filter(service__isnull=False).count()

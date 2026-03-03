@@ -19,6 +19,10 @@ class Account(TimeStampedModel):
         blank=True,
     )
 
+    class Meta:
+        verbose_name = "Conta"
+        verbose_name_plural = "Contas"
+
     def __str__(self) -> str:
         return self.name
 
@@ -41,6 +45,8 @@ class User(AbstractUser):
     )
 
     class Meta(AbstractUser.Meta):
+        verbose_name = "Usuário"
+        verbose_name_plural = "Usuários"
         constraints = [
             models.UniqueConstraint(
                 fields=("cpf",),

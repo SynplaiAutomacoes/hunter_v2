@@ -221,4 +221,6 @@ class WorkshopCostItem(models.Model):
     amount = MoneyField(verbose_name="Valor", max_digits=14, decimal_places=2)
 
     class Meta:
+        verbose_name = "Custo dos Itens da Oficina"
+        verbose_name_plural = "Custos dos Itens da Oficina"
         unique_together = ("workshop_cost", "monthly_cost")

@@ -33,6 +33,10 @@ class Workshop(TimeStampedModel):
     last_nsu_sefaz = models.CharField(null=True, blank=True, default="0")
     last_sefaz_search_date = models.DateTimeField(null=True, blank=True)
 
+    class Meta:
+        verbose_name = "Oficina"
+        verbose_name_plural = "Oficinas"
+
     @property
     def can_search_sefaz(self):
         if not self.last_sefaz_search_date:

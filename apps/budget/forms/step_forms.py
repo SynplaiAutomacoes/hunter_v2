@@ -2817,11 +2817,10 @@ class BudgetStep6Form(forms.ModelForm):
                     # -------- PDF (RESTORED 1:1) --------
                     Div(
                         HTML('<h4 class="font-bold text-lg mb-2 border-b">PDF</h4>'),
-
                         HTML(f"""
                         <div class="grid grid-cols-12 gap-3 text-center mb-8">
                             <button type="button" class="btn btn-success col-span-4"
-                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse("budget:visualizar_pdf", args=[budget.pk])}' }} }}))">
+                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse("budget:visualizar_pdf_assinatura", args=[budget.pk])}', downloadUrl: '{reverse("budget:visualizar_pdf_assinatura", args=[budget.pk])}?download=1' }} }}))">
                                 Visualizar PDF
                             </button>
 
@@ -2916,12 +2915,11 @@ class BudgetStep6Form(forms.ModelForm):
             # =========================
             # MODAL DE PDF (RESTAURADO)
             # =========================
-
             HTML("""
             <dialog id="pdfModal"
                     class="modal"
-                    x-data="{ pdfUrl: '' }"
-                    @open-pdf-modal.window="pdfUrl = $event.detail.url; $el.showModal()">
+                    x-data="{ pdfUrl: '', pdfDownloadUrl: '' }"
+                    @open-pdf-modal.window="pdfUrl = $event.detail.url; pdfDownloadUrl = $event.detail.downloadUrl || ''; $el.showModal()">
 
               <div class="modal-box max-w-5xl w-full h-[90vh] p-0 flex flex-col">
 
@@ -2945,8 +2943,13 @@ class BudgetStep6Form(forms.ModelForm):
                                 class="btn btn-sm btn-success"
                                 onclick="
                                   const frame = document.querySelector('#pdfModal iframe');
-                                  frame.contentWindow.focus();
-                                  frame.contentWindow.print();
+                                  const downloadUrl = frame ? frame.dataset.downloadUrl : '';
+                                  if (downloadUrl) {
+                                      window.open(downloadUrl, '_blank');
+                                  } else if (frame && frame.contentWindow) {
+                                      frame.contentWindow.focus();
+                                      frame.contentWindow.print();
+                                  }
                                 ">
                             Baixar PDF
                         </button>
@@ -2962,6 +2965,7 @@ class BudgetStep6Form(forms.ModelForm):
                 <div class="flex-1 bg-gray-100">
                     <template x-if="pdfUrl">
                         <iframe :src="pdfUrl"
+                                :data-download-url="pdfDownloadUrl"
                                 class="w-full h-full"
                                 frameborder="0"></iframe>
                     </template>
