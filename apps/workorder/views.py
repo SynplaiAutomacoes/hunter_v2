@@ -147,10 +147,27 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
     }
 
 
-def _render_edit_items_modal(request, workorder: WorkOrder, active_tab: str = "products", trigger_refresh: bool = False):
+def _render_edit_items_modal(
+    request,
+    workorder: WorkOrder,
+    active_tab: str = "products",
+    trigger_refresh: bool = False,
+    extra_triggers: list[str] | None = None,
+    retarget: str | None = None,
+):
     response = render(request, "workorder/partials/modals/modal_edit_items.html", _build_edit_items_context(workorder, active_tab))
+
+    triggers: list[str] = list(extra_triggers or [])
     if trigger_refresh:
-        response["HX-Trigger"] = "workorderItemsUpdated"
+        triggers.insert(0, "workorderItemsUpdated")
+
+    if triggers:
+        unique_triggers = list(dict.fromkeys(triggers))
+        response["HX-Trigger"] = ",".join(unique_triggers)
+
+    if retarget:
+        response["HX-Retarget"] = retarget
+
     return response
 
 
@@ -408,6 +425,7 @@ class WorkOrderRemoveItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
 class WorkOrderItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = WorkOrderItem
     workshop_permission_codename = "change_workorder"
+    workshop_permission_model = "workorder"
 
     def get(self, request, pk, item_id):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
@@ -431,7 +449,14 @@ class WorkOrderItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         form = WorkOrderItemEditForm(request.POST, instance=item)
         if form.is_valid():
             form.save()
-            return _render_edit_items_modal(request, workorder, active_tab, trigger_refresh=True)
+            return _render_edit_items_modal(
+                request,
+                workorder,
+                active_tab,
+                trigger_refresh=True,
+                extra_triggers=["workorderCloseItemModal"],
+                retarget="#modal-container",
+            )
 
         context = {
             "form": form,
@@ -445,6 +470,7 @@ class WorkOrderItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 class WorkOrderKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = WorkOrderItem
     workshop_permission_codename = "change_workorder"
+    workshop_permission_model = "workorder"
 
     def get(self, request, pk, item_id):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
@@ -581,7 +607,14 @@ class WorkOrderKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 },
             )
 
-        return _render_edit_items_modal(request, workorder, "kits", trigger_refresh=True)
+        return _render_edit_items_modal(
+            request,
+            workorder,
+            "kits",
+            trigger_refresh=True,
+            extra_triggers=["workorderCloseItemModal"],
+            retarget="#modal-container",
+        )
 
 
 class AddPaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -596,10 +629,13 @@ class AddPaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
             payment = form.save(commit=False)
             payment.workorder = workorder
             payment.save()
+            payment_form = WorkOrderPaymentForm(workorder=workorder)
+        else:
+            payment_form = form
 
         context = {
             "workorder": workorder,
-            "payment_form": WorkOrderPaymentForm(workorder=workorder),
+            "payment_form": payment_form,
         }
         return render(request, "workorder/partials/payment_section.html", context)
 

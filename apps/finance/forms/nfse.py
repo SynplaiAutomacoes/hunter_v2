@@ -10,6 +10,7 @@ from django import forms
 
 from apps.core.widgets import SelectInput, TextInput, TextareaInput
 from apps.finance.models import NfseRequest
+from apps.finance.services.pricing import build_slider_allocation_for_workorder
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 
 
@@ -55,7 +56,7 @@ def _collect_service_rows(workorder: WorkOrder) -> tuple[list[dict[str, Any]], s
                 }
             )
 
-    total_services = budget.total_services_value
+    total_services = build_slider_allocation_for_workorder(workorder=workorder).services_target
     total_services_formatted = _format_money(total_services)
 
     if rows:

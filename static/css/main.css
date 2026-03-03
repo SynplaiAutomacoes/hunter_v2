@@ -99,3 +99,35 @@
         @apply text-error ml-0.5;
     }
 }
+
+@layer components {
+    :root[data-theme="dark"] .budget-step2-client-report {
+        color: #fff;
+    }
+
+    :root[data-theme="dark"] .budget-step2-client-report label,
+    :root[data-theme="dark"] .budget-step2-client-report h3,
+    :root[data-theme="dark"] .budget-step2-client-report h5 {
+        color: #fff;
+    }
+
+    :root[data-theme="dark"] .budget-step2-client-report .input-theme,
+    :root[data-theme="dark"] .budget-step2-client-report textarea,
+    :root[data-theme="dark"] .budget-step2-client-report input {
+        color: #fff;
+    }
+
+    :root[data-theme="dark"] .budget-step2-client-report textarea::placeholder,
+    :root[data-theme="dark"] .budget-step2-client-report input::placeholder {
+        color: #d1d5db;
+    }
+
+    :root[data-theme="dark"] .budget-step2-client-report p[id^="hint_"],
+    :root[data-theme="dark"] .budget-step2-client-report .helptext {
+        color: #e5e7eb;
+    }
+
+    :root[data-theme="dark"] .budget-step2-client-report p[id^="error_"] {
+        color: #fecaca;
+    }
+}

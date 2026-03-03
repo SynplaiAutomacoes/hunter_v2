@@ -1,6 +1,16 @@
 <tr id="budget-item-{{ item.id }}"
     class="{% if item.is_local %}bg-warning/20{% endif %}"
     {% if not is_full_render %}hx-swap-oob="true"{% endif %}>
+    {% if not step6 %}
+    <td class="budget-step4-select-col text-center">
+        <input
+            type="checkbox"
+            name="selected_product_items"
+            value="{{ item.id|stringformat:'d' }}"
+            class="checkbox checkbox-primary checkbox-sm budget-product-select"
+        >
+    </td>
+    {% endif %}
     <td class="budget-step4-description">
         <div class="flex items-center gap-2 min-w-0">
             <span class="break-words whitespace-normal leading-snug">{{ item.description }}</span>

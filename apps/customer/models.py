@@ -72,11 +72,21 @@ class Vehicle(TimeStampedModel):
     year_model = models.CharField(verbose_name="Ano do Modelo", max_length=4)
     color = models.CharField(verbose_name="Cor", max_length=30)
     fuel = models.CharField(verbose_name="Combustível", max_length=30, null=True, blank=True)
-    km = models.PositiveIntegerField(verbose_name="Quilometragem", default=0)
+    km = models.PositiveIntegerField(verbose_name="Quilometragem", null=True, blank=True)
     engine = models.CharField(verbose_name="Motor", max_length=30, null=True, blank=True)
     type = models.CharField(verbose_name="Tipo", max_length=50, null=True, blank=True)
     renavam = models.CharField(verbose_name="Renavam", max_length=500, null=True, blank=True)
     chassi = models.CharField(verbose_name="Chassi", max_length=500, null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Veículo"
+        verbose_name_plural = "Veículos"
+        constraints = [models.UniqueConstraint(fields=("workshop", "plate"), name="unique_vehicle_plate_per_workshop")]
+
+    def save(self, *args, **kwargs):
+        if self.plate:
+            self.plate = self.plate.strip().upper()
+        return super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.plate} - {self.model}"

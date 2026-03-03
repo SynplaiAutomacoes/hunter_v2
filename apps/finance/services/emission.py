@@ -16,6 +16,7 @@ from django.urls import reverse
 
 from apps.finance.models import NfseBatch, NfseItem, NfseRequest
 from apps.finance.services.mappers import extract_items_from_batch, map_batch_payload, map_item_payload
+from apps.finance.services.pricing import build_slider_allocation_for_workorder
 from apps.finance.services.webmania_auth import (
     WebmaniaAuthError,
     build_webmania_headers,
@@ -323,10 +324,11 @@ def _default_service_description(nfse_request: NfseRequest) -> str:
 
 
 def _service_total_value(nfse_request: NfseRequest) -> str:
-    amount = Decimal(nfse_request.workorder.budget.total_services_value.amount).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    allocation = build_slider_allocation_for_workorder(workorder=nfse_request.workorder)
+    amount = allocation.services_target.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     if amount <= 0:
-        raise NfseEmissionError("A OS selecionada não possui valor de serviços para emissão de NFS-e.")
+        raise NfseEmissionError("A OS selecionada nao possui saldo de servicos para emissao de NFS-e com a configuracao atual do slider.")
 
     return str(amount)
 
@@ -366,6 +368,15 @@ def build_nfse_payload(*, nfse_request: NfseRequest, request=None) -> dict[str, 
         },
     )
 
+    logger.info(
+        "nfse_payload_built nfse_request_id=%s workshop_id=%s workorder_id=%s tax_class=%s taker_type=%s",
+        getattr(nfse_request, "pk", None),
+        getattr(nfse_request.workshop, "pk", None),
+        getattr(nfse_request.workorder, "pk", None),
+        str(nfse_request.tax_class or ""),
+        taker_type,
+    )
+
     return payload
 
 
@@ -382,6 +393,12 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request=None) -> dict[str, A
             "nfse_request_id": nfse_request.pk,
             "workorder_id": nfse_request.workorder.pk,
         },
+    )
+    logger.info(
+        "nfse_emission_started nfse_request_id=%s workshop_id=%s workorder_id=%s",
+        getattr(nfse_request, "pk", None),
+        getattr(nfse_request.workshop, "pk", None),
+        getattr(nfse_request.workorder, "pk", None),
     )
     _debug_print("URL de emissao", emit_url)
     _debug_print("Headers de emissao", _redact_headers(headers))
@@ -401,6 +418,12 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request=None) -> dict[str, A
         error_message = build_webmania_request_exception_message(exc, default="Falha ao emitir NFS-e", scope="nfse")
         _debug_print("Falha HTTP na emissao", error_message)
         logger.exception("Erro ao emitir NFS-e", extra={"workorder_id": nfse_request.workorder.pk})
+        logger.warning(
+            "nfse_emission_http_error nfse_request_id=%s workshop_id=%s error=%s",
+            getattr(nfse_request, "pk", None),
+            getattr(nfse_request.workshop, "pk", None),
+            error_message,
+        )
         raise NfseEmissionError(error_message) from exc
 
     try:
@@ -417,10 +440,21 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request=None) -> dict[str, A
     error_message = extract_webmania_error_message(data.get("error") or data.get("msg") or data.get("message"), scope="nfse")
     if error_message:
         _debug_print("Erro de negocio retornado pela API", error_message)
+        logger.warning(
+            "nfse_emission_business_error nfse_request_id=%s workshop_id=%s error=%s",
+            getattr(nfse_request, "pk", None),
+            getattr(nfse_request.workshop, "pk", None),
+            error_message,
+        )
 
         if _is_tax_class_not_found_error(error_message):
             fallback_payload = _build_fallback_payload_with_explicit_tax_data(payload=payload, tax_class_payload=tax_class_payload)
             _debug_print("Tentando emissao com impostos explicitos", fallback_payload)
+            logger.info(
+                "nfse_emission_retry_with_explicit_tax_data nfse_request_id=%s workshop_id=%s",
+                getattr(nfse_request, "pk", None),
+                getattr(nfse_request.workshop, "pk", None),
+            )
 
             try:
                 fallback_response = requests.post(
@@ -435,6 +469,12 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request=None) -> dict[str, A
             except requests.RequestException as exc:
                 fallback_error_message = build_webmania_request_exception_message(exc, default="Falha ao emitir NFS-e", scope="nfse")
                 _debug_print("Falha HTTP na emissao com impostos explicitos", fallback_error_message)
+                logger.warning(
+                    "nfse_emission_retry_http_error nfse_request_id=%s workshop_id=%s error=%s",
+                    getattr(nfse_request, "pk", None),
+                    getattr(nfse_request.workshop, "pk", None),
+                    fallback_error_message,
+                )
                 raise NfseEmissionError(fallback_error_message) from exc
 
             try:
@@ -453,6 +493,12 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request=None) -> dict[str, A
             )
             if fallback_business_error:
                 _debug_print("Erro de negocio na emissao com impostos explicitos", fallback_business_error)
+                logger.warning(
+                    "nfse_emission_retry_business_error nfse_request_id=%s workshop_id=%s error=%s",
+                    getattr(nfse_request, "pk", None),
+                    getattr(nfse_request.workshop, "pk", None),
+                    fallback_business_error,
+                )
                 raise NfseEmissionError(fallback_business_error)
 
             if not fallback_data.get("modelo") and not fallback_data.get("uuid"):
@@ -470,6 +516,13 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request=None) -> dict[str, A
                     "uuid": fallback_data.get("uuid"),
                     "motivo": fallback_data.get("motivo"),
                 },
+            )
+            logger.info(
+                "nfse_emission_retry_succeeded nfse_request_id=%s workshop_id=%s status=%s uuid=%s",
+                getattr(nfse_request, "pk", None),
+                getattr(nfse_request.workshop, "pk", None),
+                str(fallback_data.get("status") or ""),
+                str(fallback_data.get("uuid") or ""),
             )
             return fallback_data
 
@@ -491,16 +544,35 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request=None) -> dict[str, A
             "motivo": data.get("motivo"),
         },
     )
+    logger.info(
+        "nfse_emission_succeeded nfse_request_id=%s workshop_id=%s status=%s uuid=%s",
+        getattr(nfse_request, "pk", None),
+        getattr(nfse_request.workshop, "pk", None),
+        str(data.get("status") or ""),
+        str(data.get("uuid") or ""),
+    )
 
     return data
 
 
 def sync_emission_response(*, nfse_request: NfseRequest, response_payload: dict[str, Any]) -> None:
     _debug_print("Iniciando sincronizacao da resposta", response_payload)
+    logger.info(
+        "nfse_sync_started nfse_request_id=%s workshop_id=%s model=%s",
+        getattr(nfse_request, "pk", None),
+        getattr(nfse_request.workshop, "pk", None),
+        str(response_payload.get("modelo") or ""),
+    )
 
     model = response_payload.get("modelo")
     if model not in {"lote_rps", "nfse"}:
         _debug_print("Modelo de resposta nao suportado para sincronizacao", model)
+        logger.warning(
+            "nfse_sync_ignored_unsupported_model nfse_request_id=%s workshop_id=%s model=%s",
+            getattr(nfse_request, "pk", None),
+            getattr(nfse_request.workshop, "pk", None),
+            str(model or ""),
+        )
         return
 
     with transaction.atomic():
@@ -562,6 +634,14 @@ def sync_emission_response(*, nfse_request: NfseRequest, response_payload: dict[
                     "updated": updated_items,
                 },
             )
+            logger.info(
+                "nfse_sync_batch_succeeded nfse_request_id=%s workshop_id=%s batch_uuid=%s created_items=%s updated_items=%s",
+                getattr(nfse_request, "pk", None),
+                getattr(nfse_request.workshop, "pk", None),
+                str(batch.uuid),
+                created_items,
+                updated_items,
+            )
 
             return
 
@@ -588,4 +668,11 @@ def sync_emission_response(*, nfse_request: NfseRequest, response_payload: dict[
                 "created": item_created,
                 "status": item.status,
             },
+        )
+        logger.info(
+            "nfse_sync_item_succeeded nfse_request_id=%s workshop_id=%s item_uuid=%s created=%s",
+            getattr(nfse_request, "pk", None),
+            getattr(nfse_request.workshop, "pk", None),
+            str(item.uuid),
+            item_created,
         )
