@@ -2820,17 +2820,17 @@ class BudgetStep6Form(forms.ModelForm):
                         HTML(f"""
                         <div class="grid grid-cols-12 gap-3 text-center mb-8">
                             <button type="button" class="btn btn-success col-span-4"
-                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse("budget:visualizar_pdf_assinatura", args=[budget.pk])}', downloadUrl: '{reverse("budget:visualizar_pdf_assinatura", args=[budget.pk])}?download=1' }} }}))">
+                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse("budget:visualizar_pdf_assinatura", args=[budget.pk])}', downloadUrl: '{reverse("budget:visualizar_pdf_assinatura", args=[budget.pk])}?download=1', showSignatureBtn: true }} }}))">
                                 Visualizar PDF
                             </button>
 
                             <button type="button" class="btn btn-success col-span-4"
-                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse("budget:visualizar_pdf_gestor", args=[budget.pk])}' }} }}))">
+                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse("budget:visualizar_pdf_gestor", args=[budget.pk])}', showSignatureBtn: false }} }}))">
                                 PDF Gestor
                             </button>
 
                             <button type="button" class="btn btn-success col-span-4"
-                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse("budget:visualizar_pdf_mecanico", args=[budget.pk])}' }} }}))">
+                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse("budget:visualizar_pdf_mecanico", args=[budget.pk])}', showSignatureBtn: false }} }}))">
                                 PDF Mecânico
                             </button>
                         </div>
@@ -2918,8 +2918,8 @@ class BudgetStep6Form(forms.ModelForm):
             HTML("""
             <dialog id="pdfModal"
                     class="modal"
-                    x-data="{ pdfUrl: '', pdfDownloadUrl: '' }"
-                    @open-pdf-modal.window="pdfUrl = $event.detail.url; pdfDownloadUrl = $event.detail.downloadUrl || ''; $el.showModal()">
+                    x-data="{ pdfUrl: '', pdfDownloadUrl: '', showSignatureBtn: false }"
+                    @open-pdf-modal.window="pdfUrl = $event.detail.url; pdfDownloadUrl = $event.detail.downloadUrl || ''; showSignatureBtn = $event.detail.showSignatureBtn || false; $el.showModal()">
 
               <div class="modal-box max-w-5xl w-full h-[90vh] p-0 flex flex-col">
 
@@ -2933,6 +2933,7 @@ class BudgetStep6Form(forms.ModelForm):
                         <button type="button"
                                 class="btn btn-sm btn-primary"
                                 id="send-signature-btn"
+                                x-show="showSignatureBtn"
                                 data-url="{% url 'budget:send_signature' form.instance.pk %}"
                                 onclick="sendBudgetForSignature(this)">
                             <span class="loading loading-spinner loading-xs hidden" id="send-signature-spinner"></span>

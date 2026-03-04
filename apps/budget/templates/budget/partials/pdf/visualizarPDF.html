@@ -17,17 +17,13 @@
             width: 100%;
             box-sizing: border-box;
             break-inside: avoid;
-            height: 287mm;
             min-height: 287mm;
-            max-height: 287mm;
             display: flex;
             flex-direction: column;
-            overflow: hidden;
         }
 
         .pdf-main {
             flex: 1;
-            overflow: hidden;
         }
 
         .field-row {
@@ -71,8 +67,8 @@
         }
 
         .client-vehicle-section {
-            min-height: 110px;
-            max-height: 125px;
+            min-height: 120px;
+            max-height: 150px;
             overflow: hidden;
         }
 
@@ -88,9 +84,19 @@
             overflow: hidden;
         }
 
-        .signature-section {
-            min-height: 80px;
-            max-height: 80px;
+        .signature-block {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-end;
+            height: 100%;
+        }
+
+        .signature-line {
+            width: 100%;
+            border-top: 1px solid #6b7280;
+            padding-top: 4px;
+            text-align: center;
         }
 
         .footer-section {
@@ -126,6 +132,7 @@
     <div class="pdf-content bg-white border border-gray-200 rounded-lg shadow-sm p-2 text-[13px]">
         <div class="pdf-main">
 
+        {% if forloop.first %}
         <div class="header-section flex justify-between items-start p-4 border-b border-gray-200">
             <div class="flex-1 min-w-0 pr-4">
                 <h3 class="text-[18px] font-bold uppercase m-0 field-value fit-important">{{ budget.workshop.name }}</h3>
@@ -140,27 +147,28 @@
             </div>
         </div>
 
-        <div class="client-vehicle-section grid grid-cols-2 gap-4 p-4 border-b border-gray-200">
+        <div class="client-vehicle-section grid gap-4 p-4 border-b border-gray-200" style="grid-template-columns: 2fr 1fr 1fr;">
             <div>
-                <h4 class="font-bold mb-2 uppercase">Cliente</h4>
-                <div class="grid grid-cols-2 gap-y-1">
-                    <p class="field-row"><span class="field-label">Nome:</span> <span class="field-value">{{ budget.customer.name|default:budget.customer }}</span></p>
+                <h4 class="font-bold mb-2 uppercase">{{ budget.customer.name|default:budget.customer }}</h4>
+                <div class="grid grid-cols-2 gap-x-4 gap-y-1">
                     <p class="field-row"><span class="field-label">CPF/CNPJ:</span> <span class="field-value">{{ budget.customer.cpf_or_cnpj|default:"-" }}</span></p>
-                    <p class="field-row col-span-2"><span class="field-label">Endereço:</span> <span class="field-value">{{ budget.customer.estado|default:"-" }}, {{ budget.customer.logradouro|default:"-" }}, {{ budget.customer.numero|default:"-" }}</span></p>
                     <p class="field-row"><span class="field-label">Telefone:</span> <span class="field-value">{{ budget.customer.phone|default:"-" }}</span></p>
-                    <p class="field-row"><span class="field-label">Bairro:</span> <span class="field-value">{{ budget.customer.bairro|default:"-" }}</span></p>
-                    <p class="field-row"><span class="field-label">Cidade:</span> <span class="field-value">{{ budget.customer.cidade|default:"-" }}</span></p>
-                    <p class="field-row"><span class="field-label">CEP:</span> <span class="field-value">{{ budget.customer.cep|default:"-" }}</span></p>
+                    <p class="field-row col-span-2"><span class="field-label">Endereço:</span> <span class="field-value" style="white-space: normal; word-break: break-word;">{{ budget.customer.logradouro|default:"-" }}, {{ budget.customer.numero|default:"-" }} - {{ budget.customer.bairro|default:"-" }} - {{ budget.customer.cidade|default:"-" }} - {{ budget.customer.cep|default:"-" }}</span></p>
                 </div>
             </div>
             <div>
                 <h4 class="font-bold mb-2 uppercase">Veículo</h4>
-                <div class="grid grid-cols-2 gap-y-1">
+                <div class="grid grid-cols-1 gap-y-1">
                     <p class="field-row"><span class="field-label">Placa:</span> <span class="field-value">{{ budget.vehicle.plate }}</span></p>
-                    <p class="field-row"><span class="field-label">Marca:</span> <span class="field-value">{{ budget.vehicle.brand }}</span></p>
                     <p class="field-row"><span class="field-label">Mod/Fab:</span> <span class="field-value">{{ budget.vehicle.year_model|default:"-" }} / {{ budget.vehicle.year_fabrication|default:"-" }}</span></p>
+                    <p class="field-row"><span class="field-label">Marca:</span> <span class="field-value">{{ budget.vehicle.brand }}</span></p>
                     <p class="field-row"><span class="field-label">Cor:</span> <span class="field-value">{{ budget.vehicle.color|default:"-" }}</span></p>
-                    <p class="field-row col-span-2"><span class="field-label">Chassi:</span> <span class="field-value">{{ budget.vehicle.chassi|default:"-" }}</span></p>
+                </div>
+            </div>
+            <div class="signature-block">
+                <div class="signature-line">
+                    <p class="font-bold mb-1">{{ budget.customer.name|default:budget.customer }}</p>
+                    <p class="text-[11px] text-gray-500">Assinatura do cliente ou pessoa por ele autorizada</p>
                 </div>
             </div>
         </div>
@@ -169,6 +177,7 @@
             <h4 class="font-bold mb-2 uppercase">Reclamações/Problemas</h4>
             <p><span class="text-gray-500 italic">Relato principal do cliente:</span> {{ budget.problem_description|default:"Não informado." }}</p>
         </div>
+        {% endif %}
 
         <div class="p-4 border-b border-gray-200">
             <h4 class="font-bold mb-1 uppercase">Produtos</h4>
@@ -190,14 +199,6 @@
                         <td class="p-1 text-right font-medium">{{ p.total_price }}</td>
                     </tr>
                     {% endfor %}
-                    {% for _ in page.empty_product_rows %}
-                    <tr class="border-b border-gray-100">
-                        <td class="p-1">&nbsp;</td>
-                        <td class="p-1 text-center">&nbsp;</td>
-                        <td class="p-1 text-right">&nbsp;</td>
-                        <td class="p-1 text-right">&nbsp;</td>
-                    </tr>
-                    {% endfor %}
                     <tr class="bg-gray-50 border-t-2 border-gray-200">
                         <td colspan="4" class="p-1 text-right font-bold text-[11px]">TOTAL DAS PEÇAS: {{ total_produtos }}</td>
                     </tr>
@@ -217,11 +218,6 @@
                     {% for s in page.servicos %}
                     <tr class="border-b border-gray-100">
                         <td class="p-1 font-medium"><span class="desc-truncate">{{ s.description }}</span></td>
-                    </tr>
-                    {% endfor %}
-                    {% for _ in page.empty_service_rows %}
-                    <tr class="border-b border-gray-100">
-                        <td class="p-1">&nbsp;</td>
                     </tr>
                     {% endfor %}
                     <tr class="bg-gray-50 border-t-2 border-gray-200">
@@ -259,21 +255,9 @@
         </div>
         </div>
 
-        <div class="signature-section text-center">
-            <div class="inline-block border-t border-gray-500 px-12 pt-2">
-                <p class="font-bold mb-1">{{ budget.customer.name|default:budget.customer }}</p>
-                <p class="text-[11px] text-gray-500">Assinatura do cliente ou pessoa por ele autorizada</p>
-            </div>
-        </div>
-
         <div class="footer-section pt-3 border-t border-gray-200 text-[11px] text-gray-500">
-            <div class="flex items-end justify-between">
-                <div>
-                    <p>Aberto por: {{ request.user.get_full_name|default:"Sistema" }} em: {{ budget.criado_em|date:"d/m/Y" }} às {{ budget.criado_em|date:"H:i" }}</p>
-                    <p>Status: <span class="uppercase font-bold text-gray-700">{{ budget.budget_status }}</span></p>
-                </div>
-                <p class="font-semibold text-gray-700">Página {{ page.page_number }} de {{ page.total_pages }}</p>
-            </div>
+            <p>Aberto por: {{ request.user.get_full_name|default:"Sistema" }} em: {{ budget.criado_em|date:"d/m/Y" }} às {{ budget.criado_em|date:"H:i" }}</p>
+            <p>Status: <span class="uppercase font-bold text-gray-700">{{ budget.budget_status }}</span></p>
         </div>
 
     </div>
