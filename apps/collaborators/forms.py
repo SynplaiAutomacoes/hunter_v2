@@ -97,10 +97,8 @@ class BaseWorkshopCollaboratorForm(forms.ModelForm):
 
         self.fields["system_access"].widget.attrs["x-model"] = "system_access"
         self.fields["system_username"].widget.attrs["x-bind:disabled"] = "!system_access"
-        self.fields["role"].widget.attrs["x-bind:disabled"] = "!system_access"
         if not system_access:
             self.fields["system_username"].widget.attrs["disabled"] = True
-            self.fields["role"].widget.attrs["disabled"] = True
 
         if "password1" in self.fields:
             self.fields["password1"].widget.attrs["x-bind:disabled"] = "!system_access"
@@ -139,19 +137,30 @@ class BaseWorkshopCollaboratorForm(forms.ModelForm):
                 Field("admission_date", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("termination_date", wrapper_class="col-span-12 lg:col-span-4"),
                 #
-                Field("is_active", wrapper_class="col-span-12 lg:col-span-1"),
+                Div(
+                    Field("is_active", wrapper_class="flex items-center gap-2 whitespace-nowrap"),
+                    Field("receives_commission", wrapper_class="flex items-center gap-2 whitespace-nowrap", x_model="receives_commission"),
+                    Field("system_access", wrapper_class="flex items-center gap-2 whitespace-nowrap", x_model="system_access"),
+                    css_class="col-span-12 flex flex-row items-center justify-start gap-8 py-3 px-2 border-y border-gray-100 mb-2",
+                ),
                 #
-                HTML('<div class="col-span-12 divider"></div>'),
+                Div(
+                    HTML('<div class="col-span-12 divider"></div>'),
+                    Field("commission_percentage", wrapper_class="col-span-12 lg:col-span-4"),
+                    css_class="col-span-12 grid grid-cols-12 gap-4",
+                    x_show="receives_commission",
+                    x_cloak=True,
+                ),
                 #
-                Field("receives_commission", wrapper_class="col-span-12 lg:col-span-1", x_model="receives_commission"),
-                Field("commission_percentage", wrapper_class="col-span-12 lg:col-span-11", x_ref="commission_percentage"),
-                #
-                HTML('<div class="col-span-12 divider"></div>'),
-                #
-                Field("system_access", wrapper_class="col-span-12 lg:col-span-1", x_model="system_access"),
-                Field("system_username", wrapper_class="col-span-12 lg:col-span-6", x_ref="system_username"),
-                Field("role", wrapper_class="col-span-12 lg:col-span-5", x_ref="role"),
-                *self.get_access_extra_layout_fields(),
+                Div(
+                    HTML('<div class="col-span-12 divider"></div>'),
+                    Field("system_username", wrapper_class="col-span-12 lg:col-span-6"),
+                    Field("role", wrapper_class="col-span-12 lg:col-span-6"),
+                    *self.get_access_extra_layout_fields(),
+                    css_class="col-span-12 grid grid-cols-12 gap-4",
+                    x_show="system_access",
+                    x_cloak=True,
+                ),
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
                 x_data=f"{{ receives_commission: {str(receives_commission).lower()}, system_access: {str(system_access).lower()} }}",
                 x_effect=(
