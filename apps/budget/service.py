@@ -12,10 +12,10 @@ from apps.core.pdf_playwright import render_pdf_from_html
 
 
 SIGNATURE_POSITION = {
-    "x": 390.0,
-    "y": 640.0,
-    "width": 185.0,
-    "height": 55.0,
+    "x": 443.0,
+    "y": 95.0,
+    "width": 120.0,
+    "height": 38.0,
 }
 
 
