@@ -8,7 +8,7 @@ from django.template.loader import render_to_string
 from django.views.decorators.clickjacking import xframe_options_exempt
 from djmoney.money import Money
 
-from apps.budget.models import Budget, BudgetItem
+from apps.budget.models import Budget, BudgetItem, SignatureStatus
 from apps.budget.pdf_context import build_budget_pdf_context
 from apps.budget.service import SuperSignError, download_supersign_signed_pdf
 from apps.checklist.models import Checklist
@@ -204,7 +204,7 @@ def visualizar_pdf_assinatura(request, pk):
     budget = get_object_or_404(Budget.objects.select_related("workshop"), pk=pk, workshop=workshop)
     should_download = request.GET.get("download") == "1"
 
-    if budget.signature_external_id:
+    if budget.signature_external_id and budget.signature_request_status == SignatureStatus.SENT:
         try:
             signed_pdf = download_supersign_signed_pdf(document_id=budget.signature_external_id)
             return _build_budget_pdf_file_response(

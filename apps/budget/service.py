@@ -11,13 +11,11 @@ from apps.budget.pdf_context import build_budget_pdf_context
 from apps.core.pdf_playwright import render_pdf_from_html
 
 
-PRODUCTS_PER_PAGE = 4
-SERVICES_PER_PAGE = 2
 SIGNATURE_POSITION = {
-    "x": 170.14,
-    "y": 689.69,
-    "width": 254.25,
-    "height": 30.4,
+    "x": 443.0,
+    "y": 95.0,
+    "width": 120.0,
+    "height": 38.0,
 }
 
 
@@ -195,17 +193,10 @@ def download_supersign_signed_pdf(*, document_id: str) -> bytes:
 
 
 def _calculate_pdf_total_pages(budget) -> int:
-    products_count = budget.items.filter(product__isnull=False).count()
-    services_count = budget.items.filter(service__isnull=False).count()
-
-    products_pages = (products_count + PRODUCTS_PER_PAGE - 1) // PRODUCTS_PER_PAGE
-    services_pages = (services_count + SERVICES_PER_PAGE - 1) // SERVICES_PER_PAGE
-
-    return max(products_pages, services_pages, 1)
+    return 1
 
 
 def _build_signature_fields(budget) -> list[dict]:
-    total_pages = _calculate_pdf_total_pages(budget)
     document_ref_id = f"budget-{budget.id}"
     signatory_ref_id = f"customer-{budget.id}"
 
@@ -214,11 +205,10 @@ def _build_signature_fields(budget) -> list[dict]:
             "type": "SIGNATURE",
             "documentId": document_ref_id,
             "signatoryId": signatory_ref_id,
-            "pageNumber": page_number,
+            "pageNumber": 1,
             "position": SIGNATURE_POSITION,
             "properties": {},
         }
-        for page_number in range(1, total_pages + 1)
     ]
 
 

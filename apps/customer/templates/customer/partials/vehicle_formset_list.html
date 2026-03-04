@@ -18,4 +18,42 @@ x-on:vehicle-list:changed.window="totalForms = document.querySelectorAll('.vehic
             {% include "customer/partials/vehicle_form_line.html" with v_form=v_form %}
         {% endfor %}
     </div>
+    <script>
+        document.addEventListener('change', async (e) => {
+            // Verifica se o alvo é um input de placa
+            if (e.target.name && e.target.name.includes('-plate')) {
+                const plate = e.target.value.replace('-', '').trim();
+                if (plate.length < 7) return;
+
+                const row = e.target.closest('.vehicle-item'); // ou o seletor da sua linha
+
+                try {
+                    const response = await fetch(`/customer/check-plate/${plate}/`);
+                    if (!response.ok) throw new Error('Não encontrado');
+
+                    const data = await response.json();
+
+                    // Preenchimento automático dos campos da mesma linha
+                    fillField(row, '-brand', data.brand);
+                    fillField(row, '-model', data.model);
+                    fillField(row, '-year_fabrication', data.year_fabrication);
+                    fillField(row, '-year_model', data.year_model);
+                    fillField(row, '-color', data.color);
+                    fillField(row, '-fuel', data.fuel);
+                    fillField(row, '-chassi', data.chassi);
+                    fillField(row, '-engine', data.engine);
+                    fillField(row, '-type', data.type);
+
+                } catch (err) {
+                    console.error("Erro ao buscar placa:", err);
+                }
+            }
+        });
+
+        function fillField(container, suffix, value) {
+            if (!value) return;
+            const input = container.querySelector(`[name$="${suffix}"]`);
+            if (input) input.value = value;
+        }
+    </script>
 </div>
