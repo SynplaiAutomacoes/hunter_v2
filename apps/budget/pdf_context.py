@@ -1,38 +1,19 @@
 from __future__ import annotations
 
-from math import ceil
-
 from djmoney.money import Money
 
 from apps.budget.models import Budget, BudgetItem
 
 
-PRODUCTS_PER_PAGE = 4
-SERVICES_PER_PAGE = 2
-
-
 def _build_pdf_pages(produtos: list[dict], servicos: list[dict]) -> list[dict]:
-    total_pages = max(ceil(len(produtos) / PRODUCTS_PER_PAGE) if produtos else 0, ceil(len(servicos) / SERVICES_PER_PAGE) if servicos else 0, 1)
-
-    pages: list[dict] = []
-    for index in range(total_pages):
-        products_start = index * PRODUCTS_PER_PAGE
-        services_start = index * SERVICES_PER_PAGE
-        page_products = produtos[products_start : products_start + PRODUCTS_PER_PAGE]
-        page_services = servicos[services_start : services_start + SERVICES_PER_PAGE]
-
-        pages.append(
-            {
-                "produtos": page_products,
-                "servicos": page_services,
-                "empty_product_rows": range(max(PRODUCTS_PER_PAGE - len(page_products), 0)),
-                "empty_service_rows": range(max(SERVICES_PER_PAGE - len(page_services), 0)),
-                "page_number": index + 1,
-                "total_pages": total_pages,
-            }
-        )
-
-    return pages
+    return [
+        {
+            "produtos": produtos,
+            "servicos": servicos,
+            "page_number": 1,
+            "total_pages": 1,
+        }
+    ]
 
 
 def build_budget_pdf_context(*, budget: Budget, observacao: str, request=None) -> dict:
