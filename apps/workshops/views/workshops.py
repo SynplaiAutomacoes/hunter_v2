@@ -904,6 +904,9 @@ class NavbarWorkshopSelectView(LoginRequiredMixin, View):
             else:
                 request.session.pop("active_workshop_id", None)
 
-        response = HttpResponse()
-        response["HX-Refresh"] = "true"
-        return response
+        redirect_url = reverse("budget:budget_list")
+        if request.headers.get("HX-Request"):
+            response = HttpResponse()
+            response["HX-Redirect"] = redirect_url
+            return response
+        return redirect(redirect_url)
