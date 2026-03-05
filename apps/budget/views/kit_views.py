@@ -50,12 +50,12 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     "price": price,
                     "shipping": shipping,
                 },
-                prefix=f"product_{product.id}",
+                prefix=f"product_{str(product.id)}",
             )
 
             kit_products.append(
                 {
-                    "id": product.id,
+                    "id": str(product.id),
                     "name": product.name,
                     "form": row_form,
                 }
@@ -94,12 +94,12 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     "price": price,
                     "duration": duration_str,
                 },
-                prefix=f"service_{service.id}",
+                prefix=f"service_{str(service.id)}",
             )
 
             kit_services.append(
                 {
-                    "id": service.id,
+                    "id": str(service.id),
                     "name": service.name,
                     "form": row_form,
                 }
@@ -117,8 +117,8 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
         from apps.budget.models import BudgetKitItemOverride
         from datetime import timedelta
 
-        budget = _get_budget_for_workshop(self.workshop, budget_id)
-        item = _get_budget_item_for_workshop(self.workshop, budget_id, item_id, kit__isnull=False)
+        budget = _get_budget_for_workshop(self.workshop, str(budget_id))
+        item = _get_budget_item_for_workshop(self.workshop, str(budget_id), str(item_id), kit__isnull=False)
 
         products_json = request.POST.get("products", "[]")
         try:
@@ -126,7 +126,7 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
         except json.JSONDecodeError:
             logger.exception(
                 "JSON invalido ao salvar produtos do kit no orcamento",
-                extra={"budget_id": budget_id, "item_id": item_id, "products_payload": products_json},
+                extra={"budget_id": str(budget_id), "item_id": str(item_id), "products_payload": products_json},
             )
             raise
 
@@ -136,19 +136,19 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
         except json.JSONDecodeError:
             logger.exception(
                 "JSON invalido ao salvar servicos do kit no orcamento",
-                extra={"budget_id": budget_id, "item_id": item_id, "services_payload": services_json},
+                extra={"budget_id": str(budget_id), "item_id": str(item_id), "services_payload": services_json},
             )
             raise
 
         logger.info(
             "Iniciando salvamento de override de kit no orcamento",
-            extra={"budget_id": budget_id, "item_id": item_id, "products_count": len(products_data), "services_count": len(services_data)},
+            extra={"budget_id": str(budget_id), "item_id": str(item_id), "products_count": len(products_data), "services_count": len(services_data)},
         )
 
         for product_data in products_data:
-            product_id = product_data.get("id")
+            product_id = str(product_data.get("id"))
             try:
-                product = get_object_or_404(Product, id=product_id, workshop=self.workshop)
+                product = get_object_or_404(Product, id=str(product_id), workshop=self.workshop)
 
                 BudgetKitItemOverride.objects.update_or_create(
                     workshop=self.workshop,
@@ -165,18 +165,18 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 logger.exception(
                     "Falha ao salvar produto do kit no orcamento",
                     extra={
-                        "budget_id": budget_id,
-                        "item_id": item_id,
-                        "product_id": product_id,
+                        "budget_id": str(budget_id),
+                        "item_id": str(item_id),
+                        "product_id": str(product_id),
                         "payload": product_data,
                     },
                 )
                 raise
 
         for service_data in services_data:
-            service_id = service_data.get("id")
+            service_id = str(service_data.get("id"))
             try:
-                service = get_object_or_404(Service, id=service_id, workshop=self.workshop)
+                service = get_object_or_404(Service, id=str(service_id), workshop=self.workshop)
 
                 duration_str = service_data.get("duration", "00:00:00")
                 duration = None
@@ -195,7 +195,7 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     except (ValueError, IndexError):
                         logger.warning(
                             "Duracao invalida ao salvar servico do kit no orcamento",
-                            extra={"budget_id": budget_id, "item_id": item_id, "service_id": service_id, "duration": duration_str},
+                            extra={"budget_id": str(budget_id), "item_id": str(item_id), "service_id": str(service_id), "duration": duration_str},
                         )
                         duration = timedelta(0)
 
@@ -214,9 +214,9 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 logger.info(
                     "Servico do kit salvo no orcamento",
                     extra={
-                        "budget_id": budget_id,
-                        "item_id": item_id,
-                        "service_id": service.id,
+                        "budget_id": str(budget_id),
+                        "item_id": str(item_id),
+                        "service_id": str(service.id),
                         "override_created": created,
                         "quantity": override.quantity,
                         "duration": str(override.duration) if override.duration else "",
@@ -226,9 +226,9 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 logger.exception(
                     "Falha ao salvar servico do kit no orcamento",
                     extra={
-                        "budget_id": budget_id,
-                        "item_id": item_id,
-                        "service_id": service_id,
+                        "budget_id": str(budget_id),
+                        "item_id": str(item_id),
+                        "service_id": str(service_id),
                         "payload": service_data,
                     },
                 )
