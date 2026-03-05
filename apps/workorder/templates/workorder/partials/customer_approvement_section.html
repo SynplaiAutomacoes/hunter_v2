@@ -5,10 +5,18 @@
         <h4 class="font-bold text-xl mb-2 border-b">PDF</h4>
 
         <div class="flex flex-wrap gap-3">
-            <form
-                {% csrf_token %}
-                <button type="submit" class="btn btn-primary">Visualizar PDF</button>
-            </form>
+            <div class="flex flex-wrap gap-3">
+                <button type="button" class="btn btn-primary"
+                    onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {
+                        detail: {
+                            url: '{% url 'workorder:visualizar_pdf' workorder.pk %}',
+                            showSignatureBtn: true
+                        }
+                    }))">
+                    <span class="material-icons mr-2">visibility</span>
+                    Visualizar PDF
+                </button>
+            </div>
         </div>
     </div>
 
