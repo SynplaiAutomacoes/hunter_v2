@@ -49,6 +49,41 @@
     </dialog>
 </div>
 
+<dialog id="pdfModal" class="modal" x-data="{u:'', d:'', s:false}"
+        @open-pdf-modal.window="u=$event.detail.url; d=$event.detail.downloadUrl; s=$event.detail.showSignatureBtn; $el.showModal()">
+        <div class="modal-box max-w-5xl h-[90vh] p-0 flex flex-col">
+            <div class="p-4 border-b flex justify-between items-center bg-base-200">
+                <h3 class="font-bold">Visualização da Ordem de Serviço</h3>
+                <div class="flex gap-2">
+                    <button x-show="s" class="btn btn-sm btn-primary"
+                        data-url="{% url 'workorder:send_signature' workorder.pk %}"
+                        onclick="sendBudgetForSignature(this)">Enviar para Assinatura</button>
+                    <button class="btn btn-sm" onclick="pdfModal.close()">Fechar</button>
+                </div>
+            </div>
+            <iframe :src="u" class="w-full flex-1"></iframe>
+        </div>
+</dialog>
+
+<script>
+    async function sendBudgetForSignature(btn) {
+        const url = btn.dataset.url;
+        btn.disabled = true;
+        try {
+            const r = await fetch(url, {
+                method: "POST",
+                headers: { "X-CSRFToken": "{{csrf_token}}", "X-Requested-With": "XMLHttpRequest" }
+            });
+            const j = await r.json();
+            document.body.dispatchEvent(new CustomEvent("showToast", {
+                detail: { type: j.success ? "success" : "error", message: j.message }
+            }));
+        } finally {
+            btn.disabled = false;
+        }
+    }
+</script>
+
 <script>
     (function () {
         const formModal = document.getElementById('form_modal');
