@@ -1,0 +1,108 @@
+<div
+    x-data="{
+        open: false,
+        value: '{{ widget.value|default_if_none:"" }}',
+        label: '',
+        search: '',
+        init() {
+            this.updateLabelFromValue();
+            this.$watch('value', () => this.updateLabelFromValue());
+        },
+        updateLabelFromValue() {
+            if (!this.value) {
+                this.label = '';
+                this.search = '';
+                return;
+            }
+            this.$nextTick(() => {
+                const selectedEl = this.$refs.options.querySelector(`[data-value='${this.value}']`);
+                if (selectedEl) {
+                    this.label = selectedEl.dataset.label;
+                    this.search = this.label;
+                }
+            });
+        },
+        select(el) {
+            this.value = el.dataset.value || '';
+            this.label = el.dataset.label || '';
+            this.search = this.label;
+            this.open = false;
+            this.dispatchEvents();
+        },
+        clear() {
+            this.value = '';
+            this.label = '';
+            this.search = '';
+            this.open = false;
+            this.dispatchEvents();
+        },
+        dispatchEvents() {
+            this.$nextTick(() => {
+                this.$refs.hiddenInput.dispatchEvent(new Event('input', { bubbles: true }));
+                this.$refs.hiddenInput.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+        },
+        toggle() {
+            if (this.open) return this.open = false;
+            this.search = ''; // Limpa para mostrar todos ao abrir
+            this.open = true;
+        }
+    }"
+    class="relative"
+    @click.outside="open = false">
+
+    <input x-ref="hiddenInput" type="hidden" name="{{ widget.name }}" value="{{ widget.value|default_if_none:'' }}" :value="value">
+
+    <div class="relative flex items-center">
+        <input
+            type="text"
+            x-model="search"
+            @focus="open = true"
+            @input="open = true"
+            placeholder="Digite para buscar..."
+            class="input-theme {{ widget.attrs.class }} w-full pr-10"
+            :class="{'ring-2 ring-primary border-primary': open}"
+            {% if widget.attrs.disabled or widget.attrs.readonly %}disabled{% endif %}>
+
+        <div class="absolute inset-y-0 right-0 flex items-center pr-2 gap-1">
+            <button x-show="value" @click.stop="clear()" type="button" class="text-gray-400 hover:text-error">
+                <span class="material-icons text-sm">close</span>
+            </button>
+            <svg class="h-5 w-5 text-gray-400 transition-transform" :class="{'rotate-180': open}" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"></path>
+            </svg>
+        </div>
+    </div>
+
+    <div
+        x-show="open"
+        x-transition:enter="transition ease-out duration-100"
+        x-transition:enter-start="transform opacity-0 scale-95"
+        x-transition:enter-end="transform opacity-100 scale-100"
+        class="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-md py-1 bg-base-100 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm"
+        style="display: none;">
+
+        <ul role="listbox" x-ref="options">
+            {% for group_name, group_choices, group_index in widget.optgroups %}
+                {% for option in group_choices %}
+                    {% if option.value %}
+                        <li
+                            x-show="!search || '{{ option.label|escapejs }}'.toLowerCase().includes(search.toLowerCase())"
+                            @click="select($el)"
+                            data-value="{{ option.value }}"
+                            data-label="{{ option.label }}"
+                            class="relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white transition-colors group">
+                            <span class="block truncate" :class="{'font-bold': value == '{{ option.value }}'}">
+                                {{ option.label }}
+                            </span>
+                        </li>
+                    {% endif %}
+                {% endfor %}
+            {% endfor %}
+            <li x-show="search && $refs.options.querySelectorAll('li[data-value]:not([style*=\'display: none\'])').length === 0"
+                class="py-2 pl-3 text-gray-500 italic">
+                Nenhum resultado encontrado...
+            </li>
+        </ul>
+    </div>
+</div>
