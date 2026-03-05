@@ -143,7 +143,7 @@
         </button>
         <button type="button"
                 class="btn btn-primary gap-2"
-                onclick="saveKitChanges({{ item.budget_id }}, {{ item.id }})">
+                onclick="saveKitChanges({{ item.budget_id|stringformat:'d' }}, {{ item.id|stringformat:'d' }})">
             <span class="material-icons text-sm">save</span>
             Salvar Alterações
         </button>
@@ -154,8 +154,8 @@
 (function() {
     'use strict';
 
-    const kitBudgetId = {{ item.budget_id }};
-    const kitItemId = {{ item.id }};
+    const kitBudgetId = {{ item.budget_id|stringformat:"d" }};
+    const kitItemId = {{ item.id|stringformat:"d" }};
 
     function formatCurrency(value) {
         const num = parseFloat(value) || 0;

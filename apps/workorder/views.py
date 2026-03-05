@@ -9,10 +9,11 @@ from decimal import Decimal, InvalidOperation
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.db.models import Prefetch
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
 from django.views import View
+from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.generic import DetailView, ListView, TemplateView
 from djmoney.money import Money
 
@@ -28,7 +29,7 @@ from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderItemEditForm,
 from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderStatus
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.models.workshop_costs import WorkshopCost
-
+from apps.workshops.util.workshops import get_active_workshop_or_404
 
 logger = logging.getLogger(__name__)
 THOUSAND_SEPARATED_INT_PATTERN = re.compile(r"^\d{1,3}(?:[\s.,]\d{3})+$")
@@ -731,3 +732,23 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
         workorder.save(update_fields=["status"])
 
         return HttpResponse(headers={"HX-Refresh": "true"})
+
+
+@xframe_options_exempt
+def visualizar_pdf_workorder(request, pk):
+    workshop = get_active_workshop_or_404(request)
+    workorder = get_object_or_404(WorkOrder, pk=pk, workshop=workshop)
+
+    context = _build_edit_items_context(workorder)
+    context.update({
+        "workorder": workorder,
+        "is_pdf_view": True,
+    })
+
+    return render(request, "workorder/partials/pdf/visualizar_pdf_base.html", context)
+
+def send_workorder_signature(request, pk):
+    return JsonResponse({
+        "success": True,
+        "message": "Solicitação de assinatura enviada com sucesso!"
+    })

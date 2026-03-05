@@ -21,4 +21,6 @@ urlpatterns = [
     path("attachment/<int:pk>/upload/", views.UploadAttachmentView.as_view(), name="upload_attachment"),
     path("attachment/<int:pk>/view/", views.ViewAttachmentView.as_view(), name="view_attachment"),
     path("attachment/<int:pk>/delete/", views.DeleteAttachmentView.as_view(), name="delete_attachment"),
+    path("<int:pk>/visualizar-pdf/", views.visualizar_pdf_workorder, name="visualizar_pdf"),
+    path("<int:pk>/send-signature/", views.send_workorder_signature, name="send_signature"),
 ]
