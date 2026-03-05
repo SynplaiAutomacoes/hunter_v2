@@ -22,6 +22,19 @@
                 }
             });
         },
+        dispatchEvents() {
+            this.$nextTick(() => {
+                // Dispara eventos nativos para que o Django/HTMX e o pai percebam a mudança
+                this.$refs.hiddenInput.dispatchEvent(new Event('input', { bubbles: true }));
+                this.$refs.hiddenInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+                // Evento customizado opcional
+                this.$el.dispatchEvent(new CustomEvent('searchable-change', {
+                    detail: { value: this.value, name: '{{ widget.name }}' },
+                    bubbles: true
+                }));
+            });
+        },
         select(el) {
             this.value = el.dataset.value || '';
             this.label = el.dataset.label || '';
@@ -36,22 +49,22 @@
             this.open = false;
             this.dispatchEvents();
         },
-        dispatchEvents() {
-            this.$nextTick(() => {
-                this.$refs.hiddenInput.dispatchEvent(new Event('input', { bubbles: true }));
-                this.$refs.hiddenInput.dispatchEvent(new Event('change', { bubbles: true }));
-            });
-        },
         toggle() {
             if (this.open) return this.open = false;
-            this.search = ''; // Limpa para mostrar todos ao abrir
+            this.search = '';
             this.open = true;
         }
     }"
     class="relative"
     @click.outside="open = false">
 
-    <input x-ref="hiddenInput" type="hidden" name="{{ widget.name }}" value="{{ widget.value|default_if_none:'' }}" :value="value">
+    <input
+        x-ref="hiddenInput"
+        type="hidden"
+        name="{{ widget.name }}"
+        id="{{ widget.attrs.id }}"
+        :value="value"
+    >
 
     <div class="relative flex items-center">
         <input
@@ -84,6 +97,9 @@
 
         <ul role="listbox" x-ref="options">
             {% for group_name, group_choices, group_index in widget.optgroups %}
+                {% if group_name %}
+                    <li class="py-1 pl-3 text-xs font-bold text-gray-500 uppercase">{{ group_name }}</li>
+                {% endif %}
                 {% for option in group_choices %}
                     {% if option.value %}
                         <li

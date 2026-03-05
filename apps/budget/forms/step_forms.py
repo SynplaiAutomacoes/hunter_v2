@@ -368,38 +368,48 @@ class BudgetStep1Form(forms.ModelForm):
                 });
                 
                 async function updateVehicleList(customerId, selectedVehicleId = null) {
-                    if (typeof Alpine === 'undefined') return;
-
                     const vehicleInput = document.querySelector('[name="vehicle"]');
                     if (!vehicleInput) return;
 
-                    const vehicleEl = vehicleInput.closest('[x-data]');
-                    const vehicleData = Alpine.$data(vehicleEl);
-                    const optionsUl = vehicleEl.querySelector('ul[role="listbox"]');
+                    const vehicleContainer = vehicleInput.closest('[x-data]');
+                    const vehicleData = Alpine.$data(vehicleContainer);
+                    const optionsUl = vehicleContainer.querySelector('ul[role="listbox"]');
+
+                    vehicleData.clear(); 
                 
-                    if (!vehicleData || !optionsUl) return;
+                    if (!customerId) {
+                        optionsUl.querySelectorAll('li[data-value]').forEach(li => li.remove());
+                        return;
+                    }
+                
+                    try {
+                        const response = await fetch(`/budget/get-vehicles/?customer=${customerId}`);
+                        const vehicles = await response.json();
+                        optionsUl.querySelectorAll('li[data-value]').forEach(li => li.remove());
 
-                    const response = await fetch(`/budget/get-vehicles/?customer=${customerId || ''}`);
-                    const vehicles = await response.json();
+                        vehicles.forEach(v => {
+                            const li = document.createElement('li');
+                            li.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white transition-colors group';
+                            li.setAttribute('data-value', String(v.id));
+                            li.setAttribute('data-label', v.label);
+                            li.setAttribute('x-show', `!search || '${v.label.replace(/'/g, "\\'")}'.toLowerCase().includes(search.toLowerCase())`);
+                            li.innerHTML = `<span class="block truncate">${v.label}</span>`;
+                            
+                            // IMPORTANTE: Ao clicar, chama o método 'select' do Alpine do widget
+                            li.addEventListener('click', () => {
+                                vehicleData.select(li);
+                            });
+                            
+                            optionsUl.appendChild(li);
 
-                    vehicleData.clear();
-                    optionsUl.querySelectorAll('li[data-value]').forEach(li => li.remove());
-
-                    vehicles.forEach(v => {
-                        const optionValue = String(v.id);
-                        const li = document.createElement('li');
-                        li.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white group transition-colors';
-                        li.setAttribute('data-value', optionValue);
-                        li.setAttribute('data-label', v.label);
-                        li.setAttribute('x-show', `!search || '${v.label.replace(/'/g, "\\'")}'.toLowerCase().includes(search.toLowerCase())`);
-                        li.innerHTML = `<span class="block truncate">${v.label}</span>`;
-                        li.addEventListener('click', () => vehicleData.select(li));
-                        optionsUl.appendChild(li);
-
-                        if (selectedVehicleId && optionValue === String(selectedVehicleId)) {
-                            vehicleData.select(li);
-                        }
-                    });
+                            // Se for um veículo específico (vindo de um Quick Create)
+                            if (selectedVehicleId && String(v.id) === String(selectedVehicleId)) {
+                                vehicleData.select(li);
+                            }
+                        });
+                    } catch (error) {
+                        console.error("Erro ao carregar veículos:", error);
+                    }
                 }
 
                 function selectCustomerFromQuickForm(customer) {
@@ -513,6 +523,7 @@ class BudgetStep1Form(forms.ModelForm):
                                         if ($event.target.name === 'customer') { 
                                             customerId = $event.target.value; 
                                             vehicleId = ''; // Reseta veículo se mudar cliente
+                                            updateVehicleList($event.target.value);
                                         } else if ($event.target.name === 'vehicle') { 
                                             vehicleId = $event.target.value; 
                                         }
