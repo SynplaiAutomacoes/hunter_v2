@@ -1959,11 +1959,23 @@ class BudgetStep5Form(forms.ModelForm):
         venda_mao_obra = budget.total_services_value - venda_servico_terceiros
 
         # Extra
-        metodo_precificacao = dados.get("method_name") or ""
+        # metodo_precificacao = dados.get("method_name") or ""
         lucro_operacional = dados.get("lucro_operacional") or zerado
         rentabilidade = dados.get("rentabilidade") or 0
 
-        status_texto = "Ruim" if rentabilidade < 60 else "Médio" if (60 <= rentabilidade < 70) else "Bom"
+        if rentabilidade >= 70:
+            status_texto = "Bom"
+            rentabilidade_class = "rentabilidade-bom"
+            rentabilidade_bg = "bg-rentabilidade-bom"
+        elif rentabilidade < 60:
+            status_texto = "Ruim"
+            rentabilidade_class = "rentabilidade-ruim"
+            rentabilidade_bg = "bg-rentabilidade-ruim"
+        else:
+            status_texto = "Médio"
+            rentabilidade_class = "rentabilidade-medio"
+            rentabilidade_bg = "bg-rentabilidade-medio"
+        
         discount_amount = budget.discount_value.amount if budget.discount_value else Decimal("0")
         discount_display = budget.discount_value if discount_amount != Decimal("0") else Money(0, "BRL")
         step5_calculation_done = bool(budget.pk and (budget.step5_calculation_viewed or budget.current_step > 5))
@@ -2069,6 +2081,14 @@ class BudgetStep5Form(forms.ModelForm):
                         opacity: 1;
                     }}
                 }}
+                /* Cores de Rentabilidade */
+                .rentabilidade-bom {{ color: #22c55e !important; border-color: #22c55e !important; }}
+                .rentabilidade-medio {{ color: #f59e0b !important; border-color: #f59e0b !important; }} 
+                .rentabilidade-ruim {{ color: #ef4444 !important; border-color: #ef4444 !important; }}
+                
+                .bg-rentabilidade-bom {{ background-color: rgba(34, 197, 94, 0.1); }}
+                .bg-rentabilidade-medio {{ background-color: rgba(245, 158, 11, 0.1); }}
+                .bg-rentabilidade-ruim {{ background-color: rgba(239, 68, 68, 0.1); }}
             </style>
             <script>
                     (function() {{
@@ -2292,7 +2312,7 @@ class BudgetStep5Form(forms.ModelForm):
                 # Coluna Esquerda
                 Div(
                     Div(
-                        HTML(f'<h3 class="text-3xl font-bold mb-2 border-b-3 step5-accent-border text-center step5-accent-text">Método {metodo_precificacao}</h3>'),
+                        HTML(f'<h3 class="text-3xl font-bold mb-2 border-b-3 step5-accent-border text-center step5-accent-text">Método Hunter</h3>'),
                         Div(
                             # Grid de Custos vs Vendas
                             Div(
@@ -2366,9 +2386,9 @@ class BudgetStep5Form(forms.ModelForm):
                                         <span class="col-span-4 p-2 border-l border-base-300 step5-accent-text">{lucro_operacional}</span>
                                     </div>
 
-                                    <div class="grid grid-cols-12 border border-warning step5-warning-surface">
+                                    <div class="grid grid-cols-12 border {rentabilidade_class} {rentabilidade_bg}">
                                         <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Rentabilidade</span>
-                                        <span class="col-span-4 p-2 border-l border-warning text-warning">
+                                        <span class="col-span-4 p-2 border-l {rentabilidade_class} font-bold">
                                             {rentabilidade:.2f}% ({status_texto})
                                         </span>
                                     </div>
