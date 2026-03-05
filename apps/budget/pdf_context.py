@@ -58,7 +58,7 @@ def build_budget_pdf_context(*, budget: Budget, observacao: str, request=None) -
 
             produtos.append(
                 {
-                    "description": f"{kit_product.product.name} (Kit: {item.kit.name})",
+                    "description": f"{kit_product.product.name}",
                     "quantity": final_quantity,
                     "product_selling_price": unit_price,
                     "total_price": line_total,
@@ -72,7 +72,7 @@ def build_budget_pdf_context(*, budget: Budget, observacao: str, request=None) -
                 continue
 
             final_quantity = quantity_per_kit * item.quantity
-            label = f"{kit_service.service.name} (Kit: {item.kit.name})"
+            label = f"{kit_service.service.name}"
             servicos.append(
                 {
                     "description": f"{label} x{final_quantity}" if final_quantity > 1 else label,
