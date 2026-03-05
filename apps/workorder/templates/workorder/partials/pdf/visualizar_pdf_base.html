@@ -1,17 +1,16 @@
 {% load format_tags %}
-<div class="card-body">
-    <div class="flex w-full justify-end gap-2">
-        <button
-            type="button"
-            class="btn btn-outline btn-lg"
-            hx-get="{% url 'workorder:edit_items_modal' workorder.pk %}"
-            hx-target="#modal-container"
-            hx-swap="innerHTML"
-            onclick="document.getElementById('form_modal').showModal()">
-            <span class="material-icons mr-2" aria-hidden="true">edit_note</span>
-            Editar Itens
-        </button>
-    </div>
+<!DOCTYPE html>
+<html lang="pt-br" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@latest/dist/full.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: white !important; color: black !important; }
+        .border-gray-200 { border-color: #e5e7eb !important; }
+    </style>
+</head>
+<body class="p-4">
     <div class="p-6">
         <div id="pdf-iframe" class="p-4 border rounded-lg shadow-sm text-base">
 
@@ -184,4 +183,5 @@
             </div>
         </div>
     </div>
-</div>
+</body>
+</html>
