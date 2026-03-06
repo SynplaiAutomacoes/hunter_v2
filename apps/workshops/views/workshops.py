@@ -23,7 +23,7 @@ from apps.collaborators.models import WorkshopMember
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
-from apps.finance.models import WebmaniaCompany
+from apps.finance.models.finance import WebmaniaCompany
 from apps.finance.services.webmania_b2b import (
     WebmaniaB2BServiceError,
     get_b2b_requests,

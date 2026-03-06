@@ -7,7 +7,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from apps.collaborators.models import WorkshopMember
-from apps.finance.models import WebmaniaCompany, WebmaniaCompanyTaxType
+from apps.finance.models.finance import WebmaniaCompany, WebmaniaCompanyTaxType
 from apps.finance.services.webmania_auth import (
     WebmaniaAuthError,
     build_webmania_b2b_headers,

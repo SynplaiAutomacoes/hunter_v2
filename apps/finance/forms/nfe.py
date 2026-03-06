@@ -9,7 +9,7 @@ from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
 
 from apps.core.widgets import SelectInput
-from apps.finance.models import NfeRequest
+from apps.finance.models.finance import NfeRequest
 from apps.finance.services.nfe_emission import NfeEmissionError, build_nfe_preview_rows
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 

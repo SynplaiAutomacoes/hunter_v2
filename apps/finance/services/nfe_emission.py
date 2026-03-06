@@ -10,7 +10,7 @@ import requests
 from django.conf import settings
 from django.db import transaction
 
-from apps.finance.models import NfeItem, NfeRequest
+from apps.finance.models.finance import NfeItem, NfeRequest
 from apps.finance.services.emission import build_webmania_webhook_url
 from apps.finance.services.pricing import SliderAllocation, build_slider_allocation_for_workorder, distribute_total_proportionally
 from apps.finance.services.webmania_auth import (
