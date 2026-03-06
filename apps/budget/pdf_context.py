@@ -74,12 +74,12 @@ def build_budget_pdf_context(*, budget: Budget, observacao: str, request=None) -
                 u_p = ovr.product_selling_price if ovr else kp.product.selling_price
                 qty = (ovr.quantity if ovr else kp.quantity) * item.quantity
                 ship = (ovr.shipping if ovr else Money(0, "BRL")) * item.quantity
-                produtos_raw.append({"description": f"{kp.product.name} (Kit: {item.kit.name})", "quantity": qty, "base_total": (u_p * qty) + ship})
+                produtos_raw.append({"description": kp.product.name, "quantity": qty, "base_total": (u_p * qty) + ship})
             for ks in item.kit.kit_services.all():
                 ovr = service_overrides.get(ks.service_id)
                 u_p = ovr.service_selling_price if ovr else ks.service.selling_price
                 qty = (ovr.quantity if ovr else ks.quantity) * item.quantity
-                servicos_raw.append({"description": f"{ks.service.name} (Kit: {item.kit.name})", "quantity": qty, "base_total": u_p * qty})
+                servicos_raw.append({"description": ks.service.name, "quantity": qty, "base_total": u_p * qty})
 
     # Distribuição Proporcional nos itens
     def ajustar_proporcional(items, target, original):
