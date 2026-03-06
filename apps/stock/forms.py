@@ -89,12 +89,15 @@ class ImportStep1Form(forms.ModelForm):
         if self.parsed_nf_data:
             data = self.parsed_nf_data
             obj.workshop = self.workshop
-            obj.nf_number = data["nf_number"]
-            obj.nf_key = data["nf_key"]
-            obj.supplier_cnpj = data["supplier_cnpj"]
-            obj.supplier_name = data["supplier_name"]
-            obj.items_data = data["items"]
-            obj.payments_data = data["payments"]
+            obj.nf_number = data.get("nf_number")
+            obj.nf_key = data.get("nf_key")
+            obj.supplier_cnpj = data.get("supplier_cnpj")
+            obj.supplier_name = data.get("supplier_name")
+            obj.items_data = data.get("items", [])
+            obj.payments_data = data.get("payments", [])
+
+        if not obj.nf_key:
+            raise ValueError("A chave da NF-e é obrigatória para salvar a importação.")
 
         if commit:
             obj.save()
@@ -127,14 +130,32 @@ class ImportStep1Form(forms.ModelForm):
 
             else:
                 try:
-                    comunicacao = ComunicacaoSefaz(self.workshop.uf, self.workshop.pfx_certificate.path, self.workshop.certificate_password)
+                    comunicacao = ComunicacaoSefaz(self.workshop.uf.upper(), self.workshop.pfx_certificate.path, self.workshop.certificate_password)
                     cnpj_clean = re.sub(r"\D", "", self.workshop.cnpj)
+
                     xml_response = comunicacao.consulta_distribuicao(cnpj=cnpj_clean, chave=nf_key)
+                    content = xml_response.content
+
+                    if b"<cStat>215</cStat>" in content:
+                        self.add_error("access_key", "Rejeição da SEFAZ por falha no esquema. Verifique se o CNPJ do certificado é o destinatário da nota.")
+                        return cleaned_data
+
+                    if b"<cStat>137</cStat>" in content:
+                        self.add_error("access_key", "Nenhum documento encontrado para esta chave no CNPJ informado.")
+                        return cleaned_data
+
+                    if b"<cStat>593</cStat>" in content:
+                        self.add_error("access_key", "CNPJ-Base consultado difere do CNPJ-Base do Certificado Digital.")
+                        return cleaned_data
+
                     nf_data = NFParser.parse_nfe_xml_to_dict(xml_response.content)
                 except Exception:
                     self.add_error("access_key", "Erro ao buscar chave na SEFAZ ou chave inválida.")
 
         if nf_data:
+            if not nf_data.get("nf_key"):
+                nf_data["nf_key"] = cleaned_data.get("access_key") or self.data.get("access_key")
+
             if StockImport.objects.filter(workshop=self.workshop, nf_key=nf_data["nf_key"]).exclude(pk=self.instance.pk).exists():
                 self.add_error("method", f"A NF com chave {nf_data['nf_key']} já existe.")
 

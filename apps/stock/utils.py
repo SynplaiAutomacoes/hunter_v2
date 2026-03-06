@@ -26,7 +26,22 @@ class NFParser:
                 # Caso seja o XML direto (upload manual)
                 nfe_tree = tree
 
-            infNFe = nfe_tree.xpath("//ns:infNFe", namespaces=ns)[0]
+            res_nfe = nfe_tree.xpath("//ns:resNFe", namespaces=ns)
+            if res_nfe:
+                return {
+                    "nf_key": res_nfe[0].get("chNFe"),
+                    "nf_number": None,
+                    "supplier_cnpj": res_nfe[0].xpath("ns:CNPJ", namespaces=ns)[0].text,
+                    "supplier_name": res_nfe[0].xpath("ns:xNome", namespaces=ns)[0].text,
+                    "items": [],
+                    "payments": [],
+                }
+
+            inf_nfe_list = nfe_tree.xpath("//ns:infNFe", namespaces=ns)
+            if not inf_nfe_list:
+                raise ValueError("XML não contém tag infNFe ou resNFe válida.")
+
+            infNFe = inf_nfe_list[0]
             chave_acesso = infNFe.get("Id").replace("NFe", "")
 
             # --- Cabeçalho e Fornecedor ---
@@ -78,5 +93,6 @@ class NFParser:
                     "payment_date": data_vencimento,
                 })
             return {"nf_key": chave_acesso, "nf_number": nf_numero, "supplier_cnpj": cnpj_fornecedor, "supplier_name": nome_fornecedor, "items": produtos, "payments": pagamentos_sessao}
-        except Exception:
+        except Exception as e:
+            print(f"Erro no parsing do XML: {e}")
             return None
