@@ -16,7 +16,8 @@ from apps.budget.models import Budget, BudgetImage, BudgetImageType, Defect
 from apps.checklist.models import Checklist
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.utils import alert_confirm_layout
-from apps.core.widgets import CalendarDateInput, MoneyInput, NumberInput, SelectInput, TextInput, TextareaInput
+from apps.core.widgets import CalendarDateInput, MoneyInput, NumberInput, SelectInput, TextInput, TextareaInput, \
+    SearchableSelectInput
 from apps.customer.models import Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
 
@@ -264,14 +265,17 @@ def _build_step3_images_initial_html(budget, slot_placeholder_urls):
 class BudgetStep1Form(forms.ModelForm):
     workshop = forms.CharField(label="Empresa", widget=TextInput(attrs={"readonly": "readonly"}), required=False)
     cost_estimator = forms.CharField(label="Orçamentista", widget=TextInput(attrs={"readonly": "readonly"}), required=False)
-    vehicle = forms.ModelChoiceField(label="Veículo", queryset=Vehicle.objects.none(), required=False, widget=SelectInput())
+    vehicle = forms.ModelChoiceField(label="Veículo", queryset=Vehicle.objects.none(), required=False, widget=SearchableSelectInput())
 
     class Meta:
         model = Budget
         fields = ["workshop", "cost_estimator", "entry_date", "customer", "vehicle", "current_km", "fuel_level"]
         widgets = {
             "entry_date": CalendarDateInput(),
-            "customer": SelectInput(attrs={"x-model": "customerId", "@change": "customerId = $el.value; vehicleId = '';"}),
+            "customer": SearchableSelectInput(attrs={
+                "x-model": "customerId",
+                "@change": "customerId = $el.value; vehicleId = '';"
+            }),
             "current_km": NumberInput(),
             "fuel_level": SelectInput(),
         }
@@ -294,6 +298,7 @@ class BudgetStep1Form(forms.ModelForm):
         self.fields["vehicle"].widget.attrs.update(
             {
                 "x-model": "vehicleId",
+                "id": "id_vehicle",
                 ":disabled": "!customerId",
                 ":class": "{ 'cursor-not-allowed': !customerId }",
                 "hx-get": reverse_lazy("budget:vehicle-detail"),
@@ -363,75 +368,57 @@ class BudgetStep1Form(forms.ModelForm):
                 });
                 
                 async function updateVehicleList(customerId, selectedVehicleId = null) {
-                    if (typeof Alpine === 'undefined') {
-                        return;
-                    }
-
                     const vehicleInput = document.querySelector('[name="vehicle"]');
-                    if (!vehicleInput) {
+                    if (!vehicleInput) return;
+
+                    const vehicleContainer = vehicleInput.closest('[x-data]');
+                    const vehicleData = Alpine.$data(vehicleContainer);
+                    const optionsUl = vehicleContainer.querySelector('ul[role="listbox"]');
+
+                    vehicleData.clear(); 
+                
+                    if (!customerId) {
+                        optionsUl.querySelectorAll('li[data-value]').forEach(li => li.remove());
                         return;
                     }
+                
+                    try {
+                        const response = await fetch(`/budget/get-vehicles/?customer=${customerId}`);
+                        const vehicles = await response.json();
+                        optionsUl.querySelectorAll('li[data-value]').forEach(li => li.remove());
 
-                    const vehicleEl = vehicleInput.closest('[x-data]');
-                    if (!vehicleEl) {
-                        return;
-                    }
+                        vehicles.forEach(v => {
+                            const li = document.createElement('li');
+                            li.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white transition-colors group';
+                            li.setAttribute('data-value', String(v.id));
+                            li.setAttribute('data-label', v.label);
+                            li.setAttribute('x-show', `!search || '${v.label.replace(/'/g, "\\'")}'.toLowerCase().includes(search.toLowerCase())`);
+                            li.innerHTML = `<span class="block truncate">${v.label}</span>`;
+                            
+                            // IMPORTANTE: Ao clicar, chama o método 'select' do Alpine do widget
+                            li.addEventListener('click', () => {
+                                vehicleData.select(li);
+                            });
+                            
+                            optionsUl.appendChild(li);
 
-                    const vehicleData = Alpine.$data(vehicleEl);
-                    const optionsUl = vehicleEl.querySelector('ul[role="listbox"]');
-                    if (!vehicleData || !optionsUl) {
-                        return;
-                    }
-
-                    const response = await fetch(`/budget/get-vehicles/?customer=${customerId || ''}`);
-                    const vehicles = await response.json();
-
-                    vehicleData.clear();
-                    optionsUl.querySelectorAll('li[data-value]').forEach(li => li.remove());
-
-                    let optionToSelect = null;
-                    const selectedVehicleIdStr = selectedVehicleId ? String(selectedVehicleId) : '';
-
-                    vehicles.forEach(v => {
-                        const optionValue = String(v.id);
-                        const li = document.createElement('li');
-                        li.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white group transition-colors';
-                        li.setAttribute('data-value', optionValue);
-                        li.setAttribute('data-label', v.label);
-                        li.innerHTML = `<span class="block truncate">${v.label}</span>`;
-                        li.addEventListener('click', () => vehicleData.select(li));
-                        optionsUl.appendChild(li);
-
-                        if (selectedVehicleIdStr && optionValue === selectedVehicleIdStr) {
-                            optionToSelect = li;
-                        }
-                    });
-
-                    if (optionToSelect && typeof vehicleData.select === 'function') {
-                        vehicleData.select(optionToSelect);
+                            // Se for um veículo específico (vindo de um Quick Create)
+                            if (selectedVehicleId && String(v.id) === String(selectedVehicleId)) {
+                                vehicleData.select(li);
+                            }
+                        });
+                    } catch (error) {
+                        console.error("Erro ao carregar veículos:", error);
                     }
                 }
 
                 function selectCustomerFromQuickForm(customer) {
-                    if (!customer || !customer.id) {
-                        return;
-                    }
+                    if (!customer || !customer.id) return;
 
                     const customerInput = document.querySelector('[name="customer"]');
-                    if (!customerInput || typeof Alpine === 'undefined') {
-                        return;
-                    }
-
                     const customerEl = customerInput.closest('[x-data]');
-                    if (!customerEl) {
-                        return;
-                    }
-
                     const customerData = Alpine.$data(customerEl);
                     const optionsUl = customerEl.querySelector('ul[role="listbox"]');
-                    if (!customerData || !optionsUl) {
-                        return;
-                    }
 
                     const customerId = String(customer.id);
                     const customerName = customer.name || 'Cliente';
@@ -442,32 +429,14 @@ class BudgetStep1Form(forms.ModelForm):
                         option.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white group transition-colors';
                         option.setAttribute('data-value', customerId);
                         option.setAttribute('data-label', customerName);
-
-                        const labelSpan = document.createElement('span');
-                        labelSpan.className = 'block truncate';
-                        labelSpan.textContent = customerName;
-                        option.appendChild(labelSpan);
-
+                        option.setAttribute('x-show', `!search || '${customerName.replace(/'/g, "\\'")}'.toLowerCase().includes(search.toLowerCase())`);
+                        option.innerHTML = `<span class="block truncate">${customerName}</span>`;
                         option.addEventListener('click', () => customerData.select(option));
                         optionsUl.appendChild(option);
-                    } else {
-                        option.setAttribute('data-label', customerName);
-                        const currentLabel = option.querySelector('span');
-                        if (currentLabel) {
-                            currentLabel.textContent = customerName;
-                        }
                     }
 
-                    if (typeof customerData.select === 'function') {
-                        customerData.select(option);
-                        return;
-                    }
-
-                    customerData.value = customerId;
-                    customerData.label = customerName;
-                    if (typeof customerData.dispatchEvents === 'function') {
-                        customerData.dispatchEvents();
-                    }
+                    // Crucial: Usar o método select do componente para sincronizar label e search
+                    customerData.select(option);
                 }
 
                 if (!window.__budgetStep1CustomerSavedBound) {
@@ -549,6 +518,17 @@ class BudgetStep1Form(forms.ModelForm):
                                 **{":class": "{ 'pointer-events-none': !customerId }"},
                             ),
                             x_data=customer_vehicle_x_data,
+                            **{
+                                "@change": """
+                                        if ($event.target.name === 'customer') { 
+                                            customerId = $event.target.value; 
+                                            vehicleId = ''; // Reseta veículo se mudar cliente
+                                            updateVehicleList($event.target.value);
+                                        } else if ($event.target.name === 'vehicle') { 
+                                            vehicleId = $event.target.value; 
+                                        }
+                                    """
+                            },
                             css_class="grid grid-cols-1 gap-2",
                         ),
                         css_class="mb-6",
