@@ -2,4 +2,19 @@
 
 {% block crud_title %}Cadastrar Oficina{% endblock %}
 {% block crud_subtitle %}Preencha os dados da unidade para registro no sistema.{% endblock %}
+{% block crud_form %}
+    <div class="flex items-center gap-2">
+        {% if can_sync_webmania_companies %}
+            <form method="post" action="{% url 'workshops:webmania_company_sync' %}" onsubmit="this.querySelector('button[type=submit]').disabled = true;">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-primary btn-sm gap-2">
+                    <span class="material-icons text-base">sync</span>
+                    Sincronizar empresas
+                </button>
+            </form>
+        {% endif %}
+    </div>
+
+    {% crispy form %}
+{% endblock %}
 {% block crud_back_url %}{% url 'workshops:list' %}{% endblock %}
