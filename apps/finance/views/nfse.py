@@ -14,7 +14,7 @@ from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxTemplateResponseMixin
 from apps.finance.forms import NfseRequestStep1Form, NfseRequestStep2Form, NfseRequestStep3Form
-from apps.finance.models import NfseRequest, NfseRequestStatus
+from apps.finance.models.finance import NfseRequest, NfseRequestStatus
 from apps.finance.services.emission import NfseEmissionError, emit_nfse_request, sync_emission_response
 from apps.finance.services.tax_classes import TaxClassServiceError, list_tax_classes
 from apps.workshops.mixin import WorkshopScopedMixin

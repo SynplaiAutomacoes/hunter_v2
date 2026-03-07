@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from django.conf import settings
 
-from apps.finance.models import WebmaniaCompany
+from apps.finance.models.finance import WebmaniaCompany
 from apps.finance.services.webmania_secrets import decrypt_secret
 
 

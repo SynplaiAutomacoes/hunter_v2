@@ -3,12 +3,12 @@ import base64
 
 from lxml import etree
 
-from apps.stock.models import StockPaymentMethod
+from apps.finance.models.payment_method import PaymentMethod
 
 
 class NFParser:
     @staticmethod
-    def parse_nfe_xml_to_dict(xml_content):
+    def parse_nfe_xml_to_dict(workshop, xml_content):
         try:
             if hasattr(xml_content, "read"):
                 xml_content = xml_content.read()
@@ -83,10 +83,12 @@ class NFParser:
                 data_vencimento = dup.xpath("ns:dVenc/text()", namespaces=ns)
                 data_vencimento = data_vencimento[0] if data_vencimento else ""
 
+                method_obj, _ = PaymentMethod.objects.get_or_create(workshop=workshop, description=method_slug, defaults={"is_active": True})
+
                 pagamentos_sessao.append({
                     "id": idx + 1,
-                    "method": method_slug,
-                    "method_display": dict(StockPaymentMethod.PAYMENT_METHOD_CHOICES).get(method_slug),
+                    "method": method_obj.id,
+                    "method_display": method_obj.description,
                     "installments": 1,
                     "first_amount": valor,
                     "total_paid": valor * 1,

@@ -26,7 +26,7 @@
             <tbody>
                 {% for payment in workorder.payments.all %}
                     <tr>
-                        <td>{{ payment.get_payment_method_display }}</td>
+                        <td>{{ payment.payment_method.description }}</td>
                         <td>{{ payment.installments_count }}x</td>
                         <td>{{ payment.total_paid }}</td>
 

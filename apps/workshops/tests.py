@@ -9,7 +9,7 @@ from django.urls import reverse
 
 from apps.accounts.models import Account, User
 from apps.collaborators.models import WorkshopMember
-from apps.finance.models import WebmaniaCompany
+from apps.finance.models.finance import WebmaniaCompany
 from apps.finance.services.webmania_secrets import decrypt_secret
 from apps.iam.utils import get_or_create_director_role
 from apps.workshops.models.workshops import Workshop
