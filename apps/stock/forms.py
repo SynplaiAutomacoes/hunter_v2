@@ -14,7 +14,7 @@ import base64
 
 from django.utils.safestring import mark_safe
 from lxml import etree
-from django.urls import reverse, reverse_lazy
+from django.urls import reverse
 from django.utils import timezone
 from djmoney.forms import MoneyField
 from djmoney.money import Money
@@ -114,7 +114,7 @@ class ImportStep1Form(forms.ModelForm):
                 self.add_error("xml_file", "O arquivo XML é obrigatório para este método.")
             else:
                 try:
-                    nf_data = NFParser.parse_nfe_xml_to_dict(xml_file)
+                    nf_data = NFParser.parse_nfe_xml_to_dict(self.workshop, xml_file)
                 except Exception:
                     self.add_error("xml_file", "Erro ao ler o arquivo XML.")
 
@@ -148,7 +148,7 @@ class ImportStep1Form(forms.ModelForm):
                         self.add_error("access_key", "CNPJ-Base consultado difere do CNPJ-Base do Certificado Digital.")
                         return cleaned_data
 
-                    nf_data = NFParser.parse_nfe_xml_to_dict(xml_response.content)
+                    nf_data = NFParser.parse_nfe_xml_to_dict(self.workshop, xml_response.content)
                 except Exception:
                     self.add_error("access_key", "Erro ao buscar chave na SEFAZ ou chave inválida.")
 
@@ -819,7 +819,7 @@ class ImportSefazListForm(forms.ModelForm):
                 comunicacao = ComunicacaoSefaz(self.workshop.uf, self.workshop.pfx_certificate.path, self.workshop.certificate_password)
                 xml_completo = comunicacao.consulta_distribuicao(cnpj=re.sub(r"\D", "", self.workshop.cnpj), chave=key)
 
-                nf_data = NFParser.parse_nfe_xml_to_dict(xml_completo.content)
+                nf_data = NFParser.parse_nfe_xml_to_dict(self.workshop, xml_completo.content)
 
                 if nf_data:
                     instance.nf_number = nf_data["nf_number"]
