@@ -12,6 +12,7 @@ from django.db import transaction
 import gzip
 import base64
 
+from django.shortcuts import get_object_or_404
 from django.utils.safestring import mark_safe
 from lxml import etree
 from django.urls import reverse
@@ -24,6 +25,7 @@ from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.core.forms import address_layout, AddressFormMixin
 from apps.core.widgets import TextInput, SelectInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput, PhoneInput, EmailInput
+from apps.finance.models.payment_method import PaymentMethod
 
 from apps.stock.models import StockPaymentMethod, StockImport, StockProduct, StockMovement, SefazZipCache
 
@@ -341,7 +343,7 @@ class ImportStepItemsForm(forms.ModelForm):
 
 
 class ImportStepPaymentForm(forms.ModelForm):
-    payment_method = forms.ChoiceField(choices=StockPaymentMethod.PAYMENT_METHOD_CHOICES, label="Forma de Pagamento", widget=SelectInput, required=False)
+    payment_method = forms.ModelChoiceField(queryset=PaymentMethod.objects.none(), label="Forma de Pagamento", widget=SelectInput, required=False, empty_label="Selecione uma forma")
     installments_count = forms.IntegerField(min_value=1, initial=1, label="Número de Parcelas", widget=NumberInput, required=False)
     first_amount = MoneyField(max_digits=14, decimal_places=2, label="Valor Pago", widget=MoneyInput, required=False)
     payment_date = forms.DateField(label="Data de Vencimento", widget=CalendarDateInput, required=False)
@@ -361,6 +363,12 @@ class ImportStepPaymentForm(forms.ModelForm):
         self.import_items = kwargs.pop("import_items", [])
         self.import_payments = kwargs.pop("import_payments", [])
         super().__init__(*args, **kwargs)
+
+        if self.workshop:
+            self.fields['payment_method'].queryset = PaymentMethod.objects.filter(
+                workshop=self.workshop,
+                is_active=True
+            ).order_by('description')
 
         # Cálculos Financeiros
         valor_total = sum(Decimal(str(item.get("valor", 0))) * Decimal(str(item.get("qtd", 0))) for item in self.import_items)
@@ -594,7 +602,7 @@ class ImportStepSummaryForm(forms.ModelForm):
             value = Money(Decimal(clean_value), "BRL")
             total_value += value
             payments_html += f"""<div class="flex justify-between items-center mb-2">
-                            <span class="text-sm">{pay.get("method_display", "Boleto")} ({pay.get("installments", 1)}x)</span>
+                            <span class="text-sm">{pay.get("method_display", "Não encontrado")} ({pay.get("installments", 1)}x)</span>
                             <span class="font-bold">{value}</span>
                         </div>"""
 
@@ -704,7 +712,9 @@ class ImportStepSummaryForm(forms.ModelForm):
             if installments > 1:
                 remaining_amount = (total_val - first_amount) / (installments - 1)
 
-            StockPaymentMethod.objects.create(workshop=workshop, payment_method=pay.get("method", "BOLETO"), installments_count=installments, first_installment_amount=Money(first_amount, "BRL"), remaining_installments_amount=Money(remaining_amount, "BRL"), nf_number=instance.nf_number or "MANUAL", due_date=payment_due_date)
+            method_id = pay.get("method")
+            payment_method_obj = get_object_or_404(PaymentMethod, id=method_id, workshop=workshop)
+            StockPaymentMethod.objects.create(workshop=workshop, payment_method=payment_method_obj, installments_count=installments, first_installment_amount=Money(first_amount, "BRL"), remaining_installments_amount=Money(remaining_amount, "BRL"), nf_number=instance.nf_number or "MANUAL", due_date=payment_due_date)
 
         instance.status = StockImport.ImportStatus.COMPLETED
         if commit:

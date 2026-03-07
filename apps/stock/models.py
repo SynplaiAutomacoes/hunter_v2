@@ -3,6 +3,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from apps.core.models import TimeStampedModel
+from apps.finance.models.payment_method import PaymentMethod
 from apps.suppliers.models import Supplier
 from djmoney.models.fields import MoneyField
 
@@ -74,17 +75,8 @@ class StockMovement(TimeStampedModel):
 
 
 class StockPaymentMethod(TimeStampedModel):
-    PAYMENT_METHOD_CHOICES = (
-        ("CREDITO", "Cartão de Crédito"),
-        ("DEBITO", "Cartão de Débito"),
-        ("PIX", "Pix"),
-        ("DINHEIRO", "Dinheiro"),
-        ("BOLETO", "Boleto"),
-        ("TRANSFERENCIA", "Transferência/TED"),
-    )
-
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="stockpayments")
-    payment_method = models.CharField(verbose_name="Forma de Pagamento", choices=PAYMENT_METHOD_CHOICES, max_length=20)
+    payment_method = models.ForeignKey(PaymentMethod, on_delete=models.PROTECT, verbose_name="Forma de Pagamento", null=True, blank=True)
     installments_count = models.PositiveIntegerField(verbose_name="Número de Parcelas", default=1)
     first_installment_amount = MoneyField(verbose_name="Valor da primeira parcela", max_digits=14, decimal_places=2, default=0.00)
     remaining_installments_amount = MoneyField(verbose_name="Valor das parcelas restantes", max_digits=14, decimal_places=2, default=0.00)
