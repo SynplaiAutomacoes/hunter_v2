@@ -51,6 +51,47 @@ def get_signed_document_download_url(*, document_id: str) -> str:
     return download_url.strip()
 
 
+def list_supersign_webhooks() -> list[dict[str, Any]]:
+    base_url = settings.SUPERSIGN_BASE_URL.rstrip("/")
+    try:
+        response = requests.get(
+            f"{base_url}/v2/webhooks/",
+            headers=_supersign_headers(),
+            timeout=20,
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        response_text = exc.response.text if exc.response is not None else ""
+        raise SuperSignGatewayError(f"Erro ao listar webhooks: {exc}. Resposta: {response_text}") from exc
+
+    data = response.json()
+    return data if isinstance(data, list) else []
+
+
+def create_supersign_webhook(*, url: str, events: list[str] | None = None, is_active: bool = True) -> dict[str, Any]:
+    base_url = settings.SUPERSIGN_BASE_URL.rstrip("/")
+    payload = {
+        "url": url,
+        "events": events or ["ENVELOPE_COMPLETED"],
+        "isActive": is_active,
+    }
+
+    try:
+        response = requests.post(
+            f"{base_url}/v2/webhooks/",
+            json=payload,
+            headers=_supersign_headers(),
+            timeout=20,
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        response_text = exc.response.text if exc.response is not None else ""
+        raise SuperSignGatewayError(f"Erro ao criar webhook: {exc}. Resposta: {response_text}") from exc
+
+    data = response.json()
+    return data if isinstance(data, dict) else {}
+
+
 def download_signed_document(*, document_id: str) -> bytes:
     download_url = get_signed_document_download_url(document_id=document_id)
 

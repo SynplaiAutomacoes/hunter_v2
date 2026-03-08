@@ -1,11 +1,12 @@
-from django.template import Context, Template
-from django.test import RequestFactory, TestCase
-from django.db import connection
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.db.models import F, Func, IntegerField, Value
 from django.db.models.functions import Cast, NullIf
+from django.template import Context, Template
+from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 
+from apps.core.documents.signature import SIGNATURE_POSITION, build_absolute_app_url, normalize_signature_phone_number
 from apps.workshops.models.workshops import Workshop
 
 
@@ -17,6 +18,47 @@ def create_workshop(**kwargs):
     }
     data.update(kwargs)
     return Workshop.objects.create(**data)
+
+
+class SignatureHelpersTests(SimpleTestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def test_signature_position_matches_current_budget_coordinates(self):
+        self.assertEqual(
+            SIGNATURE_POSITION,
+            {
+                "x": 443.0,
+                "y": 95.0,
+                "width": 120.0,
+                "height": 38.0,
+            },
+        )
+
+    def test_normalize_signature_phone_number_returns_empty_for_blank_values(self):
+        self.assertEqual(normalize_signature_phone_number(None), "")
+        self.assertEqual(normalize_signature_phone_number(""), "")
+        self.assertEqual(normalize_signature_phone_number("   "), "")
+
+    def test_normalize_signature_phone_number_keeps_plus_and_digits(self):
+        self.assertEqual(normalize_signature_phone_number("+55 (11) 99888-7777"), "+5511998887777")
+
+    def test_normalize_signature_phone_number_adds_plus_when_missing(self):
+        self.assertEqual(normalize_signature_phone_number("(11) 99888-7777"), "+11998887777")
+
+    @override_settings(APP_BASE_URL="https://app.example.com")
+    def test_build_absolute_app_url_prefers_request_when_available(self):
+        request = self.factory.get("/origem/")
+
+        self.assertEqual(build_absolute_app_url(path="/destino/", request=request), "http://testserver/destino/")
+
+    @override_settings(APP_BASE_URL="https://app.example.com")
+    def test_build_absolute_app_url_uses_app_base_url_without_request(self):
+        self.assertEqual(build_absolute_app_url(path="/destino/"), "https://app.example.com/destino/")
+
+    @override_settings(APP_BASE_URL="")
+    def test_build_absolute_app_url_falls_back_to_localhost(self):
+        self.assertEqual(build_absolute_app_url(path="/destino/"), "http://localhost:8000/destino/")
 
 
 class TestRenderTableTag(TestCase):

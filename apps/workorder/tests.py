@@ -12,7 +12,11 @@ from apps.budget.models import Budget
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
+from apps.core.documents.contract import DocumentPayload, SignatureDeliveryResult
+from apps.core.documents.signature import normalize_signature_phone_number
+from apps.customer.models import Customer
 from apps.workorder.models import WorkOrder, WorkOrderItem
+from apps.workorder.service import send_workorder_for_signature
 from apps.workshops.models.workshops import Workshop
 
 
@@ -29,6 +33,16 @@ def create_budget(*, workshop: Workshop) -> Budget:
     budget = Budget(workshop=workshop, entry_date=timezone.now().date())
     budget.save()
     return budget
+
+
+def create_customer(*, workshop: Workshop, suffix: int = 1, phone: str = "+5511988888888") -> Customer:
+    return Customer.objects.create(
+        workshop=workshop,
+        name=f"Cliente OS {suffix}",
+        cpf_or_cnpj=f"987.654.321-{suffix:02d}",
+        email=f"cliente.os{suffix}@example.com",
+        phone=phone,
+    )
 
 
 class WorkOrderTotalsConsistencyTests(TestCase):
@@ -101,3 +115,36 @@ class WorkOrderTotalsConsistencyTests(TestCase):
 
         self.assertEqual(workorder.total_base_value, Money("15.00", "BRL"))
         self.assertEqual(workorder.total_budget_value, Money("10.00", "BRL"))
+
+
+class WorkOrderSignatureDeliveryTests(TestCase):
+    @patch("apps.workorder.service.send_document_for_signature")
+    @patch("apps.workorder.service.render_workorder_pdf_document")
+    def test_send_workorder_for_signature_uses_core_payload_builders(self, render_pdf_mock, send_document_mock) -> None:
+        workshop = create_workshop(suffix=83)
+        budget = create_budget(workshop=workshop)
+        customer = create_customer(workshop=workshop, suffix=83)
+        budget.customer = customer
+        budget.save(update_fields=["customer"])
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+
+        render_pdf_mock.return_value = DocumentPayload(content=b"workorder-pdf", filename="os.pdf")
+        send_document_mock.return_value = SignatureDeliveryResult(
+            envelope_id="env-83",
+            document_id="doc-83",
+            provider="supersign",
+            raw_response={"ok": True},
+        )
+
+        result = send_workorder_for_signature(workorder=workorder)
+
+        self.assertEqual(result.envelope_id, "env-83")
+        _, kwargs = send_document_mock.call_args
+        self.assertEqual(kwargs["file_name"], f"orcamento-{budget.id}.pdf")
+        self.assertEqual(kwargs["document_ref_id"], f"budget-{budget.id}")
+        self.assertEqual(kwargs["signatory"]["id"], f"customer-{budget.id}")
+        self.assertEqual(kwargs["signatory"]["authMethod"], "WHATSAPP")
+        self.assertEqual(kwargs["signatory"]["phoneNumber"], normalize_signature_phone_number(customer.phone))
+        self.assertEqual(kwargs["observers"][0]["email"], customer.email)
+        self.assertEqual(kwargs["fields"][0]["documentId"], f"budget-{budget.id}")
+        self.assertEqual(kwargs["fields"][0]["signatoryId"], f"customer-{budget.id}")

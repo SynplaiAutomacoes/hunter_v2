@@ -1,24 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import re
 
 from django.conf import settings
 
+from apps.core.documents.contract import SignatureRecipient
+from apps.core.documents.signature import build_signature_fields, build_signature_signatory_and_observers
 from apps.core.documents.services import (
     SignatureDeliveryServiceError,
     download_signed_document_content,
     send_document_for_signature,
 )
 from apps.workorder.documents.provider import render_workorder_pdf_document
-
-
-SIGNATURE_POSITION = {
-    "x": 443.0,
-    "y": 95.0,
-    "width": 120.0,
-    "height": 38.0,
-}
 
 
 class WorkOrderSignatureError(Exception):
@@ -32,44 +25,13 @@ class WorkOrderSignatureResult:
     raw_response: dict
 
 
-def _normalize_phone_number(raw_phone: object) -> str:
-    if raw_phone is None:
-        return ""
-
-    phone = str(raw_phone).strip()
-    if not phone:
-        return ""
-
-    phone = re.sub(r"[^\d+]", "", phone)
-    if not phone:
-        return ""
-
-    if phone.startswith("+"):
-        return "+" + re.sub(r"\D", "", phone)
-
-    digits = re.sub(r"\D", "", phone)
-    if digits:
-        return f"+{digits}"
-
-    return ""
-
-
 def _build_signature_fields(workorder) -> list[dict]:
     budget = workorder.budget
-    document_ref_id = f"budget-{budget.id}"
-    signatory_ref_id = f"customer-{budget.id}"
-    page_number = _calculate_pdf_total_pages(workorder)
-
-    return [
-        {
-            "type": "SIGNATURE",
-            "documentId": document_ref_id,
-            "signatoryId": signatory_ref_id,
-            "pageNumber": page_number,
-            "position": SIGNATURE_POSITION,
-            "properties": {},
-        }
-    ]
+    return build_signature_fields(
+        document_ref_id=f"budget-{budget.id}",
+        signatory_ref_id=f"customer-{budget.id}",
+        page_number=_calculate_pdf_total_pages(workorder),
+    )
 
 
 def _build_workorder_pdf_bytes(*, workorder) -> bytes:
@@ -95,7 +57,6 @@ def send_workorder_for_signature(*, workorder) -> WorkOrderSignatureResult:
     customer = budget.customer
     customer_email = getattr(customer, "email", "") if customer else ""
     customer_phone = getattr(customer, "phone", "") if customer else ""
-    normalized_phone = _normalize_phone_number(customer_phone)
 
     if not customer:
         raise WorkOrderSignatureError("Ordem de serviço sem cliente vinculado para assinatura")
@@ -103,26 +64,14 @@ def send_workorder_for_signature(*, workorder) -> WorkOrderSignatureResult:
     if not customer_email:
         raise WorkOrderSignatureError("Cliente sem email para assinatura")
 
-    signatory = {
-        "id": f"customer-{budget.id}",
-        "name": customer.name,
-        "email": customer_email,
-        "qualification": "Cliente",
-        "signingOrder": 0,
-        "authMethod": "EMAIL",
-    }
-
-    observers: list[dict] = []
-    if normalized_phone:
-        signatory["authMethod"] = "WHATSAPP"
-        signatory["phoneNumber"] = normalized_phone
-        observers.append(
-            {
-                "email": customer_email,
-                "notifyOnSent": True,
-                "notifyOnCompletion": True,
-            }
-        )
+    signatory, observers = build_signature_signatory_and_observers(
+        signatory_id=f"customer-{budget.id}",
+        recipient=SignatureRecipient(
+            name=customer.name,
+            email=customer_email,
+            phone=str(customer_phone),
+        ),
+    )
 
     pdf_bytes = _build_workorder_pdf_bytes(workorder=workorder)
     file_name = f"orcamento-{budget.id}.pdf"

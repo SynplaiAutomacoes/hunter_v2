@@ -1,6 +1,5 @@
 import logging
 
-from django.core import signing
 from django.core.exceptions import ObjectDoesNotExist
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, render
@@ -10,10 +9,11 @@ from djmoney.money import Money
 from apps.budget.documents.provider import render_budget_pdf_document
 from apps.budget.models import Budget, BudgetItem, SignatureStatus
 from apps.budget.pdf_context import build_budget_pdf_context
-from apps.budget.service import SuperSignError, download_supersign_signed_pdf
+from apps.budget.service import BUDGET_SIGNATURE_DOCUMENT_ID_KEY, BUDGET_SIGNATURE_TOKEN_SALT, SuperSignError, download_supersign_signed_pdf
 from apps.checklist.models import Checklist
 from apps.core.documents.contract import DocumentPayload
 from apps.core.documents.http import build_pdf_http_response
+from apps.core.documents.signature import SignatureTokenError, parse_document_signature_token
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
 
@@ -144,19 +144,20 @@ def visualizar_pdf_checklist(request, pk):
 
 def _get_budget_from_signature_token(token):
     try:
-        payload = signing.loads(token, salt="budget-signature-file")
-        budget_id = int(payload["budget_id"])
-        token_version = int(payload["version"])
-
-    except (signing.BadSignature, KeyError, ValueError, TypeError):
+        payload = parse_document_signature_token(
+            token=token,
+            token_salt=BUDGET_SIGNATURE_TOKEN_SALT,
+            document_id_key=BUDGET_SIGNATURE_DOCUMENT_ID_KEY,
+        )
+    except SignatureTokenError:
         raise Http404("Arquivo não encotrado")
 
-    budget = get_object_or_404(Budget.objects.select_related("workshop", "customer", "vehicle"), pk=budget_id)
+    budget = get_object_or_404(Budget.objects.select_related("workshop", "customer", "vehicle"), pk=payload.document_id)
 
     if not budget.signature_token_active:
         raise Http404("Arquivo não encotrado")
 
-    if budget.signature_token_version != token_version:
+    if budget.signature_token_version != payload.version:
         raise Http404("Arquivo não encotrado")
 
     return budget
