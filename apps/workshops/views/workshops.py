@@ -23,7 +23,7 @@ from apps.collaborators.models import WorkshopMember
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
-from apps.finance.models import WebmaniaCompany
+from apps.finance.models.finance import WebmaniaCompany
 from apps.finance.services.webmania_b2b import (
     WebmaniaB2BServiceError,
     get_b2b_requests,
@@ -73,6 +73,64 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
     form_class = WorkshopForm
     template_name = "workshops/workshop_create.html"
     success_url = reverse_lazy("workshops:list")
+
+    @staticmethod
+    def _latest_sync_error(companies: list[WebmaniaCompany]) -> str:
+        candidates = [company for company in companies if str(company.last_sync_error or "").strip()]
+        if not candidates:
+            return ""
+
+        latest = max(
+            candidates,
+            key=lambda company: company.last_sync_at or company.atualizado_em or company.criado_em,
+        )
+        return str(latest.last_sync_error or "").strip()
+
+    def _reference_workshop_for_permission(self):
+        user_account_id = getattr(self.request.user, "account_id", None)
+        active_workshop_id = self.request.session.get("active_workshop_id")
+        if active_workshop_id and user_account_id is not None:
+            workshop = Workshop.objects.filter(pk=active_workshop_id, account_id=user_account_id).first()
+            if workshop is not None:
+                return workshop
+
+        return self.get_queryset().first()
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+
+        user_account_id = getattr(self.request.user, "account_id", None)
+        account_companies = []
+        if user_account_id is not None:
+            account_companies = list(WebmaniaCompany.objects.filter(workshop__account_id=user_account_id).exclude(webmania_company_id="").select_related("workshop"))
+        sync_candidates = [company.last_sync_at for company in account_companies if company.last_sync_at is not None]
+        latest_sync_at = max(sync_candidates) if sync_candidates else None
+
+        reference_workshop = self._reference_workshop_for_permission()
+        user = cast(Any, self.request.user)
+        can_sync_webmania_companies = bool(reference_workshop) and has_workshop_perm(
+            user=user,
+            workshop=reference_workshop,
+            app_label=WebmaniaCompany._meta.app_label,
+            model=str(WebmaniaCompany._meta.model_name),
+            codename="change_webmaniacompany",
+            request=self.request,
+        )
+
+        is_webmania_homolog_environment = _is_webmania_homolog_environment()
+        latest_sync_error = self._latest_sync_error(account_companies)
+
+        context.update(
+            {
+                "webmania_company_count": len(account_companies),
+                "webmania_last_sync_at": latest_sync_at,
+                "webmania_last_sync_error": _to_public_integration_message(latest_sync_error) if latest_sync_error else "",
+                "can_sync_webmania_companies": can_sync_webmania_companies and is_webmania_homolog_environment,
+                "is_webmania_homolog_environment": is_webmania_homolog_environment,
+            }
+        )
+
+        return context
 
     def dispatch(self, request, *args, **kwargs):
         user = cast(Any, request.user)

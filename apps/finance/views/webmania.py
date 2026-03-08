@@ -12,7 +12,7 @@ from django.views import View
 from django.views.generic import TemplateView, UpdateView
 
 from apps.finance.forms import WebmaniaCompanyUpdateForm
-from apps.finance.models import WebmaniaCompany
+from apps.finance.models.finance import WebmaniaCompany
 from apps.finance.services.webmania_b2b import (
     WebmaniaB2BServiceError,
     get_b2b_requests,

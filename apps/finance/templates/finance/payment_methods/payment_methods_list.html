@@ -1,0 +1,16 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Formas de Pagamento{% endblock %}
+{% block crud_subtitle %}Formas de Pagamento cadastrados na Oficina{% endblock %}
+
+{% block crud_header_actions %}
+    <a href="{% url 'finance:payment_methods_create' %}" class="btn btn-primary">Nova Forma de Pagamento</a>
+{% endblock %}
+
+{% block crud_table_wrapper_id %}payment_methods-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'finance:payment_methods_list' %}{% endblock %}
+{% block crud_table_hx_trigger %}payment_methods-table-refresh from:body{% endblock %}
+
+{% block crud_table %}
+    {% include 'finance/partials/payment_methods/payment_methods_table.html' %}
+{% endblock %}

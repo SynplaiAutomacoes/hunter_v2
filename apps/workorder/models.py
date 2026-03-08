@@ -15,6 +15,7 @@ from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.core.models import TimeStampedModel
+from apps.finance.models.payment_method import PaymentMethod
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from apps.workshops.util.monthly_costs import get_mechanic_salary_monthly_cost
 
@@ -364,16 +365,8 @@ class WorkOrder(TimeStampedModel):
 
 
 class WorkOrderPaymentMethod(TimeStampedModel):
-    PAYMENT_METHOD_CHOICES = (
-        ("CREDITO", "Cartão de Crédito"),
-        ("DEBITO", "Cartão de Débito"),
-        ("PIX", "Pix"),
-        ("DINHEIRO", "Dinheiro"),
-        ("BOLETO", "Boleto"),
-    )
-
     workorder = models.ForeignKey(WorkOrder, on_delete=models.CASCADE, related_name="payments")
-    payment_method = models.CharField(verbose_name="Forma de Pagamento", choices=PAYMENT_METHOD_CHOICES, max_length=20)
+    payment_method = models.ForeignKey(PaymentMethod, on_delete=models.PROTECT, verbose_name="Forma de Pagamento", null=True, blank=True)
     installments_count = PositiveIntegerField(verbose_name="Número de Parcelas", default=1)
     first_installment_amount = MoneyField(verbose_name="Valor da Primeira Parcela", max_digits=14, decimal_places=2, default=0.00)
     remaining_installments_amount = MoneyField(verbose_name="Valor das Parcelas Restantes", max_digits=14, decimal_places=2, default=0.00)

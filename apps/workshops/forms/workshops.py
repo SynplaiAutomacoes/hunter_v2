@@ -28,7 +28,7 @@ from apps.finance.forms.webmania import (
     WEBMANIA_REGIME_TRIBUTARIO_CHOICES,
     WEBMANIA_UNIDADE_EMPRESA_CHOICES,
 )
-from apps.finance.models import WebmaniaCompany, WebmaniaCompanyTaxType
+from apps.finance.models.finance import WebmaniaCompany, WebmaniaCompanyTaxType
 from apps.finance.services.webmania_secrets import encrypt_secret
 from apps.workshops.models.workshops import Workshop
 

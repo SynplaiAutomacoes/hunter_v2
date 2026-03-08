@@ -14,7 +14,7 @@ from django.core import signing
 from django.db import transaction
 from django.urls import reverse
 
-from apps.finance.models import NfseBatch, NfseItem, NfseRequest
+from apps.finance.models.finance import NfseBatch, NfseItem, NfseRequest
 from apps.finance.services.mappers import extract_items_from_batch, map_batch_payload, map_item_payload
 from apps.finance.services.pricing import build_slider_allocation_for_workorder
 from apps.finance.services.webmania_auth import (

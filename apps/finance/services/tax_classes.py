@@ -8,7 +8,7 @@ import requests
 from django.conf import settings
 from django.db import transaction
 
-from apps.finance.models import (
+from apps.finance.models.finance import (
     TaxClassNfe,
     TaxClassNfeCofinsScenario,
     TaxClassNfeIcmsScenario,
