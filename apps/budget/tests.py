@@ -4,14 +4,18 @@ from decimal import Decimal
 from urllib.parse import urlparse
 from unittest.mock import patch
 
-from django.test import TestCase, override_settings
+from django.http import Http404, HttpResponse
+from django.test import RequestFactory, TestCase, override_settings
+from django.urls import reverse
 from django.utils import timezone
 from djmoney.money import Money
 
-from apps.budget.models import Budget, BudgetItem
+from apps.budget.models import Budget, BudgetItem, SignatureStatus
 from apps.budget.service import (
     BUDGET_SIGNATURE_DOCUMENT_ID_KEY,
     BUDGET_SIGNATURE_TOKEN_SALT,
+    SuperSignError,
+    SuperSignResult,
     build_signature_file_url,
     build_signature_payload,
     build_signature_preview_url,
@@ -21,6 +25,8 @@ from apps.core.documents.contract import DocumentPayload, SignatureDeliveryResul
 from apps.core.documents.signature import normalize_signature_phone_number, parse_document_signature_token
 from apps.core.documents.services import SignatureDeliveryServiceError, get_signed_document_url
 from apps.customer.models import Customer
+from apps.budget.views.pdf_views import signature_file, signature_preview, visualizar_pdf_assinatura
+from apps.budget.views.workflow_views import trigger_signature_send_if_needed
 from apps.workshops.models.workshops import Workshop
 
 
@@ -47,6 +53,10 @@ def create_customer(*, workshop: Workshop, suffix: int = 1, phone: str = "+55119
         email=f"cliente{suffix}@example.com",
         phone=phone,
     )
+
+
+def extract_token_from_url(url: str) -> str:
+    return urlparse(url).path.rstrip("/").split("/")[-1]
 
 
 class BudgetTotalsConsistencyTests(TestCase):
@@ -125,7 +135,7 @@ class BudgetSignatureTokenUrlTests(TestCase):
         budget = create_budget(workshop=workshop)
 
         url = build_signature_preview_url(budget=budget)
-        token = urlparse(url).path.rstrip("/").split("/")[-1]
+        token = extract_token_from_url(url)
 
         payload = parse_document_signature_token(
             token=token,
@@ -142,7 +152,7 @@ class BudgetSignatureTokenUrlTests(TestCase):
         budget = create_budget(workshop=workshop)
 
         url = build_signature_file_url(budget=budget)
-        token = urlparse(url).path.rstrip("/").split("/")[-1]
+        token = extract_token_from_url(url)
 
         payload = parse_document_signature_token(
             token=token,
@@ -185,6 +195,137 @@ class BudgetSignatureDeliveryTests(TestCase):
         self.assertEqual(kwargs["fields"][0]["documentId"], f"budget-{budget.id}")
         self.assertEqual(kwargs["fields"][0]["signatoryId"], f"customer-{budget.id}")
         self.assertEqual(kwargs["fields"][0]["pageNumber"], 1)
+
+
+class BudgetSignaturePublicViewTests(TestCase):
+    def setUp(self) -> None:
+        self.factory = RequestFactory()
+
+    @patch("apps.budget.views.pdf_views.render")
+    @patch("apps.budget.views.pdf_views.build_budget_pdf_context")
+    def test_signature_preview_renders_budget_pdf_template(self, build_context_mock, render_mock) -> None:
+        workshop = create_workshop(suffix=78)
+        budget = create_budget(workshop=workshop)
+        token = extract_token_from_url(build_signature_preview_url(budget=budget))
+
+        build_context_mock.return_value = {"budget": budget, "observacao": workshop.pdf_observation}
+        render_mock.return_value = HttpResponse("preview")
+
+        response = signature_preview(self.factory.get("/"), token)
+
+        self.assertEqual(response.content, b"preview")
+        render_mock.assert_called_once()
+        self.assertEqual(render_mock.call_args.args[1], "budget/partials/pdf/visualizarPDF.html")
+        self.assertEqual(render_mock.call_args.args[2], {"budget": budget, "observacao": workshop.pdf_observation})
+
+    def test_signature_preview_rejects_inactive_token(self) -> None:
+        workshop = create_workshop(suffix=79)
+        budget = create_budget(workshop=workshop)
+        budget.revoke_signature_token()
+        token = extract_token_from_url(build_signature_preview_url(budget=budget))
+
+        with self.assertRaises(Http404):
+            signature_preview(self.factory.get("/"), token)
+
+    @patch("apps.budget.views.pdf_views.render_budget_pdf_document")
+    def test_signature_file_returns_inline_pdf(self, render_document_mock) -> None:
+        workshop = create_workshop(suffix=80)
+        budget = create_budget(workshop=workshop)
+        token = extract_token_from_url(build_signature_file_url(budget=budget))
+
+        render_document_mock.return_value = DocumentPayload(
+            content=b"%PDF-file",
+            filename=f"orcamento_{budget.id}.pdf",
+        )
+
+        response = signature_file(self.factory.get("/"), token)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"%PDF-file")
+        self.assertIn('inline; filename="orcamento_', response["Content-Disposition"])
+
+
+class BudgetSignatureInternalPdfTests(TestCase):
+    def setUp(self) -> None:
+        self.factory = RequestFactory()
+
+    @patch("apps.budget.views.pdf_views.get_active_workshop_or_404")
+    @patch("apps.budget.views.pdf_views.download_supersign_signed_pdf")
+    def test_visualizar_pdf_assinatura_returns_signed_pdf_when_available(self, download_signed_mock, active_workshop_mock) -> None:
+        workshop = create_workshop(suffix=81)
+        budget = create_budget(workshop=workshop)
+        budget.signature_request_status = SignatureStatus.SENT
+        budget.signature_external_id = "env-81"
+        budget.save(update_fields=["signature_request_status", "signature_external_id"])
+
+        active_workshop_mock.return_value = workshop
+        download_signed_mock.return_value = b"%PDF-signed"
+
+        request = self.factory.get("/", {"download": "1"})
+        response = visualizar_pdf_assinatura(request, budget.id)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"%PDF-signed")
+        self.assertIn("attachment;", response["Content-Disposition"])
+
+    @patch("apps.budget.views.pdf_views.get_active_workshop_or_404")
+    @patch("apps.budget.views.pdf_views.render_budget_pdf_document")
+    @patch("apps.budget.views.pdf_views.download_supersign_signed_pdf")
+    def test_visualizar_pdf_assinatura_falls_back_to_base_pdf(self, download_signed_mock, render_document_mock, active_workshop_mock) -> None:
+        workshop = create_workshop(suffix=82)
+        budget = create_budget(workshop=workshop)
+        budget.signature_request_status = SignatureStatus.SENT
+        budget.signature_external_id = "env-82"
+        budget.save(update_fields=["signature_request_status", "signature_external_id"])
+
+        active_workshop_mock.return_value = workshop
+        download_signed_mock.side_effect = SuperSignError("erro")
+        render_document_mock.return_value = DocumentPayload(
+            content=b"%PDF-base",
+            filename=f"orcamento_{budget.id}_base.pdf",
+        )
+
+        response = visualizar_pdf_assinatura(self.factory.get("/"), budget.id)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"%PDF-base")
+        self.assertIn('inline; filename="orcamento_', response["Content-Disposition"])
+
+
+class BudgetSignatureWorkflowTests(TestCase):
+    def setUp(self) -> None:
+        self.factory = RequestFactory()
+
+    @patch("apps.budget.views.workflow_views.send_budget_for_signature")
+    def test_trigger_signature_send_if_needed_marks_budget_sent(self, send_signature_mock) -> None:
+        workshop = create_workshop(suffix=83)
+        budget = create_budget(workshop=workshop)
+        send_signature_mock.return_value = SuperSignResult(
+            envelope_id="env-83",
+            document_id="doc-83",
+            raw_response={"ok": True},
+        )
+
+        toast_type, _, redirect_url = trigger_signature_send_if_needed(request=self.factory.post("/"), budget=budget)
+
+        budget.refresh_from_db()
+        self.assertEqual(toast_type, "success")
+        self.assertEqual(budget.signature_request_status, SignatureStatus.SENT)
+        self.assertEqual(budget.signature_external_id, "env-83")
+        self.assertEqual(redirect_url, reverse("budget:budget_list"))
+
+    @patch("apps.budget.views.workflow_views.send_budget_for_signature")
+    def test_trigger_signature_send_if_needed_marks_budget_failed_on_error(self, send_signature_mock) -> None:
+        workshop = create_workshop(suffix=84)
+        budget = create_budget(workshop=workshop)
+        send_signature_mock.side_effect = SuperSignError("erro")
+
+        toast_type, _, redirect_url = trigger_signature_send_if_needed(request=self.factory.post("/"), budget=budget)
+
+        budget.refresh_from_db()
+        self.assertEqual(toast_type, "error")
+        self.assertEqual(budget.signature_request_status, SignatureStatus.FAILED)
+        self.assertIsNone(redirect_url)
 
 
 class SuperSignDownloadUrlTests(TestCase):
