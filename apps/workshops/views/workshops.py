@@ -161,7 +161,7 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
                 workshop.account = user_account
                 workshop.save()
 
-                # provision_webmania_company_for_workshop(workshop=workshop)
+                provision_webmania_company_for_workshop(workshop=workshop)
 
                 director_role = get_or_create_director_role(account=user_account)
                 WorkshopMember.objects.get_or_create(
