@@ -89,7 +89,7 @@ class BudgetSignaturePersistenceTests(TestCase):
 
 
 class SuperSignDownloadUrlTests(TestCase):
-    @patch("apps.budget.service.requests.get")
+    @patch("apps.core.documents.gateways.supersign.requests.get")
     def test_returns_download_url_from_supersign_payload(self, requests_get) -> None:
         response = requests_get.return_value
         response.raise_for_status.return_value = None
@@ -109,7 +109,7 @@ class SuperSignDownloadUrlTests(TestCase):
         self.assertEqual(kwargs["headers"]["x-account-id"], "acc-1")
         self.assertEqual(kwargs["headers"]["Authorization"], "Bearer secret")
 
-    @patch("apps.budget.service.requests.get")
+    @patch("apps.core.documents.gateways.supersign.requests.get")
     def test_raises_when_download_url_is_missing(self, requests_get) -> None:
         response = requests_get.return_value
         response.raise_for_status.return_value = None

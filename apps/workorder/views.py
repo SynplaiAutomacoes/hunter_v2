@@ -22,11 +22,15 @@ from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.models.kits import Kit
 from apps.core.tables import TableActionDefaults
+from apps.core.documents.contract import DocumentPayload
+from apps.core.documents.http import build_pdf_http_response
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxTemplateResponseMixin
 from apps.workorder.approval import WorkOrderApprovalError, approve_workorder_with_stock
+from apps.workorder.documents.provider import render_workorder_pdf_document
 from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderItemEditForm, WorkOrderKitProductEditRowForm, WorkOrderKitServiceEditRowForm, WorkOrderPaymentForm
-from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
+from apps.workorder.service import WorkOrderSignatureError, download_workorder_signed_pdf, send_workorder_for_signature
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.util.workshops import get_active_workshop_or_404
@@ -189,6 +193,38 @@ def _build_customer_approvement_context(workorder: WorkOrder, attachment: WorkOr
         "workorder": workorder,
         "attachment_form": WorkOrderAttachmentForm(workorder=workorder, instance=latest_attachment),
     }
+
+
+def _build_workorder_pdf_file_response(*, workorder: WorkOrder, download: bool, use_signed_name: bool, pdf_bytes: bytes) -> HttpResponse:
+    filename_suffix = "assinado" if use_signed_name else "base"
+    document = DocumentPayload(
+        content=pdf_bytes,
+        filename=f"ordem_servico_{workorder.id}_{filename_suffix}.pdf",
+    )
+    return build_pdf_http_response(document=document, download=download)
+
+
+def trigger_workorder_signature_send_if_needed(*, workorder: WorkOrder) -> tuple[str, str]:
+    with transaction.atomic():
+        locked_workorder = WorkOrder.objects.select_for_update().get(pk=workorder.pk)
+
+        if locked_workorder.signature_request_status == WorkOrderSignatureStatus.SENT and locked_workorder.signature_external_id:
+            return "info", "Ordem de serviço já enviada para assinatura do cliente."
+
+        if locked_workorder.signature_request_status == WorkOrderSignatureStatus.SENDING:
+            return "info", "O envio da ordem de serviço ainda está em processamento."
+
+        locked_workorder.mark_signature_sending()
+
+    try:
+        result = send_workorder_for_signature(workorder=workorder)
+    except WorkOrderSignatureError:
+        workorder.mark_signature_failed()
+        logger.exception("Falha ao enviar ordem de servico para assinatura", extra={"workorder_id": workorder.pk})
+        return "error", "Falha ao enviar ordem de serviço para assinatura. Tente novamente em instantes."
+
+    workorder.mark_signature_sent(result.envelope_id)
+    return "success", "Ordem de serviço enviada para assinatura do cliente."
 
 
 def _calculate_service_prices(duration: timedelta, workshop_cost) -> tuple[Money, Money]:
@@ -738,17 +774,38 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
 def visualizar_pdf_workorder(request, pk):
     workshop = get_active_workshop_or_404(request)
     workorder = get_object_or_404(WorkOrder, pk=pk, workshop=workshop)
+    should_download = request.GET.get("download") == "1"
 
-    context = _build_edit_items_context(workorder)
-    context.update({
-        "workorder": workorder,
-        "is_pdf_view": True,
-    })
+    if workorder.signature_external_id and workorder.signature_request_status == WorkOrderSignatureStatus.SENT:
+        try:
+            signed_pdf = download_workorder_signed_pdf(document_id=workorder.signature_external_id)
+            return _build_workorder_pdf_file_response(
+                workorder=workorder,
+                download=should_download,
+                use_signed_name=True,
+                pdf_bytes=signed_pdf,
+            )
+        except WorkOrderSignatureError:
+            logger.warning(
+                "Falha ao carregar PDF assinado da ordem de servico; retornando PDF base",
+                extra={"workorder_id": workorder.id, "envelope_id": workorder.signature_external_id},
+            )
 
-    return render(request, "workorder/partials/pdf/visualizar_pdf_base.html", context)
+    try:
+        document = render_workorder_pdf_document(
+            workorder=workorder,
+            request=request,
+            filename=f"ordem_servico_{workorder.id}_base.pdf",
+        )
+    except Exception:
+        logger.exception("Falha ao gerar PDF base da ordem de servico", extra={"workorder_id": workorder.id})
+        return HttpResponse("Erro ao gerar PDF", status=500)
+
+    return build_pdf_http_response(document=document, download=should_download)
 
 def send_workorder_signature(request, pk):
-    return JsonResponse({
-        "success": True,
-        "message": "Solicitação de assinatura enviada com sucesso!"
-    })
+    workshop = get_active_workshop_or_404(request)
+    workorder = get_object_or_404(WorkOrder, pk=pk, workshop=workshop)
+    toast_type, toast_message = trigger_workorder_signature_send_if_needed(workorder=workorder)
+    status_code = 200 if toast_type in {"success", "info"} else 400
+    return JsonResponse({"success": toast_type in {"success", "info"}, "type": toast_type, "message": toast_message}, status=status_code)

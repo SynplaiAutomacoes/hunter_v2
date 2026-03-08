@@ -11,6 +11,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 
 from apps.budget.models import Budget, BudgetStatus, SignatureStatus
+from apps.workorder.models import WorkOrder
 
 
 logger = logging.getLogger(__name__)
@@ -124,25 +125,38 @@ class SuperSignWebhookView(View):
             return HttpResponse(status=200)
 
         budget = Budget.objects.filter(signature_external_id=envelope_id).first()
-        if budget is None:
-            logger.info("Webhook sem budget correspondente", extra={"event": event_name, "envelope_id": envelope_id})
+        workorder = WorkOrder.objects.filter(signature_external_id=envelope_id).first()
+        if budget is None and workorder is None:
+            logger.info("Webhook sem documento correspondente", extra={"event": event_name, "envelope_id": envelope_id})
             return HttpResponse(status=200)
 
         if event_name != "ENVELOPE_COMPLETED":
             logger.info("Evento ignorado", extra={"event": event_name, "budget_id": budget.pk})
             return HttpResponse(status=200)
 
-        if budget.status == BudgetStatus.APPROVED:
+        if budget is not None and budget.status == BudgetStatus.APPROVED:
             logger.info("Webhook ignorado: budget ja aprovado", extra={"budget_id": budget.pk, "envelope_id": envelope_id})
             return HttpResponse(status=200)
 
         try:
-            budget.status = BudgetStatus.APPROVED
-            budget.signature_request_status = SignatureStatus.APPROVED
-            budget.save(update_fields=["status", "signature_request_status"])
-            logger.info("Budget aprovado automaticamente por webhook", extra={"budget_id": budget.pk, "envelope_id": envelope_id})
+            if budget is not None:
+                budget.status = BudgetStatus.APPROVED
+                budget.signature_request_status = SignatureStatus.APPROVED
+                budget.save(update_fields=["status", "signature_request_status"])
+                logger.info("Budget aprovado automaticamente por webhook", extra={"budget_id": budget.pk, "envelope_id": envelope_id})
+
+            if workorder is not None:
+                workorder.mark_signature_approved()
+                logger.info("Workorder marcada como assinatura aprovada por webhook", extra={"workorder_id": workorder.pk, "envelope_id": envelope_id})
         except Exception:
-            logger.exception("Erro interno ao processar webhook", extra={"budget_id": budget.pk, "envelope_id": envelope_id})
+            logger.exception(
+                "Erro interno ao processar webhook",
+                extra={
+                    "budget_id": budget.pk if budget is not None else None,
+                    "workorder_id": workorder.pk if workorder is not None else None,
+                    "envelope_id": envelope_id,
+                },
+            )
             return HttpResponse(status=500)
 
         return HttpResponse(status=200)

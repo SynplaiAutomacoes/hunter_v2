@@ -26,11 +26,22 @@ class WorkOrderStatus(models.TextChoices):
     CANCELLED = "cancelled", "Cancelado"
 
 
+class WorkOrderSignatureStatus(models.TextChoices):
+    NOT_SENT = "not_sent", "Não Enviado"
+    SENDING = "sending", "Enviando"
+    SENT = "sent", "Enviado"
+    FAILED = "failed", "Falha no Envio"
+    APPROVED = "approved", "Aprovado"
+
+
 class WorkOrder(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="workorders")
     budget = models.ForeignKey("budget.Budget", on_delete=models.CASCADE, related_name="workorders", help_text="Orçamento Aprovado vinculado à esta O.S.")
     status = models.CharField(verbose_name="Status", max_length=20, choices=WorkOrderStatus.choices, default=WorkOrderStatus.DRAFT)
     discount_value = MoneyField(verbose_name="Desconto da O.S. (R$)", max_digits=14, decimal_places=2, default=0.00)
+    signature_request_status = models.CharField(max_length=30, choices=WorkOrderSignatureStatus.choices, default=WorkOrderSignatureStatus.NOT_SENT)
+    signature_external_id = models.CharField(max_length=255, blank=True, null=True)
+    signature_sent_at = models.DateTimeField(blank=True, null=True)
 
     @property
     def workorder_status_badge(self):
@@ -60,6 +71,24 @@ class WorkOrder(TimeStampedModel):
             )
             .all()
         )
+
+    def mark_signature_sending(self) -> None:
+        self.signature_request_status = WorkOrderSignatureStatus.SENDING
+        self.save(update_fields=["signature_request_status"])
+
+    def mark_signature_sent(self, external_id: str) -> None:
+        self.signature_request_status = WorkOrderSignatureStatus.SENT
+        self.signature_external_id = external_id
+        self.signature_sent_at = timezone.now()
+        self.save(update_fields=["signature_request_status", "signature_external_id", "signature_sent_at"])
+
+    def mark_signature_failed(self) -> None:
+        self.signature_request_status = WorkOrderSignatureStatus.FAILED
+        self.save(update_fields=["signature_request_status"])
+
+    def mark_signature_approved(self) -> None:
+        self.signature_request_status = WorkOrderSignatureStatus.APPROVED
+        self.save(update_fields=["signature_request_status"])
 
     @property
     def total_products_shipping(self) -> Money:

@@ -10,6 +10,7 @@
                     onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {
                         detail: {
                             url: '{% url 'workorder:visualizar_pdf' workorder.pk %}',
+                            downloadUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?download=1',
                             showSignatureBtn: true
                         }
                     }))">
