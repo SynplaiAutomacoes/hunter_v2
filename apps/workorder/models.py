@@ -39,6 +39,8 @@ class WorkOrder(TimeStampedModel):
     budget = models.ForeignKey("budget.Budget", on_delete=models.CASCADE, related_name="workorders", help_text="Orçamento Aprovado vinculado à esta O.S.")
     status = models.CharField(verbose_name="Status", max_length=20, choices=WorkOrderStatus.choices, default=WorkOrderStatus.DRAFT)
     discount_value = MoneyField(verbose_name="Desconto da O.S. (R$)", max_digits=14, decimal_places=2, default=0.00)
+    signature_token_version = models.PositiveIntegerField(verbose_name="ID do PDF da Ordem de Serviço", default=1)
+    signature_token_active = models.BooleanField(verbose_name="Token de Assinatura Ativo", default=True)
     signature_request_status = models.CharField(max_length=30, choices=WorkOrderSignatureStatus.choices, default=WorkOrderSignatureStatus.NOT_SENT)
     signature_external_id = models.CharField(max_length=255, blank=True, null=True)
     signature_sent_at = models.DateTimeField(blank=True, null=True)
@@ -85,6 +87,15 @@ class WorkOrder(TimeStampedModel):
     def mark_signature_failed(self) -> None:
         self.signature_request_status = WorkOrderSignatureStatus.FAILED
         self.save(update_fields=["signature_request_status"])
+
+    def revoke_signature_token(self) -> None:
+        self.signature_token_active = False
+        self.save(update_fields=["signature_token_active"])
+
+    def regenerate_signature_token(self) -> None:
+        self.signature_token_version += 1
+        self.signature_token_active = True
+        self.save(update_fields=["signature_token_version", "signature_token_active"])
 
     def mark_signature_approved(self) -> None:
         self.signature_request_status = WorkOrderSignatureStatus.APPROVED

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from datetime import timedelta
 from decimal import Decimal
+from urllib.parse import urlparse
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.http import Http404, HttpResponse
+from django.test import RequestFactory, TestCase, override_settings
 from django.utils import timezone
 from djmoney.money import Money
 
@@ -13,10 +15,18 @@ from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.core.documents.contract import DocumentPayload, SignatureDeliveryResult
-from apps.core.documents.signature import normalize_signature_phone_number
+from apps.core.documents.signature import normalize_signature_phone_number, parse_document_signature_token
 from apps.customer.models import Customer
 from apps.workorder.models import WorkOrder, WorkOrderItem
-from apps.workorder.service import send_workorder_for_signature
+from apps.workorder.service import (
+    WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
+    WORKORDER_SIGNATURE_TOKEN_SALT,
+    build_signature_file_url,
+    build_signature_payload,
+    build_signature_preview_url,
+    send_workorder_for_signature,
+)
+from apps.workorder.views import signature_file, signature_preview
 from apps.workshops.models.workshops import Workshop
 
 
@@ -43,6 +53,10 @@ def create_customer(*, workshop: Workshop, suffix: int = 1, phone: str = "+55119
         email=f"cliente.os{suffix}@example.com",
         phone=phone,
     )
+
+
+def extract_token_from_url(url: str) -> str:
+    return urlparse(url).path.rstrip("/").split("/")[-1]
 
 
 class WorkOrderTotalsConsistencyTests(TestCase):
@@ -115,6 +129,137 @@ class WorkOrderTotalsConsistencyTests(TestCase):
 
         self.assertEqual(workorder.total_base_value, Money("15.00", "BRL"))
         self.assertEqual(workorder.total_budget_value, Money("10.00", "BRL"))
+
+
+class WorkOrderSignatureTokenModelTests(TestCase):
+    def test_workorder_starts_with_active_signature_token(self) -> None:
+        workshop = create_workshop(suffix=90)
+        budget = create_budget(workshop=workshop)
+
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+
+        self.assertEqual(workorder.signature_token_version, 1)
+        self.assertTrue(workorder.signature_token_active)
+
+    def test_revoke_signature_token_disables_current_token(self) -> None:
+        workshop = create_workshop(suffix=91)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+
+        workorder.revoke_signature_token()
+        workorder.refresh_from_db()
+
+        self.assertFalse(workorder.signature_token_active)
+        self.assertEqual(workorder.signature_token_version, 1)
+
+    def test_regenerate_signature_token_increments_version_and_reactivates(self) -> None:
+        workshop = create_workshop(suffix=92)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        workorder.revoke_signature_token()
+
+        workorder.regenerate_signature_token()
+        workorder.refresh_from_db()
+
+        self.assertEqual(workorder.signature_token_version, 2)
+        self.assertTrue(workorder.signature_token_active)
+
+
+class WorkOrderSignatureTokenUrlTests(TestCase):
+    def test_build_signature_payload_uses_workorder_specific_key(self) -> None:
+        workshop = create_workshop(suffix=93)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+
+        payload = build_signature_payload(workorder)
+
+        self.assertEqual(payload, {"workorder_id": workorder.id, "version": workorder.signature_token_version})
+
+    @override_settings(APP_BASE_URL="https://app.example.com")
+    def test_build_signature_preview_url_generates_tokenized_workorder_link(self) -> None:
+        workshop = create_workshop(suffix=94)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+
+        url = build_signature_preview_url(workorder=workorder)
+        token = extract_token_from_url(url)
+
+        payload = parse_document_signature_token(
+            token=token,
+            token_salt=WORKORDER_SIGNATURE_TOKEN_SALT,
+            document_id_key=WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
+        )
+
+        self.assertEqual(payload.document_id, workorder.id)
+        self.assertEqual(payload.version, workorder.signature_token_version)
+
+    @override_settings(APP_BASE_URL="https://app.example.com")
+    def test_build_signature_file_url_generates_tokenized_workorder_link(self) -> None:
+        workshop = create_workshop(suffix=95)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+
+        url = build_signature_file_url(workorder=workorder)
+        token = extract_token_from_url(url)
+
+        payload = parse_document_signature_token(
+            token=token,
+            token_salt=WORKORDER_SIGNATURE_TOKEN_SALT,
+            document_id_key=WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
+        )
+
+        self.assertEqual(payload.document_id, workorder.id)
+        self.assertEqual(payload.version, workorder.signature_token_version)
+
+
+class WorkOrderSignaturePublicViewTests(TestCase):
+    def setUp(self) -> None:
+        self.factory = RequestFactory()
+
+    @patch("apps.workorder.views.render")
+    @patch("apps.workorder.views.build_budget_pdf_context")
+    def test_signature_preview_renders_budget_pdf_template(self, build_context_mock, render_mock) -> None:
+        workshop = create_workshop(suffix=96)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        token = extract_token_from_url(build_signature_preview_url(workorder=workorder))
+
+        build_context_mock.return_value = {"budget": budget, "observacao": workshop.pdf_observation}
+        render_mock.return_value = HttpResponse("preview")
+
+        response = signature_preview(self.factory.get("/"), token)
+
+        self.assertEqual(response.content, b"preview")
+        self.assertEqual(render_mock.call_args.args[1], "budget/partials/pdf/visualizarPDF.html")
+        self.assertEqual(render_mock.call_args.args[2], {"budget": budget, "observacao": workshop.pdf_observation})
+
+    def test_signature_preview_rejects_inactive_token(self) -> None:
+        workshop = create_workshop(suffix=97)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        workorder.revoke_signature_token()
+        token = extract_token_from_url(build_signature_preview_url(workorder=workorder))
+
+        with self.assertRaises(Http404):
+            signature_preview(self.factory.get("/"), token)
+
+    @patch("apps.workorder.views.render_workorder_pdf_document")
+    def test_signature_file_returns_inline_pdf(self, render_document_mock) -> None:
+        workshop = create_workshop(suffix=98)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        token = extract_token_from_url(build_signature_file_url(workorder=workorder))
+
+        render_document_mock.return_value = DocumentPayload(
+            content=b"%PDF-workorder",
+            filename=f"ordem_servico_{workorder.id}.pdf",
+        )
+
+        response = signature_file(self.factory.get("/"), token)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"%PDF-workorder")
+        self.assertIn('inline; filename="ordem_servico_', response["Content-Disposition"])
 
 
 class WorkOrderSignatureDeliveryTests(TestCase):

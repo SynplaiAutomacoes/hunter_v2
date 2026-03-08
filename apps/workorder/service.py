@@ -5,13 +5,24 @@ from dataclasses import dataclass
 from django.conf import settings
 
 from apps.core.documents.contract import SignatureRecipient
-from apps.core.documents.signature import build_signature_fields, build_signature_signatory_and_observers
+from apps.core.documents.signature import (
+    build_document_signature_payload,
+    build_document_signature_url,
+    build_signature_fields,
+    build_signature_signatory_and_observers,
+)
 from apps.core.documents.services import (
     SignatureDeliveryServiceError,
     download_signed_document_content,
     send_document_for_signature,
 )
 from apps.workorder.documents.provider import render_workorder_pdf_document
+
+
+WORKORDER_SIGNATURE_TOKEN_SALT = "workorder-signature-file"
+WORKORDER_SIGNATURE_DOCUMENT_ID_KEY = "workorder_id"
+WORKORDER_SIGNATURE_FILE_ROUTE = "workorder:signature_file"
+WORKORDER_SIGNATURE_PREVIEW_ROUTE = "workorder:signature_preview"
 
 
 class WorkOrderSignatureError(Exception):
@@ -23,6 +34,36 @@ class WorkOrderSignatureResult:
     envelope_id: str
     document_id: str
     raw_response: dict
+
+
+def build_signature_payload(workorder) -> dict:
+    return build_document_signature_payload(
+        document_id_key=WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
+        document_id=workorder.id,
+        version=workorder.signature_token_version,
+    )
+
+
+def build_signature_file_url(*, workorder, request=None) -> str:
+    return build_document_signature_url(
+        route_name=WORKORDER_SIGNATURE_FILE_ROUTE,
+        token_salt=WORKORDER_SIGNATURE_TOKEN_SALT,
+        document_id_key=WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
+        document_id=workorder.id,
+        version=workorder.signature_token_version,
+        request=request,
+    )
+
+
+def build_signature_preview_url(*, workorder, request=None) -> str:
+    return build_document_signature_url(
+        route_name=WORKORDER_SIGNATURE_PREVIEW_ROUTE,
+        token_salt=WORKORDER_SIGNATURE_TOKEN_SALT,
+        document_id_key=WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
+        document_id=workorder.id,
+        version=workorder.signature_token_version,
+        request=request,
+    )
 
 
 def _build_signature_fields(workorder) -> list[dict]:
