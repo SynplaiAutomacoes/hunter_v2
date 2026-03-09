@@ -142,6 +142,40 @@ class Budget(TimeStampedModel):
         verbose_name = "Orçamento"
         verbose_name_plural = "Orçamentos"
 
+    @property
+    def get_mlr(self):
+        workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=timezone.now().month, year=timezone.now().year)
+        return workshop_cost.profitability_multiplier
+
+    @property
+    def get_mlo(self):
+        workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=timezone.now().month, year=timezone.now().year)
+        mechanic_salary_obj = get_mechanic_salary_monthly_cost(workshop=self.workshop)
+
+        # Extra
+        salario_mecanicos = WorkshopCostItem.objects.get(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_obj).amount
+        duracao_total = Decimal(self.total_duration.total_seconds()) / Decimal(3600)
+        horas_uteis_mes = workshop_cost.working_hours_per_month
+
+        # Custos
+        custo_pecas = self.total_costs_products_value
+        custo_servico_terceiro = self.total_third_party_services_cost
+        custo_hora_mecanico = salario_mecanicos / horas_uteis_mes
+        custo_total_mao_obra = duracao_total * custo_hora_mecanico
+        custo_frete_pecas = self.total_products_shipping
+
+        # Venda
+        venda_servico_terceiro = self.total_third_party_services_selling
+        venda_mao_obra_hun = self.total_services_value - venda_servico_terceiro
+        venda_pecas = self.total_products_value - custo_frete_pecas
+
+        #
+        soma_base_orcamento = venda_pecas + custo_frete_pecas + venda_servico_terceiro
+        valor_orcamento_hun = soma_base_orcamento + venda_mao_obra_hun
+        divisor_mlo = (custo_pecas + custo_frete_pecas + custo_servico_terceiro + custo_total_mao_obra).amount
+
+        return valor_orcamento_hun.amount / divisor_mlo if divisor_mlo > 0 else 0
+
     def calculate_pricing_methods(self):
         fallback_data = self._build_pricing_fallback_data()
 
@@ -164,7 +198,6 @@ class Budget(TimeStampedModel):
             return fallback_data
 
         # Índices
-        mlr = workshop_cost.profitability_multiplier
         duracao_total = Decimal(self.total_duration.total_seconds()) / Decimal(3600)
         horas_uteis_mes = workshop_cost.working_hours_per_month
 
@@ -182,7 +215,6 @@ class Budget(TimeStampedModel):
         venda_pecas = self.total_products_value - custo_frete_pecas
         venda_servico_terceiro = self.total_third_party_services_selling
 
-        divisor_mlo = (custo_pecas + custo_frete_pecas + custo_servico_terceiro + custo_total_mao_obra).amount
         soma_base_orcamento = venda_pecas + custo_frete_pecas + venda_servico_terceiro
         subtracao_base_lucro = custo_pecas + custo_frete_pecas + custo_total_mao_obra + custo_servico_terceiro
 
@@ -199,7 +231,6 @@ class Budget(TimeStampedModel):
         # MÉTOD0 HUNTER
         venda_mao_obra_hun = self.total_services_value - venda_servico_terceiro
         valor_orcamento_hun = soma_base_orcamento + venda_mao_obra_hun
-        mlo = valor_orcamento_hun.amount / divisor_mlo if divisor_mlo > 0 else 0
         lucro_operacional_hun = valor_orcamento_hun - subtracao_base_lucro
         if valor_orcamento_hun.amount > 0:
             rentabilidade_hun = ((lucro_operacional_hun.amount / valor_orcamento_hun.amount) * 100).quantize(Decimal("0.01"), ROUND_HALF_UP)
@@ -232,12 +263,12 @@ class Budget(TimeStampedModel):
             "custo_total_mao_obra": custo_total_mao_obra,
             "duracao_total": self.total_duration_display,
             "lucro_operacional": lucro_operacional_hun,
-            "mlr": mlr,
+            "mlr": self.get_mlr,
             "venda_pecas": venda_pecas,
             "venda_servico_terceiro": venda_servico_terceiro,
             "venda_mao_obra": venda_mao_obra_hun,
             "rentabilidade": rentabilidade_hun,
-            "mlo": mlo,
+            "mlo": self.get_mlo,
             "valor_orcamento": valor_orcamento_hun,
         }
 

@@ -28,7 +28,16 @@ class ProductListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespo
     htmx_template_name = "products/partials/product_table.html"
 
     def get_queryset(self):
-        return super().get_queryset().select_related("stock_products").order_by("-criado_em")
+        queryset = super().get_queryset().select_related("stock_products").order_by("-criado_em")
+
+        search_query = self.request.GET.get("q", "").strip()
+
+        if search_query:
+            queryset = queryset.filter(Q(name__icontains=search_query) |
+                                       Q(code__icontains=search_query) |
+                                       Q(brand__icontains=search_query))
+
+        return queryset
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
