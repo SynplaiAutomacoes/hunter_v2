@@ -1,4 +1,5 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db.models import Q
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 from apps.suppliers.models import Supplier
@@ -15,7 +16,18 @@ class SupplierListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
     htmx_template_name = "suppliers/partials/supplier_table.html"
 
     def get_queryset(self):
-        return super().get_queryset().order_by("-criado_em")
+        queryset = super().get_queryset().order_by("-criado_em")
+
+        search_query = self.request.GET.get("q", "").strip()
+
+        if search_query:
+            queryset = queryset.filter(Q(name__icontains=search_query) |
+                                       Q(cnpj__icontains=search_query) |
+                                       Q(phone__icontains=search_query) |
+                                       Q(contact_person__icontains=search_query) |
+                                       Q(email__icontains=search_query))
+
+        return queryset
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

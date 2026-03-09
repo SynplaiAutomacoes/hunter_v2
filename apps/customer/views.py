@@ -1,5 +1,6 @@
 import json
 
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse, JsonResponse
@@ -36,7 +37,19 @@ class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
     htmx_template_name = "customer/partials/customer_table.html"
 
     def get_queryset(self):
-        return super().get_queryset().order_by("-criado_em")
+        queryset = super().get_queryset().order_by("-criado_em")
+
+        search_query = self.request.GET.get("q", "").strip()
+
+        if search_query:
+            queryset = queryset.filter(Q(name__icontains=search_query) |
+                                       Q(fantasy_name__icontains=search_query) |
+                                       Q(cpf_or_cnpj__icontains=search_query) |
+                                       Q(phone__icontains=search_query) |
+                                       Q(rg__icontains=search_query) |
+                                       Q(email__icontains=search_query))
+
+        return queryset
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
