@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import base64
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
@@ -13,6 +13,15 @@ from apps.finance.models import WebmaniaCompany
 from apps.finance.services.webmania_secrets import decrypt_secret
 from apps.iam.utils import get_or_create_director_role
 from apps.workshops.models.workshops import Workshop
+
+
+def create_account_owner_user(*, suffix: int = 1) -> User:
+    user = User.objects.create_user(username=f"workshop_owner{suffix}", password="123", cpf=f"11122233{suffix:03d}")
+    account = Account.objects.create(name=f"Conta Owner {suffix}", owner=user)
+    user.account = account
+    user.is_account_owner = True
+    user.save(update_fields=["account", "is_account_owner"])
+    return user
 
 
 def create_director_user_with_workshop(*, suffix: int = 1) -> tuple[User, Workshop]:
@@ -60,6 +69,44 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.headers.get("Location"), reverse("workshops:list"))
         sync_mock.assert_not_called()
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_create_page_shows_sync_button_for_first_workshop_owner(self) -> None:
+        create_director_user_with_workshop(suffix=12)
+
+        owner_user = create_account_owner_user(suffix=13)
+        self.client.force_login(owner_user)
+        session = self.client.session
+        session.pop("active_workshop_id", None)
+        session.save()
+
+        response = self.client.get(reverse("workshops:create"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Sincronizar empresas")
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_sync_endpoint_allows_first_workshop_owner_without_active_workshop(self) -> None:
+        owner_user = create_account_owner_user(suffix=14)
+        self.client.force_login(owner_user)
+        session = self.client.session
+        session.pop("active_workshop_id", None)
+        session.save()
+
+        with patch(
+            "apps.workshops.views.workshops.sync_b2b_companies_to_database",
+            return_value=[Mock(workshop_id=999)],
+        ) as sync_mock:
+            response = self.client.post(reverse("workshops:webmania_company_sync"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("workshops:create"))
+        sync_mock.assert_called_once_with(
+            workshop=None,
+            actor_user=owner_user,
+            force_global_auth=True,
+        )
+        self.assertEqual(self.client.session.get("active_workshop_id"), 999)
 
     def test_workshop_update_page_renders_tabs_and_updates_company_data(self) -> None:
         response = self.client.get(f"{reverse('workshops:update', kwargs={'pk': self.workshop.pk})}?tab=certificado")

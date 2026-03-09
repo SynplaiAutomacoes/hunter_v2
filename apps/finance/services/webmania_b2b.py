@@ -144,9 +144,14 @@ def _build_workshop_address(payload: dict[str, Any]) -> str:
     return ", ".join(parts)
 
 
-def _ensure_workshop_for_company_payload(*, payload: dict[str, Any], base_workshop: Workshop, actor_user: Any | None = None) -> Workshop | None:
+def _ensure_workshop_for_company_payload(*, payload: dict[str, Any], base_workshop: Workshop | None = None, actor_user: Any | None = None) -> Workshop | None:
     account = getattr(base_workshop, "account", None)
     account_id = getattr(base_workshop, "account_id", None)
+
+    if account is None or account_id is None:
+        account = getattr(actor_user, "account", None)
+        account_id = getattr(actor_user, "account_id", None)
+
     if account is None or account_id is None:
         return None
 
@@ -317,18 +322,18 @@ def list_b2b_companies(*, workshop: Workshop | None = None, force_global_auth: b
 def sync_b2b_companies_to_database(*, workshop: Workshop | None = None, actor_user: Any | None = None, force_global_auth: bool = False) -> list[WebmaniaCompany]:
     companies_payload = list_b2b_companies(workshop=workshop, force_global_auth=force_global_auth)
     remote_company_ids = {_clean_string(item.get("id")) for item in companies_payload if _clean_string(item.get("id"))}
+    account_id = getattr(workshop, "account_id", None)
+    if account_id is None:
+        account_id = getattr(actor_user, "account_id", None)
 
     synced_companies: list[WebmaniaCompany] = []
     for payload in companies_payload:
-        linked_workshop: Workshop | None = None
-        if workshop is not None:
-            linked_workshop = _ensure_workshop_for_company_payload(payload=payload, base_workshop=workshop, actor_user=actor_user)
+        linked_workshop = _ensure_workshop_for_company_payload(payload=payload, base_workshop=workshop, actor_user=actor_user)
 
         company = _upsert_company_from_payload(payload=payload, workshop=linked_workshop)
         if company is not None:
             synced_companies.append(company)
 
-    account_id = getattr(workshop, "account_id", None)
     if account_id is not None:
         stale_companies = WebmaniaCompany.objects.filter(workshop__account_id=account_id).exclude(webmania_company_id="")
         if remote_company_ids:
