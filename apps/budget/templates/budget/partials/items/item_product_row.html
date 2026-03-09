@@ -28,6 +28,11 @@
                     <span class="material-icons text-accent" style="font-size: 16px;">cloud_upload</span>
                 </button>
             {% endif %}
+            {% if show_kit_duplicate_warning or item.show_kit_duplicate_warning %}
+                <span class="tooltip tooltip-right shrink-0" data-tip="Produto já registrado em um kit">
+                    <span class="material-icons text-warning" style="font-size: 18px;">warning</span>
+                </span>
+            {% endif %}
         </div>
     </td>
     <td class="budget-step4-application">

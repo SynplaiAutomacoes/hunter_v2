@@ -178,90 +178,35 @@ def _unit_for_api(raw_unit: str) -> str:
     return unit_map.get(normalized, normalized)
 
 
-def _build_direct_product_line(item) -> ProductEmissionLine:
-    if item.product is None:
-        raise NfeEmissionError("A OS possui item de peca sem produto vinculado. Cadastre a peca no catalogo para emitir NF-e.")
+def _build_snapshot_product_line(line: Any) -> ProductEmissionLine:
+    product = getattr(line, "source_object", None)
+    if product is None:
+        raise NfeEmissionError("A OS possui item de peca local sem cadastro fiscal completo. Cadastre o produto para emitir NF-e.")
 
-    ncm = _normalize_ncm(item.product.ncm)
+    ncm = _normalize_ncm(product.ncm)
     if len(ncm) != 8:
-        raise NfeEmissionError(f"Produto '{item.product.name}' sem NCM valido para emissao de NF-e.")
+        raise NfeEmissionError(f"Produto '{product.name}' sem NCM valido para emissao de NF-e.")
 
-    code = str(item.product.code or "").strip()
+    code = str(product.code or "").strip()
     if not code:
-        raise NfeEmissionError(f"Produto '{item.product.name}' sem codigo para emissao de NF-e.")
+        raise NfeEmissionError(f"Produto '{product.name}' sem codigo para emissao de NF-e.")
 
-    quantity = Decimal(item.quantity)
-    base_total = _quantize_money((Decimal(item.product_selling_price.amount) * quantity) + Decimal(item.shipping.amount))
+    quantity = Decimal(line.quantity)
+    base_total = _quantize_money(Decimal(line.raw_total.amount))
     return ProductEmissionLine(
-        description=str(item.product.name or item.description or "Produto")[:120],
+        description=str(line.description or product.name or "Produto")[:120],
         code=code[:60],
         ncm=ncm,
-        cest=str(item.product.cest or "").strip(),
-        unit=_unit_for_api(str(item.product.unit or "")),
-        origin=int(item.product.origin_cst or 0),
+        cest=str(product.cest or "").strip(),
+        unit=_unit_for_api(str(product.unit or "")),
+        origin=int(product.origin_cst or 0),
         quantity=quantity,
         base_total=base_total,
     )
 
 
-def _build_kit_product_lines(item) -> list[ProductEmissionLine]:
-    if item.kit is None:
-        return []
-
-    lines: list[ProductEmissionLine] = []
-    product_overrides, _ = item._get_kit_override_maps()
-
-    for kit_product in item._iter_kit_products():
-        product = kit_product.product
-        override = product_overrides.get(kit_product.product_id)
-        per_kit_quantity = override.quantity if override else kit_product.quantity
-        if per_kit_quantity <= 0:
-            continue
-
-        ncm = _normalize_ncm(product.ncm)
-        if len(ncm) != 8:
-            raise NfeEmissionError(f"Produto '{product.name}' sem NCM valido para emissao de NF-e.")
-
-        code = str(product.code or "").strip()
-        if not code:
-            raise NfeEmissionError(f"Produto '{product.name}' sem codigo para emissao de NF-e.")
-
-        quantity = Decimal(per_kit_quantity) * Decimal(item.quantity)
-        unit_price = Decimal(override.product_selling_price.amount) if override else Decimal(product.selling_price.amount)
-        shipping = Decimal(override.shipping.amount) if override else Decimal("0")
-        base_total = _quantize_money((unit_price * Decimal(per_kit_quantity) + shipping) * Decimal(item.quantity))
-
-        lines.append(
-            ProductEmissionLine(
-                description=str(product.name or item.description or "Produto")[:120],
-                code=code[:60],
-                ncm=ncm,
-                cest=str(product.cest or "").strip(),
-                unit=_unit_for_api(str(product.unit or "")),
-                origin=int(product.origin_cst or 0),
-                quantity=quantity,
-                base_total=base_total,
-            )
-        )
-
-    return lines
-
-
 def _extract_product_lines(*, workorder: WorkOrder) -> list[ProductEmissionLine]:
-    lines: list[ProductEmissionLine] = []
-    for item in workorder._iter_items():
-        if item.product_id:
-            lines.append(_build_direct_product_line(item))
-            continue
-
-        if item.kit_id:
-            lines.extend(_build_kit_product_lines(item))
-            continue
-
-        has_local_product_values = Decimal(item.product_selling_price.amount) > 0 or Decimal(item.shipping.amount) > 0
-        if has_local_product_values:
-            raise NfeEmissionError("A OS possui item de peca local sem cadastro fiscal completo. Cadastre o produto para emitir NF-e.")
-
+    lines = [_build_snapshot_product_line(line) for line in workorder.pricing_snapshot.product_lines]
     return [line for line in lines if line.quantity > 0 and line.base_total > 0]
 
 

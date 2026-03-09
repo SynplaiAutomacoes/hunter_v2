@@ -8,12 +8,19 @@ from unittest.mock import Mock, patch
 from django.contrib.auth.models import Permission
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
+from djmoney.money import Money
 
+from apps.budget.models import Budget, BudgetItem
 from apps.accounts.models import Account, User
+from apps.catalog.models.groups import CatalogGroup
+from apps.catalog.models.kits import Kit, KitProduct
+from apps.catalog.models.products import Product
 from apps.collaborators.models import WorkshopMember
 from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm
 from apps.finance.models.finance import TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassSyncState, WebmaniaCompany
 from apps.finance.services.emission import NfseEmissionError, _build_taker_payload, _service_total_value, build_webmania_webhook_token, emit_nfse_request
+from apps.finance.services.nfe_emission import _extract_product_lines
 from apps.finance.services.pricing import build_slider_allocation_for_workorder, compute_slider_allocation, distribute_total_proportionally
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
 from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers
@@ -31,6 +38,7 @@ from apps.finance.services.webmania_errors import extract_webmania_error_message
 from apps.finance.services.webmania_secrets import decrypt_secret, encrypt_secret, is_encrypted_secret
 from apps.finance.views.nfse import NfseRequestCreateView
 from apps.iam.utils import get_or_create_director_role
+from apps.workorder.models import WorkOrder
 from apps.workshops.models.workshops import Workshop
 
 
@@ -654,6 +662,41 @@ class SliderPricingAllocationTests(TestCase):
 
         with self.assertRaisesMessage(NfseEmissionError, "nao possui saldo de servicos"):
             _service_total_value(nfse_request=nfse_request)  # type: ignore[arg-type]
+
+
+class NfeProductExtractionTests(TestCase):
+    def test_extract_product_lines_uses_consolidated_budget_product_quantities(self) -> None:
+        workshop = create_workshop(suffix=61)
+        budget = Budget(workshop=workshop, entry_date=timezone.now().date())
+        budget.save()
+        product_group = CatalogGroup.objects.create(workshop=workshop, name="Grupo NF-e")
+        product = Product.objects.create(
+            workshop=workshop,
+            code="NF-001",
+            unit=Product.Unit.UND,
+            name="Coxim NF-e",
+            ncm="87089990",
+            group=product_group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("15.00", "BRL"),
+        )
+        kit_1 = Kit.objects.create(workshop=workshop, name="Kit NF-e 1")
+        kit_2 = Kit.objects.create(workshop=workshop, name="Kit NF-e 2")
+        KitProduct.objects.create(kit=kit_1, product=product, quantity=2)
+        KitProduct.objects.create(kit=kit_2, product=product, quantity=1)
+
+        BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit_1, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit_2, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        workorder.sync_from_budget()
+
+        lines = _extract_product_lines(workorder=workorder)
+
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(lines[0].quantity, Decimal("3"))
+        self.assertEqual(lines[0].base_total, Decimal("45.00"))
 
 
 class NfseEmissionServiceTests(TestCase):

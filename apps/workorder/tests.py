@@ -11,7 +11,8 @@ from django.utils import timezone
 from djmoney.money import Money
 
 from apps.budget.documents.provider import build_budget_pdf_render_request
-from apps.budget.models import Budget
+from apps.budget.models import Budget, BudgetItem
+from apps.catalog.models.kits import Kit, KitProduct, KitService
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
@@ -19,8 +20,10 @@ from apps.core.documents.contract import DocumentPayload, SignatureDeliveryResul
 from apps.core.documents.services import SignatureDeliveryServiceError
 from apps.core.documents.signature import normalize_signature_phone_number, parse_document_signature_token
 from apps.customer.models import Customer
+from apps.stock.models import StockMovement, StockProduct
+from apps.workorder.approval import approve_workorder_with_stock
 from apps.workorder.documents.provider import build_workorder_pdf_render_request
-from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderSignatureStatus
+from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderSignatureStatus, WorkOrderStatus
 from apps.workorder.service import (
     WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
     WORKORDER_SIGNATURE_TOKEN_SALT,
@@ -60,6 +63,23 @@ def create_customer(*, workshop: Workshop, suffix: int = 1, phone: str = "+55119
 
 def extract_token_from_url(url: str) -> str:
     return urlparse(url).path.rstrip("/").split("/")[-1]
+
+
+def create_service(*, workshop: Workshop, suffix: int = 1) -> Service:
+    return Service.objects.create(
+        workshop=workshop,
+        name=f"Servico Teste {suffix}",
+        duration=timedelta(hours=1),
+        suggested_cost=Money("5.00", "BRL"),
+        selling_price=Money("20.00", "BRL"),
+    )
+
+
+def create_kit(*, workshop: Workshop, suffix: int, products: list[tuple[Product, int]]) -> Kit:
+    kit = Kit.objects.create(workshop=workshop, name=f"Kit {suffix}")
+    for product, quantity in products:
+        KitProduct.objects.create(kit=kit, product=product, quantity=quantity)
+    return kit
 
 
 class WorkOrderTotalsConsistencyTests(TestCase):
@@ -390,3 +410,97 @@ class WorkOrderSignatureDeliveryTests(TestCase):
         self.assertEqual(kwargs["fields"][0]["documentId"], f"workorder-{workorder.id}")
         self.assertEqual(kwargs["fields"][0]["signatoryId"], f"customer-{workorder.id}")
         self.assertEqual(kwargs["fields"][0]["pageNumber"], 1)
+
+
+class WorkOrderDuplicateKitProductTests(TestCase):
+    def test_workorder_matches_budget_slider_totals_after_duplicate_product_consolidation(self) -> None:
+        workshop = create_workshop(suffix=10)
+        budget = create_budget(workshop=workshop)
+        product = Product.objects.create(
+            workshop=workshop,
+            code="P-100",
+            unit=Product.Unit.UND,
+            name="Coxim",
+            group=CatalogGroup.objects.create(workshop=workshop, name="Grupo 100"),
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("15.00", "BRL"),
+        )
+        service = create_service(workshop=workshop, suffix=100)
+        kit_1 = create_kit(workshop=workshop, suffix=1001, products=[(product, 2)])
+        kit_2 = create_kit(workshop=workshop, suffix=1002, products=[(product, 1)])
+
+        BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit_1, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit_2, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, service=service, quantity=1)
+
+        budget.slider = -50
+        budget.save(update_fields=["slider"])
+
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        workorder.sync_from_budget()
+
+        self.assertEqual(workorder.total_products_value, budget.total_products_value)
+        self.assertEqual(workorder.get_total_products_by_slider, budget.get_total_products_by_slider)
+        self.assertEqual(workorder.get_total_services_by_slider, budget.get_total_services_by_slider)
+        self.assertEqual(workorder.total_budget_value, budget.total_budget_value)
+        self.assertEqual(workorder.pricing_snapshot.product_lines[0].quantity, 3)
+
+    def test_workorder_matches_budget_after_duplicate_service_consolidation(self) -> None:
+        workshop = create_workshop(suffix=12)
+        budget = create_budget(workshop=workshop)
+        service = create_service(workshop=workshop, suffix=120)
+        kit_1 = create_kit(workshop=workshop, suffix=1201, products=[])
+        kit_2 = create_kit(workshop=workshop, suffix=1202, products=[])
+        KitService.objects.create(kit=kit_1, service=service, quantity=2, duration=service.duration)
+        KitService.objects.create(kit=kit_2, service=service, quantity=1, duration=service.duration)
+
+        BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit_1, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit_2, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, service=service, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        workorder.sync_from_budget()
+
+        self.assertEqual(workorder.total_services_value, budget.total_services_value)
+        self.assertEqual(workorder.get_total_services_by_slider, budget.get_total_services_by_slider)
+        self.assertEqual(workorder.pricing_snapshot.service_lines[0].quantity, 3)
+
+    def test_stock_approval_uses_consolidated_product_quantity(self) -> None:
+        workshop = create_workshop(suffix=11)
+        budget = create_budget(workshop=workshop)
+        product = Product.objects.create(
+            workshop=workshop,
+            code="P-101",
+            unit=Product.Unit.UND,
+            name="Coxim Estoque",
+            ncm="87089990",
+            group=CatalogGroup.objects.create(workshop=workshop, name="Grupo 101"),
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("15.00", "BRL"),
+        )
+        kit_1 = create_kit(workshop=workshop, suffix=1011, products=[(product, 2)])
+        kit_2 = create_kit(workshop=workshop, suffix=1012, products=[(product, 1)])
+
+        BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit_1, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit_2, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        workorder.sync_from_budget()
+
+        stock_product, _ = StockProduct.objects.get_or_create(
+            workshop=workshop,
+            product=product,
+            defaults={"current_quantity": 3},
+        )
+        stock_product.current_quantity = 3
+        stock_product.save(update_fields=["current_quantity"])
+
+        approve_workorder_with_stock(workorder=workorder)
+
+        stock_product.refresh_from_db()
+        workorder.refresh_from_db()
+        self.assertEqual(stock_product.current_quantity, 0)
+        self.assertEqual(workorder.status, WorkOrderStatus.APPROVED)
+        self.assertEqual(StockMovement.objects.get(stock_product=stock_product).quantity, 3)

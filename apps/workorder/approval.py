@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from collections import defaultdict
-
 from django.db import transaction
 
 from apps.stock.models import StockMovement, StockProduct
@@ -13,37 +11,15 @@ class WorkOrderApprovalError(Exception):
 
 
 def _collect_required_products(workorder: WorkOrder) -> tuple[dict[int, int], dict[int, str]]:
-    required_quantities: dict[int, int] = defaultdict(int)
+    required_quantities: dict[int, int] = {}
     product_names: dict[int, str] = {}
 
-    items = (
-        workorder.items.select_related("product", "kit")
-        .prefetch_related(
-            "kit_overrides",
-            "kit__kit_products__product",
-        )
-        .all()
-    )
-
-    for item in items:
-        if item.product_id and item.quantity > 0:
-            required_quantities[item.product_id] += item.quantity
-            product_names[item.product_id] = item.product.name if item.product else str(item.product_id)
+    for line in workorder.pricing_snapshot.product_lines:
+        if line.entity_id is None or line.quantity <= 0:
             continue
 
-        if item.kit_id and item.quantity > 0:
-            for kit_product in item.effective_kit_products:
-                product_id = int(kit_product.get("id") or 0)
-                base_quantity = int(kit_product.get("quantity") or 0)
-                if product_id <= 0 or base_quantity <= 0:
-                    continue
-
-                required_quantity = base_quantity * item.quantity
-                if required_quantity <= 0:
-                    continue
-
-                required_quantities[product_id] += required_quantity
-                product_names[product_id] = str(kit_product.get("name") or product_id)
+        required_quantities[line.entity_id] = required_quantities.get(line.entity_id, 0) + line.quantity
+        product_names[line.entity_id] = line.description
 
     return dict(required_quantities), product_names
 

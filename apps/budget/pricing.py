@@ -1,0 +1,570 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import timedelta
+from decimal import Decimal, ROUND_HALF_UP
+from types import SimpleNamespace
+from typing import Any, Callable, Iterable
+
+from djmoney.money import Money
+
+
+MONEY_CURRENCY = "BRL"
+MONEY_QUANT = Decimal("0.01")
+
+
+def zero_money() -> Money:
+    return Money(0, MONEY_CURRENCY)
+
+
+def _quantize_decimal(value: Decimal) -> Decimal:
+    return value.quantize(MONEY_QUANT, rounding=ROUND_HALF_UP)
+
+
+def money_from_decimal(value: Decimal) -> Money:
+    return Money(_quantize_decimal(value), MONEY_CURRENCY)
+
+
+def money_div(total: Money, quantity: int) -> Money:
+    if quantity <= 0:
+        return zero_money()
+    return money_from_decimal(total.amount / Decimal(quantity))
+
+
+def format_duration_display(duration: timedelta) -> str:
+    if not duration:
+        return "00h 00m"
+
+    total_seconds = int(duration.total_seconds())
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    return f"{hours:02d}h {minutes:02d}m"
+
+
+@dataclass(slots=True)
+class ConsolidatedPricingLine:
+    line_id: str
+    source_item_id: int | None
+    kind: str
+    entity_id: int | None
+    description: str
+    quantity: int
+    raw_total: Money
+    cost_total: Money
+    shipping: Money = field(default_factory=zero_money)
+    duration: timedelta = field(default_factory=timedelta)
+    code: str = ""
+    application: str = ""
+    location: str = ""
+    is_local: bool = False
+    has_direct_source: bool = False
+    has_kit_source: bool = False
+    third_party: bool = False
+    source_object: Any | None = None
+    adjusted_total: Money = field(default_factory=zero_money)
+
+    @property
+    def id(self) -> int | str:
+        if self.source_item_id is not None:
+            return self.source_item_id
+        return self.line_id
+
+    @property
+    def adjusted_unit_price(self) -> Money:
+        if self.kind == "product":
+            return money_div(self.adjusted_total - self.shipping, self.quantity)
+        return money_div(self.adjusted_total, self.quantity)
+
+    @property
+    def unit_price(self) -> Money:
+        return money_div(self.adjusted_total, self.quantity)
+
+    @property
+    def total_price(self) -> Money:
+        return self.adjusted_total
+
+    @property
+    def product_cost_price(self) -> Money:
+        return self.cost_total
+
+    @property
+    def service_cost_price(self) -> Money:
+        return self.cost_total
+
+    @property
+    def profit_value(self) -> Money:
+        return self.adjusted_total - self.cost_total
+
+    @property
+    def duration_display(self) -> str:
+        return format_duration_display(self.duration)
+
+    @property
+    def show_kit_duplicate_warning(self) -> bool:
+        return self.has_direct_source and self.has_kit_source and not self.is_local
+
+    @property
+    def product(self) -> Any:
+        if self.kind != "product":
+            return None
+        if self.source_object is not None:
+            return self.source_object
+        return SimpleNamespace(code=self.code or "-", name=self.description, description=self.description, application=self.application or "-", location=self.location or "-")
+
+    @property
+    def service(self) -> Any:
+        if self.kind != "service":
+            return None
+        if self.source_object is not None:
+            return self.source_object
+        return SimpleNamespace(name=self.description)
+
+
+@dataclass(slots=True)
+class PricingSnapshot:
+    product_lines: list[ConsolidatedPricingLine]
+    service_lines: list[ConsolidatedPricingLine]
+    total_products_shipping: Money
+    total_costs_products_value: Money
+    total_products_value: Money
+    total_duration: timedelta
+    total_third_party_services_cost: Money
+    total_third_party_services_selling: Money
+    total_costs_services_value: Money
+    total_services_value: Money
+    total_labor_cost_value: Money
+    total_labor_selling_value: Money
+    total_labor_by_slider: Money
+    total_products_by_slider: Money
+    total_services_by_slider: Money
+    total_base_value: Money
+    total_budget_value: Money
+
+
+@dataclass(slots=True)
+class _ProductAggregate:
+    key: str
+    entity_id: int | None
+    description: str
+    sort_order: int
+    source_item_id: int | None = None
+    code: str = ""
+    application: str = ""
+    location: str = ""
+    is_local: bool = False
+    source_object: Any | None = None
+    direct_quantity: int = 0
+    direct_total: Money = field(default_factory=zero_money)
+    direct_cost_total: Money = field(default_factory=zero_money)
+    direct_shipping: Money = field(default_factory=zero_money)
+    kit_quantity: int = 0
+    kit_total: Money = field(default_factory=zero_money)
+    kit_cost_total: Money = field(default_factory=zero_money)
+    kit_shipping: Money = field(default_factory=zero_money)
+
+
+@dataclass(slots=True)
+class _ServiceAggregate:
+    key: str
+    entity_id: int | None
+    description: str
+    sort_order: int
+    source_item_id: int | None = None
+    is_local: bool = False
+    source_object: Any | None = None
+    direct_quantity: int = 0
+    direct_raw_total: Money = field(default_factory=zero_money)
+    direct_cost_total: Money = field(default_factory=zero_money)
+    direct_duration: timedelta = field(default_factory=timedelta)
+    kit_quantity: int = 0
+    kit_raw_total: Money = field(default_factory=zero_money)
+    kit_cost_total: Money = field(default_factory=zero_money)
+    kit_duration: timedelta = field(default_factory=timedelta)
+    third_party: bool = False
+    has_direct_source: bool = False
+    has_kit_source: bool = False
+
+
+def _distribute_totals(*, base_values: Iterable[Money], target_total: Money) -> list[Money]:
+    bases = [_quantize_decimal(value.amount) for value in base_values]
+    if not bases:
+        return []
+
+    target = _quantize_decimal(target_total.amount)
+    if target <= 0:
+        return [zero_money() for _ in bases]
+
+    base_sum = _quantize_decimal(sum(bases, Decimal("0.00")))
+    if base_sum <= 0:
+        return [zero_money() for _ in bases]
+
+    allocated: list[Decimal] = []
+    running_total = Decimal("0.00")
+    last_index = len(bases) - 1
+
+    for index, base in enumerate(bases):
+        if index == last_index:
+            value = _quantize_decimal(target - running_total)
+        else:
+            value = _quantize_decimal((target * base) / base_sum)
+            running_total = _quantize_decimal(running_total + value)
+        allocated.append(value)
+
+    residual = _quantize_decimal(target - sum(allocated, Decimal("0.00")))
+    if residual and allocated:
+        allocated[-1] = _quantize_decimal(allocated[-1] + residual)
+
+    return [money_from_decimal(value) for value in allocated]
+
+
+def _distribute_money_by_weights(*, weights: Iterable[Decimal], target_total: Money) -> list[Money]:
+    normalized_weights = [_quantize_decimal(max(weight, Decimal("0.00"))) for weight in weights]
+    if not normalized_weights:
+        return []
+
+    target = _quantize_decimal(target_total.amount)
+    if target <= 0:
+        return [zero_money() for _ in normalized_weights]
+
+    total_weight = _quantize_decimal(sum(normalized_weights, Decimal("0.00")))
+    if total_weight <= 0:
+        return [zero_money() for _ in normalized_weights]
+
+    allocated: list[Decimal] = []
+    running_total = Decimal("0.00")
+    last_index = len(normalized_weights) - 1
+
+    for index, weight in enumerate(normalized_weights):
+        if index == last_index:
+            value = _quantize_decimal(target - running_total)
+        else:
+            value = _quantize_decimal((target * weight) / total_weight)
+            running_total = _quantize_decimal(running_total + value)
+        allocated.append(value)
+
+    residual = _quantize_decimal(target - sum(allocated, Decimal("0.00")))
+    if residual and allocated:
+        allocated[-1] = _quantize_decimal(allocated[-1] + residual)
+
+    return [money_from_decimal(value) for value in allocated]
+
+
+def _coerce_money(value: Money | None) -> Money:
+    return value if value is not None else zero_money()
+
+
+def build_pricing_snapshot(
+    *,
+    items: Iterable[Any],
+    slider: int,
+    discount_value: Money,
+    labor_cost_value: Money | None = None,
+    is_local_product_item: Callable[[Any], bool] | None = None,
+    is_local_service_item: Callable[[Any], bool] | None = None,
+) -> PricingSnapshot:
+    local_product_check = is_local_product_item or (lambda _item: False)
+    local_service_check = is_local_service_item or (lambda _item: False)
+
+    product_aggregates: dict[str, _ProductAggregate] = {}
+    service_aggregates: dict[str, _ServiceAggregate] = {}
+
+    for sort_order, item in enumerate(items):
+        item_quantity = int(getattr(item, "quantity", 0) or 0)
+        if item_quantity <= 0:
+            continue
+
+        item_id = getattr(item, "id", None)
+        product_id = getattr(item, "product_id", None)
+        service_id = getattr(item, "service_id", None)
+        kit_id = getattr(item, "kit_id", None)
+
+        if product_id is not None or local_product_check(item):
+            key = f"product-{product_id}" if product_id is not None else f"local-product-{item_id or sort_order}"
+            aggregate = product_aggregates.get(key)
+            if aggregate is None:
+                product = getattr(item, "product", None)
+                aggregate = _ProductAggregate(
+                    key=key,
+                    entity_id=product_id,
+                    description=str(getattr(item, "description", "") or getattr(product, "name", "Produto")),
+                    sort_order=sort_order,
+                    source_item_id=item_id if product_id is None else None,
+                    code=str(getattr(product, "code", "") or ""),
+                    application=str(getattr(product, "application", "") or ""),
+                    location=str(getattr(product, "location", "") or ""),
+                    is_local=bool(product_id is None),
+                    source_object=product,
+                )
+                product_aggregates[key] = aggregate
+
+            aggregate.direct_quantity += item_quantity
+            aggregate.direct_total += (_coerce_money(getattr(item, "product_selling_price", None)) * item_quantity) + _coerce_money(getattr(item, "shipping", None))
+            aggregate.direct_cost_total += _coerce_money(getattr(item, "product_cost_price", None)) * item_quantity
+            aggregate.direct_shipping += _coerce_money(getattr(item, "shipping", None))
+            continue
+
+        if service_id is not None or local_service_check(item):
+            key = f"service-{service_id}" if service_id is not None else f"local-service-{item_id or sort_order}"
+            service_aggregate = service_aggregates.get(key)
+            if service_aggregate is None:
+                service = getattr(item, "service", None)
+                service_aggregate = _ServiceAggregate(
+                    key=key,
+                    entity_id=service_id,
+                    description=str(getattr(item, "description", "") or getattr(service, "name", "Servico")),
+                    sort_order=sort_order,
+                    source_item_id=item_id if service_id is None else None,
+                    is_local=bool(service_id is None),
+                    source_object=service,
+                    third_party=bool(getattr(service, "is_third_party", False)),
+                )
+                service_aggregates[key] = service_aggregate
+
+            service_aggregate.direct_quantity += item_quantity
+            service_aggregate.direct_raw_total += _coerce_money(getattr(item, "service_selling_price", None)) * item_quantity
+            service_aggregate.direct_cost_total += _coerce_money(getattr(item, "service_cost_price", None)) * item_quantity
+            item_duration = getattr(item, "duration", None)
+            if item_duration:
+                service_aggregate.direct_duration += item_duration * item_quantity
+            service_aggregate.has_direct_source = True
+            continue
+
+        if kit_id is None:
+            continue
+
+        product_overrides, service_overrides = item._get_kit_override_maps()
+
+        for kit_product in item._iter_kit_products():
+            product = kit_product.product
+            override = product_overrides.get(kit_product.product_id)
+            per_kit_quantity = int((override.quantity if override else kit_product.quantity) or 0)
+            if per_kit_quantity <= 0:
+                continue
+
+            consolidated_quantity = per_kit_quantity * item_quantity
+            if consolidated_quantity <= 0:
+                continue
+
+            key = f"product-{kit_product.product_id}"
+            aggregate = product_aggregates.get(key)
+            if aggregate is None:
+                aggregate = _ProductAggregate(
+                    key=key,
+                    entity_id=kit_product.product_id,
+                    description=str(getattr(product, "name", "Produto") or "Produto"),
+                    sort_order=sort_order,
+                    code=str(getattr(product, "code", "") or ""),
+                    application=str(getattr(product, "application", "") or ""),
+                    location=str(getattr(product, "location", "") or ""),
+                    source_object=product,
+                )
+                product_aggregates[key] = aggregate
+
+            if consolidated_quantity > aggregate.kit_quantity:
+                shipping = _coerce_money(getattr(override, "shipping", None)) * item_quantity if override else zero_money()
+                unit_price = override.product_selling_price if override else product.selling_price
+                unit_cost = override.product_cost_price if override else product.cost_price
+
+                aggregate.kit_quantity = consolidated_quantity
+                aggregate.kit_total = (unit_price * consolidated_quantity) + shipping
+                aggregate.kit_cost_total = unit_cost * consolidated_quantity
+                aggregate.kit_shipping = shipping
+                aggregate.code = str(getattr(product, "code", "") or "")
+                aggregate.application = str(getattr(product, "application", "") or "")
+                aggregate.location = str(getattr(product, "location", "") or "")
+                aggregate.source_object = product
+                aggregate.description = str(getattr(product, "name", aggregate.description) or aggregate.description)
+
+        for kit_service in item._iter_kit_services():
+            service = kit_service.service
+            override = service_overrides.get(kit_service.service_id)
+            per_kit_quantity = int((override.quantity if override else kit_service.quantity) or 0)
+            if per_kit_quantity <= 0:
+                continue
+
+            consolidated_quantity = per_kit_quantity * item_quantity
+            if consolidated_quantity <= 0:
+                continue
+
+            key = f"service-{kit_service.service_id}"
+            service_aggregate = service_aggregates.get(key)
+            if service_aggregate is None:
+                service_aggregate = _ServiceAggregate(
+                    key=key,
+                    entity_id=kit_service.service_id,
+                    description=str(getattr(service, "name", "Servico") or "Servico"),
+                    sort_order=sort_order,
+                    source_object=service,
+                    third_party=bool(getattr(service, "is_third_party", False)),
+                )
+                service_aggregates[key] = service_aggregate
+
+            if consolidated_quantity > service_aggregate.kit_quantity:
+                unit_price = override.service_selling_price if override else service.selling_price
+                unit_cost = override.service_cost_price if override else (service.suggested_cost or zero_money())
+                service_duration = timedelta(0)
+
+                if override:
+                    if override.duration:
+                        service_duration = override.duration * consolidated_quantity
+                elif service.duration:
+                    service_duration = service.duration * consolidated_quantity
+
+                service_aggregate.kit_quantity = consolidated_quantity
+                service_aggregate.kit_raw_total = unit_price * consolidated_quantity
+                service_aggregate.kit_cost_total = unit_cost * consolidated_quantity
+                service_aggregate.kit_duration = service_duration
+                service_aggregate.description = str(getattr(service, "name", service_aggregate.description) or service_aggregate.description)
+                service_aggregate.source_object = service
+
+            service_aggregate.has_kit_source = True
+            service_aggregate.third_party = service_aggregate.third_party or bool(getattr(service, "is_third_party", False))
+
+    product_lines: list[ConsolidatedPricingLine] = []
+    for product_aggregate in sorted(product_aggregates.values(), key=lambda value: (value.sort_order, value.description.lower())):
+        quantity = product_aggregate.direct_quantity + product_aggregate.kit_quantity
+        raw_total = product_aggregate.direct_total + product_aggregate.kit_total
+        if quantity <= 0 and raw_total.amount <= 0:
+            continue
+
+        product_lines.append(
+            ConsolidatedPricingLine(
+                line_id=product_aggregate.key,
+                source_item_id=product_aggregate.source_item_id,
+                kind="product",
+                entity_id=product_aggregate.entity_id,
+                description=product_aggregate.description,
+                quantity=quantity,
+                raw_total=raw_total,
+                cost_total=product_aggregate.direct_cost_total + product_aggregate.kit_cost_total,
+                shipping=product_aggregate.direct_shipping + product_aggregate.kit_shipping,
+                code=product_aggregate.code,
+                application=product_aggregate.application,
+                location=product_aggregate.location,
+                is_local=product_aggregate.is_local,
+                has_direct_source=product_aggregate.direct_quantity > 0,
+                has_kit_source=product_aggregate.kit_quantity > 0,
+                source_object=product_aggregate.source_object,
+            )
+        )
+
+    service_lines: list[ConsolidatedPricingLine] = []
+    for service_aggregate in sorted(service_aggregates.values(), key=lambda value: (value.sort_order, value.description.lower())):
+        quantity = service_aggregate.direct_quantity + service_aggregate.kit_quantity
+        raw_total = service_aggregate.direct_raw_total + service_aggregate.kit_raw_total
+        if quantity <= 0 and raw_total.amount <= 0:
+            continue
+
+        service_lines.append(
+            ConsolidatedPricingLine(
+                line_id=service_aggregate.key,
+                source_item_id=service_aggregate.source_item_id,
+                kind="service",
+                entity_id=service_aggregate.entity_id,
+                description=service_aggregate.description,
+                quantity=quantity,
+                raw_total=raw_total,
+                cost_total=service_aggregate.direct_cost_total + service_aggregate.kit_cost_total,
+                duration=service_aggregate.direct_duration + service_aggregate.kit_duration,
+                is_local=service_aggregate.is_local,
+                has_direct_source=service_aggregate.direct_quantity > 0,
+                has_kit_source=service_aggregate.kit_quantity > 0,
+                third_party=service_aggregate.third_party,
+                source_object=service_aggregate.source_object,
+            )
+        )
+
+    total_products_shipping = sum((line.shipping for line in product_lines), zero_money())
+    total_costs_products_value = sum((line.cost_total for line in product_lines), zero_money())
+    total_products_value = sum((line.raw_total for line in product_lines), zero_money())
+    total_duration = sum((line.duration for line in service_lines), timedelta())
+    total_third_party_services_selling = sum((line.raw_total for line in service_lines if line.third_party), zero_money())
+    total_services_value = sum((line.raw_total for line in service_lines), zero_money())
+    labor_service_lines = [line for line in service_lines if not line.third_party]
+    third_party_service_lines = [line for line in service_lines if line.third_party]
+
+    total_third_party_services_cost = sum((line.cost_total for line in third_party_service_lines), zero_money())
+    total_labor_selling_value = sum((line.raw_total for line in service_lines if not line.third_party), zero_money())
+    resolved_labor_cost_value = labor_cost_value if labor_cost_value is not None and labor_cost_value.amount > 0 else sum((line.cost_total for line in service_lines if not line.third_party), zero_money())
+    labor_cost_weights = [Decimal(int(line.duration.total_seconds())) for line in labor_service_lines]
+    if not any(weight > 0 for weight in labor_cost_weights):
+        labor_cost_weights = [line.raw_total.amount for line in labor_service_lines]
+    if not any(weight > 0 for weight in labor_cost_weights):
+        labor_cost_weights = [Decimal(max(line.quantity, 0)) for line in labor_service_lines]
+
+    for line, allocated_cost in zip(
+        labor_service_lines,
+        _distribute_money_by_weights(weights=labor_cost_weights, target_total=resolved_labor_cost_value),
+        strict=False,
+    ):
+        line.cost_total = allocated_cost
+
+    total_costs_services_value = total_third_party_services_cost + resolved_labor_cost_value
+
+    slider_decimal = Decimal(int(slider or 0)) / Decimal(100)
+    total_products_by_slider = total_products_value
+    total_labor_by_slider = total_labor_selling_value
+    total_services_by_slider = total_services_value
+
+    if slider < 0:
+        available_services = max(total_labor_selling_value - resolved_labor_cost_value, zero_money())
+        transfer = available_services * abs(slider_decimal)
+        total_products_by_slider = total_products_value + transfer
+        total_labor_by_slider = total_labor_selling_value - transfer
+    elif slider > 0:
+        available_products = max(total_products_value - (total_costs_products_value + total_products_shipping), zero_money())
+        transfer = available_products * slider_decimal
+        total_products_by_slider = total_products_value - transfer
+        total_labor_by_slider = total_labor_selling_value + transfer
+
+    total_services_by_slider = total_third_party_services_selling + total_labor_by_slider
+
+    for line, adjusted_subtotal in zip(
+        product_lines,
+        _distribute_totals(
+            base_values=[line.raw_total - line.shipping for line in product_lines],
+            target_total=total_products_by_slider - total_products_shipping,
+        ),
+        strict=False,
+    ):
+        line.adjusted_total = adjusted_subtotal + line.shipping
+
+    for line in third_party_service_lines:
+        line.adjusted_total = line.raw_total
+
+    remaining_labor_profit = max(total_labor_by_slider - resolved_labor_cost_value, zero_money())
+    labor_profit_weights = [max(line.raw_total.amount - line.cost_total.amount, Decimal("0.00")) for line in labor_service_lines]
+    if not any(weight > 0 for weight in labor_profit_weights):
+        labor_profit_weights = [line.raw_total.amount for line in labor_service_lines]
+    if not any(weight > 0 for weight in labor_profit_weights):
+        labor_profit_weights = [Decimal(max(line.quantity, 0)) for line in labor_service_lines]
+
+    for line, adjusted_total in zip(
+        labor_service_lines,
+        _distribute_money_by_weights(weights=labor_profit_weights, target_total=remaining_labor_profit),
+        strict=False,
+    ):
+        line.adjusted_total = line.cost_total + adjusted_total
+
+    total_base_value = total_products_by_slider + total_services_by_slider
+    total_budget_value = total_base_value - discount_value
+
+    return PricingSnapshot(
+        product_lines=product_lines,
+        service_lines=service_lines,
+        total_products_shipping=total_products_shipping,
+        total_costs_products_value=total_costs_products_value,
+        total_products_value=total_products_value,
+        total_duration=total_duration,
+        total_third_party_services_cost=total_third_party_services_cost,
+        total_third_party_services_selling=total_third_party_services_selling,
+        total_costs_services_value=total_costs_services_value,
+        total_services_value=total_services_value,
+        total_labor_cost_value=resolved_labor_cost_value,
+        total_labor_selling_value=total_labor_selling_value,
+        total_labor_by_slider=total_labor_by_slider,
+        total_products_by_slider=total_products_by_slider,
+        total_services_by_slider=total_services_by_slider,
+        total_base_value=total_base_value,
+        total_budget_value=total_budget_value,
+    )

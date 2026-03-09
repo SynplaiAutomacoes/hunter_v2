@@ -82,9 +82,9 @@
                     <tr class="border-b border-gray-100">
                         <td class="p-1">{{ p.description }}</td>
                         <td class="p-1 text-center">{{ p.quantity }}</td>
-                        <td class="p-1 text-right">{{ p.unit_price }}</td>
+                        <td class="p-1 text-right">{{ p.adjusted_unit_price }}</td>
                         <td class="p-1 text-right">{{ p.shipping }}</td>
-                        <td class="p-1 text-right font-medium">{{ p.product_selling_price }}</td>
+                        <td class="p-1 text-right font-medium">{{ p.total_price }}</td>
                         <td class="p-1 text-right font-bold">{{ p.product_cost_price }}</td>
                         <td class="p-1 text-right font-bold">{{ p.profit_value }}</td>
                     </tr>
@@ -142,11 +142,11 @@
             <div class="bg-gray-50 p-4 rounded-lg shadow-inner">
                 <div class="flex justify-between mb-1 text-gray-600">
                     <span>Total de Produtos:</span>
-                    <span>{{ budget.total_products_value }}</span>
+                    <span>{{ total_produtos }}</span>
                 </div>
                 <div class="flex justify-between mb-1 text-gray-600">
                     <span>Total de Serviços:</span>
-                    <span>{{ budget.total_services_value }}</span>
+                    <span>{{ total_servicos }}</span>
                 </div>
                 <div class="flex justify-between mb-1 text-red-500">
                     <span>Desconto Concedido:</span>
