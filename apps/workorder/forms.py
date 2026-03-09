@@ -7,6 +7,7 @@ from djmoney.forms import MoneyField
 from djmoney.money import Money
 
 from apps.core.widgets import DurationInput, MoneyInput, NumberInput, SelectInput, TextInput
+from apps.finance.models.payment_method import PaymentMethod
 from apps.workorder.models import WorkOrderAttachment, WorkOrderItem, WorkOrderPaymentMethod
 
 
@@ -28,6 +29,9 @@ class WorkOrderPaymentForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         self.workorder = kwargs.pop("workorder", None)
         super().__init__(*args, **kwargs)
+
+        if self.workorder:
+            self.fields["payment_method"].queryset = PaymentMethod.objects.filter(workshop=self.workorder.workshop, is_active=True)
 
         total_os = self.workorder.total_budget_value.amount if self.workorder else 0
         pago = sum(p.total_paid.amount for p in self.workorder.payments.all()) if self.workorder else 0

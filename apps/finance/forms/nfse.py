@@ -9,7 +9,7 @@ from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
 
 from apps.core.widgets import SelectInput, TextInput, TextareaInput
-from apps.finance.models import NfseRequest
+from apps.finance.models.finance import NfseRequest
 from apps.finance.services.pricing import build_slider_allocation_for_workorder
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 

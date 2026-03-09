@@ -9,7 +9,7 @@ from django import forms
 from django.urls import reverse
 
 from apps.core.widgets import CEPInput, CPForCNPJInput, CheckboxInput, EmailInput, PasswordInput, PhoneInput, SelectInput, TextInput, TextareaInput
-from apps.finance.models import WebmaniaCompany, WebmaniaCompanyTaxType
+from apps.finance.models.finance import WebmaniaCompany, WebmaniaCompanyTaxType
 from apps.finance.services.webmania_secrets import encrypt_secret
 
 

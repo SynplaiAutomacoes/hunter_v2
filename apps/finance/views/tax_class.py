@@ -23,7 +23,7 @@ from apps.finance.forms import (
     PisScenarioForm,
     PisScenarioFormSet,
 )
-from apps.finance.models import NfseRequest
+from apps.finance.models.finance import NfseRequest
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
 from apps.workshops.mixin import WorkshopScopedMixin
 
