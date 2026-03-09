@@ -18,7 +18,6 @@ from django.views.generic import DetailView, ListView, TemplateView
 from djmoney.money import Money
 
 from apps.budget.fields import DurationField
-from apps.budget.pdf_context import build_budget_pdf_context
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.models.kits import Kit
@@ -29,7 +28,7 @@ from apps.core.documents.signature import SignatureTokenError, parse_document_si
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxTemplateResponseMixin
 from apps.workorder.approval import WorkOrderApprovalError, approve_workorder_with_stock
-from apps.workorder.documents.provider import render_workorder_pdf_document
+from apps.workorder.documents.provider import build_workorder_pdf_render_request, render_workorder_pdf_document
 from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderItemEditForm, WorkOrderKitProductEditRowForm, WorkOrderKitServiceEditRowForm, WorkOrderPaymentForm
 from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
 from apps.workorder.service import (
@@ -261,13 +260,8 @@ def _get_workorder_from_signature_token(token: str) -> WorkOrder:
 
 def signature_preview(request, token):
     workorder = _get_workorder_from_signature_token(token)
-    context = build_budget_pdf_context(
-        budget=workorder.budget,
-        observacao=workorder.workshop.pdf_observation,
-        request=request,
-    )
-
-    return render(request, "budget/partials/pdf/visualizarPDF.html", context)
+    render_request = build_workorder_pdf_render_request(workorder=workorder, request=request)
+    return render(request, render_request.template_name, render_request.context)
 
 
 def signature_file(request, token):

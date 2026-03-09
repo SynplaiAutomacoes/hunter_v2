@@ -10,6 +10,7 @@ from django.test import RequestFactory, TestCase, override_settings
 from django.utils import timezone
 from djmoney.money import Money
 
+from apps.budget.documents.provider import build_budget_pdf_render_request
 from apps.budget.models import Budget
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
@@ -17,6 +18,7 @@ from apps.catalog.models.services import Service
 from apps.core.documents.contract import DocumentPayload, SignatureDeliveryResult
 from apps.core.documents.signature import normalize_signature_phone_number, parse_document_signature_token
 from apps.customer.models import Customer
+from apps.workorder.documents.provider import build_workorder_pdf_render_request
 from apps.workorder.models import WorkOrder, WorkOrderItem
 from apps.workorder.service import (
     WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
@@ -217,21 +219,39 @@ class WorkOrderSignaturePublicViewTests(TestCase):
         self.factory = RequestFactory()
 
     @patch("apps.workorder.views.render")
-    @patch("apps.workorder.views.build_budget_pdf_context")
-    def test_signature_preview_renders_budget_pdf_template(self, build_context_mock, render_mock) -> None:
+    @patch("apps.workorder.views.build_workorder_pdf_render_request")
+    def test_signature_preview_renders_budget_pdf_template(self, build_render_request_mock, render_mock) -> None:
         workshop = create_workshop(suffix=96)
         budget = create_budget(workshop=workshop)
         workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
         token = extract_token_from_url(build_signature_preview_url(workorder=workorder))
 
-        build_context_mock.return_value = {"budget": budget, "observacao": workshop.pdf_observation}
+        build_render_request_mock.return_value = build_budget_pdf_render_request(budget=budget)
         render_mock.return_value = HttpResponse("preview")
 
         response = signature_preview(self.factory.get("/"), token)
 
         self.assertEqual(response.content, b"preview")
         self.assertEqual(render_mock.call_args.args[1], "budget/partials/pdf/visualizarPDF.html")
-        self.assertEqual(render_mock.call_args.args[2], {"budget": budget, "observacao": workshop.pdf_observation})
+        self.assertEqual(render_mock.call_args.args[2]["budget"], budget)
+
+
+class WorkOrderPdfParityTests(TestCase):
+    def setUp(self) -> None:
+        self.factory = RequestFactory()
+
+    def test_build_workorder_pdf_render_request_reuses_budget_render_request_shape(self) -> None:
+        workshop = create_workshop(suffix=99)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+
+        workorder_render_request = build_workorder_pdf_render_request(workorder=workorder)
+        budget_render_request = build_budget_pdf_render_request(budget=budget, filename=f"orcamento_{budget.id}.pdf")
+
+        self.assertEqual(workorder_render_request.template_name, budget_render_request.template_name)
+        self.assertEqual(workorder_render_request.filename, budget_render_request.filename)
+        self.assertEqual(workorder_render_request.context["budget"], budget)
+        self.assertEqual(workorder_render_request.context["pages"], budget_render_request.context["pages"])
 
     def test_signature_preview_rejects_inactive_token(self) -> None:
         workshop = create_workshop(suffix=97)
