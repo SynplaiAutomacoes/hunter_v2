@@ -30,5 +30,7 @@ urlpatterns = [
 
     # PDF
     path("<int:pk>/visualizar-pdf/", views.visualizar_pdf_workorder, name="visualizar_pdf"),
+    path("signature-preview/<str:token>/", views.signature_preview, name="signature_preview"),
+    path("signature-file/<str:token>/", views.signature_file, name="signature_file"),
     path("<int:pk>/send-signature/", views.send_workorder_signature, name="send_signature"),
 ]

@@ -16,8 +16,7 @@ from apps.budget.models import Budget, BudgetImage, BudgetImageType, Defect
 from apps.checklist.models import Checklist
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.utils import alert_confirm_layout
-from apps.core.widgets import CalendarDateInput, MoneyInput, NumberInput, SelectInput, TextInput, TextareaInput, \
-    SearchableSelectInput
+from apps.core.widgets import CalendarDateInput, MoneyInput, NumberInput, SelectInput, TextInput, TextareaInput, SearchableSelectInput
 from apps.customer.models import Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
 
@@ -272,10 +271,7 @@ class BudgetStep1Form(forms.ModelForm):
         fields = ["workshop", "cost_estimator", "entry_date", "customer", "vehicle", "current_km", "fuel_level"]
         widgets = {
             "entry_date": CalendarDateInput(),
-            "customer": SearchableSelectInput(attrs={
-                "x-model": "customerId",
-                "@change": "customerId = $el.value; vehicleId = '';"
-            }),
+            "customer": SearchableSelectInput(attrs={"x-model": "customerId", "@change": "customerId = $el.value; vehicleId = '';"}),
             "current_km": NumberInput(),
             "fuel_level": SelectInput(),
         }
@@ -1602,7 +1598,8 @@ class BudgetStep4Form(forms.ModelForm):
                         vertical-align: middle;
                     }
 
-                    .budget-step4-table .budget-step4-description {
+                    .budget-step4-table .budget-step4-description,
+                    .budget-step4-table .budget-step4-application {
                         white-space: normal;
                         overflow-wrap: break-word;
                         word-break: normal;
@@ -1658,12 +1655,13 @@ class BudgetStep4Form(forms.ModelForm):
                                             <th class="budget-step4-select-col text-center">
                                                 <input type="checkbox" id="select-all-products" class="checkbox checkbox-primary checkbox-sm" aria-label="Selecionar todas as peças">
                                             </th>
-                                            <th class="w-[24%] text-left">DESCRIÇÃO</th>
+                                            <th class="w-[18%] text-left">DESCRIÇÃO</th>
+                                            <th class="w-[18%] text-left">APLICAÇÃO</th>
                                             <th class="w-[8%] text-center">QTD.</th>
-                                            <th class="w-[12%] text-right">CUSTO</th>
-                                            <th class="w-[14%] text-right">VALOR VENDA</th>
+                                            <th class="w-[10%] text-right">CUSTO</th>
+                                            <th class="w-[12%] text-right">VALOR VENDA</th>
                                             <th class="w-[10%] text-right">FRETE</th>
-                                            <th class="w-[14%] text-right">TOTAL</th>
+                                            <th class="w-[12%] text-right">TOTAL</th>
                                             <th class="w-[12%] text-center budget-step4-actions">AÇÕES</th>
                                         </tr>
                                     </thead>
@@ -1672,7 +1670,7 @@ class BudgetStep4Form(forms.ModelForm):
                                     </tbody>
                                 </table>
                             """),
-                            css_class="mb-8 rounded-lg shadow-md shadow-gray-300/50 overflow-hidden",
+                            css_class="mb-8 rounded-lg shadow-md shadow-gray-300/50 overflow-x-auto",
                         ),
                         css_class="mb-10",
                     ),
@@ -1975,7 +1973,7 @@ class BudgetStep5Form(forms.ModelForm):
             status_texto = "Médio"
             rentabilidade_class = "rentabilidade-medio"
             rentabilidade_bg = "bg-rentabilidade-medio"
-        
+
         discount_amount = budget.discount_value.amount if budget.discount_value else Decimal("0")
         discount_display = budget.discount_value if discount_amount != Decimal("0") else Money(0, "BRL")
         step5_calculation_done = bool(budget.pk and (budget.step5_calculation_viewed or budget.current_step > 5))
@@ -2702,12 +2700,13 @@ class BudgetStep6Form(forms.ModelForm):
                             <table class="table table-zebra table-fixed w-full">
                               <thead class="bg-primary text-primary-content">
                                 <tr>
-                                  <th class="w-[32%]">NOME</th>
+                                  <th class="w-[22%]">NOME</th>
+                                  <th class="w-[22%]">APLICAÇÃO</th>
                                   <th class="w-[8%] text-center">QTD.</th>
-                                  <th class="w-[14%]">CUSTO</th>
-                                  <th class="w-[16%]">VALOR</th>
-                                  <th class="w-[12%]">FRETE</th>
-                                  <th class="w-[18%]">TOTAL</th>
+                                  <th class="w-[12%]">CUSTO</th>
+                                  <th class="w-[14%]">VALOR</th>
+                                  <th class="w-[10%]">FRETE</th>
+                                  <th class="w-[12%]">TOTAL</th>
                                 </tr>
                               </thead>
                               <tbody id="product-list-body">
