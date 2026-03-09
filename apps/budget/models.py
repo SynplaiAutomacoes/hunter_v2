@@ -496,6 +496,10 @@ class Budget(TimeStampedModel):
         return self.pricing_snapshot.total_products_by_slider
 
     @property
+    def get_total_products_by_slider_without_shipping(self):
+        return self.get_total_products_by_slider - self.total_products_shipping
+
+    @property
     def get_total_services_by_slider(self):
         return self.pricing_snapshot.total_services_by_slider
 
