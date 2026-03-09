@@ -87,19 +87,20 @@ class ImportStep1Form(forms.ModelForm):
 
     def save(self, commit=True):
         obj = super().save(commit=False)
+        method = self.cleaned_data.get("method")
 
         if self.parsed_nf_data:
             data = self.parsed_nf_data
             obj.workshop = self.workshop
             obj.nf_number = data.get("nf_number")
-            obj.nf_key = data.get("nf_key")
+            obj.nf_key = data.get("nf_key", "")
             obj.supplier_cnpj = data.get("supplier_cnpj")
             obj.supplier_name = data.get("supplier_name")
             obj.items_data = data.get("items", [])
             obj.payments_data = data.get("payments", [])
 
-        if not obj.nf_key:
-            raise ValueError("A chave da NF-e é obrigatória para salvar a importação.")
+        if method in ["XML", "KEY"] and not obj.nf_key:
+            raise ValueError("A chave da NF-e é obrigatória para este método de importação.")
 
         if commit:
             obj.save()
@@ -767,13 +768,10 @@ class ImportSefazListForm(forms.ModelForm):
 
         started_at = time.perf_counter()
         try:
-            uf = self.workshop.uf
-            certificado = self.workshop.pfx_certificate.path
-            senha = self.workshop.certificate_password
             cnpj = re.sub(r"\D", "", self.workshop.cnpj)
             nsu = self.workshop.last_nsu_sefaz
 
-            comunicacao = ComunicacaoSefaz(uf, certificado, senha)
+            comunicacao = ComunicacaoSefaz(self.workshop.uf.upper(), self.workshop.pfx_certificate.path, self.workshop.certificate_password)
             xml_resp = comunicacao.consulta_distribuicao(cnpj=cnpj, nsu=nsu)
 
             # Parsing do retorno da SEFAZ (simplificado do seu exemplo)
