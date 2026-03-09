@@ -15,6 +15,7 @@ from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.core.models import TimeStampedModel
+from apps.finance.models.payment_method import PaymentMethod
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from apps.workshops.util.monthly_costs import get_mechanic_salary_monthly_cost
 
@@ -26,11 +27,24 @@ class WorkOrderStatus(models.TextChoices):
     CANCELLED = "cancelled", "Cancelado"
 
 
+class WorkOrderSignatureStatus(models.TextChoices):
+    NOT_SENT = "not_sent", "Não Enviado"
+    SENDING = "sending", "Enviando"
+    SENT = "sent", "Enviado"
+    FAILED = "failed", "Falha no Envio"
+    APPROVED = "approved", "Aprovado"
+
+
 class WorkOrder(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="workorders")
     budget = models.ForeignKey("budget.Budget", on_delete=models.CASCADE, related_name="workorders", help_text="Orçamento Aprovado vinculado à esta O.S.")
     status = models.CharField(verbose_name="Status", max_length=20, choices=WorkOrderStatus.choices, default=WorkOrderStatus.DRAFT)
     discount_value = MoneyField(verbose_name="Desconto da O.S. (R$)", max_digits=14, decimal_places=2, default=0.00)
+    signature_token_version = models.PositiveIntegerField(verbose_name="ID do PDF da Ordem de Serviço", default=1)
+    signature_token_active = models.BooleanField(verbose_name="Token de Assinatura Ativo", default=True)
+    signature_request_status = models.CharField(max_length=30, choices=WorkOrderSignatureStatus.choices, default=WorkOrderSignatureStatus.NOT_SENT)
+    signature_external_id = models.CharField(max_length=255, blank=True, null=True)
+    signature_sent_at = models.DateTimeField(blank=True, null=True)
 
     @property
     def workorder_status_badge(self):
@@ -60,6 +74,34 @@ class WorkOrder(TimeStampedModel):
             )
             .all()
         )
+
+    def mark_signature_sending(self) -> None:
+        self.signature_request_status = WorkOrderSignatureStatus.SENDING
+        self.save(update_fields=["signature_request_status"])
+
+    def mark_signature_sent(self, external_id: str) -> None:
+        self.signature_request_status = WorkOrderSignatureStatus.SENT
+        self.signature_external_id = external_id
+        self.signature_sent_at = timezone.now()
+        self.save(update_fields=["signature_request_status", "signature_external_id", "signature_sent_at"])
+
+    def mark_signature_failed(self) -> None:
+        self.signature_request_status = WorkOrderSignatureStatus.FAILED
+        self.save(update_fields=["signature_request_status"])
+
+    def revoke_signature_token(self) -> None:
+        self.signature_token_active = False
+        self.save(update_fields=["signature_token_active"])
+
+    def regenerate_signature_token(self) -> None:
+        self.signature_token_version += 1
+        self.signature_token_active = True
+        self.save(update_fields=["signature_token_version", "signature_token_active"])
+
+    def mark_signature_approved(self) -> None:
+        self.status = WorkOrderStatus.APPROVED
+        self.signature_request_status = WorkOrderSignatureStatus.APPROVED
+        self.save(update_fields=["status", "signature_request_status"])
 
     @property
     def total_products_shipping(self) -> Money:
@@ -364,16 +406,8 @@ class WorkOrder(TimeStampedModel):
 
 
 class WorkOrderPaymentMethod(TimeStampedModel):
-    PAYMENT_METHOD_CHOICES = (
-        ("CREDITO", "Cartão de Crédito"),
-        ("DEBITO", "Cartão de Débito"),
-        ("PIX", "Pix"),
-        ("DINHEIRO", "Dinheiro"),
-        ("BOLETO", "Boleto"),
-    )
-
     workorder = models.ForeignKey(WorkOrder, on_delete=models.CASCADE, related_name="payments")
-    payment_method = models.CharField(verbose_name="Forma de Pagamento", choices=PAYMENT_METHOD_CHOICES, max_length=20)
+    payment_method = models.ForeignKey(PaymentMethod, on_delete=models.PROTECT, verbose_name="Forma de Pagamento", null=True, blank=True)
     installments_count = PositiveIntegerField(verbose_name="Número de Parcelas", default=1)
     first_installment_amount = MoneyField(verbose_name="Valor da Primeira Parcela", max_digits=14, decimal_places=2, default=0.00)
     remaining_installments_amount = MoneyField(verbose_name="Valor das Parcelas Restantes", max_digits=14, decimal_places=2, default=0.00)

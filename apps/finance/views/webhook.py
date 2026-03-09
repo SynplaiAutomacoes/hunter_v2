@@ -10,7 +10,7 @@ from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
-from apps.finance.models import NfeItem, NfseBatch, NfseItem
+from apps.finance.models.finance import NfeItem, NfseBatch, NfseItem
 from apps.finance.services.emission import build_webmania_webhook_token
 from apps.finance.services.mappers import extract_items_from_batch, map_batch_payload, map_item_payload
 from apps.finance.services.nfe_emission import map_nfe_item_payload

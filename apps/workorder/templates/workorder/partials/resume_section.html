@@ -61,34 +61,38 @@
 
             <div class="p-4 border-b border-gray-200">
                 <h4 class="font-bold mb-2">PRODUTOS</h4>
-                <table class="w-full text-left">
-                    <thead>
-                        <tr class="border-b">
-                            <th class="p-2 font-semibold">Código</th>
-                            <th class="p-2 font-semibold">Nome</th>
-                            <th class="p-2 font-semibold">Descrição</th>
-                            <th class="p-2 font-semibold text-center">Qtd.</th>
-                            <th class="p-2 font-semibold">R$ Valor</th>
-                            <th class="p-2 font-semibold">R$ Total</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-100">
-                        {% for item in product_items %}
-                            <tr>
-                                <td class="p-2">{{ item.product.code|default:"-" }}</td>
-                                <td class="p-2">{{ item.product.name }}</td>
-                                <td class="p-2">{{ item.product.description }}</td>
-                                <td class="p-2 text-center">{{ item.quantity }}</td>
-                                <td class="p-2">{{ item.product_selling_price }}</td>
-                                <td class="p-2 font-semibold">{{ item.total_price }}</td>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left">
+                        <thead>
+                            <tr class="border-b">
+                                <th class="p-2 font-semibold">Código</th>
+                                <th class="p-2 font-semibold">Nome</th>
+                                <th class="p-2 font-semibold">Descrição</th>
+                                <th class="p-2 font-semibold">Aplicação</th>
+                                <th class="p-2 font-semibold text-center">Qtd.</th>
+                                <th class="p-2 font-semibold">R$ Valor</th>
+                                <th class="p-2 font-semibold">R$ Total</th>
                             </tr>
-                        {% empty %}
-                            <tr>
-                                <td class="p-2 text-center text-base-content/60" colspan="6">Nenhuma peça adicionada.</td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                            {% for item in product_items %}
+                                <tr>
+                                    <td class="p-2">{{ item.product.code|default:"-" }}</td>
+                                    <td class="p-2">{{ item.product.name }}</td>
+                                    <td class="p-2">{{ item.product.description }}</td>
+                                    <td class="p-2 whitespace-normal break-words">{{ item.product.application|default:"-" }}</td>
+                                    <td class="p-2 text-center">{{ item.quantity }}</td>
+                                    <td class="p-2">{{ item.product_selling_price }}</td>
+                                    <td class="p-2 font-semibold">{{ item.total_price }}</td>
+                                </tr>
+                            {% empty %}
+                                <tr>
+                                    <td class="p-2 text-center text-base-content/60" colspan="7">Nenhuma peça adicionada.</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
                 <div class="text-right mt-2 font-bold uppercase">
                     Total das peças: {{workorder.total_products_value}}
                 </div>

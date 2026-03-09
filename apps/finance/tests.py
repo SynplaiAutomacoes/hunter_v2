@@ -12,7 +12,7 @@ from django.urls import reverse
 from apps.accounts.models import Account, User
 from apps.collaborators.models import WorkshopMember
 from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm
-from apps.finance.models import TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassSyncState, WebmaniaCompany
+from apps.finance.models.finance import TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassSyncState, WebmaniaCompany
 from apps.finance.services.emission import NfseEmissionError, _build_taker_payload, _service_total_value, build_webmania_webhook_token, emit_nfse_request
 from apps.finance.services.pricing import build_slider_allocation_for_workorder, compute_slider_allocation, distribute_total_proportionally
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
@@ -1111,6 +1111,42 @@ class WebmaniaB2BServiceTests(TestCase):
 
         self.assertEqual(company.workshop.account, active_workshop.account)
         self.assertEqual("".join(char for char in str(company.workshop.cnpj) if char.isdigit()), "11222333000177")
+        self.assertTrue(WorkshopMember.objects.filter(user=user, workshop=company.workshop, is_active=True).exists())
+
+    def test_sync_b2b_companies_without_base_workshop_creates_local_workshops(self) -> None:
+        user = User.objects.create_user(username="director_first_sync", password="123", cpf="12345678901")
+        account = Account.objects.create(name="Conta First Sync", owner=user)
+        user.account = account
+        user.is_account_owner = True
+        user.save(update_fields=["account", "is_account_owner"])
+
+        response_payload = [
+            {
+                "id": "3001",
+                "razao_social": "Oficina Primeira Sync",
+                "cnpj": "11.222.333/0001-88",
+                "estado": "SP",
+                "endereco": "Rua Primeira, 100",
+                "telefone": "+5511988880001",
+            }
+        ]
+
+        with (
+            patch("apps.finance.services.webmania_b2b._build_headers", return_value={}),
+            patch(
+                "apps.finance.services.webmania_b2b.requests.get",
+                return_value=_mock_response(response_payload),
+            ),
+        ):
+            synced = sync_b2b_companies_to_database(workshop=None, actor_user=user, force_global_auth=True)
+
+        self.assertEqual(len(synced), 1)
+        company = WebmaniaCompany.objects.get(webmania_company_id="3001")
+        if company.workshop is None:
+            self.fail("A empresa sincronizada deveria ter criado uma oficina local.")
+
+        self.assertEqual(company.workshop.account, account)
+        self.assertEqual(company.workshop.name, "Oficina Primeira Sync")
         self.assertTrue(WorkshopMember.objects.filter(user=user, workshop=company.workshop, is_active=True).exists())
 
     def test_sync_b2b_companies_removes_stale_local_companies_from_account(self) -> None:

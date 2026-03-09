@@ -64,7 +64,14 @@ def build_budget_pdf_context(*, budget: Budget, observacao: str, request=None) -
     produtos_raw, servicos_raw = [], []
     for item in itens_all:
         if item.product:
-            produtos_raw.append({"description": item.description, "quantity": item.quantity, "base_total": (item.product_selling_price * item.quantity) + item.shipping})
+            produtos_raw.append(
+                {
+                    "description": item.description,
+                    "application": item.product.application,
+                    "quantity": item.quantity,
+                    "base_total": (item.product_selling_price * item.quantity) + item.shipping,
+                }
+            )
         if item.service:
             servicos_raw.append({"description": item.description, "quantity": item.quantity, "base_total": item.service_selling_price * item.quantity})
         if item.kit:
@@ -74,7 +81,14 @@ def build_budget_pdf_context(*, budget: Budget, observacao: str, request=None) -
                 u_p = ovr.product_selling_price if ovr else kp.product.selling_price
                 qty = (ovr.quantity if ovr else kp.quantity) * item.quantity
                 ship = (ovr.shipping if ovr else Money(0, "BRL")) * item.quantity
-                produtos_raw.append({"description": kp.product.name, "quantity": qty, "base_total": (u_p * qty) + ship})
+                produtos_raw.append(
+                    {
+                        "description": kp.product.name,
+                        "application": kp.product.application,
+                        "quantity": qty,
+                        "base_total": (u_p * qty) + ship,
+                    }
+                )
             for ks in item.kit.kit_services.all():
                 ovr = service_overrides.get(ks.service_id)
                 u_p = ovr.service_selling_price if ovr else ks.service.selling_price

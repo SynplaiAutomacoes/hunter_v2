@@ -23,7 +23,7 @@ from apps.collaborators.models import WorkshopMember
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
-from apps.finance.models import WebmaniaCompany
+from apps.finance.models.finance import WebmaniaCompany
 from apps.finance.services.webmania_b2b import (
     WebmaniaB2BServiceError,
     get_b2b_requests,
@@ -45,7 +45,7 @@ from apps.workshops.forms.workshops import (
 )
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.monthly_costs import create_default_monthly_costs
-from apps.workshops.util.workshops import has_workshop_perm
+from apps.workshops.util.workshops import has_workshop_perm, is_workshop_director
 
 
 logger = logging.getLogger(__name__)
@@ -73,6 +73,72 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
     form_class = WorkshopForm
     template_name = "workshops/workshop_create.html"
     success_url = reverse_lazy("workshops:list")
+
+    @staticmethod
+    def _latest_sync_error(companies: list[WebmaniaCompany]) -> str:
+        candidates = [company for company in companies if str(company.last_sync_error or "").strip()]
+        if not candidates:
+            return ""
+
+        latest = max(
+            candidates,
+            key=lambda company: company.last_sync_at or company.atualizado_em or company.criado_em,
+        )
+        return str(latest.last_sync_error or "").strip()
+
+    def _reference_workshop_for_permission(self):
+        user_account_id = getattr(self.request.user, "account_id", None)
+        active_workshop_id = self.request.session.get("active_workshop_id")
+        if active_workshop_id and user_account_id is not None:
+            workshop = Workshop.objects.filter(pk=active_workshop_id, account_id=user_account_id).first()
+            if workshop is not None:
+                return workshop
+
+        if user_account_id is None:
+            return None
+
+        return Workshop.objects.filter(account_id=user_account_id).order_by("criado_em", "pk").first()
+
+    def _can_sync_webmania_companies(self) -> bool:
+        user = cast(Any, self.request.user)
+        user_account = getattr(user, "account", None)
+        if getattr(user_account, "owner_id", None) == getattr(user, "id", None):
+            return True
+
+        reference_workshop = self._reference_workshop_for_permission()
+        return bool(reference_workshop) and has_workshop_perm(
+            user=user,
+            workshop=reference_workshop,
+            app_label=WebmaniaCompany._meta.app_label,
+            model=str(WebmaniaCompany._meta.model_name),
+            codename="change_webmaniacompany",
+            request=self.request,
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+
+        user_account_id = getattr(self.request.user, "account_id", None)
+        account_companies = []
+        if user_account_id is not None:
+            account_companies = list(WebmaniaCompany.objects.filter(workshop__account_id=user_account_id).exclude(webmania_company_id="").select_related("workshop"))
+        sync_candidates = [company.last_sync_at for company in account_companies if company.last_sync_at is not None]
+        latest_sync_at = max(sync_candidates) if sync_candidates else None
+
+        is_webmania_homolog_environment = _is_webmania_homolog_environment()
+        latest_sync_error = self._latest_sync_error(account_companies)
+
+        context.update(
+            {
+                "webmania_company_count": len(account_companies),
+                "webmania_last_sync_at": latest_sync_at,
+                "webmania_last_sync_error": _to_public_integration_message(latest_sync_error) if latest_sync_error else "",
+                "can_sync_webmania_companies": self._can_sync_webmania_companies() and is_webmania_homolog_environment,
+                "is_webmania_homolog_environment": is_webmania_homolog_environment,
+            }
+        )
+
+        return context
 
     def dispatch(self, request, *args, **kwargs):
         user = cast(Any, request.user)
@@ -760,13 +826,75 @@ class WorkshopListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):
         return context
 
 
-class WorkshopWebmaniaSyncView(LoginRequiredMixin, DirectorWorkshopAccessMixin, View):
+class WorkshopWebmaniaSyncView(LoginRequiredMixin, View):
     required_webmania_permission_codename = "change_webmaniacompany"
+
+    def _resolve_workshop_for_sync(self, request):
+        user_account_id = getattr(request.user, "account_id", None)
+        active_workshop_id = request.session.get("active_workshop_id")
+        if active_workshop_id and user_account_id is not None:
+            workshop = Workshop.objects.filter(pk=active_workshop_id, account_id=user_account_id, is_active=True).first()
+            if workshop is not None:
+                return workshop
+
+        if user_account_id is None:
+            return None
+
+        return Workshop.objects.filter(account_id=user_account_id, is_active=True).order_by("criado_em", "pk").first()
+
+    def _has_sync_permission(self, request, workshop: Workshop) -> bool:
+        user = cast(Any, request.user)
+        return is_workshop_director(user=user, workshop=workshop, request=request) and has_workshop_perm(
+            user=user,
+            workshop=workshop,
+            app_label=WebmaniaCompany._meta.app_label,
+            model=str(WebmaniaCompany._meta.model_name),
+            codename=self.required_webmania_permission_codename,
+            request=request,
+        )
+
+    def _redirect_after_sync(self, request):
+        user_account_id = getattr(request.user, "account_id", None)
+        has_active_workshop = bool(user_account_id) and Workshop.objects.filter(account_id=user_account_id, is_active=True).exists()
+        if not has_active_workshop:
+            return redirect("workshops:create")
+        return redirect("workshops:list")
+
+    @staticmethod
+    def _set_active_workshop_from_synced_companies(*, request, synced_companies: list[WebmaniaCompany]) -> None:
+        if request.session.get("active_workshop_id"):
+            return
+
+        for company in synced_companies:
+            workshop_id = getattr(company, "workshop_id", None)
+            if workshop_id is not None:
+                request.session["active_workshop_id"] = workshop_id
+                break
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
+
+        user = cast(Any, request.user)
+        user_account = getattr(user, "account", None)
+        if user_account is None:
+            raise PermissionDenied
+
+        self.workshop = self._resolve_workshop_for_sync(request)
+        is_account_owner = getattr(user_account, "owner_id", None) == getattr(user, "id", None)
+
+        if self.workshop is not None:
+            if not (is_account_owner or self._has_sync_permission(request, self.workshop)):
+                raise PermissionDenied
+        elif not is_account_owner:
+            raise PermissionDenied
+
+        return super().dispatch(request, *args, **kwargs)
 
     def post(self, request, *args, **kwargs):
         if not _is_webmania_homolog_environment():
             messages.error(request, "A sincronizacao manual esta disponivel apenas em ambiente de homologacao.")
-            return redirect("workshops:list")
+            return self._redirect_after_sync(request)
 
         try:
             synced_companies = sync_b2b_companies_to_database(
@@ -777,6 +905,7 @@ class WorkshopWebmaniaSyncView(LoginRequiredMixin, DirectorWorkshopAccessMixin, 
         except WebmaniaB2BServiceError as exc:
             messages.error(request, _to_public_integration_message(str(exc)))
         else:
+            self._set_active_workshop_from_synced_companies(request=request, synced_companies=synced_companies)
             synced_count = len(synced_companies)
             if synced_count <= 0:
                 messages.warning(request, "Sincronizacao concluida, mas nenhuma empresa foi retornada.")
@@ -785,7 +914,7 @@ class WorkshopWebmaniaSyncView(LoginRequiredMixin, DirectorWorkshopAccessMixin, 
             else:
                 messages.success(request, f"Sincronizacao concluida com sucesso. {synced_count} empresas atualizadas.")
 
-        return redirect("workshops:list")
+        return self._redirect_after_sync(request)
 
 
 class WorkshopEmissionHistoryView(LoginRequiredMixin, DirectorWorkshopAccessMixin, TemplateView):

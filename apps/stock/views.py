@@ -21,6 +21,7 @@ from ..core.forms import MultiStepFormMixin
 from ..core.tables import TableActionDefaults
 from ..core.templatetags.table_tags import TableColumn
 from ..core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin
+from ..finance.models.payment_method import PaymentMethod
 from ..suppliers.models import Supplier
 from ..workshops.mixin import WorkshopScopedMixin
 from ..workshops.util.workshops import get_active_workshop_or_404
@@ -364,6 +365,8 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
         first_amount_str = request.POST.get("first_amount_0", "0")
         installments_str = request.POST.get("installments_count", "1")
 
+        method_obj = get_object_or_404(PaymentMethod, id=method_code, workshop=self.workshop)
+
         if not all([method_code, payment_date, installments_str]) or Decimal(first_amount_str or 0) <= 0:
             messages.error(request, "Preencha todos os campos do pagamento antes de incluir.")
             return HttpResponse(headers={"HX-Refresh": "true"})
@@ -384,8 +387,8 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
             payments = obj.payments_data
             new_payment = {
                 "id": len(payments) + 1,
-                "method": method_code,
-                "method_display": dict(StockPaymentMethod.PAYMENT_METHOD_CHOICES).get(method_code),
+                "method": method_obj.id,
+                "method_display": method_obj.description,
                 "installments": str(installments),
                 "first_amount": str(first_amount),
                 "total_paid": str(total_paid),

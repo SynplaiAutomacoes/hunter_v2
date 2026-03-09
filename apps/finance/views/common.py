@@ -5,7 +5,7 @@ from typing import Any, cast
 from django.core.exceptions import PermissionDenied
 from django.views import View
 
-from apps.finance.models import WebmaniaCompany, WebmaniaCompanyTaxType
+from apps.finance.models.finance import WebmaniaCompany, WebmaniaCompanyTaxType
 from apps.workshops.util.workshops import get_active_workshop_or_404, has_workshop_perm, is_workshop_director
 
 
