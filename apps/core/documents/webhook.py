@@ -80,9 +80,6 @@ def validate_supersign_webhook_request(request: HttpRequest) -> HttpResponse | N
         logger.warning("Webhook rejeitado por autorizacao invalida")
         return JsonResponse({"error": "invalid_authorization"}, status=403)
 
-    if expected_auth and not auth_header:
-        logger.warning("Webhook sem header Authorization; seguindo validacao por x-account-id")
-
     account_id = request.headers.get("x-account-id", "")
     expected_account_id = getattr(settings, "SUPERSIGN_ACCOUNT_ID", "")
     if expected_account_id and account_id and account_id != expected_account_id:
@@ -91,9 +88,6 @@ def validate_supersign_webhook_request(request: HttpRequest) -> HttpResponse | N
             extra={"received_account_id": account_id, "expected_account_id": expected_account_id},
         )
         return JsonResponse({"error": "invalid_account"}, status=403)
-
-    if expected_account_id and not account_id:
-        logger.warning("Webhook sem header x-account-id")
 
     return None
 

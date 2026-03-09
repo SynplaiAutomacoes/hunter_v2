@@ -98,8 +98,9 @@ class WorkOrder(TimeStampedModel):
         self.save(update_fields=["signature_token_version", "signature_token_active"])
 
     def mark_signature_approved(self) -> None:
+        self.status = WorkOrderStatus.APPROVED
         self.signature_request_status = WorkOrderSignatureStatus.APPROVED
-        self.save(update_fields=["signature_request_status"])
+        self.save(update_fields=["status", "signature_request_status"])
 
     @property
     def total_products_shipping(self) -> Money:

@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from apps.budget.models import Budget, BudgetStatus, SignatureStatus
 from apps.core.documents.webhook import extract_supersign_envelope_id, extract_supersign_event
-from apps.workorder.models import WorkOrder, WorkOrderSignatureStatus
+from apps.workorder.models import WorkOrder, WorkOrderSignatureStatus, WorkOrderStatus
 from apps.workshops.models.workshops import Workshop
 
 
@@ -81,6 +81,7 @@ class SuperSignWebhookViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(budget.status, BudgetStatus.APPROVED)
         self.assertEqual(budget.signature_request_status, SignatureStatus.APPROVED)
+        self.assertEqual(workorder.status, WorkOrderStatus.APPROVED)
         self.assertEqual(workorder.signature_request_status, WorkOrderSignatureStatus.APPROVED)
 
     def test_post_ignores_non_completed_events(self) -> None:
@@ -122,4 +123,23 @@ class SuperSignWebhookViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(budget.status, BudgetStatus.DRAFT)
         self.assertEqual(budget.signature_request_status, SignatureStatus.NOT_SENT)
+        self.assertEqual(workorder.status, WorkOrderStatus.APPROVED)
         self.assertEqual(workorder.signature_request_status, WorkOrderSignatureStatus.APPROVED)
+
+    def test_post_without_auth_headers_is_accepted_without_warning(self) -> None:
+        workshop = create_workshop(suffix=94)
+        budget = create_budget(workshop=workshop)
+        budget.mark_signature_sent("env-790")
+
+        with self.assertNoLogs("apps.core.documents.webhook", level="WARNING"):
+            response = self.client.post(
+                reverse("budget:supersign_webhook"),
+                data=json.dumps({"event": "ENVELOPE_COMPLETED", "envelopeId": "env-790"}),
+                content_type="application/json",
+            )
+
+        budget.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(budget.status, BudgetStatus.APPROVED)
+        self.assertEqual(budget.signature_request_status, SignatureStatus.APPROVED)
