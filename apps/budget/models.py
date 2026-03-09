@@ -466,6 +466,53 @@ class Budget(TimeStampedModel):
         """Returns budget images ordered by upload date (oldest first)"""
         return self.budget_image.all()
 
+    @property
+    def get_total_products_by_slider(self):
+        total_p = self.total_products_value
+        total_s = self.total_services_value
+        custo_p = self.total_costs_products_value
+        custo_s = self.total_costs_services_value
+
+        # Slider negativo: transfere de Serviço para Peça (Peça aumenta)
+        if self.slider < 0:
+            percentual = Decimal(abs(self.slider)) / 100
+            # O quanto podemos tirar de serviço? (Total - Custo)
+            disponivel_servico = max(total_s - custo_s, Money(0, "BRL"))
+            transferencia = disponivel_servico * percentual
+            return total_p + transferencia
+
+        # Slider positivo: transfere de Peça para Serviço (Peça diminui)
+        elif self.slider > 0:
+            percentual = Decimal(self.slider) / 100
+            disponivel_peca = max(total_p - custo_p, Money(0, "BRL"))
+            transferencia = disponivel_peca * percentual
+            return total_p - transferencia
+
+        return total_p
+
+    @property
+    def get_total_services_by_slider(self):
+        total_p = self.total_products_value
+        total_s = self.total_services_value
+        custo_p = self.total_costs_products_value
+        custo_s = self.total_costs_services_value
+
+        # Slider negativo: Peça aumenta, Serviço diminui
+        if self.slider < 0:
+            percentual = Decimal(abs(self.slider)) / 100
+            disponivel_servico = max(total_s - custo_s, Money(0, "BRL"))
+            transferencia = disponivel_servico * percentual
+            return total_s - transferencia
+
+        # Slider positivo: Peça diminui, Serviço aumenta
+        elif self.slider > 0:
+            percentual = Decimal(self.slider) / 100
+            disponivel_peca = max(total_p - custo_p, Money(0, "BRL"))
+            transferencia = disponivel_peca * percentual
+            return total_s + transferencia
+
+        return total_s
+
     def __str__(self):
         return f"Budget #{self.id} - {self.customer}"
 
@@ -904,6 +951,98 @@ class BudgetItem(TimeStampedModel):
     @property
     def profit_value(self):
         return Money((self.product_selling_price.amount + self.service_selling_price.amount) - (self.product_cost_price.amount + self.service_cost_price.amount), "BRL")
+
+    @property
+    def adjusted_unit_price(self):
+        """
+        Retorna o valor unitário ajustado pelo slider.
+        Se for Kit, retorna a soma dos componentes ajustados.
+        """
+        budget = self.budget
+        slider = budget.slider
+
+        # Se slider é 0, não perde tempo calculando
+        if slider == 0:
+            return self.unit_price
+
+        # Se for um item de Kit, a lógica muda: precisamos processar os filhos
+        if self.kit:
+            # Calculamos a soma dos preços ajustados de cada componente do kit
+            total_kit_ajustado = Money(0, "BRL")
+
+            # Reutilizamos a lógica de extração que você já tem
+            p_ovr, s_ovr = self._get_kit_override_maps()
+
+            # Componentes de Produto no Kit
+            for kp in self.kit.kit_products.all():
+                ovr = p_ovr.get(kp.product_id)
+                u_p = ovr.product_selling_price if ovr else kp.product.selling_price
+                u_c = ovr.product_cost_price if ovr else kp.product.cost_price
+                qty = ovr.quantity if ovr else kp.quantity
+
+                # Ajustamos o preço unitário deste componente específico
+                ajustado = self.calculate_individual_adjustment(original_unit=u_p, unit_cost=u_c, is_product=True)
+                total_kit_ajustado += ajustado * qty
+
+            # Componentes de Serviço no Kit
+            for ks in self.kit.kit_services.all():
+                ovr = s_ovr.get(ks.service_id)
+                u_p = ovr.service_selling_price if ovr else ks.service.selling_price
+                u_c = ovr.service_cost_price if ovr else (ks.service.suggested_cost or Money(0, "BRL"))
+                qty = ks.quantity  # Overrides de serviço costumam manter qty
+
+                ajustado = self.calculate_individual_adjustment(original_unit=u_p, unit_cost=u_c, is_product=False)
+                total_kit_ajustado += ajustado * qty
+
+            return total_kit_ajustado / self.quantity if self.quantity else Money(0, "BRL")
+
+        # Se for item simples (Produto ou Serviço)
+        is_p = bool(self.product)
+        u_p = self.product_selling_price if is_p else self.service_selling_price
+        u_c = self.product_cost_price if is_p else self.service_cost_price
+
+        return self.calculate_individual_adjustment(u_p, u_c, is_p)
+
+    def calculate_individual_adjustment(self, original_unit, unit_cost, is_product):
+        """
+        Métodc auxiliar para aplicar a fórmula do slider em um valor unitário isolado.
+        """
+        budget = self.budget
+        slider = budget.slider
+
+        # Define bases de cálculo de acordo com o tipo
+        if is_product:
+            total_group = budget.total_products_value
+            total_opposite = budget.total_services_value
+            cost_opposite = budget.total_costs_services_value
+        else:
+            total_group = budget.total_services_value
+            total_opposite = budget.total_products_value
+            cost_opposite = budget.total_costs_products_value
+
+        if total_group.amount == 0:
+            return original_unit
+
+        # 1. Participação do item no grupo
+        share = original_unit.amount / total_group.amount
+
+        # 2. Quanto o slider quer transferir (intensidade)
+        percentual_slider = Decimal(abs(slider)) / 100
+
+        # 3. Valor disponível no grupo oposto para transferência
+        margem_transferivel_oposta = max(total_opposite - cost_opposite, Money(0, "BRL"))
+        valor_transferido_total = margem_transferivel_oposta * percentual_slider
+
+        # 4. Verifica se este item ganha ou perde
+        ganha_valor = (slider < 0 and is_product) or (slider > 0 and not is_product)
+
+        if ganha_valor:
+            # Aplica o share sobre o que veio do outro grupo
+            return original_unit + (valor_transferido_total * share)
+        else:
+            # Perde valor: retira do próprio lucro do item proporcional ao slider
+            margem_propria = max(original_unit - unit_cost, Money(0, "BRL"))
+            return original_unit - (margem_propria * percentual_slider)
 
     class Meta:
         verbose_name = "Item do Orçamento"
