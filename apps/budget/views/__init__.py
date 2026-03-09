@@ -1,4 +1,5 @@
 from .customer_vehicle_views import CustomerDetailView, VehicleDetailView, VehicleListView
+from apps.core.documents.webhook import SuperSignWebhookView
 from .item_views import (
     AddItemToBudgetView,
     AddItemsBatchToBudgetView,
@@ -19,7 +20,6 @@ from .local_item_views import CalculateLocalServiceView, CreateLocalItemView, Qu
 from .pdf_views import signature_file, signature_preview, visualizar_pdf, visualizar_pdf_assinatura, visualizar_pdf_checklist, visualizar_pdf_gestor, visualizar_pdf_mecanico
 from .realtime_views import BudgetEventsView
 from .shared import reset_steps_after_step_4
-from .webhook_views import SuperSignWebhookView
 from .workflow_views import BudgetCreateView, BudgetDeleteView, BudgetListView, BudgetUpdateView, MarkStep5CalculationViewedView, SaveObservationView, SendBudgetSignatureView, UpdateBudgetDiscountView, UpdateBudgetStatusView, UpdateSliderView
 
 __all__ = [

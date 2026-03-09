@@ -27,7 +27,7 @@ def _budget_item_type(item):
 
 
 def _empty_rows(step6=False):
-    product_colspan = 5 if step6 else 6
+    product_colspan = 7 if step6 else 9
     service_colspan = 5 if step6 else 6
     kit_colspan = 5 if step6 else 7
     return {

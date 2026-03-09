@@ -28,6 +28,7 @@
                         <thead class="bg-base-200 sticky top-0 z-10">
                             <tr>
                                 <th>Descrição</th>
+                                <th>Aplicação</th>
                                 <th class="text-center">Qtd.</th>
                                 <th>Custo</th>
                                 <th>Venda</th>
@@ -40,6 +41,7 @@
                             {% for item in product_items %}
                                 <tr>
                                     <td>{{ item.description }}</td>
+                                    <td class="whitespace-normal break-words">{{ item.product.application|default:"-" }}</td>
                                     <td class="text-center">{{ item.quantity }}</td>
                                     <td>{{ item.product_cost_price }}</td>
                                     <td>{{ item.product_selling_price }}</td>
@@ -70,7 +72,7 @@
                                 </tr>
                             {% empty %}
                                 <tr>
-                                    <td colspan="7" class="text-center text-base-content/60">Nenhuma peça adicionada.</td>
+                                    <td colspan="8" class="text-center text-base-content/60">Nenhuma peça adicionada.</td>
                                 </tr>
                             {% endfor %}
                         </tbody>
