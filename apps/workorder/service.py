@@ -67,10 +67,9 @@ def build_signature_preview_url(*, workorder, request=None) -> str:
 
 
 def _build_signature_fields(workorder) -> list[dict]:
-    budget = workorder.budget
     return build_signature_fields(
-        document_ref_id=f"budget-{budget.id}",
-        signatory_ref_id=f"customer-{budget.id}",
+        document_ref_id=f"workorder-{workorder.id}",
+        signatory_ref_id=f"customer-{workorder.id}",
         page_number=_calculate_pdf_total_pages(workorder),
     )
 
@@ -83,14 +82,7 @@ def _build_workorder_pdf_bytes(*, workorder) -> bytes:
 
 
 def _calculate_pdf_total_pages(workorder) -> int:
-    item_count = workorder.budget.items.count()
-    first_page_capacity = 14
-    other_pages_capacity = 18
-    if item_count <= first_page_capacity:
-        return 1
-    remaining = item_count - first_page_capacity
-    extra_pages = (remaining + other_pages_capacity - 1) // other_pages_capacity
-    return 1 + max(0, extra_pages)
+    return 1
 
 
 def send_workorder_for_signature(*, workorder) -> WorkOrderSignatureResult:
@@ -106,7 +98,7 @@ def send_workorder_for_signature(*, workorder) -> WorkOrderSignatureResult:
         raise WorkOrderSignatureError("Cliente sem email para assinatura")
 
     signatory, observers = build_signature_signatory_and_observers(
-        signatory_id=f"customer-{budget.id}",
+        signatory_id=f"customer-{workorder.id}",
         recipient=SignatureRecipient(
             name=customer.name,
             email=customer_email,
@@ -115,15 +107,15 @@ def send_workorder_for_signature(*, workorder) -> WorkOrderSignatureResult:
     )
 
     pdf_bytes = _build_workorder_pdf_bytes(workorder=workorder)
-    file_name = f"orcamento-{budget.id}.pdf"
+    file_name = f"ordem_servico-{workorder.id}.pdf"
 
     try:
         result = send_document_for_signature(
             pdf_bytes=pdf_bytes,
             file_name=file_name,
-            document_ref_id=f"budget-{budget.id}",
-            title=f"Orcamento #{budget.id}",
-            message="Segue orcamento para assinatura.",
+            document_ref_id=f"workorder-{workorder.id}",
+            title=f"Ordem de servico #{workorder.id}",
+            message="Segue ordem de servico para assinatura.",
             signatory=signatory,
             observers=observers,
             fields=_build_signature_fields(workorder),

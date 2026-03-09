@@ -7,7 +7,7 @@ from apps.workorder.models import WorkOrder
 
 
 def build_workorder_pdf_render_request(*, workorder: WorkOrder, request=None, filename: str | None = None) -> DocumentRenderRequest:
-    resolved_filename = filename or f"orcamento_{workorder.budget_id}.pdf"
+    resolved_filename = filename or f"ordem_servico_{workorder.id}.pdf"
     return build_budget_pdf_render_request(
         budget=workorder.budget,
         request=request,

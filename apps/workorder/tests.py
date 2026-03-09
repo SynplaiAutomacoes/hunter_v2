@@ -244,14 +244,24 @@ class WorkOrderPdfParityTests(TestCase):
         workshop = create_workshop(suffix=99)
         budget = create_budget(workshop=workshop)
         workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        filename = "documento.pdf"
 
-        workorder_render_request = build_workorder_pdf_render_request(workorder=workorder)
-        budget_render_request = build_budget_pdf_render_request(budget=budget, filename=f"orcamento_{budget.id}.pdf")
+        workorder_render_request = build_workorder_pdf_render_request(workorder=workorder, filename=filename)
+        budget_render_request = build_budget_pdf_render_request(budget=budget, filename=filename)
 
         self.assertEqual(workorder_render_request.template_name, budget_render_request.template_name)
         self.assertEqual(workorder_render_request.filename, budget_render_request.filename)
         self.assertEqual(workorder_render_request.context["budget"], budget)
         self.assertEqual(workorder_render_request.context["pages"], budget_render_request.context["pages"])
+
+    def test_build_workorder_pdf_render_request_uses_workorder_filename_by_default(self) -> None:
+        workshop = create_workshop(suffix=89)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+
+        render_request = build_workorder_pdf_render_request(workorder=workorder)
+
+        self.assertEqual(render_request.filename, f"ordem_servico_{workorder.id}.pdf")
 
     def test_signature_preview_rejects_inactive_token(self) -> None:
         workshop = create_workshop(suffix=97)
@@ -305,11 +315,14 @@ class WorkOrderSignatureDeliveryTests(TestCase):
 
         self.assertEqual(result.envelope_id, "env-83")
         _, kwargs = send_document_mock.call_args
-        self.assertEqual(kwargs["file_name"], f"orcamento-{budget.id}.pdf")
-        self.assertEqual(kwargs["document_ref_id"], f"budget-{budget.id}")
-        self.assertEqual(kwargs["signatory"]["id"], f"customer-{budget.id}")
+        self.assertEqual(kwargs["file_name"], f"ordem_servico-{workorder.id}.pdf")
+        self.assertEqual(kwargs["document_ref_id"], f"workorder-{workorder.id}")
+        self.assertEqual(kwargs["title"], f"Ordem de servico #{workorder.id}")
+        self.assertEqual(kwargs["message"], "Segue ordem de servico para assinatura.")
+        self.assertEqual(kwargs["signatory"]["id"], f"customer-{workorder.id}")
         self.assertEqual(kwargs["signatory"]["authMethod"], "WHATSAPP")
         self.assertEqual(kwargs["signatory"]["phoneNumber"], normalize_signature_phone_number(customer.phone))
         self.assertEqual(kwargs["observers"][0]["email"], customer.email)
-        self.assertEqual(kwargs["fields"][0]["documentId"], f"budget-{budget.id}")
-        self.assertEqual(kwargs["fields"][0]["signatoryId"], f"customer-{budget.id}")
+        self.assertEqual(kwargs["fields"][0]["documentId"], f"workorder-{workorder.id}")
+        self.assertEqual(kwargs["fields"][0]["signatoryId"], f"customer-{workorder.id}")
+        self.assertEqual(kwargs["fields"][0]["pageNumber"], 1)
