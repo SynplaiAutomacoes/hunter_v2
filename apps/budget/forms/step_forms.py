@@ -1936,6 +1936,7 @@ class BudgetStep5Form(forms.ModelForm):
         # Custos baseados sempre nos itens do orçamento
         custo_pecas = budget.total_costs_products_value
         custo_frete_pecas = budget.total_products_shipping
+        custo_total_pecas = custo_pecas + custo_frete_pecas
         custo_servico_terceiros = budget.total_third_party_services_cost
         custo_hora_mecanico = dados.get("custo_hora_mecanico") or zerado
 
@@ -2301,7 +2302,7 @@ class BudgetStep5Form(forms.ModelForm):
                                     <!-- COLUNA ESQUERDA — CUSTOS -->
                                     <div class="grid grid-cols-12 border border-base-300 bg-base-100">
                                         <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo de Peças</span>
-                                        <span class="col-span-4 p-2 border-l border-base-300">{custo_pecas}</span>
+                                        <span class="col-span-4 p-2 border-l border-base-300">{custo_total_pecas}</span>
                                     </div>
 
                                     <div class="grid grid-cols-12 border border-base-300 bg-base-100">
