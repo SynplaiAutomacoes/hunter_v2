@@ -20,6 +20,7 @@ from ..catalog.models.products import Product
 from ..core.forms import MultiStepFormMixin
 from ..core.tables import TableActionDefaults
 from ..core.templatetags.table_tags import TableColumn
+from ..core.utils import clean_id
 from ..core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin
 from ..finance.models.payment_method import PaymentMethod
 from ..suppliers.models import Supplier
@@ -425,17 +426,18 @@ class LinkProductManualView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "change_stockimport"
 
     def get(self, request):
-        item_idx = request.GET.get("item_idx")
-        pk = request.GET.get("pk")
+        item_idx = clean_id(request.GET.get("item_idx"))
+        pk = clean_id(request.GET.get("pk"))
         is_manual = request.GET.get("manual") == "true"
         context = {"item_idx": item_idx, "workshop": self.workshop, "pk": pk, "is_manual": is_manual}
         return render(request, "stock/partials/modal/link_manual_modal.html", context)
 
     @transaction.atomic
     def post(self, request):
-        raw_item_idx = request.POST.get("item_idx")
-        product_id = request.POST.get("product_id")
-        pk = request.POST.get("pk")
+        raw_item_idx = clean_id(request.POST.get("item_idx"))
+        product_id = clean_id(request.POST.get("product_id"))
+        pk = clean_id(request.POST.get("pk"))
+
         is_manual = request.GET.get("manual") == "true" or request.POST.get("manual") == "true"
 
         obj = get_object_or_404(StockImport, id=pk, workshop=self.workshop)
@@ -467,8 +469,8 @@ class UnlinkItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     @transaction.atomic
     def post(self, request, *args, **kwargs):
-        item_idx = request.POST.get("item_idx") or request.GET.get("item_idx")
-        pk = request.POST.get("pk") or request.GET.get("pk")
+        item_idx = clean_id(request.POST.get("item_idx") or request.GET.get("item_idx"))
+        pk = clean_id(request.POST.get("pk") or request.GET.get("pk"))
 
         obj = get_object_or_404(StockImport, id=pk, workshop=self.workshop)
         import_items = obj.items_data
