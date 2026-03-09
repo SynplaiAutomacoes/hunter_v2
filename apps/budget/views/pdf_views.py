@@ -34,7 +34,7 @@ def visualizar_pdf(request, pk):
 def visualizar_pdf_gestor(request, pk):
     workshop = get_active_workshop_or_404(request)
     budget = get_object_or_404(Budget, pk=pk, workshop=workshop)
-    itens_all = BudgetItem.objects.filter(budget=budget)
+    itens_all = BudgetItem.objects.filter(budget=budget).select_related("product", "service")
     produtos = itens_all.filter(product__isnull=False)
     servicos = itens_all.filter(service__isnull=False)
 
@@ -62,7 +62,7 @@ def visualizar_pdf_gestor(request, pk):
 def visualizar_pdf_mecanico(request, pk):
     workshop = get_active_workshop_or_404(request)
     budget = get_object_or_404(Budget, pk=pk, workshop=workshop)
-    itens_all = BudgetItem.objects.filter(budget=budget)
+    itens_all = BudgetItem.objects.filter(budget=budget).select_related("product", "service")
     produtos = itens_all.filter(product__isnull=False)
     servicos = itens_all.filter(service__isnull=False)
 

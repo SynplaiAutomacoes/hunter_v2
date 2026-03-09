@@ -14,7 +14,7 @@
             hx-swap="innerHTML">✕</button>
     </div>
 
-    <div class="relative overflow-y-auto max-h-[70vh]">
+    <div class="relative overflow-auto max-h-[70vh]">
         <div class="sticky top-0 z-30 bg-base-100 p-4 border-b border-base-200">
             <label class="input input-bordered flex items-center gap-2 w-full max-w-md">
                 <span class="material-icons">search</span>
@@ -37,6 +37,9 @@
                         <th class="text-center">Nome</th>
                     {% endif %}
                     <th class="w-full">Descrição</th>
+                    {% if item_type == 'product' %}
+                        <th class="min-w-[220px]">Aplicação</th>
+                    {% endif %}
                     {% if item_type != 'kit' %}
                         <th class="whitespace-nowrap">Preço Venda</th>
                     {% endif %}
@@ -65,6 +68,10 @@
                         {% endif %}
 
                         <td class="min-w-[300px]"><div class="font-bold">{{ item.name|default:item.description }}</div></td>
+
+                        {% if item_type == 'product' %}
+                            <td class="min-w-[220px] whitespace-normal break-words">{{ item.application|default:"-" }}</td>
+                        {% endif %}
 
                         {% if item_type != 'kit' %}
                             <td class="whitespace-nowrap font-semibold">{{ item.selling_price }}</td>

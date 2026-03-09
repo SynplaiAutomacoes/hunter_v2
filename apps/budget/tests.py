@@ -11,6 +11,7 @@ from django.utils import timezone
 from djmoney.money import Money
 
 from apps.budget.models import Budget, BudgetItem, SignatureStatus
+from apps.budget.pdf_context import build_budget_pdf_context
 from apps.budget.service import (
     BUDGET_SIGNATURE_DOCUMENT_ID_KEY,
     BUDGET_SIGNATURE_TOKEN_SALT,
@@ -20,6 +21,8 @@ from apps.budget.service import (
     build_signature_preview_url,
     send_budget_for_signature,
 )
+from apps.catalog.models.groups import CatalogGroup
+from apps.catalog.models.products import Product
 from apps.core.documents.contract import DocumentPayload, SignatureDeliveryResult
 from apps.core.documents.signature import normalize_signature_phone_number, parse_document_signature_token
 from apps.core.documents.services import SignatureDeliveryServiceError, get_signed_document_url
@@ -51,6 +54,21 @@ def create_customer(*, workshop: Workshop, suffix: int = 1, phone: str = "+55119
         cpf_or_cnpj=f"123.456.789-{suffix:02d}",
         email=f"cliente{suffix}@example.com",
         phone=phone,
+    )
+
+
+def create_product(*, workshop: Workshop, suffix: int = 1, application: str = "") -> Product:
+    group = CatalogGroup.objects.create(workshop=workshop, name=f"Grupo {suffix}")
+    return Product.objects.create(
+        workshop=workshop,
+        code=f"P-{suffix:03d}",
+        unit=Product.Unit.UND,
+        name=f"Produto {suffix}",
+        description=f"Descricao {suffix}",
+        application=application,
+        group=group,
+        cost_price=Money("10.00", "BRL"),
+        selling_price=Money("15.00", "BRL"),
     )
 
 
@@ -194,6 +212,24 @@ class BudgetSignatureDeliveryTests(TestCase):
         self.assertEqual(kwargs["fields"][0]["documentId"], f"budget-{budget.id}")
         self.assertEqual(kwargs["fields"][0]["signatoryId"], f"customer-{budget.id}")
         self.assertEqual(kwargs["fields"][0]["pageNumber"], 1)
+
+
+class BudgetPdfContextTests(TestCase):
+    def test_build_budget_pdf_context_includes_product_application(self) -> None:
+        workshop = create_workshop(suffix=82)
+        budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=82, application="Fiat Uno")
+
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            product=product,
+            quantity=1,
+        )
+
+        context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste")
+
+        self.assertEqual(context["produtos"][0]["application"], "Fiat Uno")
 
 
 class BudgetSignaturePublicViewTests(TestCase):

@@ -68,6 +68,7 @@
                         <th class="p-1 font-semibold w-[20%] text-center">Localização</th>
                         <th class="p-1 font-semibold w-[10%] text-center">Quantidade</th>
                         <th class="p-1 font-semibold">Descrição</th>
+                        <th class="p-1 font-semibold">Aplicação</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -78,10 +79,11 @@
                             <td class="p-1 text-center text-blue-700 font-mono">{{ item.product.location|default:"-" }}</td>
                             <td class="p-1 text-center font-bold text-[11px]">{{ item.quantity }}</td>
                             <td class="p-1 uppercase">{{ item.description }}</td>
+                            <td class="p-1">{{ item.product.application|default:"-" }}</td>
                         </tr>
                         {% endif %}
                     {% empty %}
-                        <tr><td colspan="4" class="p-2 text-center text-gray-400 italic">Nenhum produto listado.</td></tr>
+                        <tr><td colspan="5" class="p-2 text-center text-gray-400 italic">Nenhum produto listado.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
