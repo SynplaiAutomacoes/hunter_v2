@@ -5,6 +5,7 @@ from django.db.models.functions import Cast, NullIf
 from django.template import Context, Template
 from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
+from phonenumber_field.phonenumber import PhoneNumber
 
 from apps.core.documents.signature import SIGNATURE_POSITION, build_absolute_app_url, normalize_signature_phone_number
 from apps.workshops.models.workshops import Workshop
@@ -44,7 +45,12 @@ class SignatureHelpersTests(SimpleTestCase):
         self.assertEqual(normalize_signature_phone_number("+55 (11) 99888-7777"), "+5511998887777")
 
     def test_normalize_signature_phone_number_adds_plus_when_missing(self):
-        self.assertEqual(normalize_signature_phone_number("(11) 99888-7777"), "+11998887777")
+        self.assertEqual(normalize_signature_phone_number("(11) 99888-7777"), "+5511998887777")
+
+    def test_normalize_signature_phone_number_uses_e164_from_phone_object(self):
+        phone = PhoneNumber.from_string("11989472983", region="BR")
+
+        self.assertEqual(normalize_signature_phone_number(phone), "+5511989472983")
 
     @override_settings(APP_BASE_URL="https://app.example.com")
     def test_build_absolute_app_url_prefers_request_when_available(self):

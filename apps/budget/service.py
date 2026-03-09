@@ -88,7 +88,7 @@ def send_budget_for_signature(*, budget, request=None) -> SignatureDeliveryResul
         recipient=SignatureRecipient(
             name=budget.customer.name,
             email=customer_email,
-            phone=str(customer_phone),
+            phone=customer_phone,
         ),
     )
 

@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 
 from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.urls import reverse
+from phonenumber_field.phonenumber import PhoneNumber
 
 from apps.core.documents.contract import SignatureRecipient
 from apps.core.documents.signature import (
@@ -135,6 +136,34 @@ class DocumentSignaturePayloadBuilderTests(SimpleTestCase):
                 }
             ],
         )
+
+    def test_build_signature_signatory_and_observers_uses_e164_from_phone_object(self) -> None:
+        signatory, observers = build_signature_signatory_and_observers(
+            signatory_id="customer-42",
+            recipient=SignatureRecipient(
+                name="Cliente Teste",
+                email="cliente@example.com",
+                phone=PhoneNumber.from_string("11989472983", region="BR"),
+            ),
+        )
+
+        self.assertEqual(signatory["authMethod"], "WHATSAPP")
+        self.assertEqual(signatory["phoneNumber"], "+5511989472983")
+        self.assertEqual(observers[0]["email"], "cliente@example.com")
+
+    def test_build_signature_signatory_and_observers_falls_back_to_email_for_invalid_phone(self) -> None:
+        signatory, observers = build_signature_signatory_and_observers(
+            signatory_id="customer-42",
+            recipient=SignatureRecipient(
+                name="Cliente Teste",
+                email="cliente@example.com",
+                phone="telefone-invalido",
+            ),
+        )
+
+        self.assertEqual(signatory["authMethod"], "EMAIL")
+        self.assertNotIn("phoneNumber", signatory)
+        self.assertEqual(observers, [])
 
     def test_build_signature_fields_uses_default_position_and_page(self) -> None:
         fields = build_signature_fields(

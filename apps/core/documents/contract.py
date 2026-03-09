@@ -24,7 +24,7 @@ class DocumentPayload:
 class SignatureRecipient:
     name: str
     email: str
-    phone: str = ""
+    phone: object = ""
 
 
 @dataclass(frozen=True)

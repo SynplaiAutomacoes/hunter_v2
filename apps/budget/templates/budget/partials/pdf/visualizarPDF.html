@@ -110,11 +110,7 @@
         }
 
         .col-description {
-            width: 30%;
-        }
-
-        .col-application {
-            width: 30%;
+            width: 55%;
         }
 
         .desc-truncate {
@@ -190,7 +186,6 @@
                 <thead>
                     <tr class="bg-gray-100 border-b-2 border-gray-200">
                         <th class="p-1 font-semibold col-description">Descrição</th>
-                        <th class="p-1 font-semibold col-application">Aplicação</th>
                         <th class="p-1 font-semibold w-[10%] text-center">Qtd</th>
                         <th class="p-1 font-semibold w-[15%] text-right">Valor Unitário</th>
                         <th class="p-1 font-semibold w-[15%] text-right">Valor Total</th>
@@ -200,14 +195,13 @@
                     {% for p in page.produtos %}
                     <tr class="border-b border-gray-100">
                         <td class="p-1"><span class="desc-truncate">{{ p.description }}</span></td>
-                        <td class="p-1"><span class="desc-truncate">{{ p.application|default:"-" }}</span></td>
                         <td class="p-1 text-center">{{ p.quantity }}</td>
                         <td class="p-1 text-right">{{ p.product_selling_price }}</td>
                         <td class="p-1 text-right font-medium">{{ p.total_price }}</td>
                     </tr>
                     {% endfor %}
                     <tr class="bg-gray-50 border-t-2 border-gray-200">
-                        <td colspan="5" class="p-1 text-right font-bold text-[11px]">TOTAL DAS PEÇAS: {{ total_produtos }}</td>
+                        <td colspan="4" class="p-1 text-right font-bold text-[11px]">TOTAL DAS PEÇAS: {{ total_produtos }}</td>
                     </tr>
                 </tbody>
             </table>

@@ -69,7 +69,6 @@
                 <thead>
                     <tr class="bg-gray-100 border-b-2 border-gray-200">
                         <th class="p-1 font-semibold">Descrição</th>
-                        <th class="p-1 font-semibold">Aplicação</th>
                         <th class="p-1 font-semibold text-center">Quantidade</th>
                         <th class="p-1 font-semibold text-right">Valor Unitário</th>
                         <th class="p-1 font-semibold text-right">Frete</th>
@@ -82,7 +81,6 @@
                     {% for p in produtos %}
                     <tr class="border-b border-gray-100">
                         <td class="p-1">{{ p.description }}</td>
-                        <td class="p-1">{{ p.product.application|default:"-" }}</td>
                         <td class="p-1 text-center">{{ p.quantity }}</td>
                         <td class="p-1 text-right">{{ p.unit_price }}</td>
                         <td class="p-1 text-right">{{ p.shipping }}</td>

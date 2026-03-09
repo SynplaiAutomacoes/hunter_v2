@@ -92,7 +92,7 @@ def send_workorder_for_signature(*, workorder) -> SignatureDeliveryResult:
         recipient=SignatureRecipient(
             name=customer.name,
             email=customer_email,
-            phone=str(customer_phone),
+            phone=customer_phone,
         ),
     )
 

@@ -4,10 +4,12 @@ from dataclasses import dataclass
 import re
 from typing import Any
 
+import phonenumbers
 from django.conf import settings
 from django.core import signing
 from django.http import HttpRequest
 from django.urls import reverse
+from phonenumbers import PhoneNumberFormat
 
 from apps.core.documents.contract import SignatureRecipient
 
@@ -34,9 +36,25 @@ def normalize_signature_phone_number(raw_phone: object) -> str:
     if raw_phone is None:
         return ""
 
+    e164_phone = getattr(raw_phone, "as_e164", "")
+    if e164_phone:
+        digits = re.sub(r"\D", "", str(e164_phone))
+        return f"+{digits}" if digits else ""
+
     phone = str(raw_phone).strip()
     if not phone:
         return ""
+
+    try:
+        parsed_phone = phonenumbers.parse(
+            phone,
+            getattr(settings, "PHONENUMBER_DEFAULT_REGION", "BR"),
+        )
+    except phonenumbers.NumberParseException:
+        parsed_phone = None
+
+    if parsed_phone is not None and phonenumbers.is_valid_number(parsed_phone):
+        return phonenumbers.format_number(parsed_phone, PhoneNumberFormat.E164)
 
     phone = re.sub(r"[^\d+]", "", phone)
     if not phone:
@@ -47,6 +65,8 @@ def normalize_signature_phone_number(raw_phone: object) -> str:
 
     digits = re.sub(r"\D", "", phone)
     if digits:
+        if len(digits) in {10, 11}:
+            return f"+55{digits}"
         return f"+{digits}"
 
     return ""

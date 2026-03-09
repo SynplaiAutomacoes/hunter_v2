@@ -60,7 +60,7 @@
                     <th class="text-center">Nome</th>{% endif %}
                 <th class="w-full">Descrição</th>
                 {% if item_type == 'product' %}
-                    <th class="min-w-[220px]">Aplicação</th>
+                    <th class="min-w-[300px]">Aplicação</th>
                 {% endif %}
                 {% if item_type != 'kit' %}
                     <th class="whitespace-nowrap">Preço Venda</th>{% endif %}
@@ -124,7 +124,7 @@
                     </td>
 
                     {% if item_type == 'product' %}
-                        <td class="min-w-[220px] whitespace-normal break-words">{{ item.application|default:"-" }}</td>
+                        <td class="min-w-[300px] whitespace-normal break-words">{{ item.application|default:"-" }}</td>
                     {% endif %}
 
                     {% if item_type != 'kit' %}
