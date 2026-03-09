@@ -18,7 +18,13 @@
     <td class="text-center">{{ item.effective_kit_services_count }}</td>
     {% if not step6 %}
     <td class="text-right">{{ item.kit_unit_cost }}</td>
-    <td class="text-right">{{ item.kit_unit_price }}</td>
+    <td class="text-right">
+        {% if step6 %}
+            {{ slider_price }}
+        {% else %}
+            {{ item.product_selling_price }}
+        {% endif %}
+    </td>
     {% endif %}
 
     <!-- AÇÕES -->

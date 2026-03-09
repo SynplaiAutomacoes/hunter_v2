@@ -1953,8 +1953,8 @@ class BudgetStep5Form(forms.ModelForm):
 
         # Valores de venda baseados sempre nos itens do orçamento
         venda_servico_terceiros = budget.total_third_party_services_selling
-        venda_pecas = budget.total_products_value - custo_frete_pecas
-        venda_mao_obra = budget.total_services_value - venda_servico_terceiros
+        venda_pecas = budget.get_total_products_by_slider
+        venda_mao_obra = budget.get_total_services_by_slider
 
         # Extra
         # metodo_precificacao = dados.get("method_name") or ""
@@ -2251,25 +2251,6 @@ class BudgetStep5Form(forms.ModelForm):
                             }}
                     
                             function update(val) {{
-                                val = parseInt(val || 0);
-                    
-                                let lucroPeca = 0;
-                                let lucroMO = 0;
-                    
-                                if (val < 0) {{
-                                    lucroPeca = totalLucro * Math.abs(val) / 100;
-                                    lucroMO = totalLucro - lucroPeca;
-                                }} else if (val > 0) {{
-                                    lucroMO = totalLucro * val / 100;
-                                    lucroPeca = totalLucro - lucroMO;
-                                }} else {{
-                                    lucroPeca = basePeca - costPeca;
-                                    lucroMO = baseMO - costMO;
-                                }}
-                    
-                                vendaPecaEl.textContent = format(minVendaPeca + lucroPeca);
-                                vendaMOEl.textContent = format(costMO + lucroMO);
-                    
                                 labelPecaPct.textContent = val < 0 ? Math.abs(val) : 0;
                                 labelMOPct.textContent = val > 0 ? val : 0;
                     

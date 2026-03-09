@@ -7,7 +7,7 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Prefetch
 from django.http import HttpResponse, JsonResponse
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views import View
@@ -415,7 +415,7 @@ class SendBudgetSignatureView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
 class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = Budget
-    workshop_permission_codename = "add_budget"
+    workshop_permission_codename = "change_budget"
 
     def post(self, request, budget_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
@@ -423,7 +423,16 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if slider_value is not None:
             budget.slider = int(slider_value)
             budget.save()
-        return HttpResponse(status=204)
+
+        html = f"""
+                <span id="display-venda-pecas" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300 whitespace-nowrap step5-accent-text">
+                    {budget.get_total_products_by_slider}
+                </span>
+                <span id="display-venda-mo" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300 step5-accent-text">
+                    {budget.get_total_services_by_slider}
+                </span>
+                """
+        return HttpResponse(html)
 
 
 class MarkStep5CalculationViewedView(LoginRequiredMixin, WorkshopScopedMixin, View):
