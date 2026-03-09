@@ -64,12 +64,6 @@ class FinancialGroup(TimeStampedModel):
         return self.name
 
     @property
-    def tree_label(self) -> str:
-        indent = "-- " * max(self.level - 1, 0)
-        label = f"{self.code} {self.name}".strip() if self.code else self.name
-        return f"{indent}{label}".strip()
-
-    @property
     def parent_display(self) -> str:
         if not getattr(self, "parent_id", None):
             return "-"
