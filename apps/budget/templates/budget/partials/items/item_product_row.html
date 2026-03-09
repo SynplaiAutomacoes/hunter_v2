@@ -32,9 +32,21 @@
     </td>
     <td class="text-center">{{ item.quantity }}</td>
     <td class="text-right">{{ item.product_cost_price }}</td>
-    <td class="text-right">{{ item.product_selling_price }}</td>
+    <td class="text-right">
+        {% if step6 %}
+            {{ slider_price }}
+        {% else %}
+            {{ item.product_selling_price }}
+        {% endif %}
+    </td>
     <td class="text-right">{{ item.shipping }}</td>
-    <td class="font-bold text-right">{{ item.total_price }}</td>
+    <td class="font-bold text-right">
+        {% if step6 %}
+            {{ slider_total_price }}
+        {% else %}
+            {{ item.total_price }}
+        {% endif %}
+    </td>
     {% if not step6 %}
     <td class="text-center budget-step4-actions">
         <div class="flex justify-center items-center gap-1">
