@@ -64,6 +64,7 @@ class RequestPerformanceLoggingMiddleware:
 class RequireFirstWorkshopMiddleware:
     allowed_routes = {
         "workshops:create",
+        "workshops:webmania_company_sync",
         "accounts:login",
         "accounts:register",
         "accounts:logout",

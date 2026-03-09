@@ -1,18 +1,20 @@
 import logging
 
-from django.core import signing
 from django.core.exceptions import ObjectDoesNotExist
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, render
-from django.template.loader import render_to_string
 from django.views.decorators.clickjacking import xframe_options_exempt
 from djmoney.money import Money
 
+from apps.budget.documents.provider import render_budget_pdf_document
 from apps.budget.models import Budget, BudgetItem, SignatureStatus
 from apps.budget.pdf_context import build_budget_pdf_context
-from apps.budget.service import SuperSignError, download_supersign_signed_pdf
+from apps.budget.service import BUDGET_SIGNATURE_DOCUMENT_ID_KEY, BUDGET_SIGNATURE_TOKEN_SALT
 from apps.checklist.models import Checklist
-from apps.core.pdf_playwright import render_pdf_from_html
+from apps.core.documents.contract import DocumentPayload
+from apps.core.documents.http import build_pdf_http_response
+from apps.core.documents.services import SignatureDeliveryServiceError, download_signed_document_content
+from apps.core.documents.signature import SignatureTokenError, parse_document_signature_token
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
 
@@ -32,7 +34,7 @@ def visualizar_pdf(request, pk):
 def visualizar_pdf_gestor(request, pk):
     workshop = get_active_workshop_or_404(request)
     budget = get_object_or_404(Budget, pk=pk, workshop=workshop)
-    itens_all = BudgetItem.objects.filter(budget=budget)
+    itens_all = BudgetItem.objects.filter(budget=budget).select_related("product", "service")
     produtos = itens_all.filter(product__isnull=False)
     servicos = itens_all.filter(service__isnull=False)
 
@@ -60,7 +62,7 @@ def visualizar_pdf_gestor(request, pk):
 def visualizar_pdf_mecanico(request, pk):
     workshop = get_active_workshop_or_404(request)
     budget = get_object_or_404(Budget, pk=pk, workshop=workshop)
-    itens_all = BudgetItem.objects.filter(budget=budget)
+    itens_all = BudgetItem.objects.filter(budget=budget).select_related("product", "service")
     produtos = itens_all.filter(product__isnull=False)
     servicos = itens_all.filter(service__isnull=False)
 
@@ -143,19 +145,20 @@ def visualizar_pdf_checklist(request, pk):
 
 def _get_budget_from_signature_token(token):
     try:
-        payload = signing.loads(token, salt="budget-signature-file")
-        budget_id = int(payload["budget_id"])
-        token_version = int(payload["version"])
-
-    except (signing.BadSignature, KeyError, ValueError, TypeError):
+        payload = parse_document_signature_token(
+            token=token,
+            token_salt=BUDGET_SIGNATURE_TOKEN_SALT,
+            document_id_key=BUDGET_SIGNATURE_DOCUMENT_ID_KEY,
+        )
+    except SignatureTokenError:
         raise Http404("Arquivo não encotrado")
 
-    budget = get_object_or_404(Budget.objects.select_related("workshop", "customer", "vehicle"), pk=budget_id)
+    budget = get_object_or_404(Budget.objects.select_related("workshop", "customer", "vehicle"), pk=payload.document_id)
 
     if not budget.signature_token_active:
         raise Http404("Arquivo não encotrado")
 
-    if budget.signature_token_version != token_version:
+    if budget.signature_token_version != payload.version:
         raise Http404("Arquivo não encotrado")
 
     return budget
@@ -170,32 +173,27 @@ def signature_preview(request, token):
 
 def signature_file(request, token):
     budget = _get_budget_from_signature_token(token)
-    context = build_budget_pdf_context(budget=budget, observacao=budget.workshop.pdf_observation)
-    html = render_to_string("budget/partials/pdf/visualizarPDF.html", context)
 
     try:
-        pdf_bytes = render_pdf_from_html(html)
+        document = render_budget_pdf_document(
+            budget=budget,
+            request=request,
+            filename=f"orcamento_{budget.id}.pdf",
+        )
     except Exception:
         logger.exception("Falha ao gerar PDF via Playwright para assinatura", extra={"budget_id": budget.id})
         return HttpResponse("Erro ao gerar arquivo de assinatura", status=500)
 
-    response = HttpResponse(pdf_bytes, content_type="application/pdf")
-    response["Content-Disposition"] = f'inline; filename="orcamento_{budget.id}.pdf"'
-    response["X-Content-Type-Options"] = "nosniff"
-    response["Cache-Control"] = "no-store"
-
-    return response
+    return build_pdf_http_response(document=document, download=False)
 
 
 def _build_budget_pdf_file_response(*, budget: Budget, download: bool, use_signed_name: bool, pdf_bytes: bytes) -> HttpResponse:
-    disposition = "attachment" if download else "inline"
     filename_suffix = "assinado" if use_signed_name else "base"
-
-    response = HttpResponse(pdf_bytes, content_type="application/pdf")
-    response["Content-Disposition"] = f'{disposition}; filename="orcamento_{budget.id}_{filename_suffix}.pdf"'
-    response["X-Content-Type-Options"] = "nosniff"
-    response["Cache-Control"] = "no-store"
-    return response
+    document = DocumentPayload(
+        content=pdf_bytes,
+        filename=f"orcamento_{budget.id}_{filename_suffix}.pdf",
+    )
+    return build_pdf_http_response(document=document, download=download)
 
 
 @xframe_options_exempt
@@ -206,31 +204,27 @@ def visualizar_pdf_assinatura(request, pk):
 
     if budget.signature_external_id and budget.signature_request_status == SignatureStatus.SENT:
         try:
-            signed_pdf = download_supersign_signed_pdf(document_id=budget.signature_external_id)
+            signed_pdf = download_signed_document_content(document_id=budget.signature_external_id)
             return _build_budget_pdf_file_response(
                 budget=budget,
                 download=should_download,
                 use_signed_name=True,
                 pdf_bytes=signed_pdf,
             )
-        except SuperSignError:
+        except SignatureDeliveryServiceError:
             logger.warning(
                 "Falha ao carregar PDF assinado; retornando PDF base",
                 extra={"budget_id": budget.id, "envelope_id": budget.signature_external_id},
             )
 
-    context = build_budget_pdf_context(budget=budget, observacao=budget.workshop.pdf_observation, request=request)
-    html = render_to_string("budget/partials/pdf/visualizarPDF.html", context)
-
     try:
-        base_pdf = render_pdf_from_html(html)
+        document = render_budget_pdf_document(
+            budget=budget,
+            request=request,
+            filename=f"orcamento_{budget.id}_base.pdf",
+        )
     except Exception:
         logger.exception("Falha ao gerar PDF base para visualizacao", extra={"budget_id": budget.id})
         return HttpResponse("Erro ao gerar PDF", status=500)
 
-    return _build_budget_pdf_file_response(
-        budget=budget,
-        download=should_download,
-        use_signed_name=False,
-        pdf_bytes=base_pdf,
-    )
+    return build_pdf_http_response(document=document, download=should_download)

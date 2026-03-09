@@ -30,6 +30,9 @@
             {% endif %}
         </div>
     </td>
+    <td class="budget-step4-application">
+        <span class="break-words whitespace-normal leading-snug">{{ item.product.application|default:"-" }}</span>
+    </td>
     <td class="text-center">{{ item.quantity }}</td>
     <td class="text-right">{{ item.product_cost_price }}</td>
     <td class="text-right">{{ item.product_selling_price }}</td>

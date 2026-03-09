@@ -12,7 +12,7 @@
         <button type="button" class="btn btn-sm btn-circle btn-ghost" onclick="form_modal.close()">✕</button>
     </div>
 
-    <div class="relative overflow-y-auto max-h-[70vh]">
+    <div class="relative overflow-auto max-h-[70vh]">
             <div class="sticky top-0 z-30 bg-base-100 p-4 border-b border-base-200">
                 <div class="flex justify-between items-center mb-4">
                     <label class="input input-bordered flex items-center gap-2 w-full max-w-md">
@@ -59,6 +59,9 @@
                 {% if item_type == 'kit' %}
                     <th class="text-center">Nome</th>{% endif %}
                 <th class="w-full">Descrição</th>
+                {% if item_type == 'product' %}
+                    <th class="min-w-[300px]">Aplicação</th>
+                {% endif %}
                 {% if item_type != 'kit' %}
                     <th class="whitespace-nowrap">Preço Venda</th>{% endif %}
             </tr>
@@ -119,6 +122,10 @@
                             {{ item.name|default:item.description }}
                         </div>
                     </td>
+
+                    {% if item_type == 'product' %}
+                        <td class="min-w-[300px] whitespace-normal break-words">{{ item.application|default:"-" }}</td>
+                    {% endif %}
 
                     {% if item_type != 'kit' %}
                         <td class="whitespace-nowrap font-semibold">{{ item.selling_price }}</td>
