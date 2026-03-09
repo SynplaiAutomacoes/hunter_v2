@@ -1,6 +1,7 @@
 from django import forms
 from django.db.models import Prefetch
 from django.template.loader import render_to_string
+from djmoney.money import Money
 
 MAX_BUDGET_IMAGES = 10
 MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024
@@ -79,6 +80,44 @@ def _render_budget_items_rows(budget, step6=False):
         for item in budget_for_render.items.all():
             item_type = _budget_item_type(item)
             context = {"item": item, "budget": budget_for_render, "is_full_render": True, "step6": step6}
+
+            if step6:
+                if item_type == "product":
+                    context["slider_price"] = item.adjusted_unit_price + item.shipping
+                    context["slider_total_price"] = (item.adjusted_unit_price * item.quantity) + item.shipping
+
+                elif item_type == "service":
+                    context["slider_price"] = item.adjusted_unit_price
+                    context["slider_total_price"] = item.adjusted_unit_price * item.quantity
+
+                elif item_type == "kit":
+                    p_ovr, s_ovr = item._get_kit_override_maps()
+                    total_kit_ajustado = Money(0, "BRL")
+
+                    # Soma produtos do kit
+                    for kp in item.kit.kit_products.all():
+                        ovr = p_ovr.get(kp.product_id)
+                        u_p = ovr.product_selling_price if ovr else kp.product.selling_price
+                        u_c = ovr.product_cost_price if ovr else kp.product.cost_price
+                        qty = (ovr.quantity if ovr else kp.quantity) * item.quantity
+                        ship = (ovr.shipping if ovr else Money(0, "BRL")) * item.quantity
+
+                        sub_preco = item.calculate_individual_adjustment(u_p, u_c, is_product=True)
+                        total_kit_ajustado += (sub_preco * qty) + ship
+
+                    # Soma serviços do kit
+                    for ks in item.kit.kit_services.all():
+                        ovr = s_ovr.get(ks.service_id)
+                        u_p = ovr.service_selling_price if ovr else ks.service.selling_price
+                        u_c = ovr.service_cost_price if ovr else (ks.service.suggested_cost or Money(0, "BRL"))
+                        qty = (ovr.quantity if ovr else ks.quantity) * item.quantity
+
+                        sub_preco = item.calculate_individual_adjustment(u_p, u_c, is_product=False)
+                        total_kit_ajustado += sub_preco * qty
+
+                    context["slider_total_price"] = total_kit_ajustado
+                    context["slider_price"] = total_kit_ajustado / item.quantity if item.quantity > 0 else 0
+
             if item_type == "product":
                 rows["product"] += render_to_string("budget/partials/items/item_product_row.html", context)
             elif item_type == "service":
