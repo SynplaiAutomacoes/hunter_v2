@@ -213,6 +213,38 @@ def _distribute_totals(*, base_values: Iterable[Money], target_total: Money) -> 
     return [money_from_decimal(value) for value in allocated]
 
 
+def _distribute_money_by_weights(*, weights: Iterable[Decimal], target_total: Money) -> list[Money]:
+    normalized_weights = [_quantize_decimal(max(weight, Decimal("0.00"))) for weight in weights]
+    if not normalized_weights:
+        return []
+
+    target = _quantize_decimal(target_total.amount)
+    if target <= 0:
+        return [zero_money() for _ in normalized_weights]
+
+    total_weight = _quantize_decimal(sum(normalized_weights, Decimal("0.00")))
+    if total_weight <= 0:
+        return [zero_money() for _ in normalized_weights]
+
+    allocated: list[Decimal] = []
+    running_total = Decimal("0.00")
+    last_index = len(normalized_weights) - 1
+
+    for index, weight in enumerate(normalized_weights):
+        if index == last_index:
+            value = _quantize_decimal(target - running_total)
+        else:
+            value = _quantize_decimal((target * weight) / total_weight)
+            running_total = _quantize_decimal(running_total + value)
+        allocated.append(value)
+
+    residual = _quantize_decimal(target - sum(allocated, Decimal("0.00")))
+    if residual and allocated:
+        allocated[-1] = _quantize_decimal(allocated[-1] + residual)
+
+    return [money_from_decimal(value) for value in allocated]
+
+
 def _coerce_money(value: Money | None) -> Money:
     return value if value is not None else zero_money()
 
@@ -434,12 +466,28 @@ def build_pricing_snapshot(
     total_costs_products_value = sum((line.cost_total for line in product_lines), zero_money())
     total_products_value = sum((line.raw_total for line in product_lines), zero_money())
     total_duration = sum((line.duration for line in service_lines), timedelta())
-    total_third_party_services_cost = sum((line.cost_total for line in service_lines if line.third_party), zero_money())
     total_third_party_services_selling = sum((line.raw_total for line in service_lines if line.third_party), zero_money())
-    total_costs_services_value = sum((line.cost_total for line in service_lines), zero_money())
     total_services_value = sum((line.raw_total for line in service_lines), zero_money())
+    labor_service_lines = [line for line in service_lines if not line.third_party]
+    third_party_service_lines = [line for line in service_lines if line.third_party]
+
+    total_third_party_services_cost = sum((line.cost_total for line in third_party_service_lines), zero_money())
     total_labor_selling_value = sum((line.raw_total for line in service_lines if not line.third_party), zero_money())
     resolved_labor_cost_value = labor_cost_value if labor_cost_value is not None and labor_cost_value.amount > 0 else sum((line.cost_total for line in service_lines if not line.third_party), zero_money())
+    labor_cost_weights = [Decimal(int(line.duration.total_seconds())) for line in labor_service_lines]
+    if not any(weight > 0 for weight in labor_cost_weights):
+        labor_cost_weights = [line.raw_total.amount for line in labor_service_lines]
+    if not any(weight > 0 for weight in labor_cost_weights):
+        labor_cost_weights = [Decimal(max(line.quantity, 0)) for line in labor_service_lines]
+
+    for line, allocated_cost in zip(
+        labor_service_lines,
+        _distribute_money_by_weights(weights=labor_cost_weights, target_total=resolved_labor_cost_value),
+        strict=False,
+    ):
+        line.cost_total = allocated_cost
+
+    total_costs_services_value = total_third_party_services_cost + resolved_labor_cost_value
 
     slider_decimal = Decimal(int(slider or 0)) / Decimal(100)
     total_products_by_slider = total_products_value
@@ -469,17 +517,22 @@ def build_pricing_snapshot(
     ):
         line.adjusted_total = adjusted_subtotal + line.shipping
 
-    adjustable_service_lines = [line for line in service_lines if not line.third_party]
-    fixed_service_lines = [line for line in service_lines if line.third_party]
-    for line in fixed_service_lines:
+    for line in third_party_service_lines:
         line.adjusted_total = line.raw_total
 
+    remaining_labor_profit = max(total_labor_by_slider - resolved_labor_cost_value, zero_money())
+    labor_profit_weights = [max(line.raw_total.amount - line.cost_total.amount, Decimal("0.00")) for line in labor_service_lines]
+    if not any(weight > 0 for weight in labor_profit_weights):
+        labor_profit_weights = [line.raw_total.amount for line in labor_service_lines]
+    if not any(weight > 0 for weight in labor_profit_weights):
+        labor_profit_weights = [Decimal(max(line.quantity, 0)) for line in labor_service_lines]
+
     for line, adjusted_total in zip(
-        adjustable_service_lines,
-        _distribute_totals(base_values=[line.raw_total for line in adjustable_service_lines], target_total=total_labor_by_slider),
+        labor_service_lines,
+        _distribute_money_by_weights(weights=labor_profit_weights, target_total=remaining_labor_profit),
         strict=False,
     ):
-        line.adjusted_total = adjusted_total
+        line.adjusted_total = line.cost_total + adjusted_total
 
     total_base_value = total_products_by_slider + total_services_by_slider
     total_budget_value = total_base_value - discount_value

@@ -296,6 +296,33 @@ class BudgetDuplicateKitProductTests(TestCase):
 
         self.assertEqual(budget.get_total_labor_by_slider, Money("40.00", "BRL"))
 
+    @patch.object(Budget, "total_labor_cost_value", new_callable=PropertyMock, return_value=Money("20.00", "BRL"))
+    def test_pdf_service_profit_stays_at_zero_when_labor_reaches_cost_floor(self, _labor_cost_mock) -> None:
+        workshop = create_workshop(suffix=90)
+        budget = create_budget(workshop=workshop)
+        service_a = create_service(workshop=workshop, suffix=90)
+        service_b = create_service(workshop=workshop, suffix=91)
+
+        service_a.duration = timedelta(hours=3)
+        service_a.save(update_fields=["duration"])
+        service_b.duration = timedelta(hours=1)
+        service_b.save(update_fields=["duration"])
+
+        BudgetItem.objects.create(workshop=workshop, budget=budget, service=service_a, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, service=service_b, quantity=1)
+
+        budget.slider = -100
+        budget.save(update_fields=["slider"])
+
+        context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste")
+
+        self.assertEqual(context["total_profit_service_value"], Money("0.00", "BRL"))
+        self.assertEqual(context["total_servicos"], Money("20.00", "BRL"))
+        self.assertEqual(context["servicos"][0]["total_price"], context["servicos"][0]["service_cost_price"])
+        self.assertEqual(context["servicos"][0]["profit_value"], Money("0.00", "BRL"))
+        self.assertEqual(context["servicos"][1]["total_price"], context["servicos"][1]["service_cost_price"])
+        self.assertEqual(context["servicos"][1]["profit_value"], Money("0.00", "BRL"))
+
     def test_budget_uses_slider_totals_with_duplicate_kit_product_consolidation(self) -> None:
         workshop = create_workshop(suffix=85)
         budget = create_budget(workshop=workshop)
