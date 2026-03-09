@@ -1,6 +1,7 @@
 from django import forms
 from django.db.models import Prefetch
 from django.template.loader import render_to_string
+from djmoney.money import Money
 
 MAX_BUDGET_IMAGES = 10
 MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024
@@ -79,6 +80,19 @@ def _render_budget_items_rows(budget, step6=False):
         for item in budget_for_render.items.all():
             item_type = _budget_item_type(item)
             context = {"item": item, "budget": budget_for_render, "is_full_render": True, "step6": step6}
+
+            if step6:
+                if item_type == "product":
+                    context["slider_price"] = item.adjusted_unit_price + item.shipping
+                    context["slider_total_price"] = (item.adjusted_unit_price * item.quantity) + item.shipping
+
+                elif item_type == "service":
+                    context["slider_price"] = item.adjusted_unit_price
+                    context["slider_total_price"] = item.adjusted_unit_price * item.quantity
+
+                elif item_type == "kit":
+                    context["slider_price"] = item.adjusted_unit_price
+
             if item_type == "product":
                 rows["product"] += render_to_string("budget/partials/items/item_product_row.html", context)
             elif item_type == "service":
