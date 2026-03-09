@@ -101,7 +101,7 @@ class ConsolidatedPricingLine:
 
     @property
     def show_kit_duplicate_warning(self) -> bool:
-        return self.kind == "product" and self.has_direct_source and self.has_kit_source and not self.is_local
+        return self.has_direct_source and self.has_kit_source and not self.is_local
 
     @property
     def product(self) -> Any:
@@ -172,10 +172,14 @@ class _ServiceAggregate:
     source_item_id: int | None = None
     is_local: bool = False
     source_object: Any | None = None
-    quantity: int = 0
-    raw_total: Money = field(default_factory=zero_money)
-    cost_total: Money = field(default_factory=zero_money)
-    duration: timedelta = field(default_factory=timedelta)
+    direct_quantity: int = 0
+    direct_raw_total: Money = field(default_factory=zero_money)
+    direct_cost_total: Money = field(default_factory=zero_money)
+    direct_duration: timedelta = field(default_factory=timedelta)
+    kit_quantity: int = 0
+    kit_raw_total: Money = field(default_factory=zero_money)
+    kit_cost_total: Money = field(default_factory=zero_money)
+    kit_duration: timedelta = field(default_factory=timedelta)
     third_party: bool = False
     has_direct_source: bool = False
     has_kit_source: bool = False
@@ -316,12 +320,12 @@ def build_pricing_snapshot(
                 )
                 service_aggregates[key] = service_aggregate
 
-            service_aggregate.quantity += item_quantity
-            service_aggregate.raw_total += _coerce_money(getattr(item, "service_selling_price", None)) * item_quantity
-            service_aggregate.cost_total += _coerce_money(getattr(item, "service_cost_price", None)) * item_quantity
+            service_aggregate.direct_quantity += item_quantity
+            service_aggregate.direct_raw_total += _coerce_money(getattr(item, "service_selling_price", None)) * item_quantity
+            service_aggregate.direct_cost_total += _coerce_money(getattr(item, "service_cost_price", None)) * item_quantity
             item_duration = getattr(item, "duration", None)
             if item_duration:
-                service_aggregate.duration += item_duration * item_quantity
+                service_aggregate.direct_duration += item_duration * item_quantity
             service_aggregate.has_direct_source = True
             continue
 
@@ -395,17 +399,23 @@ def build_pricing_snapshot(
                 )
                 service_aggregates[key] = service_aggregate
 
-            unit_price = override.service_selling_price if override else service.selling_price
-            unit_cost = override.service_cost_price if override else (service.suggested_cost or zero_money())
-            service_aggregate.quantity += consolidated_quantity
-            service_aggregate.raw_total += unit_price * consolidated_quantity
-            service_aggregate.cost_total += unit_cost * consolidated_quantity
+            if consolidated_quantity > service_aggregate.kit_quantity:
+                unit_price = override.service_selling_price if override else service.selling_price
+                unit_cost = override.service_cost_price if override else (service.suggested_cost or zero_money())
+                service_duration = timedelta(0)
 
-            if override:
-                if override.duration:
-                    service_aggregate.duration += override.duration * consolidated_quantity
-            elif service.duration:
-                service_aggregate.duration += service.duration * consolidated_quantity
+                if override:
+                    if override.duration:
+                        service_duration = override.duration * consolidated_quantity
+                elif service.duration:
+                    service_duration = service.duration * consolidated_quantity
+
+                service_aggregate.kit_quantity = consolidated_quantity
+                service_aggregate.kit_raw_total = unit_price * consolidated_quantity
+                service_aggregate.kit_cost_total = unit_cost * consolidated_quantity
+                service_aggregate.kit_duration = service_duration
+                service_aggregate.description = str(getattr(service, "name", service_aggregate.description) or service_aggregate.description)
+                service_aggregate.source_object = service
 
             service_aggregate.has_kit_source = True
             service_aggregate.third_party = service_aggregate.third_party or bool(getattr(service, "is_third_party", False))
@@ -440,7 +450,9 @@ def build_pricing_snapshot(
 
     service_lines: list[ConsolidatedPricingLine] = []
     for service_aggregate in sorted(service_aggregates.values(), key=lambda value: (value.sort_order, value.description.lower())):
-        if service_aggregate.quantity <= 0 and service_aggregate.raw_total.amount <= 0:
+        quantity = service_aggregate.direct_quantity + service_aggregate.kit_quantity
+        raw_total = service_aggregate.direct_raw_total + service_aggregate.kit_raw_total
+        if quantity <= 0 and raw_total.amount <= 0:
             continue
 
         service_lines.append(
@@ -450,13 +462,13 @@ def build_pricing_snapshot(
                 kind="service",
                 entity_id=service_aggregate.entity_id,
                 description=service_aggregate.description,
-                quantity=service_aggregate.quantity,
-                raw_total=service_aggregate.raw_total,
-                cost_total=service_aggregate.cost_total,
-                duration=service_aggregate.duration,
+                quantity=quantity,
+                raw_total=raw_total,
+                cost_total=service_aggregate.direct_cost_total + service_aggregate.kit_cost_total,
+                duration=service_aggregate.direct_duration + service_aggregate.kit_duration,
                 is_local=service_aggregate.is_local,
-                has_direct_source=service_aggregate.has_direct_source,
-                has_kit_source=service_aggregate.has_kit_source,
+                has_direct_source=service_aggregate.direct_quantity > 0,
+                has_kit_source=service_aggregate.kit_quantity > 0,
                 third_party=service_aggregate.third_party,
                 source_object=service_aggregate.source_object,
             )

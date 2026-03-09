@@ -77,17 +77,24 @@ def _render_budget_items_rows(budget, step6=False):
     pricing_snapshot = budget_for_render.pricing_snapshot if budget_for_render and budget_for_render.pk else None
 
     kit_product_ids = set()
+    kit_service_ids = set()
     if budget_for_render and budget_for_render.pk:
         for item in budget_for_render.items.all():
             if not item.kit:
                 continue
 
-            product_overrides, _ = item._get_kit_override_maps()
+            product_overrides, service_overrides = item._get_kit_override_maps()
             for kit_product in item._iter_kit_products():
                 override = product_overrides.get(kit_product.product_id)
                 quantity = override.quantity if override else kit_product.quantity
                 if quantity > 0:
                     kit_product_ids.add(kit_product.product_id)
+
+            for kit_service in item._iter_kit_services():
+                override = service_overrides.get(kit_service.service_id)
+                quantity = override.quantity if override else kit_service.quantity
+                if quantity > 0:
+                    kit_service_ids.add(kit_service.service_id)
 
     if budget_for_render.pk:
         if step6 and pricing_snapshot is not None:
@@ -128,7 +135,7 @@ def _render_budget_items_rows(budget, step6=False):
                     "budget": budget_for_render,
                     "is_full_render": True,
                     "step6": False,
-                    "show_kit_duplicate_warning": bool(item.product_id and item.product_id in kit_product_ids and not item.is_local),
+                    "show_kit_duplicate_warning": bool(((item.product_id and item.product_id in kit_product_ids) or (item.service_id and item.service_id in kit_service_ids)) and not item.is_local),
                 }
 
                 if item_type == "product":

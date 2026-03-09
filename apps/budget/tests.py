@@ -365,6 +365,39 @@ class BudgetDuplicateKitProductTests(TestCase):
 
         self.assertIn("Produto já registrado em um kit", rows["product"])
 
+    def test_budget_uses_duplicate_kit_service_consolidation_with_direct_service(self) -> None:
+        workshop = create_workshop(suffix=92)
+        budget = create_budget(workshop=workshop)
+        service = create_service(workshop=workshop, suffix=92)
+        kit_1 = create_kit(workshop=workshop, suffix=921, products=[])
+        kit_2 = create_kit(workshop=workshop, suffix=922, products=[])
+        KitService.objects.create(kit=kit_1, service=service, quantity=2, duration=service.duration)
+        KitService.objects.create(kit=kit_2, service=service, quantity=1, duration=service.duration)
+
+        BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit_1, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit_2, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, service=service, quantity=1)
+
+        context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste")
+
+        self.assertEqual(len(context["servicos"]), 1)
+        self.assertEqual(context["servicos"][0]["quantity"], 3)
+        self.assertEqual(context["servicos"][0]["total_price"], Money("60.00", "BRL"))
+
+    def test_duplicate_service_warning_is_rendered_for_direct_item_present_in_kit(self) -> None:
+        workshop = create_workshop(suffix=93)
+        budget = create_budget(workshop=workshop)
+        service = create_service(workshop=workshop, suffix=93)
+        kit = create_kit(workshop=workshop, suffix=931, products=[])
+        KitService.objects.create(kit=kit, service=service, quantity=2, duration=service.duration)
+
+        BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, service=service, quantity=1)
+
+        rows = _render_budget_items_rows(budget, step6=False)
+
+        self.assertIn("Serviço já registrado em um kit", rows["service"])
+
 
 class BudgetSignaturePublicViewTests(TestCase):
     def setUp(self) -> None:
