@@ -1957,7 +1957,7 @@ class BudgetStep5Form(forms.ModelForm):
         venda_mao_obra = budget.get_total_labor_by_slider
 
         # Extra
-        # metodo_precificacao = dados.get("method_name") or ""
+        metodo_precificacao = dados.get("method_name") or ""
         lucro_operacional = dados.get("lucro_operacional") or zerado
         rentabilidade = dados.get("rentabilidade") or 0
 
@@ -2090,6 +2090,7 @@ class BudgetStep5Form(forms.ModelForm):
             </style>
             <script>
                     (function() {{
+                        console.log("Método de Precificação:", "{metodo_precificacao}");
                         let timeout = null;
 
                         const performUpdate = (value) => {{
