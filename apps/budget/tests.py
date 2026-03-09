@@ -282,6 +282,7 @@ class BudgetDuplicateKitProductTests(TestCase):
         budget.save(update_fields=["slider"])
 
         self.assertEqual(budget.get_total_products_by_slider, Money("25.00", "BRL"))
+        self.assertEqual(budget.get_total_products_by_slider_without_shipping, Money("20.00", "BRL"))
 
     @patch.object(Budget, "total_labor_cost_value", new_callable=PropertyMock, return_value=Money("40.00", "BRL"))
     def test_slider_all_to_parts_preserves_minimum_labor_sale(self, _labor_cost_mock) -> None:
