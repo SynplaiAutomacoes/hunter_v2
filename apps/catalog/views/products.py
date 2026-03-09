@@ -9,6 +9,7 @@ from django.urls import reverse_lazy
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
+from apps.budget.models import BudgetItem
 from apps.catalog.forms.products import ProductForm
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
@@ -16,6 +17,7 @@ from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.stock.models import StockMovement, StockProduct
+from apps.workorder.models import WorkOrderItem
 from apps.workshops.mixin import WorkshopScopedMixin
 
 
@@ -87,10 +89,38 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        stock_obj, created = StockProduct.objects.get_or_create(workshop=self.workshop, product=self.object)
+        product = self.object
+        stock_obj, created = StockProduct.objects.get_or_create(workshop=self.workshop, product=product)
 
         context["stock_obj"] = stock_obj
         context["movements"] = StockMovement.objects.filter(stock_product=stock_obj).order_by("-criado_em")
+
+        budget_items = BudgetItem.objects.filter(product=product, workshop=self.workshop).select_related("budget", "budget__customer", "budget__vehicle")
+        workorder_items = WorkOrderItem.objects.filter(product=product, workshop=self.workshop).select_related("workorder", "workorder__budget", "workorder__budget__customer", "workorder__budget__vehicle")
+        history_dict = {}
+
+        # Orçamento
+        for item in budget_items:
+            history_dict[item.budget.id] = {
+                "type": "budget", "id": item.budget.id,
+                "obj": item.budget, "date": item.budget.criado_em,
+                "quantity": item.quantity, "status": item.budget.get_status_display(),
+                "label": f"Orçamento #{item.budget.id}", "sub_label": "Orçamento",
+                "url": reverse_lazy("budget:budget_update", kwargs={"pk": item.budget.id}),
+            }
+
+        # Ordem de Serviço
+        for item in workorder_items:
+            history_dict[item.workorder.budget.id] = {
+                "type": "workorder", "id": item.workorder.id,
+                "obj": item.workorder, "date": item.workorder.criado_em,
+                "quantity": item.quantity, "status": item.workorder.get_status_display(),
+                "label": f"OS #{item.workorder.id}", "sub_label": "Ordem de Serviço",
+                "url": reverse_lazy("workorder:workorder_detail", kwargs={"pk": item.workorder.id}),
+            }
+
+        history_list = sorted(history_dict.values(), key=lambda x: x['date'], reverse=True)
+        context["history_list"] = history_list
 
         return context
 

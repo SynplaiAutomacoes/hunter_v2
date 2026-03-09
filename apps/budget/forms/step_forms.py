@@ -1954,7 +1954,7 @@ class BudgetStep5Form(forms.ModelForm):
         # Valores de venda baseados sempre nos itens do orçamento
         venda_servico_terceiros = budget.total_third_party_services_selling
         venda_pecas = budget.get_total_products_by_slider
-        venda_mao_obra = budget.get_total_services_by_slider
+        venda_mao_obra = budget.get_total_labor_by_slider
 
         # Extra
         # metodo_precificacao = dados.get("method_name") or ""
@@ -2291,7 +2291,7 @@ class BudgetStep5Form(forms.ModelForm):
                 # Coluna Esquerda
                 Div(
                     Div(
-                        HTML(f'<h3 class="text-3xl font-bold mb-2 border-b-3 step5-accent-border text-center step5-accent-text">Método Hunter</h3>'),
+                        HTML('<h3 class="text-3xl font-bold mb-2 border-b-3 step5-accent-border text-center step5-accent-text">Método Hunter</h3>'),
                         Div(
                             # Grid de Custos vs Vendas
                             Div(

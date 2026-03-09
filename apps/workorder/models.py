@@ -11,6 +11,7 @@ from django.utils import timezone
 from djmoney.models.fields import MoneyField
 from djmoney.money import Money
 
+from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot
 from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
@@ -75,6 +76,75 @@ class WorkOrder(TimeStampedModel):
             .all()
         )
 
+    def _raw_labor_duration(self) -> timedelta:
+        total = timedelta(0)
+        for item in self._iter_items():
+            if item.service and item.duration:
+                if item.service.is_third_party:
+                    continue
+                total += item.duration * item.quantity
+                continue
+
+            if not item.kit:
+                continue
+
+            _, service_overrides = item._get_kit_override_maps()
+            for kit_service in item._iter_kit_services():
+                if kit_service.service.is_third_party:
+                    continue
+
+                override = service_overrides.get(kit_service.service_id)
+                if override:
+                    if override.quantity > 0 and override.duration:
+                        total += override.duration * override.quantity * item.quantity
+                elif kit_service.quantity > 0 and kit_service.service.duration:
+                    total += kit_service.service.duration * kit_service.quantity * item.quantity
+        return total
+
+    @property
+    def mechanic_hour_cost_value(self) -> Money:
+        reference_date = self.criado_em if self.criado_em else timezone.now()
+        try:
+            workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=reference_date.month, year=reference_date.year)
+        except WorkshopCost.DoesNotExist:
+            try:
+                workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=timezone.now().month, year=timezone.now().year)
+            except WorkshopCost.DoesNotExist:
+                return Money(0, "BRL")
+
+        mechanic_salary_obj = get_mechanic_salary_monthly_cost(workshop=self.workshop)
+        if mechanic_salary_obj is None:
+            return Money(0, "BRL")
+
+        try:
+            salario_mecanicos = WorkshopCostItem.objects.get(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_obj).amount
+        except WorkshopCostItem.DoesNotExist:
+            return Money(0, "BRL")
+
+        horas_uteis_mes = workshop_cost.working_hours_per_month
+        if not horas_uteis_mes or horas_uteis_mes == 0:
+            return Money(0, "BRL")
+
+        return salario_mecanicos / horas_uteis_mes
+
+    @property
+    def total_labor_cost_value(self) -> Money:
+        duracao_em_horas = Decimal(self._raw_labor_duration().total_seconds()) / Decimal(3600)
+        return self.mechanic_hour_cost_value * duracao_em_horas
+
+    @property
+    def pricing_snapshot(self) -> PricingSnapshot:
+        cached_snapshot = getattr(self, "_pricing_snapshot_cache", None)
+        if cached_snapshot is None:
+            cached_snapshot = build_pricing_snapshot(
+                items=list(self._iter_items()),
+                slider=int(getattr(self.budget, "slider", 0) or 0),
+                discount_value=self.discount_value,
+                labor_cost_value=self.total_labor_cost_value,
+            )
+            setattr(self, "_pricing_snapshot_cache", cached_snapshot)
+        return cached_snapshot
+
     def mark_signature_sending(self) -> None:
         self.signature_request_status = WorkOrderSignatureStatus.SENDING
         self.save(update_fields=["signature_request_status"])
@@ -105,83 +175,47 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def total_products_shipping(self) -> Money:
-        total = Money(0, "BRL")
-        for item in self._iter_items():
-            if item.product:
-                total += item.shipping
-            elif item.kit:
-                total += item.get_kit_products_shipping_total()
-        return total
+        return self.pricing_snapshot.total_products_shipping
 
     @property
     def total_costs_products_value(self) -> Money:
-        total = Money(0, "BRL")
-        for item in self._iter_items():
-            if item.product:
-                total += item.product_cost_price * item.quantity
-            elif item.kit:
-                total += item.get_kit_products_cost_total()
-        return total
+        return self.pricing_snapshot.total_costs_products_value
 
     @property
     def total_products_value(self) -> Money:
-        total = Money(0, "BRL")
-        for item in self._iter_items():
-            if item.product:
-                total += (item.product_selling_price * item.quantity) + item.shipping
-            elif item.kit:
-                total += item.get_kit_products_total()
-        return total
+        return self.pricing_snapshot.total_products_value
 
     @property
     def total_duration(self) -> timedelta:
-        total = timedelta(0)
-        for item in self._iter_items():
-            if item.service and item.duration:
-                total += item.duration * item.quantity
-            elif item.kit:
-                total += item.get_kit_services_duration()
-        return total
+        return self.pricing_snapshot.total_duration
 
     @property
     def total_third_party_services_cost(self) -> Money:
-        total = Money(0, "BRL")
-        for item in self._iter_items():
-            if item.service and item.service.is_third_party:
-                total += item.service_cost_price * item.quantity
-            elif item.kit:
-                total += item.get_kit_third_party_services_cost_total()
-        return total
+        return self.pricing_snapshot.total_third_party_services_cost
 
     @property
     def total_third_party_services_selling(self) -> Money:
-        total = Money(0, "BRL")
-        for item in self._iter_items():
-            if item.service and item.service.is_third_party:
-                total += item.service_selling_price * item.quantity
-            elif item.kit:
-                total += item.get_kit_third_party_services_selling_total()
-        return total
+        return self.pricing_snapshot.total_third_party_services_selling
 
     @property
     def total_costs_services_value(self) -> Money:
-        total = Money(0, "BRL")
-        for item in self._iter_items():
-            if item.service:
-                total += item.service_cost_price * item.quantity
-            elif item.kit:
-                total += item.get_kit_services_cost_total()
-        return total
+        return self.pricing_snapshot.total_costs_services_value
 
     @property
     def total_services_value(self) -> Money:
-        total = Money(0, "BRL")
-        for item in self._iter_items():
-            if item.service:
-                total += item.service_selling_price * item.quantity
-            elif item.kit:
-                total += item.get_kit_services_total()
-        return total
+        return self.pricing_snapshot.total_services_value
+
+    @property
+    def get_total_products_by_slider(self) -> Money:
+        return self.pricing_snapshot.total_products_by_slider
+
+    @property
+    def get_total_services_by_slider(self) -> Money:
+        return self.pricing_snapshot.total_services_by_slider
+
+    @property
+    def get_total_labor_by_slider(self) -> Money:
+        return self.pricing_snapshot.total_labor_by_slider
 
     @property
     def total_duration_display(self) -> str:
@@ -325,11 +359,11 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def total_base_value(self) -> Money:
-        return self.total_products_value + self.total_services_value
+        return self.pricing_snapshot.total_base_value
 
     @property
     def total_budget_value(self) -> Money:
-        return self.total_base_value - self.discount_value
+        return self.pricing_snapshot.total_budget_value
 
     def sync_from_budget(self) -> None:
         budget_items = list(

@@ -2,117 +2,69 @@
   <div class="card-body">
     <div class="overflow-x-auto">
       <table class="table w-full table-fixed">
-
         <thead>
           <tr class="bg-base-200 text-sm text-base-content/70">
             <th class="align-middle">Data</th>
             <th class="align-middle">Documento</th>
             <th class="align-middle">Cliente / Veículo</th>
             <th class="align-middle">Qtd. Usada</th>
-            <th class="align-middle">Valor Unit.</th>
             <th class="align-middle">Status</th>
             <th class="align-middle text-center">Ações</th>
           </tr>
         </thead>
-
         <tbody>
+          {% for entry in history_list %}
           <tr class="hover">
-            <td class="align-middle">16/12/2025</td>
-
+            <td class="align-middle">{{ entry.date|date:"d/m/Y" }}</td>
             <td class="align-middle">
               <div class="flex items-center gap-2">
                 <span class="material-icons text-primary text-base">
                   description
                 </span>
                 <div>
-                  <div class="font-semibold text-primary">OS #6</div>
+                  <div class="font-semibold text-primary">{{ entry.label }}</div>
                   <div class="text-sm text-base-content/60">
-                    Ordem de Serviço
+                    {{ entry.sub_label }}
                   </div>
                 </div>
               </div>
             </td>
-
             <td class="align-middle">
-              <div class="font-medium">Lucas Gomes</div>
+              <div class="font-medium">
+                {% if entry.type == 'workorder' %}
+                    {{ entry.obj.budget.customer.name|default:"Consumidor Final" }}
+                {% else %}
+                    {{ entry.obj.customer.name|default:"Consumidor Final" }}
+                {% endif %}
+              </div>
               <div class="text-sm text-base-content/60">
-                VOYAGE 1.6 TREND (EKM8J44)
+                {% if entry.type == 'workorder' %}
+                    {{ entry.obj.budget.vehicle.model }} ({{ entry.obj.budget.vehicle.plate }})
+                {% else %}
+                    {{ entry.obj.vehicle.model }} ({{ entry.obj.vehicle.plate }})
+                {% endif %}
               </div>
             </td>
-
-            <td class="align-middle font-semibold">1</td>
-
-            <td class="align-middle">R$ 60,00</td>
-
+            <td class="align-middle font-semibold">{{ entry.quantity }}</td>
             <td class="align-middle">
-              <span
-                class="inline-flex items-center px-3 py-1 text-sm font-medium
-                       rounded-full border border-info text-info bg-info/10"
-              >
-                Em Aberto
+              <span class="inline-flex items-center px-3 py-1 text-sm font-medium rounded-full">
+                {{ entry.status }}
               </span>
             </td>
-
             <td class="align-middle text-center">
-              <button
-                class="inline-flex items-center justify-center w-9 h-9
-                       rounded-full border border-info text-info bg-info/10
-                       hover:bg-info/20 transition"
-              >
+              <a href="{{ entry.url }}" class="inline-flex items-center justify-center w-9 h-9 rounded-full border border-info text-info bg-info/10 hover:bg-info/20 transition">
                 <span class="material-icons text-base">visibility</span>
-              </button>
+              </a>
             </td>
           </tr>
-
-          <tr class="hover">
-            <td class="align-middle">18/12/2025</td>
-
-            <td class="align-middle">
-              <div class="flex items-center gap-2">
-                <span class="material-icons text-primary text-base">
-                  description
-                </span>
-                <div>
-                  <div class="font-semibold text-primary">OS #7</div>
-                  <div class="text-sm text-base-content/60">
-                    Ordem de Serviço
-                  </div>
-                </div>
-              </div>
-            </td>
-
-            <td class="align-middle">
-              <div class="font-medium">Mariana Silva</div>
-              <div class="text-sm text-base-content/60">
-                GOL 1.0 FLEX (QWE2A19)
-              </div>
-            </td>
-
-            <td class="align-middle font-semibold">2</td>
-
-            <td class="align-middle">R$ 45,00</td>
-
-            <td class="align-middle">
-              <span
-                class="inline-flex items-center px-3 py-1 text-sm font-medium
-                       rounded-full border border-success text-success bg-success/10"
-              >
-                Finalizado
-              </span>
-            </td>
-
-            <td class="align-middle text-center">
-              <button
-                class="inline-flex items-center justify-center w-9 h-9
-                       rounded-full border border-success text-success bg-success/10
-                       hover:bg-success/20 transition"
-              >
-                <span class="material-icons text-base">visibility</span>
-              </button>
+          {% empty %}
+          <tr>
+            <td colspan="6" class="text-center py-4 text-base-content/50">
+              Nenhum histórico de utilização encontrado para este produto.
             </td>
           </tr>
+          {% endfor %}
         </tbody>
-
       </table>
     </div>
   </div>

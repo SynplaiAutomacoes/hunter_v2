@@ -21,6 +21,7 @@ from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
+from apps.core.utils import clean_id
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.workshops.mixin import WorkshopScopedMixin
 
@@ -263,7 +264,7 @@ class KitsByProductHXView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "view_kit"
 
     def get(self, request, *args, **kwargs):
-        product_id = request.GET.get("product_id")
+        product_id = clean_id(request.GET.get("product_id"))
 
         kits = (
             Kit.objects.filter(
