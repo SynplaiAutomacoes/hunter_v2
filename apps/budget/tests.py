@@ -15,7 +15,6 @@ from apps.budget.service import (
     BUDGET_SIGNATURE_DOCUMENT_ID_KEY,
     BUDGET_SIGNATURE_TOKEN_SALT,
     SuperSignError,
-    SuperSignResult,
     build_signature_file_url,
     build_signature_payload,
     build_signature_preview_url,
@@ -250,7 +249,7 @@ class BudgetSignatureInternalPdfTests(TestCase):
         self.factory = RequestFactory()
 
     @patch("apps.budget.views.pdf_views.get_active_workshop_or_404")
-    @patch("apps.budget.views.pdf_views.download_supersign_signed_pdf")
+    @patch("apps.budget.views.pdf_views.download_signed_document_content")
     def test_visualizar_pdf_assinatura_returns_signed_pdf_when_available(self, download_signed_mock, active_workshop_mock) -> None:
         workshop = create_workshop(suffix=81)
         budget = create_budget(workshop=workshop)
@@ -270,7 +269,7 @@ class BudgetSignatureInternalPdfTests(TestCase):
 
     @patch("apps.budget.views.pdf_views.get_active_workshop_or_404")
     @patch("apps.budget.views.pdf_views.render_budget_pdf_document")
-    @patch("apps.budget.views.pdf_views.download_supersign_signed_pdf")
+    @patch("apps.budget.views.pdf_views.download_signed_document_content")
     def test_visualizar_pdf_assinatura_falls_back_to_base_pdf(self, download_signed_mock, render_document_mock, active_workshop_mock) -> None:
         workshop = create_workshop(suffix=82)
         budget = create_budget(workshop=workshop)
@@ -279,7 +278,7 @@ class BudgetSignatureInternalPdfTests(TestCase):
         budget.save(update_fields=["signature_request_status", "signature_external_id"])
 
         active_workshop_mock.return_value = workshop
-        download_signed_mock.side_effect = SuperSignError("erro")
+        download_signed_mock.side_effect = SignatureDeliveryServiceError("erro")
         render_document_mock.return_value = DocumentPayload(
             content=b"%PDF-base",
             filename=f"orcamento_{budget.id}_base.pdf",
@@ -300,9 +299,10 @@ class BudgetSignatureWorkflowTests(TestCase):
     def test_trigger_signature_send_if_needed_marks_budget_sent(self, send_signature_mock) -> None:
         workshop = create_workshop(suffix=83)
         budget = create_budget(workshop=workshop)
-        send_signature_mock.return_value = SuperSignResult(
+        send_signature_mock.return_value = SignatureDeliveryResult(
             envelope_id="env-83",
             document_id="doc-83",
+            provider="supersign",
             raw_response={"ok": True},
         )
 

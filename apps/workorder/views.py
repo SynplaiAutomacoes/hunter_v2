@@ -24,6 +24,7 @@ from apps.catalog.models.kits import Kit
 from apps.core.tables import TableActionDefaults
 from apps.core.documents.contract import DocumentPayload
 from apps.core.documents.http import build_pdf_http_response
+from apps.core.documents.services import SignatureDeliveryServiceError, download_signed_document_content
 from apps.core.documents.signature import SignatureTokenError, parse_document_signature_token
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxTemplateResponseMixin
@@ -35,7 +36,6 @@ from apps.workorder.service import (
     WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
     WORKORDER_SIGNATURE_TOKEN_SALT,
     WorkOrderSignatureError,
-    download_workorder_signed_pdf,
     send_workorder_for_signature,
 )
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -826,19 +826,19 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
 @xframe_options_exempt
 def visualizar_pdf_workorder(request, pk):
     workshop = get_active_workshop_or_404(request)
-    workorder = get_object_or_404(WorkOrder, pk=pk, workshop=workshop)
+    workorder = get_object_or_404(WorkOrder.objects.select_related("workshop"), pk=pk, workshop=workshop)
     should_download = request.GET.get("download") == "1"
 
     if workorder.signature_external_id and workorder.signature_request_status == WorkOrderSignatureStatus.SENT:
         try:
-            signed_pdf = download_workorder_signed_pdf(document_id=workorder.signature_external_id)
+            signed_pdf = download_signed_document_content(document_id=workorder.signature_external_id)
             return _build_workorder_pdf_file_response(
                 workorder=workorder,
                 download=should_download,
                 use_signed_name=True,
                 pdf_bytes=signed_pdf,
             )
-        except WorkOrderSignatureError:
+        except SignatureDeliveryServiceError:
             logger.warning(
                 "Falha ao carregar PDF assinado da ordem de servico; retornando PDF base",
                 extra={"workorder_id": workorder.id, "envelope_id": workorder.signature_external_id},

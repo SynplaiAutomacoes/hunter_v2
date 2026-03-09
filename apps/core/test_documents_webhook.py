@@ -101,3 +101,25 @@ class SuperSignWebhookViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(budget.status, BudgetStatus.DRAFT)
         self.assertEqual(budget.signature_request_status, SignatureStatus.SENT)
+
+    def test_post_approves_matching_workorder_without_budget_signature(self) -> None:
+        workshop = create_workshop(suffix=93)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        workorder.mark_signature_sent("env-789")
+
+        response = self.client.post(
+            reverse("budget:supersign_webhook"),
+            data=json.dumps({"event": "ENVELOPE_COMPLETED", "envelopeId": "env-789"}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION="Bearer secret",
+            HTTP_X_ACCOUNT_ID="acc-1",
+        )
+
+        budget.refresh_from_db()
+        workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(budget.status, BudgetStatus.DRAFT)
+        self.assertEqual(budget.signature_request_status, SignatureStatus.NOT_SENT)
+        self.assertEqual(workorder.signature_request_status, WorkOrderSignatureStatus.APPROVED)

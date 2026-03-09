@@ -16,10 +16,11 @@ from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.core.documents.contract import DocumentPayload, SignatureDeliveryResult
+from apps.core.documents.services import SignatureDeliveryServiceError
 from apps.core.documents.signature import normalize_signature_phone_number, parse_document_signature_token
 from apps.customer.models import Customer
 from apps.workorder.documents.provider import build_workorder_pdf_render_request
-from apps.workorder.models import WorkOrder, WorkOrderItem
+from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderSignatureStatus
 from apps.workorder.service import (
     WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
     WORKORDER_SIGNATURE_TOKEN_SALT,
@@ -28,7 +29,7 @@ from apps.workorder.service import (
     build_signature_preview_url,
     send_workorder_for_signature,
 )
-from apps.workorder.views import signature_file, signature_preview
+from apps.workorder.views import signature_file, signature_preview, visualizar_pdf_workorder
 from apps.workshops.models.workshops import Workshop
 
 
@@ -167,6 +168,20 @@ class WorkOrderSignatureTokenModelTests(TestCase):
         self.assertTrue(workorder.signature_token_active)
 
 
+class WorkOrderSignaturePersistenceTests(TestCase):
+    def test_mark_signature_sent_persists_envelope_id(self) -> None:
+        workshop = create_workshop(suffix=86)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+
+        workorder.mark_signature_sent("env-123")
+        workorder.refresh_from_db()
+
+        self.assertEqual(workorder.signature_external_id, "env-123")
+        self.assertEqual(workorder.signature_request_status, WorkOrderSignatureStatus.SENT)
+        self.assertIsNotNone(workorder.signature_sent_at)
+
+
 class WorkOrderSignatureTokenUrlTests(TestCase):
     def test_build_signature_payload_uses_workorder_specific_key(self) -> None:
         workshop = create_workshop(suffix=93)
@@ -262,6 +277,55 @@ class WorkOrderPdfParityTests(TestCase):
         render_request = build_workorder_pdf_render_request(workorder=workorder)
 
         self.assertEqual(render_request.filename, f"ordem_servico_{workorder.id}.pdf")
+
+
+class WorkOrderInternalPdfTests(TestCase):
+    def setUp(self) -> None:
+        self.factory = RequestFactory()
+
+    @patch("apps.workorder.views.get_active_workshop_or_404")
+    @patch("apps.workorder.views.download_signed_document_content")
+    def test_visualizar_pdf_workorder_returns_signed_pdf_when_available(self, download_signed_mock, active_workshop_mock) -> None:
+        workshop = create_workshop(suffix=87)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        workorder.signature_request_status = WorkOrderSignatureStatus.SENT
+        workorder.signature_external_id = "env-87"
+        workorder.save(update_fields=["signature_request_status", "signature_external_id"])
+
+        active_workshop_mock.return_value = workshop
+        download_signed_mock.return_value = b"%PDF-signed"
+
+        request = self.factory.get("/", {"download": "1"})
+        response = visualizar_pdf_workorder(request, workorder.id)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"%PDF-signed")
+        self.assertIn("attachment;", response["Content-Disposition"])
+
+    @patch("apps.workorder.views.get_active_workshop_or_404")
+    @patch("apps.workorder.views.render_workorder_pdf_document")
+    @patch("apps.workorder.views.download_signed_document_content")
+    def test_visualizar_pdf_workorder_falls_back_to_base_pdf(self, download_signed_mock, render_document_mock, active_workshop_mock) -> None:
+        workshop = create_workshop(suffix=88)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        workorder.signature_request_status = WorkOrderSignatureStatus.SENT
+        workorder.signature_external_id = "env-88"
+        workorder.save(update_fields=["signature_request_status", "signature_external_id"])
+
+        active_workshop_mock.return_value = workshop
+        download_signed_mock.side_effect = SignatureDeliveryServiceError("erro")
+        render_document_mock.return_value = DocumentPayload(
+            content=b"%PDF-base",
+            filename=f"ordem_servico_{workorder.id}_base.pdf",
+        )
+
+        response = visualizar_pdf_workorder(self.factory.get("/"), workorder.id)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"%PDF-base")
+        self.assertIn('inline; filename="ordem_servico_', response["Content-Disposition"])
 
     def test_signature_preview_rejects_inactive_token(self) -> None:
         workshop = create_workshop(suffix=97)

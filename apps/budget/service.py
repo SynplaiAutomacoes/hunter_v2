@@ -1,9 +1,7 @@
-from dataclasses import dataclass
-
 from django.conf import settings
 
 from apps.budget.documents.provider import render_budget_pdf_document
-from apps.core.documents.contract import SignatureRecipient
+from apps.core.documents.contract import SignatureDeliveryResult, SignatureRecipient
 from apps.core.documents.signature import (
     build_document_signature_payload,
     build_document_signature_url,
@@ -12,7 +10,6 @@ from apps.core.documents.signature import (
 )
 from apps.core.documents.services import (
     SignatureDeliveryServiceError,
-    download_signed_document_content,
     send_document_for_signature,
 )
 
@@ -57,20 +54,6 @@ class SuperSignError(Exception):
     pass
 
 
-@dataclass
-class SuperSignResult:
-    envelope_id: str
-    document_id: str
-    raw_response: dict
-
-
-def download_supersign_signed_pdf(*, document_id: str) -> bytes:
-    try:
-        return download_signed_document_content(document_id=document_id)
-    except SignatureDeliveryServiceError as exc:
-        raise SuperSignError(str(exc)) from exc
-
-
 def _calculate_pdf_total_pages(budget) -> int:
     return 1
 
@@ -90,7 +73,7 @@ def _build_budget_pdf_bytes(*, budget, request=None) -> bytes:
         raise SuperSignError(f"Erro ao gerar PDF para assinatura via Playwright: {exc}") from exc
 
 
-def send_budget_for_signature(*, budget, request=None) -> SuperSignResult:
+def send_budget_for_signature(*, budget, request=None) -> SignatureDeliveryResult:
     customer_email = getattr(budget.customer, "email", "") if budget.customer else ""
     customer_phone = getattr(budget.customer, "phone", "") if budget.customer else ""
 
@@ -127,8 +110,4 @@ def send_budget_for_signature(*, budget, request=None) -> SuperSignResult:
     except SignatureDeliveryServiceError as exc:
         raise SuperSignError(str(exc)) from exc
 
-    return SuperSignResult(
-        envelope_id=result.envelope_id,
-        document_id=result.document_id,
-        raw_response=result.raw_response,
-    )
+    return result

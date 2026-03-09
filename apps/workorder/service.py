@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from django.conf import settings
 
-from apps.core.documents.contract import SignatureRecipient
+from apps.core.documents.contract import SignatureDeliveryResult, SignatureRecipient
 from apps.core.documents.signature import (
     build_document_signature_payload,
     build_document_signature_url,
@@ -13,7 +11,6 @@ from apps.core.documents.signature import (
 )
 from apps.core.documents.services import (
     SignatureDeliveryServiceError,
-    download_signed_document_content,
     send_document_for_signature,
 )
 from apps.workorder.documents.provider import render_workorder_pdf_document
@@ -27,13 +24,6 @@ WORKORDER_SIGNATURE_PREVIEW_ROUTE = "workorder:signature_preview"
 
 class WorkOrderSignatureError(Exception):
     pass
-
-
-@dataclass
-class WorkOrderSignatureResult:
-    envelope_id: str
-    document_id: str
-    raw_response: dict
 
 
 def build_signature_payload(workorder) -> dict:
@@ -85,7 +75,7 @@ def _calculate_pdf_total_pages(workorder) -> int:
     return 1
 
 
-def send_workorder_for_signature(*, workorder) -> WorkOrderSignatureResult:
+def send_workorder_for_signature(*, workorder) -> SignatureDeliveryResult:
     budget = workorder.budget
     customer = budget.customer
     customer_email = getattr(customer, "email", "") if customer else ""
@@ -124,15 +114,4 @@ def send_workorder_for_signature(*, workorder) -> WorkOrderSignatureResult:
     except SignatureDeliveryServiceError as exc:
         raise WorkOrderSignatureError(str(exc)) from exc
 
-    return WorkOrderSignatureResult(
-        envelope_id=result.envelope_id,
-        document_id=result.document_id,
-        raw_response=result.raw_response,
-    )
-
-
-def download_workorder_signed_pdf(*, document_id: str) -> bytes:
-    try:
-        return download_signed_document_content(document_id=document_id)
-    except SignatureDeliveryServiceError as exc:
-        raise WorkOrderSignatureError(str(exc)) from exc
+    return result

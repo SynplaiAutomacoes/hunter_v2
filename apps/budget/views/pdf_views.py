@@ -9,10 +9,11 @@ from djmoney.money import Money
 from apps.budget.documents.provider import render_budget_pdf_document
 from apps.budget.models import Budget, BudgetItem, SignatureStatus
 from apps.budget.pdf_context import build_budget_pdf_context
-from apps.budget.service import BUDGET_SIGNATURE_DOCUMENT_ID_KEY, BUDGET_SIGNATURE_TOKEN_SALT, SuperSignError, download_supersign_signed_pdf
+from apps.budget.service import BUDGET_SIGNATURE_DOCUMENT_ID_KEY, BUDGET_SIGNATURE_TOKEN_SALT
 from apps.checklist.models import Checklist
 from apps.core.documents.contract import DocumentPayload
 from apps.core.documents.http import build_pdf_http_response
+from apps.core.documents.services import SignatureDeliveryServiceError, download_signed_document_content
 from apps.core.documents.signature import SignatureTokenError, parse_document_signature_token
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
@@ -203,14 +204,14 @@ def visualizar_pdf_assinatura(request, pk):
 
     if budget.signature_external_id and budget.signature_request_status == SignatureStatus.SENT:
         try:
-            signed_pdf = download_supersign_signed_pdf(document_id=budget.signature_external_id)
+            signed_pdf = download_signed_document_content(document_id=budget.signature_external_id)
             return _build_budget_pdf_file_response(
                 budget=budget,
                 download=should_download,
                 use_signed_name=True,
                 pdf_bytes=signed_pdf,
             )
-        except SuperSignError:
+        except SignatureDeliveryServiceError:
             logger.warning(
                 "Falha ao carregar PDF assinado; retornando PDF base",
                 extra={"budget_id": budget.id, "envelope_id": budget.signature_external_id},
