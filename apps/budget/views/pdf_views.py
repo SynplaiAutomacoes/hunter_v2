@@ -4,10 +4,9 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, render
 from django.views.decorators.clickjacking import xframe_options_exempt
-from djmoney.money import Money
 
 from apps.budget.documents.provider import render_budget_pdf_document
-from apps.budget.models import Budget, BudgetItem, SignatureStatus
+from apps.budget.models import Budget, SignatureStatus
 from apps.budget.pdf_context import build_budget_pdf_context
 from apps.budget.service import BUDGET_SIGNATURE_DOCUMENT_ID_KEY, BUDGET_SIGNATURE_TOKEN_SALT
 from apps.checklist.models import Checklist
@@ -34,26 +33,7 @@ def visualizar_pdf(request, pk):
 def visualizar_pdf_gestor(request, pk):
     workshop = get_active_workshop_or_404(request)
     budget = get_object_or_404(Budget, pk=pk, workshop=workshop)
-    itens_all = BudgetItem.objects.filter(budget=budget).select_related("product", "service")
-    produtos = itens_all.filter(product__isnull=False)
-    servicos = itens_all.filter(service__isnull=False)
-
-    total_profit_product_value = Money(0, "BRL")
-    for p in produtos:
-        total_profit_product_value += p.profit_value
-
-    total_profit_service_value = Money(0, "BRL")
-    for s in servicos:
-        total_profit_service_value += s.profit_value
-
-    context = {
-        "budget": budget,
-        "produtos": produtos,
-        "servicos": servicos,
-        "observacao": workshop.pdf_observation,
-        "total_profit_product_value": total_profit_product_value,
-        "total_profit_service_value": total_profit_service_value,
-    }
+    context = build_budget_pdf_context(budget=budget, observacao=workshop.pdf_observation, request=request)
 
     return render(request, "budget/partials/pdf/visualizarPDFGestor.html", context)
 
@@ -62,11 +42,7 @@ def visualizar_pdf_gestor(request, pk):
 def visualizar_pdf_mecanico(request, pk):
     workshop = get_active_workshop_or_404(request)
     budget = get_object_or_404(Budget, pk=pk, workshop=workshop)
-    itens_all = BudgetItem.objects.filter(budget=budget).select_related("product", "service")
-    produtos = itens_all.filter(product__isnull=False)
-    servicos = itens_all.filter(service__isnull=False)
-
-    context = {"budget": budget, "produtos": produtos, "servicos": servicos, "observacao": workshop.pdf_observation}
+    context = build_budget_pdf_context(budget=budget, observacao=workshop.pdf_observation, request=request)
 
     return render(request, "budget/partials/pdf/visualizarPDFMecanico.html", context)
 

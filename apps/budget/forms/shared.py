@@ -1,7 +1,6 @@
 from django import forms
 from django.db.models import Prefetch
 from django.template.loader import render_to_string
-from djmoney.money import Money
 
 MAX_BUDGET_IMAGES = 10
 MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024
@@ -75,30 +74,69 @@ def _render_budget_items_rows(budget, step6=False):
     rows = {"product": "", "service": "", "kit": ""}
 
     budget_for_render = _get_budget_with_prefetched_items(budget)
+    pricing_snapshot = budget_for_render.pricing_snapshot if budget_for_render and budget_for_render.pk else None
+
+    kit_product_ids = set()
+    if budget_for_render and budget_for_render.pk:
+        for item in budget_for_render.items.all():
+            if not item.kit:
+                continue
+
+            product_overrides, _ = item._get_kit_override_maps()
+            for kit_product in item._iter_kit_products():
+                override = product_overrides.get(kit_product.product_id)
+                quantity = override.quantity if override else kit_product.quantity
+                if quantity > 0:
+                    kit_product_ids.add(kit_product.product_id)
 
     if budget_for_render.pk:
-        for item in budget_for_render.items.all():
-            item_type = _budget_item_type(item)
-            context = {"item": item, "budget": budget_for_render, "is_full_render": True, "step6": step6}
+        if step6 and pricing_snapshot is not None:
+            for item in pricing_snapshot.product_lines:
+                rows["product"] += render_to_string(
+                    "budget/partials/items/item_product_row.html",
+                    {
+                        "item": item,
+                        "budget": budget_for_render,
+                        "is_full_render": True,
+                        "step6": True,
+                        "slider_price": item.adjusted_unit_price,
+                        "slider_total_price": item.total_price,
+                    },
+                )
 
-            if step6:
+            for item in pricing_snapshot.service_lines:
+                rows["service"] += render_to_string(
+                    "budget/partials/items/item_service_row.html",
+                    {
+                        "item": item,
+                        "budget": budget_for_render,
+                        "is_full_render": True,
+                        "step6": True,
+                        "slider_price": item.adjusted_unit_price,
+                        "slider_total_price": item.total_price,
+                    },
+                )
+
+            for item in budget_for_render.items.all():
+                if _budget_item_type(item) == "kit":
+                    rows["kit"] += render_to_string("budget/partials/items/item_kit_row.html", {"item": item, "budget": budget_for_render, "is_full_render": True, "step6": True})
+        else:
+            for item in budget_for_render.items.all():
+                item_type = _budget_item_type(item)
+                context = {
+                    "item": item,
+                    "budget": budget_for_render,
+                    "is_full_render": True,
+                    "step6": False,
+                    "show_kit_duplicate_warning": bool(item.product_id and item.product_id in kit_product_ids and not item.is_local),
+                }
+
                 if item_type == "product":
-                    context["slider_price"] = item.adjusted_unit_price + item.shipping
-                    context["slider_total_price"] = (item.adjusted_unit_price * item.quantity) + item.shipping
-
+                    rows["product"] += render_to_string("budget/partials/items/item_product_row.html", context)
                 elif item_type == "service":
-                    context["slider_price"] = item.adjusted_unit_price
-                    context["slider_total_price"] = item.adjusted_unit_price * item.quantity
-
+                    rows["service"] += render_to_string("budget/partials/items/item_service_row.html", context)
                 elif item_type == "kit":
-                    context["slider_price"] = item.adjusted_unit_price
-
-            if item_type == "product":
-                rows["product"] += render_to_string("budget/partials/items/item_product_row.html", context)
-            elif item_type == "service":
-                rows["service"] += render_to_string("budget/partials/items/item_service_row.html", context)
-            elif item_type == "kit":
-                rows["kit"] += render_to_string("budget/partials/items/item_kit_row.html", context)
+                    rows["kit"] += render_to_string("budget/partials/items/item_kit_row.html", context)
 
     placeholders = _empty_rows(step6=step6)
     for key, placeholder in placeholders.items():
