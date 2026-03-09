@@ -28,6 +28,11 @@
                     <span class="material-icons text-accent" style="font-size: 16px;">cloud_upload</span>
                 </button>
             {% endif %}
+            {% if show_kit_duplicate_warning or item.show_kit_duplicate_warning %}
+                <span class="tooltip tooltip-right shrink-0" data-tip="Serviço já registrado em um kit">
+                    <span class="material-icons text-warning" style="font-size: 18px;">warning</span>
+                </span>
+            {% endif %}
         </div>
     </td>
     <td class="text-center">{{ item.quantity }}</td>
@@ -36,7 +41,7 @@
         {% if step6 %}
             {{ slider_price }}
         {% else %}
-            {{ item.product_selling_price }}
+            {{ item.service_selling_price }}
         {% endif %}
     </td>
     <td class="text-center">{{ item.duration_display }}</td>

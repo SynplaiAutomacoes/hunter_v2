@@ -12,7 +12,7 @@ from djmoney.money import Money
 
 from apps.budget.documents.provider import build_budget_pdf_render_request
 from apps.budget.models import Budget, BudgetItem
-from apps.catalog.models.kits import Kit, KitProduct
+from apps.catalog.models.kits import Kit, KitProduct, KitService
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
@@ -445,6 +445,26 @@ class WorkOrderDuplicateKitProductTests(TestCase):
         self.assertEqual(workorder.get_total_services_by_slider, budget.get_total_services_by_slider)
         self.assertEqual(workorder.total_budget_value, budget.total_budget_value)
         self.assertEqual(workorder.pricing_snapshot.product_lines[0].quantity, 3)
+
+    def test_workorder_matches_budget_after_duplicate_service_consolidation(self) -> None:
+        workshop = create_workshop(suffix=12)
+        budget = create_budget(workshop=workshop)
+        service = create_service(workshop=workshop, suffix=120)
+        kit_1 = create_kit(workshop=workshop, suffix=1201, products=[])
+        kit_2 = create_kit(workshop=workshop, suffix=1202, products=[])
+        KitService.objects.create(kit=kit_1, service=service, quantity=2, duration=service.duration)
+        KitService.objects.create(kit=kit_2, service=service, quantity=1, duration=service.duration)
+
+        BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit_1, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit_2, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, service=service, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        workorder.sync_from_budget()
+
+        self.assertEqual(workorder.total_services_value, budget.total_services_value)
+        self.assertEqual(workorder.get_total_services_by_slider, budget.get_total_services_by_slider)
+        self.assertEqual(workorder.pricing_snapshot.service_lines[0].quantity, 3)
 
     def test_stock_approval_uses_consolidated_product_quantity(self) -> None:
         workshop = create_workshop(suffix=11)
