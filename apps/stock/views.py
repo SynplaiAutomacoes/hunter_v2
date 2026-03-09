@@ -433,37 +433,28 @@ class LinkProductManualView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     @transaction.atomic
     def post(self, request):
-        product_ids = request.POST.getlist("product_ids[]")
+        raw_item_idx = request.POST.get("item_idx")
+        product_id = request.POST.get("product_id")
         pk = request.POST.get("pk")
         is_manual = request.GET.get("manual") == "true" or request.POST.get("manual") == "true"
 
         obj = get_object_or_404(StockImport, id=pk, workshop=self.workshop)
+        product = get_object_or_404(Product, id=product_id, workshop=self.workshop)
         import_items = list(obj.items_data)
 
-        if product_ids:
-            products = Product.objects.filter(id__in=product_ids, workshop=self.workshop)
+        if is_manual:
+            new_item = {"ref": product.code, "desc": product.name, "qtd": 1, "valor": str(product.cost_price.amount), "linked_product_id": str(product_id)}
+            import_items.append(new_item)
+        else:
+            try:
+                item_idx = int(raw_item_idx)
+                if 0 <= item_idx < len(import_items):
+                    import_items[item_idx]["linked_product_id"] = product_id
+            except (ValueError, TypeError):
+                return HttpResponse("Índice de item inválido", status=400)
 
-            for product in products:
-                product_id_str = str(product.id)
-
-                # Tenta encontrar o produto na lista atual
-                existing_item = next((item for item in import_items if item.get("linked_product_id") == product_id_str), None)
-
-                if existing_item:
-                    # Se já existe, apenas aumenta a quantidade em 1
-                    try:
-                        current_qtd = int(existing_item.get("qtd", 1))
-                        existing_item["qtd"] = current_qtd + 1
-                    except (ValueError, TypeError):
-                        existing_item["qtd"] = 2  # Fallback caso o dado esteja corrompido
-                else:
-                    # Se não existe, cria um novo item (comportamento original)
-                    if is_manual:
-                        new_item = {"ref": product.code, "desc": product.name, "qtd": 1, "valor": str(product.cost_price.amount), "linked_product_id": product_id_str}
-                        import_items.append(new_item)
-
-            obj.items_data = import_items
-            obj.save(update_fields=["items_data"])
+        obj.items_data = import_items
+        obj.save(update_fields=["items_data"])
 
         response = HttpResponse("")
         response["HX-Trigger"] = "productCreated"
