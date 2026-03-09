@@ -71,15 +71,13 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for item in budget.items.all %}
-                        {% if item.product %}
+                    {% for item in produtos %}
                         <tr class="border-b border-gray-100">
-                            <td class="p-1">{{ item.product.code|default:"-" }}</td>
-                            <td class="p-1 text-center text-blue-700 font-mono">{{ item.product.location|default:"-" }}</td>
+                            <td class="p-1">{{ item.code|default:"-" }}</td>
+                            <td class="p-1 text-center text-blue-700 font-mono">{{ item.location|default:"-" }}</td>
                             <td class="p-1 text-center font-bold text-[11px]">{{ item.quantity }}</td>
                             <td class="p-1 uppercase">{{ item.description }}</td>
                         </tr>
-                        {% endif %}
                     {% empty %}
                         <tr><td colspan="4" class="p-2 text-center text-gray-400 italic">Nenhum produto listado.</td></tr>
                     {% endfor %}
@@ -97,13 +95,11 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for item in budget.items.all %}
-                        {% if item.service %}
+                    {% for item in servicos %}
                         <tr class="border-b border-gray-100">
                             <td class="p-1 font-medium">{{ item.quantity }}</td>
                             <td class="p-1">{{ item.description }}</td>
                         </tr>
-                        {% endif %}
                     {% empty %}
                         <tr><td colspan="2" class="p-2 text-center text-gray-400 font-light italic">Nenhum serviço informado.</td></tr>
                     {% endfor %}

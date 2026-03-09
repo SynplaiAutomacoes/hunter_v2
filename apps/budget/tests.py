@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from decimal import Decimal
 from urllib.parse import urlparse
-from unittest.mock import patch
+from unittest.mock import PropertyMock, patch
 
 from django.http import Http404, HttpResponse
 from django.test import RequestFactory, TestCase, override_settings
@@ -10,6 +11,7 @@ from django.urls import reverse
 from django.utils import timezone
 from djmoney.money import Money
 
+from apps.budget.forms.shared import _render_budget_items_rows
 from apps.budget.models import Budget, BudgetItem, SignatureStatus
 from apps.budget.pdf_context import build_budget_pdf_context
 from apps.budget.service import (
@@ -22,7 +24,9 @@ from apps.budget.service import (
     send_budget_for_signature,
 )
 from apps.catalog.models.groups import CatalogGroup
+from apps.catalog.models.kits import Kit, KitProduct, KitService
 from apps.catalog.models.products import Product
+from apps.catalog.models.services import Service
 from apps.core.documents.contract import DocumentPayload, SignatureDeliveryResult
 from apps.core.documents.signature import normalize_signature_phone_number, parse_document_signature_token
 from apps.core.documents.services import SignatureDeliveryServiceError, get_signed_document_url
@@ -70,6 +74,23 @@ def create_product(*, workshop: Workshop, suffix: int = 1, application: str = ""
         cost_price=Money("10.00", "BRL"),
         selling_price=Money("15.00", "BRL"),
     )
+
+
+def create_service(*, workshop: Workshop, suffix: int = 1) -> Service:
+    return Service.objects.create(
+        workshop=workshop,
+        name=f"Servico {suffix}",
+        duration=timedelta(hours=1),
+        suggested_cost=Money("5.00", "BRL"),
+        selling_price=Money("20.00", "BRL"),
+    )
+
+
+def create_kit(*, workshop: Workshop, suffix: int, products: list[tuple[Product, int]]) -> Kit:
+    kit = Kit.objects.create(workshop=workshop, name=f"Kit {suffix}")
+    for product, quantity in products:
+        KitProduct.objects.create(kit=kit, product=product, quantity=quantity)
+    return kit
 
 
 def extract_token_from_url(url: str) -> str:
@@ -230,6 +251,92 @@ class BudgetPdfContextTests(TestCase):
         context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste")
 
         self.assertEqual(context["produtos"][0]["application"], "Fiat Uno")
+
+
+class BudgetDuplicateKitProductTests(TestCase):
+    def test_step4_kit_price_includes_products_and_services(self) -> None:
+        workshop = create_workshop(suffix=87)
+        budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=87)
+        service = create_service(workshop=workshop, suffix=87)
+        kit = create_kit(workshop=workshop, suffix=871, products=[(product, 1)])
+        KitService.objects.create(kit=kit, service=service, quantity=1, duration=service.duration)
+
+        kit_item = BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
+
+        rows = _render_budget_items_rows(budget, step6=False)
+
+        self.assertIn(str(kit_item.kit_unit_price), rows["kit"])
+
+    @patch.object(Budget, "total_labor_cost_value", new_callable=PropertyMock, return_value=Money("40.00", "BRL"))
+    def test_slider_all_to_labor_preserves_product_cost_plus_shipping(self, _labor_cost_mock) -> None:
+        workshop = create_workshop(suffix=88)
+        budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=88)
+        service = create_service(workshop=workshop, suffix=88)
+
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=2, shipping=Money("5.00", "BRL"))
+        BudgetItem.objects.create(workshop=workshop, budget=budget, service=service, quantity=1)
+
+        budget.slider = 100
+        budget.save(update_fields=["slider"])
+
+        self.assertEqual(budget.get_total_products_by_slider, Money("25.00", "BRL"))
+
+    @patch.object(Budget, "total_labor_cost_value", new_callable=PropertyMock, return_value=Money("40.00", "BRL"))
+    def test_slider_all_to_parts_preserves_minimum_labor_sale(self, _labor_cost_mock) -> None:
+        workshop = create_workshop(suffix=89)
+        budget = create_budget(workshop=workshop)
+        service = create_service(workshop=workshop, suffix=89)
+
+        BudgetItem.objects.create(workshop=workshop, budget=budget, service=service, quantity=4)
+
+        budget.slider = -100
+        budget.save(update_fields=["slider"])
+
+        self.assertEqual(budget.get_total_labor_by_slider, Money("40.00", "BRL"))
+
+    def test_budget_uses_slider_totals_with_duplicate_kit_product_consolidation(self) -> None:
+        workshop = create_workshop(suffix=85)
+        budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=85, application="Gol")
+        service = create_service(workshop=workshop, suffix=85)
+        kit_1 = create_kit(workshop=workshop, suffix=851, products=[(product, 2)])
+        kit_2 = create_kit(workshop=workshop, suffix=852, products=[(product, 1)])
+
+        BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit_1, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit_2, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, service=service, quantity=1)
+
+        budget.slider = -50
+        budget.save(update_fields=["slider"])
+
+        self.assertEqual(budget.total_products_value, Money("45.00", "BRL"))
+        self.assertEqual(budget.total_costs_products_value, Money("30.00", "BRL"))
+        self.assertEqual(budget.get_total_products_by_slider, Money("52.50", "BRL"))
+        self.assertEqual(budget.get_total_services_by_slider, Money("12.50", "BRL"))
+        self.assertEqual(budget.total_base_value, Money("65.00", "BRL"))
+
+        context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste")
+
+        self.assertEqual(len(context["produtos"]), 1)
+        self.assertEqual(context["produtos"][0]["quantity"], 3)
+        self.assertEqual(context["produtos"][0]["total_price"], Money("52.50", "BRL"))
+        self.assertEqual(context["servicos"][0]["total_price"], Money("12.50", "BRL"))
+
+    def test_duplicate_product_warning_is_rendered_for_direct_item_present_in_kit(self) -> None:
+        workshop = create_workshop(suffix=86)
+        budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=86)
+        kit = create_kit(workshop=workshop, suffix=861, products=[(product, 2)])
+
+        BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=1)
+
+        rows = _render_budget_items_rows(budget, step6=False)
+
+        self.assertIn("Produto já registrado em um kit", rows["product"])
 
 
 class BudgetSignaturePublicViewTests(TestCase):

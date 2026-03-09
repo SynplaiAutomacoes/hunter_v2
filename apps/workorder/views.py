@@ -150,10 +150,14 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
         elif item.kit:
             kit_items.append(item)
 
+    pricing_snapshot = workorder.pricing_snapshot
+
     return {
         "workorder": workorder,
         "product_items": product_items,
         "service_items": service_items,
+        "summary_product_items": pricing_snapshot.product_lines,
+        "summary_service_items": pricing_snapshot.service_lines,
         "kit_items": kit_items,
         "active_tab": _normalize_active_tab(active_tab),
     }
