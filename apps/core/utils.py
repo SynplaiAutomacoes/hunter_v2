@@ -1,3 +1,5 @@
+import re
+
 from crispy_forms.layout import HTML
 
 
@@ -57,3 +59,11 @@ def alert_confirm_layout(title="Deseja realmente prosseguir?", func_name="custom
         }});
     </script>
     """)
+
+
+def clean_id(value):
+    """Remove pontuação de milhar e espaços de uma string de ID/Índice."""
+    if value is None:
+        return None
+    # Remove qualquer caractere que não seja número (como pontos e espaços)
+    return re.sub(r'\D', '', str(value))
