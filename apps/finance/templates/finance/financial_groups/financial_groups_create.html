@@ -1,0 +1,5 @@
+{% extends 'crud/form_page.html' %}
+
+{% block crud_title %}Novo Grupo Financeiro{% endblock %}
+{% block crud_subtitle %}Cadastre um grupo raiz ou subgrupo para classificar movimentações financeiras.{% endblock %}
+{% block crud_back_url %}{% url 'finance:financial_groups_list' %}{% endblock %}
