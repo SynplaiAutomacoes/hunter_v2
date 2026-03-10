@@ -1,0 +1,34 @@
+<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+    <div>
+        <label for="{{ table_id }}-filter-status">Status</label>
+        <select name="is_active" id="{{ table_id }}-filter-status" class="select select-bordered w-full">
+            <option value="">Todos</option>
+            <option value="1" {% if request.GET.is_active == '1' %}selected{% endif %}>Ativo</option>
+            <option value="0" {% if request.GET.is_active == '0' %}selected{% endif %}>Inativo</option>
+        </select>
+    </div>
+
+    <div>
+        <label for="{{ table_id }}-filter-state">UF</label>
+        <select name="state" id="{{ table_id }}-filter-state" class="select select-bordered w-full">
+            <option value="">Todos</option>
+            {% for value, label in state_choices %}
+                {% if value %}
+                    <option value="{{ value }}" {% if request.GET.state == value %}selected{% endif %}>{{ label }}</option>
+                {% endif %}
+            {% endfor %}
+        </select>
+    </div>
+
+    <div class="sm:col-span-2">
+        <label for="{{ table_id }}-filter-city">Cidade</label>
+        <input
+            type="text"
+            name="city"
+            id="{{ table_id }}-filter-city"
+            value="{{ request.GET.city|default:'' }}"
+            placeholder="Digite a cidade"
+            class="input-theme"
+        />
+    </div>
+</div>
