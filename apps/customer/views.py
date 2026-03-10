@@ -1,5 +1,3 @@
-import json
-
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -10,24 +8,12 @@ from django.views.generic import CreateView, DeleteView, DetailView, ListView, T
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin, BaseModalFormView
 from .forms import QuickCustomerForm, QuickVehicleForm
-from .util import fetch_vehicle_data
+from .util import fetch_vehicle_data, build_vehicle_saved_trigger, build_customer_saved_trigger
 
 from ..core.tables import TableActionDefaults
 from ..core.templatetags.table_tags import TableColumn
 from .forms import CustomerForm, VehicleFormSet
 from .models import Customer, Vehicle
-
-
-def _build_vehicle_saved_trigger(vehicle: Vehicle) -> str:
-    return json.dumps(
-        {
-            "vehicleSaved": {
-                "id": str(vehicle.pk),
-                "label": str(vehicle),
-                "customer_id": str(vehicle.customer_id),
-            }
-        }
-    )
 
 
 class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
@@ -249,7 +235,7 @@ class QuickCustomerCreateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModal
         self.object = customer
 
         response = HttpResponse(status=204)
-        response["HX-Trigger"] = json.dumps({"customerSaved": {"id": str(customer.pk), "name": customer.name}})
+        response["HX-Trigger"] = build_customer_saved_trigger(customer)
         return response
 
 
@@ -271,7 +257,7 @@ class QuickCustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModal
         self.object = customer
 
         response = HttpResponse(status=204)
-        response["HX-Trigger"] = json.dumps({"customerSaved": {"id": str(customer.pk), "name": customer.name}})
+        response["HX-Trigger"] = build_customer_saved_trigger(customer)
         return response
 
 
@@ -302,7 +288,7 @@ class QuickVehicleCreateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalF
         self.object = vehicle
 
         response = HttpResponse(status=204)
-        response["HX-Trigger"] = _build_vehicle_saved_trigger(vehicle)
+        response["HX-Trigger"] = build_vehicle_saved_trigger(vehicle)
         return response
 
 
@@ -324,5 +310,5 @@ class QuickVehicleUpdateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalF
         self.object = vehicle
 
         response = HttpResponse(status=204)
-        response["HX-Trigger"] = _build_vehicle_saved_trigger(vehicle)
+        response["HX-Trigger"] = build_vehicle_saved_trigger(vehicle)
         return response
