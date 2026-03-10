@@ -51,6 +51,47 @@ def get_signed_document_download_url(*, document_id: str) -> str:
     return download_url.strip()
 
 
+def get_supersign_envelope_signed_document_id(*, envelope_id: str) -> str:
+    base_url = settings.SUPERSIGN_BASE_URL.rstrip("/")
+    try:
+        response = requests.get(
+            f"{base_url}/v2/envelopes/{envelope_id}",
+            headers=_supersign_headers(),
+            timeout=20,
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        response_text = exc.response.text if exc.response is not None else ""
+        raise SuperSignGatewayError(f"Erro ao buscar detalhes do envelope: {exc}. Resposta: {response_text}") from exc
+
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise SuperSignGatewayError("Resposta invalida ao buscar detalhes do envelope") from exc
+
+    envelope_status = data.get("status") if isinstance(data, dict) else None
+    documents = data.get("documents") if isinstance(data, dict) else None
+    if not isinstance(documents, list):
+        raise SuperSignGatewayError("Resposta sem documentos do envelope")
+
+    first_document_id = ""
+    for document in documents:
+        if not isinstance(document, dict):
+            continue
+
+        document_id = document.get("id")
+        signed_file_key = document.get("signedFileKey")
+        if not first_document_id and isinstance(document_id, str) and document_id.strip():
+            first_document_id = document_id.strip()
+        if isinstance(document_id, str) and document_id.strip() and isinstance(signed_file_key, str) and signed_file_key.strip():
+            return document_id.strip()
+
+    if envelope_status == "COMPLETED" and first_document_id:
+        return first_document_id
+
+    raise SuperSignGatewayError("Envelope ainda nao possui documento assinado disponivel")
+
+
 def list_supersign_webhooks() -> list[dict[str, Any]]:
     base_url = settings.SUPERSIGN_BASE_URL.rstrip("/")
     try:

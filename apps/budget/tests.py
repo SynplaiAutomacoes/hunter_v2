@@ -148,14 +148,15 @@ class BudgetTotalsConsistencyTests(TestCase):
 
 
 class BudgetSignaturePersistenceTests(TestCase):
-    def test_mark_signature_sent_persists_envelope_id(self) -> None:
+    def test_mark_signature_sent_persists_envelope_and_document_id(self) -> None:
         workshop = create_workshop(suffix=73)
         budget = create_budget(workshop=workshop)
 
-        budget.mark_signature_sent("env-123")
+        budget.mark_signature_sent("env-123", document_id="doc-123")
         budget.refresh_from_db()
 
         self.assertEqual(budget.signature_external_id, "env-123")
+        self.assertEqual(budget.signature_document_id, "doc-123")
 
 
 class BudgetSignatureTokenUrlTests(TestCase):
@@ -457,9 +458,10 @@ class BudgetSignatureInternalPdfTests(TestCase):
     def test_visualizar_pdf_assinatura_returns_signed_pdf_when_available(self, download_signed_mock, active_workshop_mock) -> None:
         workshop = create_workshop(suffix=81)
         budget = create_budget(workshop=workshop)
-        budget.signature_request_status = SignatureStatus.SENT
+        budget.signature_request_status = SignatureStatus.APPROVED
         budget.signature_external_id = "env-81"
-        budget.save(update_fields=["signature_request_status", "signature_external_id"])
+        budget.signature_document_id = "doc-81"
+        budget.save(update_fields=["signature_request_status", "signature_external_id", "signature_document_id"])
 
         active_workshop_mock.return_value = workshop
         download_signed_mock.return_value = b"%PDF-signed"
@@ -470,6 +472,7 @@ class BudgetSignatureInternalPdfTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, b"%PDF-signed")
         self.assertIn("attachment;", response["Content-Disposition"])
+        download_signed_mock.assert_called_once_with(document_id="doc-81", envelope_id="env-81")
 
     @patch("apps.budget.views.pdf_views.get_active_workshop_or_404")
     @patch("apps.budget.views.pdf_views.render_budget_pdf_document")
@@ -477,7 +480,7 @@ class BudgetSignatureInternalPdfTests(TestCase):
     def test_visualizar_pdf_assinatura_falls_back_to_base_pdf(self, download_signed_mock, render_document_mock, active_workshop_mock) -> None:
         workshop = create_workshop(suffix=82)
         budget = create_budget(workshop=workshop)
-        budget.signature_request_status = SignatureStatus.SENT
+        budget.signature_request_status = SignatureStatus.APPROVED
         budget.signature_external_id = "env-82"
         budget.save(update_fields=["signature_request_status", "signature_external_id"])
 
@@ -493,6 +496,7 @@ class BudgetSignatureInternalPdfTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, b"%PDF-base")
         self.assertIn('inline; filename="orcamento_', response["Content-Disposition"])
+        download_signed_mock.assert_called_once_with(document_id=None, envelope_id="env-82")
 
 
 class BudgetSignatureWorkflowTests(TestCase):
@@ -516,6 +520,7 @@ class BudgetSignatureWorkflowTests(TestCase):
         self.assertEqual(toast_type, "success")
         self.assertEqual(budget.signature_request_status, SignatureStatus.SENT)
         self.assertEqual(budget.signature_external_id, "env-83")
+        self.assertEqual(budget.signature_document_id, "doc-83")
         self.assertEqual(redirect_url, reverse("budget:budget_list"))
 
     @patch("apps.budget.views.workflow_views.send_budget_for_signature")

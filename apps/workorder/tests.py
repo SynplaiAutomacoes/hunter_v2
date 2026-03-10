@@ -189,15 +189,16 @@ class WorkOrderSignatureTokenModelTests(TestCase):
 
 
 class WorkOrderSignaturePersistenceTests(TestCase):
-    def test_mark_signature_sent_persists_envelope_id(self) -> None:
+    def test_mark_signature_sent_persists_envelope_and_document_id(self) -> None:
         workshop = create_workshop(suffix=86)
         budget = create_budget(workshop=workshop)
         workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
 
-        workorder.mark_signature_sent("env-123")
+        workorder.mark_signature_sent("env-123", document_id="doc-123")
         workorder.refresh_from_db()
 
         self.assertEqual(workorder.signature_external_id, "env-123")
+        self.assertEqual(workorder.signature_document_id, "doc-123")
         self.assertEqual(workorder.signature_request_status, WorkOrderSignatureStatus.SENT)
         self.assertIsNotNone(workorder.signature_sent_at)
 
@@ -309,9 +310,10 @@ class WorkOrderInternalPdfTests(TestCase):
         workshop = create_workshop(suffix=87)
         budget = create_budget(workshop=workshop)
         workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
-        workorder.signature_request_status = WorkOrderSignatureStatus.SENT
+        workorder.signature_request_status = WorkOrderSignatureStatus.APPROVED
         workorder.signature_external_id = "env-87"
-        workorder.save(update_fields=["signature_request_status", "signature_external_id"])
+        workorder.signature_document_id = "doc-87"
+        workorder.save(update_fields=["signature_request_status", "signature_external_id", "signature_document_id"])
 
         active_workshop_mock.return_value = workshop
         download_signed_mock.return_value = b"%PDF-signed"
@@ -322,6 +324,7 @@ class WorkOrderInternalPdfTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, b"%PDF-signed")
         self.assertIn("attachment;", response["Content-Disposition"])
+        download_signed_mock.assert_called_once_with(document_id="doc-87", envelope_id="env-87")
 
     @patch("apps.workorder.views.get_active_workshop_or_404")
     @patch("apps.workorder.views.render_workorder_pdf_document")
@@ -330,7 +333,7 @@ class WorkOrderInternalPdfTests(TestCase):
         workshop = create_workshop(suffix=88)
         budget = create_budget(workshop=workshop)
         workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
-        workorder.signature_request_status = WorkOrderSignatureStatus.SENT
+        workorder.signature_request_status = WorkOrderSignatureStatus.APPROVED
         workorder.signature_external_id = "env-88"
         workorder.save(update_fields=["signature_request_status", "signature_external_id"])
 
@@ -346,6 +349,7 @@ class WorkOrderInternalPdfTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, b"%PDF-base")
         self.assertIn('inline; filename="ordem_servico_', response["Content-Disposition"])
+        download_signed_mock.assert_called_once_with(document_id=None, envelope_id="env-88")
 
     def test_signature_preview_rejects_inactive_token(self) -> None:
         workshop = create_workshop(suffix=97)

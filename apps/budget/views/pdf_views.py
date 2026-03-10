@@ -178,9 +178,12 @@ def visualizar_pdf_assinatura(request, pk):
     budget = get_object_or_404(Budget.objects.select_related("workshop"), pk=pk, workshop=workshop)
     should_download = request.GET.get("download") == "1"
 
-    if budget.signature_external_id and budget.signature_request_status == SignatureStatus.SENT:
+    if (budget.signature_document_id or budget.signature_external_id) and budget.signature_request_status in {SignatureStatus.SENT, SignatureStatus.APPROVED}:
         try:
-            signed_pdf = download_signed_document_content(document_id=budget.signature_external_id)
+            signed_pdf = download_signed_document_content(
+                document_id=budget.signature_document_id,
+                envelope_id=budget.signature_external_id,
+            )
             return _build_budget_pdf_file_response(
                 budget=budget,
                 download=should_download,
@@ -190,7 +193,11 @@ def visualizar_pdf_assinatura(request, pk):
         except SignatureDeliveryServiceError:
             logger.warning(
                 "Falha ao carregar PDF assinado; retornando PDF base",
-                extra={"budget_id": budget.id, "envelope_id": budget.signature_external_id},
+                extra={
+                    "budget_id": budget.id,
+                    "document_id": budget.signature_document_id,
+                    "envelope_id": budget.signature_external_id,
+                },
             )
 
     try:
