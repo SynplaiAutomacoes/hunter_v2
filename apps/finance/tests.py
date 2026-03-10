@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import Mock, patch
 
+from django.core.exceptions import ValidationError
 from django.contrib.auth.models import Permission
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -17,8 +18,10 @@ from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.kits import Kit, KitProduct
 from apps.catalog.models.products import Product
 from apps.collaborators.models import WorkshopMember
+from apps.finance.forms.financial_group import FinancialGroupForm
 from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm
 from apps.finance.models.finance import TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassSyncState, WebmaniaCompany
+from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.services.emission import NfseEmissionError, _build_taker_payload, _service_total_value, build_webmania_webhook_token, emit_nfse_request
 from apps.finance.services.nfe_emission import _extract_product_lines
 from apps.finance.services.pricing import build_slider_allocation_for_workorder, compute_slider_allocation, distribute_total_proportionally
@@ -1787,3 +1790,108 @@ class WebmaniaCompanySyncFlowTests(TestCase):
 
         response = self.client.post(reverse("finance:webmania_company_sync"))
         self.assertEqual(response.status_code, 403)
+
+
+class FinancialGroupModelTests(TestCase):
+    def test_financial_groups_generate_hierarchical_codes_and_sorting(self) -> None:
+        workshop = create_workshop(suffix=70)
+
+        root = FinancialGroup.objects.create(workshop=workshop, name="Contas fixas")
+        child = FinancialGroup.objects.create(workshop=workshop, parent=root, name="Contas de consumo")
+        grandchild = FinancialGroup.objects.create(workshop=workshop, parent=child, name="Água/Luz/Telefone/Internet")
+        second_root = FinancialGroup.objects.create(workshop=workshop, name="Orçamentos")
+
+        ordered_codes = list(FinancialGroup.objects.filter(workshop=workshop).values_list("code", flat=True))
+
+        self.assertEqual(ordered_codes, ["1", "1.1", "1.1.1", "2"])
+        self.assertEqual(root.level, 1)
+        self.assertEqual(child.level, 2)
+        self.assertEqual(grandchild.level, 3)
+        self.assertEqual(second_root.level, 1)
+        self.assertEqual(str(grandchild), "1.1.1 Água/Luz/Telefone/Internet")
+
+    def test_updating_parent_is_blocked_after_creation(self) -> None:
+        workshop = create_workshop(suffix=71)
+        root = FinancialGroup.objects.create(workshop=workshop, name="Contas fixas")
+        other_root = FinancialGroup.objects.create(workshop=workshop, name="Orçamentos")
+
+        root.parent = other_root
+
+        with self.assertRaisesMessage(ValidationError, "Alterar o grupo pai ainda não é suportado."):
+            root.save()
+
+
+class FinancialGroupFormTests(TestCase):
+    def test_form_rejects_duplicate_name_on_same_level_case_insensitive(self) -> None:
+        workshop = create_workshop(suffix=72)
+        parent = FinancialGroup.objects.create(workshop=workshop, name="Contas fixas")
+        FinancialGroup.objects.create(workshop=workshop, parent=parent, name="Contas de consumo")
+
+        form = FinancialGroupForm(
+            data={"parent": parent.pk, "name": "contas de consumo", "is_active": "on"},
+            workshop=workshop,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("Já existe um grupo ou subgrupo com este nome neste mesmo nível.", form.errors["name"])
+
+    def test_form_disables_parent_field_for_existing_group(self) -> None:
+        workshop = create_workshop(suffix=73)
+        parent = FinancialGroup.objects.create(workshop=workshop, name="Contas fixas")
+        child = FinancialGroup.objects.create(workshop=workshop, parent=parent, name="Contas de consumo")
+
+        form = FinancialGroupForm(instance=child, workshop=workshop)
+
+        self.assertTrue(form.fields["parent"].disabled)
+
+
+class FinancialGroupViewsTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=85)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_list_view_displays_registered_financial_groups(self) -> None:
+        group = FinancialGroup.objects.create(workshop=self.workshop, name="Contas fixas")
+
+        response = self.client.get(reverse("finance:financial_groups_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Grupos Financeiros")
+        self.assertContains(response, group.code)
+        self.assertContains(response, group.name)
+
+    def test_create_view_creates_child_group_with_expected_code(self) -> None:
+        parent = FinancialGroup.objects.create(workshop=self.workshop, name="Contas fixas")
+
+        response = self.client.post(
+            reverse("finance:financial_groups_create"),
+            data={"parent": parent.pk, "name": "Contas de consumo", "is_active": "on"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("finance:financial_groups_list"))
+
+        child = FinancialGroup.objects.get(workshop=self.workshop, name="Contas de consumo")
+        self.assertEqual(child.code, "1.1")
+
+    def test_delete_view_removes_leaf_group(self) -> None:
+        group = FinancialGroup.objects.create(workshop=self.workshop, name="Contas fixas")
+
+        response = self.client.post(reverse("finance:financial_groups_delete", kwargs={"pk": group.pk}))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("finance:financial_groups_list"))
+        self.assertFalse(FinancialGroup.objects.filter(pk=group.pk).exists())
+
+    def test_delete_view_blocks_group_with_children(self) -> None:
+        parent = FinancialGroup.objects.create(workshop=self.workshop, name="Contas fixas")
+        FinancialGroup.objects.create(workshop=self.workshop, parent=parent, name="Contas de consumo")
+
+        response = self.client.post(reverse("finance:financial_groups_delete", kwargs={"pk": parent.pk}))
+
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(FinancialGroup.objects.filter(pk=parent.pk).exists())

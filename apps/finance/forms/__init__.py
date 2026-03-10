@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .financial_group import FinancialGroupForm
 from .nfe import NfeRequestStep1Form, NfeRequestStep2Form, NfeRequestStep3Form
 from .nfse import NfseRequestStep1Form, NfseRequestStep2Form, NfseRequestStep3Form
 from .tax_class import (
@@ -38,6 +39,7 @@ from .webmania import (
 
 
 __all__ = [
+    "FinancialGroupForm",
     "CST_PIS_COFINS_CHOICES",
     "CofinsScenarioForm",
     "CofinsScenarioFormSet",
