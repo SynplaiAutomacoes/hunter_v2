@@ -134,8 +134,24 @@ class SignatureDeliveryServiceTests(SimpleTestCase):
         self.assertEqual(result, b"pdf-assinado")
 
     @patch("apps.core.documents.services.download_signed_document")
+    @patch("apps.core.documents.services.get_supersign_envelope_signed_document_id")
+    def test_download_signed_document_content_resolves_document_id_from_envelope(self, resolve_document_mock, download_mock) -> None:
+        resolve_document_mock.return_value = "doc-2"
+        download_mock.return_value = b"pdf-assinado"
+
+        result = download_signed_document_content(envelope_id="env-2")
+
+        self.assertEqual(result, b"pdf-assinado")
+        resolve_document_mock.assert_called_once_with(envelope_id="env-2")
+        download_mock.assert_called_once_with(document_id="doc-2")
+
+    @patch("apps.core.documents.services.download_signed_document")
     def test_download_signed_document_content_translates_gateway_errors(self, download_mock) -> None:
         download_mock.side_effect = SuperSignGatewayError("boom")
 
         with self.assertRaises(SignatureDeliveryServiceError):
             download_signed_document_content(document_id="doc-1")
+
+    def test_download_signed_document_content_requires_identifier(self) -> None:
+        with self.assertRaises(SignatureDeliveryServiceError):
+            download_signed_document_content()

@@ -46,7 +46,7 @@ def trigger_signature_send_if_needed(*, request, budget: Budget) -> tuple[str, s
         logger.exception("Falha ao enviar orcamento para assinatura", extra={"budget_id": budget.pk})
         return "error", "Falha ao enviar orçamento para assinatura. Tente novamente em instantes.", None
 
-    budget.mark_signature_sent(result.envelope_id)
+    budget.mark_signature_sent(result.envelope_id, document_id=result.document_id)
     return "success", "Orçamento enviado para assinatura do cliente.", reverse("budget:budget_list")
 
 

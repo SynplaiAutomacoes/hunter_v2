@@ -234,7 +234,7 @@ def trigger_workorder_signature_send_if_needed(*, workorder: WorkOrder) -> tuple
         logger.exception("Falha ao enviar ordem de servico para assinatura", extra={"workorder_id": workorder.pk})
         return "error", "Falha ao enviar ordem de serviço para assinatura. Tente novamente em instantes."
 
-    workorder.mark_signature_sent(result.envelope_id)
+    workorder.mark_signature_sent(result.envelope_id, document_id=result.document_id)
     return "success", "Ordem de serviço enviada para assinatura do cliente."
 
 
@@ -833,9 +833,12 @@ def visualizar_pdf_workorder(request, pk):
     workorder = get_object_or_404(WorkOrder.objects.select_related("workshop"), pk=pk, workshop=workshop)
     should_download = request.GET.get("download") == "1"
 
-    if workorder.signature_external_id and workorder.signature_request_status == WorkOrderSignatureStatus.SENT:
+    if (workorder.signature_document_id or workorder.signature_external_id) and workorder.signature_request_status in {WorkOrderSignatureStatus.SENT, WorkOrderSignatureStatus.APPROVED}:
         try:
-            signed_pdf = download_signed_document_content(document_id=workorder.signature_external_id)
+            signed_pdf = download_signed_document_content(
+                document_id=workorder.signature_document_id,
+                envelope_id=workorder.signature_external_id,
+            )
             return _build_workorder_pdf_file_response(
                 workorder=workorder,
                 download=should_download,
@@ -845,7 +848,11 @@ def visualizar_pdf_workorder(request, pk):
         except SignatureDeliveryServiceError:
             logger.warning(
                 "Falha ao carregar PDF assinado da ordem de servico; retornando PDF base",
-                extra={"workorder_id": workorder.id, "envelope_id": workorder.signature_external_id},
+                extra={
+                    "workorder_id": workorder.id,
+                    "document_id": workorder.signature_document_id,
+                    "envelope_id": workorder.signature_external_id,
+                },
             )
 
     try:
