@@ -21,6 +21,7 @@ from apps.budget.fields import DurationField
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.models.kits import Kit
+from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
 from apps.core.documents.contract import DocumentPayload
 from apps.core.documents.http import build_pdf_http_response
@@ -44,6 +45,16 @@ from apps.workshops.util.workshops import get_active_workshop_or_404
 
 logger = logging.getLogger(__name__)
 THOUSAND_SEPARATED_INT_PATTERN = re.compile(r"^\d{1,3}(?:[\s.,]\d{3})+$")
+
+
+WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
+    QueryParamFilter(
+        param_name="status",
+        lookup="status",
+        kind="choice",
+        allowed_values=frozenset(str(status_value) for status_value, _ in WorkOrder.status.field.choices),
+    ),
+)
 
 
 def _get_workorder_for_workshop(workshop, workorder_id: int) -> WorkOrder:
@@ -302,7 +313,7 @@ class WorkOrderListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRes
     htmx_template_name = "workorder/partials/workorder_table.html"
 
     def get_queryset(self):
-        return (
+        queryset = (
             super()
             .get_queryset()
             .select_related("budget", "budget__customer", "budget__vehicle")
@@ -318,8 +329,15 @@ class WorkOrderListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRes
                     .order_by("id"),
                 )
             )
-            .order_by("-criado_em")
         )
+
+        queryset = apply_query_param_filters(
+            queryset,
+            params=self.request.GET,
+            filter_configs=WORKORDER_LIST_FILTERS,
+        )
+
+        return queryset.order_by("-criado_em")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -336,6 +354,7 @@ class WorkOrderListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRes
         context["actions"] = [
             TableActionDefaults.edit("workorder:workorder_detail"),
         ]
+        context["status_choices"] = WorkOrder.status.field.choices
         return context
 
 
