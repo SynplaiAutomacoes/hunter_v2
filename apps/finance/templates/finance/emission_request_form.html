@@ -1,0 +1,16 @@
+{% extends 'crud/page.html' %}
+
+{% block crud_content %}
+    <div class="flex items-center justify-between gap-4">
+        <div>
+            <h1 class="text-3xl font-bold text-base-content">Emissao de nota</h1>
+            <p class="text-base-content/70 mt-1">Fluxo unificado para conferir a OS e emitir NF-e ou NFS-e.</p>
+        </div>
+    </div>
+
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body p-6 md:p-8" id="step-container">
+            {% include 'finance/partials/emission_step_content.html' %}
+        </div>
+    </div>
+{% endblock %}

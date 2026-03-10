@@ -35,6 +35,15 @@ class NfseEmissionError(Exception):
     pass
 
 
+def build_default_service_description_for_workorder(*, workorder: Any) -> str:
+    service_descriptions = [f"{row['quantity']}x {row['description']}" for row in build_nfse_service_preview_rows(workorder=workorder)]
+
+    if service_descriptions:
+        return "; ".join(service_descriptions)
+
+    return f"Prestacao de servico referente a OS #{getattr(workorder, 'pk', '-')}"
+
+
 def _is_debug_enabled() -> bool:
     return bool(getattr(settings, "NFSE_DEBUG_LOGS", True))
 
@@ -307,12 +316,7 @@ def _default_service_description(nfse_request: NfseRequest) -> str:
     if nfse_request.service_description.strip():
         return nfse_request.service_description.strip()
 
-    service_descriptions = [f"{row['quantity']}x {row['description']}" for row in build_nfse_service_preview_rows(workorder=nfse_request.workorder)]
-
-    if service_descriptions:
-        return "; ".join(service_descriptions)
-
-    return f"Prestação de serviço referente à OS #{nfse_request.workorder.pk}"
+    return build_default_service_description_for_workorder(workorder=nfse_request.workorder)
 
 
 def _service_total_value(nfse_request: NfseRequest, *, slider_override: int | None = None) -> str:
