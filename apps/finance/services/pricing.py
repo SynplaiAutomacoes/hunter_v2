@@ -83,16 +83,33 @@ def compute_slider_allocation(*, products_base: Decimal, services_base: Decimal,
     return products_target, services_target
 
 
-def resolve_slider_value_for_workorder(*, workorder: WorkOrder, slider_override: int | None = None) -> int:
+def resolve_slider_value_for_workorder(
+    *,
+    workorder: WorkOrder,
+    persisted_slider: int | None = None,
+    slider_override: int | None = None,
+) -> int:
     if slider_override is not None:
         return max(-100, min(100, int(slider_override)))
+
+    if persisted_slider is not None:
+        return max(-100, min(100, int(persisted_slider)))
 
     budget = getattr(workorder, "budget", None)
     return max(-100, min(100, int(getattr(budget, "slider", 0) or 0)))
 
 
-def build_emission_pricing_snapshot_for_workorder(*, workorder: WorkOrder, slider_override: int | None = None) -> PricingSnapshot:
-    slider_value = resolve_slider_value_for_workorder(workorder=workorder, slider_override=slider_override)
+def build_emission_pricing_snapshot_for_workorder(
+    *,
+    workorder: WorkOrder,
+    persisted_slider: int | None = None,
+    slider_override: int | None = None,
+) -> PricingSnapshot:
+    slider_value = resolve_slider_value_for_workorder(
+        workorder=workorder,
+        persisted_slider=persisted_slider,
+        slider_override=slider_override,
+    )
     return build_pricing_snapshot(
         items=list(workorder._iter_items()),
         slider=slider_value,
@@ -101,9 +118,22 @@ def build_emission_pricing_snapshot_for_workorder(*, workorder: WorkOrder, slide
     )
 
 
-def build_slider_allocation_for_workorder(*, workorder: WorkOrder, slider_override: int | None = None) -> SliderAllocation:
-    slider_value = resolve_slider_value_for_workorder(workorder=workorder, slider_override=slider_override)
-    snapshot = build_emission_pricing_snapshot_for_workorder(workorder=workorder, slider_override=slider_override)
+def build_slider_allocation_for_workorder(
+    *,
+    workorder: WorkOrder,
+    persisted_slider: int | None = None,
+    slider_override: int | None = None,
+) -> SliderAllocation:
+    slider_value = resolve_slider_value_for_workorder(
+        workorder=workorder,
+        persisted_slider=persisted_slider,
+        slider_override=slider_override,
+    )
+    snapshot = build_emission_pricing_snapshot_for_workorder(
+        workorder=workorder,
+        persisted_slider=persisted_slider,
+        slider_override=slider_override,
+    )
 
     total_base = _to_decimal_money(snapshot.total_budget_value)
     products_source = _to_decimal_money(snapshot.total_products_value)

@@ -316,7 +316,11 @@ def _default_service_description(nfse_request: NfseRequest) -> str:
 
 
 def _service_total_value(nfse_request: NfseRequest, *, slider_override: int | None = None) -> str:
-    allocation = build_slider_allocation_for_workorder(workorder=nfse_request.workorder, slider_override=slider_override)
+    allocation = build_slider_allocation_for_workorder(
+        workorder=nfse_request.workorder,
+        persisted_slider=getattr(nfse_request, "pricing_slider", None),
+        slider_override=slider_override,
+    )
     amount = allocation.services_target.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     if amount <= 0:

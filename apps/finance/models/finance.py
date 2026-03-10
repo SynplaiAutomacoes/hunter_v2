@@ -1,11 +1,31 @@
 import logging
 
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from apps.core.models import TimeStampedModel
 
 
 logger = logging.getLogger(__name__)
+
+
+def _default_pricing_slider_from_workorder(*, workorder_id: int | None, workorder: object | None) -> int | None:
+    if workorder is None and workorder_id is None:
+        return None
+
+    resolved_workorder = workorder
+    if resolved_workorder is None:
+        from apps.workorder.models import WorkOrder
+
+        resolved_workorder = WorkOrder.objects.select_related("budget").filter(pk=workorder_id).first()
+        if resolved_workorder is None:
+            return None
+
+    budget = getattr(resolved_workorder, "budget", None)
+    if budget is None:
+        return None
+
+    return int(getattr(budget, "slider", 0) or 0)
 
 
 class BatchStatus(models.TextChoices):
@@ -323,8 +343,23 @@ class NfseRequest(TimeStampedModel):
     workorder = models.ForeignKey("workorder.WorkOrder", verbose_name="Ordem de Serviço", on_delete=models.CASCADE)
     current_step = models.PositiveIntegerField(default=1)
     status = models.CharField(max_length=20, choices=NfseRequestStatus.choices, default=NfseRequestStatus.WAITING_WO)
+    pricing_slider = models.SmallIntegerField(
+        verbose_name="Slider de precificacao",
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(-100), MaxValueValidator(100)],
+        help_text="Copia o slider do orcamento na criacao e permanece independente para a emissao.",
+    )
     service_description = models.TextField(verbose_name="Discriminação do Serviço", blank=True, default="")
     tax_class = models.CharField(verbose_name="Classe de Imposto", max_length=30, default="REF000000")
+
+    def save(self, *args, **kwargs):
+        if self.pk is None and self.pricing_slider is None:
+            default_slider = _default_pricing_slider_from_workorder(workorder_id=self.workorder_id, workorder=getattr(self, "workorder", None))
+            if default_slider is not None:
+                self.pricing_slider = default_slider
+
+        super().save(*args, **kwargs)
 
     def set_status(self, status: NfseRequestStatus):
         self.status = status
@@ -388,7 +423,22 @@ class NfeRequest(TimeStampedModel):
     workorder = models.ForeignKey("workorder.WorkOrder", verbose_name="Ordem de Serviço", on_delete=models.CASCADE)
     current_step = models.PositiveIntegerField(default=1)
     status = models.CharField(max_length=20, choices=NfeRequestStatus.choices, default=NfeRequestStatus.WAITING_WO)
+    pricing_slider = models.SmallIntegerField(
+        verbose_name="Slider de precificacao",
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(-100), MaxValueValidator(100)],
+        help_text="Copia o slider do orcamento na criacao e permanece independente para a emissao.",
+    )
     tax_class = models.CharField(verbose_name="Classe de Imposto", max_length=30, default="REF000000")
+
+    def save(self, *args, **kwargs):
+        if self.pk is None and self.pricing_slider is None:
+            default_slider = _default_pricing_slider_from_workorder(workorder_id=self.workorder_id, workorder=getattr(self, "workorder", None))
+            if default_slider is not None:
+                self.pricing_slider = default_slider
+
+        super().save(*args, **kwargs)
 
     def set_status(self, status: NfeRequestStatus):
         self.status = status
