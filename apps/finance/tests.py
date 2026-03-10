@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
@@ -17,6 +18,7 @@ from apps.accounts.models import Account, User
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.kits import Kit, KitProduct
 from apps.catalog.models.products import Product
+from apps.catalog.models.services import Service
 from apps.collaborators.models import WorkshopMember
 from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm
 from apps.finance.forms.financial_group import FinancialGroupForm
@@ -24,9 +26,9 @@ from apps.finance.forms.payment_method import PaymentMethodForm
 from apps.finance.models.finance import TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassSyncState, WebmaniaCompany
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
-from apps.finance.services.emission import NfseEmissionError, _build_taker_payload, _service_total_value, build_webmania_webhook_token, emit_nfse_request
+from apps.finance.services.emission import NfseEmissionError, _build_taker_payload, _default_service_description, _service_total_value, build_webmania_webhook_token, emit_nfse_request
 from apps.finance.services.nfe_emission import _extract_product_lines
-from apps.finance.services.pricing import build_slider_allocation_for_workorder, compute_slider_allocation, distribute_total_proportionally
+from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder, compute_slider_allocation, distribute_total_proportionally
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
 from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers
 from apps.finance.services.webmania_b2b import (
@@ -592,6 +594,46 @@ class NfseEmissionPayloadTests(TestCase):
 
 
 class SliderPricingAllocationTests(TestCase):
+    def _build_workorder_with_product_and_service(
+        self,
+        *,
+        suffix: int,
+        discount_value: str = "0.00",
+        service_cost: str = "30.00",
+    ) -> tuple[WorkOrder, Budget, BudgetItem]:
+        workshop = create_workshop(suffix=suffix)
+        budget = Budget(workshop=workshop, entry_date=timezone.now().date())
+        budget.save()
+        budget.discount_value = Money(discount_value, "BRL")
+        budget.save(update_fields=["discount_value"])
+
+        product_group = CatalogGroup.objects.create(workshop=workshop, name=f"Grupo Slider {suffix}")
+        product = Product.objects.create(
+            workshop=workshop,
+            code=f"P-SL-{suffix}",
+            unit=Product.Unit.UND,
+            name=f"Produto Slider {suffix}",
+            ncm="87089990",
+            group=product_group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+        )
+        service = Service.objects.create(
+            workshop=workshop,
+            name=f"Servico Slider {suffix}",
+            description="Servico de teste",
+            duration=timedelta(hours=1),
+            suggested_cost=Money(service_cost, "BRL"),
+            selling_price=Money("50.00", "BRL"),
+        )
+
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=1)
+        service_item = BudgetItem.objects.create(workshop=workshop, budget=budget, service=service, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        workorder.sync_from_budget()
+        return workorder, budget, service_item
+
     def test_compute_slider_allocation_transfers_full_service_to_products(self) -> None:
         products_target, services_target = compute_slider_allocation(
             products_base=Decimal("400.00"),
@@ -622,51 +664,48 @@ class SliderPricingAllocationTests(TestCase):
 
         self.assertEqual(distributed, [Decimal("50.00"), Decimal("150.00"), Decimal("300.00")])
 
-    def test_build_slider_allocation_caps_totals_to_budget_final_value(self) -> None:
-        workorder = SimpleNamespace(
-            total_products_value=SimpleNamespace(amount=Decimal("500.00")),
-            total_services_value=SimpleNamespace(amount=Decimal("300.00")),
-            budget=SimpleNamespace(
-                slider=-100,
-                total_budget_value=SimpleNamespace(amount=Decimal("700.00")),
-            ),
-        )
+    def test_build_slider_allocation_uses_workorder_discount_and_budget_margin_rules(self) -> None:
+        workorder, budget, _ = self._build_workorder_with_product_and_service(suffix=91, discount_value="10.00")
+        budget.discount_value = Money("25.00", "BRL")
+        budget.save(update_fields=["discount_value"])
 
-        allocation = build_slider_allocation_for_workorder(workorder=workorder)  # type: ignore[arg-type]
+        allocation = build_slider_allocation_for_workorder(workorder=workorder, slider_override=-100)
 
-        self.assertEqual(allocation.total_base, Decimal("700.00"))
-        self.assertEqual(allocation.products_target, Decimal("700.00"))
-        self.assertEqual(allocation.services_target, Decimal("0.00"))
-        self.assertEqual(allocation.products_target + allocation.services_target, Decimal("700.00"))
+        self.assertEqual(allocation.total_base, Decimal("60.00"))
+        self.assertEqual(allocation.products_base, Decimal("17.14"))
+        self.assertEqual(allocation.services_base, Decimal("42.86"))
+        self.assertEqual(allocation.products_target, Decimal("34.29"))
+        self.assertEqual(allocation.services_target, Decimal("25.71"))
+        self.assertEqual(allocation.products_target + allocation.services_target, Decimal("60.00"))
 
-    def test_nfse_service_total_uses_slider_distribution(self) -> None:
-        workorder = SimpleNamespace(
-            total_products_value=SimpleNamespace(amount=Decimal("400.00")),
-            total_services_value=SimpleNamespace(amount=Decimal("600.00")),
-            budget=SimpleNamespace(
-                slider=-50,
-                total_budget_value=SimpleNamespace(amount=Decimal("1000.00")),
-            ),
-        )
+    def test_nfse_service_total_uses_slider_override_on_workorder_snapshot(self) -> None:
+        workorder, _, _ = self._build_workorder_with_product_and_service(suffix=92)
         nfse_request = SimpleNamespace(workorder=workorder)
 
-        service_total = _service_total_value(nfse_request=nfse_request)  # type: ignore[arg-type]
+        service_total = _service_total_value(nfse_request=nfse_request, slider_override=-100)  # type: ignore[arg-type]
 
-        self.assertEqual(service_total, "300.00")
+        self.assertEqual(service_total, "30.00")
 
-    def test_nfse_service_total_raises_when_slider_100_to_products(self) -> None:
-        workorder = SimpleNamespace(
-            total_products_value=SimpleNamespace(amount=Decimal("400.00")),
-            total_services_value=SimpleNamespace(amount=Decimal("600.00")),
-            budget=SimpleNamespace(
-                slider=-100,
-                total_budget_value=SimpleNamespace(amount=Decimal("1000.00")),
-            ),
-        )
+    def test_nfse_service_total_raises_when_slider_override_exhausts_services(self) -> None:
+        workorder, _, _ = self._build_workorder_with_product_and_service(suffix=93, service_cost="0.00")
         nfse_request = SimpleNamespace(workorder=workorder)
 
         with self.assertRaisesMessage(NfseEmissionError, "nao possui saldo de servicos"):
-            _service_total_value(nfse_request=nfse_request)  # type: ignore[arg-type]
+            _service_total_value(nfse_request=nfse_request, slider_override=-100)  # type: ignore[arg-type]
+
+    def test_nfse_preview_rows_and_default_description_use_workorder_items(self) -> None:
+        workorder, _, service_item = self._build_workorder_with_product_and_service(suffix=94)
+        service_item.description = "Servico alterado no orcamento"
+        service_item.service_selling_price = Money("999.00", "BRL")
+        service_item.save(update_fields=["description", "service_selling_price"])
+
+        rows = build_nfse_service_preview_rows(workorder=workorder)
+        description = _default_service_description(SimpleNamespace(service_description="", workorder=workorder))  # type: ignore[arg-type]
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["description"], "Servico Slider 94")
+        self.assertEqual(rows[0]["total_value"], Decimal("50.00"))
+        self.assertEqual(description, "1x Servico Slider 94")
 
 
 class NfeProductExtractionTests(TestCase):

@@ -12,11 +12,12 @@ import requests
 from django.conf import settings
 from django.core import signing
 from django.db import transaction
+from django.http import HttpRequest
 from django.urls import reverse
 
 from apps.finance.models.finance import NfseBatch, NfseItem, NfseRequest
 from apps.finance.services.mappers import extract_items_from_batch, map_batch_payload, map_item_payload
-from apps.finance.services.pricing import build_slider_allocation_for_workorder
+from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder
 from apps.finance.services.webmania_auth import (
     WebmaniaAuthError,
     build_webmania_headers,
@@ -306,16 +307,7 @@ def _default_service_description(nfse_request: NfseRequest) -> str:
     if nfse_request.service_description.strip():
         return nfse_request.service_description.strip()
 
-    budget = nfse_request.workorder.budget
-    service_descriptions: list[str] = []
-
-    for item in budget.items.select_related("service", "kit").all():
-        if item.service or (item.is_local and item.service_selling_price.amount > 0):
-            service_descriptions.append(f"{item.quantity}x {item.description}")
-            continue
-
-        if item.kit and item.get_kit_services_total().amount > 0:
-            service_descriptions.append(f"{item.quantity}x {item.description} (Serviços do Kit)")
+    service_descriptions = [f"{row['quantity']}x {row['description']}" for row in build_nfse_service_preview_rows(workorder=nfse_request.workorder)]
 
     if service_descriptions:
         return "; ".join(service_descriptions)
@@ -323,8 +315,8 @@ def _default_service_description(nfse_request: NfseRequest) -> str:
     return f"Prestação de serviço referente à OS #{nfse_request.workorder.pk}"
 
 
-def _service_total_value(nfse_request: NfseRequest) -> str:
-    allocation = build_slider_allocation_for_workorder(workorder=nfse_request.workorder)
+def _service_total_value(nfse_request: NfseRequest, *, slider_override: int | None = None) -> str:
+    allocation = build_slider_allocation_for_workorder(workorder=nfse_request.workorder, slider_override=slider_override)
     amount = allocation.services_target.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     if amount <= 0:
@@ -333,7 +325,7 @@ def _service_total_value(nfse_request: NfseRequest) -> str:
     return str(amount)
 
 
-def build_nfse_payload(*, nfse_request: NfseRequest, request=None) -> dict[str, Any]:
+def build_nfse_payload(*, nfse_request: NfseRequest, request: HttpRequest | None = None, slider_override: int | None = None) -> dict[str, Any]:
     ambiente = int(getattr(settings, "WEBMANIA_AMBIENT", "2"))
     notification_url = build_webmania_webhook_url(request=request)
 
@@ -343,7 +335,7 @@ def build_nfse_payload(*, nfse_request: NfseRequest, request=None) -> dict[str, 
         "rps": [
             {
                 "servico": {
-                    "valor_servicos": _service_total_value(nfse_request),
+                    "valor_servicos": _service_total_value(nfse_request, slider_override=slider_override),
                     "discriminacao": _default_service_description(nfse_request),
                     "classe_imposto": nfse_request.tax_class,
                 },
@@ -380,8 +372,8 @@ def build_nfse_payload(*, nfse_request: NfseRequest, request=None) -> dict[str, 
     return payload
 
 
-def emit_nfse_request(*, nfse_request: NfseRequest, request=None) -> dict[str, Any]:
-    payload = build_nfse_payload(nfse_request=nfse_request, request=request)
+def emit_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None = None, slider_override: int | None = None) -> dict[str, Any]:
+    payload = build_nfse_payload(nfse_request=nfse_request, request=request, slider_override=slider_override)
     emit_url = _build_emit_url()
     headers = _build_headers(workshop=nfse_request.workshop)
 
