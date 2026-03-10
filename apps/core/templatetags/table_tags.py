@@ -446,6 +446,9 @@ def render_table(
     search_placeholder: str = "Buscar…",
     actions: Sequence[TableAction] | None = None,
     actions_label: str = "Ações",
+    filter_fields_template: str = "",
+    filter_button_label: str = "Filtro",
+    filter_panel_title: str = "Filtrar resultados",
 ) -> dict[str, Any]:
     """
     Inclusion tag principal para renderizar uma tabela de dados completa.
@@ -467,9 +470,15 @@ def render_table(
         search_placeholder: Placeholder do input de busca.
         actions: Lista de objetos TableAction definindo botões por linha.
         actions_label: Título da coluna de ações.
+        filter_fields_template: Caminho de template opcional para campos de filtro extras.
+        filter_button_label: Texto do botão de abrir painel de filtros.
+        filter_panel_title: Título exibido no painel de filtros.
     """
     request: HttpRequest = context["request"]
     is_htmx = bool(getattr(request, "htmx", False))
+
+    filter_fields_template = (filter_fields_template or "").strip()
+    show_filter_controls = bool(filter_fields_template)
 
     columns = fields
     action_list = actions or []
@@ -529,6 +538,10 @@ def render_table(
         "clear_search_url": clear_search_url,
         "current_sort": sort,
         "sort_options": _build_sort_options(columns=columns, current_sort=sort),
+        "show_filter_controls": show_filter_controls,
+        "filter_fields_template": filter_fields_template,
+        "filter_button_label": filter_button_label,
+        "filter_panel_title": filter_panel_title,
         "htmx_target": f"#{table_id}-content",
         "htmx_select": f"#{table_id}-content",
         "htmx_swap": "outerHTML",

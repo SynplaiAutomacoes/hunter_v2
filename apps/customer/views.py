@@ -37,19 +37,30 @@ class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
     htmx_template_name = "customer/partials/customer_table.html"
 
     def get_queryset(self):
-        queryset = super().get_queryset().order_by("-criado_em")
+        queryset = super().get_queryset()
 
         search_query = self.request.GET.get("q", "").strip()
 
         if search_query:
-            queryset = queryset.filter(Q(name__icontains=search_query) |
-                                       Q(fantasy_name__icontains=search_query) |
-                                       Q(cpf_or_cnpj__icontains=search_query) |
-                                       Q(phone__icontains=search_query) |
-                                       Q(rg__icontains=search_query) |
-                                       Q(email__icontains=search_query))
+            queryset = queryset.filter(Q(name__icontains=search_query) | Q(fantasy_name__icontains=search_query) | Q(cpf_or_cnpj__icontains=search_query) | Q(phone__icontains=search_query) | Q(rg__icontains=search_query) | Q(email__icontains=search_query))
 
-        return queryset
+        customer_type = str(self.request.GET.get("customer_type") or "").strip().upper()
+        if customer_type in {"PF", "PJ"}:
+            queryset = queryset.filter(customer_type=customer_type)
+
+        is_active = str(self.request.GET.get("is_active") or "").strip()
+        if is_active in {"0", "1"}:
+            queryset = queryset.filter(is_active=is_active == "1")
+
+        city = str(self.request.GET.get("city") or "").strip()
+        if city:
+            queryset = queryset.filter(cidade__icontains=city)
+
+        state = str(self.request.GET.get("state") or "").strip().upper()
+        if state:
+            queryset = queryset.filter(estado__iexact=state)
+
+        return queryset.order_by("-criado_em")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -65,6 +76,8 @@ class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
             TableActionDefaults.edit("customer:customer_update"),
             TableActionDefaults.delete("customer:customer_delete"),
         ]
+
+        context["state_choices"] = Customer.estado.field.choices
 
         return context
 
