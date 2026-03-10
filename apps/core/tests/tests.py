@@ -441,6 +441,33 @@ class TestRenderTableTag(TestCase):
         self.assertNotIn("@submit.window", html)
         self.assertNotIn("requestSubmit()", html)
 
+    def test_filter_overlay_template_receives_parent_context_variables(self):
+        request = self.factory.get("/workshops/")
+        template = Template(
+            """
+            {% load table_tags %}
+            {% render_table workshops fields table_id='t' per_page=10 filter_fields_template='budget/partials/budget_filters_fields.html' filter_param_names='status' %}
+            """
+        )
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "workshops": Workshop.objects.none(),
+                    "fields": [TableColumn(label="Nome", attr="name")],
+                    "status_choices": [
+                        ("draft", "Em Aberto"),
+                        ("approved", "Aprovado"),
+                    ],
+                }
+            )
+        )
+
+        self.assertIn('value="draft"', html)
+        self.assertIn("Em Aberto", html)
+        self.assertIn('value="approved"', html)
+        self.assertIn("Aprovado", html)
+
     def test_render_table_clear_filter_url_removes_only_filter_params(self):
         request = self.factory.get("/workshops/?q=Oficina&sort=name&page=3&city=Campinas&state=SP")
 

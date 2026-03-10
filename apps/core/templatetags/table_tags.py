@@ -455,9 +455,23 @@ def _normalize_filter_param_names(filter_param_names: str | Sequence[str] | None
     return normalized
 
 
+def _copy_parent_context(context: Any) -> dict[str, Any]:
+    """
+    Copia o contexto pai para manter variáveis extras no inclusion tag.
+
+    Quando chamado a partir de templates Django, `context` é um `Context`
+    e precisa ser achatado com `.flatten()`. Em testes diretos, pode ser um
+    dicionário simples.
+    """
+    flatten = getattr(context, "flatten", None)
+    if callable(flatten):
+        return dict(flatten())
+    return dict(context)
+
+
 @register.inclusion_tag("tables/main_table.html", takes_context=True)
 def render_table(
-    context: dict[str, Any],
+    context: Any,
     queryset: QuerySet[Any],
     fields: Sequence[TableColumn],
     *,
@@ -502,7 +516,8 @@ def render_table(
         filter_param_names: Nomes dos parâmetros GET usados pelos filtros extras.
             Pode ser string separada por vírgula (ex.: "city,state") ou sequência.
     """
-    request: HttpRequest = context["request"]
+    parent_context = _copy_parent_context(context)
+    request: HttpRequest = parent_context["request"]
     is_htmx = bool(getattr(request, "htmx", False))
 
     filter_fields_template = (filter_fields_template or "").strip()
@@ -551,6 +566,7 @@ def render_table(
     colspan = len(rendered_columns) + (1 if selectable else 0) + (1 if has_actions else 0)
 
     return {
+        **parent_context,
         "request": request,
         "is_htmx": is_htmx,
         "table_id": table_id,
