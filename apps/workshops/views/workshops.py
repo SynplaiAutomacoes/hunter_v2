@@ -6,7 +6,6 @@ import logging
 from typing import Any, cast
 
 from django import forms
-from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
@@ -23,6 +22,7 @@ from apps.collaborators.models import WorkshopMember
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
+from apps.core.webmania.util import to_public_integration_message, is_webmania_homolog_environment, latest_sync_error, get_webmania_context_meta, has_webmania_change_perm, save_company_sync_metadata, sync_workshop_from_company
 from apps.finance.models.finance import WebmaniaCompany
 from apps.finance.services.webmania_b2b import (
     WebmaniaB2BServiceError,
@@ -51,40 +51,12 @@ from apps.workshops.util.workshops import has_workshop_perm, is_workshop_directo
 logger = logging.getLogger(__name__)
 
 
-def _is_webmania_homolog_environment() -> bool:
-    raw_value = getattr(settings, "WEBMANIA_AMBIENT", "2")
-    try:
-        return int(str(raw_value).strip()) == 2
-    except (TypeError, ValueError):
-        return False
-
-
-def _to_public_integration_message(raw_message: object) -> str:
-    normalized_message = str(raw_message or "").strip()
-    if not normalized_message:
-        return "Nao foi possivel concluir a operacao de integracao."
-
-    return normalized_message.replace("WEBMANIA", "integracao").replace("Webmania", "integracao").replace("webmania", "integracao")
-
-
 # TODO: Não permitir nome igual de oficina
 class WorkshopCreateView(LoginRequiredMixin, CreateView):
     model = Workshop
     form_class = WorkshopForm
     template_name = "workshops/workshop_create.html"
     success_url = reverse_lazy("workshops:list")
-
-    @staticmethod
-    def _latest_sync_error(companies: list[WebmaniaCompany]) -> str:
-        candidates = [company for company in companies if str(company.last_sync_error or "").strip()]
-        if not candidates:
-            return ""
-
-        latest = max(
-            candidates,
-            key=lambda company: company.last_sync_at or company.atualizado_em or company.criado_em,
-        )
-        return str(latest.last_sync_error or "").strip()
 
     def _reference_workshop_for_permission(self):
         user_account_id = getattr(self.request.user, "account_id", None)
@@ -99,45 +71,14 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
 
         return Workshop.objects.filter(account_id=user_account_id).order_by("criado_em", "pk").first()
 
-    def _can_sync_webmania_companies(self) -> bool:
-        user = cast(Any, self.request.user)
-        user_account = getattr(user, "account", None)
-        if getattr(user_account, "owner_id", None) == getattr(user, "id", None):
-            return True
-
-        reference_workshop = self._reference_workshop_for_permission()
-        return bool(reference_workshop) and has_workshop_perm(
-            user=user,
-            workshop=reference_workshop,
-            app_label=WebmaniaCompany._meta.app_label,
-            model=str(WebmaniaCompany._meta.model_name),
-            codename="change_webmaniacompany",
-            request=self.request,
-        )
-
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        u_acc_id = getattr(self.request.user, "account_id", None)
 
-        user_account_id = getattr(self.request.user, "account_id", None)
-        account_companies = []
-        if user_account_id is not None:
-            account_companies = list(WebmaniaCompany.objects.filter(workshop__account_id=user_account_id).exclude(webmania_company_id="").select_related("workshop"))
-        sync_candidates = [company.last_sync_at for company in account_companies if company.last_sync_at is not None]
-        latest_sync_at = max(sync_candidates) if sync_candidates else None
+        context.update(get_webmania_context_meta(u_acc_id))
 
-        is_webmania_homolog_environment = _is_webmania_homolog_environment()
-        latest_sync_error = self._latest_sync_error(account_companies)
-
-        context.update(
-            {
-                "webmania_company_count": len(account_companies),
-                "webmania_last_sync_at": latest_sync_at,
-                "webmania_last_sync_error": _to_public_integration_message(latest_sync_error) if latest_sync_error else "",
-                "can_sync_webmania_companies": self._can_sync_webmania_companies() and is_webmania_homolog_environment,
-                "is_webmania_homolog_environment": is_webmania_homolog_environment,
-            }
-        )
-
+        ref_w = self._reference_workshop_for_permission()
+        context.update({"can_sync_webmania_companies": has_webmania_change_perm(self.request.user, ref_w, self.request) and is_webmania_homolog_environment(), "is_webmania_homolog_environment": is_webmania_homolog_environment()})
         return context
 
     def dispatch(self, request, *args, **kwargs):
@@ -196,7 +137,7 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
                 getattr(user, "id", None),
                 getattr(user_account, "id", None),
             )
-            form.add_error(None, _to_public_integration_message(str(exc)))
+            form.add_error(None, to_public_integration_message(str(exc)))
             self.object = None
             return self.form_invalid(form)
 
@@ -399,7 +340,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
         return f"{reverse('workshops:update', kwargs={'pk': self.object.pk})}?tab={tab}&nf_tab={nf_subtab}"
 
     def _save_company_sync_metadata(self, *, error: str = "") -> None:
-        normalized_error = _to_public_integration_message(error) if str(error or "").strip() else ""
+        normalized_error = to_public_integration_message(error) if str(error or "").strip() else ""
         self.company.last_sync_at = timezone.now() if not error else self.company.last_sync_at
         self.company.last_sync_error = normalized_error
 
@@ -409,33 +350,6 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
 
         self.company.save(update_fields=update_fields)
 
-    def _sync_workshop_summary_from_company(self, *, sync_name: bool = False, sync_address: bool = False) -> None:
-        update_fields: list[str] = []
-
-        if sync_name:
-            workshop_name = str(self.company.razao_social or self.company.nome_completo or "").strip()
-            if workshop_name and self.object.name != workshop_name:
-                self.object.name = workshop_name
-                update_fields.append("name")
-
-        if sync_address:
-            address_parts = [
-                str(self.company.endereco or "").strip(),
-                str(self.company.numero or "").strip(),
-                str(self.company.complemento or "").strip(),
-            ]
-            normalized_address = ", ".join(part for part in address_parts if part)
-            if normalized_address and self.object.address != normalized_address:
-                self.object.address = normalized_address
-                update_fields.append("address")
-
-            normalized_uf = str(self.company.uf or "").strip().upper()
-            if len(normalized_uf) == 2 and self.object.uf != normalized_uf:
-                self.object.uf = normalized_uf
-                update_fields.append("uf")
-
-        if update_fields:
-            self.object.save(update_fields=update_fields)
 
     def _save_company_tab_form(
         self,
@@ -470,8 +384,8 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             if payload:
                 update_webmania_company(company=self.company, payload=payload)
         except WebmaniaB2BServiceError as exc:
-            public_message = _to_public_integration_message(str(exc))
-            self._save_company_sync_metadata(error=public_message)
+            public_message = to_public_integration_message(str(exc))
+            save_company_sync_metadata(self.company, error=str(exc))
             logger.warning(
                 "workshop_update_tab_sync_failed workshop_id=%s tab=%s error=%s user_id=%s",
                 getattr(self.object, "pk", None),
@@ -487,10 +401,8 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
 
         with transaction.atomic():
             self.company = form.save(commit=True)
-            self.company.last_sync_error = ""
-            self.company.last_sync_at = timezone.now()
-            self.company.save(update_fields=["last_sync_error", "last_sync_at"])
-            self._sync_workshop_summary_from_company(sync_name=sync_name, sync_address=sync_address)
+            save_company_sync_metadata(self.company, error="")
+            sync_workshop_from_company(self.object, self.company, sync_name=sync_name, sync_address=sync_address)
 
         if not payload:
             messages.success(self.request, "Dados locais atualizados com sucesso.")
@@ -592,7 +504,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
         try:
             update_webmania_company(company=self.company, payload=payload)
         except WebmaniaB2BServiceError as exc:
-            public_message = _to_public_integration_message(str(exc))
+            public_message = to_public_integration_message(str(exc))
             self._save_company_sync_metadata(error=public_message)
             logger.warning(
                 "workshop_certificate_sync_failed workshop_id=%s error=%s user_id=%s",
@@ -750,18 +662,6 @@ class WorkshopListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):
             .order_by("-criado_em")
         )
 
-    @staticmethod
-    def _latest_sync_error(companies: list[WebmaniaCompany]) -> str:
-        candidates = [company for company in companies if str(company.last_sync_error or "").strip()]
-        if not candidates:
-            return ""
-
-        latest = max(
-            candidates,
-            key=lambda company: company.last_sync_at or company.atualizado_em or company.criado_em,
-        )
-        return str(latest.last_sync_error or "").strip()
-
     def _reference_workshop_for_permission(self):
         user_account_id = getattr(self.request.user, "account_id", None)
         active_workshop_id = self.request.session.get("active_workshop_id")
@@ -810,18 +710,10 @@ class WorkshopListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):
             request=self.request,
         )
 
-        is_webmania_homolog_environment = _is_webmania_homolog_environment()
-        latest_sync_error = self._latest_sync_error(account_companies)
-
-        context.update(
-            {
-                "webmania_company_count": len(account_companies),
-                "webmania_last_sync_at": latest_sync_at,
-                "webmania_last_sync_error": _to_public_integration_message(latest_sync_error) if latest_sync_error else "",
-                "can_sync_webmania_companies": can_sync_webmania_companies and is_webmania_homolog_environment,
-                "is_webmania_homolog_environment": is_webmania_homolog_environment,
-            }
-        )
+        context.update({"webmania_company_count": len(account_companies), "webmania_last_sync_at": latest_sync_at,
+                "webmania_last_sync_error": to_public_integration_message(latest_sync_error(account_companies)) if latest_sync_error(account_companies) else "",
+                "can_sync_webmania_companies": can_sync_webmania_companies and is_webmania_homolog_environment(),
+                "is_webmania_homolog_environment": is_webmania_homolog_environment()})
 
         return context
 
@@ -892,7 +784,7 @@ class WorkshopWebmaniaSyncView(LoginRequiredMixin, View):
         return super().dispatch(request, *args, **kwargs)
 
     def post(self, request, *args, **kwargs):
-        if not _is_webmania_homolog_environment():
+        if not is_webmania_homolog_environment():
             messages.error(request, "A sincronizacao manual esta disponivel apenas em ambiente de homologacao.")
             return self._redirect_after_sync(request)
 
@@ -903,7 +795,7 @@ class WorkshopWebmaniaSyncView(LoginRequiredMixin, View):
                 force_global_auth=True,
             )
         except WebmaniaB2BServiceError as exc:
-            messages.error(request, _to_public_integration_message(str(exc)))
+            messages.error(request, to_public_integration_message(str(exc)))
         else:
             self._set_active_workshop_from_synced_companies(request=request, synced_companies=synced_companies)
             synced_count = len(synced_companies)
@@ -978,7 +870,7 @@ class WorkshopEmissionHistoryView(LoginRequiredMixin, DirectorWorkshopAccessMixi
         try:
             request_payload = get_b2b_requests(month=month, year=year, workshop=self.workshop)
         except WebmaniaB2BServiceError as exc:
-            messages.error(self.request, _to_public_integration_message(str(exc)))
+            messages.error(self.request, to_public_integration_message(str(exc)))
             total_notas_processadas = 0
             request_rows: list[dict[str, str]] = []
         else:

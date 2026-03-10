@@ -1,5 +1,10 @@
+import json
 import requests
 import os
+
+from apps.customer.models import Vehicle, Customer
+
+
 def fetch_vehicle_data(plate):
     token = os.getenv('token_vehicle_api')
     url = f"https://wdapi2.com.br/consulta/{plate}/{token}"
@@ -34,3 +39,11 @@ def fetch_vehicle_data(plate):
         return vehicle_info
     except Exception:
         return None
+
+
+def build_vehicle_saved_trigger(vehicle: Vehicle) -> str:
+    return json.dumps({"vehicleSaved": {"id": str(vehicle.pk), "label": str(vehicle), "customer_id": str(vehicle.customer_id)}})
+
+
+def build_customer_saved_trigger(customer: Customer) -> str:
+    return json.dumps({"customerSaved": {"id": str(customer.pk), "name": customer.name}})

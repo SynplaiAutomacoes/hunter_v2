@@ -1,6 +1,3 @@
-import json
-from itertools import zip_longest
-
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.http import HttpResponse
@@ -16,37 +13,7 @@ from apps.workshops.mixin import WorkshopScopedMixin
 
 from .forms import ChecklistForm
 from .models import Checklist, ChecklistItem
-
-VALID_RESPONSE_TYPES = {choice[0] for choice in ChecklistItem.TIPO_RESPOSTA_CHOICES}
-
-
-def _extract_checklist_items(post_data):
-    agrupamentos = post_data.getlist("agrupamento")
-    descricoes = post_data.getlist("descricao")
-    tipos = post_data.getlist("tipo_resposta")
-
-    parsed_items = []
-    for group, description, response_type in zip_longest(agrupamentos, descricoes, tipos, fillvalue=""):
-        cleaned_group = (group or "").strip()
-        cleaned_description = (description or "").strip()
-        cleaned_response_type = (response_type or "").strip()
-
-        if not cleaned_description:
-            continue
-        if not cleaned_group:
-            raise ValueError("Todos os itens devem possuir um agrupamento.")
-        if cleaned_response_type not in VALID_RESPONSE_TYPES:
-            continue
-
-        parsed_items.append(
-            {
-                "group": cleaned_group,
-                "description": cleaned_description,
-                "response_type": cleaned_response_type,
-            }
-        )
-
-    return parsed_items
+from .util import extract_checklist_items, VALID_RESPONSE_TYPES, build_showtoast_trigger
 
 
 class ChecklistListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
@@ -79,7 +46,7 @@ class ChecklistCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
 
     def form_valid(self, form):
         try:
-            checklist_items = _extract_checklist_items(self.request.POST)
+            checklist_items = extract_checklist_items(self.request.POST)
         except ValueError as error:
             form.add_error(None, str(error))
             return self.form_invalid(form)
@@ -111,7 +78,7 @@ class ChecklistUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
 
     def form_valid(self, form):
         try:
-            checklist_items = _extract_checklist_items(self.request.POST)
+            checklist_items = extract_checklist_items(self.request.POST)
         except ValueError as error:
             form.add_error(None, str(error))
             return self.form_invalid(form)
@@ -150,38 +117,17 @@ class AddChecklistItemRowView(LoginRequiredMixin, View):
 
         if not group:
             response = HttpResponse("", status=200)
-            response["HX-Trigger"] = json.dumps(
-                {
-                    "showToast": {
-                        "type": "warning",
-                        "message": "Informe o agrupamento antes de adicionar ao checklist.",
-                    }
-                }
-            )
+            response["HX-Trigger"] = build_showtoast_trigger("warning", "Informe o agrupamento antes de adicionar ao checklist.")
             return response
 
         if not description:
             response = HttpResponse("", status=200)
-            response["HX-Trigger"] = json.dumps(
-                {
-                    "showToast": {
-                        "type": "warning",
-                        "message": "Informe o item antes de adicionar ao checklist.",
-                    }
-                }
-            )
+            response["HX-Trigger"] = build_showtoast_trigger("warning", "Informe o item antes de adicionar ao checklist.")
             return response
 
         if response_type not in VALID_RESPONSE_TYPES:
             response = HttpResponse("", status=200)
-            response["HX-Trigger"] = json.dumps(
-                {
-                    "showToast": {
-                        "type": "warning",
-                        "message": "Selecione um tipo de resposta valido para o item.",
-                    }
-                }
-            )
+            response["HX-Trigger"] = build_showtoast_trigger("warning", "Selecione um tipo de resposta valido para o item.")
             return response
 
         response_type_display = dict(ChecklistItem.TIPO_RESPOSTA_CHOICES).get(response_type)
