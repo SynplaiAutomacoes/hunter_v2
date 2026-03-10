@@ -5,6 +5,7 @@ from decimal import Decimal
 from urllib.parse import urlparse
 from unittest.mock import PropertyMock, patch
 
+import requests
 from django.http import Http404, HttpResponse
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
@@ -554,9 +555,43 @@ class SuperSignDownloadUrlTests(TestCase):
         self.assertEqual(download_url, "https://files.example.com/signed.pdf")
         requests_get.assert_called_once()
         _, kwargs = requests_get.call_args
+        self.assertEqual(kwargs["params"], {"type": "signed"})
         self.assertIn("headers", kwargs)
         self.assertEqual(kwargs["headers"]["x-account-id"], "acc-1")
-        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer secret")
+        self.assertNotIn("Authorization", kwargs["headers"])
+
+    @patch("apps.core.documents.gateways.supersign.requests.get")
+    def test_retries_with_authorization_when_download_endpoint_requires_jwt(self, requests_get) -> None:
+        unauthorized_response = requests.Response()
+        unauthorized_response.status_code = 401
+        unauthorized_response._content = b'{"error":{"code":"MISSING_JWT","message":"JSON Web Token is missing"}}'
+
+        authorized_response = requests.Response()
+        authorized_response.status_code = 200
+        authorized_response._content = b'{"downloadUrl": "https://files.example.com/signed.pdf"}'
+
+        requests_get.side_effect = [
+            requests.HTTPError("missing jwt", response=unauthorized_response),
+            authorized_response,
+        ]
+
+        authorized_response.raise_for_status = lambda: None
+
+        with self.settings(
+            SUPERSIGN_BASE_URL="https://api.sign.supersign.com.br",
+            SUPERSIGN_ACCOUNT_ID="acc-1",
+            SUPERSIGN_API_KEY="secret",
+        ):
+            download_url = get_signed_document_url(document_id="doc-999")
+
+        self.assertEqual(download_url, "https://files.example.com/signed.pdf")
+        self.assertEqual(requests_get.call_count, 2)
+        first_call = requests_get.call_args_list[0].kwargs
+        second_call = requests_get.call_args_list[1].kwargs
+        self.assertEqual(first_call["params"], {"type": "signed"})
+        self.assertEqual(second_call["params"], {"type": "signed"})
+        self.assertNotIn("Authorization", first_call["headers"])
+        self.assertEqual(second_call["headers"]["Authorization"], "Bearer secret")
 
     @patch("apps.core.documents.gateways.supersign.requests.get")
     def test_raises_when_download_url_is_missing(self, requests_get) -> None:

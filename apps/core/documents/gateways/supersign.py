@@ -26,18 +26,36 @@ def _supersign_headers() -> dict[str, str]:
     }
 
 
+def _supersign_download_headers(*, include_authorization: bool) -> dict[str, str]:
+    headers = {"x-account-id": settings.SUPERSIGN_ACCOUNT_ID}
+    if include_authorization:
+        headers["Authorization"] = f"Bearer {settings.SUPERSIGN_API_KEY}"
+    return headers
+
+
 def get_signed_document_download_url(*, document_id: str) -> str:
     base_url = settings.SUPERSIGN_BASE_URL.rstrip("/")
-    try:
-        response = requests.get(
-            f"{base_url}/v2/documents/{document_id}/download",
-            headers=_supersign_headers(),
-            timeout=20,
-        )
-        response.raise_for_status()
-    except requests.RequestException as exc:
-        response_text = exc.response.text if exc.response is not None else ""
-        raise SuperSignGatewayError(f"Erro ao buscar downloadUrl do documento assinado: {exc}. Resposta: {response_text}") from exc
+    last_exception: requests.RequestException | None = None
+
+    for include_authorization in (False, True):
+        try:
+            response = requests.get(
+                f"{base_url}/v2/documents/{document_id}/download",
+                headers=_supersign_download_headers(include_authorization=include_authorization),
+                params={"type": "signed"},
+                timeout=20,
+            )
+            response.raise_for_status()
+            break
+        except requests.RequestException as exc:
+            last_exception = exc
+            status_code = exc.response.status_code if exc.response is not None else None
+            if status_code not in {401, 403} or include_authorization:
+                response_text = exc.response.text if exc.response is not None else ""
+                raise SuperSignGatewayError(f"Erro ao buscar downloadUrl do documento assinado: {exc}. Resposta: {response_text}") from exc
+    else:
+        response_text = last_exception.response.text if last_exception is not None and last_exception.response is not None else ""
+        raise SuperSignGatewayError(f"Erro ao buscar downloadUrl do documento assinado: {last_exception}. Resposta: {response_text}") from last_exception
 
     try:
         data = response.json()
