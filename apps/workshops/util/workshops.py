@@ -45,6 +45,9 @@ def has_workshop_perm(*, user: User, workshop: Workshop, app_label: str, model: 
     if getattr(workshop, "account_id", None) != getattr(user, "account_id", None):
         return False
 
+    if is_workshop_director(user=user, workshop=workshop, request=request):
+        return True
+
     workshop_id = getattr(workshop, "id", None)
     permission_key = (workshop_id, app_label, model, codename)
     cache: dict[tuple[object, ...], bool] | None = None
