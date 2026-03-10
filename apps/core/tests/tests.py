@@ -437,7 +437,8 @@ class TestRenderTableTag(TestCase):
 
         self.assertIn('id="t-controls-form"', html)
         self.assertIn('type="submit"', html)
-        self.assertIn('@submit.window="if ($event.target && $event.target.id === controlsFormId) open = false"', html)
+        self.assertIn('@htmx:beforeRequest.window="if ($event.detail && $event.detail.elt && $event.detail.elt.id === controlsFormId) open = false"', html)
+        self.assertNotIn("@submit.window", html)
         self.assertNotIn("requestSubmit()", html)
 
     def test_render_table_clear_filter_url_removes_only_filter_params(self):
