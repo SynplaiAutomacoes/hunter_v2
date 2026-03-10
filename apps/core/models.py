@@ -15,8 +15,8 @@ class Address(models.Model):
     logradouro = models.CharField(verbose_name="Logradouro", max_length=225, default="")
     numero = models.PositiveIntegerField(verbose_name="Número", default=1)
     complemento = models.CharField(verbose_name="Complemento", max_length=255, null=True, blank=True)
-    bairro = models.CharField(verbose_name="Bairro", max_length=20, default="")
-    cidade = models.CharField(verbose_name="Cidade", max_length=20, default="")
+    bairro = models.CharField(verbose_name="Bairro", max_length=255, default="")
+    cidade = models.CharField(verbose_name="Cidade", max_length=255, default="")
     estado = BRStateField(verbose_name="Estado", default="")
 
     class Meta:
