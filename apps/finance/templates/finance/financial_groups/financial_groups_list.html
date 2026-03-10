@@ -1,0 +1,16 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Grupos Financeiros{% endblock %}
+{% block crud_subtitle %}Organize grupos e subgrupos financeiros da oficina em uma hierarquia reutilizável.{% endblock %}
+
+{% block crud_header_actions %}
+    <a href="{% url 'finance:financial_groups_create' %}" class="btn btn-primary">Novo Grupo Financeiro</a>
+{% endblock %}
+
+{% block crud_table_wrapper_id %}financial-groups-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'finance:financial_groups_list' %}{% endblock %}
+{% block crud_table_hx_trigger %}financial-groups-table-refresh from:body{% endblock %}
+
+{% block crud_table %}
+    {% include 'finance/partials/financial_groups/financial_groups_table.html' %}
+{% endblock %}
