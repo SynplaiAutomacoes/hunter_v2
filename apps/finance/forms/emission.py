@@ -7,6 +7,7 @@ from typing import Any
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
+from django.urls import reverse
 
 from apps.core.widgets import SelectInput, TextareaInput
 from apps.finance.services.emission import build_default_service_description_for_workorder
@@ -32,7 +33,8 @@ def _format_money(value: Any) -> str:
 
 def _coerce_slider(value: object, default: int = 0) -> int:
     try:
-        return max(-100, min(100, int(value if value not in (None, "") else default)))
+        slider_source = default if value in (None, "") else str(value)
+        return max(-100, min(100, int(slider_source)))
     except (TypeError, ValueError):
         return max(-100, min(100, int(default)))
 
@@ -266,6 +268,15 @@ class EmissionStep4Form(forms.Form):
         note_type_field = self.fields["note_type"]
         note_type_field.choices = list(note_type_choices)
         note_type_field.widget = SelectInput(choices=list(note_type_choices))
+        note_type_field.widget.attrs.update(
+            {
+                "hx-get": reverse("finance:emission_preview"),
+                "hx-trigger": "change",
+                "hx-target": "#emission-step4-body",
+                "hx-swap": "outerHTML",
+                "hx-include": "#emission-form",
+            }
+        )
         note_type_field.help_text = "Escolha se a emissao sera de produto ou de servico."
 
         slider_field = self.fields["pricing_slider"]
@@ -275,8 +286,12 @@ class EmissionStep4Form(forms.Form):
                 "min": "-100",
                 "max": "100",
                 "step": "1",
-                "class": "range range-primary",
-                "oninput": "document.getElementById('emission-slider-value').textContent = this.value",
+                "class": "w-full centered-range emission-centered-range",
+                "hx-get": reverse("finance:emission_preview"),
+                "hx-trigger": "input changed delay:250ms",
+                "hx-target": "#emission-step4-body",
+                "hx-swap": "outerHTML",
+                "hx-include": "#emission-form",
             }
         )
         slider_field.help_text = "Negativo prioriza produtos. Positivo prioriza servicos."
@@ -293,7 +308,13 @@ class EmissionStep4Form(forms.Form):
 
         current_tax_class = str(self.data.get("tax_class") if self.is_bound else self.initial.get("tax_class", "") or "").strip()
         if self._valid_tax_class_refs and current_tax_class not in self._valid_tax_class_refs:
-            self.initial["tax_class"] = next(iter(self._valid_tax_class_refs))
+            replacement_tax_class = next(iter(self._valid_tax_class_refs))
+            if self.is_bound:
+                mutable_data = self.data.copy()
+                mutable_data["tax_class"] = replacement_tax_class
+                self.data = mutable_data
+            else:
+                self.initial["tax_class"] = replacement_tax_class
 
         default_service_description = "Prestacao de servico"
         if workorder is not None:
@@ -301,8 +322,14 @@ class EmissionStep4Form(forms.Form):
 
         if selected_note_type == "nfse":
             self.fields["service_description"].required = True
-            if not self.initial.get("service_description"):
-                self.initial["service_description"] = default_service_description
+            current_service_description = str(self.data.get("service_description") if self.is_bound else self.initial.get("service_description") or "").strip()
+            if not current_service_description:
+                if self.is_bound:
+                    mutable_data = self.data.copy()
+                    mutable_data["service_description"] = default_service_description
+                    self.data = mutable_data
+                else:
+                    self.initial["service_description"] = default_service_description
         else:
             self.fields["service_description"].required = False
 
@@ -318,6 +345,8 @@ class EmissionStep4Form(forms.Form):
                 complementary_label = "Saldo NFS-e (servicos)"
                 total_to_emit = _format_money(allocation.products_target)
                 complementary_total = _format_money(allocation.services_target)
+                if allocation.products_target <= 0:
+                    preview_warning = "<div class='alert alert-warning mb-4'>A configuracao atual do slider nao deixa saldo de produtos para emitir NF-e.</div>"
                 try:
                     rows, _ = build_nfe_preview_rows(workorder=workorder, slider_override=selected_slider)
                 except NfeEmissionError as exc:
@@ -416,12 +445,81 @@ class EmissionStep4Form(forms.Form):
                 """
 
         slider_indicator = f"""
-            <div class="mb-4 rounded-xl bg-base-200 p-4">
-                <div class="flex items-center justify-between gap-4 mb-2">
-                    <span class="font-semibold">Slider da emissao</span>
-                    <span class="badge badge-outline" id="emission-slider-value">{selected_slider}</span>
+            <style>
+                input[type="range"].emission-centered-range {{
+                    -webkit-appearance: none;
+                    -moz-appearance: none;
+                    width: 100%;
+                    height: 8px;
+                    background: transparent;
+                }}
+
+                input[type="range"].emission-centered-range::-webkit-slider-runnable-track {{
+                    height: 8px;
+                    border-radius: 999px;
+                    background: linear-gradient(
+                        to right,
+                        #dbeafe var(--left),
+                        #0f766e var(--left),
+                        #0f766e var(--right),
+                        #fde68a var(--right)
+                    );
+                }}
+
+                input[type="range"].emission-centered-range::-webkit-slider-thumb {{
+                    -webkit-appearance: none;
+                    width: 24px;
+                    height: 24px;
+                    background: #0f172a;
+                    border: 3px solid #f8fafc;
+                    border-radius: 999px;
+                    margin-top: -8px;
+                    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.22);
+                    cursor: pointer;
+                }}
+
+                input[type="range"].emission-centered-range::-moz-range-track {{
+                    height: 8px;
+                    border-radius: 999px;
+                    background: linear-gradient(
+                        to right,
+                        #dbeafe var(--left),
+                        #0f766e var(--left),
+                        #0f766e var(--right),
+                        #fde68a var(--right)
+                    );
+                }}
+
+                input[type="range"].emission-centered-range::-moz-range-thumb {{
+                    width: 24px;
+                    height: 24px;
+                    background: #0f172a;
+                    border: 3px solid #f8fafc;
+                    border-radius: 999px;
+                    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.22);
+                    cursor: pointer;
+                }}
+            </style>
+            <div class="rounded-2xl border border-base-300 bg-base-100/90 p-5 shadow-sm">
+                <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between mb-4">
+                    <div>
+                        <p class="text-xs uppercase tracking-[0.24em] text-base-content/50">Ajuste fiscal</p>
+                        <h3 class="text-lg font-semibold">Slider da emissao</h3>
+                        <p class="text-sm text-base-content/70">Comeca com o valor do orcamento, mas aqui fica independente e nao sincroniza de volta.</p>
+                    </div>
+                    <div class="badge badge-outline badge-lg px-4 py-3" id="emission-slider-value">{selected_slider}</div>
                 </div>
-                <p class="text-sm text-base-content/70">Esse valor comeca com o slider do orcamento, mas fica independente nesta emissao.</p>
+                <div class="grid gap-3 sm:grid-cols-2 mb-4">
+                    <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-900">
+                        <p class="text-xs uppercase tracking-wide text-emerald-700/80">Peso em produtos</p>
+                        <p class="text-2xl font-black"><span id="val-produtos">{abs(selected_slider) if selected_slider < 0 else 0}</span>%</p>
+                    </div>
+                    <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900">
+                        <p class="text-xs uppercase tracking-wide text-amber-700/80">Peso em servicos</p>
+                        <p class="text-2xl font-black"><span id="val-servicos">{selected_slider if selected_slider > 0 else 0}</span>%</p>
+                    </div>
+                </div>
+                <p class="text-sm font-medium text-base-content/60 mb-2">Deslize para a esquerda para fortalecer produtos; para a direita para fortalecer servicos.</p>
             </div>
         """
 
@@ -445,7 +543,51 @@ class EmissionStep4Form(forms.Form):
                     *service_description_field,
                     css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
                 ),
-                HTML("<script>document.addEventListener('DOMContentLoaded', function(){var slider=document.getElementById('id_pricing_slider');var output=document.getElementById('emission-slider-value');if(slider&&output){output.textContent=slider.value;}});</script>"),
+                HTML(
+                    """
+                    <script>
+                        (function () {
+                            window.initEmissionSliderPreview = function initEmissionSliderPreview() {
+                                const slider = document.querySelector('input[name="pricing_slider"]');
+                                const badge = document.getElementById('emission-slider-value');
+                                const productsLabel = document.getElementById('val-produtos');
+                                const servicesLabel = document.getElementById('val-servicos');
+
+                                if (!slider) return;
+
+                                function updateFill(rawValue) {
+                                    const value = parseInt(rawValue || 0, 10) || 0;
+                                    const min = -100;
+                                    const max = 100;
+                                    const center = 50;
+                                    const percent = ((value - min) / (max - min)) * 100;
+
+                                    if (value === 0) {
+                                        slider.style.setProperty('--left', center + '%');
+                                        slider.style.setProperty('--right', center + '%');
+                                    } else if (value < 0) {
+                                        slider.style.setProperty('--left', percent + '%');
+                                        slider.style.setProperty('--right', center + '%');
+                                    } else {
+                                        slider.style.setProperty('--left', center + '%');
+                                        slider.style.setProperty('--right', percent + '%');
+                                    }
+
+                                    if (badge) badge.textContent = value;
+                                    if (productsLabel) productsLabel.textContent = value < 0 ? Math.abs(value) : 0;
+                                    if (servicesLabel) servicesLabel.textContent = value > 0 ? value : 0;
+                                }
+
+                                slider.oninput = function () { updateFill(slider.value); };
+                                updateFill(slider.value || 0);
+                            };
+
+                            document.addEventListener('DOMContentLoaded', window.initEmissionSliderPreview);
+                            document.body.addEventListener('htmx:afterSettle', window.initEmissionSliderPreview);
+                        })();
+                    </script>
+                    """
+                ),
                 css_class="space-y-4",
             )
         )
