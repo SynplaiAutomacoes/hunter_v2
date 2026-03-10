@@ -408,18 +408,10 @@
         });
     }
 
-    function initAlpineTree(root) {
-        const alpine = window.Alpine;
-        if (!alpine || typeof alpine.initTree !== 'function') return;
-        if (!(root instanceof Element)) return;
-        alpine.initTree(root);
-    }
-
     // Auto-aplica em páginas e após swaps HTMX.
     document.addEventListener('DOMContentLoaded', () => applyFormats(document));
     document.addEventListener('htmx:afterSwap', (e) => {
         applyFormats(e.target);
-        initAlpineTree(e.target);
     });
 
     //TODO: Estamos normalizando o valor duas vezes, uma vez para o input e outra para o display. Podemos melhorar isso posteriormente.

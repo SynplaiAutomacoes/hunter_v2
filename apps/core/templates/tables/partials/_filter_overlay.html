@@ -1,8 +1,9 @@
 <div
     class="relative z-50 flex w-full items-center gap-2 overflow-visible sm:w-auto"
-    x-data="{ open: false }"
+    x-data="{ open: false, controlsFormId: '{{ table_id }}-controls-form' }"
     @keydown.escape.window="open = false"
     @click.outside="open = false"
+    @submit.window="if ($event.target && $event.target.id === controlsFormId) open = false"
 >
     <button
         type="button"
@@ -52,9 +53,9 @@
             <div class="mt-6 flex items-center justify-end gap-2">
                 <button type="button" class="btn-form-cancel" @click="open = false">Cancelar</button>
                 <button
-                    type="button"
+                    type="submit"
                     class="btn btn-primary"
-                    @click.prevent="open = false; $nextTick(() => $el.form && $el.form.requestSubmit())"
+                    @click="open = false"
                 >
                     Filtrar
                 </button>

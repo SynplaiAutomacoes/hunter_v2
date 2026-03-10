@@ -1,6 +1,7 @@
 {% if show_search or sort_options|length > 1 or selectable or show_filter_controls %}
     <div class="relative z-40 overflow-visible pb-4">
         <form
+            id="{{ table_id }}-controls-form"
             class="relative flex flex-col gap-4 overflow-visible sm:flex-row sm:items-start sm:justify-between"
             hx-get="{{ request.path }}"
             hx-target="{{ htmx_target }}"

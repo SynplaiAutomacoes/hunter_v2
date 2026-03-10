@@ -7,6 +7,7 @@ from django.http import HttpResponse, JsonResponse
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 
+from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin, BaseModalFormView
 from .forms import QuickCustomerForm, QuickVehicleForm
@@ -30,6 +31,20 @@ def _build_vehicle_saved_trigger(vehicle: Vehicle) -> str:
     )
 
 
+CUSTOMER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
+    QueryParamFilter(
+        param_name="customer_type",
+        lookup="customer_type",
+        kind="choice",
+        allowed_values=frozenset({"PF", "PJ"}),
+        normalizer=str.upper,
+    ),
+    QueryParamFilter(param_name="is_active", lookup="is_active", kind="boolean"),
+    QueryParamFilter(param_name="city", lookup="cidade", kind="icontains"),
+    QueryParamFilter(param_name="state", lookup="estado", kind="iexact", normalizer=str.upper),
+)
+
+
 class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = Customer
     template_name = "customer/customer_list.html"
@@ -44,21 +59,11 @@ class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
         if search_query:
             queryset = queryset.filter(Q(name__icontains=search_query) | Q(fantasy_name__icontains=search_query) | Q(cpf_or_cnpj__icontains=search_query) | Q(phone__icontains=search_query) | Q(rg__icontains=search_query) | Q(email__icontains=search_query))
 
-        customer_type = str(self.request.GET.get("customer_type") or "").strip().upper()
-        if customer_type in {"PF", "PJ"}:
-            queryset = queryset.filter(customer_type=customer_type)
-
-        is_active = str(self.request.GET.get("is_active") or "").strip()
-        if is_active in {"0", "1"}:
-            queryset = queryset.filter(is_active=is_active == "1")
-
-        city = str(self.request.GET.get("city") or "").strip()
-        if city:
-            queryset = queryset.filter(cidade__icontains=city)
-
-        state = str(self.request.GET.get("state") or "").strip().upper()
-        if state:
-            queryset = queryset.filter(estado__iexact=state)
+        queryset = apply_query_param_filters(
+            queryset,
+            params=self.request.GET,
+            filter_configs=CUSTOMER_LIST_FILTERS,
+        )
 
         return queryset.order_by("-criado_em")
 

@@ -417,6 +417,29 @@ class TestRenderTableTag(TestCase):
         self.assertIn("Limpar Filtro", html)
         self.assertIn("btn btn-error", html)
 
+    def test_filter_overlay_uses_native_submit_flow(self):
+        request = self.factory.get("/workshops/?q=Oficina")
+        template = Template(
+            """
+            {% load table_tags %}
+            {% render_table workshops fields table_id='t' per_page=10 filter_fields_template='tables/partials/_pagination.html' filter_param_names='city,state' %}
+            """
+        )
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "workshops": Workshop.objects.none(),
+                    "fields": [TableColumn(label="Nome", attr="name")],
+                }
+            )
+        )
+
+        self.assertIn('id="t-controls-form"', html)
+        self.assertIn('type="submit"', html)
+        self.assertIn('@submit.window="if ($event.target && $event.target.id === controlsFormId) open = false"', html)
+        self.assertNotIn("requestSubmit()", html)
+
     def test_render_table_clear_filter_url_removes_only_filter_params(self):
         request = self.factory.get("/workshops/?q=Oficina&sort=name&page=3&city=Campinas&state=SP")
 
