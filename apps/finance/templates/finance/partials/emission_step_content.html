@@ -1,0 +1,41 @@
+{% load crispy_forms_tags %}
+{% include 'navbar/stepper.html' %}
+
+<div class="flex items-center justify-between mb-6 gap-3 flex-wrap">
+    {% if current_step > 1 %}
+        <button type="button"
+                hx-get="{% url 'finance:emission_create' %}?step={{ current_step|add:-1 }}"
+                hx-target="#step-container"
+                hx-push-url="true"
+                class="btn btn-outline">
+            <span class="material-icons">arrow_back</span> Voltar
+        </button>
+    {% else %}
+        <div></div>
+    {% endif %}
+
+    <div class="flex items-center gap-3 flex-wrap justify-end">
+        {% if current_step == steps_config|length %}
+            <button type="submit" form="emission-form" name="action" value="preview" class="btn btn-outline">
+                Atualizar previa
+            </button>
+            <button type="submit" form="emission-form" name="action" value="finalize" class="btn btn-primary">
+                Emitir nota
+            </button>
+        {% else %}
+            <button type="submit" form="emission-form" class="btn btn-primary">
+                Salvar e continuar
+            </button>
+        {% endif %}
+    </div>
+</div>
+
+<div id="form-container">
+    <form id="emission-form"
+          hx-post="{{ request.path }}?step={{ current_step }}"
+          hx-target="#step-container"
+          hx-swap="innerHTML">
+        {% csrf_token %}
+        {% crispy form %}
+    </form>
+</div>
