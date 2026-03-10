@@ -1850,6 +1850,24 @@ class UnifiedEmissionWizardTests(TestCase):
         workorder.sync_from_budget()
         return workorder
 
+    def _build_service_only_workorder(self, *, suffix: int) -> WorkOrder:
+        budget = Budget(workshop=self.workshop, entry_date=timezone.now().date())
+        budget.save()
+
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name=f"Servico Only {suffix}",
+            description="Servico sem produto",
+            duration=timedelta(hours=1),
+            suggested_cost=Money("30.00", "BRL"),
+            selling_price=Money("50.00", "BRL"),
+        )
+        BudgetItem.objects.create(workshop=self.workshop, budget=budget, service=service, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        workorder.sync_from_budget()
+        return workorder
+
     @staticmethod
     def _wizard_url(*, step: int, tipo: str | None = None) -> str:
         base_url = reverse("finance:emission_create")
@@ -1857,6 +1875,19 @@ class UnifiedEmissionWizardTests(TestCase):
         if tipo:
             query += f"&tipo={tipo}"
         return f"{base_url}{query}"
+
+    @staticmethod
+    def _preview_url(**params: str) -> str:
+        base_url = reverse("finance:emission_preview")
+        if not params:
+            return base_url
+        query = "&".join(f"{key}={value}" for key, value in params.items())
+        return f"{base_url}?{query}"
+
+    def _advance_to_step_4(self, *, tipo: str | None = None) -> None:
+        self.client.post(self._wizard_url(step=1, tipo=tipo), {"workorder": self.workorder.pk})
+        self.client.post(self._wizard_url(step=2), {})
+        self.client.post(self._wizard_url(step=3), {})
 
     def test_unified_wizard_creates_nfe_request_with_persisted_slider(self) -> None:
         tax_classes = [{"referencia": "REFNFE900", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e"}]
@@ -1909,9 +1940,7 @@ class UnifiedEmissionWizardTests(TestCase):
             patch("apps.finance.views.emission.emit_nfse_request", return_value={"status": "processando"}) as emit_mock,
             patch("apps.finance.views.emission.sync_emission_response") as sync_mock,
         ):
-            self.client.post(self._wizard_url(step=1, tipo="nfse"), {"workorder": self.workorder.pk})
-            self.client.post(self._wizard_url(step=2), {})
-            self.client.post(self._wizard_url(step=3), {})
+            self._advance_to_step_4(tipo="nfse")
 
             response = self.client.post(
                 self._wizard_url(step=4),
@@ -1941,9 +1970,7 @@ class UnifiedEmissionWizardTests(TestCase):
         tax_classes = [{"referencia": "REFNFE902", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e"}]
 
         with patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes):
-            self.client.post(self._wizard_url(step=1), {"workorder": self.workorder.pk})
-            self.client.post(self._wizard_url(step=2), {})
-            self.client.post(self._wizard_url(step=3), {})
+            self._advance_to_step_4()
 
             response = self.client.post(
                 self._wizard_url(step=4),
@@ -1960,6 +1987,51 @@ class UnifiedEmissionWizardTests(TestCase):
         self.assertEqual(response.headers.get("Location"), self._wizard_url(step=4))
         self.assertFalse(NfeRequest.objects.filter(workshop=self.workshop).exists())
         self.assertFalse(NfseRequest.objects.filter(workshop=self.workshop).exists())
+
+    def test_emission_preview_filters_tax_classes_for_nfse(self) -> None:
+        tax_classes = [
+            {"referencia": "REFNFE903", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e"},
+            {"referencia": "REFNFSE903", "tipo": "nfse", "status": "ativo", "descricao": "Classe NFS-e", "codigo_servico": "01.05"},
+        ]
+
+        with patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes):
+            self._advance_to_step_4(tipo="nfse")
+            response = self.client.get(
+                self._preview_url(
+                    note_type="nfse",
+                    pricing_slider="20",
+                    tax_class="",
+                    service_description="",
+                )
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="emission-step4-body"', html=False)
+        self.assertContains(response, "REFNFSE903")
+        self.assertNotContains(response, "REFNFE903")
+        self.assertContains(response, "Descricao do servico")
+        self.assertContains(response, "Saldo NF-e (produtos)")
+
+    def test_emission_preview_shows_warning_for_nfe_without_product_balance(self) -> None:
+        tax_classes = [{"referencia": "REFNFE904", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e"}]
+        service_only_workorder = self._build_service_only_workorder(suffix=88)
+
+        with patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes):
+            self.client.post(self._wizard_url(step=1), {"workorder": service_only_workorder.pk})
+            self.client.post(self._wizard_url(step=2), {})
+            self.client.post(self._wizard_url(step=3), {})
+            response = self.client.get(
+                self._preview_url(
+                    note_type="nfe",
+                    pricing_slider="100",
+                    tax_class="REFNFE904",
+                    service_description="",
+                )
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "nao deixa saldo de produtos para emitir NF-e")
+        self.assertContains(response, reverse("finance:emission_preview"))
 
 
 class NfePermissionFallbackTests(TestCase):

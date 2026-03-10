@@ -353,3 +353,37 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             logger.exception("Falha ao emitir NFS-e pelo fluxo unificado", extra={"nfse_request_id": getattr(nfse_request, "pk", None)})
             messages.error(self.request, str(exc))
             return self._redirect_after_finalize_error()
+
+
+class EmissionPreviewView(EmissionRequestCreateView):
+    def get_template_names(self):
+        return ["finance/partials/emission_step4_body.html"]
+
+    def _current_step(self) -> int:
+        if self._selected_workorder() is None:
+            return 1
+        return 4
+
+    def get_initial(self) -> dict[str, Any]:
+        initial = super().get_initial()
+        initial["note_type"] = _normalize_note_type(self.request.GET.get("note_type")) or initial.get("note_type") or "nfe"
+        if "pricing_slider" in self.request.GET:
+            initial["pricing_slider"] = self.request.GET.get("pricing_slider")
+        if "tax_class" in self.request.GET:
+            initial["tax_class"] = self.request.GET.get("tax_class")
+        if "service_description" in self.request.GET:
+            initial["service_description"] = self.request.GET.get("service_description")
+        return initial
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        if self._selected_workorder() is not None:
+            kwargs["data"] = self.request.GET.copy()
+        return kwargs
+
+    def get(self, request, *args, **kwargs):
+        if self._selected_workorder() is None:
+            return HttpResponse("<div id='emission-step4-body' class='alert alert-warning'>Selecione uma OS antes de atualizar a previa.</div>")
+
+        form = self.get_form()
+        return self.render_to_response(self.get_context_data(form=form))

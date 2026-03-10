@@ -2,6 +2,7 @@ from django.urls import path
 from django.views.generic import RedirectView
 
 from apps.finance.views import (
+    EmissionPreviewView,
     EmissionRequestCreateView,
     FinancialGroupCreateView,
     FinancialGroupDeleteView,
@@ -37,6 +38,7 @@ urlpatterns = [
     path("payment-methods/create/", PaymentMethodCreateView.as_view(), name="payment_methods_create"),
     path("payment-methods/<int:pk>/update/", PaymentMethodUpdateView.as_view(), name="payment_methods_update"),
     # Unified emission
+    path("emissao/preview/", EmissionPreviewView.as_view(), name="emission_preview"),
     path("emissao/", EmissionRequestCreateView.as_view(), name="emission_create"),
     # NFE
     path("nfe/", NfeRequestListView.as_view(), name="nfe_emit"),

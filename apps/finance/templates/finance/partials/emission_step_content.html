@@ -36,6 +36,10 @@
           hx-target="#step-container"
           hx-swap="innerHTML">
         {% csrf_token %}
-        {% crispy form %}
+        {% if current_step == steps_config|length %}
+            {% include 'finance/partials/emission_step4_body.html' %}
+        {% else %}
+            {% crispy form %}
+        {% endif %}
     </form>
 </div>
