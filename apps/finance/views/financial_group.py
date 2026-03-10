@@ -29,7 +29,7 @@ class FinancialGroupListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempla
         context = super().get_context_data(**kwargs)
         context["fields"] = [
             TableColumn(label="Código", attr="code", search_by="code"),
-            TableColumn(label="Grupo / Subgrupo", attr="tree_label", sort_by="sort_key", search_by="name"),
+            TableColumn(label="Grupo / Subgrupo", attr="name", sort_by="sort_key", search_by="name"),
             TableColumn(label="Grupo pai", attr="parent_display", sort_by=["parent__sort_key", "sort_key"], search_by="parent__name"),
             TableColumn(label="Ativo", attr="is_active"),
         ]
