@@ -10,7 +10,7 @@ from django import forms
 
 from apps.core.widgets import SelectInput, TextInput, TextareaInput
 from apps.finance.models.finance import NfseRequest
-from apps.finance.services.pricing import build_slider_allocation_for_workorder
+from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 
 
@@ -25,36 +25,7 @@ def _format_money(value: Any) -> str:
 
 
 def _collect_service_rows(workorder: WorkOrder) -> tuple[list[dict[str, Any]], str, str]:
-    budget = workorder.budget
-    rows: list[dict[str, Any]] = []
-
-    items = budget.items.select_related("service", "kit").all()
-    for item in items:
-        if item.service or (item.is_local and item.service_selling_price.amount > 0):
-            total_value = item.service_selling_price * item.quantity
-            rows.append(
-                {
-                    "description": item.description,
-                    "quantity": item.quantity,
-                    "unit_value": item.service_selling_price,
-                    "total_value": total_value,
-                }
-            )
-            continue
-
-        if item.kit:
-            kit_services_total = item.get_kit_services_total()
-            if kit_services_total.amount <= 0:
-                continue
-
-            rows.append(
-                {
-                    "description": f"{item.description} (Serviços do Kit)",
-                    "quantity": item.quantity,
-                    "unit_value": kit_services_total,
-                    "total_value": kit_services_total,
-                }
-            )
+    rows = build_nfse_service_preview_rows(workorder=workorder)
 
     total_services = build_slider_allocation_for_workorder(workorder=workorder).services_target
     total_services_formatted = _format_money(total_services)

@@ -9,10 +9,11 @@ from typing import Any
 import requests
 from django.conf import settings
 from django.db import transaction
+from django.http import HttpRequest
 
 from apps.finance.models.finance import NfeItem, NfeRequest
 from apps.finance.services.emission import build_webmania_webhook_url
-from apps.finance.services.pricing import SliderAllocation, build_slider_allocation_for_workorder, distribute_total_proportionally
+from apps.finance.services.pricing import SliderAllocation, build_emission_pricing_snapshot_for_workorder, build_slider_allocation_for_workorder, distribute_total_proportionally
 from apps.finance.services.webmania_auth import (
     WebmaniaAuthError,
     build_webmania_headers,
@@ -206,7 +207,8 @@ def _build_snapshot_product_line(line: Any) -> ProductEmissionLine:
 
 
 def _extract_product_lines(*, workorder: WorkOrder) -> list[ProductEmissionLine]:
-    lines = [_build_snapshot_product_line(line) for line in workorder.pricing_snapshot.product_lines]
+    snapshot = build_emission_pricing_snapshot_for_workorder(workorder=workorder)
+    lines = [_build_snapshot_product_line(line) for line in snapshot.product_lines]
     return [line for line in lines if line.quantity > 0 and line.base_total > 0]
 
 
@@ -251,9 +253,9 @@ def _build_payment_payload(*, workorder: WorkOrder, total_value: Decimal) -> dic
     return payload
 
 
-def _build_nfe_products_payload(*, nfe_request: NfeRequest) -> tuple[list[dict[str, Any]], Decimal, SliderAllocation]:
+def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int | None = None) -> tuple[list[dict[str, Any]], Decimal, SliderAllocation]:
     workorder = nfe_request.workorder
-    allocation = build_slider_allocation_for_workorder(workorder=workorder)
+    allocation = build_slider_allocation_for_workorder(workorder=workorder, slider_override=slider_override)
 
     if allocation.products_target <= 0:
         raise NfeEmissionError("A configuracao atual do slider direciona 100% da venda para servicos. Utilize NFS-e para esta emissao.")
@@ -298,8 +300,8 @@ def _build_nfe_products_payload(*, nfe_request: NfeRequest) -> tuple[list[dict[s
     return products_payload, allocation.products_target, allocation
 
 
-def build_nfe_payload(*, nfe_request: NfeRequest, request=None) -> dict[str, Any]:
-    products_payload, total_products_value, allocation = _build_nfe_products_payload(nfe_request=nfe_request)
+def build_nfe_payload(*, nfe_request: NfeRequest, request: HttpRequest | None = None, slider_override: int | None = None) -> dict[str, Any]:
+    products_payload, total_products_value, allocation = _build_nfe_products_payload(nfe_request=nfe_request, slider_override=slider_override)
     ambiente = int(getattr(settings, "WEBMANIA_AMBIENT", "2"))
 
     payload = {
@@ -327,8 +329,8 @@ def build_nfe_payload(*, nfe_request: NfeRequest, request=None) -> dict[str, Any
     return payload
 
 
-def emit_nfe_request(*, nfe_request: NfeRequest, request=None) -> dict[str, Any]:
-    payload = build_nfe_payload(nfe_request=nfe_request, request=request)
+def emit_nfe_request(*, nfe_request: NfeRequest, request: HttpRequest | None = None, slider_override: int | None = None) -> dict[str, Any]:
+    payload = build_nfe_payload(nfe_request=nfe_request, request=request, slider_override=slider_override)
     headers = _build_headers(workshop=nfe_request.workshop)
     emit_url = _build_emit_url()
 
@@ -403,9 +405,9 @@ def sync_nfe_emission_response(*, nfe_request: NfeRequest, response_payload: dic
         )
 
 
-def build_nfe_preview_rows(*, workorder: WorkOrder) -> tuple[list[dict[str, Any]], SliderAllocation]:
+def build_nfe_preview_rows(*, workorder: WorkOrder, slider_override: int | None = None) -> tuple[list[dict[str, Any]], SliderAllocation]:
     lines = _extract_product_lines(workorder=workorder)
-    allocation = build_slider_allocation_for_workorder(workorder=workorder)
+    allocation = build_slider_allocation_for_workorder(workorder=workorder, slider_override=slider_override)
 
     target_totals = distribute_total_proportionally(base_values=[line.base_total for line in lines], target_total=allocation.products_target) if lines and allocation.products_target > 0 else [Decimal("0.00") for _ in lines]
 

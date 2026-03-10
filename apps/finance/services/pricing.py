@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Iterable
+from typing import Any, Iterable
 
+from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot
 from apps.workorder.models import WorkOrder
 
 
@@ -82,21 +83,44 @@ def compute_slider_allocation(*, products_base: Decimal, services_base: Decimal,
     return products_target, services_target
 
 
-def build_slider_allocation_for_workorder(*, workorder: WorkOrder) -> SliderAllocation:
-    budget = workorder.budget
-    slider_value = int(getattr(budget, "slider", 0) or 0)
+def resolve_slider_value_for_workorder(*, workorder: WorkOrder, slider_override: int | None = None) -> int:
+    if slider_override is not None:
+        return max(-100, min(100, int(slider_override)))
 
-    products_source = _to_decimal_money(workorder.total_products_value)
-    services_source = _to_decimal_money(workorder.total_services_value)
-    total_base = _to_decimal_money(budget.total_budget_value)
+    budget = getattr(workorder, "budget", None)
+    return max(-100, min(100, int(getattr(budget, "slider", 0) or 0)))
 
-    products_base, services_base = _normalize_buckets_to_total(products_base=products_source, services_base=services_source, total_base=total_base)
-    products_target, services_target = compute_slider_allocation(products_base=products_base, services_base=services_base, slider=slider_value)
 
-    total_target = _quantize_money(products_target + services_target)
-    total_residual = _quantize_money(total_base - total_target)
-    if total_residual:
-        services_target = _quantize_money(services_target + total_residual)
+def build_emission_pricing_snapshot_for_workorder(*, workorder: WorkOrder, slider_override: int | None = None) -> PricingSnapshot:
+    slider_value = resolve_slider_value_for_workorder(workorder=workorder, slider_override=slider_override)
+    return build_pricing_snapshot(
+        items=list(workorder._iter_items()),
+        slider=slider_value,
+        discount_value=workorder.discount_value,
+        labor_cost_value=workorder.total_labor_cost_value,
+    )
+
+
+def build_slider_allocation_for_workorder(*, workorder: WorkOrder, slider_override: int | None = None) -> SliderAllocation:
+    slider_value = resolve_slider_value_for_workorder(workorder=workorder, slider_override=slider_override)
+    snapshot = build_emission_pricing_snapshot_for_workorder(workorder=workorder, slider_override=slider_override)
+
+    total_base = _to_decimal_money(snapshot.total_budget_value)
+    products_source = _to_decimal_money(snapshot.total_products_value)
+    services_source = _to_decimal_money(snapshot.total_services_value)
+    products_target_source = _to_decimal_money(snapshot.total_products_by_slider)
+    services_target_source = _to_decimal_money(snapshot.total_services_by_slider)
+
+    products_base, services_base = _normalize_buckets_to_total(
+        products_base=products_source,
+        services_base=services_source,
+        total_base=total_base,
+    )
+    products_target, services_target = _normalize_buckets_to_total(
+        products_base=products_target_source,
+        services_base=services_target_source,
+        total_base=total_base,
+    )
 
     return SliderAllocation(
         slider=slider_value,
@@ -106,6 +130,43 @@ def build_slider_allocation_for_workorder(*, workorder: WorkOrder) -> SliderAllo
         products_target=_quantize_money(products_target),
         services_target=_quantize_money(services_target),
     )
+
+
+def build_nfse_service_preview_rows(*, workorder: WorkOrder) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+
+    for item in workorder._iter_items():
+        is_local_service = item.service is None and item.product is None and item.kit is None and _to_decimal_money(item.service_selling_price) > Decimal("0.00")
+
+        if item.service is not None or is_local_service:
+            total_value = _quantize_money(_to_decimal_money(item.service_selling_price * item.quantity))
+            rows.append(
+                {
+                    "description": item.description,
+                    "quantity": item.quantity,
+                    "unit_value": _quantize_money(_to_decimal_money(item.service_selling_price)),
+                    "total_value": total_value,
+                }
+            )
+            continue
+
+        if item.kit is None:
+            continue
+
+        kit_services_total = _quantize_money(_to_decimal_money(item.get_kit_services_total()))
+        if kit_services_total <= Decimal("0.00"):
+            continue
+
+        rows.append(
+            {
+                "description": f"{item.description} (Servicos do Kit)",
+                "quantity": item.quantity,
+                "unit_value": kit_services_total,
+                "total_value": kit_services_total,
+            }
+        )
+
+    return rows
 
 
 def distribute_total_proportionally(*, base_values: Iterable[Decimal], target_total: Decimal) -> list[Decimal]:
