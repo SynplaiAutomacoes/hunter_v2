@@ -255,7 +255,11 @@ def _build_payment_payload(*, workorder: WorkOrder, total_value: Decimal) -> dic
 
 def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int | None = None) -> tuple[list[dict[str, Any]], Decimal, SliderAllocation]:
     workorder = nfe_request.workorder
-    allocation = build_slider_allocation_for_workorder(workorder=workorder, slider_override=slider_override)
+    allocation = build_slider_allocation_for_workorder(
+        workorder=workorder,
+        persisted_slider=getattr(nfe_request, "pricing_slider", None),
+        slider_override=slider_override,
+    )
 
     if allocation.products_target <= 0:
         raise NfeEmissionError("A configuracao atual do slider direciona 100% da venda para servicos. Utilize NFS-e para esta emissao.")
@@ -405,9 +409,18 @@ def sync_nfe_emission_response(*, nfe_request: NfeRequest, response_payload: dic
         )
 
 
-def build_nfe_preview_rows(*, workorder: WorkOrder, slider_override: int | None = None) -> tuple[list[dict[str, Any]], SliderAllocation]:
+def build_nfe_preview_rows(
+    *,
+    workorder: WorkOrder,
+    persisted_slider: int | None = None,
+    slider_override: int | None = None,
+) -> tuple[list[dict[str, Any]], SliderAllocation]:
     lines = _extract_product_lines(workorder=workorder)
-    allocation = build_slider_allocation_for_workorder(workorder=workorder, slider_override=slider_override)
+    allocation = build_slider_allocation_for_workorder(
+        workorder=workorder,
+        persisted_slider=persisted_slider,
+        slider_override=slider_override,
+    )
 
     target_totals = distribute_total_proportionally(base_values=[line.base_total for line in lines], target_total=allocation.products_target) if lines and allocation.products_target > 0 else [Decimal("0.00") for _ in lines]
 

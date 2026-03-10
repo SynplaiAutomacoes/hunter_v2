@@ -22,10 +22,10 @@ from apps.catalog.models.services import Service
 from apps.collaborators.models import WorkshopMember
 from apps.finance.forms.financial_group import FinancialGroupForm
 from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm
-from apps.finance.models.finance import TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassSyncState, WebmaniaCompany
+from apps.finance.models.finance import NfeRequest, NfseRequest, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassSyncState, WebmaniaCompany
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.services.emission import NfseEmissionError, _build_taker_payload, _default_service_description, _service_total_value, build_webmania_webhook_token, emit_nfse_request
-from apps.finance.services.nfe_emission import _extract_product_lines
+from apps.finance.services.nfe_emission import _build_nfe_products_payload, _extract_product_lines
 from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder, compute_slider_allocation, distribute_total_proportionally
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
 from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers
@@ -704,6 +704,76 @@ class SliderPricingAllocationTests(TestCase):
         self.assertEqual(rows[0]["description"], "Servico Slider 94")
         self.assertEqual(rows[0]["total_value"], Decimal("50.00"))
         self.assertEqual(description, "1x Servico Slider 94")
+
+    def test_nfse_request_copies_budget_slider_on_create(self) -> None:
+        workorder, budget, _ = self._build_workorder_with_product_and_service(suffix=95)
+        budget.slider = -35
+        budget.save(update_fields=["slider"])
+
+        nfse_request = NfseRequest.objects.create(workshop=workorder.workshop, workorder=workorder)
+
+        self.assertEqual(nfse_request.pricing_slider, -35)
+
+    def test_nfe_request_copies_budget_slider_on_create(self) -> None:
+        workorder, budget, _ = self._build_workorder_with_product_and_service(suffix=96)
+        budget.slider = 45
+        budget.save(update_fields=["slider"])
+
+        nfe_request = NfeRequest.objects.create(workshop=workorder.workshop, workorder=workorder)
+
+        self.assertEqual(nfe_request.pricing_slider, 45)
+
+    def test_nfse_service_total_prefers_persisted_request_slider(self) -> None:
+        workorder, budget, _ = self._build_workorder_with_product_and_service(suffix=97)
+        budget.slider = -100
+        budget.save(update_fields=["slider"])
+        nfse_request = NfseRequest.objects.create(workshop=workorder.workshop, workorder=workorder)
+
+        budget.slider = 0
+        budget.save(update_fields=["slider"])
+
+        self.assertEqual(_service_total_value(nfse_request=nfse_request), "30.00")
+
+    def test_nfse_service_total_falls_back_to_budget_slider_for_legacy_request(self) -> None:
+        workorder, budget, _ = self._build_workorder_with_product_and_service(suffix=98)
+        budget.slider = -100
+        budget.save(update_fields=["slider"])
+        nfse_request = NfseRequest.objects.create(workshop=workorder.workshop, workorder=workorder)
+
+        NfseRequest.objects.filter(pk=nfse_request.pk).update(pricing_slider=None)
+        legacy_request = NfseRequest.objects.get(pk=nfse_request.pk)
+
+        self.assertEqual(_service_total_value(nfse_request=legacy_request), "30.00")
+
+    def test_nfe_products_payload_prefers_persisted_request_slider(self) -> None:
+        workorder, budget, _ = self._build_workorder_with_product_and_service(suffix=99)
+        budget.slider = -100
+        budget.save(update_fields=["slider"])
+        nfe_request = NfeRequest.objects.create(workshop=workorder.workshop, workorder=workorder, tax_class="REF000001")
+
+        budget.slider = 0
+        budget.save(update_fields=["slider"])
+
+        _, total_products_value, allocation = _build_nfe_products_payload(nfe_request=nfe_request)
+
+        self.assertEqual(total_products_value, Decimal("40.00"))
+        self.assertEqual(allocation.slider, -100)
+
+    def test_nfe_products_payload_falls_back_to_budget_slider_for_legacy_request(self) -> None:
+        workorder, budget, _ = self._build_workorder_with_product_and_service(suffix=89)
+        budget.slider = 0
+        budget.save(update_fields=["slider"])
+        nfe_request = NfeRequest.objects.create(workshop=workorder.workshop, workorder=workorder, tax_class="REF000001")
+
+        NfeRequest.objects.filter(pk=nfe_request.pk).update(pricing_slider=None)
+        budget.slider = -100
+        budget.save(update_fields=["slider"])
+        legacy_request = NfeRequest.objects.get(pk=nfe_request.pk)
+
+        _, total_products_value, allocation = _build_nfe_products_payload(nfe_request=legacy_request)
+
+        self.assertEqual(total_products_value, Decimal("40.00"))
+        self.assertEqual(allocation.slider, -100)
 
 
 class NfeProductExtractionTests(TestCase):

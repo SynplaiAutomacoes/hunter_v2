@@ -24,10 +24,17 @@ def _format_money(value: Any) -> str:
     return f"R$ {amount:.2f}".replace(".", ",")
 
 
-def _collect_service_rows(workorder: WorkOrder) -> tuple[list[dict[str, Any]], str, str]:
+def _collect_service_rows(
+    workorder: WorkOrder,
+    *,
+    persisted_slider: int | None = None,
+) -> tuple[list[dict[str, Any]], str, str]:
     rows = build_nfse_service_preview_rows(workorder=workorder)
 
-    total_services = build_slider_allocation_for_workorder(workorder=workorder).services_target
+    total_services = build_slider_allocation_for_workorder(
+        workorder=workorder,
+        persisted_slider=persisted_slider,
+    ).services_target
     total_services_formatted = _format_money(total_services)
 
     if rows:
@@ -173,7 +180,10 @@ class NfseRequestStep3Form(forms.ModelForm):
         default_description = "Prestação de serviço"
 
         if self.instance and self.instance.workorder_id:
-            rows, total_services_formatted, default_description = _collect_service_rows(self.instance.workorder)
+            rows, total_services_formatted, default_description = _collect_service_rows(
+                self.instance.workorder,
+                persisted_slider=getattr(self.instance, "pricing_slider", None),
+            )
 
         if not self.instance.service_description:
             self.initial["service_description"] = default_description

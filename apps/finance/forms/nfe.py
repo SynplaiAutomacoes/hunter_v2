@@ -156,7 +156,10 @@ class NfeRequestStep3Form(forms.ModelForm):
 
         if self.instance and self.instance.workorder_id:
             try:
-                rows, allocation = build_nfe_preview_rows(workorder=self.instance.workorder)
+                rows, allocation = build_nfe_preview_rows(
+                    workorder=self.instance.workorder,
+                    persisted_slider=getattr(self.instance, "pricing_slider", None),
+                )
                 total_products_formatted = _format_money(allocation.products_target)
                 total_services_formatted = _format_money(allocation.services_target)
                 slider_display = str(allocation.slider)
