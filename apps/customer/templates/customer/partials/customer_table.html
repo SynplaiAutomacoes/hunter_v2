@@ -1,1 +1,1 @@
-{% include 'crud/partials/table.html' with queryset=customer fields=fields actions=actions table_id='customer-table' filter_fields_template='customer/partials/customer_filters_fields.html' filter_button_label='Filtro' filter_panel_title='Filtrar clientes' %}
+{% include 'crud/partials/table.html' with queryset=customer fields=fields actions=actions table_id='customer-table' filter_fields_template='customer/partials/customer_filters_fields.html' filter_button_label='Filtro' filter_panel_title='Filtrar clientes' filter_param_names='customer_type,is_active,city,state' %}

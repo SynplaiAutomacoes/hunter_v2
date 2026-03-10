@@ -430,6 +430,31 @@ def _build_sort_options(*, columns: Sequence[TableColumn], current_sort: str) ->
     return options
 
 
+def _normalize_filter_param_names(filter_param_names: str | Sequence[str] | None) -> list[str]:
+    """
+    Normaliza a configuração de nomes de parâmetros de filtro.
+
+    Aceita string separada por vírgula (uso em templates) ou sequência de strings
+    (uso em Python), removendo vazios e duplicados.
+    """
+    if not filter_param_names:
+        return []
+
+    if isinstance(filter_param_names, str):
+        raw_param_names = filter_param_names.split(",")
+    else:
+        raw_param_names = [str(name) for name in filter_param_names]
+
+    normalized: list[str] = []
+    for raw_name in raw_param_names:
+        param_name = raw_name.strip()
+        if not param_name or param_name in normalized:
+            continue
+        normalized.append(param_name)
+
+    return normalized
+
+
 @register.inclusion_tag("tables/main_table.html", takes_context=True)
 def render_table(
     context: dict[str, Any],
@@ -449,6 +474,7 @@ def render_table(
     filter_fields_template: str = "",
     filter_button_label: str = "Filtro",
     filter_panel_title: str = "Filtrar resultados",
+    filter_param_names: str | Sequence[str] = (),
 ) -> dict[str, Any]:
     """
     Inclusion tag principal para renderizar uma tabela de dados completa.
@@ -473,12 +499,15 @@ def render_table(
         filter_fields_template: Caminho de template opcional para campos de filtro extras.
         filter_button_label: Texto do botão de abrir painel de filtros.
         filter_panel_title: Título exibido no painel de filtros.
+        filter_param_names: Nomes dos parâmetros GET usados pelos filtros extras.
+            Pode ser string separada por vírgula (ex.: "city,state") ou sequência.
     """
     request: HttpRequest = context["request"]
     is_htmx = bool(getattr(request, "htmx", False))
 
     filter_fields_template = (filter_fields_template or "").strip()
     show_filter_controls = bool(filter_fields_template)
+    normalized_filter_param_names = _normalize_filter_param_names(filter_param_names)
 
     columns = fields
     action_list = actions or []
@@ -512,6 +541,13 @@ def render_table(
 
     clear_search_url = _build_url(request, updates={search_param: None, "page": 1})
 
+    has_active_filters = show_filter_controls and any(str(value).strip() != "" for param_name in normalized_filter_param_names for value in request.GET.getlist(param_name))
+    clear_filter_url = None
+    if show_filter_controls and normalized_filter_param_names:
+        clear_filter_updates = {param_name: None for param_name in normalized_filter_param_names}
+        clear_filter_updates["page"] = 1
+        clear_filter_url = _build_url(request, updates=clear_filter_updates)
+
     colspan = len(rendered_columns) + (1 if selectable else 0) + (1 if has_actions else 0)
 
     return {
@@ -542,6 +578,8 @@ def render_table(
         "filter_fields_template": filter_fields_template,
         "filter_button_label": filter_button_label,
         "filter_panel_title": filter_panel_title,
+        "has_active_filters": has_active_filters,
+        "clear_filter_url": clear_filter_url,
         "htmx_target": f"#{table_id}-content",
         "htmx_select": f"#{table_id}-content",
         "htmx_swap": "outerHTML",

@@ -1,12 +1,12 @@
 <div
-    class="relative z-50 w-full sm:w-auto"
+    class="relative z-50 flex w-full items-center gap-2 overflow-visible sm:w-auto"
     x-data="{ open: false }"
     @keydown.escape.window="open = false"
     @click.outside="open = false"
 >
     <button
         type="button"
-        class="btn btn-primary w-full sm:w-auto"
+        class="btn btn-primary flex-1 sm:w-auto sm:flex-none"
         :aria-expanded="open.toString()"
         aria-controls="{{ table_id }}-filter-panel"
         @click="open = !open"
@@ -14,6 +14,21 @@
         <span class="material-icons text-[18px]" aria-hidden="true">filter_list</span>
         {{ filter_button_label }}
     </button>
+
+    {% if has_active_filters and clear_filter_url %}
+        <button
+            type="button"
+            class="btn btn-error flex-1 text-white sm:w-auto sm:flex-none"
+            @click="open = false"
+            hx-get="{{ clear_filter_url }}"
+            hx-target="{{ htmx_target }}"
+            hx-swap="{{ htmx_swap }}"
+            hx-select="{{ htmx_select }}"
+            hx-push-url="{{ htmx_push_url }}"
+        >
+            Limpar Filtro
+        </button>
+    {% endif %}
 
     <div
         id="{{ table_id }}-filter-panel"
