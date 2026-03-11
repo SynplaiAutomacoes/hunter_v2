@@ -9,12 +9,12 @@ from django import forms
 
 from apps.core.widgets import SelectInput
 from apps.finance.forms.emission_ui import build_slider_panel_html, build_slider_script_html, build_slider_widget_attrs, format_money, resolve_initial_slider
-from apps.finance.forms.legacy_shared import LegacyEmissionCustomerReviewForm, LegacyEmissionWorkorderSelectionForm
+from apps.finance.forms.request_steps_shared import SharedEmissionCustomerReviewForm, SharedEmissionWorkorderSelectionForm
 from apps.finance.models.finance import NfeRequest
 from apps.finance.services.nfe_emission import NfeEmissionError, build_nfe_preview_rows
 
 
-class NfeRequestStep1Form(LegacyEmissionWorkorderSelectionForm):
+class NfeRequestStep1Form(SharedEmissionWorkorderSelectionForm):
     step_subtitle = "Selecione a ordem de servico aprovada que sera utilizada para emitir a NF-e."
 
     class Meta:
@@ -22,7 +22,7 @@ class NfeRequestStep1Form(LegacyEmissionWorkorderSelectionForm):
         fields = ["workorder"]
 
 
-class NfeRequestStep2Form(LegacyEmissionCustomerReviewForm):
+class NfeRequestStep2Form(SharedEmissionCustomerReviewForm):
     class Meta:
         model = NfeRequest
         fields: list[str] = []

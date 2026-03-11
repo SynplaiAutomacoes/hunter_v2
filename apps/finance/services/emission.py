@@ -247,9 +247,9 @@ def _build_fallback_payload_with_explicit_tax_data(*, payload: dict[str, Any], t
             service_payload[field_name] = value
 
     if not _has_payload_value(service_payload.get("iss_retido")):
-        legacy_retencao_iss = tax_class_payload.get("retencao_iss")
-        if _has_payload_value(legacy_retencao_iss):
-            service_payload["iss_retido"] = legacy_retencao_iss
+        fallback_retencao_iss = tax_class_payload.get("retencao_iss")
+        if _has_payload_value(fallback_retencao_iss):
+            service_payload["iss_retido"] = fallback_retencao_iss
 
     impostos_payload_raw = service_payload.get("impostos")
     impostos_payload = dict(impostos_payload_raw) if isinstance(impostos_payload_raw, dict) else {}

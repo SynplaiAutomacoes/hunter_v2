@@ -9,7 +9,7 @@ from django import forms
 
 from apps.core.widgets import SelectInput, TextInput, TextareaInput
 from apps.finance.forms.emission_ui import build_slider_panel_html, build_slider_script_html, build_slider_widget_attrs, format_money, resolve_initial_slider
-from apps.finance.forms.legacy_shared import LegacyEmissionCustomerReviewForm, LegacyEmissionWorkorderSelectionForm
+from apps.finance.forms.request_steps_shared import SharedEmissionCustomerReviewForm, SharedEmissionWorkorderSelectionForm
 from apps.finance.models.finance import NfseRequest
 from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder
 from apps.workorder.models import WorkOrder
@@ -38,7 +38,7 @@ def _collect_service_rows(
     return rows, total_services_formatted, default_description
 
 
-class NfseRequestStep1Form(LegacyEmissionWorkorderSelectionForm):
+class NfseRequestStep1Form(SharedEmissionWorkorderSelectionForm):
     step_title = "Selecionar Ordem de Serviço"
     step_subtitle = "Selecione a ordem de serviço aprovada que será utilizada para emitir a NFS-e."
     workorder_label = "Ordem de Serviço"
@@ -49,7 +49,7 @@ class NfseRequestStep1Form(LegacyEmissionWorkorderSelectionForm):
         fields = ["workorder"]
 
 
-class NfseRequestStep2Form(LegacyEmissionCustomerReviewForm):
+class NfseRequestStep2Form(SharedEmissionCustomerReviewForm):
     step_subtitle = "Valide os dados do cliente antes de avançar para a etapa de emissão."
     empty_value_label = "Não informado"
     address_label = "Endereço"

@@ -10,7 +10,7 @@ from apps.core.widgets import SelectInput
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 
 
-class LegacyEmissionWorkorderSelectionForm(forms.ModelForm):
+class SharedEmissionWorkorderSelectionForm(forms.ModelForm):
     step_title = "Selecionar Ordem de Servico"
     step_subtitle = "Selecione a ordem de servico aprovada que sera utilizada para emitir a nota fiscal."
     workorder_label = "Ordem de Servico"
@@ -53,7 +53,7 @@ class LegacyEmissionWorkorderSelectionForm(forms.ModelForm):
         )
 
 
-class LegacyEmissionCustomerReviewForm(forms.ModelForm):
+class SharedEmissionCustomerReviewForm(forms.ModelForm):
     step_title = "Conferir dados do cliente"
     step_subtitle = "Valide os dados do cliente antes de avancar para a etapa de emissao."
     empty_value_label = "Nao informado"
