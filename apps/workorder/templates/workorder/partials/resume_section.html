@@ -161,8 +161,10 @@
                         <h4 class="font-bold mb-1">CONDIÇÕES DE PAGAMENTO</h4>
                         {% for payment in workorder.payments.all %}
                             <p class="text-sm">
-                                {{ payment.get_payment_method_display }} -
-                                {{ payment.installments_count }}x de {{ payment.total_paid }}
+                                {{ payment.payment_method.description }} -
+                                {{ payment.installments_count }}x -
+                                Vencimento {{ payment.due_date|date:"d/m/Y" }} -
+                                {{ payment.total_paid }}
                             </p>
                         {% endfor %}
                     {% endif %}
