@@ -19,6 +19,7 @@ from djmoney.money import Money
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.models.kits import Kit
+from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
 from apps.core.documents.http import build_pdf_http_response
 from apps.core.documents.services import SignatureDeliveryServiceError, download_signed_document_content
@@ -60,7 +61,7 @@ class WorkOrderListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRes
     htmx_template_name = "workorder/partials/workorder_table.html"
 
     def get_queryset(self):
-        return (
+        queryset = (
             super()
             .get_queryset()
             .select_related("budget", "budget__customer", "budget__vehicle")
@@ -76,8 +77,15 @@ class WorkOrderListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRes
                     .order_by("id"),
                 )
             )
-            .order_by("-criado_em")
         )
+
+        queryset = apply_query_param_filters(
+            queryset,
+            params=self.request.GET,
+            filter_configs=WORKORDER_LIST_FILTERS,
+        )
+
+        return queryset.order_by("-criado_em")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -94,6 +102,7 @@ class WorkOrderListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRes
         context["actions"] = [
             TableActionDefaults.edit("workorder:workorder_detail"),
         ]
+        context["status_choices"] = WorkOrder.status.field.choices
         return context
 
 

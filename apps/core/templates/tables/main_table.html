@@ -7,9 +7,9 @@
             $el.querySelectorAll('input.row-checkbox').forEach(cb => cb.checked = this.all)
         }
     }"
-    @htmx:afterSwap.window="all = false"
+    @htmx:after-swap.window="all = false"
 >
-    <div id="{{ table_id }}-content">
+    <div id="{{ table_id }}-content" hx-disinherit="hx-vals">
         {% include "tables/partials/_table_controls.html" %}
 
         {% include "tables/partials/_table_cards_mobile.html" %}
