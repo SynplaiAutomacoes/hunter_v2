@@ -681,7 +681,6 @@ class AddPaymentMethodViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Cartão Master/Visa")
-        self.assertContains(response, "4x")
         self.assertContains(response, "24/03/2026")
 
         payment = WorkOrderPaymentMethod.objects.get(workorder=self.workorder)

@@ -47,7 +47,7 @@ class WorkOrderPaymentForm(forms.ModelForm):
             payment_methods = PaymentMethod.objects.filter(workshop=self.workorder.workshop, is_active=True).order_by("description")
 
         self.fields["payment_method"].queryset = payment_methods
-        self.fields["payment_method"].label_from_instance = lambda obj: f"{obj.description} - {obj.installments_count}x"
+        self.fields["payment_method"].label_from_instance = lambda obj: obj.description
 
         total_os = self.workorder.total_budget_value.amount if self.workorder else MONEY_ZERO
         paid_amount = self._get_paid_amount() if self.workorder else MONEY_ZERO
@@ -89,115 +89,6 @@ class WorkOrderPaymentForm(forms.ModelForm):
         self.helper.form_tag = False
         self.helper.layout = Layout(
             HTML(f"""
-            <script>
-                (function() {{
-                    const paymentForm = document.getElementById('payment-form-fields');
-                    if (!paymentForm) {{
-                        return;
-                    }}
-
-                    const formElement = paymentForm.closest('form');
-                    const paymentMethodInput = document.getElementById('id_payment_method');
-                    const firstAmountInput = document.getElementById('id_first_installment_amount_0');
-                    const firstAmountDisplay = document.getElementById('id_first_installment_amount_0_display');
-                    const remainingAmountInput = document.getElementById('id_remaining_installments_amount_0');
-                    const remainingAmountDisplay = document.getElementById('id_remaining_installments_amount_0_display');
-                    const dueDateInput = document.getElementById('id_due_date');
-                    const btnSave = formElement ? formElement.querySelector('.btn-form-save') : null;
-                    const warningDiv = document.getElementById('payment-warning-workorder-js');
-                    const warningMessage = warningDiv ? warningDiv.querySelector('.payment-warning-message') : null;
-                    const installmentsByMethod = {payment_method_installments};
-                    const pendingValue = parseFloat('{pending_amount_js}') || 0;
-                    const todayValue = '{today_iso}';
-
-                    if (!paymentMethodInput || !firstAmountInput || !remainingAmountInput || !remainingAmountDisplay || !btnSave) {{
-                        return;
-                    }}
-
-                    const formatMoney = (value) => Number(value || 0).toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
-                    const roundUpToTenth = (value) => {{
-                        if (value <= 0) {{
-                            return 0;
-                        }}
-                        return Math.ceil((value * 10) - 1e-9) / 10;
-                    }};
-                    const setMoneyValue = (hiddenInput, displayInput, value) => {{
-                        const normalized = Math.max(0, Number(value || 0));
-                        hiddenInput.value = normalized.toFixed(2);
-                        displayInput.value = formatMoney(normalized);
-                    }};
-                    const toggleWarning = (show, message) => {{
-                        if (!warningDiv || !warningMessage) {{
-                            return;
-                        }}
-                        warningDiv.classList.toggle('hidden', !show);
-                        warningMessage.textContent = message || '';
-                    }};
-                    const getInstallmentsCount = () => {{
-                        const selectedMethod = paymentMethodInput.value || '';
-                        return parseInt(installmentsByMethod[selectedMethod] || '1', 10) || 1;
-                    }};
-                    const updateDueDate = () => {{
-                        if (dueDateInput && paymentMethodInput.value && !dueDateInput.value) {{
-                            dueDateInput.value = todayValue;
-                        }}
-                    }};
-                    const updatePaymentPlan = () => {{
-                        const firstAmount = parseFloat(firstAmountInput.value) || 0;
-                        const installmentsCount = getInstallmentsCount();
-                        const remainingInstallments = Math.max(installmentsCount - 1, 0);
-
-                        if (pendingValue <= 0) {{
-                            setMoneyValue(remainingAmountInput, remainingAmountDisplay, 0);
-                            btnSave.disabled = true;
-                            btnSave.classList.add('btn-disabled', 'opacity-50');
-                            toggleWarning(true, 'A ordem de serviço não possui saldo pendente para um novo plano de pagamento.');
-                            return;
-                        }}
-
-                        if (firstAmount > (pendingValue + 0.001)) {{
-                            setMoneyValue(remainingAmountInput, remainingAmountDisplay, 0);
-                            btnSave.disabled = true;
-                            btnSave.classList.add('btn-disabled', 'opacity-50');
-                            toggleWarning(true, 'A primeira parcela não pode exceder o saldo disponível da ordem de serviço.');
-                            return;
-                        }}
-
-                        let remainingAmount = 0;
-                        if (remainingInstallments > 0 && firstAmount > 0 && firstAmount < pendingValue) {{
-                            remainingAmount = roundUpToTenth((pendingValue - firstAmount) / remainingInstallments);
-                        }}
-
-                        setMoneyValue(remainingAmountInput, remainingAmountDisplay, remainingAmount);
-                        btnSave.disabled = false;
-                        btnSave.classList.remove('btn-disabled', 'opacity-50');
-                        toggleWarning(false, '');
-                    }};
-
-                    paymentMethodInput.addEventListener('change', function() {{
-                        updateDueDate();
-                        updatePaymentPlan();
-                    }});
-                    paymentMethodInput.addEventListener('input', function() {{
-                        updateDueDate();
-                        updatePaymentPlan();
-                    }});
-
-                    if (firstAmountDisplay) {{
-                        firstAmountDisplay.addEventListener('input', function() {{
-                            requestAnimationFrame(updatePaymentPlan);
-                        }});
-                        firstAmountDisplay.addEventListener('blur', function() {{
-                            setTimeout(updatePaymentPlan, 0);
-                        }});
-                    }}
-
-                    updateDueDate();
-                    updatePaymentPlan();
-                }})();
-            </script>
-            """),
-            HTML(f"""
                 <div id="payment-warning-workorder-js" class="hidden col-span-12 mb-4">
                     <div class="alert alert-error shadow-lg border-2 border-error">
                         <span class="material-icons">error_outline</span>
@@ -223,6 +114,121 @@ class WorkOrderPaymentForm(forms.ModelForm):
                 css_class="grid grid-cols-12 gap-4",
             ),
             Div(Submit("submit", "Salvar Plano de Pagamento", css_class="btn-form-save btn-primary"), css_class="flex justify-end mt-4"),
+            HTML(f"""
+            <script>
+                (function() {{
+                    window.initWorkOrderPaymentForm = function() {{
+                        const paymentForm = document.getElementById('payment-form-fields');
+                        if (!paymentForm || paymentForm.dataset.paymentInitialized === 'true') {{
+                            return;
+                        }}
+
+                        const formElement = paymentForm.closest('form');
+                        const paymentMethodInput = document.getElementById('id_payment_method');
+                        const firstAmountInput = document.getElementById('id_first_installment_amount_0');
+                        const firstAmountDisplay = document.getElementById('id_first_installment_amount_0_display');
+                        const remainingAmountInput = document.getElementById('id_remaining_installments_amount_0');
+                        const remainingAmountDisplay = document.getElementById('id_remaining_installments_amount_0_display');
+                        const dueDateInput = document.getElementById('id_due_date');
+                        const btnSave = formElement ? formElement.querySelector('.btn-form-save') : null;
+                        const warningDiv = document.getElementById('payment-warning-workorder-js');
+                        const warningMessage = warningDiv ? warningDiv.querySelector('.payment-warning-message') : null;
+                        const installmentsByMethod = {payment_method_installments};
+                        const pendingValue = parseFloat('{pending_amount_js}') || 0;
+                        const todayValue = '{today_iso}';
+
+                        if (!paymentMethodInput || !firstAmountInput || !remainingAmountInput || !remainingAmountDisplay || !btnSave) {{
+                            return;
+                        }}
+
+                        paymentForm.dataset.paymentInitialized = 'true';
+
+                        const formatMoney = (value) => Number(value || 0).toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
+                        const roundUpToTenth = (value) => {{
+                            if (value <= 0) {{
+                                return 0;
+                            }}
+                            return Math.ceil((value * 10) - 1e-9) / 10;
+                        }};
+                        const setMoneyValue = (hiddenInput, displayInput, value) => {{
+                            const normalized = Math.max(0, Number(value || 0));
+                            hiddenInput.value = normalized.toFixed(2);
+                            displayInput.value = formatMoney(normalized);
+                        }};
+                        const toggleWarning = (show, message) => {{
+                            if (!warningDiv || !warningMessage) {{
+                                return;
+                            }}
+                            warningDiv.classList.toggle('hidden', !show);
+                            warningMessage.textContent = message || '';
+                        }};
+                        const getInstallmentsCount = () => {{
+                            const selectedMethod = paymentMethodInput.value || '';
+                            return parseInt(installmentsByMethod[selectedMethod] || '1', 10) || 1;
+                        }};
+                        const updateDueDate = (force) => {{
+                            if (dueDateInput && paymentMethodInput.value && (force || !dueDateInput.value)) {{
+                                dueDateInput.value = todayValue;
+                            }}
+                        }};
+                        const updatePaymentPlan = () => {{
+                            const firstAmount = parseFloat(firstAmountInput.value) || 0;
+                            const installmentsCount = getInstallmentsCount();
+                            const remainingInstallments = Math.max(installmentsCount - 1, 0);
+
+                            if (pendingValue <= 0) {{
+                                setMoneyValue(remainingAmountInput, remainingAmountDisplay, 0);
+                                btnSave.disabled = true;
+                                btnSave.classList.add('btn-disabled', 'opacity-50');
+                                toggleWarning(true, 'A ordem de serviço não possui saldo pendente para um novo plano de pagamento.');
+                                return;
+                            }}
+
+                            if (firstAmount > (pendingValue + 0.001)) {{
+                                setMoneyValue(remainingAmountInput, remainingAmountDisplay, 0);
+                                btnSave.disabled = true;
+                                btnSave.classList.add('btn-disabled', 'opacity-50');
+                                toggleWarning(true, 'A primeira parcela não pode exceder o saldo disponível da ordem de serviço.');
+                                return;
+                            }}
+
+                            let remainingAmount = 0;
+                            if (remainingInstallments > 0 && firstAmount > 0 && firstAmount < pendingValue) {{
+                                remainingAmount = roundUpToTenth((pendingValue - firstAmount) / remainingInstallments);
+                            }}
+
+                            setMoneyValue(remainingAmountInput, remainingAmountDisplay, remainingAmount);
+                            btnSave.disabled = false;
+                            btnSave.classList.remove('btn-disabled', 'opacity-50');
+                            toggleWarning(false, '');
+                        }};
+
+                        paymentMethodInput.addEventListener('change', function() {{
+                            updateDueDate(true);
+                            updatePaymentPlan();
+                        }});
+                        paymentMethodInput.addEventListener('input', function() {{
+                            updateDueDate(true);
+                            updatePaymentPlan();
+                        }});
+
+                        if (firstAmountDisplay) {{
+                            firstAmountDisplay.addEventListener('input', function() {{
+                                requestAnimationFrame(updatePaymentPlan);
+                            }});
+                            firstAmountDisplay.addEventListener('blur', function() {{
+                                setTimeout(updatePaymentPlan, 0);
+                            }});
+                        }}
+
+                        updateDueDate(false);
+                        updatePaymentPlan();
+                    }};
+
+                    window.initWorkOrderPaymentForm();
+                }})();
+            </script>
+            """),
         )
 
     def _get_paid_amount(self) -> Decimal:
