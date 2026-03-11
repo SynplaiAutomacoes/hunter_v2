@@ -8,7 +8,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.urls import reverse
-from django.views.generic import FormView
+from django.views.generic import FormView, RedirectView
 
 from apps.finance.forms import EMISSION_NOTE_TYPE_CHOICES, EmissionStep1Form, EmissionStep2Form, EmissionStep3Form, EmissionStep4Form
 from apps.finance.models.finance import NfeRequest, NfeRequestStatus, NfseRequest, NfseRequestStatus
@@ -27,6 +27,27 @@ def _normalize_note_type(value: object) -> str:
     if note_type in {"nfe", "nfse"}:
         return note_type
     return ""
+
+
+class EmissionLegacyCreateRedirectView(LoginRequiredMixin, WorkshopScopedMixin, RedirectView):
+    permanent = False
+    query_string = False
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "view_nfserequest"
+    emission_note_type = ""
+
+    def get_redirect_url(self, *args, **kwargs) -> str:
+        note_type = _normalize_note_type(self.emission_note_type) or "nfe"
+        return f"{reverse('finance:emission_create')}?tipo={note_type}"
+
+
+class NfeCreateRedirectView(EmissionLegacyCreateRedirectView):
+    emission_note_type = "nfe"
+
+
+class NfseCreateRedirectView(EmissionLegacyCreateRedirectView):
+    emission_note_type = "nfse"
 
 
 class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormView):
