@@ -2116,7 +2116,7 @@ class LegacyEmissionUpdateFlowTests(TestCase):
         )
         tax_classes = [{"referencia": "REFNFE950", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e update"}]
 
-        with patch("apps.finance.views.nfe.list_tax_classes", return_value=tax_classes):
+        with patch("apps.finance.views.legacy_shared.list_tax_classes", return_value=tax_classes):
             response = self.client.get(
                 reverse("finance:nfe_update", kwargs={"pk": nfe_request.pk}),
                 data={"step": 3, "pricing_slider": -100, "tax_class": "REFNFE950"},
@@ -2128,7 +2128,7 @@ class LegacyEmissionUpdateFlowTests(TestCase):
         self.assertContains(response, "R$ 40,00")
 
         with (
-            patch("apps.finance.views.nfe.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.legacy_shared.list_tax_classes", return_value=tax_classes),
             patch("apps.finance.views.nfe.emit_nfe_request", return_value={"status": "processando"}),
             patch("apps.finance.views.nfe.sync_nfe_emission_response"),
         ):
@@ -2154,7 +2154,7 @@ class LegacyEmissionUpdateFlowTests(TestCase):
         )
         tax_classes = [{"referencia": "REFNFSE951", "tipo": "nfse", "status": "ativo", "descricao": "Classe NFS-e update", "codigo_servico": "01.05"}]
 
-        with patch("apps.finance.views.nfse.list_tax_classes", return_value=tax_classes):
+        with patch("apps.finance.views.legacy_shared.list_tax_classes", return_value=tax_classes):
             response = self.client.get(
                 reverse("finance:nfse_update", kwargs={"pk": nfse_request.pk}),
                 data={
@@ -2172,7 +2172,7 @@ class LegacyEmissionUpdateFlowTests(TestCase):
         self.assertContains(response, "R$ 60,00")
 
         with (
-            patch("apps.finance.views.nfse.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.legacy_shared.list_tax_classes", return_value=tax_classes),
             patch("apps.finance.views.nfse.emit_nfse_request", return_value={"status": "processando"}),
             patch("apps.finance.views.nfse.sync_emission_response"),
         ):

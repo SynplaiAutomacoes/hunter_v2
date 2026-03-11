@@ -9,9 +9,10 @@ from django import forms
 
 from apps.core.widgets import SelectInput, TextInput, TextareaInput
 from apps.finance.forms.emission_ui import build_slider_panel_html, build_slider_script_html, build_slider_widget_attrs, format_money, resolve_initial_slider
+from apps.finance.forms.legacy_shared import LegacyEmissionCustomerReviewForm, LegacyEmissionWorkorderSelectionForm
 from apps.finance.models.finance import NfseRequest
 from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder
-from apps.workorder.models import WorkOrder, WorkOrderStatus
+from apps.workorder.models import WorkOrder
 
 
 def _collect_service_rows(
@@ -37,107 +38,26 @@ def _collect_service_rows(
     return rows, total_services_formatted, default_description
 
 
-class NfseRequestStep1Form(forms.ModelForm):
+class NfseRequestStep1Form(LegacyEmissionWorkorderSelectionForm):
+    step_title = "Selecionar Ordem de Serviço"
+    step_subtitle = "Selecione a ordem de serviço aprovada que será utilizada para emitir a NFS-e."
+    workorder_label = "Ordem de Serviço"
+    empty_customer_label = "Cliente não informado"
+
     class Meta:
         model = NfseRequest
         fields = ["workorder"]
 
-    def __init__(self, *args, **kwargs):
-        workshop = kwargs.pop("workshop", None)
-        self.request = kwargs.pop("request", None)
-        super().__init__(*args, **kwargs)
 
-        queryset = WorkOrder.objects.none()
-        if workshop is not None:
-            queryset = WorkOrder.objects.filter(workshop=workshop, status=WorkOrderStatus.APPROVED).select_related("budget", "budget__customer", "budget__vehicle")
+class NfseRequestStep2Form(LegacyEmissionCustomerReviewForm):
+    step_subtitle = "Valide os dados do cliente antes de avançar para a etapa de emissão."
+    empty_value_label = "Não informado"
+    address_label = "Endereço"
+    vehicle_label = "Veículo"
 
-        field = self.fields["workorder"]
-        field.queryset = queryset.order_by("-id")
-
-        def _label_from_instance(workorder: WorkOrder) -> str:
-            customer = getattr(getattr(workorder, "budget", None), "customer", None)
-            customer_name = customer.name if customer else "Cliente não informado"
-            return f"Ordem de Serviço - {customer_name} - #{workorder.pk}"
-
-        field.label_from_instance = _label_from_instance
-        field.widget = SelectInput(choices=field.choices)
-        field.label = "Ordem de Serviço"
-
-        self.helper = FormHelper()
-        self.helper.form_tag = False
-        self.helper.layout = Layout(
-            Div(
-                HTML("<h2 class='text-2xl font-bold'>Selecionar Ordem de Serviço</h2>"),
-                HTML("<p class='text-base-content/70 mb-6'>Selecione a ordem de serviço aprovada que será utilizada para emitir a NFS-e.</p>"),
-                Field("workorder"),
-                css_class="space-y-4",
-            )
-        )
-
-
-class NfseRequestStep2Form(forms.ModelForm):
     class Meta:
         model = NfseRequest
         fields: list[str] = []
-
-    def __init__(self, *args, **kwargs):
-        self.workshop = kwargs.pop("workshop", None)
-        self.request = kwargs.pop("request", None)
-        super().__init__(*args, **kwargs)
-
-        customer = None
-        vehicle = None
-        if self.instance and self.instance.workorder_id:
-            budget = self.instance.workorder.budget
-            customer = budget.customer
-            vehicle = budget.vehicle
-
-        customer_name = escape(customer.name) if customer else "Não informado"
-        customer_doc = escape(customer.cpf_or_cnpj_formatted) if customer else "Não informado"
-        customer_phone = escape(str(customer.phone)) if customer and customer.phone else "Não informado"
-        customer_email = escape(customer.email) if customer and customer.email else "Não informado"
-        customer_address = escape(customer.full_address) if customer else "Não informado"
-        vehicle_label = escape(str(vehicle)) if vehicle else "Não informado"
-
-        self.helper = FormHelper()
-        self.helper.form_tag = False
-        self.helper.layout = Layout(
-            Div(
-                HTML("<h2 class='text-2xl font-bold'>Conferir dados do cliente</h2>"),
-                HTML("<p class='text-base-content/70 mb-6'>Valide os dados do cliente antes de avançar para a etapa de emissão.</p>"),
-                HTML(
-                    f"""
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-base-200 p-5 rounded-xl">
-                        <div>
-                            <p class="text-xs uppercase text-base-content/60">Cliente</p>
-                            <p class="font-semibold">{customer_name}</p>
-                        </div>
-                        <div>
-                            <p class="text-xs uppercase text-base-content/60">Documento</p>
-                            <p class="font-semibold">{customer_doc}</p>
-                        </div>
-                        <div>
-                            <p class="text-xs uppercase text-base-content/60">Telefone</p>
-                            <p class="font-semibold">{customer_phone}</p>
-                        </div>
-                        <div>
-                            <p class="text-xs uppercase text-base-content/60">E-mail</p>
-                            <p class="font-semibold">{customer_email}</p>
-                        </div>
-                        <div class="md:col-span-2">
-                            <p class="text-xs uppercase text-base-content/60">Endereço</p>
-                            <p class="font-semibold">{customer_address}</p>
-                        </div>
-                        <div class="md:col-span-2">
-                            <p class="text-xs uppercase text-base-content/60">Veículo</p>
-                            <p class="font-semibold">{vehicle_label}</p>
-                        </div>
-                    </div>
-                    """
-                ),
-                css_class="space-y-4",
-            )
-        )
 
 
 class NfseRequestStep3Form(forms.ModelForm):
