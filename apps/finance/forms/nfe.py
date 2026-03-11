@@ -9,112 +9,23 @@ from django import forms
 
 from apps.core.widgets import SelectInput
 from apps.finance.forms.emission_ui import build_slider_panel_html, build_slider_script_html, build_slider_widget_attrs, format_money, resolve_initial_slider
+from apps.finance.forms.legacy_shared import LegacyEmissionCustomerReviewForm, LegacyEmissionWorkorderSelectionForm
 from apps.finance.models.finance import NfeRequest
 from apps.finance.services.nfe_emission import NfeEmissionError, build_nfe_preview_rows
-from apps.workorder.models import WorkOrder, WorkOrderStatus
 
 
-class NfeRequestStep1Form(forms.ModelForm):
+class NfeRequestStep1Form(LegacyEmissionWorkorderSelectionForm):
+    step_subtitle = "Selecione a ordem de servico aprovada que sera utilizada para emitir a NF-e."
+
     class Meta:
         model = NfeRequest
         fields = ["workorder"]
 
-    def __init__(self, *args, **kwargs):
-        workshop = kwargs.pop("workshop", None)
-        self.request = kwargs.pop("request", None)
-        super().__init__(*args, **kwargs)
 
-        queryset = WorkOrder.objects.none()
-        if workshop is not None:
-            queryset = WorkOrder.objects.filter(workshop=workshop, status=WorkOrderStatus.APPROVED).select_related("budget", "budget__customer", "budget__vehicle")
-
-        field = self.fields["workorder"]
-        field.queryset = queryset.order_by("-id")
-
-        def _label_from_instance(workorder: WorkOrder) -> str:
-            customer = getattr(getattr(workorder, "budget", None), "customer", None)
-            customer_name = customer.name if customer else "Cliente nao informado"
-            return f"Ordem de Servico - {customer_name} - #{workorder.pk}"
-
-        field.label_from_instance = _label_from_instance
-        field.widget = SelectInput(choices=field.choices)
-        field.label = "Ordem de Servico"
-
-        self.helper = FormHelper()
-        self.helper.form_tag = False
-        self.helper.layout = Layout(
-            Div(
-                HTML("<h2 class='text-2xl font-bold'>Selecionar Ordem de Servico</h2>"),
-                HTML("<p class='text-base-content/70 mb-6'>Selecione a ordem de servico aprovada que sera utilizada para emitir a NF-e.</p>"),
-                Field("workorder"),
-                css_class="space-y-4",
-            )
-        )
-
-
-class NfeRequestStep2Form(forms.ModelForm):
+class NfeRequestStep2Form(LegacyEmissionCustomerReviewForm):
     class Meta:
         model = NfeRequest
         fields: list[str] = []
-
-    def __init__(self, *args, **kwargs):
-        self.workshop = kwargs.pop("workshop", None)
-        self.request = kwargs.pop("request", None)
-        super().__init__(*args, **kwargs)
-
-        customer = None
-        vehicle = None
-        if self.instance and self.instance.workorder_id:
-            budget = self.instance.workorder.budget
-            customer = budget.customer
-            vehicle = budget.vehicle
-
-        customer_name = escape(customer.name) if customer else "Nao informado"
-        customer_doc = escape(customer.cpf_or_cnpj_formatted) if customer else "Nao informado"
-        customer_phone = escape(str(customer.phone)) if customer and customer.phone else "Nao informado"
-        customer_email = escape(customer.email) if customer and customer.email else "Nao informado"
-        customer_address = escape(customer.full_address) if customer else "Nao informado"
-        vehicle_label = escape(str(vehicle)) if vehicle else "Nao informado"
-
-        self.helper = FormHelper()
-        self.helper.form_tag = False
-        self.helper.layout = Layout(
-            Div(
-                HTML("<h2 class='text-2xl font-bold'>Conferir dados do cliente</h2>"),
-                HTML("<p class='text-base-content/70 mb-6'>Valide os dados do cliente antes de avancar para a etapa de emissao.</p>"),
-                HTML(
-                    f"""
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-base-200 p-5 rounded-xl">
-                        <div>
-                            <p class="text-xs uppercase text-base-content/60">Cliente</p>
-                            <p class="font-semibold">{customer_name}</p>
-                        </div>
-                        <div>
-                            <p class="text-xs uppercase text-base-content/60">Documento</p>
-                            <p class="font-semibold">{customer_doc}</p>
-                        </div>
-                        <div>
-                            <p class="text-xs uppercase text-base-content/60">Telefone</p>
-                            <p class="font-semibold">{customer_phone}</p>
-                        </div>
-                        <div>
-                            <p class="text-xs uppercase text-base-content/60">E-mail</p>
-                            <p class="font-semibold">{customer_email}</p>
-                        </div>
-                        <div class="md:col-span-2">
-                            <p class="text-xs uppercase text-base-content/60">Endereco</p>
-                            <p class="font-semibold">{customer_address}</p>
-                        </div>
-                        <div class="md:col-span-2">
-                            <p class="text-xs uppercase text-base-content/60">Veiculo</p>
-                            <p class="font-semibold">{vehicle_label}</p>
-                        </div>
-                    </div>
-                    """
-                ),
-                css_class="space-y-4",
-            )
-        )
 
 
 class NfeRequestStep3Form(forms.ModelForm):
