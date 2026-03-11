@@ -560,7 +560,7 @@ class WorkOrderPaymentFormTests(TestCase):
         product = create_product(workshop=self.workshop, suffix=suffix, selling_price=value)
         WorkOrderItem.objects.create(workshop=self.workshop, workorder=self.workorder, product=product, quantity=1)
 
-    def test_form_calculates_remaining_installments_from_payment_method(self) -> None:
+    def test_form_saves_entered_amount_as_payment_total(self) -> None:
         self._set_workorder_total("100.00", suffix=21)
         payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Cartão", installments_count=4)
 
@@ -569,8 +569,6 @@ class WorkOrderPaymentFormTests(TestCase):
                 "payment_method": str(payment_method.pk),
                 "first_installment_amount_0": "40.00",
                 "first_installment_amount_1": "BRL",
-                "remaining_installments_amount_0": "0.00",
-                "remaining_installments_amount_1": "BRL",
                 "due_date": "2026-03-20",
             },
             workorder=self.workorder,
@@ -578,60 +576,55 @@ class WorkOrderPaymentFormTests(TestCase):
 
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(form.cleaned_data["installments_count"], 4)
-        self.assertEqual(form.cleaned_data["remaining_installments_amount"], Money("20.00", "BRL"))
+        self.assertEqual(form.cleaned_data["remaining_installments_amount"], Money("0.00", "BRL"))
 
         payment = form.save(commit=False)
         payment.workorder = self.workorder
         payment.save()
 
         self.assertEqual(payment.installments_count, 4)
-        self.assertEqual(payment.remaining_installments_amount, Money("20.00", "BRL"))
-        self.assertEqual(payment.total_paid, Money("100.00", "BRL"))
+        self.assertEqual(payment.first_installment_amount, Money("40.00", "BRL"))
+        self.assertEqual(payment.remaining_installments_amount, Money("0.00", "BRL"))
+        self.assertEqual(payment.total_paid, Money("40.00", "BRL"))
         self.assertEqual(payment.due_date, date(2026, 3, 20))
 
-    def test_form_rounds_remaining_installments_up_to_next_tenth(self) -> None:
-        self._set_workorder_total("133.32", suffix=22)
+    def test_form_allows_paying_full_pending_amount(self) -> None:
+        self._set_workorder_total("100.00", suffix=22)
         payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Cartão Premium", installments_count=4)
-
-        form = WorkOrderPaymentForm(
-            data={
-                "payment_method": str(payment_method.pk),
-                "first_installment_amount_0": "33.33",
-                "first_installment_amount_1": "BRL",
-                "remaining_installments_amount_0": "0.00",
-                "remaining_installments_amount_1": "BRL",
-                "due_date": "2026-03-21",
-            },
-            workorder=self.workorder,
-        )
-
-        self.assertTrue(form.is_valid(), form.errors)
-        self.assertEqual(form.cleaned_data["remaining_installments_amount"], Money("33.40", "BRL"))
-
-        payment = form.save(commit=False)
-        payment.workorder = self.workorder
-        payment.save()
-
-        self.assertEqual(payment.total_paid, Money("133.53", "BRL"))
-
-    def test_form_sets_remaining_installments_to_zero_when_first_installment_covers_total(self) -> None:
-        self._set_workorder_total("100.00", suffix=23)
-        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Cartão à vista", installments_count=4)
 
         form = WorkOrderPaymentForm(
             data={
                 "payment_method": str(payment_method.pk),
                 "first_installment_amount_0": "100.00",
                 "first_installment_amount_1": "BRL",
-                "remaining_installments_amount_0": "0.00",
-                "remaining_installments_amount_1": "BRL",
-                "due_date": "2026-03-22",
+                "due_date": "2026-03-21",
             },
             workorder=self.workorder,
         )
 
         self.assertTrue(form.is_valid(), form.errors)
-        self.assertEqual(form.cleaned_data["remaining_installments_amount"], Money("0.00", "BRL"))
+        payment = form.save(commit=False)
+        payment.workorder = self.workorder
+        payment.save()
+
+        self.assertEqual(payment.total_paid, Money("100.00", "BRL"))
+
+    def test_form_defaults_due_date_to_today_when_not_provided(self) -> None:
+        self._set_workorder_total("100.00", suffix=23)
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix", installments_count=1)
+
+        form = WorkOrderPaymentForm(
+            data={
+                "payment_method": str(payment_method.pk),
+                "first_installment_amount_0": "50.00",
+                "first_installment_amount_1": "BRL",
+                "due_date": "",
+            },
+            workorder=self.workorder,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data["due_date"], timezone.localdate())
 
     def test_form_rejects_first_installment_above_pending_balance(self) -> None:
         self._set_workorder_total("100.00", suffix=24)
@@ -642,20 +635,18 @@ class WorkOrderPaymentFormTests(TestCase):
                 "payment_method": str(payment_method.pk),
                 "first_installment_amount_0": "100.01",
                 "first_installment_amount_1": "BRL",
-                "remaining_installments_amount_0": "0.00",
-                "remaining_installments_amount_1": "BRL",
-                "due_date": "2026-03-23",
+                "due_date": "2026-03-22",
             },
             workorder=self.workorder,
         )
 
         self.assertFalse(form.is_valid())
-        self.assertIn("A primeira parcela não pode exceder o saldo pendente", str(form.errors["first_installment_amount"][0]))
+        self.assertIn("O valor a ser pago não pode exceder o saldo pendente", str(form.errors["first_installment_amount"][0]))
 
 
 class AddPaymentMethodViewTests(TestCase):
     def setUp(self) -> None:
-        self.user, self.workshop = create_director_user_with_workshop(suffix=25)
+        self.user, self.workshop = create_director_user_with_workshop(suffix=24)
         self.client.force_login(self.user)
 
         session = self.client.session
@@ -664,7 +655,7 @@ class AddPaymentMethodViewTests(TestCase):
 
         self.budget = create_budget(workshop=self.workshop)
         self.workorder = WorkOrder.objects.create(workshop=self.workshop, budget=self.budget)
-        product = create_product(workshop=self.workshop, suffix=25, selling_price="100.00")
+        product = create_product(workshop=self.workshop, suffix=24, selling_price="100.00")
         WorkOrderItem.objects.create(workshop=self.workshop, workorder=self.workorder, product=product, quantity=1)
 
     def test_post_saves_payment_and_renders_updated_list(self) -> None:
@@ -676,8 +667,6 @@ class AddPaymentMethodViewTests(TestCase):
                 "payment_method": str(payment_method.pk),
                 "first_installment_amount_0": "40.00",
                 "first_installment_amount_1": "BRL",
-                "remaining_installments_amount_0": "0.00",
-                "remaining_installments_amount_1": "BRL",
                 "due_date": "2026-03-24",
             },
             HTTP_HX_REQUEST="true",
@@ -689,5 +678,6 @@ class AddPaymentMethodViewTests(TestCase):
 
         payment = WorkOrderPaymentMethod.objects.get(workorder=self.workorder)
         self.assertEqual(payment.installments_count, 4)
-        self.assertEqual(payment.remaining_installments_amount, Money("20.00", "BRL"))
+        self.assertEqual(payment.remaining_installments_amount, Money("0.00", "BRL"))
+        self.assertEqual(payment.total_paid, Money("40.00", "BRL"))
         self.assertEqual(payment.due_date, date(2026, 3, 24))
