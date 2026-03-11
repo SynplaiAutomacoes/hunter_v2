@@ -162,7 +162,6 @@
                         {% for payment in workorder.payments.all %}
                             <p class="text-sm">
                                 {{ payment.payment_method.description }} -
-                                {{ payment.installments_count }}x -
                                 Vencimento {{ payment.due_date|date:"d/m/Y" }} -
                                 {{ payment.total_paid }}
                             </p>
