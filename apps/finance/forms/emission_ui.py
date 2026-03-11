@@ -495,21 +495,8 @@ def build_step5_slider_script_html(*, prefix: str, form_selector: str, input_nam
                     const slider = document.querySelector('{form_selector} input[name="{input_name}"]');
                     const labelPecaPct = document.getElementById('{prefix}-val-peca');
                     const labelMOPct = document.getElementById('{prefix}-val-mo');
-                    const vendaPecaEl = document.getElementById('{prefix}-display-venda-pecas');
-                    const vendaMOEl = document.getElementById('{prefix}-display-venda-mo');
 
-                    if (!slider || !labelPecaPct || !labelMOPct || !vendaPecaEl || !vendaMOEl) return;
-
-                    const basePeca = parseFloat(vendaPecaEl.dataset.baseVal || '0');
-                    const baseMO = parseFloat(vendaMOEl.dataset.baseVal || '0');
-                    const costPeca = parseFloat(vendaPecaEl.dataset.costVal || '0');
-                    const fretePeca = parseFloat(vendaPecaEl.dataset.freteVal || '0');
-                    const minVendaPeca = costPeca + fretePeca;
-                    const costMO = parseFloat(vendaMOEl.dataset.costVal || '0');
-
-                    const formatCurrency = function (value) {{
-                        return 'R$ ' + Number(value || 0).toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
-                    }};
+                    if (!slider || !labelPecaPct || !labelMOPct) return;
 
                     function updateFill(val) {{
                         const min = -100;
@@ -529,32 +516,11 @@ def build_step5_slider_script_html(*, prefix: str, form_selector: str, input_nam
                         }}
                     }}
 
-                    function updateLocalValues(val) {{
-                        let nextPeca = basePeca;
-                        let nextMO = baseMO;
-
-                        if (val < 0) {{
-                            const availableServices = Math.max(baseMO - costMO, 0);
-                            const transfer = availableServices * (Math.abs(val) / 100);
-                            nextPeca = basePeca + transfer;
-                            nextMO = baseMO - transfer;
-                        }} else if (val > 0) {{
-                            const availableProducts = Math.max(basePeca - minVendaPeca, 0);
-                            const transfer = availableProducts * (val / 100);
-                            nextPeca = basePeca - transfer;
-                            nextMO = baseMO + transfer;
-                        }}
-
-                        vendaPecaEl.textContent = formatCurrency(nextPeca);
-                        vendaMOEl.textContent = formatCurrency(nextMO);
-                    }}
-
                     function update(val) {{
                         const numericValue = parseInt(val || 0, 10) || 0;
                         labelPecaPct.textContent = numericValue < 0 ? Math.abs(numericValue) : 0;
                         labelMOPct.textContent = numericValue > 0 ? numericValue : 0;
                         updateFill(numericValue);
-                        updateLocalValues(numericValue);
                     }}
 
                     if (slider.dataset.step5Bound !== 'true') {{

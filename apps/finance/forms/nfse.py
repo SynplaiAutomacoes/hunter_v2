@@ -104,7 +104,6 @@ class NfseRequestStep3Form(forms.ModelForm):
                 include_selector="#nfse-form",
                 target_selector="#nfse-preview-block",
                 swap="none",
-                trigger="input changed delay:120ms, change",
                 sync_selector="#nfse-form:abort",
             )
         )

@@ -436,7 +436,6 @@ class EmissionStep4Form(forms.Form):
                 include_selector="#emission-form",
                 target_selector="#emission-preview-block",
                 swap="none",
-                trigger="input changed delay:120ms, change",
                 sync_selector="#emission-form:abort",
             )
         )
