@@ -9,6 +9,7 @@ from apps.finance.forms.payment_method import PaymentMethodForm
 from apps.finance.models.payment_method import PaymentMethod
 from apps.workshops.mixin import WorkshopScopedMixin
 
+
 class PaymentMethodListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = PaymentMethod
     template_name = "finance/payment_methods/payment_methods_list.html"
@@ -24,12 +25,12 @@ class PaymentMethodListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplat
         context = super().get_context_data(**kwargs)
         context["fields"] = [
             TableColumn("Descrição", attr="description"),
+            TableColumn("Parcelas", attr="installments_count"),
             TableColumn("Ativo", attr="is_active"),
         ]
-        context["actions"] = [
-            TableActionDefaults.edit("finance:payment_methods_update")
-        ]
+        context["actions"] = [TableActionDefaults.edit("finance:payment_methods_update")]
         return context
+
 
 class PaymentMethodCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
     model = PaymentMethod
@@ -46,6 +47,7 @@ class PaymentMethodCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateVie
     def form_valid(self, form):
         form.instance.workshop = self.workshop
         return super().form_valid(form)
+
 
 class PaymentMethodUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
     model = PaymentMethod

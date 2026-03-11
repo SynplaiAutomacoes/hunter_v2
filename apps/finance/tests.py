@@ -18,10 +18,12 @@ from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.kits import Kit, KitProduct
 from apps.catalog.models.products import Product
 from apps.collaborators.models import WorkshopMember
-from apps.finance.forms.financial_group import FinancialGroupForm
 from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm
+from apps.finance.forms.financial_group import FinancialGroupForm
+from apps.finance.forms.payment_method import PaymentMethodForm
 from apps.finance.models.finance import TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassSyncState, WebmaniaCompany
 from apps.finance.models.financial_group import FinancialGroup
+from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.services.emission import NfseEmissionError, _build_taker_payload, _service_total_value, build_webmania_webhook_token, emit_nfse_request
 from apps.finance.services.nfe_emission import _extract_product_lines
 from apps.finance.services.pricing import build_slider_allocation_for_workorder, compute_slider_allocation, distribute_total_proportionally
@@ -1895,3 +1897,52 @@ class FinancialGroupViewsTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertTrue(FinancialGroup.objects.filter(pk=parent.pk).exists())
+
+
+class PaymentMethodFormTests(TestCase):
+    def test_form_saves_installments_count(self) -> None:
+        workshop = create_workshop(suffix=86)
+
+        form = PaymentMethodForm(
+            data={"description": "Cartão de Crédito", "installments_count": "4", "is_active": "on"},
+            workshop=workshop,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+        payment_method = form.save(commit=False)
+        payment_method.workshop = workshop
+        payment_method.save()
+
+        self.assertEqual(payment_method.installments_count, 4)
+
+
+class PaymentMethodViewsTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=87)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_create_view_persists_installments_count(self) -> None:
+        response = self.client.post(
+            reverse("finance:payment_methods_create"),
+            data={"description": "Cartão de Crédito", "installments_count": "4", "is_active": "on"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("finance:payment_methods_list"))
+
+        payment_method = PaymentMethod.objects.get(workshop=self.workshop, description="Cartão de Crédito")
+        self.assertEqual(payment_method.installments_count, 4)
+
+    def test_list_view_displays_installments_count_column(self) -> None:
+        PaymentMethod.objects.create(workshop=self.workshop, description="Pix Parcelado", installments_count=3)
+
+        response = self.client.get(reverse("finance:payment_methods_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Parcelas")
+        self.assertContains(response, "3")
