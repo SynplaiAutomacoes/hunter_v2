@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from decimal import Decimal
 from html import escape
 from typing import Any
 
@@ -10,33 +9,14 @@ from django import forms
 from django.urls import reverse
 
 from apps.core.widgets import SelectInput, TextareaInput
+from apps.finance.forms.emission_ui import build_slider_panel_html, build_slider_script_html, build_slider_widget_attrs, clamp_slider_value, format_money
 from apps.finance.services.emission import build_default_service_description_for_workorder
 from apps.finance.services.nfe_emission import NfeEmissionError, build_nfe_preview_rows
 from apps.finance.services.pricing import build_emission_pricing_snapshot_for_workorder, build_slider_allocation_for_workorder
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 
 
-EMISSION_NOTE_TYPE_CHOICES: list[tuple[str, str]] = [
-    ("nfe", "NF-e"),
-    ("nfse", "NFS-e"),
-]
-
-
-def _format_money(value: Any) -> str:
-    amount: Decimal
-    if hasattr(value, "amount"):
-        amount = value.amount
-    else:
-        amount = Decimal(str(value or 0))
-    return f"R$ {amount:.2f}".replace(".", ",")
-
-
-def _coerce_slider(value: object, default: int = 0) -> int:
-    try:
-        slider_source = default if value in (None, "") else str(value)
-        return max(-100, min(100, int(slider_source)))
-    except (TypeError, ValueError):
-        return max(-100, min(100, int(default)))
+EMISSION_NOTE_TYPE_CHOICES: list[tuple[str, str]] = [("nfe", "NF-e"), ("nfse", "NFS-e")]
 
 
 def _resolve_note_type(value: object) -> str:
@@ -151,20 +131,20 @@ class EmissionStep3Form(forms.Form):
 
         products_html = ""
         services_html = ""
-        total_products = _format_money(0)
-        total_services = _format_money(0)
+        total_products = format_money(0)
+        total_services = format_money(0)
 
         if workorder is not None:
             snapshot = build_emission_pricing_snapshot_for_workorder(workorder=workorder)
-            total_products = _format_money(snapshot.total_products_value)
-            total_services = _format_money(snapshot.total_services_value)
+            total_products = format_money(snapshot.total_products_value)
+            total_services = format_money(snapshot.total_services_value)
 
             products_html = "".join(
                 f"""
                 <tr class="border-b border-base-300/60">
                     <td class="py-2">{escape(str(line.description))}</td>
                     <td class="py-2 text-center">{line.quantity}</td>
-                    <td class="py-2 text-right">{_format_money(line.raw_total)}</td>
+                    <td class="py-2 text-right">{format_money(line.raw_total)}</td>
                 </tr>
                 """
                 for line in snapshot.product_lines
@@ -174,7 +154,7 @@ class EmissionStep3Form(forms.Form):
                 <tr class="border-b border-base-300/60">
                     <td class="py-2">{escape(str(line.description))}</td>
                     <td class="py-2 text-center">{line.quantity}</td>
-                    <td class="py-2 text-right">{_format_money(line.raw_total)}</td>
+                    <td class="py-2 text-right">{format_money(line.raw_total)}</td>
                 </tr>
                 """
                 for line in snapshot.service_lines
@@ -263,7 +243,7 @@ class EmissionStep4Form(forms.Form):
 
         selected_note_type = _resolve_note_type(self.data.get("note_type") if self.is_bound else self.initial.get("note_type"))
         initial_slider = self.initial.get("pricing_slider", getattr(getattr(workorder, "budget", None), "slider", 0))
-        selected_slider = _coerce_slider(self.data.get("pricing_slider") if self.is_bound else initial_slider, default=int(initial_slider or 0))
+        selected_slider = clamp_slider_value(self.data.get("pricing_slider") if self.is_bound else initial_slider, default=int(initial_slider or 0))
 
         note_type_field = self.fields["note_type"]
         note_type_field.choices = list(note_type_choices)
@@ -281,18 +261,12 @@ class EmissionStep4Form(forms.Form):
 
         slider_field = self.fields["pricing_slider"]
         slider_field.widget = forms.NumberInput(
-            attrs={
-                "type": "range",
-                "min": "-100",
-                "max": "100",
-                "step": "1",
-                "class": "w-full centered-range emission-centered-range",
-                "hx-get": reverse("finance:emission_preview"),
-                "hx-trigger": "input changed delay:250ms",
-                "hx-target": "#emission-step4-body",
-                "hx-swap": "outerHTML",
-                "hx-include": "#emission-form",
-            }
+            attrs=build_slider_widget_attrs(
+                preview_url=reverse("finance:emission_preview"),
+                target_selector="#emission-step4-body",
+                include_selector="#emission-form",
+                swap="outerHTML",
+            )
         )
         slider_field.help_text = "Negativo prioriza produtos. Positivo prioriza servicos."
 
@@ -335,16 +309,16 @@ class EmissionStep4Form(forms.Form):
 
         preview_warning = ""
         preview_html = ""
-        total_to_emit = _format_money(0)
-        complementary_total = _format_money(0)
+        total_to_emit = format_money(0)
+        complementary_total = format_money(0)
         complementary_label = "Saldo complementar"
 
         if workorder is not None:
             allocation = build_slider_allocation_for_workorder(workorder=workorder, slider_override=selected_slider)
             if selected_note_type == "nfe":
                 complementary_label = "Saldo NFS-e (servicos)"
-                total_to_emit = _format_money(allocation.products_target)
-                complementary_total = _format_money(allocation.services_target)
+                total_to_emit = format_money(allocation.products_target)
+                complementary_total = format_money(allocation.services_target)
                 if allocation.products_target <= 0:
                     preview_warning = "<div class='alert alert-warning mb-4'>A configuracao atual do slider nao deixa saldo de produtos para emitir NF-e.</div>"
                 try:
@@ -358,8 +332,8 @@ class EmissionStep4Form(forms.Form):
                     <tr class="border-b border-base-300/60">
                         <td class="py-2">{escape(str(row["description"]))}</td>
                         <td class="py-2 text-center">{row["quantity"]}</td>
-                        <td class="py-2 text-right">{_format_money(row["base_total"])}</td>
-                        <td class="py-2 text-right font-semibold">{_format_money(row["target_total"])}</td>
+                        <td class="py-2 text-right">{format_money(row["base_total"])}</td>
+                        <td class="py-2 text-right font-semibold">{format_money(row["target_total"])}</td>
                     </tr>
                     """
                     for row in rows
@@ -397,8 +371,8 @@ class EmissionStep4Form(forms.Form):
                 """
             else:
                 complementary_label = "Saldo NF-e (produtos)"
-                total_to_emit = _format_money(allocation.services_target)
-                complementary_total = _format_money(allocation.products_target)
+                total_to_emit = format_money(allocation.services_target)
+                complementary_total = format_money(allocation.products_target)
                 if allocation.services_target <= 0:
                     preview_warning = "<div class='alert alert-warning mb-4'>A configuracao atual do slider nao deixa saldo de servicos para emitir NFS-e.</div>"
 
@@ -408,7 +382,7 @@ class EmissionStep4Form(forms.Form):
                     <tr class="border-b border-base-300/60">
                         <td class="py-2">{escape(str(line.description))}</td>
                         <td class="py-2 text-center">{line.quantity}</td>
-                        <td class="py-2 text-right">{_format_money(line.raw_total)}</td>
+                        <td class="py-2 text-right">{format_money(line.raw_total)}</td>
                     </tr>
                     """
                     for line in snapshot.service_lines
@@ -444,84 +418,11 @@ class EmissionStep4Form(forms.Form):
                     </div>
                 """
 
-        slider_indicator = f"""
-            <style>
-                input[type="range"].emission-centered-range {{
-                    -webkit-appearance: none;
-                    -moz-appearance: none;
-                    width: 100%;
-                    height: 8px;
-                    background: transparent;
-                }}
-
-                input[type="range"].emission-centered-range::-webkit-slider-runnable-track {{
-                    height: 8px;
-                    border-radius: 999px;
-                    background: linear-gradient(
-                        to right,
-                        #dbeafe var(--left),
-                        #0f766e var(--left),
-                        #0f766e var(--right),
-                        #fde68a var(--right)
-                    );
-                }}
-
-                input[type="range"].emission-centered-range::-webkit-slider-thumb {{
-                    -webkit-appearance: none;
-                    width: 24px;
-                    height: 24px;
-                    background: #0f172a;
-                    border: 3px solid #f8fafc;
-                    border-radius: 999px;
-                    margin-top: -8px;
-                    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.22);
-                    cursor: pointer;
-                }}
-
-                input[type="range"].emission-centered-range::-moz-range-track {{
-                    height: 8px;
-                    border-radius: 999px;
-                    background: linear-gradient(
-                        to right,
-                        #dbeafe var(--left),
-                        #0f766e var(--left),
-                        #0f766e var(--right),
-                        #fde68a var(--right)
-                    );
-                }}
-
-                input[type="range"].emission-centered-range::-moz-range-thumb {{
-                    width: 24px;
-                    height: 24px;
-                    background: #0f172a;
-                    border: 3px solid #f8fafc;
-                    border-radius: 999px;
-                    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.22);
-                    cursor: pointer;
-                }}
-            </style>
-            <div class="rounded-2xl border border-base-300 bg-base-100/90 p-5 shadow-sm">
-                <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between mb-4">
-                    <div>
-                        <p class="text-xs uppercase tracking-[0.24em] text-base-content/50">Ajuste fiscal</p>
-                        <h3 class="text-lg font-semibold">Slider da emissao</h3>
-                        <p class="text-sm text-base-content/70">Comeca com o valor do orcamento, mas aqui fica independente e nao sincroniza de volta.</p>
-                    </div>
-                    <div class="badge badge-outline badge-lg px-4 py-3" id="emission-slider-value">{selected_slider}</div>
-                </div>
-                <div class="grid gap-3 sm:grid-cols-2 mb-4">
-                    <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-900">
-                        <p class="text-xs uppercase tracking-wide text-emerald-700/80">Peso em produtos</p>
-                        <p class="text-2xl font-black"><span id="val-produtos">{abs(selected_slider) if selected_slider < 0 else 0}</span>%</p>
-                    </div>
-                    <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900">
-                        <p class="text-xs uppercase tracking-wide text-amber-700/80">Peso em servicos</p>
-                        <p class="text-2xl font-black"><span id="val-servicos">{selected_slider if selected_slider > 0 else 0}</span>%</p>
-                    </div>
-                </div>
-                <p class="text-sm font-medium text-base-content/60 mb-2">Deslize para a esquerda para fortalecer produtos; para a direita para fortalecer servicos.</p>
-            </div>
-        """
+        slider_indicator = build_slider_panel_html(
+            prefix="emission",
+            selected_slider=selected_slider,
+            description="Comeca com o valor do orcamento, mas aqui fica independente e nao sincroniza de volta.",
+        )
 
         service_description_field = []
         if selected_note_type == "nfse":
@@ -543,51 +444,7 @@ class EmissionStep4Form(forms.Form):
                     *service_description_field,
                     css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
                 ),
-                HTML(
-                    """
-                    <script>
-                        (function () {
-                            window.initEmissionSliderPreview = function initEmissionSliderPreview() {
-                                const slider = document.querySelector('input[name="pricing_slider"]');
-                                const badge = document.getElementById('emission-slider-value');
-                                const productsLabel = document.getElementById('val-produtos');
-                                const servicesLabel = document.getElementById('val-servicos');
-
-                                if (!slider) return;
-
-                                function updateFill(rawValue) {
-                                    const value = parseInt(rawValue || 0, 10) || 0;
-                                    const min = -100;
-                                    const max = 100;
-                                    const center = 50;
-                                    const percent = ((value - min) / (max - min)) * 100;
-
-                                    if (value === 0) {
-                                        slider.style.setProperty('--left', center + '%');
-                                        slider.style.setProperty('--right', center + '%');
-                                    } else if (value < 0) {
-                                        slider.style.setProperty('--left', percent + '%');
-                                        slider.style.setProperty('--right', center + '%');
-                                    } else {
-                                        slider.style.setProperty('--left', center + '%');
-                                        slider.style.setProperty('--right', percent + '%');
-                                    }
-
-                                    if (badge) badge.textContent = value;
-                                    if (productsLabel) productsLabel.textContent = value < 0 ? Math.abs(value) : 0;
-                                    if (servicesLabel) servicesLabel.textContent = value > 0 ? value : 0;
-                                }
-
-                                slider.oninput = function () { updateFill(slider.value); };
-                                updateFill(slider.value || 0);
-                            };
-
-                            document.addEventListener('DOMContentLoaded', window.initEmissionSliderPreview);
-                            document.body.addEventListener('htmx:afterSettle', window.initEmissionSliderPreview);
-                        })();
-                    </script>
-                    """
-                ),
+                HTML(build_slider_script_html(prefix="emission", form_selector="#emission-form")),
                 css_class="space-y-4",
             )
         )

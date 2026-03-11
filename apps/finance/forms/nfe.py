@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from decimal import Decimal
 from html import escape
 from typing import Any
 
@@ -9,18 +8,10 @@ from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
 
 from apps.core.widgets import SelectInput
+from apps.finance.forms.emission_ui import build_slider_panel_html, build_slider_script_html, build_slider_widget_attrs, format_money, resolve_initial_slider
 from apps.finance.models.finance import NfeRequest
 from apps.finance.services.nfe_emission import NfeEmissionError, build_nfe_preview_rows
 from apps.workorder.models import WorkOrder, WorkOrderStatus
-
-
-def _format_money(value: Any) -> str:
-    amount: Decimal
-    if hasattr(value, "amount"):
-        amount = value.amount
-    else:
-        amount = Decimal(str(value or 0))
-    return f"R$ {amount:.2f}".replace(".", ",")
 
 
 class NfeRequestStep1Form(forms.ModelForm):
@@ -129,13 +120,34 @@ class NfeRequestStep2Form(forms.ModelForm):
 class NfeRequestStep3Form(forms.ModelForm):
     class Meta:
         model = NfeRequest
-        fields = ["tax_class"]
+        fields = ["pricing_slider", "tax_class"]
 
     def __init__(self, *args, **kwargs):
         self.workshop = kwargs.pop("workshop", None)
         self.request = kwargs.pop("request", None)
         self.tax_class_choices = kwargs.pop("tax_class_choices", [])
         super().__init__(*args, **kwargs)
+
+        preview_url = f"{self.request.path}?step=3" if self.request is not None else ""
+        default_slider = int(getattr(getattr(getattr(self.instance, "workorder", None), "budget", None), "slider", 0) or 0)
+        persisted_slider = getattr(self.instance, "pricing_slider", None)
+        selected_slider = resolve_initial_slider(
+            initial_value=self.initial.get("pricing_slider"),
+            persisted_slider=persisted_slider,
+            default_slider=default_slider,
+        )
+
+        slider_field = self.fields["pricing_slider"]
+        slider_field.label = "Slider da emissao"
+        slider_field.help_text = "Ajuste a distribuicao da margem para esta NF-e sem alterar o orcamento."
+        slider_field.widget = forms.NumberInput(
+            attrs=build_slider_widget_attrs(
+                preview_url=preview_url,
+                target_selector="#step-container",
+                include_selector="#nfe-form",
+                swap="innerHTML",
+            )
+        )
 
         tax_class_field = self.fields["tax_class"]
         dropdown_choices = [("", "Selecione a classe de imposto")]
@@ -149,9 +161,9 @@ class NfeRequestStep3Form(forms.ModelForm):
             self.initial["tax_class"] = next(iter(self._valid_tax_class_refs))
 
         rows: list[dict[str, Any]] = []
-        total_products_formatted = _format_money(Decimal("0"))
-        total_services_formatted = _format_money(Decimal("0"))
-        slider_display = "0"
+        total_products_formatted = format_money(0)
+        total_services_formatted = format_money(0)
+        slider_display = str(selected_slider)
         warning_html = ""
 
         if self.instance and self.instance.workorder_id:
@@ -159,9 +171,10 @@ class NfeRequestStep3Form(forms.ModelForm):
                 rows, allocation = build_nfe_preview_rows(
                     workorder=self.instance.workorder,
                     persisted_slider=getattr(self.instance, "pricing_slider", None),
+                    slider_override=selected_slider,
                 )
-                total_products_formatted = _format_money(allocation.products_target)
-                total_services_formatted = _format_money(allocation.services_target)
+                total_products_formatted = format_money(allocation.products_target)
+                total_services_formatted = format_money(allocation.services_target)
                 slider_display = str(allocation.slider)
             except NfeEmissionError as exc:
                 warning_html = f"<div class='alert alert-warning mb-4'>{escape(str(exc))}</div>"
@@ -171,8 +184,8 @@ class NfeRequestStep3Form(forms.ModelForm):
             <tr class="border-b border-base-300/60">
                 <td class="py-2">{escape(str(row["description"]))}</td>
                 <td class="py-2 text-center">{row["quantity"]}</td>
-                <td class="py-2 text-right">{_format_money(row["base_total"])}</td>
-                <td class="py-2 text-right font-semibold">{_format_money(row["target_total"])}</td>
+                <td class="py-2 text-right">{format_money(row["base_total"])}</td>
+                <td class="py-2 text-right font-semibold">{format_money(row["target_total"])}</td>
             </tr>
             """
             for row in rows
@@ -191,6 +204,13 @@ class NfeRequestStep3Form(forms.ModelForm):
             Div(
                 HTML("<h2 class='text-2xl font-bold'>Conferir produtos e impostos</h2>"),
                 HTML("<p class='text-base-content/70 mb-6'>Revise os produtos da OS e finalize a emissao da NF-e.</p>"),
+                HTML(
+                    build_slider_panel_html(
+                        prefix="nfe",
+                        selected_slider=selected_slider,
+                        description="Esse valor fica salvo na requisicao e nao sincroniza com o orcamento.",
+                    )
+                ),
                 HTML(warning_html),
                 HTML(
                     f"""
@@ -226,9 +246,11 @@ class NfeRequestStep3Form(forms.ModelForm):
                     """
                 ),
                 Div(
+                    Field("pricing_slider", wrapper_class="col-span-12"),
                     Field("tax_class", wrapper_class="col-span-12 lg:col-span-5"),
                     css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
                 ),
+                HTML(build_slider_script_html(prefix="nfe", form_selector="#nfe-form")),
                 css_class="space-y-4",
             )
         )
