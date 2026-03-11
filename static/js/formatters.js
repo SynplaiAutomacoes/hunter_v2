@@ -410,7 +410,9 @@
 
     // Auto-aplica em páginas e após swaps HTMX.
     document.addEventListener('DOMContentLoaded', () => applyFormats(document));
-    document.addEventListener('htmx:afterSwap', (e) => applyFormats(e.target));
+    document.addEventListener('htmx:afterSwap', (e) => {
+        applyFormats(e.target);
+    });
 
     //TODO: Estamos normalizando o valor duas vezes, uma vez para o input e outra para o display. Podemos melhorar isso posteriormente.
     const widget = {

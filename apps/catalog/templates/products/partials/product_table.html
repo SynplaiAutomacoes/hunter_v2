@@ -1,1 +1,1 @@
-{% include 'crud/partials/table.html' with queryset=products fields=fields actions=actions table_id='products-table' %}
+{% include 'crud/partials/table.html' with queryset=products fields=fields actions=actions table_id='products-table' filter_fields_template='products/partials/product_filters_fields.html' filter_button_label='Filtro' filter_panel_title='Filtrar produtos' filter_param_names='group,is_active,unit,brand,location' %}

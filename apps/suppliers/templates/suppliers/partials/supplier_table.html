@@ -1,1 +1,1 @@
-{% include 'crud/partials/table.html' with queryset=suppliers fields=fields actions=actions table_id='suppliers-table' %}
+{% include 'crud/partials/table.html' with queryset=suppliers fields=fields actions=actions table_id='suppliers-table' filter_fields_template='suppliers/partials/supplier_filters_fields.html' filter_button_label='Filtro' filter_panel_title='Filtrar fornecedores' filter_param_names='is_active,city,state' %}

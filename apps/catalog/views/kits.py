@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 
 from django.contrib import messages
@@ -15,10 +14,10 @@ from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from apps.catalog.forms.kits import KitForm, QuickProductEditForm, QuickServiceEditForm
-from apps.catalog.forms.products import ProductForm
 from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
+from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.utils import clean_id
@@ -28,6 +27,9 @@ from apps.workshops.mixin import WorkshopScopedMixin
 logger = logging.getLogger(__name__)
 
 
+KIT_LIST_FILTERS: tuple[QueryParamFilter, ...] = (QueryParamFilter(param_name="is_active", lookup="is_active", kind="boolean"),)
+
+
 class KitListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = Kit
     template_name = "kits/kits_list.html"
@@ -35,7 +37,13 @@ class KitListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseM
     htmx_template_name = "kits/partials/kits_table.html"
 
     def get_queryset(self):
-        return super().get_queryset().order_by("-criado_em")
+        queryset = super().get_queryset()
+        queryset = apply_query_param_filters(
+            queryset,
+            params=self.request.GET,
+            filter_configs=KIT_LIST_FILTERS,
+        )
+        return queryset.order_by("-criado_em")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

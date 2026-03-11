@@ -17,6 +17,7 @@ from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
 from apps.budget.models import Budget, BudgetItem, BudgetStatus, SignatureStatus
 from apps.budget.service import SuperSignError, send_budget_for_signature
 from apps.core.forms import MultiStepFormMixin
+from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
@@ -50,6 +51,16 @@ def trigger_signature_send_if_needed(*, request, budget: Budget) -> tuple[str, s
     return "success", "Orçamento enviado para assinatura do cliente.", reverse("budget:budget_list")
 
 
+BUDGET_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
+    QueryParamFilter(
+        param_name="status",
+        lookup="status",
+        kind="choice",
+        allowed_values=frozenset(str(status_value) for status_value, _ in Budget.status.field.choices),
+    ),
+)
+
+
 class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = Budget
     template_name = "budget/budget_list.html"
@@ -57,7 +68,7 @@ class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespon
     htmx_template_name = "budget/partials/budget_table.html"
 
     def get_queryset(self):
-        return (
+        queryset = (
             super()
             .get_queryset()
             .select_related("customer", "vehicle", "collaborator")
@@ -73,8 +84,15 @@ class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespon
                     .order_by("id"),
                 )
             )
-            .order_by("-criado_em")
         )
+
+        queryset = apply_query_param_filters(
+            queryset,
+            params=self.request.GET,
+            filter_configs=BUDGET_LIST_FILTERS,
+        )
+
+        return queryset.order_by("-criado_em")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -90,6 +108,7 @@ class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespon
         context["actions"] = [
             TableActionDefaults.edit("budget:budget_update"),
         ]
+        context["status_choices"] = Budget.status.field.choices
         context["budget_events_enabled"] = getattr(settings, "BUDGET_EVENTS_ENABLED", False)
         context["budget_poll_interval_seconds"] = getattr(settings, "BUDGET_POLL_INTERVAL_SECONDS", 20)
         return context

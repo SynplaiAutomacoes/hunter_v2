@@ -1,1 +1,1 @@
-{% include 'crud/partials/table.html' with queryset=collaborators fields=fields actions=actions table_id='collaborators-table' %}
+{% include 'crud/partials/table.html' with queryset=collaborators fields=fields actions=actions table_id='collaborators-table' filter_fields_template='collaborators/partials/collaborator_filters_fields.html' filter_button_label='Filtro' filter_panel_title='Filtrar colaboradores' filter_param_names='collaborator_type,is_active,system_access,position' %}
