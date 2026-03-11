@@ -137,6 +137,19 @@ class NfseRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFo
         context.setdefault("is_update", False)
         return context
 
+    def get_initial(self):
+        initial = super().get_initial()
+        if self.get_current_step() != 3:
+            return initial
+
+        if "pricing_slider" in self.request.GET:
+            initial["pricing_slider"] = self.request.GET.get("pricing_slider")
+        if "tax_class" in self.request.GET:
+            initial["tax_class"] = self.request.GET.get("tax_class")
+        if "service_description" in self.request.GET:
+            initial["service_description"] = self.request.GET.get("service_description")
+        return initial
+
     def _step_url(self, step: int) -> str:
         return f"{self.request.path}?step={step}&pk={self.object.pk}"
 

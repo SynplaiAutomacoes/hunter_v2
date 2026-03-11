@@ -2064,6 +2064,134 @@ class LegacyEmissionRouteTests(TestCase):
         self.assertContains(response, "NFS-e Emitidas")
 
 
+class LegacyEmissionUpdateFlowTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=91)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def _build_workorder_with_product_and_service(self, *, suffix: int) -> WorkOrder:
+        budget = Budget(workshop=self.workshop, entry_date=timezone.now().date())
+        budget.save()
+
+        product_group = CatalogGroup.objects.create(workshop=self.workshop, name=f"Grupo Update {suffix}")
+        product = Product.objects.create(
+            workshop=self.workshop,
+            code=f"P-UP-{suffix}",
+            unit=Product.Unit.UND,
+            name=f"Produto Update {suffix}",
+            ncm="87089990",
+            group=product_group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+        )
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name=f"Servico Update {suffix}",
+            description="Servico para update",
+            duration=timedelta(hours=1),
+            suggested_cost=Money("30.00", "BRL"),
+            selling_price=Money("50.00", "BRL"),
+        )
+
+        BudgetItem.objects.create(workshop=self.workshop, budget=budget, product=product, quantity=1)
+        BudgetItem.objects.create(workshop=self.workshop, budget=budget, service=service, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        workorder.sync_from_budget()
+        return workorder
+
+    def test_nfe_update_step_three_preview_and_save_persist_slider(self) -> None:
+        workorder = self._build_workorder_with_product_and_service(suffix=102)
+        nfe_request = NfeRequest.objects.create(
+            workshop=self.workshop,
+            workorder=workorder,
+            current_step=3,
+            status=NfeRequestStatus.CHECKING_PRODUCTS,
+            tax_class="REFNFE950",
+            pricing_slider=0,
+        )
+        tax_classes = [{"referencia": "REFNFE950", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e update"}]
+
+        with patch("apps.finance.views.nfe.list_tax_classes", return_value=tax_classes):
+            response = self.client.get(
+                reverse("finance:nfe_update", kwargs={"pk": nfe_request.pk}),
+                data={"step": 3, "pricing_slider": -100, "tax_class": "REFNFE950"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Slider da emissao")
+        self.assertContains(response, 'id="nfe-slider-value">-100', html=False)
+        self.assertContains(response, "R$ 40,00")
+
+        with (
+            patch("apps.finance.views.nfe.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.nfe.emit_nfe_request", return_value={"status": "processando"}),
+            patch("apps.finance.views.nfe.sync_nfe_emission_response"),
+        ):
+            response = self.client.post(
+                f"{reverse('finance:nfe_update', kwargs={'pk': nfe_request.pk})}?step=3",
+                data={"pricing_slider": -100, "tax_class": "REFNFE950"},
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("finance:nfe_emit"))
+        nfe_request.refresh_from_db()
+        self.assertEqual(nfe_request.pricing_slider, -100)
+
+    def test_nfse_update_step_three_preview_and_save_persist_slider(self) -> None:
+        workorder = self._build_workorder_with_product_and_service(suffix=103)
+        nfse_request = NfseRequest.objects.create(
+            workshop=self.workshop,
+            workorder=workorder,
+            current_step=3,
+            status=NfseRequestStatus.CHECKING_SERVICES,
+            tax_class="REFNFSE951",
+            pricing_slider=0,
+        )
+        tax_classes = [{"referencia": "REFNFSE951", "tipo": "nfse", "status": "ativo", "descricao": "Classe NFS-e update", "codigo_servico": "01.05"}]
+
+        with patch("apps.finance.views.nfse.list_tax_classes", return_value=tax_classes):
+            response = self.client.get(
+                reverse("finance:nfse_update", kwargs={"pk": nfse_request.pk}),
+                data={
+                    "step": 3,
+                    "pricing_slider": 100,
+                    "tax_class": "REFNFSE951",
+                    "service_description": "Descricao atualizada",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Slider da emissao")
+        self.assertContains(response, 'id="nfse-slider-value">100', html=False)
+        self.assertContains(response, "Descricao atualizada")
+        self.assertContains(response, "R$ 60,00")
+
+        with (
+            patch("apps.finance.views.nfse.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.nfse.emit_nfse_request", return_value={"status": "processando"}),
+            patch("apps.finance.views.nfse.sync_emission_response"),
+        ):
+            response = self.client.post(
+                f"{reverse('finance:nfse_update', kwargs={'pk': nfse_request.pk})}?step=3",
+                data={
+                    "pricing_slider": 100,
+                    "tax_class": "REFNFSE951",
+                    "service_description": "Descricao atualizada",
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("finance:nfse_list"))
+        nfse_request.refresh_from_db()
+        self.assertEqual(nfse_request.pricing_slider, 100)
+        self.assertEqual(nfse_request.service_description, "Descricao atualizada")
+
+
 class NfePermissionFallbackTests(TestCase):
     def setUp(self) -> None:
         self.user, self.workshop = create_director_user_with_workshop(suffix=84)
