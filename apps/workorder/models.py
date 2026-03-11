@@ -449,6 +449,7 @@ class WorkOrderPaymentMethod(TimeStampedModel):
     installments_count = PositiveIntegerField(verbose_name="Número de Parcelas", default=1)
     first_installment_amount = MoneyField(verbose_name="Valor da Primeira Parcela", max_digits=14, decimal_places=2, default=0.00)
     remaining_installments_amount = MoneyField(verbose_name="Valor das Parcelas Restantes", max_digits=14, decimal_places=2, default=0.00)
+    due_date = models.DateField(verbose_name="Vencimento", default=timezone.localdate)
 
     class Meta:
         verbose_name = "Plano de Pagamento"

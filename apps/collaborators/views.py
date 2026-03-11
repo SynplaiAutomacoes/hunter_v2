@@ -11,6 +11,7 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from apps.collaborators.forms import WorkshopCollaboratorCreateForm, WorkshopCollaboratorModalForm, WorkshopCollaboratorUpdateForm
 from apps.collaborators.models import WorkshopCollaborator, WorkshopMember
+from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
@@ -20,6 +21,20 @@ AuthUser = get_user_model()
 User = get_user_model()
 
 
+COLLABORATOR_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
+    QueryParamFilter(
+        param_name="collaborator_type",
+        lookup="collaborator_type",
+        kind="choice",
+        allowed_values=frozenset({"A", "P"}),
+        normalizer=str.upper,
+    ),
+    QueryParamFilter(param_name="is_active", lookup="is_active", kind="boolean"),
+    QueryParamFilter(param_name="system_access", lookup="system_access", kind="boolean"),
+    QueryParamFilter(param_name="position", lookup="position", kind="icontains"),
+)
+
+
 # TODO: Validar melhor o fluxo de edição e criação com relação ao acesso ao sistema.
 class WorkshopCollaboratorListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = WorkshopCollaborator
@@ -27,6 +42,14 @@ class WorkshopCollaboratorListView(LoginRequiredMixin, WorkshopScopedMixin, Htmx
     context_object_name = "collaborators"
 
     htmx_template_name = "collaborators/partials/collaborator_table.html"
+
+    def get_queryset(self):
+        queryset = super().get_queryset().order_by("-criado_em")
+        return apply_query_param_filters(
+            queryset,
+            params=self.request.GET,
+            filter_configs=COLLABORATOR_LIST_FILTERS,
+        )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -43,6 +66,8 @@ class WorkshopCollaboratorListView(LoginRequiredMixin, WorkshopScopedMixin, Htmx
             TableActionDefaults.edit("collaborators:collaborator_update"),
             TableActionDefaults.delete("collaborators:collaborator_delete"),
         ]
+
+        context["collaborator_type_choices"] = WorkshopCollaborator.collaborator_type.field.choices
 
         return context
 
