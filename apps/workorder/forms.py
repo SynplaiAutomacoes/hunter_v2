@@ -1,5 +1,4 @@
-import json
-from decimal import Decimal, ROUND_UP
+from decimal import Decimal
 
 from django import forms
 from crispy_forms.helper import FormHelper
@@ -16,7 +15,6 @@ from apps.workorder.models import WorkOrderAttachment, WorkOrderItem, WorkOrderP
 
 
 MONEY_ZERO = Decimal("0.00")
-ROUNDING_STEP = Decimal("0.1")
 
 
 def _format_brl_amount(value: Decimal) -> str:
@@ -30,11 +28,10 @@ class WorkOrderPaymentForm(forms.ModelForm):
 
     class Meta:
         model = WorkOrderPaymentMethod
-        fields = ["payment_method", "first_installment_amount", "remaining_installments_amount", "due_date"]
+        fields = ["payment_method", "first_installment_amount", "due_date"]
         widgets = {
             "payment_method": SelectInput(),
             "first_installment_amount": MoneyInput(),
-            "remaining_installments_amount": MoneyInput(),
             "due_date": CalendarDateInput(),
         }
 
@@ -47,7 +44,10 @@ class WorkOrderPaymentForm(forms.ModelForm):
             payment_methods = PaymentMethod.objects.filter(workshop=self.workorder.workshop, is_active=True).order_by("description")
 
         self.fields["payment_method"].queryset = payment_methods
+        self.fields["payment_method"].required = True
         self.fields["payment_method"].label_from_instance = lambda obj: obj.description
+        self.fields["first_installment_amount"].label = "Valor a ser pago"
+        self.fields["due_date"].required = False
 
         total_os = self.workorder.total_budget_value.amount if self.workorder else MONEY_ZERO
         paid_amount = self._get_paid_amount() if self.workorder else MONEY_ZERO
@@ -75,12 +75,9 @@ class WorkOrderPaymentForm(forms.ModelForm):
         for field in ["total_value", "paid_value", "pending_value"]:
             self.fields[field].widget.attrs.update({"readonly": True, "class": "cursor-not-allowed opacity-75"})
 
-        self.fields["remaining_installments_amount"].widget.attrs.update({"readonly": True, "class": "cursor-not-allowed opacity-75"})
-
         if not self.is_bound and not self.initial.get("due_date"):
             self.initial["due_date"] = ""
 
-        payment_method_installments = json.dumps({str(payment_method.pk): payment_method.installments_count for payment_method in payment_methods})
         pending_amount_js = format(pending_amount, "f")
         pending_amount_display_text = _format_brl_amount(pending_amount_display)
         today_iso = timezone.localdate().isoformat()
@@ -95,7 +92,7 @@ class WorkOrderPaymentForm(forms.ModelForm):
                         <div>
                             <h3 class="font-bold text-sm">Valor Não Permitido</h3>
                             <div class="text-xs payment-warning-message">
-                                A primeira parcela não pode exceder o saldo disponível de <strong>R$ {pending_amount_display_text}</strong>.
+                                O valor a ser pago não pode exceder o saldo disponível de <strong>R$ {pending_amount_display_text}</strong>.
                             </div>
                         </div>
                     </div>
@@ -105,13 +102,8 @@ class WorkOrderPaymentForm(forms.ModelForm):
             Div(
                 Field("payment_method", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("first_installment_amount", wrapper_class="col-span-12 lg:col-span-4"),
-                Field("remaining_installments_amount", wrapper_class="col-span-12 lg:col-span-4"),
-                css_class="grid grid-cols-12 gap-4 mb-2 mt-4",
-            ),
-            Div(
                 Field("due_date", wrapper_class="col-span-12 lg:col-span-4"),
-                Div(css_class="col-span-12 lg:col-span-8"),
-                css_class="grid grid-cols-12 gap-4",
+                css_class="grid grid-cols-12 gap-4 mb-2 mt-4",
             ),
             Div(Submit("submit", "Salvar Plano de Pagamento", css_class="btn-form-save btn-primary"), css_class="flex justify-end mt-4"),
             HTML(f"""
@@ -127,44 +119,25 @@ class WorkOrderPaymentForm(forms.ModelForm):
                         const paymentMethodInput = document.getElementById('id_payment_method');
                         const firstAmountInput = document.getElementById('id_first_installment_amount_0');
                         const firstAmountDisplay = document.getElementById('id_first_installment_amount_0_display');
-                        const remainingAmountInput = document.getElementById('id_remaining_installments_amount_0');
-                        const remainingAmountDisplay = document.getElementById('id_remaining_installments_amount_0_display');
                         const dueDateInput = document.getElementById('id_due_date');
                         const btnSave = formElement ? formElement.querySelector('.btn-form-save') : null;
                         const warningDiv = document.getElementById('payment-warning-workorder-js');
                         const warningMessage = warningDiv ? warningDiv.querySelector('.payment-warning-message') : null;
-                        const installmentsByMethod = {payment_method_installments};
                         const pendingValue = parseFloat('{pending_amount_js}') || 0;
                         const todayValue = '{today_iso}';
 
-                        if (!paymentMethodInput || !firstAmountInput || !remainingAmountInput || !remainingAmountDisplay || !btnSave) {{
+                        if (!paymentMethodInput || !firstAmountInput || !btnSave) {{
                             return;
                         }}
 
                         paymentForm.dataset.paymentInitialized = 'true';
 
-                        const formatMoney = (value) => Number(value || 0).toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
-                        const roundUpToTenth = (value) => {{
-                            if (value <= 0) {{
-                                return 0;
-                            }}
-                            return Math.ceil((value * 10) - 1e-9) / 10;
-                        }};
-                        const setMoneyValue = (hiddenInput, displayInput, value) => {{
-                            const normalized = Math.max(0, Number(value || 0));
-                            hiddenInput.value = normalized.toFixed(2);
-                            displayInput.value = formatMoney(normalized);
-                        }};
                         const toggleWarning = (show, message) => {{
                             if (!warningDiv || !warningMessage) {{
                                 return;
                             }}
                             warningDiv.classList.toggle('hidden', !show);
                             warningMessage.textContent = message || '';
-                        }};
-                        const getInstallmentsCount = () => {{
-                            const selectedMethod = paymentMethodInput.value || '';
-                            return parseInt(installmentsByMethod[selectedMethod] || '1', 10) || 1;
                         }};
                         const updateDueDate = (force) => {{
                             if (dueDateInput && paymentMethodInput.value && (force || !dueDateInput.value)) {{
@@ -173,11 +146,8 @@ class WorkOrderPaymentForm(forms.ModelForm):
                         }};
                         const updatePaymentPlan = () => {{
                             const firstAmount = parseFloat(firstAmountInput.value) || 0;
-                            const installmentsCount = getInstallmentsCount();
-                            const remainingInstallments = Math.max(installmentsCount - 1, 0);
 
                             if (pendingValue <= 0) {{
-                                setMoneyValue(remainingAmountInput, remainingAmountDisplay, 0);
                                 btnSave.disabled = true;
                                 btnSave.classList.add('btn-disabled', 'opacity-50');
                                 toggleWarning(true, 'A ordem de serviço não possui saldo pendente para um novo plano de pagamento.');
@@ -185,19 +155,12 @@ class WorkOrderPaymentForm(forms.ModelForm):
                             }}
 
                             if (firstAmount > (pendingValue + 0.001)) {{
-                                setMoneyValue(remainingAmountInput, remainingAmountDisplay, 0);
                                 btnSave.disabled = true;
                                 btnSave.classList.add('btn-disabled', 'opacity-50');
-                                toggleWarning(true, 'A primeira parcela não pode exceder o saldo disponível da ordem de serviço.');
+                                toggleWarning(true, 'O valor a ser pago não pode exceder o saldo disponível da ordem de serviço.');
                                 return;
                             }}
 
-                            let remainingAmount = 0;
-                            if (remainingInstallments > 0 && firstAmount > 0 && firstAmount < pendingValue) {{
-                                remainingAmount = roundUpToTenth((pendingValue - firstAmount) / remainingInstallments);
-                            }}
-
-                            setMoneyValue(remainingAmountInput, remainingAmountDisplay, remainingAmount);
                             btnSave.disabled = false;
                             btnSave.classList.remove('btn-disabled', 'opacity-50');
                             toggleWarning(false, '');
@@ -237,27 +200,10 @@ class WorkOrderPaymentForm(forms.ModelForm):
         return sum((payment.total_paid.amount for payment in self.workorder.payments.all()), start=MONEY_ZERO)
 
     @staticmethod
-    def _round_remaining_installment_amount(value: Decimal) -> Decimal:
-        if value <= MONEY_ZERO:
-            return MONEY_ZERO
-        return value.quantize(ROUNDING_STEP, rounding=ROUND_UP).quantize(Decimal("0.01"))
-
-    @staticmethod
     def _resolve_installments_count(payment_method: PaymentMethod | None) -> int:
         if payment_method is None:
             return 1
         return max(int(payment_method.installments_count or 1), 1)
-
-    def _calculate_remaining_installments_amount(self, *, installments_count: int, first_amount: Decimal, pending_amount: Decimal) -> Decimal:
-        remaining_installments = max(installments_count - 1, 0)
-        if remaining_installments == 0 or first_amount >= pending_amount:
-            return MONEY_ZERO
-
-        remaining_balance = pending_amount - first_amount
-        if remaining_balance <= MONEY_ZERO:
-            return MONEY_ZERO
-
-        return self._round_remaining_installment_amount(remaining_balance / Decimal(remaining_installments))
 
     def clean(self) -> dict[str, object]:
         cleaned_data = super().clean()
@@ -268,8 +214,12 @@ class WorkOrderPaymentForm(forms.ModelForm):
         first_amount = cleaned_data.get("first_installment_amount")
         due_date = cleaned_data.get("due_date")
 
-        if payment_method is None or first_amount is None or due_date is None:
+        if payment_method is None or first_amount is None:
             return cleaned_data
+
+        if due_date is None:
+            due_date = timezone.localdate()
+            cleaned_data["due_date"] = due_date
 
         total_os = self.workorder.total_budget_value.amount
         paid_amount = self._get_paid_amount()
@@ -279,22 +229,17 @@ class WorkOrderPaymentForm(forms.ModelForm):
             raise ValidationError("A ordem de serviço não possui saldo pendente para um novo plano de pagamento.")
 
         if first_amount.amount <= MONEY_ZERO:
-            self.add_error("first_installment_amount", "Informe um valor maior que zero para a primeira parcela.")
+            self.add_error("first_installment_amount", "Informe um valor maior que zero para o valor a ser pago.")
             return cleaned_data
 
         if first_amount.amount > pending_amount:
-            self.add_error("first_installment_amount", f"A primeira parcela não pode exceder o saldo pendente da O.S. (R$ {_format_brl_amount(pending_amount)}).")
+            self.add_error("first_installment_amount", f"O valor a ser pago não pode exceder o saldo pendente da O.S. (R$ {_format_brl_amount(pending_amount)}).")
             return cleaned_data
 
         installments_count = self._resolve_installments_count(payment_method)
-        remaining_amount = self._calculate_remaining_installments_amount(
-            installments_count=installments_count,
-            first_amount=first_amount.amount,
-            pending_amount=pending_amount,
-        )
 
         cleaned_data["installments_count"] = installments_count
-        cleaned_data["remaining_installments_amount"] = Money(remaining_amount, "BRL")
+        cleaned_data["remaining_installments_amount"] = Money(MONEY_ZERO, "BRL")
 
         return cleaned_data
 
