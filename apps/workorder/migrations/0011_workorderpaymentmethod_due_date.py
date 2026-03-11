@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('workorder', '0009_workorder_signature_external_id_and_more'),
+        ('workorder', '0010_workorder_signature_document_id'),
     ]
 
     operations = [
