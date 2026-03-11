@@ -53,6 +53,7 @@ class NfseRequestCreateView(SharedEmissionRequestCreateBaseView):
     model = NfseRequest
     template_name = "finance/nfse_request_form.html"
     partial_template_name = "finance/partials/nfse_step_content.html"
+    preview_template_name = "finance/partials/nfse_step3_preview.html"
     step3_form_class = NfseRequestStep3Form
     preview_initial_fields = ("pricing_slider", "tax_class", "service_description")
     tax_class_kind = "nfse"
