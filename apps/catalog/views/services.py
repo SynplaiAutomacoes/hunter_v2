@@ -7,20 +7,18 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse
 from django.shortcuts import render
 from django.urls import reverse_lazy
-from django.utils import timezone
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
-from djmoney.money import Money
 
 from apps.budget.views.shared import _parse_duration_from_string
 from apps.catalog.forms.services import ServiceForm
 from apps.catalog.models.services import Service
 from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
+from apps.catalog.util import get_current_workshop_cost, calculate_catalog_service_prices
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.workshops.mixin import WorkshopScopedMixin
-from apps.workshops.models.workshop_costs import WorkshopCost
 
 
 SERVICE_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
@@ -116,33 +114,6 @@ class ServiceNameSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
         return render(request, "services/partials/name_suggestions.html", {"suggestions": suggestions})
 
 
-def get_current_workshop_cost(workshop):
-    now = timezone.now()
-    try:
-        cost = WorkshopCost.objects.get(workshop=workshop, month=now.month, year=now.year)
-        return cost, False
-    except WorkshopCost.DoesNotExist:
-        return None, True
-
-
-def calculate_catalog_service_prices(duration, workshop_cost):
-    """Calcula custo e venda baseados na duração (timedelta) e WorkshopCost."""
-    if not duration:
-        return Money(0, "BRL"), Money(0, "BRL")
-
-    duration_hours = Decimal(duration.total_seconds()) / Decimal(3600)
-
-    if workshop_cost:
-        min_hourly = workshop_cost.minimum_hourly_cost or Money(0, "BRL")
-        hourly_val = workshop_cost.hourly_cost_value or Money(0, "BRL")
-
-        cost = min_hourly * duration_hours
-        sale = hourly_val * duration_hours
-        return cost, sale
-
-    return Money(0, "BRL"), Money(0, "BRL")
-
-
 class CalculateServiceCatalogPricesView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = Service
     workshop_permission_codename = "add_service"
@@ -150,7 +121,7 @@ class CalculateServiceCatalogPricesView(LoginRequiredMixin, WorkshopScopedMixin,
 
     def post(self, request):
         duration_str = request.POST.get("duration", "")
-        # Use o seu método de parse
+        # Use o seu métodc de parse
         duration = _parse_duration_from_string(duration_str)
 
         workshop_cost, missing = get_current_workshop_cost(self.workshop)
