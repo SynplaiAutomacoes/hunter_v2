@@ -1895,6 +1895,10 @@ class UnifiedEmissionWizardTests(TestCase):
         self.client.post(self._wizard_url(step=2), {})
         self.client.post(self._wizard_url(step=3), {})
 
+    def _advance_to_step_5(self, *, tipo: str | None = None, pricing_slider: str = "0") -> None:
+        self._advance_to_step_4(tipo=tipo)
+        self.client.post(self._wizard_url(step=4), {"pricing_slider": pricing_slider})
+
     def test_unified_wizard_creates_nfe_request_with_persisted_slider(self) -> None:
         tax_classes = [{"referencia": "REFNFE900", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e"}]
 
@@ -1915,14 +1919,18 @@ class UnifiedEmissionWizardTests(TestCase):
             self.assertEqual(response.status_code, 302)
             self.assertEqual(response.headers.get("Location"), self._wizard_url(step=4))
 
+            response = self.client.post(self._wizard_url(step=4), {"pricing_slider": "-15"})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=5))
+
+            response = self.client.post(self._wizard_url(step=5), {"note_mode": "nfe"})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=6))
+
             response = self.client.post(
-                self._wizard_url(step=4),
+                self._wizard_url(step=6),
                 {
-                    "note_type": "nfe",
-                    "pricing_slider": "-15",
                     "tax_class": "REFNFE900",
-                    "service_description": "",
-                    "action": "finalize",
                 },
             )
 
@@ -1946,16 +1954,17 @@ class UnifiedEmissionWizardTests(TestCase):
             patch("apps.finance.views.emission.emit_nfse_request", return_value={"status": "processando"}) as emit_mock,
             patch("apps.finance.views.emission.sync_emission_response") as sync_mock,
         ):
-            self._advance_to_step_4(tipo="nfse")
+            self._advance_to_step_5(tipo="nfse", pricing_slider="25")
+
+            response = self.client.post(self._wizard_url(step=5), {"note_mode": "nfse"})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=6))
 
             response = self.client.post(
-                self._wizard_url(step=4),
+                self._wizard_url(step=6),
                 {
-                    "note_type": "nfse",
-                    "pricing_slider": "25",
                     "tax_class": "REFNFSE901",
                     "service_description": "Servico executado na OS unificada",
-                    "action": "finalize",
                 },
             )
 
@@ -1972,102 +1981,109 @@ class UnifiedEmissionWizardTests(TestCase):
         emit_mock.assert_called_once_with(nfse_request=nfse_request, request=ANY)
         sync_mock.assert_called_once()
 
-    def test_unified_wizard_preview_action_does_not_create_request(self) -> None:
-        tax_classes = [{"referencia": "REFNFE902", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e"}]
+    def test_unified_summary_step_uses_step5_layout_and_slider_preview_updates_partial_regions(self) -> None:
+        self._advance_to_step_4()
 
-        with patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes):
-            self._advance_to_step_4()
-
-            response = self.client.post(
-                self._wizard_url(step=4),
-                {
-                    "note_type": "nfe",
-                    "pricing_slider": "10",
-                    "tax_class": "REFNFE902",
-                    "service_description": "",
-                    "action": "preview",
-                },
-            )
-
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.headers.get("Location"), self._wizard_url(step=4))
-        self.assertFalse(NfeRequest.objects.filter(workshop=self.workshop).exists())
-        self.assertFalse(NfseRequest.objects.filter(workshop=self.workshop).exists())
-
-    def test_emission_preview_filters_tax_classes_for_nfse(self) -> None:
-        tax_classes = [
-            {"referencia": "REFNFE903", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e"},
-            {"referencia": "REFNFSE903", "tipo": "nfse", "status": "ativo", "descricao": "Classe NFS-e", "codigo_servico": "01.05"},
-        ]
-
-        with patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes):
-            self._advance_to_step_4(tipo="nfse")
-            response = self.client.get(
-                self._preview_url(
-                    note_type="nfse",
-                    pricing_slider="20",
-                    tax_class="",
-                    service_description="",
-                )
-            )
-
+        response = self.client.get(self._wizard_url(step=4))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'id="emission-step4-body"', html=False)
-        self.assertContains(response, "REFNFSE903")
-        self.assertNotContains(response, "REFNFE903")
-        self.assertContains(response, "Descricao do servico")
-        self.assertContains(response, "Saldo NF-e (produtos)")
+        self.assertContains(response, "Resumo")
+        self.assertContains(response, "Metodo Hunter")
+        self.assertContains(response, "Margem de Lucro")
+        self.assertContains(response, "Desconto")
+        self.assertContains(response, "Itens consolidados da emissao")
+        self.assertContains(response, 'id="emission-display-venda-pecas"', html=False)
+        self.assertContains(response, 'id="emission-display-venda-mo"', html=False)
 
-    def test_emission_preview_shows_warning_for_nfe_without_product_balance(self) -> None:
-        tax_classes = [{"referencia": "REFNFE904", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e"}]
-        service_only_workorder = self._build_service_only_workorder(suffix=88)
-
-        with patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes):
-            self.client.post(self._wizard_url(step=1), {"workorder": service_only_workorder.pk})
-            self.client.post(self._wizard_url(step=2), {})
-            self.client.post(self._wizard_url(step=3), {})
-            response = self.client.get(
-                self._preview_url(
-                    note_type="nfe",
-                    pricing_slider="100",
-                    tax_class="REFNFE904",
-                    service_description="",
-                )
-            )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "nao deixa saldo de produtos para emitir NF-e")
-        self.assertContains(response, reverse("finance:emission_preview"))
-
-    def test_unified_step_four_uses_step5_layout_and_slider_preview_updates_partial_regions(self) -> None:
-        tax_classes = [{"referencia": "REFNFE905", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e"}]
-
-        with patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes):
-            self._advance_to_step_4()
-
-            response = self.client.get(self._wizard_url(step=4))
-            self.assertEqual(response.status_code, 200)
-            self.assertContains(response, "Metodo Hunter")
-            self.assertContains(response, "Margem de Lucro")
-            self.assertContains(response, "Desconto")
-            self.assertContains(response, 'id="emission-display-venda-pecas"', html=False)
-            self.assertContains(response, 'id="emission-display-venda-mo"', html=False)
-
-            response = self.client.post(
-                f"{self._wizard_url(step=4)}&preview=1",
-                {
-                    "note_type": "nfe",
-                    "pricing_slider": "-100",
-                    "tax_class": "REFNFE905",
-                    "service_description": "",
-                },
-            )
+        response = self.client.post(
+            f"{self._wizard_url(step=4)}&preview=1",
+            {
+                "pricing_slider": "-100",
+            },
+        )
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'hx-swap-oob="true"', html=False)
         self.assertContains(response, 'id="emission-display-venda-pecas"', html=False)
         self.assertContains(response, 'id="emission-display-venda-mo"', html=False)
-        self.assertContains(response, "Total NF-e (produtos)")
+        self.assertContains(response, "Itens consolidados da emissao")
+
+    def test_emission_preview_returns_summary_body_with_slider_values(self) -> None:
+        self._advance_to_step_4()
+
+        response = self.client.get(self._preview_url(pricing_slider="20"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="emission-step4-body"', html=False)
+        self.assertContains(response, "Itens consolidados da emissao")
+        self.assertContains(response, "Valor Unitario")
+
+    def test_unified_summary_step_shows_warning_for_service_only_workorder(self) -> None:
+        service_only_workorder = self._build_service_only_workorder(suffix=88)
+        self.client.post(self._wizard_url(step=1), {"workorder": service_only_workorder.pk})
+        self.client.post(self._wizard_url(step=2), {})
+        self.client.post(self._wizard_url(step=3), {})
+
+        response = self.client.get(self._wizard_url(step=4))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "nao ha saldo de produtos para emitir NF-e")
+
+    def test_unified_wizard_both_mode_retries_only_nfse_after_partial_failure(self) -> None:
+        tax_classes = [
+            {"referencia": "REFNFE910", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e"},
+            {"referencia": "REFNFSE910", "tipo": "nfse", "status": "ativo", "descricao": "Classe NFS-e", "codigo_servico": "01.05"},
+        ]
+
+        with (
+            patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.emission.emit_nfe_request", return_value={"status": "processando"}) as emit_nfe_mock,
+            patch("apps.finance.views.emission.sync_nfe_emission_response"),
+            patch("apps.finance.views.emission.emit_nfse_request", side_effect=[NfseEmissionError("Falha ao emitir NFS-e"), {"status": "processando"}]) as emit_nfse_mock,
+            patch("apps.finance.views.emission.sync_emission_response"),
+        ):
+            self._advance_to_step_5(pricing_slider="10")
+
+            response = self.client.post(self._wizard_url(step=5), {"note_mode": "both"})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=6))
+
+            response = self.client.post(self._wizard_url(step=6), {"tax_class": "REFNFE910"})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=7))
+
+            response = self.client.post(
+                self._wizard_url(step=7),
+                {
+                    "tax_class": "REFNFSE910",
+                    "service_description": "Descricao unificada",
+                },
+            )
+
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=7))
+
+            failed_step_response = self.client.get(self._wizard_url(step=7))
+            self.assertEqual(failed_step_response.status_code, 200)
+            self.assertContains(failed_step_response, "reenvio tentara apenas a NFS-e pendente")
+
+            response = self.client.post(
+                self._wizard_url(step=7),
+                {
+                    "tax_class": "REFNFSE910",
+                    "service_description": "Descricao unificada",
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("workshops:emission_history"))
+        emit_nfe_mock.assert_called_once()
+        self.assertEqual(emit_nfse_mock.call_count, 2)
+
+        nfe_request = NfeRequest.objects.get(workshop=self.workshop)
+        nfse_request = NfseRequest.objects.get(workshop=self.workshop)
+        self.assertEqual(nfe_request.tax_class, "REFNFE910")
+        self.assertEqual(nfse_request.tax_class, "REFNFSE910")
+        self.assertEqual(nfse_request.service_description, "Descricao unificada")
 
 
 class CompatibilityEmissionRouteTests(TestCase):

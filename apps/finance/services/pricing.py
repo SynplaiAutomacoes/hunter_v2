@@ -162,41 +162,27 @@ def build_slider_allocation_for_workorder(
     )
 
 
-def build_nfse_service_preview_rows(*, workorder: WorkOrder) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
+def build_nfse_service_preview_rows(
+    *,
+    workorder: WorkOrder,
+    persisted_slider: int | None = None,
+    slider_override: int | None = None,
+) -> list[dict[str, Any]]:
+    snapshot = build_emission_pricing_snapshot_for_workorder(
+        workorder=workorder,
+        persisted_slider=persisted_slider,
+        slider_override=slider_override,
+    )
 
-    for item in workorder._iter_items():
-        is_local_service = item.service is None and item.product is None and item.kit is None and _to_decimal_money(item.service_selling_price) > Decimal("0.00")
-
-        if item.service is not None or is_local_service:
-            total_value = _quantize_money(_to_decimal_money(item.service_selling_price * item.quantity))
-            rows.append(
-                {
-                    "description": item.description,
-                    "quantity": item.quantity,
-                    "unit_value": _quantize_money(_to_decimal_money(item.service_selling_price)),
-                    "total_value": total_value,
-                }
-            )
-            continue
-
-        if item.kit is None:
-            continue
-
-        kit_services_total = _quantize_money(_to_decimal_money(item.get_kit_services_total()))
-        if kit_services_total <= Decimal("0.00"):
-            continue
-
-        rows.append(
-            {
-                "description": f"{item.description} (Servicos do Kit)",
-                "quantity": item.quantity,
-                "unit_value": kit_services_total,
-                "total_value": kit_services_total,
-            }
-        )
-
-    return rows
+    return [
+        {
+            "description": line.description,
+            "quantity": line.quantity,
+            "unit_value": line.adjusted_unit_price,
+            "total_value": line.total_price,
+        }
+        for line in snapshot.service_lines
+    ]
 
 
 def distribute_total_proportionally(*, base_values: Iterable[Decimal], target_total: Decimal) -> list[Decimal]:

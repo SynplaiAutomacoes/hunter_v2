@@ -28,7 +28,11 @@ def _collect_service_rows(
     persisted_slider: int | None = None,
     slider_override: int | None = None,
 ) -> tuple[list[dict[str, Any]], str, str]:
-    rows = build_nfse_service_preview_rows(workorder=workorder)
+    rows = build_nfse_service_preview_rows(
+        workorder=workorder,
+        persisted_slider=persisted_slider,
+        slider_override=slider_override,
+    )
 
     total_services = build_slider_allocation_for_workorder(
         workorder=workorder,
@@ -100,6 +104,8 @@ class NfseRequestStep3Form(forms.ModelForm):
                 include_selector="#nfse-form",
                 target_selector="#nfse-preview-block",
                 swap="none",
+                trigger="input changed delay:120ms, change",
+                sync_selector="#nfse-form:abort",
             )
         )
 

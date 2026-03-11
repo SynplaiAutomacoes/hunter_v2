@@ -426,11 +426,15 @@ def build_nfe_preview_rows(
 
     preview_rows: list[dict[str, Any]] = []
     for line, target_total in zip(lines, target_totals, strict=False):
+        target_unit_value = (target_total / Decimal(line.quantity)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if line.quantity > 0 else Decimal("0.00")
         preview_rows.append(
             {
                 "description": line.description,
+                "code": line.code,
+                "ncm": line.ncm,
                 "quantity": line.quantity,
                 "base_total": line.base_total,
+                "target_unit_value": target_unit_value,
                 "target_total": target_total,
             }
         )
