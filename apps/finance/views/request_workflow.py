@@ -13,7 +13,7 @@ from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
 
-class LegacyEmissionRequestCreateBaseView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixin, CreateView):
+class SharedEmissionRequestCreateBaseView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixin, CreateView):
     partial_template_name = ""
     step3_form_class = None
     preview_initial_fields: tuple[str, ...] = ()
@@ -149,7 +149,7 @@ class LegacyEmissionRequestCreateBaseView(LoginRequiredMixin, WorkshopScopedMixi
         return redirect(success_url)
 
 
-class LegacyEmissionRequestUpdateBaseView(LegacyEmissionRequestCreateBaseView):
+class SharedEmissionRequestUpdateBaseView(SharedEmissionRequestCreateBaseView):
     update_url_name = ""
     missing_update_redirect_name = ""
 

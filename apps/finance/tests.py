@@ -736,16 +736,16 @@ class SliderPricingAllocationTests(TestCase):
 
         self.assertEqual(_service_total_value(nfse_request=nfse_request), "30.00")
 
-    def test_nfse_service_total_falls_back_to_budget_slider_for_legacy_request(self) -> None:
+    def test_nfse_service_total_falls_back_to_budget_slider_for_compatibility_request_without_persisted_slider(self) -> None:
         workorder, budget, _ = self._build_workorder_with_product_and_service(suffix=98)
         budget.slider = -100
         budget.save(update_fields=["slider"])
         nfse_request = NfseRequest.objects.create(workshop=workorder.workshop, workorder=workorder)
 
         NfseRequest.objects.filter(pk=nfse_request.pk).update(pricing_slider=None)
-        legacy_request = NfseRequest.objects.get(pk=nfse_request.pk)
+        compat_request = NfseRequest.objects.get(pk=nfse_request.pk)
 
-        self.assertEqual(_service_total_value(nfse_request=legacy_request), "30.00")
+        self.assertEqual(_service_total_value(nfse_request=compat_request), "30.00")
 
     def test_nfe_products_payload_prefers_persisted_request_slider(self) -> None:
         workorder, budget, _ = self._build_workorder_with_product_and_service(suffix=99)
@@ -761,7 +761,7 @@ class SliderPricingAllocationTests(TestCase):
         self.assertEqual(total_products_value, Decimal("40.00"))
         self.assertEqual(allocation.slider, -100)
 
-    def test_nfe_products_payload_falls_back_to_budget_slider_for_legacy_request(self) -> None:
+    def test_nfe_products_payload_falls_back_to_budget_slider_for_compatibility_request_without_persisted_slider(self) -> None:
         workorder, budget, _ = self._build_workorder_with_product_and_service(suffix=89)
         budget.slider = 0
         budget.save(update_fields=["slider"])
@@ -770,9 +770,9 @@ class SliderPricingAllocationTests(TestCase):
         NfeRequest.objects.filter(pk=nfe_request.pk).update(pricing_slider=None)
         budget.slider = -100
         budget.save(update_fields=["slider"])
-        legacy_request = NfeRequest.objects.get(pk=nfe_request.pk)
+        compat_request = NfeRequest.objects.get(pk=nfe_request.pk)
 
-        _, total_products_value, allocation = _build_nfe_products_payload(nfe_request=legacy_request)
+        _, total_products_value, allocation = _build_nfe_products_payload(nfe_request=compat_request)
 
         self.assertEqual(total_products_value, Decimal("40.00"))
         self.assertEqual(allocation.slider, -100)
@@ -2036,7 +2036,7 @@ class UnifiedEmissionWizardTests(TestCase):
         self.assertContains(response, reverse("finance:emission_preview"))
 
 
-class LegacyEmissionRouteTests(TestCase):
+class CompatibilityEmissionRouteTests(TestCase):
     def setUp(self) -> None:
         self.user, self.workshop = create_director_user_with_workshop(suffix=90)
         self.client.force_login(self.user)
@@ -2045,13 +2045,13 @@ class LegacyEmissionRouteTests(TestCase):
         session["active_workshop_id"] = self.workshop.pk
         session.save()
 
-    def test_legacy_nfe_create_redirects_to_unified_wizard(self) -> None:
+    def test_compatibility_nfe_create_redirects_to_unified_wizard(self) -> None:
         response = self.client.get(reverse("finance:nfe_create"))
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.headers.get("Location"), f"{reverse('finance:emission_create')}?tipo=nfe")
 
-    def test_legacy_nfse_create_redirects_to_unified_wizard(self) -> None:
+    def test_compatibility_nfse_create_redirects_to_unified_wizard(self) -> None:
         response = self.client.get(reverse("finance:nfse_create"))
 
         self.assertEqual(response.status_code, 302)
@@ -2066,7 +2066,7 @@ class LegacyEmissionRouteTests(TestCase):
         self.assertContains(response, "NFS-e Emitidas")
 
 
-class LegacyEmissionUpdateFlowTests(TestCase):
+class CompatibilityEmissionUpdateFlowTests(TestCase):
     def setUp(self) -> None:
         self.user, self.workshop = create_director_user_with_workshop(suffix=91)
         self.client.force_login(self.user)
@@ -2118,7 +2118,7 @@ class LegacyEmissionUpdateFlowTests(TestCase):
         )
         tax_classes = [{"referencia": "REFNFE950", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e update"}]
 
-        with patch("apps.finance.views.legacy_shared.list_tax_classes", return_value=tax_classes):
+        with patch("apps.finance.views.request_workflow.list_tax_classes", return_value=tax_classes):
             response = self.client.get(
                 reverse("finance:nfe_update", kwargs={"pk": nfe_request.pk}),
                 data={"step": 3, "pricing_slider": -100, "tax_class": "REFNFE950"},
@@ -2130,7 +2130,7 @@ class LegacyEmissionUpdateFlowTests(TestCase):
         self.assertContains(response, "R$ 40,00")
 
         with (
-            patch("apps.finance.views.legacy_shared.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.request_workflow.list_tax_classes", return_value=tax_classes),
             patch("apps.finance.views.nfe.emit_nfe_request", return_value={"status": "processando"}),
             patch("apps.finance.views.nfe.sync_nfe_emission_response"),
         ):
@@ -2156,7 +2156,7 @@ class LegacyEmissionUpdateFlowTests(TestCase):
         )
         tax_classes = [{"referencia": "REFNFSE951", "tipo": "nfse", "status": "ativo", "descricao": "Classe NFS-e update", "codigo_servico": "01.05"}]
 
-        with patch("apps.finance.views.legacy_shared.list_tax_classes", return_value=tax_classes):
+        with patch("apps.finance.views.request_workflow.list_tax_classes", return_value=tax_classes):
             response = self.client.get(
                 reverse("finance:nfse_update", kwargs={"pk": nfse_request.pk}),
                 data={
@@ -2174,7 +2174,7 @@ class LegacyEmissionUpdateFlowTests(TestCase):
         self.assertContains(response, "R$ 60,00")
 
         with (
-            patch("apps.finance.views.legacy_shared.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.request_workflow.list_tax_classes", return_value=tax_classes),
             patch("apps.finance.views.nfse.emit_nfse_request", return_value={"status": "processando"}),
             patch("apps.finance.views.nfse.sync_emission_response"),
         ):

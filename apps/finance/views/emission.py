@@ -29,7 +29,7 @@ def _normalize_note_type(value: object) -> str:
     return ""
 
 
-class EmissionLegacyCreateRedirectView(LoginRequiredMixin, WorkshopScopedMixin, RedirectView):
+class EmissionCreateRedirectBaseView(LoginRequiredMixin, WorkshopScopedMixin, RedirectView):
     permanent = False
     query_string = False
     workshop_permission_app_label = "finance"
@@ -42,11 +42,11 @@ class EmissionLegacyCreateRedirectView(LoginRequiredMixin, WorkshopScopedMixin, 
         return f"{reverse('finance:emission_create')}?tipo={note_type}"
 
 
-class NfeCreateRedirectView(EmissionLegacyCreateRedirectView):
+class NfeCreateRedirectView(EmissionCreateRedirectBaseView):
     emission_note_type = "nfe"
 
 
-class NfseCreateRedirectView(EmissionLegacyCreateRedirectView):
+class NfseCreateRedirectView(EmissionCreateRedirectBaseView):
     emission_note_type = "nfse"
 
 

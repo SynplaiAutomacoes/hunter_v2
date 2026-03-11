@@ -12,7 +12,7 @@ from apps.core.views import HtmxTemplateResponseMixin
 from apps.finance.forms import NfseRequestStep1Form, NfseRequestStep2Form, NfseRequestStep3Form
 from apps.finance.models.finance import NfseRequest, NfseRequestStatus
 from apps.finance.services.emission import NfseEmissionError, emit_nfse_request, sync_emission_response
-from apps.finance.views.legacy_shared import LegacyEmissionRequestCreateBaseView, LegacyEmissionRequestUpdateBaseView
+from apps.finance.views.request_workflow import SharedEmissionRequestCreateBaseView, SharedEmissionRequestUpdateBaseView
 from apps.workshops.mixin import WorkshopScopedMixin
 
 
@@ -49,7 +49,7 @@ class NfseRequestListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
         return context
 
 
-class NfseRequestCreateView(LegacyEmissionRequestCreateBaseView):
+class NfseRequestCreateView(SharedEmissionRequestCreateBaseView):
     model = NfseRequest
     template_name = "finance/nfse_request_form.html"
     partial_template_name = "finance/partials/nfse_step_content.html"
@@ -98,6 +98,6 @@ class NfseRequestCreateView(LegacyEmissionRequestCreateBaseView):
             return False
 
 
-class NfseRequestUpdateView(LegacyEmissionRequestUpdateBaseView, NfseRequestCreateView):
+class NfseRequestUpdateView(SharedEmissionRequestUpdateBaseView, NfseRequestCreateView):
     update_url_name = "finance:nfse_update"
     missing_update_redirect_name = "finance:nfse_list"
