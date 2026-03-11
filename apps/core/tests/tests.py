@@ -416,6 +416,7 @@ class TestRenderTableTag(TestCase):
 
         self.assertIn("Limpar Filtro", html)
         self.assertIn("btn btn-error", html)
+        self.assertIn('hx-params="none"', html)
 
     def test_filter_overlay_uses_native_submit_flow(self):
         request = self.factory.get("/workshops/?q=Oficina")
@@ -437,7 +438,13 @@ class TestRenderTableTag(TestCase):
 
         self.assertIn('id="t-controls-form"', html)
         self.assertIn('type="submit"', html)
-        self.assertIn('@htmx:beforeRequest.window="if ($event.detail && $event.detail.elt && $event.detail.elt.id === controlsFormId) open = false"', html)
+        self.assertIn('id="t-content" hx-disinherit="hx-vals"', html)
+        self.assertIn('@htmx:after-swap.window="all = false"', html)
+        self.assertNotIn("@htmx:afterSwap.window", html)
+        self.assertIn('@htmx:before-request.window="if ($event.detail && $event.detail.elt && $event.detail.elt.id === controlsFormId) open = false"', html)
+        self.assertNotIn("@htmx:beforeRequest.window", html)
+        self.assertIn('x-bind:hidden="!open"', html)
+        self.assertNotIn('x-show="open"', html)
         self.assertNotIn("@submit.window", html)
         self.assertNotIn("requestSubmit()", html)
 
