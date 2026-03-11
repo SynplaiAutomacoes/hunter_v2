@@ -128,37 +128,47 @@ def _normalize_active_tab(active_tab: str | None) -> str:
 
 
 def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products") -> dict[str, object]:
+    snapshot = workorder.budget.pricing_snapshot
+
+    summary_products = [
+        {
+            "description": line.description,
+            "quantity": line.quantity,
+            "application": line.application or "-",
+            "code": line.code or "-",
+            "location": line.location or "-",
+            "unit_price": line.unit_price,
+            "total_price": line.total_price,
+            "original_product": line.source_object
+        }
+        for line in snapshot.product_lines
+    ]
+
+    summary_services = [
+        {
+            "description": line.description,
+            "quantity": line.quantity,
+            "total_price": line.total_price,
+            "duration_display": line.duration_display,
+            "original_service": line.source_object
+        }
+        for line in snapshot.service_lines
+    ]
+
     items = list(
         workorder.items.select_related("product", "service", "kit")
-        .prefetch_related(
-            "kit_overrides",
-            "kit__kit_products__product",
-            "kit__kit_services__service",
-        )
+        .prefetch_related("kit_overrides")
         .order_by("id")
     )
 
-    product_items: list[WorkOrderItem] = []
-    service_items: list[WorkOrderItem] = []
-    kit_items: list[WorkOrderItem] = []
-
-    for item in items:
-        if item.product:
-            product_items.append(item)
-        elif item.service:
-            service_items.append(item)
-        elif item.kit:
-            kit_items.append(item)
-
-    pricing_snapshot = workorder.pricing_snapshot
-
     return {
         "workorder": workorder,
-        "product_items": product_items,
-        "service_items": service_items,
-        "summary_product_items": pricing_snapshot.product_lines,
-        "summary_service_items": pricing_snapshot.service_lines,
-        "kit_items": kit_items,
+        "pinto": 'pinto',
+        "product_items": [i for i in items if i.product],
+        "service_items": [i for i in items if i.service],
+        "kit_items": [i for i in items if i.kit],
+        "summary_product_items": summary_products,
+        "summary_service_items": summary_services,
         "active_tab": _normalize_active_tab(active_tab),
     }
 
@@ -371,9 +381,7 @@ class WorkOrderDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
         context["payment_form"] = WorkOrderPaymentForm(workorder=self.object)
         context["attachment_form"] = WorkOrderAttachmentForm(instance=self.object.attachments.last(), workorder=self.object)
         items_context = _build_edit_items_context(self.object)
-        context["product_items"] = items_context["product_items"]
-        context["service_items"] = items_context["service_items"]
-        context["kit_items"] = items_context["kit_items"]
+        context.update(items_context)
         return context
 
 
