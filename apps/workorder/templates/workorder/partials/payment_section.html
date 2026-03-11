@@ -18,7 +18,8 @@
                 <tr>
                     <th>Forma de Pagamento</th>
                     <th>Parcelas</th>
-                    <th>Valor Pago</th>
+                    <th>Vencimento</th>
+                    <th>Valor Total</th>
                     <th class="text-center">Ações</th>
                 </tr>
             </thead>
@@ -28,6 +29,7 @@
                     <tr>
                         <td>{{ payment.payment_method.description }}</td>
                         <td>{{ payment.installments_count }}x</td>
+                        <td>{{ payment.due_date|date:"d/m/Y" }}</td>
                         <td>{{ payment.total_paid }}</td>
 
                         <td class="text-center">
@@ -42,7 +44,7 @@
                     </tr>
                 {% empty %}
                     <tr>
-                        <td colspan="4" class="text-center text-gray-500 italic py-4">
+                        <td colspan="5" class="text-center text-gray-500 italic py-4">
                             Nenhuma forma de pagamento registrada.
                         </td>
                     </tr>

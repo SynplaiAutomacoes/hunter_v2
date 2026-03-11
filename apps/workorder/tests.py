@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from urllib.parse import urlparse
 from unittest.mock import patch
 
+from apps.accounts.models import Account, User
 from django.http import Http404, HttpResponse
 from django.test import RequestFactory, TestCase, override_settings
+from django.urls import reverse
 from django.utils import timezone
 from djmoney.money import Money
 
@@ -16,14 +18,18 @@ from apps.catalog.models.kits import Kit, KitProduct, KitService
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
+from apps.collaborators.models import WorkshopMember
 from apps.core.documents.contract import DocumentPayload, SignatureDeliveryResult
 from apps.core.documents.services import SignatureDeliveryServiceError
 from apps.core.documents.signature import normalize_signature_phone_number, parse_document_signature_token
 from apps.customer.models import Customer
+from apps.finance.models.payment_method import PaymentMethod
+from apps.iam.utils import get_or_create_director_role
 from apps.stock.models import StockMovement, StockProduct
+from apps.workorder.forms import WorkOrderPaymentForm
 from apps.workorder.approval import approve_workorder_with_stock
 from apps.workorder.documents.provider import build_workorder_pdf_render_request
-from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderSignatureStatus, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
 from apps.workorder.service import (
     WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
     WORKORDER_SIGNATURE_TOKEN_SALT,
@@ -43,6 +49,26 @@ def create_workshop(*, suffix: int = 1) -> Workshop:
         phone="+5511988888888",
         address="Rua Teste OS, 123",
     )
+
+
+def create_director_user_with_workshop(*, suffix: int = 1) -> tuple[User, Workshop]:
+    user = User.objects.create_user(username=f"workorder-director{suffix}", password="123", cpf=f"98765432{suffix:03d}")
+    account = Account.objects.create(name=f"Conta OS {suffix}", owner=user)
+    user.account = account
+    user.is_account_owner = True
+    user.save(update_fields=["account", "is_account_owner"])
+
+    workshop = Workshop.objects.create(
+        account=account,
+        name=f"Oficina Diretor OS {suffix}",
+        cnpj=f"11.444.555/0001-{suffix:02d}",
+        phone="+5511977777777",
+        address="Rua Diretor OS, 123",
+    )
+
+    director_role = get_or_create_director_role(account=account, with_all_permissions=True)
+    WorkshopMember.objects.create(user=user, workshop=workshop, role=director_role, is_active=True)
+    return user, workshop
 
 
 def create_budget(*, workshop: Workshop) -> Budget:
@@ -72,6 +98,19 @@ def create_service(*, workshop: Workshop, suffix: int = 1) -> Service:
         duration=timedelta(hours=1),
         suggested_cost=Money("5.00", "BRL"),
         selling_price=Money("20.00", "BRL"),
+    )
+
+
+def create_product(*, workshop: Workshop, suffix: int = 1, selling_price: str = "100.00") -> Product:
+    group = CatalogGroup.objects.create(workshop=workshop, name=f"Grupo Produto {suffix}")
+    return Product.objects.create(
+        workshop=workshop,
+        code=f"P-{suffix:03d}",
+        unit=Product.Unit.UND,
+        name=f"Produto Teste {suffix}",
+        group=group,
+        cost_price=Money("10.00", "BRL"),
+        selling_price=Money(selling_price, "BRL"),
     )
 
 
@@ -508,3 +547,148 @@ class WorkOrderDuplicateKitProductTests(TestCase):
         self.assertEqual(stock_product.current_quantity, 0)
         self.assertEqual(workorder.status, WorkOrderStatus.APPROVED)
         self.assertEqual(StockMovement.objects.get(stock_product=stock_product).quantity, 3)
+
+
+class WorkOrderPaymentFormTests(TestCase):
+    def setUp(self) -> None:
+        self.workshop = create_workshop(suffix=21)
+        self.budget = create_budget(workshop=self.workshop)
+        self.workorder = WorkOrder.objects.create(workshop=self.workshop, budget=self.budget)
+
+    def _set_workorder_total(self, value: str, *, suffix: int) -> None:
+        self.workorder.items.all().delete()
+        product = create_product(workshop=self.workshop, suffix=suffix, selling_price=value)
+        WorkOrderItem.objects.create(workshop=self.workshop, workorder=self.workorder, product=product, quantity=1)
+
+    def test_form_calculates_remaining_installments_from_payment_method(self) -> None:
+        self._set_workorder_total("100.00", suffix=21)
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Cartão", installments_count=4)
+
+        form = WorkOrderPaymentForm(
+            data={
+                "payment_method": str(payment_method.pk),
+                "first_installment_amount_0": "40.00",
+                "first_installment_amount_1": "BRL",
+                "remaining_installments_amount_0": "0.00",
+                "remaining_installments_amount_1": "BRL",
+                "due_date": "2026-03-20",
+            },
+            workorder=self.workorder,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data["installments_count"], 4)
+        self.assertEqual(form.cleaned_data["remaining_installments_amount"], Money("20.00", "BRL"))
+
+        payment = form.save(commit=False)
+        payment.workorder = self.workorder
+        payment.save()
+
+        self.assertEqual(payment.installments_count, 4)
+        self.assertEqual(payment.remaining_installments_amount, Money("20.00", "BRL"))
+        self.assertEqual(payment.total_paid, Money("100.00", "BRL"))
+        self.assertEqual(payment.due_date, date(2026, 3, 20))
+
+    def test_form_rounds_remaining_installments_up_to_next_tenth(self) -> None:
+        self._set_workorder_total("133.32", suffix=22)
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Cartão Premium", installments_count=4)
+
+        form = WorkOrderPaymentForm(
+            data={
+                "payment_method": str(payment_method.pk),
+                "first_installment_amount_0": "33.33",
+                "first_installment_amount_1": "BRL",
+                "remaining_installments_amount_0": "0.00",
+                "remaining_installments_amount_1": "BRL",
+                "due_date": "2026-03-21",
+            },
+            workorder=self.workorder,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data["remaining_installments_amount"], Money("33.40", "BRL"))
+
+        payment = form.save(commit=False)
+        payment.workorder = self.workorder
+        payment.save()
+
+        self.assertEqual(payment.total_paid, Money("133.53", "BRL"))
+
+    def test_form_sets_remaining_installments_to_zero_when_first_installment_covers_total(self) -> None:
+        self._set_workorder_total("100.00", suffix=23)
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Cartão à vista", installments_count=4)
+
+        form = WorkOrderPaymentForm(
+            data={
+                "payment_method": str(payment_method.pk),
+                "first_installment_amount_0": "100.00",
+                "first_installment_amount_1": "BRL",
+                "remaining_installments_amount_0": "0.00",
+                "remaining_installments_amount_1": "BRL",
+                "due_date": "2026-03-22",
+            },
+            workorder=self.workorder,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data["remaining_installments_amount"], Money("0.00", "BRL"))
+
+    def test_form_rejects_first_installment_above_pending_balance(self) -> None:
+        self._set_workorder_total("100.00", suffix=24)
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Cartão Especial", installments_count=4)
+
+        form = WorkOrderPaymentForm(
+            data={
+                "payment_method": str(payment_method.pk),
+                "first_installment_amount_0": "100.01",
+                "first_installment_amount_1": "BRL",
+                "remaining_installments_amount_0": "0.00",
+                "remaining_installments_amount_1": "BRL",
+                "due_date": "2026-03-23",
+            },
+            workorder=self.workorder,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("A primeira parcela não pode exceder o saldo pendente", str(form.errors["first_installment_amount"][0]))
+
+
+class AddPaymentMethodViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=25)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+        self.budget = create_budget(workshop=self.workshop)
+        self.workorder = WorkOrder.objects.create(workshop=self.workshop, budget=self.budget)
+        product = create_product(workshop=self.workshop, suffix=25, selling_price="100.00")
+        WorkOrderItem.objects.create(workshop=self.workshop, workorder=self.workorder, product=product, quantity=1)
+
+    def test_post_saves_payment_and_renders_updated_list(self) -> None:
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Cartão Master/Visa", installments_count=4)
+
+        response = self.client.post(
+            reverse("workorder:add_payment", args=[self.workorder.pk]),
+            data={
+                "payment_method": str(payment_method.pk),
+                "first_installment_amount_0": "40.00",
+                "first_installment_amount_1": "BRL",
+                "remaining_installments_amount_0": "0.00",
+                "remaining_installments_amount_1": "BRL",
+                "due_date": "2026-03-24",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Cartão Master/Visa")
+        self.assertContains(response, "4x")
+        self.assertContains(response, "24/03/2026")
+
+        payment = WorkOrderPaymentMethod.objects.get(workorder=self.workorder)
+        self.assertEqual(payment.installments_count, 4)
+        self.assertEqual(payment.remaining_installments_amount, Money("20.00", "BRL"))
+        self.assertEqual(payment.due_date, date(2026, 3, 24))

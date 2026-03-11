@@ -3,16 +3,17 @@ from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 from django import forms
 from django.urls import reverse
 
-from apps.core.widgets import TextInput, CheckboxInput
+from apps.core.widgets import CheckboxInput, NumberInput, TextInput
 from apps.finance.models.payment_method import PaymentMethod
 
 
 class PaymentMethodForm(forms.ModelForm):
     class Meta:
         model = PaymentMethod
-        fields = ["description", "is_active"]
+        fields = ["description", "installments_count", "is_active"]
         widgets = {
             "description": TextInput(attrs={"placeholder": "Ex: Cartão de Crédito, Pix..."}),
+            "installments_count": NumberInput(),
             "is_active": CheckboxInput(),
         }
 
@@ -21,15 +22,7 @@ class PaymentMethodForm(forms.ModelForm):
         self.workshop = workshop
         self.helper = FormHelper()
         self.helper.layout = Layout(
-            Div(
-                Field("description", wrapper_class="col-span-12 lg:col-span-9"),
-                Field("is_active", wrapper_class="col-span-12 lg:col-span-3"),
-                css_class="grid grid-cols-12 gap-4"
-            ),
+            Div(Field("description", wrapper_class="col-span-12 lg:col-span-7"), Field("installments_count", wrapper_class="col-span-12 lg:col-span-3"), Field("is_active", wrapper_class="col-span-12 lg:col-span-2"), css_class="grid grid-cols-12 gap-4"),
             HTML('<div class="divider"></div>'),
-            Div(
-                HTML(f'<a href="{reverse("finance:payment_methods_list")}" class="btn-form-cancel">Cancelar</a>'),
-                Submit("submit", "Salvar", css_class="btn-form-save"),
-                css_class="flex items-center justify-end gap-2"
-            )
+            Div(HTML(f'<a href="{reverse("finance:payment_methods_list")}" class="btn-form-cancel">Cancelar</a>'), Submit("submit", "Salvar", css_class="btn-form-save"), css_class="flex items-center justify-end gap-2"),
         )
