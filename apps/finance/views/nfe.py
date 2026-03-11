@@ -51,6 +51,7 @@ class NfeRequestCreateView(SharedEmissionRequestCreateBaseView):
     workshop_permission_codename = "view_nfserequest"
     template_name = "finance/nfe_request_form.html"
     partial_template_name = "finance/partials/nfe_step_content.html"
+    preview_template_name = "finance/partials/nfe_step3_preview.html"
     step3_form_class = NfeRequestStep3Form
     preview_initial_fields = ("pricing_slider", "tax_class")
     tax_class_kind = "nfe"

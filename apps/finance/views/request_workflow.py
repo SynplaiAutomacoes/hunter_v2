@@ -15,6 +15,7 @@ from apps.workshops.util.workshops import get_active_workshop_or_404
 
 class SharedEmissionRequestCreateBaseView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixin, CreateView):
     partial_template_name = ""
+    preview_template_name = ""
     step3_form_class = None
     preview_initial_fields: tuple[str, ...] = ()
     tax_class_kind = ""
@@ -24,9 +25,14 @@ class SharedEmissionRequestCreateBaseView(LoginRequiredMixin, WorkshopScopedMixi
     base_select_related = ("workorder", "workorder__budget", "workorder__budget__customer", "workorder__budget__vehicle")
 
     def get_template_names(self):
+        if self._is_panel_preview_request() and self.preview_template_name:
+            return [self.preview_template_name]
         if self.request.htmx:
             return [self.partial_template_name]
         return [self.template_name]
+
+    def _is_panel_preview_request(self) -> bool:
+        return self.request.method == "POST" and self.request.GET.get("preview") == "1" and self.get_current_step() == len(self.get_steps_config())
 
     def get_request_queryset(self):
         return self.model.objects.select_related(*self.base_select_related).filter(workshop=self.workshop)
@@ -147,6 +153,13 @@ class SharedEmissionRequestCreateBaseView(LoginRequiredMixin, WorkshopScopedMixi
             response["HX-Redirect"] = success_url
             return response
         return redirect(success_url)
+
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        if self._is_panel_preview_request():
+            form = self.get_form()
+            return self.render_to_response(self.get_context_data(form=form))
+        return super().post(request, *args, **kwargs)
 
 
 class SharedEmissionRequestUpdateBaseView(SharedEmissionRequestCreateBaseView):

@@ -63,7 +63,12 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         {"title": "Emitir Nota", "form_class": EmissionStep4Form},
     ]
 
+    def _is_panel_preview_request(self) -> bool:
+        return self.request.method == "POST" and self.request.GET.get("preview") == "1" and self._current_step() == 4
+
     def get_template_names(self):
+        if self._is_panel_preview_request():
+            return ["finance/partials/emission_step4_panel.html"]
         if self.request.htmx:
             return ["finance/partials/emission_step_content.html"]
         return [self.template_name]
@@ -299,6 +304,12 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         if note_type == "nfe":
             return self._finalize_nfe(state=state, workorder=workorder)
         return self._finalize_nfse(state=state, workorder=workorder)
+
+    def post(self, request, *args, **kwargs):
+        if self._is_panel_preview_request():
+            form = self.get_form()
+            return self.render_to_response(self.get_context_data(form=form))
+        return super().post(request, *args, **kwargs)
 
     def _get_or_create_nfe_request(self, *, state: dict[str, Any], workorder: WorkOrder) -> NfeRequest:
         request_id = state.get("nfe_request_id")

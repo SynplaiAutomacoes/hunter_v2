@@ -9,7 +9,14 @@ from django import forms
 from django.urls import reverse
 
 from apps.core.widgets import SelectInput, TextareaInput
-from apps.finance.forms.emission_ui import build_slider_panel_html, build_slider_script_html, build_slider_widget_attrs, clamp_slider_value, format_money
+from apps.finance.forms.emission_ui import (
+    build_slider_widget_attrs,
+    build_step5_pricing_panel_data,
+    build_step5_pricing_panel_layout,
+    build_step5_preview_oob_html,
+    clamp_slider_value,
+    format_money,
+)
 from apps.finance.services.emission import build_default_service_description_for_workorder
 from apps.finance.services.nfe_emission import NfeEmissionError, build_nfe_preview_rows
 from apps.finance.services.pricing import build_emission_pricing_snapshot_for_workorder, build_slider_allocation_for_workorder
@@ -262,10 +269,10 @@ class EmissionStep4Form(forms.Form):
         slider_field = self.fields["pricing_slider"]
         slider_field.widget = forms.NumberInput(
             attrs=build_slider_widget_attrs(
-                preview_url=reverse("finance:emission_preview"),
-                target_selector="#emission-step4-body",
+                preview_url=f"{reverse('finance:emission_create')}?step=4&preview=1",
                 include_selector="#emission-form",
-                swap="outerHTML",
+                target_selector="#emission-preview-block",
+                swap="none",
             )
         )
         slider_field.help_text = "Negativo prioriza produtos. Positivo prioriza servicos."
@@ -280,7 +287,8 @@ class EmissionStep4Form(forms.Form):
         tax_class_field.help_text = "Classe fiscal correspondente ao tipo de nota selecionado."
         self._valid_tax_class_refs = {value for value, _ in tax_class_choices if value}
 
-        current_tax_class = str(self.data.get("tax_class") if self.is_bound else self.initial.get("tax_class", "") or "").strip()
+        current_tax_class_source = self.data.get("tax_class") if self.is_bound else self.initial.get("tax_class", "")
+        current_tax_class = str(current_tax_class_source or "").strip()
         if self._valid_tax_class_refs and current_tax_class not in self._valid_tax_class_refs:
             replacement_tax_class = next(iter(self._valid_tax_class_refs))
             if self.is_bound:
@@ -296,7 +304,8 @@ class EmissionStep4Form(forms.Form):
 
         if selected_note_type == "nfse":
             self.fields["service_description"].required = True
-            current_service_description = str(self.data.get("service_description") if self.is_bound else self.initial.get("service_description") or "").strip()
+            current_service_description_source = self.data.get("service_description") if self.is_bound else self.initial.get("service_description")
+            current_service_description = str(current_service_description_source or "").strip()
             if not current_service_description:
                 if self.is_bound:
                     mutable_data = self.data.copy()
@@ -312,8 +321,10 @@ class EmissionStep4Form(forms.Form):
         total_to_emit = format_money(0)
         complementary_total = format_money(0)
         complementary_label = "Saldo complementar"
+        panel_data = None
 
         if workorder is not None:
+            panel_data = build_step5_pricing_panel_data(workorder=workorder, selected_slider=selected_slider)
             allocation = build_slider_allocation_for_workorder(workorder=workorder, slider_override=selected_slider)
             if selected_note_type == "nfe":
                 complementary_label = "Saldo NFS-e (servicos)"
@@ -418,10 +429,12 @@ class EmissionStep4Form(forms.Form):
                     </div>
                 """
 
-        slider_indicator = build_slider_panel_html(
-            prefix="emission",
-            selected_slider=selected_slider,
-            description="Comeca com o valor do orcamento, mas aqui fica independente e nao sincroniza de volta.",
+        self.preview_warning_html = preview_warning
+        self.preview_html = preview_html
+        self.preview_panel_html = (
+            build_step5_preview_oob_html(prefix="emission", panel_data=panel_data, warning_html=preview_warning, preview_html=preview_html)
+            if panel_data is not None
+            else f'<div id="emission-warning-block" hx-swap-oob="true">{preview_warning}</div><div id="emission-preview-block" hx-swap-oob="true">{preview_html}</div>'
         )
 
         service_description_field = []
@@ -434,17 +447,15 @@ class EmissionStep4Form(forms.Form):
             Div(
                 HTML("<h2 class='text-2xl font-bold'>Emitir nota</h2>"),
                 HTML("<p class='text-base-content/70 mb-6'>Escolha o tipo da nota, ajuste o slider se necessario e confira a previa antes de emitir.</p>"),
-                HTML(slider_indicator),
-                HTML(preview_warning),
-                HTML(preview_html),
+                build_step5_pricing_panel_layout(prefix="emission", panel_data=panel_data, slider_field_name="pricing_slider", form_selector="#emission-form") if panel_data is not None else HTML(""),
                 Div(
                     Field("note_type", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("pricing_slider", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("tax_class", wrapper_class="col-span-12 lg:col-span-4"),
                     *service_description_field,
                     css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
                 ),
-                HTML(build_slider_script_html(prefix="emission", form_selector="#emission-form")),
+                HTML('<div id="emission-warning-block">' + preview_warning + "</div>"),
+                HTML('<div id="emission-preview-block">' + preview_html + "</div>"),
                 css_class="space-y-4",
             )
         )
@@ -456,7 +467,7 @@ class EmissionStep4Form(forms.Form):
         return tax_class
 
     def clean(self) -> dict[str, Any]:
-        cleaned_data = super().clean()
+        cleaned_data = super().clean() or {}
         note_type = _resolve_note_type(cleaned_data.get("note_type"))
         service_description = str(cleaned_data.get("service_description") or "").strip()
 

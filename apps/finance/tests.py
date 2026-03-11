@@ -2035,6 +2035,36 @@ class UnifiedEmissionWizardTests(TestCase):
         self.assertContains(response, "nao deixa saldo de produtos para emitir NF-e")
         self.assertContains(response, reverse("finance:emission_preview"))
 
+    def test_unified_step_four_uses_step5_layout_and_slider_preview_updates_partial_regions(self) -> None:
+        tax_classes = [{"referencia": "REFNFE905", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e"}]
+
+        with patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes):
+            self._advance_to_step_4()
+
+            response = self.client.get(self._wizard_url(step=4))
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, "Metodo Hunter")
+            self.assertContains(response, "Margem de Lucro")
+            self.assertContains(response, "Desconto")
+            self.assertContains(response, 'id="emission-display-venda-pecas"', html=False)
+            self.assertContains(response, 'id="emission-display-venda-mo"', html=False)
+
+            response = self.client.post(
+                f"{self._wizard_url(step=4)}&preview=1",
+                {
+                    "note_type": "nfe",
+                    "pricing_slider": "-100",
+                    "tax_class": "REFNFE905",
+                    "service_description": "",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'hx-swap-oob="true"', html=False)
+        self.assertContains(response, 'id="emission-display-venda-pecas"', html=False)
+        self.assertContains(response, 'id="emission-display-venda-mo"', html=False)
+        self.assertContains(response, "Total NF-e (produtos)")
+
 
 class CompatibilityEmissionRouteTests(TestCase):
     def setUp(self) -> None:
@@ -2121,12 +2151,25 @@ class CompatibilityEmissionUpdateFlowTests(TestCase):
         with patch("apps.finance.views.request_workflow.list_tax_classes", return_value=tax_classes):
             response = self.client.get(
                 reverse("finance:nfe_update", kwargs={"pk": nfe_request.pk}),
-                data={"step": 3, "pricing_slider": -100, "tax_class": "REFNFE950"},
+                data={"step": 3},
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Slider da emissao")
-        self.assertContains(response, 'id="nfe-slider-value">-100', html=False)
+        self.assertContains(response, "Metodo Hunter")
+        self.assertContains(response, "Margem de Lucro")
+        self.assertContains(response, 'id="nfe-display-venda-pecas"', html=False)
+        self.assertContains(response, 'id="nfe-display-venda-mo"', html=False)
+
+        with patch("apps.finance.views.request_workflow.list_tax_classes", return_value=tax_classes):
+            response = self.client.post(
+                f"{reverse('finance:nfe_update', kwargs={'pk': nfe_request.pk})}?step=3&preview=1",
+                data={"pricing_slider": -100, "tax_class": "REFNFE950"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'hx-swap-oob="true"', html=False)
+        self.assertContains(response, 'id="nfe-display-venda-pecas"', html=False)
+        self.assertContains(response, 'id="nfe-display-venda-mo"', html=False)
         self.assertContains(response, "R$ 40,00")
 
         with (
@@ -2159,8 +2202,19 @@ class CompatibilityEmissionUpdateFlowTests(TestCase):
         with patch("apps.finance.views.request_workflow.list_tax_classes", return_value=tax_classes):
             response = self.client.get(
                 reverse("finance:nfse_update", kwargs={"pk": nfse_request.pk}),
+                data={"step": 3},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Metodo Hunter")
+        self.assertContains(response, "Margem de Lucro")
+        self.assertContains(response, 'id="nfse-display-venda-pecas"', html=False)
+        self.assertContains(response, 'id="nfse-display-venda-mo"', html=False)
+
+        with patch("apps.finance.views.request_workflow.list_tax_classes", return_value=tax_classes):
+            response = self.client.post(
+                f"{reverse('finance:nfse_update', kwargs={'pk': nfse_request.pk})}?step=3&preview=1",
                 data={
-                    "step": 3,
                     "pricing_slider": 100,
                     "tax_class": "REFNFSE951",
                     "service_description": "Descricao atualizada",
@@ -2168,9 +2222,9 @@ class CompatibilityEmissionUpdateFlowTests(TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Slider da emissao")
-        self.assertContains(response, 'id="nfse-slider-value">100', html=False)
-        self.assertContains(response, "Descricao atualizada")
+        self.assertContains(response, 'hx-swap-oob="true"', html=False)
+        self.assertContains(response, 'id="nfse-display-venda-pecas"', html=False)
+        self.assertContains(response, 'id="nfse-display-venda-mo"', html=False)
         self.assertContains(response, "R$ 60,00")
 
         with (
