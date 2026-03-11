@@ -54,6 +54,23 @@ logger = logging.getLogger(__name__)
 THOUSAND_SEPARATED_INT_PATTERN = re.compile(r"^\d{1,3}(?:[\s.,]\d{3})+$")
 
 
+WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
+    QueryParamFilter(
+        param_name="status",
+        lookup="status",
+        kind="choice",
+        allowed_values=frozenset(
+            {
+                WorkOrderStatus.DRAFT,
+                WorkOrderStatus.APPROVED,
+                WorkOrderStatus.REJECTED,
+                WorkOrderStatus.CANCELLED,
+            }
+        ),
+    ),
+)
+
+
 class WorkOrderListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = WorkOrder
     template_name = "workorder/workorder_list.html"

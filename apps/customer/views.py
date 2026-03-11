@@ -17,6 +17,20 @@ from .forms import CustomerForm, VehicleFormSet
 from .models import Customer, Vehicle
 
 
+CUSTOMER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
+    QueryParamFilter(
+        param_name="customer_type",
+        lookup="customer_type",
+        kind="choice",
+        allowed_values=frozenset({"PF", "PJ"}),
+        normalizer=str.upper,
+    ),
+    QueryParamFilter(param_name="is_active", lookup="is_active", kind="boolean"),
+    QueryParamFilter(param_name="city", lookup="cidade", kind="icontains"),
+    QueryParamFilter(param_name="state", lookup="estado", kind="iexact", normalizer=str.upper),
+)
+
+
 class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = Customer
     template_name = "customer/customer_list.html"
