@@ -8,10 +8,10 @@ from apps.finance.views import (
     FinancialGroupDeleteView,
     FinancialGroupListView,
     FinancialGroupUpdateView,
-    NfeRequestCreateView,
+    NfeCreateRedirectView,
     NfeRequestListView,
     NfeRequestUpdateView,
-    NfseRequestCreateView,
+    NfseCreateRedirectView,
     NfseRequestListView,
     NfseRequestUpdateView,
     TaxClassCreateView,
@@ -44,7 +44,7 @@ urlpatterns = [
     # NFE
     path("nfe/", NfeRequestListView.as_view(), name="nfe_emit"),
     path("nfe/list/", NfeRequestListView.as_view(), name="nfe_list"),
-    path("nfe/create/", NfeRequestCreateView.as_view(), name="nfe_create"),
+    path("nfe/create/", NfeCreateRedirectView.as_view(), name="nfe_create"),
     path("nfe/<int:pk>/edit/", NfeRequestUpdateView.as_view(), name="nfe_update"),
     # Classe Imposto
     path("classe-imposto/", TaxClassListView.as_view(), name="tax_class_list"),
@@ -57,7 +57,7 @@ urlpatterns = [
     path("bank-account/<int:pk>/update/", BankAccountUpdateView.as_view(), name="bank_account_update"),
     # NFS-e
     path("nfse/", NfseRequestListView.as_view(), name="nfse_list"),
-    path("nfse/create/", NfseRequestCreateView.as_view(), name="nfse_create"),
+    path("nfse/create/", NfseCreateRedirectView.as_view(), name="nfse_create"),
     path("nfse/<int:pk>/edit/", NfseRequestUpdateView.as_view(), name="nfse_update"),
     # WebMania
     path("webmania/empresas/", WebmaniaCompanyListView.as_view(), name="webmania_company_list"),

@@ -2036,6 +2036,36 @@ class UnifiedEmissionWizardTests(TestCase):
         self.assertContains(response, reverse("finance:emission_preview"))
 
 
+class LegacyEmissionRouteTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=90)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_legacy_nfe_create_redirects_to_unified_wizard(self) -> None:
+        response = self.client.get(reverse("finance:nfe_create"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), f"{reverse('finance:emission_create')}?tipo=nfe")
+
+    def test_legacy_nfse_create_redirects_to_unified_wizard(self) -> None:
+        response = self.client.get(reverse("finance:nfse_create"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), f"{reverse('finance:emission_create')}?tipo=nfse")
+
+    def test_finance_navbar_uses_single_emitir_nota_entry(self) -> None:
+        response = self.client.get(reverse("finance:nfe_emit"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Emitir nota")
+        self.assertContains(response, reverse("finance:emission_create"))
+        self.assertContains(response, "NFS-e Emitidas")
+
+
 class NfePermissionFallbackTests(TestCase):
     def setUp(self) -> None:
         self.user, self.workshop = create_director_user_with_workshop(suffix=84)

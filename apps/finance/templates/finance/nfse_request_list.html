@@ -4,7 +4,7 @@
 {% block crud_subtitle %}Acompanhe as solicitações de emissão de NFS-e vinculadas às ordens de serviço.{% endblock %}
 
 {% block crud_header_actions %}
-    <a href="{% url 'finance:nfse_create' %}" class="btn btn-primary">Emitir nova NFS-e</a>
+    <a href="{% url 'finance:emission_create' %}?tipo=nfse" class="btn btn-primary">Emitir nova NFS-e</a>
 {% endblock %}
 
 {% block crud_table_wrapper_id %}nfse-request-table-wrapper{% endblock %}
