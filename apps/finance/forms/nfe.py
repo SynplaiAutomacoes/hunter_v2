@@ -64,6 +64,8 @@ class NfeRequestStep3Form(forms.ModelForm):
                 include_selector="#nfe-form",
                 target_selector="#nfe-preview-block",
                 swap="none",
+                trigger="input changed delay:120ms, change",
+                sync_selector="#nfe-form:abort",
             )
         )
 

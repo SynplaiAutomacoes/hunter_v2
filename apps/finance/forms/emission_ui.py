@@ -64,6 +64,7 @@ def build_slider_widget_attrs(
     target_selector: str | None = None,
     trigger: str = "change",
     method: str = "post",
+    sync_selector: str | None = None,
 ) -> dict[str, str]:
     attrs = {
         "type": "range",
@@ -84,6 +85,8 @@ def build_slider_widget_attrs(
         )
         if target_selector:
             attrs["hx-target"] = target_selector
+        if sync_selector:
+            attrs["hx-sync"] = sync_selector
     return attrs
 
 
@@ -315,6 +318,165 @@ def build_step5_pricing_panel_layout(*, prefix: str, panel_data: Step5PricingPan
     )
 
 
+def build_step5_summary_layout(*, prefix: str, panel_data: Step5PricingPanelData, slider_field_name: str, form_selector: str, body_html: str) -> Div:
+    return Div(
+        HTML(_build_step5_styles_html()),
+        HTML(build_step5_slider_script_html(prefix=prefix, form_selector=form_selector, input_name=slider_field_name)),
+        Div(
+            Div(
+                Div(
+                    HTML('<h3 class="text-3xl font-bold mb-2 border-b-3 step5-accent-border text-center step5-accent-text">Metodo Hunter</h3>'),
+                    Div(
+                        HTML(
+                            f"""
+                            <div class="grid grid-cols-1 md:grid-cols-2 mt-7 gap-x-8 gap-y-3 text-base text-base-content font-semibold">
+                                <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo de Pecas</span>
+                                    <span class="col-span-4 p-2 border-l border-base-300">{panel_data.cost_products}</span>
+                                </div>
+
+                                <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Valor de Venda de Pecas</span>
+                                    {_build_sale_products_span(prefix=prefix, panel_data=panel_data)}
+                                </div>
+
+                                <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo de Frete de Pecas</span>
+                                    <span class="col-span-4 p-2 border-l border-base-300">{panel_data.cost_products_shipping}</span>
+                                </div>
+
+                                <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Valor de Venda de Servico de Terceiros</span>
+                                    <span class="col-span-4 p-2 border-l border-base-300">{panel_data.sale_third_party_services}</span>
+                                </div>
+
+                                <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo de Servico de Terceiros</span>
+                                    <span class="col-span-4 p-2 border-l border-base-300">{panel_data.cost_third_party_services}</span>
+                                </div>
+
+                                <div class="grid grid-cols-12"></div>
+
+                                <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo da Hora do Mecanico</span>
+                                    <span class="col-span-4 p-2 border-l border-base-300">{panel_data.mechanic_hour_cost}</span>
+                                </div>
+
+                                <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Valor de Venda de Mao de Obra</span>
+                                    {_build_sale_labor_span(prefix=prefix, panel_data=panel_data)}
+                                </div>
+
+                                <div class="grid grid-cols-12 border border-base-300 bg-base-100 font-semibold">
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo Total da Mao de Obra</span>
+                                    <span class="col-span-4 p-2 border-l border-base-300">{panel_data.labor_total_cost}</span>
+                                </div>
+
+                                <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Duracao Total</span>
+                                    <span class="col-span-4 p-2 border-l border-base-300">{panel_data.duration_display}</span>
+                                </div>
+
+                                <div class="md:col-span-2 h-2"></div>
+
+                                <div class="grid grid-cols-12 border border-base-300 bg-base-100 font-bold">
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Lucro Operacional</span>
+                                    <span class="col-span-4 p-2 border-l border-base-300 step5-accent-text">{panel_data.operational_profit}</span>
+                                </div>
+
+                                <div class="grid grid-cols-12 border {panel_data.profitability_class} {panel_data.profitability_bg}">
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Rentabilidade</span>
+                                    <span class="col-span-4 p-2 border-l {panel_data.profitability_class} font-bold">
+                                        {panel_data.profitability:.2f}% ({panel_data.profitability_status})
+                                    </span>
+                                </div>
+
+                                <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">MLO</span>
+                                    <span class="col-span-4 p-2 border-l border-base-300">{panel_data.mlo:.2f}</span>
+                                </div>
+
+                                <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">MLR</span>
+                                    <span class="col-span-4 p-2 border-l border-base-300">{panel_data.mlr:.2f}</span>
+                                </div>
+                            </div>
+                            """
+                        ),
+                        css_class="h-full",
+                    ),
+                    Div(
+                        HTML(
+                            f"""<div class="text-center text-base-content mt-6">
+                                    <p class="text-2xl font-bold">Valor do Orcamento</p>
+                                    <p class="text-3xl font-black step5-accent-text">{panel_data.total_base_value}</p>
+                                </div>"""
+                        )
+                    ),
+                    css_class="bg-base-200 p-6 rounded-2xl border-2 border-base-300 h-full flex flex-col text-base-content",
+                ),
+                HTML(body_html),
+                css_class="col-span-12 lg:col-span-7 space-y-6",
+            ),
+            Div(
+                Div(
+                    Div(
+                        HTML('<h4 class="font-bold text-lg mb-2">Margem de Lucro</h4>'),
+                        HTML(
+                            f"""
+                            <div class="flex justify-between mb-1">
+                                <span class="text-sm font-bold">Peca: <span id="{prefix}-val-peca">0</span>%</span>
+                                <span class="text-sm font-bold">Mao de Obra: <span id="{prefix}-val-mo">0</span>%</span>
+                            </div>
+                            """
+                        ),
+                        Field(slider_field_name, label=False, help_text=False, wrapper_class="w-full"),
+                        HTML('<p class="text-sm text-gray-500 font-semibold italic">Deslize para a esquerda para aumentar Peca, ou para direita para aumentar Mao de obra</p>'),
+                        css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
+                    ),
+                    Div(
+                        HTML('<h4 class="font-bold text-lg mb-2">Desconto</h4>'),
+                        HTML(
+                            f"""
+                            <div class="rounded-lg border border-base-300 bg-base-100 px-4 py-3 text-lg font-semibold">
+                                {panel_data.discount_display}
+                            </div>
+                            """
+                        ),
+                        css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
+                    ),
+                    Div(
+                        HTML('<h4 class="font-bold text-lg mb-2 text-center border-b-1 border-gray-300">Valor Final</h4>'),
+                        HTML('<h5 class="font-semibold text-lg mb-2 text-center">Valor do Orcamento com desconto aplicado:</h5>'),
+                        HTML(
+                            f"""
+                            <div class="space-y-3">
+                                <div class="flex justify-between text-xl font-semibold">
+                                    <span>Subtotal:</span>
+                                    <span>{panel_data.total_base_value}</span>
+                                </div>
+                                <div class="flex justify-between text-xl font-semibold">
+                                    <span>Desconto:</span>
+                                    <span>{panel_data.discount_display}</span>
+                                </div>
+                                <div class="flex justify-between text-xl font-black">
+                                    <span>Valor Final:</span>
+                                    <span id="{prefix}-valor-final-display">{panel_data.total_budget_value}</span>
+                                </div>
+                            </div>
+                            """
+                        ),
+                        css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
+                    ),
+                    css_class="sticky top-4",
+                ),
+                css_class="col-span-12 lg:col-span-5 self-start",
+            ),
+            css_class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start",
+        ),
+    )
+
+
 def build_step5_preview_oob_html(*, prefix: str, panel_data: Step5PricingPanelData, warning_html: str, preview_html: str) -> str:
     return f"""
         {_build_sale_products_span(prefix=prefix, panel_data=panel_data, oob=True)}
@@ -338,6 +500,17 @@ def build_step5_slider_script_html(*, prefix: str, form_selector: str, input_nam
 
                     if (!slider || !labelPecaPct || !labelMOPct || !vendaPecaEl || !vendaMOEl) return;
 
+                    const basePeca = parseFloat(vendaPecaEl.dataset.baseVal || '0');
+                    const baseMO = parseFloat(vendaMOEl.dataset.baseVal || '0');
+                    const costPeca = parseFloat(vendaPecaEl.dataset.costVal || '0');
+                    const fretePeca = parseFloat(vendaPecaEl.dataset.freteVal || '0');
+                    const minVendaPeca = costPeca + fretePeca;
+                    const costMO = parseFloat(vendaMOEl.dataset.costVal || '0');
+
+                    const formatCurrency = function (value) {{
+                        return 'R$ ' + Number(value || 0).toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
+                    }};
+
                     function updateFill(val) {{
                         const min = -100;
                         const max = 100;
@@ -356,11 +529,32 @@ def build_step5_slider_script_html(*, prefix: str, form_selector: str, input_nam
                         }}
                     }}
 
+                    function updateLocalValues(val) {{
+                        let nextPeca = basePeca;
+                        let nextMO = baseMO;
+
+                        if (val < 0) {{
+                            const availableServices = Math.max(baseMO - costMO, 0);
+                            const transfer = availableServices * (Math.abs(val) / 100);
+                            nextPeca = basePeca + transfer;
+                            nextMO = baseMO - transfer;
+                        }} else if (val > 0) {{
+                            const availableProducts = Math.max(basePeca - minVendaPeca, 0);
+                            const transfer = availableProducts * (val / 100);
+                            nextPeca = basePeca - transfer;
+                            nextMO = baseMO + transfer;
+                        }}
+
+                        vendaPecaEl.textContent = formatCurrency(nextPeca);
+                        vendaMOEl.textContent = formatCurrency(nextMO);
+                    }}
+
                     function update(val) {{
                         const numericValue = parseInt(val || 0, 10) || 0;
                         labelPecaPct.textContent = numericValue < 0 ? Math.abs(numericValue) : 0;
                         labelMOPct.textContent = numericValue > 0 ? numericValue : 0;
                         updateFill(numericValue);
+                        updateLocalValues(numericValue);
                     }}
 
                     if (slider.dataset.step5Bound !== 'true') {{
