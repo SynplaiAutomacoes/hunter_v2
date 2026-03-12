@@ -23,42 +23,6 @@ class PaymentMethodForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.workshop = workshop
         self.helper = FormHelper()
-        self.helper.form_tag = False
-
-        alpine_tax_logic = """
-                    {
-                        taxP: '%s',
-                        taxV: '%s',
-                        init() {
-                            // Sincroniza estado inicial se for edição
-                            this.taxP = document.getElementById('id_tax_percentage')?.value || '';
-                            this.taxV = document.getElementById('id_tax_value_0')?.value || '';
-                        },
-                        clearOther(type) {
-                            if(type === 'percentage') {
-                                // Limpa o valor de Dinheiro
-                                this.taxV = '';
-                                let moneyHidden = document.getElementById('id_tax_value_0');
-                                let moneyDisplay = document.getElementById('id_tax_value_0_display');
-                                if(moneyHidden) moneyHidden.value = '';
-                                if(moneyDisplay) { 
-                                    moneyDisplay.value = '';
-                                    moneyDisplay.dispatchEvent(new Event('input')); 
-                                }
-                            } else {
-                                // Limpa o valor de Porcentagem
-                                this.taxP = '';
-                                let percHidden = document.getElementById('id_tax_percentage');
-                                let percDisplay = document.getElementById('id_tax_percentage_display');
-                                if(percHidden) percHidden.value = '';
-                                if(percDisplay) { 
-                                    percDisplay.value = '';
-                                    percDisplay.dispatchEvent(new Event('input'));
-                                }
-                            }
-                        }
-                    }
-                """ % (str(self.instance.tax_percentage or ""), str(self.instance.tax_value.amount if self.instance.tax_value else ""))
 
         self.helper.layout = Layout(
             Div(
@@ -66,11 +30,10 @@ class PaymentMethodForm(forms.ModelForm):
                 Field("installments_count", wrapper_class="col-span-12 lg:col-span-3"),
 
                 Div(
-                    Div(Field("tax_percentage", **{"x-model": "taxP", "@input": "if(taxP) clearOther('percentage')", ":class": "{'opacity-40 pointer-events-none': taxV && !taxP}"}), css_class="flex-1"),
+                    Div(Field("tax_percentage"), css_class="flex-1"),
                     HTML('<div class="flex items-center justify-center font-bold text-xs opacity-50 px-2 mt-10">OU</div>'),
-                    Div(Field("tax_value", **{"x-model": "taxV", "@input": "if(taxV) clearOther('value')", ":class": "{'opacity-40 pointer-events-none': taxP && !taxV}"}), css_class="flex-1"),
+                    Div(Field("tax_value"), css_class="flex-1"),
                     css_class="col-span-12 lg:col-span-9 flex items-start gap-1",
-                    **{"x-data": alpine_tax_logic},
                 ),
 
                 Field("is_active", wrapper_class="col-span-12"),
@@ -82,8 +45,16 @@ class PaymentMethodForm(forms.ModelForm):
 
     def clean(self):
         cleaned_data = super().clean()
+        description = cleaned_data.get("description")
         tax_percentage = cleaned_data.get("tax_percentage")
         tax_value = cleaned_data.get("tax_value")
+
+        qs = PaymentMethod.objects.filter(workshop=self.workshop, description=description)
+        if self.instance.pk:
+            qs = qs.exclude(pk=self.instance.pk)
+
+        if qs.exists():
+            self.add_error("description", "Já existe uma forma de pagamento com esta descrição nesta Oficina.")
 
         if tax_percentage and tax_value:
             raise forms.ValidationError("Preencha apenas a taxa em percentual (%) OU a taxa em valor (R$), nunca ambos.")
