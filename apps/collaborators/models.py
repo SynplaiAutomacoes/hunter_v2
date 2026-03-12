@@ -7,6 +7,8 @@ from djmoney.models.fields import MoneyField
 from localflavor.br.models import BRCPFField
 from phonenumber_field.modelfields import PhoneNumberField
 
+from apps.core.models import TimeStampedModel
+
 
 class WorkshopMember(models.Model):
     user = models.ForeignKey(
@@ -42,7 +44,7 @@ class WorkshopMember(models.Model):
         return f"{self.user} @ {self.workshop} ({self.role})"
 
 
-class WorkshopCollaborator(models.Model):
+class WorkshopCollaborator(TimeStampedModel):
     class Sex(models.TextChoices):
         MALE = "M", "Masculino"
         FEMALE = "F", "Feminino"

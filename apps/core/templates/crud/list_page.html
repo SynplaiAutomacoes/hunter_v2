@@ -11,12 +11,13 @@
         {% block crud_header_actions %}{% endblock %}
     </div>
 
-    <div class="card bg-base-100 shadow-xl">
-        <div class="card-body p-6 md:p-8">
+    <div class="card bg-base-100 shadow-xl" style="overflow: visible;">
+        <div class="card-body p-6 md:p-8" style="overflow: visible;">
             <div
                 id="{% block crud_table_wrapper_id %}table-wrapper{% endblock %}"
                 hx-get="{% block crud_table_hx_get %}{{ request.path }}{% endblock %}"
                 hx-trigger="{% block crud_table_hx_trigger %}table-refresh from:body{% endblock %}"
+                hx-vals="js:{...(() => { const params = {}; const searchParams = new URLSearchParams(window.location.search); searchParams.forEach((value, key) => { if (Object.prototype.hasOwnProperty.call(params, key)) { const currentValue = params[key]; params[key] = Array.isArray(currentValue) ? [...currentValue, value] : [currentValue, value]; return; } params[key] = value; }); return params; })()}"
                 hx-target="this"
                 hx-swap="innerHTML"
             >

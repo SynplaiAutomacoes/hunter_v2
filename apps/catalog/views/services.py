@@ -13,11 +13,18 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 from apps.budget.views.shared import _parse_duration_from_string
 from apps.catalog.forms.services import ServiceForm
 from apps.catalog.models.services import Service
+from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
 from apps.catalog.util import get_current_workshop_cost, calculate_catalog_service_prices
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.workshops.mixin import WorkshopScopedMixin
+
+
+SERVICE_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
+    QueryParamFilter(param_name="is_active", lookup="is_active", kind="boolean"),
+    QueryParamFilter(param_name="is_third_party", lookup="is_third_party", kind="boolean"),
+)
 
 
 class ServiceListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
@@ -27,7 +34,13 @@ class ServiceListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespo
     htmx_template_name = "services/partials/services_table.html"
 
     def get_queryset(self):
-        return super().get_queryset().order_by("-criado_em")
+        queryset = super().get_queryset()
+        queryset = apply_query_param_filters(
+            queryset,
+            params=self.request.GET,
+            filter_configs=SERVICE_LIST_FILTERS,
+        )
+        return queryset.order_by("-criado_em")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

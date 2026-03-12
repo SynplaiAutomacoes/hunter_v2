@@ -5,6 +5,7 @@ from django.http import HttpResponse, JsonResponse
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 
+from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin, BaseModalFormView
 from .forms import QuickCustomerForm, QuickVehicleForm
@@ -16,6 +17,20 @@ from .forms import CustomerForm, VehicleFormSet
 from .models import Customer, Vehicle
 
 
+CUSTOMER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
+    QueryParamFilter(
+        param_name="customer_type",
+        lookup="customer_type",
+        kind="choice",
+        allowed_values=frozenset({"PF", "PJ"}),
+        normalizer=str.upper,
+    ),
+    QueryParamFilter(param_name="is_active", lookup="is_active", kind="boolean"),
+    QueryParamFilter(param_name="city", lookup="cidade", kind="icontains"),
+    QueryParamFilter(param_name="state", lookup="estado", kind="iexact", normalizer=str.upper),
+)
+
+
 class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = Customer
     template_name = "customer/customer_list.html"
@@ -23,19 +38,20 @@ class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
     htmx_template_name = "customer/partials/customer_table.html"
 
     def get_queryset(self):
-        queryset = super().get_queryset().order_by("-criado_em")
+        queryset = super().get_queryset()
 
         search_query = self.request.GET.get("q", "").strip()
 
         if search_query:
-            queryset = queryset.filter(Q(name__icontains=search_query) |
-                                       Q(fantasy_name__icontains=search_query) |
-                                       Q(cpf_or_cnpj__icontains=search_query) |
-                                       Q(phone__icontains=search_query) |
-                                       Q(rg__icontains=search_query) |
-                                       Q(email__icontains=search_query))
+            queryset = queryset.filter(Q(name__icontains=search_query) | Q(fantasy_name__icontains=search_query) | Q(cpf_or_cnpj__icontains=search_query) | Q(phone__icontains=search_query) | Q(rg__icontains=search_query) | Q(email__icontains=search_query))
 
-        return queryset
+        queryset = apply_query_param_filters(
+            queryset,
+            params=self.request.GET,
+            filter_configs=CUSTOMER_LIST_FILTERS,
+        )
+
+        return queryset.order_by("-criado_em")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -51,6 +67,8 @@ class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
             TableActionDefaults.edit("customer:customer_update"),
             TableActionDefaults.delete("customer:customer_delete"),
         ]
+
+        context["state_choices"] = Customer.estado.field.choices
 
         return context
 
