@@ -18,15 +18,14 @@ class PaymentMethodListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplat
     workshop_permission_codename = "view_paymentmethod"
 
     def get_queryset(self):
-        # Filtra apenas os métodos da oficina logada (via WorkshopScopedMixin)
         return super().get_queryset().order_by("description")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["fields"] = [
-            TableColumn("Descrição", attr="description"),
-            TableColumn("Parcelas", attr="installments_count"),
-            TableColumn("Ativo", attr="is_active"),
+            TableColumn(PaymentMethod.description.field.verbose_name, attr=PaymentMethod.description.field.name),
+            TableColumn(PaymentMethod.installments_count.field.verbose_name, attr=PaymentMethod.installments_count.field.name),
+            TableColumn(PaymentMethod.is_active.field.verbose_name, attr=PaymentMethod.is_active.field.name),
         ]
         context["actions"] = [TableActionDefaults.edit("finance:payment_methods_update")]
         return context
