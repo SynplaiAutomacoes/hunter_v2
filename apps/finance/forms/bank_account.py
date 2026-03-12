@@ -3,7 +3,7 @@ from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 from django import forms
 from django.urls import reverse
 
-from apps.core.widgets import TextInput
+from apps.core.widgets import TextInput, CheckboxInput, SelectInput
 from apps.finance.models.bank_account import BankAccount
 
 
@@ -13,9 +13,11 @@ class BankAccountForm(forms.ModelForm):
         fields = ["bank_code", "bank_name", "account_type", "agency", "account_number", "is_active"]
         widgets = {
             "bank_code": TextInput(attrs={"placeholder": "Ex: 001"}),
-            "bank_name": TextInput(attrs={"readonly": "readonly", "class": "bg-base-200"}), # Somente leitura até ter a API
+            "bank_name": TextInput(),
             "agency": TextInput(attrs={"placeholder": "0001"}),
+            "account_type": SelectInput(),
             "account_number": TextInput(attrs={"placeholder": "12345-6"}),
+            "is_active": CheckboxInput(),
         }
 
     def __init__(self, *args, workshop=None, **kwargs):
@@ -34,7 +36,7 @@ class BankAccountForm(forms.ModelForm):
             ),
             HTML('<div class="divider"></div>'),
             Div(
-                HTML(f'<a href="{reverse("finance:bank_accounts_list")}" class="btn-form-cancel">Cancelar</a>'),
+                HTML(f'<a href="{reverse("finance:bank_account_list")}" class="btn-form-cancel">Cancelar</a>'),
                 Submit("submit", "Salvar", css_class="btn-form-save"),
                 css_class="flex items-center justify-end gap-2"
             )
