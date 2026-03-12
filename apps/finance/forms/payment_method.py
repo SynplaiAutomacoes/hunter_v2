@@ -41,6 +41,58 @@ class PaymentMethodForm(forms.ModelForm):
             ),
             HTML('<div class="divider"></div>'),
             Div(HTML(f'<a href="{reverse("finance:payment_methods_list")}" class="btn-form-cancel">Cancelar</a>'), Submit("submit", "Salvar", css_class="btn-form-save"), css_class="flex items-center justify-end gap-2"),
+            HTML("""<script>
+                (function() {
+                    const updateLogic = () => {
+                        const percInput = document.getElementById('id_tax_percentage');
+                        const percDisplay = document.getElementById('id_tax_percentage_display');
+                        const valInput = document.getElementById('id_tax_value_0');
+                        const valDisplay = document.getElementById('id_tax_value_0_display');
+
+                        if (!percInput || !valInput) return;
+
+                        const check = () => {
+                            const hasPerc = percInput.value && parseFloat(percInput.value) !== 0;
+                            const hasVal = valInput.value && parseFloat(valInput.value) !== 0;
+
+                            // Regra para Dinheiro (R$)
+                            if (hasPerc) {
+                                valDisplay.disabled = true;
+                                valDisplay.classList.add('opacity-50', 'cursor-not-allowed');
+                            } else {
+                                valDisplay.disabled = false;
+                                valDisplay.classList.remove('opacity-50', 'cursor-not-allowed');
+                            }
+
+                            // Regra para Porcentagem (%)
+                            if (hasVal) {
+                                percDisplay.disabled = true;
+                                percDisplay.classList.add('opacity-50', 'cursor-not-allowed');
+                            } else {
+                                percDisplay.disabled = false;
+                                percDisplay.classList.remove('opacity-50', 'cursor-not-allowed');
+                            }
+                        };
+
+                        [percDisplay, valDisplay].forEach(el => {
+                            if (el) el.addEventListener('input', () => setTimeout(check, 10));
+                        });
+
+                        const observer = new MutationObserver(check);
+                        [percInput, valInput].forEach(input => {
+                            observer.observe(input, { attributes: true, attributeFilter: ['value'] });
+                        });
+
+                        check();
+                    };
+
+                    if (document.readyState === 'loading') {
+                        document.addEventListener('DOMContentLoaded', updateLogic);
+                    } else {
+                        updateLogic();
+                    }
+                })();
+            </script>"""),
         )
 
     def clean(self):
