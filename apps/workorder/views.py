@@ -335,7 +335,7 @@ class WorkOrderListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRes
         context = super().get_context_data(**kwargs)
 
         context["fields"] = [
-            TableColumn("ID", attr="id"),
+            TableColumn("ID", attr="budget.id"),
             TableColumn("Cliente", attr="budget.customer"),
             TableColumn(str(WorkOrder.criado_em.field.verbose_name), attr=WorkOrder.criado_em.field.name),
             TableColumn("Veículo", attr="budget.vehicle"),
