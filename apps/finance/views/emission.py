@@ -48,7 +48,7 @@ class EmissionCreateRedirectBaseView(LoginRequiredMixin, WorkshopScopedMixin, Re
 
     def get_redirect_url(self, *args, **kwargs) -> str:
         note_mode = _normalize_note_mode(self.emission_note_type) or "nfe"
-        return f"{reverse('finance:emission_create')}?tipo={note_mode}"
+        return f"{reverse('finance:emission_create')}?tipo={note_mode}&reset=1"
 
 
 class NfeCreateRedirectView(EmissionCreateRedirectBaseView):
@@ -148,6 +148,9 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
 
         return state
 
+    def _has_saved_state(self) -> bool:
+        return self._session_key() in self.request.session
+
     def _write_state(self, state: dict[str, Any]) -> None:
         self.request.session[self._session_key()] = state
         self.request.session.modified = True
@@ -155,6 +158,43 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
     def _clear_state(self) -> None:
         self.request.session.pop(self._session_key(), None)
         self.request.session.modified = True
+
+    def _build_created_request_actions(self, *, state: dict[str, Any]) -> list[dict[str, str]]:
+        actions: list[dict[str, str]] = []
+        nfe_request_id = state.get("nfe_request_id")
+        nfse_request_id = state.get("nfse_request_id")
+
+        if nfe_request_id:
+            actions.append({"label": "Abrir NF-e criada", "url": reverse("finance:nfe_update", kwargs={"pk": int(nfe_request_id)})})
+        if nfse_request_id:
+            actions.append({"label": "Abrir NFS-e criada", "url": reverse("finance:nfse_update", kwargs={"pk": int(nfse_request_id)})})
+
+        return actions
+
+    def _resolve_close_redirect(self, *, state: dict[str, Any]) -> str:
+        if state.get("nfse_request_id") and not state.get("nfse_done"):
+            return reverse("finance:nfse_list")
+        if state.get("nfe_request_id") and not state.get("nfe_done"):
+            return reverse("finance:nfe_emit")
+        return reverse("workshops:emission_history")
+
+    def _close_wizard(self):
+        state = self._load_state() if self._has_saved_state() else self._default_state()
+        has_created_requests = bool(state.get("nfe_request_id") or state.get("nfse_request_id"))
+        redirect_url = self._resolve_close_redirect(state=state)
+
+        self._clear_state()
+
+        if has_created_requests:
+            messages.info(self.request, "Emissao fechada. Voce pode ajustar as notas criadas pelas listagens.")
+        else:
+            messages.info(self.request, "Emissao fechada. Voce pode iniciar uma nova quando quiser.")
+
+        if getattr(self.request, "htmx", False):
+            response = HttpResponse()
+            response["HX-Redirect"] = redirect_url
+            return response
+        return redirect(redirect_url)
 
     def _selected_workorder(self, state: dict[str, Any] | None = None) -> WorkOrder | None:
         resolved_state = state or self._load_state()
@@ -323,6 +363,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         context["retry_notice"] = self._retry_notice(state=state, step_key=current_step_key)
         context["wizard_state"] = state
         context["selected_workorder"] = self._selected_workorder(state)
+        context["close_emission_url"] = f"{reverse('finance:emission_create')}?close=1"
+        context["created_request_actions"] = self._build_created_request_actions(state=state)
         return context
 
     def _step_url(self, step: int) -> str:
@@ -566,6 +608,15 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             form = self.get_form()
             return self.render_to_response(self.get_context_data(form=form))
         return super().post(request, *args, **kwargs)
+
+    def get(self, request, *args, **kwargs):
+        if request.GET.get("close") == "1":
+            return self._close_wizard()
+
+        if request.GET.get("reset") == "1":
+            self._clear_state()
+
+        return super().get(request, *args, **kwargs)
 
 
 class EmissionPreviewView(EmissionRequestCreateView):

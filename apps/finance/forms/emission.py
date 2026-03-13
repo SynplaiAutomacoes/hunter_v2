@@ -48,23 +48,40 @@ def _build_summary_warning_html(*, workorder: WorkOrder, selected_slider: int) -
 
 def _build_summary_preview_html(*, workorder: WorkOrder, selected_slider: int) -> str:
     snapshot = build_emission_pricing_snapshot_for_workorder(workorder=workorder, slider_override=selected_slider)
-    rows_html = "".join(
+    product_rows_html = "".join(
         f"""
         <tr class="border-b border-base-300/60">
-            <td class="py-2"><span class="badge badge-outline">{"Produto" if line.kind == "product" else "Servico"}</span></td>
             <td class="py-2">{escape(str(line.description))}</td>
             <td class="py-2 text-center">{line.quantity}</td>
             <td class="py-2 text-right">{format_money(line.adjusted_unit_price)}</td>
             <td class="py-2 text-right font-semibold">{format_money(line.total_price)}</td>
         </tr>
         """
-        for line in [*snapshot.product_lines, *snapshot.service_lines]
+        for line in snapshot.product_lines
+    )
+    service_rows_html = "".join(
+        f"""
+        <tr class="border-b border-base-300/60">
+            <td class="py-2">{escape(str(line.description))}</td>
+            <td class="py-2 text-center">{line.quantity}</td>
+            <td class="py-2 text-right">{format_money(line.adjusted_unit_price)}</td>
+            <td class="py-2 text-right font-semibold">{format_money(line.total_price)}</td>
+        </tr>
+        """
+        for line in snapshot.service_lines
     )
 
-    if not rows_html:
-        rows_html = """
+    if not product_rows_html:
+        product_rows_html = """
         <tr>
-            <td colspan="5" class="py-4 text-center text-base-content/60">Nenhum item encontrado nesta OS.</td>
+            <td colspan="4" class="py-4 text-center text-base-content/60">Nenhum produto encontrado nesta OS.</td>
+        </tr>
+        """
+
+    if not service_rows_html:
+        service_rows_html = """
+        <tr>
+            <td colspan="4" class="py-4 text-center text-base-content/60">Nenhum servico encontrado nesta OS.</td>
         </tr>
         """
 
@@ -76,19 +93,39 @@ def _build_summary_preview_html(*, workorder: WorkOrder, selected_slider: int) -
                     <p class="text-sm text-base-content/70">Os valores abaixo refletem o slider aplicado no resumo.</p>
                 </div>
             </div>
-            <div class="overflow-x-auto">
-                <table class="table table-zebra">
-                    <thead>
-                        <tr>
-                            <th>Tipo</th>
-                            <th>Descricao</th>
-                            <th class="text-center">Qtd</th>
-                            <th class="text-right">Valor Unitario</th>
-                            <th class="text-right">Valor Total</th>
-                        </tr>
-                    </thead>
-                    <tbody>{rows_html}</tbody>
-                </table>
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                <div class="rounded-xl border border-base-300 bg-base-100 p-4">
+                    <h4 class="mb-3 text-lg font-bold text-base-content">Produtos</h4>
+                    <div class="overflow-x-auto">
+                        <table class="table table-zebra">
+                            <thead>
+                                <tr>
+                                    <th>Descricao</th>
+                                    <th class="text-center">Qtd</th>
+                                    <th class="text-right">Valor Unitario</th>
+                                    <th class="text-right">Valor Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>{product_rows_html}</tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="rounded-xl border border-base-300 bg-base-100 p-4">
+                    <h4 class="mb-3 text-lg font-bold text-base-content">Servicos</h4>
+                    <div class="overflow-x-auto">
+                        <table class="table table-zebra">
+                            <thead>
+                                <tr>
+                                    <th>Descricao</th>
+                                    <th class="text-center">Qtd</th>
+                                    <th class="text-right">Valor Unitario</th>
+                                    <th class="text-right">Valor Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>{service_rows_html}</tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </div>
     """

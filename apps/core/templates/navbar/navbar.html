@@ -34,7 +34,7 @@
         {
             label: 'Financeiro',
             items: [
-                { label: 'Emitir nota', href: '{% url "finance:emission_create" %}' },
+                { label: 'Emitir nota', href: '{% url "finance:emission_create" %}?reset=1' },
                 { label: 'NF-e Emitidas', href: '{% url "finance:nfe_emit" %}' },
                 { label: 'NFS-e Emitidas', href: '{% url "finance:nfse_list" %}' },
                 { label: 'Classe de Imposto', href: '{% url "finance:tax_class_list" %}' },
