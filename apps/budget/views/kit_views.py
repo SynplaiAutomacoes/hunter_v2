@@ -34,7 +34,7 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         # Buscar produtos do kit com overrides
         kit_products = []
-        for kit_product in item.kit.kit_products.select_related("product").all():
+        for kit_product in item.kit.kit_products.select_related("product", "product__stock_products").all():
             product = kit_product.product
             override = BudgetKitItemOverride.objects.filter(budget_item=item, product=product).first()
 
@@ -42,6 +42,11 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
             cost = override.product_cost_price if override else product.cost_price
             price = override.product_selling_price if override else product.selling_price
             shipping = override.shipping if override else Money(0, "BRL")
+
+            # Pegamos a quantidade em estoque (se não houver registro, assume 0)
+            stock_qty = 0
+            if hasattr(product, "stock_products"):
+                stock_qty = product.stock_products.current_quantity
 
             row_form = BudgetKitProductEditRowForm(
                 initial={
@@ -58,6 +63,7 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     "id": str(product.id),
                     "name": product.name,
                     "form": row_form,
+                    "stock_quantity": stock_qty,
                 }
             )
 

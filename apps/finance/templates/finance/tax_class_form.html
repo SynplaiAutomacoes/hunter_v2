@@ -132,16 +132,16 @@
             <input type="hidden" name="tab" value="nfse">
 
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-3 items-end p-4 border border-base-300 rounded-xl bg-base-200/50">
-                <div class="lg:col-span-8">
+                <div class="lg:col-span-9">
                     <label class="label"><span class="label-text font-semibold">Preset pronto</span></label>
-                    <select name="preset_key" class="select select-bordered w-full">
+                    <select name="preset_key" id="id_nfse_preset_key" class="select select-bordered w-full">
                         <option value="">Selecione um preset</option>
                         {% for preset in nfse_presets %}
                             <option value="{{ preset.key }}" {% if selected_preset_key == preset.key %}selected{% endif %}>{{ preset.label }}</option>
                         {% endfor %}
                     </select>
                 </div>
-                <div class="lg:col-span-4">
+                <div class="lg:col-span-3">
                     <button type="submit" name="form_action" value="apply_preset" class="btn btn-outline w-full" formnovalidate>Aplicar preset</button>
                 </div>
             </div>
@@ -180,5 +180,6 @@
         container.insertAdjacentHTML("beforeend", rowHtml);
         totalFormsInput.value = String(nextIndex + 1);
     });
+
     </script>
 {% endblock %}

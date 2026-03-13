@@ -49,6 +49,34 @@ class WorkOrder(TimeStampedModel):
     signature_sent_at = models.DateTimeField(blank=True, null=True)
 
     @property
+    def summary_products(self):
+        snapshot = self.budget.pricing_snapshot
+        return [
+            {
+                "description": line.description,
+                "quantity": line.quantity,
+                "application": line.application or "-",
+                "code": line.code or "-",
+                "unit_price": line.unit_price,
+                "total_price": line.total_price,
+            }
+            for line in snapshot.product_lines
+        ]
+
+    @property
+    def summary_services(self):
+        snapshot = self.budget.pricing_snapshot
+        return [
+            {
+                "description": line.description,
+                "quantity": line.quantity,
+                "total_price": line.total_price,
+                "duration_display": line.duration_display,
+            }
+            for line in snapshot.service_lines
+        ]
+
+    @property
     def workorder_status_badge(self):
         status_color = {
             WorkOrderStatus.DRAFT: "badge-soft badge-ghost min-w-sm",
