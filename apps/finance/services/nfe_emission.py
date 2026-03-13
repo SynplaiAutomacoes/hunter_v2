@@ -12,6 +12,7 @@ from django.db import transaction
 from django.http import HttpRequest
 
 from apps.finance.models.finance import NfeItem, NfeRequest
+from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfe_request_number
 from apps.finance.services.emission import build_webmania_webhook_url
 from apps.finance.services.pricing import SliderAllocation, build_emission_pricing_snapshot_for_workorder, build_slider_allocation_for_workorder, distribute_total_proportionally
 from apps.finance.services.webmania_auth import (
@@ -320,6 +321,10 @@ def build_nfe_payload(*, nfe_request: NfeRequest, request: HttpRequest | None = 
         "produtos": products_payload,
         "pedido": _build_payment_payload(workorder=nfe_request.workorder, total_value=total_products_value),
     }
+    if nfe_request.reserved_number is not None:
+        payload["numero"] = int(nfe_request.reserved_number)
+    if nfe_request.reserved_series is not None:
+        payload["serie"] = int(nfe_request.reserved_series)
 
     logger.info(
         "nfe_payload_built nfe_request_id=%s workshop_id=%s workorder_id=%s slider=%s products_target=%s services_target=%s",
@@ -334,11 +339,17 @@ def build_nfe_payload(*, nfe_request: NfeRequest, request: HttpRequest | None = 
 
 
 def emit_nfe_request(*, nfe_request: NfeRequest, request: HttpRequest | None = None, slider_override: int | None = None) -> dict[str, Any]:
-    payload = build_nfe_payload(nfe_request=nfe_request, request=request, slider_override=slider_override)
     headers = _build_headers(workshop=nfe_request.workshop)
     emit_url = _build_emit_url()
 
     _validate_nfe_tax_class(nfe_request=nfe_request, headers=headers)
+
+    try:
+        reserve_nfe_request_number(nfe_request=nfe_request)
+    except EmissionNumberReservationError as exc:
+        raise NfeEmissionError(str(exc)) from exc
+
+    payload = build_nfe_payload(nfe_request=nfe_request, request=request, slider_override=slider_override)
 
     try:
         response = requests.post(emit_url, json=payload, headers=headers, timeout=30)
@@ -392,6 +403,10 @@ def map_nfe_item_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 def sync_nfe_emission_response(*, nfe_request: NfeRequest, response_payload: dict[str, Any]) -> None:
     mapped_payload = map_nfe_item_payload(response_payload)
+    if not str(mapped_payload.get("number") or "").strip() and nfe_request.reserved_number is not None:
+        mapped_payload["number"] = str(nfe_request.reserved_number)
+    if not str(mapped_payload.get("series") or "").strip() and nfe_request.reserved_series is not None:
+        mapped_payload["series"] = str(nfe_request.reserved_series)
     nfe_uuid = mapped_payload.pop("uuid", None)
     if not nfe_uuid:
         return

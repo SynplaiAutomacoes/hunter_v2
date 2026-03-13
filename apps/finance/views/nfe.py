@@ -28,12 +28,13 @@ class NfeRequestListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRe
     htmx_template_name = "finance/partials/nfe_request_table.html"
 
     def get_queryset(self):
-        return super().get_queryset().select_related("workorder", "workorder__budget", "workorder__budget__customer", "workorder__budget__vehicle")
+        return super().get_queryset().select_related("workorder", "workorder__budget", "workorder__budget__customer", "workorder__budget__vehicle").prefetch_related("items")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["fields"] = [
             TableColumn("ID", attr="id"),
+            TableColumn("Numero", attr="number_display"),
             TableColumn("Ordem de Servico", attr="workorder"),
             TableColumn("Cliente", attr="customer_name"),
             TableColumn(NfeRequest.criado_em.field.verbose_name, attr=NfeRequest.criado_em.field.name),

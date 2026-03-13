@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import ANY, Mock, patch
 
+from django.contrib.messages import get_messages
 from django.core.exceptions import ValidationError
 from django.contrib.auth.models import Permission
 from django.test import TestCase, override_settings
@@ -27,8 +28,9 @@ from apps.finance.forms.payment_method import PaymentMethodForm
 from apps.finance.models.finance import NfeRequest, NfeRequestStatus, NfseRequest, NfseRequestStatus, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassSyncState, WebmaniaCompany
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
-from apps.finance.services.emission import NfseEmissionError, _build_taker_payload, _default_service_description, _service_total_value, build_webmania_webhook_token, emit_nfse_request
-from apps.finance.services.nfe_emission import NfeEmissionError, _build_nfe_products_payload, _extract_product_lines
+from apps.finance.services.emission import NfseEmissionError, _build_taker_payload, _default_service_description, _service_total_value, build_nfse_payload, build_webmania_webhook_token, emit_nfse_request, sync_emission_response
+from apps.finance.services.nfe_emission import NfeEmissionError, _build_nfe_products_payload, _extract_product_lines, build_nfe_payload, sync_nfe_emission_response
+from apps.finance.services.numbering import reserve_nfe_request_number, reserve_nfse_request_rps_number
 from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder, compute_slider_allocation, distribute_total_proportionally
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
 from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers
@@ -47,6 +49,7 @@ from apps.finance.services.webmania_secrets import decrypt_secret, encrypt_secre
 from apps.finance.views.nfse import NfseRequestCreateView
 from apps.iam.utils import get_or_create_director_role
 from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderStatus
+from apps.workshops.forms.workshops import WorkshopFiscalSectionForm
 from apps.workshops.models.workshops import Workshop
 
 
@@ -779,6 +782,170 @@ class SliderPricingAllocationTests(TestCase):
 
         self.assertEqual(total_products_value, Decimal("70.00"))
         self.assertEqual(allocation.slider, -100)
+
+
+class EmissionRequestNumberReservationTests(TestCase):
+    def _build_requests(self, *, suffix: int) -> tuple[WebmaniaCompany, WorkOrder, NfeRequest, NfseRequest]:
+        workshop = create_workshop(suffix=suffix)
+        customer = Customer.objects.create(
+            workshop=workshop,
+            customer_type="PF",
+            name=f"Cliente Numeracao {suffix}",
+            cpf_or_cnpj="12345678901",
+            email=f"cliente{suffix}@teste.com",
+            logradouro="Rua Teste",
+            numero="123",
+            bairro="Centro",
+            cidade="Sao Paulo",
+            estado="SP",
+            cep="01001-000",
+        )
+        vehicle = Vehicle.objects.create(
+            workshop=workshop,
+            customer=customer,
+            plate=f"ABC{suffix:04d}"[-7:],
+            brand="Ford",
+            model="Fiesta",
+            year_fabrication="2020",
+            year_model="2020",
+            color="Prata",
+        )
+
+        budget = Budget(workshop=workshop, entry_date=timezone.now().date(), customer=customer, vehicle=vehicle)
+        budget.save()
+
+        product_group = CatalogGroup.objects.create(workshop=workshop, name=f"Grupo Numero {suffix}")
+        product = Product.objects.create(
+            workshop=workshop,
+            code=f"P-NUM-{suffix}",
+            unit=Product.Unit.UND,
+            name=f"Produto Numero {suffix}",
+            ncm="87089990",
+            group=product_group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+        )
+        service = Service.objects.create(
+            workshop=workshop,
+            name=f"Servico Numero {suffix}",
+            description="Servico para numeracao",
+            duration=timedelta(hours=1),
+            suggested_cost=Money("30.00", "BRL"),
+            selling_price=Money("50.00", "BRL"),
+        )
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, service=service, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        workorder.sync_from_budget()
+
+        company = WebmaniaCompany.objects.create(
+            workshop=workshop,
+            webmania_company_id=f"NUM-{suffix}",
+            nfe_serie=1,
+            nfe_numero=1000,
+            nfe_numero_dev=9000,
+            nfse_rps_serie="A1",
+            nfse_rps_numero=2000,
+            nfse_rps_numero_dev=8000,
+        )
+        nfe_request = NfeRequest.objects.create(workshop=workshop, workorder=workorder, tax_class="REFNFE999")
+        nfse_request = NfseRequest.objects.create(workshop=workshop, workorder=workorder, tax_class="REFNFSE999", service_description="Servico teste")
+        return company, workorder, nfe_request, nfse_request
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_reserve_nfe_request_number_uses_dev_counter_and_reuses_same_number(self) -> None:
+        company, _, nfe_request, _ = self._build_requests(suffix=70)
+
+        reserved = reserve_nfe_request_number(nfe_request=nfe_request)
+        reserved_again = reserve_nfe_request_number(nfe_request=nfe_request)
+
+        company.refresh_from_db()
+        nfe_request.refresh_from_db()
+
+        self.assertEqual(reserved.number, 9000)
+        self.assertEqual(reserved.series, 1)
+        self.assertEqual(reserved_again.number, 9000)
+        self.assertEqual(company.nfe_numero_dev, 9001)
+        self.assertEqual(company.nfe_numero, 1000)
+        self.assertEqual(nfe_request.reserved_number, 9000)
+        self.assertEqual(nfe_request.reserved_series, 1)
+
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_reserve_nfse_request_rps_number_uses_production_counter_and_reuses_same_number(self) -> None:
+        company, _, _, nfse_request = self._build_requests(suffix=71)
+
+        reserved = reserve_nfse_request_rps_number(nfse_request=nfse_request)
+        reserved_again = reserve_nfse_request_rps_number(nfse_request=nfse_request)
+
+        company.refresh_from_db()
+        nfse_request.refresh_from_db()
+
+        self.assertEqual(reserved.number, 2000)
+        self.assertEqual(reserved.series, "A1")
+        self.assertEqual(reserved_again.number, 2000)
+        self.assertEqual(company.nfse_rps_numero, 2001)
+        self.assertEqual(company.nfse_rps_numero_dev, 8000)
+        self.assertEqual(nfse_request.reserved_rps_number, 2000)
+        self.assertEqual(nfse_request.reserved_rps_series, "A1")
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_build_nfe_payload_includes_reserved_number_and_series(self) -> None:
+        _, _, nfe_request, _ = self._build_requests(suffix=72)
+        reserve_nfe_request_number(nfe_request=nfe_request)
+
+        payload = build_nfe_payload(nfe_request=nfe_request)
+
+        self.assertEqual(payload.get("numero"), 9000)
+        self.assertEqual(payload.get("serie"), 1)
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_build_nfse_payload_includes_reserved_rps_number_and_series(self) -> None:
+        _, _, _, nfse_request = self._build_requests(suffix=73)
+        reserve_nfse_request_rps_number(nfse_request=nfse_request)
+
+        payload = build_nfse_payload(nfse_request=nfse_request)
+        first_rps = payload.get("rps", [{}])[0]
+
+        self.assertEqual(first_rps.get("numero"), 8000)
+        self.assertEqual(first_rps.get("serie"), "A1")
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_sync_nfe_emission_response_backfills_reserved_number_when_api_omits_it(self) -> None:
+        _, _, nfe_request, _ = self._build_requests(suffix=74)
+        reserve_nfe_request_number(nfe_request=nfe_request)
+
+        sync_nfe_emission_response(
+            nfe_request=nfe_request,
+            response_payload={
+                "uuid": "7f47b1b5-3f2a-4f50-8f1d-6b02872d7a74",
+                "modelo": "nfe",
+                "status": "processando",
+            },
+        )
+
+        item = nfe_request.items.get()
+        self.assertEqual(item.number, "9000")
+        self.assertEqual(item.series, "1")
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_sync_nfse_emission_response_backfills_reserved_rps_number_when_api_omits_it(self) -> None:
+        _, _, _, nfse_request = self._build_requests(suffix=75)
+        reserve_nfse_request_rps_number(nfse_request=nfse_request)
+
+        sync_emission_response(
+            nfse_request=nfse_request,
+            response_payload={
+                "uuid": "87f7fe5f-3a6d-47c4-9481-1ad2710b7e75",
+                "modelo": "nfse",
+                "status": "processando",
+            },
+        )
+
+        item = nfse_request.items.get()
+        self.assertEqual(item.rps_number, "8000")
+        self.assertEqual(item.rps_series, "A1")
+        self.assertEqual(item.number, "8000")
 
 
 class NfeProductExtractionTests(TestCase):
@@ -1630,6 +1797,39 @@ class WebmaniaCompanyUpdateFormTests(TestCase):
         self.assertTrue(is_encrypted_secret(kept_company.certificado))
         self.assertEqual(decrypt_secret(kept_company.certificado), "NOVO_CERTIFICADO")
 
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_hides_homolog_fields_when_not_in_homolog_environment(self) -> None:
+        form = WebmaniaCompanyUpdateForm(instance=self.company)
+
+        self.assertFalse(form.show_homolog_fields)
+        self.assertNotIn("nfe_numero_dev", form.fields)
+        self.assertNotIn("nfce_numero_dev", form.fields)
+        self.assertNotIn("nfce_id_csc_dev", form.fields)
+        self.assertNotIn("nfce_codigo_csc_dev", form.fields)
+        self.assertNotIn("nfse_rps_numero_dev", form.fields)
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_shows_homolog_fields_when_in_homolog_environment(self) -> None:
+        form = WebmaniaCompanyUpdateForm(instance=self.company)
+
+        self.assertTrue(form.show_homolog_fields)
+        self.assertIn("nfe_numero_dev", form.fields)
+        self.assertIn("nfce_numero_dev", form.fields)
+        self.assertIn("nfce_id_csc_dev", form.fields)
+        self.assertIn("nfce_codigo_csc_dev", form.fields)
+        self.assertIn("nfse_rps_numero_dev", form.fields)
+
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_workshop_fiscal_form_hides_homolog_fields_when_not_in_homolog_environment(self) -> None:
+        form = WorkshopFiscalSectionForm(instance=self.company, workshop=self.company.workshop)
+
+        self.assertFalse(form.show_homolog_fields)
+        self.assertNotIn("nfe_numero_dev", form.fields)
+        self.assertNotIn("nfce_numero_dev", form.fields)
+        self.assertNotIn("nfce_id_csc_dev", form.fields)
+        self.assertNotIn("nfce_codigo_csc_dev", form.fields)
+        self.assertNotIn("nfse_rps_numero_dev", form.fields)
+
 
 class WebmaniaCompanyDetailViewTests(TestCase):
     def setUp(self) -> None:
@@ -1654,6 +1854,80 @@ class WebmaniaCompanyDetailViewTests(TestCase):
         consumer_key_field = next(field for field in credential_fields if str(field.get("label") or "") == "Consumer Key")
         self.assertTrue(bool(consumer_key_field.get("has_value")))
         self.assertEqual(str(consumer_key_field.get("value") or ""), "ck_real")
+
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_detail_view_hides_homolog_fields_outside_homolog_environment(self) -> None:
+        company = WebmaniaCompany.objects.create(
+            workshop=self.workshop,
+            webmania_company_id="D-002",
+            nfe_numero_dev=123,
+            nfce_numero_dev=456,
+            nfse_rps_numero_dev=789,
+        )
+
+        response = self.client.get(reverse("finance:webmania_company_detail", kwargs={"pk": company.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "NF-e Número Homologação")
+        self.assertNotContains(response, "NFC-e Número Homologação")
+        self.assertNotContains(response, "NFS-e RPS Número Homologação")
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_detail_view_shows_homolog_fields_in_homolog_environment(self) -> None:
+        company = WebmaniaCompany.objects.create(
+            workshop=self.workshop,
+            webmania_company_id="D-003",
+            nfe_numero_dev=123,
+            nfce_numero_dev=456,
+            nfse_rps_numero_dev=789,
+        )
+
+        response = self.client.get(reverse("finance:webmania_company_detail", kwargs={"pk": company.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "NF-e Número Homologação")
+        self.assertContains(response, "NFC-e Número Homologação")
+        self.assertContains(response, "NFS-e RPS Número Homologação")
+
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_workshop_update_hides_homolog_fields_outside_homolog_environment(self) -> None:
+        WebmaniaCompany.objects.update_or_create(workshop=self.workshop, defaults={"webmania_company_id": "D-004"})
+
+        response = self.client.get(reverse("workshops:update", kwargs={"pk": self.workshop.pk}) + "?tab=nota_fiscal&nf_tab=nfe")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Próximo número NF-e homologação")
+        self.assertNotContains(response, "Próximo número NFC-e homologação")
+        self.assertNotContains(response, "Próximo RPS homologação")
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_workshop_update_shows_homolog_fields_in_homolog_environment(self) -> None:
+        WebmaniaCompany.objects.update_or_create(workshop=self.workshop, defaults={"webmania_company_id": "D-005"})
+
+        response = self.client.get(reverse("workshops:update", kwargs={"pk": self.workshop.pk}) + "?tab=nota_fiscal&nf_tab=nfe")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Próximo número NF-e homologação")
+
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_finance_update_hides_homolog_fields_outside_homolog_environment(self) -> None:
+        company = WebmaniaCompany.objects.create(workshop=self.workshop, webmania_company_id="D-006")
+
+        response = self.client.get(reverse("finance:webmania_company_update", kwargs={"pk": company.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Próximo número NF-e homologação")
+        self.assertNotContains(response, "Próximo número NFC-e homologação")
+        self.assertNotContains(response, "Próximo RPS homologação")
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_finance_update_shows_homolog_fields_in_homolog_environment(self) -> None:
+        company = WebmaniaCompany.objects.create(workshop=self.workshop, webmania_company_id="D-007")
+
+        response = self.client.get(reverse("finance:webmania_company_update", kwargs={"pk": company.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Próximo número NF-e homologação")
 
 
 class TaxClassPresetViewTests(TestCase):
@@ -2243,6 +2517,68 @@ class UnifiedEmissionWizardTests(TestCase):
         self.assertEqual(nfe_request.tax_class, "REFNFE910")
         self.assertEqual(nfse_request.tax_class, "REFNFSE910")
         self.assertEqual(nfse_request.service_description, "Descricao unificada")
+
+    def test_unified_wizard_both_mode_shows_separate_success_and_error_toasts(self) -> None:
+        tax_classes = [
+            {"referencia": "REFNFE911", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e"},
+            {"referencia": "REFNFSE911", "tipo": "nfse", "status": "ativo", "descricao": "Classe NFS-e", "codigo_servico": "01.05"},
+        ]
+
+        with (
+            patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.emission.emit_nfe_request", return_value={"status": "processando"}),
+            patch("apps.finance.views.emission.sync_nfe_emission_response"),
+            patch("apps.finance.views.emission.emit_nfse_request", side_effect=NfseEmissionError("Falha ao emitir NFS-e")),
+            patch("apps.finance.views.emission.sync_emission_response"),
+        ):
+            self._advance_to_step_5(pricing_slider="10")
+            self.client.post(self._wizard_url(step=5), {"note_mode": "both"})
+            self.client.post(self._wizard_url(step=6), {"tax_class": "REFNFE911"})
+
+            response = self.client.post(
+                self._wizard_url(step=7),
+                {
+                    "tax_class": "REFNFSE911",
+                    "service_description": "Descricao unificada",
+                },
+                follow=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        flashed_messages = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertIn("NF-e enviada com sucesso.", flashed_messages)
+        self.assertIn("Falha ao enviar NFS-e: Falha ao emitir NFS-e", flashed_messages)
+
+    def test_unified_wizard_both_mode_shows_one_success_toast_per_note(self) -> None:
+        tax_classes = [
+            {"referencia": "REFNFE912", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e"},
+            {"referencia": "REFNFSE912", "tipo": "nfse", "status": "ativo", "descricao": "Classe NFS-e", "codigo_servico": "01.05"},
+        ]
+
+        with (
+            patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.emission.emit_nfe_request", return_value={"status": "processando"}),
+            patch("apps.finance.views.emission.sync_nfe_emission_response"),
+            patch("apps.finance.views.emission.emit_nfse_request", return_value={"status": "processando"}),
+            patch("apps.finance.views.emission.sync_emission_response"),
+        ):
+            self._advance_to_step_5(pricing_slider="10")
+            self.client.post(self._wizard_url(step=5), {"note_mode": "both"})
+            self.client.post(self._wizard_url(step=6), {"tax_class": "REFNFE912"})
+
+            response = self.client.post(
+                self._wizard_url(step=7),
+                {
+                    "tax_class": "REFNFSE912",
+                    "service_description": "Descricao unificada",
+                },
+                follow=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        flashed_messages = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertIn("NF-e enviada com sucesso.", flashed_messages)
+        self.assertIn("NFS-e enviada com sucesso.", flashed_messages)
 
     def test_unified_wizard_close_clears_state_and_redirects_to_pending_list(self) -> None:
         tax_classes = [{"referencia": "REFNFE920", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e"}]

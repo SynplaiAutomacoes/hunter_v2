@@ -500,6 +500,21 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             self._write_state(state)
             return False, str(exc)
 
+    @staticmethod
+    def _note_label(*, note_key: str) -> str:
+        return "NF-e" if note_key == "nfe" else "NFS-e"
+
+    def _add_note_success_message(self, *, note_key: str) -> None:
+        messages.success(self.request, f"{self._note_label(note_key=note_key)} enviada com sucesso.")
+
+    def _add_note_error_message(self, *, note_key: str, error_message: str | None) -> None:
+        label = self._note_label(note_key=note_key)
+        details = str(error_message or "").strip()
+        if details:
+            messages.error(self.request, f"Falha ao enviar {label}: {details}")
+            return
+        messages.error(self.request, f"Falha ao enviar {label}.")
+
     def _finalize_selected_notes(self, *, state: dict[str, Any], workorder: WorkOrder):
         note_mode = str(state.get("note_mode") or "")
         branches = ["nfe", "nfse"] if note_mode == "both" else [note_mode]
@@ -509,19 +524,14 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
                 continue
 
             success, error_message = self._emit_nfe(state=state, workorder=workorder) if branch == "nfe" else self._emit_nfse(state=state, workorder=workorder)
+            if success:
+                self._add_note_success_message(note_key=branch)
+                continue
+
             if not success:
-                if branch == "nfse" and note_mode == "both" and state.get("nfe_done"):
-                    messages.warning(self.request, "NF-e enviada com sucesso. Ajuste os dados e reenvie apenas a NFS-e pendente.")
-                if error_message:
-                    messages.error(self.request, error_message)
+                self._add_note_error_message(note_key=branch, error_message=error_message)
                 return self._redirect_after_finalize_error(state=state, note_key=branch)
 
-        success_message = {
-            "nfe": "Solicitacao de NF-e enviada com sucesso.",
-            "nfse": "Solicitacao de NFS-e enviada com sucesso.",
-            "both": "NF-e e NFS-e enviadas com sucesso.",
-        }.get(note_mode, "Solicitacao enviada com sucesso.")
-        messages.success(self.request, success_message)
         self._clear_state()
         return self._redirect_to_success(note_mode=note_mode)
 
