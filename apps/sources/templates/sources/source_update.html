@@ -1,0 +1,5 @@
+{% extends 'crud/form_page.html' %}
+
+{% block crud_title %}Editar Origem{% endblock %}
+{% block crud_subtitle %}Alteração dos dados da origem: {{ object.name }}{% endblock %}
+{% block crud_back_url %}{% url 'sources:source_list' %}{% endblock %}
