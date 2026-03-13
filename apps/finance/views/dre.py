@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from apps.finance.forms.dre import DreForm
 from apps.workshops.models.workshops import Workshop
 
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -42,5 +43,8 @@ class DreReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         context["data_inicial"] = data_inicial
         context["data_final"] = data_final
         context["tipo_data"] = tipo_data
+
+        form = DreForm(workshops=workshops)
+        context["form"] = form
 
         return context
