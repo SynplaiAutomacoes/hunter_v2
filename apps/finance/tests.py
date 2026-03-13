@@ -27,7 +27,7 @@ from apps.finance.models.finance import NfeRequest, NfeRequestStatus, NfseReques
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.services.emission import NfseEmissionError, _build_taker_payload, _default_service_description, _service_total_value, build_webmania_webhook_token, emit_nfse_request
-from apps.finance.services.nfe_emission import _build_nfe_products_payload, _extract_product_lines
+from apps.finance.services.nfe_emission import NfeEmissionError, _build_nfe_products_payload, _extract_product_lines
 from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder, compute_slider_allocation, distribute_total_proportionally
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
 from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers
@@ -1886,6 +1886,9 @@ class UnifiedEmissionWizardTests(TestCase):
         query = "&".join(f"{key}={value}" for key, value in params.items())
         return f"{base_url}?{query}"
 
+    def _wizard_session_key(self) -> str:
+        return f"finance.emission_wizard:{self.workshop.pk}:{self.user.pk}"
+
     def _advance_to_step_4(self, *, tipo: str | None = None) -> None:
         self.client.post(self._wizard_url(step=1, tipo=tipo), {"workorder": self.workorder.pk})
         self.client.post(self._wizard_url(step=2), {})
@@ -2061,6 +2064,9 @@ class UnifiedEmissionWizardTests(TestCase):
             failed_step_response = self.client.get(self._wizard_url(step=7))
             self.assertEqual(failed_step_response.status_code, 200)
             self.assertContains(failed_step_response, "reenvio tentara apenas a NFS-e pendente")
+            self.assertContains(failed_step_response, "Fechar emissao")
+            self.assertContains(failed_step_response, reverse("finance:nfe_update", kwargs={"pk": NfeRequest.objects.get(workshop=self.workshop).pk}))
+            self.assertContains(failed_step_response, reverse("finance:nfse_update", kwargs={"pk": NfseRequest.objects.get(workshop=self.workshop).pk}))
 
             response = self.client.post(
                 self._wizard_url(step=7),
@@ -2081,6 +2087,42 @@ class UnifiedEmissionWizardTests(TestCase):
         self.assertEqual(nfse_request.tax_class, "REFNFSE910")
         self.assertEqual(nfse_request.service_description, "Descricao unificada")
 
+    def test_unified_wizard_close_clears_state_and_redirects_to_pending_list(self) -> None:
+        tax_classes = [{"referencia": "REFNFE920", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e"}]
+
+        with (
+            patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.emission.emit_nfe_request", side_effect=NfeEmissionError("Falha ao emitir NF-e")),
+            patch("apps.finance.views.emission.sync_nfe_emission_response"),
+        ):
+            self._advance_to_step_5(pricing_slider="15")
+
+            response = self.client.post(self._wizard_url(step=5), {"note_mode": "nfe"})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=6))
+
+            response = self.client.post(self._wizard_url(step=6), {"tax_class": "REFNFE920"})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=6))
+
+            response = self.client.get(f"{reverse('finance:emission_create')}?close=1")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("finance:nfe_emit"))
+        self.assertNotIn(self._wizard_session_key(), self.client.session)
+        self.assertTrue(NfeRequest.objects.filter(workshop=self.workshop).exists())
+
+    def test_unified_wizard_reset_query_starts_new_flow(self) -> None:
+        self._advance_to_step_5(pricing_slider="30")
+
+        response = self.client.get(f"{reverse('finance:emission_create')}?tipo=nfse&reset=1")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Selecionar Ordem de Servico")
+        session_state = self.client.session[self._wizard_session_key()]
+        self.assertEqual(session_state.get("workorder_id"), None)
+        self.assertEqual(session_state.get("note_mode"), "nfse")
+
 
 class CompatibilityEmissionRouteTests(TestCase):
     def setUp(self) -> None:
@@ -2095,20 +2137,20 @@ class CompatibilityEmissionRouteTests(TestCase):
         response = self.client.get(reverse("finance:nfe_create"))
 
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.headers.get("Location"), f"{reverse('finance:emission_create')}?tipo=nfe")
+        self.assertEqual(response.headers.get("Location"), f"{reverse('finance:emission_create')}?tipo=nfe&reset=1")
 
     def test_compatibility_nfse_create_redirects_to_unified_wizard(self) -> None:
         response = self.client.get(reverse("finance:nfse_create"))
 
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.headers.get("Location"), f"{reverse('finance:emission_create')}?tipo=nfse")
+        self.assertEqual(response.headers.get("Location"), f"{reverse('finance:emission_create')}?tipo=nfse&reset=1")
 
     def test_finance_navbar_uses_single_emitir_nota_entry(self) -> None:
         response = self.client.get(reverse("finance:nfe_emit"))
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Emitir nota")
-        self.assertContains(response, reverse("finance:emission_create"))
+        self.assertContains(response, f"{reverse('finance:emission_create')}?reset=1")
         self.assertContains(response, "NFS-e Emitidas")
 
 
