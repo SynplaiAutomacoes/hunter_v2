@@ -22,16 +22,16 @@ class FinancialMovement(TimeStampedModel):
     source = models.ForeignKey(to="sources.Source", verbose_name="Origem", on_delete=models.PROTECT)
 
     # Itens
-    description = models.CharField(verbose_name="Descrição dos Itens", max_length=255)
+    description = models.CharField(verbose_name="Descrição dos Itens", max_length=255, blank=True, null=True)
     items_observation = models.TextField(verbose_name="Observações dos Itens", blank=True, null=True)
 
     # Financeiro
-    direction = models.CharField(max_length=15, choices=MovementDirection.choices, default=MovementDirection.DEBIT)
-    payment_method = models.ForeignKey(PaymentMethod, on_delete=models.PROTECT)
+    direction = models.CharField(max_length=15, choices=MovementDirection.choices, default=MovementDirection.DEBIT, blank=True, null=True)
+    payment_method = models.ForeignKey(PaymentMethod, on_delete=models.PROTECT, blank=True, null=True)
     nf_number = models.CharField(max_length=50, verbose_name="Número da NF", blank=True, null=True)
-    amount = MoneyField(verbose_name="Valor", max_digits=14, decimal_places=2, default=0)
-    due_date = models.DateField(verbose_name="Data de Vencimento")
-    budget_plan = models.ForeignKey(FinancialGroup, on_delete=models.PROTECT, verbose_name="Plano Orçamentário")
-    bank_account = models.ForeignKey(BankAccount, on_delete=models.PROTECT, verbose_name="Conta Bancária")
+    amount = MoneyField(verbose_name="Valor", max_digits=14, decimal_places=2, default=0, null=True)
+    due_date = models.DateField(verbose_name="Data de Vencimento", blank=True, null=True)
+    budget_plan = models.ForeignKey(FinancialGroup, on_delete=models.PROTECT, verbose_name="Plano Orçamentário", blank=True, null=True)
+    bank_account = models.ForeignKey(BankAccount, on_delete=models.PROTECT, verbose_name="Conta Bancária", blank=True, null=True)
     attachment = models.FileField(upload_to="financial/attachments/", null=True, blank=True, verbose_name="Anexo")
     financial_observation = models.TextField(verbose_name="Observação Financeira", blank=True, null=True)
