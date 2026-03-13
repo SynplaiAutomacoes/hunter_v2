@@ -45,6 +45,7 @@ class WorkOrder(TimeStampedModel):
     signature_token_active = models.BooleanField(verbose_name="Token de Assinatura Ativo", default=True)
     signature_request_status = models.CharField(max_length=30, choices=WorkOrderSignatureStatus.choices, default=WorkOrderSignatureStatus.NOT_SENT)
     signature_external_id = models.CharField(max_length=255, blank=True, null=True)
+    signature_document_id = models.CharField(max_length=255, blank=True, null=True)
     signature_sent_at = models.DateTimeField(blank=True, null=True)
 
     @property
@@ -149,11 +150,12 @@ class WorkOrder(TimeStampedModel):
         self.signature_request_status = WorkOrderSignatureStatus.SENDING
         self.save(update_fields=["signature_request_status"])
 
-    def mark_signature_sent(self, external_id: str) -> None:
+    def mark_signature_sent(self, external_id: str, *, document_id: str | None = None) -> None:
         self.signature_request_status = WorkOrderSignatureStatus.SENT
         self.signature_external_id = external_id
+        self.signature_document_id = document_id
         self.signature_sent_at = timezone.now()
-        self.save(update_fields=["signature_request_status", "signature_external_id", "signature_sent_at"])
+        self.save(update_fields=["signature_request_status", "signature_external_id", "signature_document_id", "signature_sent_at"])
 
     def mark_signature_failed(self) -> None:
         self.signature_request_status = WorkOrderSignatureStatus.FAILED
@@ -445,6 +447,7 @@ class WorkOrderPaymentMethod(TimeStampedModel):
     installments_count = PositiveIntegerField(verbose_name="Número de Parcelas", default=1)
     first_installment_amount = MoneyField(verbose_name="Valor da Primeira Parcela", max_digits=14, decimal_places=2, default=0.00)
     remaining_installments_amount = MoneyField(verbose_name="Valor das Parcelas Restantes", max_digits=14, decimal_places=2, default=0.00)
+    due_date = models.DateField(verbose_name="Vencimento", default=timezone.localdate)
 
     class Meta:
         verbose_name = "Plano de Pagamento"

@@ -7,6 +7,7 @@ from apps.core.documents.gateways.supersign import (
     SuperSignGatewayError,
     create_supersign_webhook as create_supersign_webhook_request,
     download_signed_document,
+    get_supersign_envelope_signed_document_id,
     get_signed_document_download_url,
     list_supersign_webhooks as list_supersign_webhooks_request,
     send_pdf_for_signature,
@@ -59,6 +60,19 @@ def get_signed_document_url(*, document_id: str) -> str:
         raise SignatureDeliveryServiceError(str(exc)) from exc
 
 
+def resolve_signed_document_id(*, document_id: str | None = None, envelope_id: str | None = None) -> str:
+    if document_id:
+        return document_id
+
+    if not envelope_id:
+        raise SignatureDeliveryServiceError("Nenhum identificador do documento assinado foi informado")
+
+    try:
+        return get_supersign_envelope_signed_document_id(envelope_id=envelope_id)
+    except SuperSignGatewayError as exc:
+        raise SignatureDeliveryServiceError(str(exc)) from exc
+
+
 def list_signature_webhooks() -> list[dict[str, Any]]:
     try:
         return list_supersign_webhooks_request()
@@ -85,8 +99,10 @@ def ensure_signature_webhook(*, webhook_url: str, events: list[str] | None = Non
     return create_signature_webhook(url=webhook_url, events=expected_events, is_active=True)
 
 
-def download_signed_document_content(*, document_id: str) -> bytes:
+def download_signed_document_content(*, document_id: str | None = None, envelope_id: str | None = None) -> bytes:
+    resolved_document_id = resolve_signed_document_id(document_id=document_id, envelope_id=envelope_id)
+
     try:
-        return download_signed_document(document_id=document_id)
+        return download_signed_document(document_id=resolved_document_id)
     except SuperSignGatewayError as exc:
         raise SignatureDeliveryServiceError(str(exc)) from exc

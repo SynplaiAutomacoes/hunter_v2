@@ -42,7 +42,7 @@ PERF_LOG_MIN_MS = int(os.getenv("PERF_LOG_MIN_MS", "300"))
 
 WEBMANIA_BASE_URL = "https://api.webmania.com.br/2/"
 WEBMANIA_B2B_BASE_URL = "https://webmania.com.br/api"
-WEBMANIA_AMBIENT = os.getenv("WEBMANIA_AMBIENT", "2") #1. Prod, 2. Homolog
+WEBMANIA_AMBIENT = os.getenv("WEBMANIA_AMBIENT", "2")  # 1. Prod, 2. Homolog
 WEBMANIA_API_KEY = os.getenv("WEBMANIA_API_KEY", "")
 WEBMANIA_CONSUMER_KEY = os.getenv("WEBMANIA_CONSUMER_KEY", "")
 WEBMANIA_CONSUMER_SECRET = os.getenv("WEBMANIA_CONSUMER_SECRET", "")
@@ -215,6 +215,7 @@ TAILWIND_CLI_SRC_CSS = os.path.join(BASE_DIR, "static", "css", "main.css")
 
 TAILWIND_CLI_SRC_REPO = "dobicinaitis/tailwind-cli-extra"
 TAILWIND_CLI_USE_DAISY_UI = True
+TAILWIND_CLI_VERSION = "2.8.2"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

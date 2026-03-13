@@ -1,1 +1,1 @@
-{% include 'crud/partials/table.html' with queryset=budget fields=fields actions=actions table_id='budget-table' %}
+{% include 'crud/partials/table.html' with queryset=budget fields=fields actions=actions table_id='budget-table' filter_fields_template='budget/partials/budget_filters_fields.html' filter_button_label='Filtro' filter_panel_title='Filtrar orçamentos' filter_param_names='status' %}

@@ -1,1 +1,1 @@
-{% include 'crud/partials/table.html' with queryset=services fields=fields actions=actions table_id='services-table' %}
+{% include 'crud/partials/table.html' with queryset=services fields=fields actions=actions table_id='services-table' filter_fields_template='services/partials/services_filters_fields.html' filter_button_label='Filtro' filter_panel_title='Filtrar serviços' filter_param_names='is_active,is_third_party' %}

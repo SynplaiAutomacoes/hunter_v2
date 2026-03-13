@@ -152,6 +152,13 @@
                 swap: 'innerHTML'
             });
         });
+
+        document.body.addEventListener('htmx:afterSwap', function (event) {
+            const target = event.detail ? event.detail.target : null;
+            if (target && target.id === 'payment-section' && typeof window.initWorkOrderPaymentForm === 'function') {
+                window.initWorkOrderPaymentForm();
+            }
+        });
     })();
 </script>
 

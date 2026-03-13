@@ -107,6 +107,7 @@ class Budget(TimeStampedModel):
     signature_token_active = models.BooleanField(verbose_name="Token de Assinatura Ativo", default=True)
     signature_request_status = models.CharField(max_length=30, choices=SignatureStatus.choices, default=SignatureStatus.NOT_SENT)
     signature_external_id = models.CharField(max_length=255, blank=True, null=True)
+    signature_document_id = models.CharField(max_length=255, blank=True, null=True)
     signature_sent_at = models.DateTimeField(blank=True, null=True)
 
     def save(self, *args, **kwargs):
@@ -323,11 +324,12 @@ class Budget(TimeStampedModel):
         self.signature_request_status = SignatureStatus.SENDING
         self.save(update_fields=["signature_request_status"])
 
-    def mark_signature_sent(self, external_id: str) -> None:
+    def mark_signature_sent(self, external_id: str, *, document_id: str | None = None) -> None:
         self.signature_request_status = SignatureStatus.SENT
         self.signature_external_id = external_id
+        self.signature_document_id = document_id
         self.signature_sent_at = timezone.now()
-        self.save(update_fields=["signature_request_status", "signature_external_id", "signature_sent_at"])
+        self.save(update_fields=["signature_request_status", "signature_external_id", "signature_document_id", "signature_sent_at"])
 
     def mark_signature_failed(self) -> None:
         self.signature_request_status = SignatureStatus.FAILED
