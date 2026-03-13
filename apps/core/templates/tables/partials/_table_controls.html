@@ -7,7 +7,7 @@
             hx-swap="{{ htmx_swap }}"
             hx-select="{{ htmx_select }}"
             hx-push-url="{{ htmx_push_url }}"
-            hx-trigger="submit, keyup changed delay:500ms from:input, change from:#{{ table_id }}-sort-ui"
+            hx-trigger="submit, change from:#{{ table_id }}-sort-ui"
         >
             <div class="flex flex-col gap-4 w-full sm:flex-row sm:items-center sm:max-w-3xl">
                 <input type="hidden" name="page" value="1" />
