@@ -1,16 +1,9 @@
-import django.utils.timezone
-from django.db import migrations, models
+from django.db import migrations
 
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("workorder", "0009_workorder_signature_external_id_and_more"),
+        ("workorder", "0011_workorderpaymentmethod_due_date"),
     ]
 
-    operations = [
-        migrations.AddField(
-            model_name="workorderpaymentmethod",
-            name="due_date",
-            field=models.DateField(default=django.utils.timezone.localdate, verbose_name="Vencimento"),
-        ),
-    ]
+    operations = []
