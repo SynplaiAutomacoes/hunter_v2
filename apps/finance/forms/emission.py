@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from html import escape
 from typing import Any
 
@@ -7,8 +8,10 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
 from django.urls import reverse
+from djmoney.forms import MoneyField
+from djmoney.money import Money
 
-from apps.core.widgets import SelectInput, TextareaInput
+from apps.core.widgets import DurationInput, MoneyInput, NumberInput, SelectInput, TextareaInput
 from apps.finance.forms.emission_ui import (
     build_slider_widget_attrs,
     build_step5_pricing_panel_data,
@@ -27,6 +30,141 @@ EMISSION_NOTE_TYPE_CHOICES: list[tuple[str, str]] = [("nfe", "NF-e"), ("nfse", "
 EMISSION_NOTE_MODE_CHOICES: list[tuple[str, str]] = [("nfe", "NF-e"), ("nfse", "NFS-e"), ("both", "Ambas")]
 
 
+def _build_modal_action_button(*, label: str, icon: str, url: str) -> str:
+    return f"""
+        <button type="button"
+                class="btn-table-edit"
+                hx-get="{url}"
+                hx-target="#modal-container"
+                hx-swap="innerHTML"
+                title="{escape(label)}"
+                aria-label="{escape(label)}"
+                onclick="window.openEmissionModal && window.openEmissionModal()">
+            <span class="material-icons text-base">{icon}</span>
+        </button>
+    """
+
+
+def _build_origin_badge(*, label: str, tone: str = "badge-outline") -> str:
+    return f'<span class="badge {tone} whitespace-nowrap">{escape(label)}</span>'
+
+
+def _format_duration_value(duration: timedelta | None) -> str:
+    if not duration:
+        return "00:00:00"
+    total_seconds = int(duration.total_seconds())
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    seconds = total_seconds % 60
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
+def _build_step3_rows(*, workorder: WorkOrder) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    product_rows: list[dict[str, Any]] = []
+    service_rows: list[dict[str, Any]] = []
+
+    workorder_items = list(workorder.items.select_related("product", "service", "kit").prefetch_related("kit_overrides", "kit__kit_products__product", "kit__kit_services__service").order_by("id"))
+
+    for item in workorder_items:
+        if item.product_id:
+            product_rows.append(
+                {
+                    "description": str(item.description),
+                    "origin": _build_origin_badge(label="Avulso"),
+                    "quantity": item.quantity,
+                    "unit_price": item.product_selling_price,
+                    "total": item.total_price,
+                    "edit_url": reverse("finance:emission_workorder_item_edit", kwargs={"workorder_pk": workorder.pk, "item_id": item.pk}),
+                }
+            )
+            continue
+
+        if item.service_id:
+            service_rows.append(
+                {
+                    "description": str(item.description),
+                    "origin": _build_origin_badge(label="Avulso"),
+                    "quantity": item.quantity,
+                    "unit_price": item.service_selling_price,
+                    "total": item.total_price,
+                    "duration": item.duration_display,
+                    "edit_url": reverse("finance:emission_workorder_item_edit", kwargs={"workorder_pk": workorder.pk, "item_id": item.pk}),
+                }
+            )
+            continue
+
+        if not item.kit_id:
+            continue
+
+        product_overrides, service_overrides = item._get_kit_override_maps()
+        origin_label = f"Kit: {item.kit.name}"
+
+        for kit_product in item._iter_kit_products():
+            product = kit_product.product
+            override = product_overrides.get(kit_product.product_id)
+            per_kit_quantity = int((override.quantity if override else kit_product.quantity) or 0)
+            if per_kit_quantity <= 0:
+                continue
+
+            effective_quantity = per_kit_quantity * item.quantity
+            unit_price = override.product_selling_price if override else product.selling_price
+            shipping_total = (override.shipping * item.quantity) if override else Money(0, "BRL")
+            total_value = (unit_price * effective_quantity) + shipping_total
+
+            product_rows.append(
+                {
+                    "description": str(product.name),
+                    "origin": _build_origin_badge(label=origin_label, tone="badge-info badge-outline"),
+                    "quantity": effective_quantity,
+                    "unit_price": unit_price,
+                    "total": total_value,
+                    "edit_url": reverse(
+                        "finance:emission_workorder_kit_component_edit",
+                        kwargs={
+                            "workorder_pk": workorder.pk,
+                            "item_id": item.pk,
+                            "component_type": "product",
+                            "component_id": product.pk,
+                        },
+                    ),
+                }
+            )
+
+        for kit_service in item._iter_kit_services():
+            service = kit_service.service
+            override = service_overrides.get(kit_service.service_id)
+            per_kit_quantity = int((override.quantity if override else kit_service.quantity) or 0)
+            if per_kit_quantity <= 0:
+                continue
+
+            effective_quantity = per_kit_quantity * item.quantity
+            unit_price = override.service_selling_price if override else service.selling_price
+            duration = override.duration if override and override.duration else service.duration
+            total_value = unit_price * effective_quantity
+
+            service_rows.append(
+                {
+                    "description": str(service.name),
+                    "origin": _build_origin_badge(label=origin_label, tone="badge-info badge-outline"),
+                    "quantity": effective_quantity,
+                    "unit_price": unit_price,
+                    "total": total_value,
+                    "duration": _format_duration_value(duration * effective_quantity if duration else None),
+                    "edit_url": reverse(
+                        "finance:emission_workorder_kit_component_edit",
+                        kwargs={
+                            "workorder_pk": workorder.pk,
+                            "item_id": item.pk,
+                            "component_type": "service",
+                            "component_id": service.pk,
+                        },
+                    ),
+                }
+            )
+
+    return product_rows, service_rows
+
+
 def _resolve_note_mode(value: object) -> str:
     note_mode = str(value or "").strip().lower()
     if note_mode in {"nfe", "nfse", "both"}:
@@ -36,11 +174,12 @@ def _resolve_note_mode(value: object) -> str:
 
 def _build_summary_warning_html(*, workorder: WorkOrder, selected_slider: int) -> str:
     allocation = build_slider_allocation_for_workorder(workorder=workorder, slider_override=selected_slider)
+    snapshot = build_emission_pricing_snapshot_for_workorder(workorder=workorder, slider_override=selected_slider)
     warnings: list[str] = []
 
-    if allocation.products_target <= 0:
+    if allocation.products_target <= 0 or not snapshot.product_lines:
         warnings.append("Com a configuracao atual do slider, nao ha saldo de produtos para emitir NF-e.")
-    if allocation.services_target <= 0:
+    if allocation.services_target <= 0 or not snapshot.service_lines:
         warnings.append("Com a configuracao atual do slider, nao ha saldo de servicos para emitir NFS-e.")
 
     return "".join(f"<div class='alert alert-warning'>{warning}</div>" for warning in warnings)
@@ -253,6 +392,30 @@ def _build_nfse_preview_html(*, workorder: WorkOrder, selected_slider: int) -> t
     return warning_html, preview_html
 
 
+class EmissionKitProductComponentForm(forms.Form):
+    quantity = forms.IntegerField(label="Quantidade por kit", min_value=0, widget=NumberInput())
+    cost = MoneyField(label="Custo do produto", required=False, widget=MoneyInput())
+    price = MoneyField(label="Valor de venda", required=False, widget=MoneyInput())
+    shipping = MoneyField(label="Frete por kit", required=False, widget=MoneyInput())
+
+    def __init__(self, *args, parent_quantity: int = 1, **kwargs):
+        super().__init__(*args, **kwargs)
+        if parent_quantity > 1:
+            self.fields["quantity"].help_text = f"Este kit aparece {parent_quantity}x na O.S.; o total final sera multiplicado por essa quantidade."
+
+
+class EmissionKitServiceComponentForm(forms.Form):
+    quantity = forms.IntegerField(label="Quantidade por kit", min_value=0, widget=NumberInput())
+    cost = MoneyField(label="Custo do servico", required=False, widget=MoneyInput())
+    price = MoneyField(label="Valor de venda", required=False, widget=MoneyInput())
+    duration = forms.DurationField(label="Duracao por kit", required=False, widget=DurationInput())
+
+    def __init__(self, *args, parent_quantity: int = 1, **kwargs):
+        super().__init__(*args, **kwargs)
+        if parent_quantity > 1:
+            self.fields["quantity"].help_text = f"Este kit aparece {parent_quantity}x na O.S.; o total final sera multiplicado por essa quantidade."
+
+
 class EmissionStep1Form(forms.Form):
     workorder = forms.ModelChoiceField(queryset=WorkOrder.objects.none(), label="Ordem de Servico")
 
@@ -309,39 +472,52 @@ class EmissionStep2Form(forms.Form):
         customer_email = escape(customer.email) if customer and customer.email else "Nao informado"
         customer_address = escape(customer.full_address) if customer else "Nao informado"
         vehicle_label = escape(str(vehicle)) if vehicle else "Nao informado"
+        customer_action_html = _build_modal_action_button(label="Editar cliente", icon="edit", url=reverse("customer:quick_update", kwargs={"pk": customer.pk})) if customer else ""
+        vehicle_action_html = _build_modal_action_button(label="Editar veiculo", icon="directions_car_filled", url=reverse("customer:vehicle_quick_update", kwargs={"pk": vehicle.pk})) if vehicle else ""
 
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
             Div(
                 HTML("<h2 class='text-2xl font-bold'>Conferir cliente</h2>"),
-                HTML("<p class='text-base-content/70 mb-6'>Revise os dados do cliente e do veiculo antes de seguir.</p>"),
+                HTML("<p class='text-base-content/70 mb-6'>Revise os dados do cliente e do veiculo antes de seguir. Se precisar, faca um ajuste rapido sem sair da emissao.</p>"),
                 HTML(
                     f"""
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-base-200 p-5 rounded-xl">
-                        <div>
-                            <p class="text-xs uppercase text-base-content/60">Cliente</p>
-                            <p class="font-semibold">{customer_name}</p>
+                    <div class="grid grid-cols-1 gap-6">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-base-200 p-5 rounded-xl">
+                            <div class="md:col-span-2 flex items-center justify-between gap-3 flex-wrap">
+                                <div>
+                                    <p class="text-xs uppercase text-base-content/60">Cliente</p>
+                                    <p class="text-lg font-bold text-base-content">{customer_name}</p>
+                                </div>
+                                {customer_action_html}
+                            </div>
+                            <div>
+                                <p class="text-xs uppercase text-base-content/60">Documento</p>
+                                <p class="font-semibold">{customer_doc}</p>
+                            </div>
+                            <div>
+                                <p class="text-xs uppercase text-base-content/60">Telefone</p>
+                                <p class="font-semibold">{customer_phone}</p>
+                            </div>
+                            <div>
+                                <p class="text-xs uppercase text-base-content/60">E-mail</p>
+                                <p class="font-semibold">{customer_email}</p>
+                            </div>
+                            <div class="md:col-span-2">
+                                <p class="text-xs uppercase text-base-content/60">Endereco</p>
+                                <p class="font-semibold">{customer_address}</p>
+                            </div>
                         </div>
-                        <div>
-                            <p class="text-xs uppercase text-base-content/60">Documento</p>
-                            <p class="font-semibold">{customer_doc}</p>
-                        </div>
-                        <div>
-                            <p class="text-xs uppercase text-base-content/60">Telefone</p>
-                            <p class="font-semibold">{customer_phone}</p>
-                        </div>
-                        <div>
-                            <p class="text-xs uppercase text-base-content/60">E-mail</p>
-                            <p class="font-semibold">{customer_email}</p>
-                        </div>
-                        <div class="md:col-span-2">
-                            <p class="text-xs uppercase text-base-content/60">Endereco</p>
-                            <p class="font-semibold">{customer_address}</p>
-                        </div>
-                        <div class="md:col-span-2">
-                            <p class="text-xs uppercase text-base-content/60">Veiculo</p>
-                            <p class="font-semibold">{vehicle_label}</p>
+                        <div class="grid grid-cols-1 gap-4 bg-base-200 p-5 rounded-xl">
+                            <div class="flex items-center justify-between gap-3 flex-wrap">
+                                <div>
+                                    <p class="text-xs uppercase text-base-content/60">Veiculo</p>
+                                    <p class="text-lg font-bold text-base-content">{vehicle_label}</p>
+                                </div>
+                                {vehicle_action_html}
+                            </div>
+                            <p class="text-sm text-base-content/70">As alteracoes do veiculo sao globais e refletem em toda a oficina.</p>
                         </div>
                     </div>
                     """
@@ -362,42 +538,53 @@ class EmissionStep3Form(forms.Form):
         total_services = format_money(0)
 
         if workorder is not None:
-            snapshot = build_emission_pricing_snapshot_for_workorder(workorder=workorder)
-            total_products = format_money(snapshot.total_products_value)
-            total_services = format_money(snapshot.total_services_value)
+            product_rows, service_rows = _build_step3_rows(workorder=workorder)
+
+            total_products = format_money(sum((row["total"] for row in product_rows), Money(0, "BRL")))
+            total_services = format_money(sum((row["total"] for row in service_rows), Money(0, "BRL")))
 
             products_html = "".join(
                 f"""
                 <tr class="border-b border-base-300/60">
-                    <td class="py-2">{escape(str(line.description))}</td>
-                    <td class="py-2 text-center">{line.quantity}</td>
-                    <td class="py-2 text-right">{format_money(line.raw_total)}</td>
+                    <td class="py-2">{escape(str(row["description"]))}</td>
+                    <td class="py-2">{row["origin"]}</td>
+                    <td class="py-2 text-center">{row["quantity"]}</td>
+                    <td class="py-2 text-right">{format_money(row["unit_price"])}</td>
+                    <td class="py-2 text-right font-semibold">{format_money(row["total"])}</td>
+                    <td class="py-2 text-center">
+                        {_build_modal_action_button(label="Editar", icon="edit", url=row["edit_url"])}
+                    </td>
                 </tr>
                 """
-                for line in snapshot.product_lines
+                for row in product_rows
             )
             services_html = "".join(
                 f"""
                 <tr class="border-b border-base-300/60">
-                    <td class="py-2">{escape(str(line.description))}</td>
-                    <td class="py-2 text-center">{line.quantity}</td>
-                    <td class="py-2 text-right">{format_money(line.raw_total)}</td>
+                    <td class="py-2">{escape(str(row["description"]))}</td>
+                    <td class="py-2">{row["origin"]}</td>
+                    <td class="py-2 text-center">{row["quantity"]}</td>
+                    <td class="py-2 text-right">{format_money(row["unit_price"])}</td>
+                    <td class="py-2 text-right font-semibold">{format_money(row["total"])}</td>
+                    <td class="py-2 text-center">
+                        {_build_modal_action_button(label="Editar", icon="edit", url=row["edit_url"])}
+                    </td>
                 </tr>
                 """
-                for line in snapshot.service_lines
+                for row in service_rows
             )
 
         if not products_html:
             products_html = """
             <tr>
-                <td colspan="3" class="py-4 text-center text-base-content/60">Nenhum produto encontrado nesta OS.</td>
+                <td colspan="6" class="py-4 text-center text-base-content/60">Nenhum produto editavel encontrado nesta OS.</td>
             </tr>
             """
 
         if not services_html:
             services_html = """
             <tr>
-                <td colspan="3" class="py-4 text-center text-base-content/60">Nenhum servico encontrado nesta OS.</td>
+                <td colspan="6" class="py-4 text-center text-base-content/60">Nenhum servico editavel encontrado nesta OS.</td>
             </tr>
             """
 
@@ -406,7 +593,7 @@ class EmissionStep3Form(forms.Form):
         self.helper.layout = Layout(
             Div(
                 HTML("<h2 class='text-2xl font-bold'>Conferir produtos e servicos</h2>"),
-                HTML("<p class='text-base-content/70 mb-6'>Revise os itens consolidados da OS antes de definir o tipo da nota.</p>"),
+                HTML("<p class='text-base-content/70 mb-6'>Revise os produtos e servicos da O.S., inclusive os que vieram de kits, e edite rapidamente o que for necessario antes de definir o tipo da nota.</p>"),
                 HTML(
                     f"""
                     <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
@@ -416,15 +603,19 @@ class EmissionStep3Form(forms.Form):
                                 <thead>
                                     <tr>
                                         <th>Descricao</th>
+                                        <th>Origem</th>
                                         <th class="text-center">Qtd</th>
-                                        <th class="text-right">Total Base</th>
+                                        <th class="text-right">Valor Unitario</th>
+                                        <th class="text-right">Total</th>
+                                        <th class="text-center">Acoes</th>
                                     </tr>
                                 </thead>
                                 <tbody>{products_html}</tbody>
                                 <tfoot>
                                     <tr>
-                                        <th colspan="2" class="text-right">Total Produtos</th>
+                                        <th colspan="4" class="text-right">Total Produtos</th>
                                         <th class="text-right">{total_products}</th>
+                                        <th></th>
                                     </tr>
                                 </tfoot>
                             </table>
@@ -435,15 +626,19 @@ class EmissionStep3Form(forms.Form):
                                 <thead>
                                     <tr>
                                         <th>Descricao</th>
+                                        <th>Origem</th>
                                         <th class="text-center">Qtd</th>
-                                        <th class="text-right">Total Base</th>
+                                        <th class="text-right">Valor Unitario</th>
+                                        <th class="text-right">Total</th>
+                                        <th class="text-center">Acoes</th>
                                     </tr>
                                 </thead>
                                 <tbody>{services_html}</tbody>
                                 <tfoot>
                                     <tr>
-                                        <th colspan="2" class="text-right">Total Servicos</th>
+                                        <th colspan="4" class="text-right">Total Servicos</th>
                                         <th class="text-right">{total_services}</th>
+                                        <th></th>
                                     </tr>
                                 </tfoot>
                             </table>
@@ -476,7 +671,7 @@ class EmissionStep4Form(forms.Form):
                 sync_selector="#emission-form:abort",
             )
         )
-        slider_field.help_text = "Deslize para redistribuir a margem entre produtos e servicos antes de emitir as notas."
+        slider_field.help_text = "Deslize para redistribuir o valor total entre produtos e servicos antes de emitir as notas."
 
         warning_html = ""
         preview_html = ""

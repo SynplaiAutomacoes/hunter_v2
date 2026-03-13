@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Iterable
 
-from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot
+from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot, money_from_decimal, zero_money
 from apps.workorder.models import WorkOrder
 
 
@@ -110,12 +111,46 @@ def build_emission_pricing_snapshot_for_workorder(
         persisted_slider=persisted_slider,
         slider_override=slider_override,
     )
-    return build_pricing_snapshot(
+    base_snapshot = build_pricing_snapshot(
         items=list(workorder._iter_items()),
-        slider=slider_value,
+        slider=0,
         discount_value=workorder.discount_value,
         labor_cost_value=workorder.total_labor_cost_value,
     )
+
+    if slider_value == 0:
+        return base_snapshot
+
+    adjusted_snapshot = deepcopy(base_snapshot)
+    products_target, services_target = compute_slider_allocation(
+        products_base=_to_decimal_money(base_snapshot.total_products_value),
+        services_base=_to_decimal_money(base_snapshot.total_services_value),
+        slider=slider_value,
+    )
+
+    product_line_totals = distribute_total_proportionally(
+        base_values=[_to_decimal_money(line.raw_total) for line in adjusted_snapshot.product_lines],
+        target_total=products_target,
+    )
+    for line, line_total in zip(adjusted_snapshot.product_lines, product_line_totals, strict=False):
+        line.shipping = zero_money()
+        line.adjusted_total = money_from_decimal(line_total)
+
+    service_line_totals = distribute_total_proportionally(
+        base_values=[_to_decimal_money(line.raw_total) for line in adjusted_snapshot.service_lines],
+        target_total=services_target,
+    )
+    for line, line_total in zip(adjusted_snapshot.service_lines, service_line_totals, strict=False):
+        line.adjusted_total = money_from_decimal(line_total)
+
+    adjusted_snapshot.total_products_by_slider = money_from_decimal(products_target)
+    adjusted_snapshot.total_services_by_slider = money_from_decimal(services_target)
+    adjusted_snapshot.total_third_party_services_selling = sum((line.adjusted_total for line in adjusted_snapshot.service_lines if line.third_party), zero_money())
+    adjusted_snapshot.total_labor_by_slider = sum((line.adjusted_total for line in adjusted_snapshot.service_lines if not line.third_party), zero_money())
+    adjusted_snapshot.total_base_value = money_from_decimal(products_target + services_target)
+    adjusted_snapshot.total_budget_value = adjusted_snapshot.total_base_value - workorder.discount_value
+
+    return adjusted_snapshot
 
 
 def build_slider_allocation_for_workorder(

@@ -4,6 +4,8 @@ from django.views.generic import RedirectView
 from apps.finance.views import (
     EmissionPreviewView,
     EmissionRequestCreateView,
+    EmissionWorkOrderKitComponentUpdateView,
+    EmissionWorkOrderItemUpdateView,
     FinancialGroupCreateView,
     FinancialGroupDeleteView,
     FinancialGroupListView,
@@ -40,6 +42,8 @@ urlpatterns = [
     path("payment-methods/<int:pk>/update/", PaymentMethodUpdateView.as_view(), name="payment_methods_update"),
     # Unified emission
     path("emissao/preview/", EmissionPreviewView.as_view(), name="emission_preview"),
+    path("emissao/workorder/<int:workorder_pk>/item/<int:item_id>/edit/", EmissionWorkOrderItemUpdateView.as_view(), name="emission_workorder_item_edit"),
+    path("emissao/workorder/<int:workorder_pk>/kit-item/<int:item_id>/<str:component_type>/<int:component_id>/edit/", EmissionWorkOrderKitComponentUpdateView.as_view(), name="emission_workorder_kit_component_edit"),
     path("emissao/", EmissionRequestCreateView.as_view(), name="emission_create"),
     # NFE
     path("nfe/", NfeRequestListView.as_view(), name="nfe_emit"),

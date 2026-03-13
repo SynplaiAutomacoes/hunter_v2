@@ -93,8 +93,18 @@ def build_slider_widget_attrs(
 def build_step5_pricing_panel_data(*, workorder: WorkOrder, selected_slider: int) -> Step5PricingPanelData:
     snapshot = build_emission_pricing_snapshot_for_workorder(workorder=workorder, slider_override=selected_slider)
     pricing_data = workorder.calculate_pricing_methods() or {}
+    zero_money = Money(0, "BRL")
 
-    profitability = Decimal(str(pricing_data.get("rentabilidade") or 0))
+    sale_third_party_services = sum((line.adjusted_total for line in snapshot.service_lines if line.third_party), zero_money)
+    sale_labor = sum((line.adjusted_total for line in snapshot.service_lines if not line.third_party), zero_money)
+    total_cost_value = workorder.total_costs_products_value + workorder.total_products_shipping + workorder.total_third_party_services_cost + workorder.total_labor_cost_value
+    operational_profit = snapshot.total_base_value - total_cost_value
+
+    if snapshot.total_base_value.amount > 0:
+        profitability = ((operational_profit.amount / snapshot.total_base_value.amount) * Decimal("100")).quantize(Decimal("0.01"))
+    else:
+        profitability = Decimal("0.00")
+
     if profitability >= 70:
         profitability_status = "Bom"
         profitability_class = "rentabilidade-bom"
@@ -108,9 +118,12 @@ def build_step5_pricing_panel_data(*, workorder: WorkOrder, selected_slider: int
         profitability_class = "rentabilidade-medio"
         profitability_bg = "bg-rentabilidade-medio"
 
-    zero_money = Money(0, "BRL")
     discount_value = getattr(workorder, "discount_value", None) or zero_money
     discount_display = discount_value if getattr(discount_value, "amount", Decimal("0")) != Decimal("0") else zero_money
+    products_cost_base = workorder.total_costs_products_value + workorder.total_products_shipping
+    services_cost_base = workorder.total_third_party_services_cost + workorder.total_labor_cost_value
+    mlr = (snapshot.total_products_by_slider.amount / products_cost_base.amount).quantize(Decimal("0.01")) if products_cost_base.amount > 0 else Decimal("0.00")
+    mlo = (snapshot.total_services_by_slider.amount / services_cost_base.amount).quantize(Decimal("0.01")) if services_cost_base.amount > 0 else Decimal("0.00")
 
     return Step5PricingPanelData(
         cost_products=workorder.total_costs_products_value,
@@ -119,16 +132,16 @@ def build_step5_pricing_panel_data(*, workorder: WorkOrder, selected_slider: int
         mechanic_hour_cost=pricing_data.get("custo_hora_mecanico") or zero_money,
         labor_total_cost=workorder.total_labor_cost_value,
         duration_display=workorder.total_duration_display,
-        sale_third_party_services=workorder.total_third_party_services_selling,
+        sale_third_party_services=sale_third_party_services,
         sale_products=snapshot.total_products_by_slider,
-        sale_labor=snapshot.total_labor_by_slider,
-        operational_profit=pricing_data.get("lucro_operacional") or zero_money,
+        sale_labor=sale_labor,
+        operational_profit=operational_profit,
         profitability=profitability,
         profitability_status=profitability_status,
         profitability_class=profitability_class,
         profitability_bg=profitability_bg,
-        mlr=Decimal(str(pricing_data.get("mlr") or 0)),
-        mlo=Decimal(str(pricing_data.get("mlo") or 0)),
+        mlr=mlr,
+        mlo=mlo,
         discount_display=discount_display,
         total_base_value=snapshot.total_base_value,
         total_budget_value=snapshot.total_budget_value,

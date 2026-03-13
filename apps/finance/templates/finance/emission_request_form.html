@@ -13,4 +13,76 @@
             {% include 'finance/partials/emission_step_content.html' %}
         </div>
     </div>
+
+    <dialog id="form_modal" class="modal">
+        <div id="modal-container"></div>
+    </dialog>
+
+    <script>
+        (function () {
+            const formModal = document.getElementById('form_modal');
+            const modalContainer = document.getElementById('modal-container');
+
+            function clearModalContainer() {
+                if (modalContainer) {
+                    modalContainer.innerHTML = '';
+                }
+            }
+
+            function refreshCurrentStep() {
+                if (!window.htmx) {
+                    return;
+                }
+
+                htmx.ajax('GET', window.location.pathname + window.location.search, {
+                    target: '#step-container',
+                    swap: 'innerHTML'
+                });
+            }
+
+            window.openEmissionModal = function () {
+                if (formModal && !formModal.open) {
+                    formModal.showModal();
+                }
+            };
+
+            window.closeEmissionModal = function () {
+                if (!formModal) {
+                    return;
+                }
+
+                if (formModal.open) {
+                    formModal.close();
+                }
+
+                clearModalContainer();
+            };
+
+            if (formModal) {
+                formModal.addEventListener('close', clearModalContainer);
+            }
+
+            document.body.addEventListener('htmx:afterSwap', function (event) {
+                const target = event.detail ? event.detail.target : null;
+                if (target && target.id === 'modal-container' && formModal && !formModal.open) {
+                    formModal.showModal();
+                }
+            });
+
+            document.body.addEventListener('customerSaved', function () {
+                window.closeEmissionModal();
+                refreshCurrentStep();
+            });
+
+            document.body.addEventListener('vehicleSaved', function () {
+                window.closeEmissionModal();
+                refreshCurrentStep();
+            });
+
+            document.body.addEventListener('financeEmissionWorkorderItemSaved', function () {
+                window.closeEmissionModal();
+                refreshCurrentStep();
+            });
+        })();
+    </script>
 {% endblock %}
