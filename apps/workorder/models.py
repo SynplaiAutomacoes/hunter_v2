@@ -296,6 +296,8 @@ class WorkOrder(TimeStampedModel):
             "custo_total_mao_obra": custo_total_mao_obra,
             "duracao_total": self.total_duration_display,
             "lucro_operacional": lucro_operacional_trad,
+            "mlr": mlr,
+            "mlo": mlo,
             "venda_pecas": venda_pecas,
             "venda_servico_terceiro": venda_servico_terceiro,
             "venda_mao_obra": venda_mao_obra_trad,

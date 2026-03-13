@@ -143,27 +143,35 @@
                 <div x-show="nfTab === 'nfe'" x-cloak class="grid grid-cols-1 lg:grid-cols-12 gap-4">
                     <div class="col-span-12 lg:col-span-3">{{ fiscal_form.nfe_serie|as_crispy_field }}</div>
                     <div class="col-span-12 lg:col-span-4">{{ fiscal_form.nfe_numero|as_crispy_field }}</div>
-                    <div class="col-span-12 lg:col-span-4">{{ fiscal_form.nfe_numero_dev|as_crispy_field }}</div>
+                    {% if fiscal_form.show_homolog_fields %}
+                        <div class="col-span-12 lg:col-span-4">{{ fiscal_form.nfe_numero_dev|as_crispy_field }}</div>
+                    {% endif %}
                     <div class="col-span-12">{{ fiscal_form.informacoes_fisco|as_crispy_field }}</div>
                 </div>
 
                 <div x-show="nfTab === 'nfce'" x-cloak class="grid grid-cols-1 lg:grid-cols-12 gap-4">
                     <div class="col-span-12 lg:col-span-3">{{ fiscal_form.nfce_serie|as_crispy_field }}</div>
                     <div class="col-span-12 lg:col-span-3">{{ fiscal_form.nfce_numero|as_crispy_field }}</div>
-                    <div class="col-span-12 lg:col-span-3">{{ fiscal_form.nfce_numero_dev|as_crispy_field }}</div>
+                    {% if fiscal_form.show_homolog_fields %}
+                        <div class="col-span-12 lg:col-span-3">{{ fiscal_form.nfce_numero_dev|as_crispy_field }}</div>
+                    {% endif %}
 
                     <div class="col-span-12 lg:col-span-6">{{ fiscal_form.nfce_id_csc|as_crispy_field }}</div>
                     <div class="col-span-12 lg:col-span-6">{{ fiscal_form.nfce_codigo_csc|as_crispy_field }}</div>
 
-                    <div class="col-span-12 lg:col-span-6">{{ fiscal_form.nfce_id_csc_dev|as_crispy_field }}</div>
-                    <div class="col-span-12 lg:col-span-6">{{ fiscal_form.nfce_codigo_csc_dev|as_crispy_field }}</div>
+                    {% if fiscal_form.show_homolog_fields %}
+                        <div class="col-span-12 lg:col-span-6">{{ fiscal_form.nfce_id_csc_dev|as_crispy_field }}</div>
+                        <div class="col-span-12 lg:col-span-6">{{ fiscal_form.nfce_codigo_csc_dev|as_crispy_field }}</div>
+                    {% endif %}
                 </div>
 
                 <div x-show="nfTab === 'nfse'" x-cloak class="grid grid-cols-1 lg:grid-cols-12 gap-4">
                     <div class="col-span-12 lg:col-span-3">{{ fiscal_form.nfse_rps_serie|as_crispy_field }}</div>
                     <div class="col-span-12 lg:col-span-3">{{ fiscal_form.nfse_rps_numero|as_crispy_field }}</div>
                     <div class="col-span-12 lg:col-span-3">{{ fiscal_form.nfse_lote_rps_numero|as_crispy_field }}</div>
-                    <div class="col-span-12 lg:col-span-3">{{ fiscal_form.nfse_rps_numero_dev|as_crispy_field }}</div>
+                    {% if fiscal_form.show_homolog_fields %}
+                        <div class="col-span-12 lg:col-span-3">{{ fiscal_form.nfse_rps_numero_dev|as_crispy_field }}</div>
+                    {% endif %}
 
                     <div class="col-span-12 lg:col-span-6">{{ fiscal_form.cnae_issqn|as_crispy_field }}</div>
                     <div class="col-span-12 lg:col-span-6">{{ fiscal_form.cnae|as_crispy_field }}</div>
