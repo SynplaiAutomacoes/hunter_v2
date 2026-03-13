@@ -25,12 +25,7 @@ from apps.finance.forms.payment_method import PaymentMethodForm
 from apps.finance.models.finance import TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassSyncState, WebmaniaCompany
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
-from apps.finance.tax_class_utils import (
-    NFSE_MODEL_PADRAO_NACIONAL,
-    NFSE_MODEL_SAO_PAULO,
-    NFSE_SERVICE_CODE_CANONICAL_VALIDATION_MESSAGE,
-    NFSE_SERVICE_CODE_SAO_PAULO_VALIDATION_MESSAGE,
-)
+from apps.finance.tax_class_utils import NFSE_SERVICE_CODE_VALIDATION_MESSAGE
 from apps.finance.services.emission import NfseEmissionError, _build_taker_payload, _service_total_value, build_webmania_webhook_token, emit_nfse_request
 from apps.finance.services.nfe_emission import _extract_product_lines
 from apps.finance.services.pricing import build_slider_allocation_for_workorder, compute_slider_allocation, distribute_total_proportionally
@@ -475,115 +470,6 @@ class TaxClassServiceTests(TestCase):
         self.assertEqual(str(tax_class.ibs_aliquota_diferimento_estadual), "1.25")
         self.assertTrue(TaxClassSyncState.objects.filter(workshop=workshop, synced_once=True).exists())
 
-    def test_save_tax_class_formats_canonical_nfse_service_code(self) -> None:
-        workshop = create_workshop(suffix=3)
-        payload = {
-            "descricao": "Classe NFSE Canonica",
-            "tipo": "nfse",
-            "tipo_emissao": "1",
-            "codigo_servico": "010501",
-        }
-        response_payload = {
-            "referencia": "REFNFSE003",
-            "status": "ativo",
-            "data": "2026-02-18",
-        }
-
-        with (
-            patch("apps.finance.services.tax_classes._build_headers", return_value={}),
-            patch("apps.finance.services.tax_classes.requests.post", return_value=_mock_response(response_payload)) as post_mock,
-        ):
-            saved = save_tax_class(workshop=workshop, payload=payload)
-
-        sent_payload = post_mock.call_args.kwargs.get("json", {})
-        self.assertEqual(sent_payload.get("codigo_servico"), "01.05.01")
-
-        tax_class = TaxClassNfse.objects.get(workshop=workshop, reference="REFNFSE003")
-        self.assertEqual(saved.get("codigo_servico"), "01.05.01")
-        self.assertEqual(tax_class.codigo_servico, "01.05.01")
-
-    def test_save_tax_class_strips_local_nfse_fields_from_api_payload(self) -> None:
-        workshop = create_workshop(suffix=31)
-        payload = {
-            "descricao": "Classe NFSE Sao Paulo",
-            "tipo": "nfse",
-            "modelo": NFSE_MODEL_SAO_PAULO,
-            "tipo_emissao": "1",
-            "codigo_servico_cliente": "01.05.01",
-            "codigo_servico": "01.05",
-            "natureza_operacao": "1",
-            "iss_retido": "2",
-        }
-        response_payload = {
-            "referencia": "REFNFSE031",
-            "status": "ativo",
-            "data": "2026-03-13",
-        }
-
-        with (
-            patch("apps.finance.services.tax_classes._build_headers", return_value={}),
-            patch("apps.finance.services.tax_classes.requests.post", return_value=_mock_response(response_payload)) as post_mock,
-        ):
-            saved = save_tax_class(workshop=workshop, payload=payload)
-
-        sent_payload = post_mock.call_args.kwargs.get("json", {})
-        self.assertNotIn("modelo", sent_payload)
-        self.assertNotIn("codigo_servico_cliente", sent_payload)
-        self.assertEqual(sent_payload.get("codigo_servico"), "01.05")
-
-        tax_class = TaxClassNfse.objects.get(workshop=workshop, reference="REFNFSE031")
-        self.assertEqual(saved.get("modelo"), NFSE_MODEL_SAO_PAULO)
-        self.assertEqual(saved.get("codigo_servico_cliente"), "01.05.01")
-        self.assertEqual(tax_class.modelo, NFSE_MODEL_SAO_PAULO)
-        self.assertEqual(tax_class.codigo_servico_cliente, "01.05.01")
-
-    def test_save_tax_class_persists_padrao_nacional_nfse_fields(self) -> None:
-        workshop = create_workshop(suffix=4)
-        payload = {
-            "descricao": "Classe NFSE Padrão Nacional",
-            "tipo": "nfse",
-            "tipo_emissao": "1",
-            "codigo_servico": "010501",
-            "codigo_tributacao_municipio": "123",
-            "tributacao_iss": "1",
-            "identificador_beneficio_municipal": "12345678901234",
-            "pis_cofins_retido": "4",
-            "data_competencia": "2026-03-13",
-            "codigo_interno": "SERV-001",
-            "codigo_nbs": "123456789",
-            "aliquota_tributos_aproximados": "12.34",
-            "uf_local_prestacao": "SP",
-            "cidade_local_prestacao": "São Paulo",
-            "informacoes_complementares": "Observação do padrão nacional",
-        }
-        response_payload = {
-            "referencia": "REFNFSE004",
-            "status": "ativo",
-            "data": "2026-03-18",
-        }
-
-        with (
-            patch("apps.finance.services.tax_classes._build_headers", return_value={}),
-            patch("apps.finance.services.tax_classes.requests.post", return_value=_mock_response(response_payload)) as post_mock,
-        ):
-            saved = save_tax_class(workshop=workshop, payload=payload)
-
-        sent_payload = post_mock.call_args.kwargs.get("json", {})
-        self.assertEqual(sent_payload.get("codigo_servico"), "01.05.01")
-        self.assertEqual(sent_payload.get("pis_cofins_retido"), "4")
-        self.assertEqual(sent_payload.get("data_competencia"), "2026-03-13")
-        self.assertEqual(sent_payload.get("aliquota_tributos_aproximados"), "12.34")
-
-        tax_class = TaxClassNfse.objects.get(workshop=workshop, reference="REFNFSE004")
-        self.assertEqual(saved.get("pis_cofins_retido"), "4")
-        self.assertEqual(tax_class.identificador_beneficio_municipal, "12345678901234")
-        self.assertEqual(tax_class.data_competencia, "2026-03-13")
-        self.assertEqual(tax_class.codigo_interno, "SERV-001")
-        self.assertEqual(tax_class.codigo_nbs, "123456789")
-        self.assertEqual(str(tax_class.aliquota_tributos_aproximados), "12.34")
-        self.assertEqual(tax_class.uf_local_prestacao, "SP")
-        self.assertEqual(tax_class.cidade_local_prestacao, "São Paulo")
-
     def test_delete_tax_class_removes_local_on_success(self) -> None:
         workshop = create_workshop()
         TaxClassNfe.objects.create(
@@ -615,16 +501,13 @@ class NfseTaxClassFormTests(TestCase):
     def test_unbound_form_sets_default_exigibilidade_and_iss_retido(self) -> None:
         form = NfseTaxClassForm()
 
-        self.assertEqual(form.initial.get("modelo"), NFSE_MODEL_SAO_PAULO)
         self.assertEqual(form.initial.get("natureza_operacao"), "1")
         self.assertEqual(form.initial.get("iss_retido"), "2")
 
-    def test_build_payload_uses_cliente_and_webmania_codes_for_sao_paulo(self) -> None:
+    def test_build_payload_formats_service_code_as_xx_xx(self) -> None:
         form = NfseTaxClassForm(
             data={
                 "descricao": "Classe NFS-e",
-                "modelo": NFSE_MODEL_SAO_PAULO,
-                "codigo_servico_cliente": "010501",
                 "codigo_servico": "0105",
                 "natureza_operacao": "1",
                 "iss_retido": "2",
@@ -635,105 +518,30 @@ class NfseTaxClassFormTests(TestCase):
         self.assertTrue(form.is_valid(), form.errors)
         payload = form.build_payload()
 
-        self.assertEqual(payload.get("modelo"), NFSE_MODEL_SAO_PAULO)
-        self.assertEqual(payload.get("codigo_servico_cliente"), "01.05.01")
         self.assertEqual(payload.get("codigo_servico"), "01.05")
         self.assertNotIn("codigo_tributacao_municipio", payload)
         self.assertNotIn("tributacao_iss", payload)
         self.assertNotIn("retencao_iss", payload)
         self.assertNotIn("cst_pis_cofins", payload)
-        self.assertNotIn("ibs_cbs", payload)
-
-    def test_build_payload_uses_cliente_service_code_for_padrao_nacional(self) -> None:
-        form = NfseTaxClassForm(
-            data={
-                "descricao": "Classe NFS-e",
-                "modelo": NFSE_MODEL_PADRAO_NACIONAL,
-                "codigo_servico_cliente": "010501",
-                "codigo_tributacao_municipio": "",
-                "tributacao_iss": "1",
-                "base_payload_json": "{}",
-            }
-        )
-
-        self.assertTrue(form.is_valid(), form.errors)
-        payload = form.build_payload()
-
-        self.assertEqual(payload.get("modelo"), NFSE_MODEL_PADRAO_NACIONAL)
-        self.assertEqual(payload.get("codigo_servico_cliente"), "01.05.01")
-        self.assertEqual(payload.get("codigo_servico"), "01.05.01")
-
-    def test_build_payload_includes_padrao_nacional_fields(self) -> None:
-        form = NfseTaxClassForm(
-            data={
-                "descricao": "Classe NFS-e Padrão Nacional",
-                "modelo": NFSE_MODEL_PADRAO_NACIONAL,
-                "codigo_servico_cliente": "010501",
-                "codigo_tributacao_municipio": "123",
-                "tributacao_iss": "1",
-                "identificador_beneficio_municipal": "12345678901234",
-                "pis_cofins_retido": "4",
-                "data_competencia": "2026-03-13",
-                "codigo_interno": "SERV-001",
-                "codigo_nbs": "123456789",
-                "aliquota_tributos_aproximados": "12.34",
-                "uf_local_prestacao": "sp",
-                "cidade_local_prestacao": "São Paulo",
-                "base_payload_json": "{}",
-            }
-        )
-
-        self.assertTrue(form.is_valid(), form.errors)
-        payload = form.build_payload()
-
-        self.assertEqual(payload.get("codigo_servico_cliente"), "01.05.01")
-        self.assertEqual(payload.get("codigo_servico"), "01.05.01")
-        self.assertEqual(payload.get("identificador_beneficio_municipal"), "12345678901234")
-        self.assertEqual(payload.get("pis_cofins_retido"), "4")
-        self.assertEqual(payload.get("data_competencia"), "2026-03-13")
-        self.assertEqual(payload.get("codigo_interno"), "SERV-001")
-        self.assertEqual(payload.get("codigo_nbs"), "123456789")
-        self.assertEqual(payload.get("aliquota_tributos_aproximados"), "12.34")
-        self.assertEqual(payload.get("uf_local_prestacao"), "SP")
-        self.assertEqual(payload.get("cidade_local_prestacao"), "São Paulo")
+        self.assertNotIn("retencao_pis_cofins", payload)
 
     def test_initial_from_tax_class_formats_service_code_for_display(self) -> None:
         initial = NfseTaxClassForm.initial_from_tax_class(
             {
                 "tipo": "nfse",
-                "modelo": NFSE_MODEL_SAO_PAULO,
                 "descricao": "Classe NFS-e",
                 "codigo_servico": "0105",
-                "codigo_servico_cliente": "010501",
                 "natureza_operacao": "1",
                 "iss_retido": "2",
             }
         )
 
-        self.assertEqual(initial.get("modelo"), NFSE_MODEL_SAO_PAULO)
-        self.assertEqual(initial.get("codigo_servico_cliente"), "01.05.01")
         self.assertEqual(initial.get("codigo_servico"), "01.05")
 
-    def test_initial_from_tax_class_formats_canonical_service_code_for_display(self) -> None:
-        initial = NfseTaxClassForm.initial_from_tax_class(
-            {
-                "tipo": "nfse",
-                "modelo": NFSE_MODEL_PADRAO_NACIONAL,
-                "descricao": "Classe NFS-e",
-                "codigo_servico": "010501",
-            }
-        )
-
-        self.assertEqual(initial.get("modelo"), NFSE_MODEL_PADRAO_NACIONAL)
-        self.assertEqual(initial.get("codigo_servico_cliente"), "01.05.01")
-        self.assertEqual(initial.get("codigo_servico"), "01.05.01")
-
-    def test_requires_exigibilidade_and_iss_retido(self) -> None:
+    def test_requires_natureza_operacao_and_iss_retido(self) -> None:
         form = NfseTaxClassForm(
             data={
                 "descricao": "Classe NFS-e",
-                "modelo": NFSE_MODEL_SAO_PAULO,
-                "codigo_servico_cliente": "010501",
                 "codigo_servico": "01.05",
                 "natureza_operacao": "",
                 "iss_retido": "",
@@ -742,29 +550,13 @@ class NfseTaxClassFormTests(TestCase):
         )
 
         self.assertFalse(form.is_valid())
-        self.assertIn("Informe a natureza da operação para o modelo São Paulo.", form.errors.get("natureza_operacao", []))
-        self.assertIn("Informe se o ISS é retido para o modelo São Paulo.", form.errors.get("iss_retido", []))
+        self.assertIn("Informe a natureza da operação.", form.errors.get("natureza_operacao", []))
+        self.assertIn("Informe se o ISS é retido.", form.errors.get("iss_retido", []))
 
-    def test_requires_cliente_service_code_in_canonical_format(self) -> None:
+    def test_requires_service_code_in_xx_xx_format(self) -> None:
         form = NfseTaxClassForm(
             data={
                 "descricao": "Classe NFS-e",
-                "modelo": NFSE_MODEL_PADRAO_NACIONAL,
-                "codigo_servico_cliente": "01.05",
-                "tributacao_iss": "1",
-                "base_payload_json": "{}",
-            }
-        )
-
-        self.assertFalse(form.is_valid())
-        self.assertIn(NFSE_SERVICE_CODE_CANONICAL_VALIDATION_MESSAGE, form.errors.get("codigo_servico_cliente", []))
-
-    def test_requires_sao_paulo_webmania_service_code_in_xx_xx_format(self) -> None:
-        form = NfseTaxClassForm(
-            data={
-                "descricao": "Classe NFS-e",
-                "modelo": NFSE_MODEL_SAO_PAULO,
-                "codigo_servico_cliente": "01.05.01",
                 "codigo_servico": "01.05.01",
                 "natureza_operacao": "1",
                 "iss_retido": "2",
@@ -773,7 +565,7 @@ class NfseTaxClassFormTests(TestCase):
         )
 
         self.assertFalse(form.is_valid())
-        self.assertIn(NFSE_SERVICE_CODE_SAO_PAULO_VALIDATION_MESSAGE, form.errors.get("codigo_servico", []))
+        self.assertIn(NFSE_SERVICE_CODE_VALIDATION_MESSAGE, form.errors.get("codigo_servico", []))
 
 
 class NfseEmissionPayloadTests(TestCase):
@@ -1095,97 +887,6 @@ class NfseEmissionServiceTests(TestCase):
                 emit_nfse_request(nfse_request=nfse_request)  # type: ignore[arg-type]
 
         self.assertEqual(post_mock.call_count, 2)
-
-    def test_emit_nfse_retries_with_padrao_nacional_payload_without_impostos_iss(self) -> None:
-        nfse_request = SimpleNamespace(
-            pk=2,
-            workshop=SimpleNamespace(pk=1),
-            workorder=SimpleNamespace(pk=10),
-            tax_class="REFPADRAO001",
-        )
-        payload = {
-            "ambiente": 2,
-            "rps": [
-                {
-                    "servico": {
-                        "valor_servicos": "435.43",
-                        "discriminacao": "Emissão padrão nacional",
-                        "classe_imposto": "REFPADRAO001",
-                    },
-                    "tomador": {
-                        "cpf": "52369654031",
-                        "nome_completo": "Rogério",
-                    },
-                }
-            ],
-        }
-        headers = {
-            "Content-Type": "application/json",
-            "X-Consumer-Key": "consumer-key",
-            "X-Consumer-Secret": "consumer-secret",
-            "X-Access-Token": "access-token",
-            "X-Access-Token-Secret": "access-token-secret",
-            "Authorization": "Bearer bearer-token",
-        }
-
-        tax_class_response = _mock_response(
-            [
-                {
-                    "referencia": "REFPADRAO001",
-                    "tipo": "nfse",
-                    "modelo": "padrao_nacional",
-                    "status": "ativo",
-                    "codigo_servico": "01.05.01",
-                    "codigo_tributacao_municipio": "123",
-                    "tributacao_iss": "1",
-                    "identificador_beneficio_municipal": "12345678901234",
-                    "pis_cofins_retido": "4",
-                    "data_competencia": "2026-03-13",
-                    "codigo_nbs": "123456789",
-                    "codigo_interno": "SERV-001",
-                    "aliquota_tributos_aproximados": "12.34",
-                    "uf_local_prestacao": "SP",
-                    "cidade_local_prestacao": "São Paulo",
-                    "informacoes_complementares": "Observação complementar",
-                    "iss": "5.00",
-                    "ibs_cbs": {"situacao_tributaria": "1"},
-                }
-            ]
-        )
-        first_emission_response = _mock_response({"error": "RPS[0] Classe de imposto não encontrada: REFPADRAO001"})
-        second_emission_response = _mock_response({"modelo": "nfse", "status": "processando", "uuid": "uuid-padrao"})
-
-        with (
-            patch("apps.finance.services.emission.build_nfse_payload", return_value=payload),
-            patch("apps.finance.services.emission._build_tax_class_url", return_value="https://webmania.com.br/api/1/nfe/classe-imposto/"),
-            patch("apps.finance.services.emission._build_emit_url", return_value="https://api.webmania.com.br/2/nfse/emissao/"),
-            patch("apps.finance.services.emission._build_headers", return_value=headers),
-            patch("apps.finance.services.emission.requests.get", return_value=tax_class_response),
-            patch("apps.finance.services.emission.requests.post", side_effect=[first_emission_response, second_emission_response]) as post_mock,
-        ):
-            response_payload = emit_nfse_request(nfse_request=nfse_request)  # type: ignore[arg-type]
-
-        self.assertEqual(response_payload.get("uuid"), "uuid-padrao")
-        self.assertEqual(post_mock.call_count, 2)
-
-        second_payload = post_mock.call_args_list[1].kwargs.get("json", {})
-        second_service = second_payload.get("rps", [{}])[0].get("servico", {})
-
-        self.assertNotIn("classe_imposto", second_service)
-        self.assertEqual(second_service.get("codigo_servico"), "01.05.01")
-        self.assertEqual(second_service.get("tributacao_iss"), "1")
-        self.assertEqual(second_service.get("codigo_tributacao_municipio"), "123")
-        self.assertEqual(second_service.get("identificador_beneficio_municipal"), "12345678901234")
-        self.assertEqual(second_service.get("pis_cofins_retido"), "4")
-        self.assertEqual(second_service.get("data_competencia"), "2026-03-13")
-        self.assertEqual(second_service.get("codigo_nbs"), "123456789")
-        self.assertEqual(second_service.get("codigo_interno"), "SERV-001")
-        self.assertEqual(second_service.get("aliquota_tributos_aproximados"), "12.34")
-        self.assertEqual(second_service.get("uf_local_prestacao"), "SP")
-        self.assertEqual(second_service.get("cidade_local_prestacao"), "São Paulo")
-        self.assertEqual(second_service.get("informacoes_complementares"), "Observação complementar")
-        self.assertNotIn("iss", second_service.get("impostos", {}))
-        self.assertEqual(second_service.get("impostos", {}).get("ibs_cbs", {}).get("situacao_tributaria"), "1")
 
     def test_emit_nfse_fails_when_tax_class_not_in_current_auth_context(self) -> None:
         nfse_request = SimpleNamespace(
@@ -1880,12 +1581,11 @@ class TaxClassPresetViewTests(TestCase):
         icms_section = next(section for section in nfe_formset_sections if section["key"] == "icms")
         self.assertGreaterEqual(icms_section["formset"].total_form_count(), 5)
 
-    def test_apply_nfse_sao_paulo_preset_uses_cliente_and_webmania_codes(self) -> None:
+    def test_apply_nfse_sao_paulo_preset_loads_service_code(self) -> None:
         response = self.client.post(
             reverse("finance:tax_class_create"),
             data={
                 "tab": "nfse",
-                "modelo": NFSE_MODEL_SAO_PAULO,
                 "form_action": "apply_preset",
                 "preset_key": "nfse_sao_paulo_basico",
                 "referencia": "REFPRENFSE001",
@@ -1895,8 +1595,6 @@ class TaxClassPresetViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         nfse_form = response.context["nfse_form"]
         self.assertEqual(str(nfse_form["referencia"].value() or ""), "REFPRENFSE001")
-        self.assertEqual(str(nfse_form["modelo"].value() or ""), NFSE_MODEL_SAO_PAULO)
-        self.assertEqual(str(nfse_form["codigo_servico_cliente"].value() or ""), "01.05.01")
         self.assertEqual(str(nfse_form["codigo_servico"].value() or ""), "01.05")
 
     def test_apply_nfse_preset_on_update_preserves_hidden_payload_fields(self) -> None:
@@ -1905,8 +1603,6 @@ class TaxClassPresetViewTests(TestCase):
             "referencia": reference,
             "descricao": "Classe antiga",
             "tipo": "nfse",
-            "modelo": NFSE_MODEL_PADRAO_NACIONAL,
-            "codigo_servico_cliente": "01.05.01",
             "codigo_servico": "01.05",
             "natureza_operacao": "1",
             "iss_retido": "2",
@@ -1919,9 +1615,8 @@ class TaxClassPresetViewTests(TestCase):
                 reverse("finance:tax_class_update", kwargs={"reference": reference}),
                 data={
                     "tab": "nfse",
-                    "modelo": NFSE_MODEL_PADRAO_NACIONAL,
                     "form_action": "apply_preset",
-                    "preset_key": "nfse_padrao_nacional_reforma",
+                    "preset_key": "nfse_sao_paulo_retido",
                 },
             )
 
@@ -1930,17 +1625,13 @@ class TaxClassPresetViewTests(TestCase):
         base_payload = json.loads(str(nfse_form["base_payload_json"].value() or "{}"))
 
         self.assertEqual(str(nfse_form["referencia"].value() or ""), reference)
-        self.assertEqual(str(nfse_form["modelo"].value() or ""), NFSE_MODEL_PADRAO_NACIONAL)
-        self.assertEqual(str(nfse_form["codigo_servico_cliente"].value() or ""), "01.05.01")
-        self.assertEqual(str(nfse_form["codigo_servico"].value() or ""), "01.05.01")
+        self.assertEqual(str(nfse_form["codigo_servico"].value() or ""), "01.05")
         self.assertEqual(base_payload.get("referencia"), reference)
         self.assertEqual(base_payload.get("campo_provedor"), "valor-antigo")
         self.assertEqual(base_payload.get("impostos", {}).get("campo_extra"), "preservado")
-        self.assertEqual(base_payload.get("modelo"), NFSE_MODEL_PADRAO_NACIONAL)
-        self.assertEqual(base_payload.get("codigo_servico_cliente"), "01.05.01")
-        self.assertEqual(base_payload.get("codigo_servico"), "01.05.01")
-        self.assertEqual(base_payload.get("tributacao_iss"), "1")
-        self.assertEqual(base_payload.get("cst_pis_cofins"), "00")
+        self.assertEqual(base_payload.get("codigo_servico"), "01.05")
+        self.assertEqual(base_payload.get("iss_retido"), "1")
+        self.assertEqual(base_payload.get("responsavel_retencao"), "1")
 
 
 class NfseEmissionAuthTests(TestCase):

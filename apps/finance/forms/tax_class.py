@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import date
 import json
 from decimal import Decimal
 from typing import Any
@@ -12,18 +11,10 @@ from django.forms import formset_factory
 
 from apps.core.widgets import CheckboxInput, DecimalInput, SelectInput, TextInput, TextareaInput
 from apps.finance.tax_class_utils import (
-    NFSE_MODEL_CHOICES,
-    NFSE_MODEL_PADRAO_NACIONAL,
-    NFSE_MODEL_SAO_PAULO,
-    NFSE_SERVICE_CODE_CANONICAL_VALIDATION_MESSAGE,
-    NFSE_SERVICE_CODE_SAO_PAULO_VALIDATION_MESSAGE,
     digits_only,
-    infer_nfse_model,
-    is_canonical_nfse_service_code,
-    is_sao_paulo_service_code,
-    normalize_nfse_model,
-    normalize_padrao_nacional_service_code,
-    normalize_sao_paulo_service_code,
+    is_supported_nfse_service_code,
+    normalize_nfse_service_code,
+    NFSE_SERVICE_CODE_VALIDATION_MESSAGE,
 )
 
 
@@ -175,62 +166,7 @@ class NfeTaxClassForm(TaxClassFormBase):
 
 
 class NfseTaxClassForm(TaxClassFormBase):
-    MODELO_CHOICES = NFSE_MODEL_CHOICES
-    DEFAULT_MODELO = NFSE_MODEL_SAO_PAULO
-    SAO_PAULO_ONLY_FIELDS = (
-        "codigo_servico",
-        "natureza_operacao",
-        "exigibilidade_iss",
-        "iss_retido",
-        "responsavel_retencao",
-        "codigo_cnae",
-        "retencao_pis_cofins",
-        "iss",
-        "pis",
-        "cofins",
-        "inss",
-        "ir",
-        "csll",
-    )
-    PADRAO_NACIONAL_ONLY_FIELDS = (
-        "codigo_tributacao_municipio",
-        "tributacao_iss",
-        "tipo_imunidade",
-        "retencao_iss",
-        "cst_pis_cofins",
-        "identificador_beneficio_municipal",
-        "pis_cofins_retido",
-        "codigo_interno",
-        "aliquota_tributos_aproximados",
-        "ibs_situacao_tributaria",
-        "ibs_classificacao_tributaria",
-        "ibs_situacao_tributaria_regular",
-        "ibs_classificacao_tributaria_regular",
-        "ibs_credito_presumido",
-        "ibs_aliquota_diferimento_estadual",
-        "ibs_aliquota_diferimento_municipal",
-        "cbs_aliquota_diferimento",
-    )
-    COMMON_TEXT_FIELDS = (
-        "referencia",
-        "descricao",
-        "tipo_emissao",
-        "modelo",
-        "codigo_servico_cliente",
-        "codigo_servico",
-        "data_competencia",
-        "codigo_nbs",
-        "uf_local_prestacao",
-        "cidade_local_prestacao",
-        "informacoes_fisco",
-        "informacoes_complementares",
-    )
-    ALL_TEXT_FIELDS = COMMON_TEXT_FIELDS + SAO_PAULO_ONLY_FIELDS + PADRAO_NACIONAL_ONLY_FIELDS
-    ALL_DECIMAL_FIELDS = ("iss", "pis", "cofins", "inss", "ir", "csll", "aliquota_tributos_aproximados")
-
-    modelo = forms.ChoiceField(label="Modelo", required=True, choices=MODELO_CHOICES, widget=SelectInput(choices=MODELO_CHOICES))
-    codigo_servico_cliente = forms.CharField(label="Código do serviço do cliente", required=True, widget=TextInput(attrs={"placeholder": "00.00.00"}))
-    codigo_servico = forms.CharField(label="Código do serviço Webmania", required=False, widget=TextInput(attrs={"placeholder": "00.00"}))
+    codigo_servico = forms.CharField(label="Código do serviço", required=True, widget=TextInput(attrs={"placeholder": "00.00"}))
     tipo_emissao = forms.ChoiceField(label="Tipo de emissão", required=False, choices=TIPO_EMISSAO_NFSE_CHOICES, widget=SelectInput(choices=TIPO_EMISSAO_NFSE_CHOICES))
     codigo_tributacao_municipio = forms.CharField(label="Código tributação município", required=False, widget=TextInput())
     tributacao_iss = forms.ChoiceField(label="Tributação ISS", required=False, choices=TRIBUTACAO_ISS_CHOICES, widget=SelectInput(choices=TRIBUTACAO_ISS_CHOICES))
@@ -238,19 +174,12 @@ class NfseTaxClassForm(TaxClassFormBase):
     retencao_iss = forms.ChoiceField(label="Retenção ISS", required=False, choices=RETENCAO_ISS_NACIONAL_CHOICES, widget=SelectInput(choices=RETENCAO_ISS_NACIONAL_CHOICES))
     cst_pis_cofins = forms.ChoiceField(label="CST PIS/COFINS", required=False, choices=CST_PIS_COFINS_CHOICES, widget=SelectInput(choices=CST_PIS_COFINS_CHOICES))
     retencao_pis_cofins = forms.ChoiceField(label="Retenção PIS/COFINS", required=False, choices=RETENCAO_PIS_COFINS_CHOICES, widget=SelectInput(choices=RETENCAO_PIS_COFINS_CHOICES))
-    identificador_beneficio_municipal = forms.CharField(label="Identificador benefício municipal", required=False, max_length=14, widget=TextInput())
-    pis_cofins_retido = forms.ChoiceField(label="PIS/COFINS retido (Padrão Nacional)", required=False, choices=PIS_COFINS_RETIDO_CHOICES, widget=SelectInput(choices=PIS_COFINS_RETIDO_CHOICES))
-    data_competencia = forms.CharField(label="Data da competência", required=False, max_length=10, widget=TextInput(attrs={"placeholder": "YYYY-MM-DD"}))
-    codigo_interno = forms.CharField(label="Código interno", required=False, max_length=20, widget=TextInput())
 
     natureza_operacao = forms.ChoiceField(label="Natureza da operação", required=False, choices=NATUREZA_OPERACAO_CHOICES, widget=SelectInput(choices=NATUREZA_OPERACAO_CHOICES))
     exigibilidade_iss = forms.ChoiceField(label="Exigibilidade ISS", required=False, choices=EXIGIBILIDADE_ISS_CHOICES, widget=SelectInput(choices=EXIGIBILIDADE_ISS_CHOICES))
     iss_retido = forms.ChoiceField(label="ISS retido", required=False, choices=ISS_RETIDO_CHOICES, widget=SelectInput(choices=ISS_RETIDO_CHOICES))
     responsavel_retencao = forms.ChoiceField(label="Responsável retenção", required=False, choices=RESPONSAVEL_RETENCAO_CHOICES, widget=SelectInput(choices=RESPONSAVEL_RETENCAO_CHOICES))
     codigo_cnae = forms.CharField(label="Código CNAE", required=False, widget=TextInput())
-    codigo_nbs = forms.CharField(label="Código NBS", required=False, max_length=9, widget=TextInput())
-    uf_local_prestacao = forms.CharField(label="UF local da prestação", required=False, max_length=2, widget=TextInput())
-    cidade_local_prestacao = forms.CharField(label="Cidade local da prestação", required=False, max_length=25, widget=TextInput())
 
     iss = forms.DecimalField(label="Alíquota ISS", required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
     pis = forms.DecimalField(label="Alíquota PIS", required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
@@ -258,7 +187,6 @@ class NfseTaxClassForm(TaxClassFormBase):
     inss = forms.DecimalField(label="Alíquota INSS", required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
     ir = forms.DecimalField(label="Alíquota IR", required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
     csll = forms.DecimalField(label="Alíquota CSLL", required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
-    aliquota_tributos_aproximados = forms.DecimalField(label="Alíquota tributos aproximados", required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
 
     ibs_situacao_tributaria = forms.CharField(label="IBS/CBS Situação tributária", required=False, widget=TextInput())
     ibs_classificacao_tributaria = forms.CharField(label="IBS/CBS Classificação tributária", required=False, widget=TextInput())
@@ -270,21 +198,9 @@ class NfseTaxClassForm(TaxClassFormBase):
     cbs_aliquota_diferimento = forms.DecimalField(label="CBS diferimento (%)", required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
 
     @classmethod
-    def normalize_model(cls, value: Any) -> str:
-        return normalize_nfse_model(value)
-
-    @classmethod
     def initial_from_tax_class(cls, tax_class: dict[str, Any]) -> dict[str, str]:
         initial = super().initial_from_tax_class(tax_class)
         payload = dict(tax_class)
-        modelo = infer_nfse_model(payload)
-        initial["modelo"] = modelo
-
-        codigo_servico_cliente = normalize_padrao_nacional_service_code(payload.get("codigo_servico_cliente"))
-        if not codigo_servico_cliente and modelo == NFSE_MODEL_PADRAO_NACIONAL:
-            codigo_servico_cliente = normalize_padrao_nacional_service_code(payload.get("codigo_servico"))
-        if codigo_servico_cliente:
-            initial["codigo_servico_cliente"] = codigo_servico_cliente
 
         for field_name in (
             "tipo_emissao",
@@ -295,33 +211,22 @@ class NfseTaxClassForm(TaxClassFormBase):
             "retencao_iss",
             "cst_pis_cofins",
             "retencao_pis_cofins",
-            "identificador_beneficio_municipal",
-            "pis_cofins_retido",
-            "data_competencia",
-            "codigo_interno",
             "natureza_operacao",
             "exigibilidade_iss",
             "iss_retido",
             "responsavel_retencao",
             "codigo_cnae",
-            "codigo_nbs",
-            "uf_local_prestacao",
-            "cidade_local_prestacao",
             "iss",
             "pis",
             "cofins",
             "inss",
             "ir",
             "csll",
-            "aliquota_tributos_aproximados",
         ):
             if field_name in payload and payload.get(field_name) not in (None, ""):
                 value = payload.get(field_name)
                 if field_name == "codigo_servico":
-                    if modelo == NFSE_MODEL_PADRAO_NACIONAL:
-                        initial[field_name] = normalize_padrao_nacional_service_code(value)
-                    else:
-                        initial[field_name] = normalize_sao_paulo_service_code(value)
+                    initial[field_name] = normalize_nfse_service_code(value)
                 else:
                     initial[field_name] = str(value)
 
@@ -352,12 +257,9 @@ class NfseTaxClassForm(TaxClassFormBase):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        selected_model = self.normalize_model(self.data.get("modelo") if self.is_bound else self.initial.get("modelo"))
-        self.initial.setdefault("modelo", selected_model)
         if not self.is_bound:
-            if selected_model == NFSE_MODEL_SAO_PAULO:
-                self.initial.setdefault("natureza_operacao", "1")
-                self.initial.setdefault("iss_retido", "2")
+            self.initial.setdefault("natureza_operacao", "1")
+            self.initial.setdefault("iss_retido", "2")
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -371,73 +273,53 @@ class NfseTaxClassForm(TaxClassFormBase):
                 ),
                 Div(
                     Field("tipo_emissao", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("codigo_servico_cliente", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("data_competencia", wrapper_class="col-span-12 lg:col-span-4"),
-                    css_class="grid grid-cols-12 gap-4",
-                ),
-                Div(
-                    Field("codigo_nbs", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("uf_local_prestacao", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("cidade_local_prestacao", wrapper_class="col-span-12 lg:col-span-4"),
-                    css_class="grid grid-cols-12 gap-4",
-                ),
-                HTML("<h3 class='font-semibold mt-2 js-nfse-group js-nfse-group-sao-paulo'>Campos do modelo São Paulo</h3>"),
-                Div(
-                    Field("codigo_servico", wrapper_class="col-span-12 lg:col-span-3"),
-                    Field("natureza_operacao", wrapper_class="col-span-12 lg:col-span-3"),
-                    Field("iss_retido", wrapper_class="col-span-12 lg:col-span-3"),
-                    Field("responsavel_retencao", wrapper_class="col-span-12 lg:col-span-3"),
-                    css_class="grid grid-cols-12 gap-4 js-nfse-group js-nfse-group-sao-paulo",
-                ),
-                Div(
-                    Field("exigibilidade_iss", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("codigo_servico", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("codigo_cnae", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("retencao_pis_cofins", wrapper_class="col-span-12 lg:col-span-4"),
-                    css_class="grid grid-cols-12 gap-4 js-nfse-group js-nfse-group-sao-paulo",
+                    css_class="grid grid-cols-12 gap-4",
                 ),
                 Div(
+                    Field("natureza_operacao", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("exigibilidade_iss", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("iss_retido", wrapper_class="col-span-12 lg:col-span-4"),
+                    css_class="grid grid-cols-12 gap-4",
+                ),
+                Div(
+                    Field("responsavel_retencao", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("retencao_pis_cofins", wrapper_class="col-span-12 lg:col-span-4"),
+                    css_class="grid grid-cols-12 gap-4",
+                ),
+                Div(
+                    Field("codigo_tributacao_municipio", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("tributacao_iss", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("tipo_imunidade", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("retencao_iss", wrapper_class="col-span-12 lg:col-span-3"),
+                    css_class="grid grid-cols-12 gap-4",
+                ),
+                Div(
+                    Field("cst_pis_cofins", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("iss", wrapper_class="col-span-12 sm:col-span-6 lg:col-span-2"),
                     Field("pis", wrapper_class="col-span-12 sm:col-span-6 lg:col-span-2"),
                     Field("cofins", wrapper_class="col-span-12 sm:col-span-6 lg:col-span-2"),
                     Field("inss", wrapper_class="col-span-12 sm:col-span-6 lg:col-span-2"),
                     Field("ir", wrapper_class="col-span-12 sm:col-span-6 lg:col-span-2"),
                     Field("csll", wrapper_class="col-span-12 sm:col-span-6 lg:col-span-2"),
-                    css_class="grid grid-cols-12 gap-4 js-nfse-group js-nfse-group-sao-paulo",
+                    css_class="grid grid-cols-12 gap-4",
                 ),
-                HTML("<h3 class='font-semibold mt-2 js-nfse-group js-nfse-group-padrao-nacional'>Campos do Padrão Nacional</h3>"),
-                Div(
-                    Field("codigo_tributacao_municipio", wrapper_class="col-span-12 lg:col-span-3"),
-                    Field("tributacao_iss", wrapper_class="col-span-12 lg:col-span-3"),
-                    Field("tipo_imunidade", wrapper_class="col-span-12 lg:col-span-3"),
-                    Field("retencao_iss", wrapper_class="col-span-12 lg:col-span-3"),
-                    css_class="grid grid-cols-12 gap-4 js-nfse-group js-nfse-group-padrao-nacional",
-                ),
-                Div(
-                    Field("cst_pis_cofins", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("pis_cofins_retido", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("identificador_beneficio_municipal", wrapper_class="col-span-12 lg:col-span-4"),
-                    css_class="grid grid-cols-12 gap-4 js-nfse-group js-nfse-group-padrao-nacional",
-                ),
-                Div(
-                    Field("codigo_interno", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("aliquota_tributos_aproximados", wrapper_class="col-span-12 lg:col-span-4"),
-                    css_class="grid grid-cols-12 gap-4 js-nfse-group js-nfse-group-padrao-nacional",
-                ),
-                HTML("<h3 class='font-semibold mt-2 js-nfse-group js-nfse-group-padrao-nacional'>IBS/CBS (Opcional)</h3>"),
+                HTML("<h3 class='font-semibold mt-2'>IBS/CBS (Opcional)</h3>"),
                 Div(
                     Field("ibs_situacao_tributaria", wrapper_class="col-span-12 lg:col-span-3"),
                     Field("ibs_classificacao_tributaria", wrapper_class="col-span-12 lg:col-span-3"),
                     Field("ibs_situacao_tributaria_regular", wrapper_class="col-span-12 lg:col-span-3"),
                     Field("ibs_classificacao_tributaria_regular", wrapper_class="col-span-12 lg:col-span-3"),
-                    css_class="grid grid-cols-12 gap-4 js-nfse-group js-nfse-group-padrao-nacional",
+                    css_class="grid grid-cols-12 gap-4",
                 ),
                 Div(
                     Field("ibs_credito_presumido", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("ibs_aliquota_diferimento_estadual", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("ibs_aliquota_diferimento_municipal", wrapper_class="col-span-12 lg:col-span-4"),
-                    css_class="grid grid-cols-12 gap-4 js-nfse-group js-nfse-group-padrao-nacional",
+                    css_class="grid grid-cols-12 gap-4",
                 ),
-                Div(Field("cbs_aliquota_diferimento"), css_class="js-nfse-group js-nfse-group-padrao-nacional"),
+                Field("cbs_aliquota_diferimento"),
                 Div(
                     Field("informacoes_fisco", wrapper_class="col-span-12 lg:col-span-6"),
                     Field("informacoes_complementares", wrapper_class="col-span-12 lg:col-span-6"),
@@ -450,24 +332,11 @@ class NfseTaxClassForm(TaxClassFormBase):
 
     def clean(self) -> dict[str, Any]:
         cleaned_data = super().clean() or {}
-        modelo = self.normalize_model(cleaned_data.get("modelo"))
-        cleaned_data["modelo"] = modelo
-
-        codigo_servico_cliente = normalize_padrao_nacional_service_code(cleaned_data.get("codigo_servico_cliente"))
-        if not codigo_servico_cliente or not is_canonical_nfse_service_code(codigo_servico_cliente):
-            self.add_error("codigo_servico_cliente", NFSE_SERVICE_CODE_CANONICAL_VALIDATION_MESSAGE)
-        else:
-            cleaned_data["codigo_servico_cliente"] = codigo_servico_cliente
-
-        codigo_servico = normalize_sao_paulo_service_code(cleaned_data.get("codigo_servico"))
-        if modelo == NFSE_MODEL_PADRAO_NACIONAL:
-            cleaned_data["codigo_servico"] = codigo_servico_cliente
-        elif not codigo_servico:
-            self.add_error("codigo_servico", "Informe o código Webmania no formato XX.XX para o modelo São Paulo.")
-        elif not is_sao_paulo_service_code(normalize_sao_paulo_service_code(codigo_servico)):
-            self.add_error("codigo_servico", NFSE_SERVICE_CODE_SAO_PAULO_VALIDATION_MESSAGE)
-        else:
-            cleaned_data["codigo_servico"] = normalize_sao_paulo_service_code(codigo_servico)
+        codigo_servico = normalize_nfse_service_code(cleaned_data.get("codigo_servico"))
+        if codigo_servico and not is_supported_nfse_service_code(codigo_servico):
+            self.add_error("codigo_servico", NFSE_SERVICE_CODE_VALIDATION_MESSAGE)
+        elif codigo_servico:
+            cleaned_data["codigo_servico"] = codigo_servico
 
         codigo_tributacao = str(cleaned_data.get("codigo_tributacao_municipio") or "")
         codigo_tributacao_digits = digits_only(codigo_tributacao)
@@ -476,43 +345,22 @@ class NfseTaxClassForm(TaxClassFormBase):
                 self.add_error("codigo_tributacao_municipio", "Informe o código de tributação com 3 dígitos.")
             cleaned_data["codigo_tributacao_municipio"] = codigo_tributacao_digits
 
-        identificador_beneficio = str(cleaned_data.get("identificador_beneficio_municipal") or "").strip()
-        if identificador_beneficio and len(identificador_beneficio) != 14:
-            self.add_error("identificador_beneficio_municipal", "Informe o identificador do benefício municipal com 14 caracteres.")
-
-        data_competencia = str(cleaned_data.get("data_competencia") or "").strip()
-        if data_competencia:
-            try:
-                date.fromisoformat(data_competencia)
-            except ValueError:
-                self.add_error("data_competencia", "Informe a data da competência no formato YYYY-MM-DD.")
-
-        uf_local_prestacao = str(cleaned_data.get("uf_local_prestacao") or "").strip().upper()
-        if uf_local_prestacao:
-            if len(uf_local_prestacao) != 2:
-                self.add_error("uf_local_prestacao", "Informe a UF com 2 caracteres.")
-            cleaned_data["uf_local_prestacao"] = uf_local_prestacao
-
-        aliquota_tributos_aproximados = cleaned_data.get("aliquota_tributos_aproximados")
-        if aliquota_tributos_aproximados is not None and not Decimal("0") <= aliquota_tributos_aproximados <= Decimal("100"):
-            self.add_error("aliquota_tributos_aproximados", "Informe uma alíquota entre 0 e 100.")
-
-        if modelo == NFSE_MODEL_PADRAO_NACIONAL and cleaned_data.get("tributacao_iss") == "2" and not cleaned_data.get("tipo_imunidade"):
+        if cleaned_data.get("tributacao_iss") == "2" and not cleaned_data.get("tipo_imunidade"):
             self.add_error("tipo_imunidade", "Informe o tipo de imunidade quando a tributação do ISS for Imunidade.")
 
         iss_retido = cleaned_data.get("iss_retido")
         responsavel_retencao = cleaned_data.get("responsavel_retencao")
 
-        if modelo == NFSE_MODEL_SAO_PAULO and not cleaned_data.get("natureza_operacao"):
-            self.add_error("natureza_operacao", "Informe a natureza da operação para o modelo São Paulo.")
+        if not cleaned_data.get("natureza_operacao"):
+            self.add_error("natureza_operacao", "Informe a natureza da operação.")
 
-        if modelo == NFSE_MODEL_SAO_PAULO and not iss_retido:
-            self.add_error("iss_retido", "Informe se o ISS é retido para o modelo São Paulo.")
+        if not iss_retido:
+            self.add_error("iss_retido", "Informe se o ISS é retido.")
 
-        if modelo == NFSE_MODEL_SAO_PAULO and iss_retido == "1" and not responsavel_retencao:
+        if iss_retido == "1" and not responsavel_retencao:
             self.add_error("responsavel_retencao", "Informe o responsável pela retenção quando o ISS for retido.")
 
-        if modelo == NFSE_MODEL_SAO_PAULO and iss_retido != "1" and responsavel_retencao:
+        if iss_retido != "1" and responsavel_retencao:
             self.add_error("responsavel_retencao", "Preencha apenas quando o ISS for retido.")
 
         return cleaned_data
@@ -520,55 +368,28 @@ class NfseTaxClassForm(TaxClassFormBase):
     def build_payload(self) -> dict[str, Any]:
         payload = self.get_base_payload()
         payload["tipo"] = "nfse"
-        payload["modelo"] = self.normalize_model(self.cleaned_data.get("modelo"))
-
-        for field_name in self.ALL_TEXT_FIELDS:
-            payload.pop(field_name, None)
-
-        for field_name in self.ALL_DECIMAL_FIELDS:
-            payload.pop(field_name, None)
 
         payload.pop("ibs_cbs", None)
 
-        common_text_fields = (
+        text_fields = (
             "referencia",
             "descricao",
             "tipo_emissao",
-            "modelo",
-            "codigo_servico_cliente",
             "codigo_servico",
-            "data_competencia",
-            "codigo_nbs",
-            "uf_local_prestacao",
-            "cidade_local_prestacao",
+            "codigo_tributacao_municipio",
+            "tributacao_iss",
+            "tipo_imunidade",
+            "retencao_iss",
+            "cst_pis_cofins",
+            "retencao_pis_cofins",
+            "natureza_operacao",
+            "exigibilidade_iss",
+            "iss_retido",
+            "responsavel_retencao",
+            "codigo_cnae",
             "informacoes_fisco",
             "informacoes_complementares",
         )
-        modelo = self.normalize_model(self.cleaned_data.get("modelo"))
-        text_fields = common_text_fields
-        decimal_fields: tuple[str, ...] = ()
-        if modelo == NFSE_MODEL_PADRAO_NACIONAL:
-            text_fields += (
-                "codigo_tributacao_municipio",
-                "tributacao_iss",
-                "tipo_imunidade",
-                "retencao_iss",
-                "cst_pis_cofins",
-                "identificador_beneficio_municipal",
-                "pis_cofins_retido",
-                "codigo_interno",
-            )
-            decimal_fields = ("aliquota_tributos_aproximados",)
-        else:
-            text_fields += (
-                "natureza_operacao",
-                "exigibilidade_iss",
-                "iss_retido",
-                "responsavel_retencao",
-                "codigo_cnae",
-                "retencao_pis_cofins",
-            )
-            decimal_fields = ("iss", "pis", "cofins", "inss", "ir", "csll")
 
         for field_name in text_fields:
             value = self.cleaned_data.get(field_name)
@@ -577,40 +398,39 @@ class NfseTaxClassForm(TaxClassFormBase):
                 continue
             payload[field_name] = str(value).strip()
 
-        for field_name in decimal_fields:
+        for field_name in ("iss", "pis", "cofins", "inss", "ir", "csll"):
             value = self.cleaned_data.get(field_name)
             if value is None:
                 payload.pop(field_name, None)
                 continue
             payload[field_name] = _format_decimal(value, places=2)
 
-        if modelo == NFSE_MODEL_PADRAO_NACIONAL:
-            ibs_cbs_payload: dict[str, Any] = {}
-            for field_name, payload_key in (
-                ("ibs_situacao_tributaria", "situacao_tributaria"),
-                ("ibs_classificacao_tributaria", "classificacao_tributaria"),
-                ("ibs_situacao_tributaria_regular", "situacao_tributaria_regular"),
-                ("ibs_classificacao_tributaria_regular", "classificacao_tributaria_regular"),
-                ("ibs_credito_presumido", "credito_presumido"),
-            ):
-                value = self.cleaned_data.get(field_name)
-                if value in (None, ""):
-                    continue
-                ibs_cbs_payload[payload_key] = str(value).strip()
+        ibs_cbs_payload: dict[str, Any] = {}
+        for field_name, payload_key in (
+            ("ibs_situacao_tributaria", "situacao_tributaria"),
+            ("ibs_classificacao_tributaria", "classificacao_tributaria"),
+            ("ibs_situacao_tributaria_regular", "situacao_tributaria_regular"),
+            ("ibs_classificacao_tributaria_regular", "classificacao_tributaria_regular"),
+            ("ibs_credito_presumido", "credito_presumido"),
+        ):
+            value = self.cleaned_data.get(field_name)
+            if value in (None, ""):
+                continue
+            ibs_cbs_payload[payload_key] = str(value).strip()
 
-            differimento_map = (
-                ("ibs_aliquota_diferimento_estadual", "ibs_estadual"),
-                ("ibs_aliquota_diferimento_municipal", "ibs_municipal"),
-                ("cbs_aliquota_diferimento", "cbs"),
-            )
-            for field_name, payload_key in differimento_map:
-                value = self.cleaned_data.get(field_name)
-                if value is None:
-                    continue
-                ibs_cbs_payload[payload_key] = {"aliquota_diferimento": float(value)}
+        differimento_map = (
+            ("ibs_aliquota_diferimento_estadual", "ibs_estadual"),
+            ("ibs_aliquota_diferimento_municipal", "ibs_municipal"),
+            ("cbs_aliquota_diferimento", "cbs"),
+        )
+        for field_name, payload_key in differimento_map:
+            value = self.cleaned_data.get(field_name)
+            if value is None:
+                continue
+            ibs_cbs_payload[payload_key] = {"aliquota_diferimento": float(value)}
 
-            if ibs_cbs_payload:
-                payload["ibs_cbs"] = ibs_cbs_payload
+        if ibs_cbs_payload:
+            payload["ibs_cbs"] = ibs_cbs_payload
 
         return payload
 
