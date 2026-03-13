@@ -4,7 +4,7 @@ from django.core.exceptions import PermissionDenied
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
-from apps.accounts.mixins import AccountOwnerRequiredMixin
+from apps.accounts.mixins import AccountOwnerOrDirectorRequiredMixin
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
@@ -12,7 +12,7 @@ from apps.iam.forms import WorkshopRoleForm
 from apps.iam.models import WorkshopRole
 
 
-class WorkshopRoleListView(AccountOwnerRequiredMixin, HtmxTemplateResponseMixin, ListView):
+class WorkshopRoleListView(AccountOwnerOrDirectorRequiredMixin, HtmxTemplateResponseMixin, ListView):
     model = WorkshopRole
     template_name = "iam/role_list.html"
     context_object_name = "roles"
@@ -48,7 +48,7 @@ class WorkshopRoleListView(AccountOwnerRequiredMixin, HtmxTemplateResponseMixin,
         return context
 
 
-class WorkshopRoleCreateView(AccountOwnerRequiredMixin, CreateView):
+class WorkshopRoleCreateView(AccountOwnerOrDirectorRequiredMixin, CreateView):
     model = WorkshopRole
     form_class = WorkshopRoleForm
     template_name = "iam/role_create.html"
@@ -59,7 +59,7 @@ class WorkshopRoleCreateView(AccountOwnerRequiredMixin, CreateView):
         return super().form_valid(form)
 
 
-class WorkshopRoleUpdateView(AccountOwnerRequiredMixin, UpdateView):
+class WorkshopRoleUpdateView(AccountOwnerOrDirectorRequiredMixin, UpdateView):
     model = WorkshopRole
     form_class = WorkshopRoleForm
     template_name = "iam/role_update.html"
@@ -75,7 +75,7 @@ class WorkshopRoleUpdateView(AccountOwnerRequiredMixin, UpdateView):
         return response
 
 
-class WorkshopRoleDeleteView(AccountOwnerRequiredMixin, HtmxDeleteResponseMixin, DeleteView):
+class WorkshopRoleDeleteView(AccountOwnerOrDirectorRequiredMixin, HtmxDeleteResponseMixin, DeleteView):
     model = WorkshopRole
     success_url = reverse_lazy("iam:role_list")
 
