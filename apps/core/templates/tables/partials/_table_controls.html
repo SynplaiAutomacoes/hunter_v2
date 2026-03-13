@@ -1,8 +1,9 @@
 {% if show_search or sort_options|length > 1 or selectable or show_filter_controls %}
-    <div class="relative z-40 overflow-visible pb-4">
+    <div class="relative z-40 pb-4" style="overflow: visible;">
         <form
             id="{{ table_id }}-controls-form"
-            class="relative flex flex-col gap-4 overflow-visible sm:flex-row sm:items-start sm:justify-between"
+            class="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"
+            style="overflow: visible;"
             hx-get="{{ request.path }}"
             hx-target="{{ htmx_target }}"
             hx-swap="{{ htmx_swap }}"
@@ -13,7 +14,7 @@
             <div class="flex w-full flex-col gap-4 sm:max-w-3xl">
                 <input type="hidden" name="page" value="1" />
                 {% if show_search or show_filter_controls %}
-                    <div class="relative flex w-full flex-col gap-3 overflow-visible sm:flex-row sm:items-center">
+                    <div class="relative flex w-full flex-col gap-3 sm:flex-row sm:items-center" style="overflow: visible;">
                         {% if show_search %}
                             <div class="relative w-full">
                                 <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-base-content/60" aria-hidden="true">
