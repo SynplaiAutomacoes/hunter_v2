@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import date
 from typing import Any, cast
 
-from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.shortcuts import get_object_or_404, redirect
@@ -11,6 +10,7 @@ from django.utils import timezone
 from django.views import View
 from django.views.generic import TemplateView, UpdateView
 
+from apps.core.webmania.util import is_webmania_homolog_environment
 from apps.finance.forms import WebmaniaCompanyUpdateForm
 from apps.finance.models.finance import WebmaniaCompany
 from apps.finance.services.webmania_b2b import (
@@ -26,11 +26,7 @@ from apps.workshops.util.workshops import has_workshop_perm
 
 
 def _is_webmania_homolog_environment() -> bool:
-    raw_value = getattr(settings, "WEBMANIA_AMBIENT", "2")
-    try:
-        return int(str(raw_value).strip()) == 2
-    except (TypeError, ValueError):
-        return False
+    return is_webmania_homolog_environment()
 
 
 def _to_public_integration_message(raw_message: object) -> str:
@@ -170,6 +166,49 @@ class WebmaniaCompanyDetailView(LoginRequiredMixin, DirectorWorkshopAccessMixin,
     def get_context_data(self, **kwargs: object) -> dict[str, object]:
         context = super().get_context_data(**kwargs)
         company = self._get_company()
+        is_homolog_environment = _is_webmania_homolog_environment()
+
+        fiscal_fields = [
+            self._regular_field("Informações ao Fisco", company.informacoes_fisco),
+            self._regular_field("NFS-e Login", company.nfse_login),
+            self._regular_field("NFS-e RPS Série", company.nfse_rps_serie),
+            self._regular_field("NFS-e RPS Número", company.nfse_rps_numero),
+            self._regular_field("NFS-e Lote RPS Número", company.nfse_lote_rps_numero),
+            self._regular_field("Regime Apuração SN", company.regime_apuracao_sn),
+            self._regular_field("Regime Especial Nacional", company.regime_especial_nacional),
+            self._regular_field("Regime Especial Municipal", company.regime_especial_municipal),
+            self._regular_field("NF-e Série", company.nfe_serie),
+            self._regular_field("NF-e Número", company.nfe_numero),
+            self._regular_field("NFC-e Série", company.nfce_serie),
+            self._regular_field("NFC-e Número", company.nfce_numero),
+            self._regular_field("NFC-e ID CSC", company.nfce_id_csc),
+            self._regular_field("NFC-e Código CSC", company.nfce_codigo_csc),
+            self._regular_field("CNAE", company.cnae),
+            self._regular_field("CNAE ISSQN", company.cnae_issqn),
+            self._regular_field("Partilha ICMS contribuinte", company.partilha_icms_contribuinte),
+            self._regular_field("Partilha ICMS isento", company.partilha_icms_isento),
+            self._regular_field("Orientação DANFE", company.orientacao_danfe),
+            self._regular_field("Microcervejaria", company.microcervejaria),
+            self._regular_field("ICMS refeição SP", company.icms_ref_sp),
+            self._regular_field("Regime refeições SP", company.refeicoes_sp),
+            self._regular_field("ICMS refeição DF", company.icms_ref_df),
+            self._regular_field("Exclusão ICMS PIS/COFINS", company.exclusao_icms_pis_cofins),
+            self._regular_field("Exclusão DIFAL PIS/COFINS", company.exclusao_difal_pis_cofins),
+            self._regular_field("Deduzir desconto IPI", company.deduzir_desconto_ipi),
+            self._regular_field("E-mail automático NFS-e", company.email_automatico_nfse),
+            self._regular_field("Desativar EPEC", company.desativar_epec),
+            self._regular_field("Ocultar total etiqueta", company.ocultar_total_etiqueta),
+            self._regular_field("Última sincronização", company.last_sync_at),
+            self._regular_field("Último erro de sincronização", company.last_sync_error),
+        ]
+        if is_homolog_environment:
+            fiscal_fields[5:5] = [self._regular_field("NFS-e RPS Número Homologação", company.nfse_rps_numero_dev)]
+            fiscal_fields[11:11] = [self._regular_field("NF-e Número Homologação", company.nfe_numero_dev)]
+            fiscal_fields[15:15] = [
+                self._regular_field("NFC-e Número Homologação", company.nfce_numero_dev),
+                self._regular_field("NFC-e ID CSC Homologação", company.nfce_id_csc_dev),
+                self._regular_field("NFC-e Código CSC Homologação", company.nfce_codigo_csc_dev),
+            ]
 
         context.update(
             {
@@ -216,44 +255,8 @@ class WebmaniaCompanyDetailView(LoginRequiredMixin, DirectorWorkshopAccessMixin,
                     self._secret_field("Certificado A1 Base64", company.certificado),
                     self._secret_field("Senha Certificado A1", company.certificado_senha),
                 ],
-                "fiscal_fields": [
-                    self._regular_field("Informações ao Fisco", company.informacoes_fisco),
-                    self._regular_field("NFS-e Login", company.nfse_login),
-                    self._regular_field("NFS-e RPS Série", company.nfse_rps_serie),
-                    self._regular_field("NFS-e RPS Número", company.nfse_rps_numero),
-                    self._regular_field("NFS-e Lote RPS Número", company.nfse_lote_rps_numero),
-                    self._regular_field("NFS-e RPS Número Homologação", company.nfse_rps_numero_dev),
-                    self._regular_field("Regime Apuração SN", company.regime_apuracao_sn),
-                    self._regular_field("Regime Especial Nacional", company.regime_especial_nacional),
-                    self._regular_field("Regime Especial Municipal", company.regime_especial_municipal),
-                    self._regular_field("NF-e Série", company.nfe_serie),
-                    self._regular_field("NF-e Número", company.nfe_numero),
-                    self._regular_field("NF-e Número Homologação", company.nfe_numero_dev),
-                    self._regular_field("NFC-e Série", company.nfce_serie),
-                    self._regular_field("NFC-e Número", company.nfce_numero),
-                    self._regular_field("NFC-e ID CSC", company.nfce_id_csc),
-                    self._regular_field("NFC-e Código CSC", company.nfce_codigo_csc),
-                    self._regular_field("NFC-e Número Homologação", company.nfce_numero_dev),
-                    self._regular_field("NFC-e ID CSC Homologação", company.nfce_id_csc_dev),
-                    self._regular_field("NFC-e Código CSC Homologação", company.nfce_codigo_csc_dev),
-                    self._regular_field("CNAE", company.cnae),
-                    self._regular_field("CNAE ISSQN", company.cnae_issqn),
-                    self._regular_field("Partilha ICMS contribuinte", company.partilha_icms_contribuinte),
-                    self._regular_field("Partilha ICMS isento", company.partilha_icms_isento),
-                    self._regular_field("Orientação DANFE", company.orientacao_danfe),
-                    self._regular_field("Microcervejaria", company.microcervejaria),
-                    self._regular_field("ICMS refeição SP", company.icms_ref_sp),
-                    self._regular_field("Regime refeições SP", company.refeicoes_sp),
-                    self._regular_field("ICMS refeição DF", company.icms_ref_df),
-                    self._regular_field("Exclusão ICMS PIS/COFINS", company.exclusao_icms_pis_cofins),
-                    self._regular_field("Exclusão DIFAL PIS/COFINS", company.exclusao_difal_pis_cofins),
-                    self._regular_field("Deduzir desconto IPI", company.deduzir_desconto_ipi),
-                    self._regular_field("E-mail automático NFS-e", company.email_automatico_nfse),
-                    self._regular_field("Desativar EPEC", company.desativar_epec),
-                    self._regular_field("Ocultar total etiqueta", company.ocultar_total_etiqueta),
-                    self._regular_field("Última sincronização", company.last_sync_at),
-                    self._regular_field("Último erro de sincronização", company.last_sync_error),
-                ],
+                "fiscal_fields": fiscal_fields,
+                "is_webmania_homolog_environment": is_homolog_environment,
             }
         )
         return context

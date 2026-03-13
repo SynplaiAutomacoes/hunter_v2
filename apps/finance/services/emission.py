@@ -16,6 +16,7 @@ from django.http import HttpRequest
 from django.urls import reverse
 
 from apps.finance.models.finance import NfseBatch, NfseItem, NfseRequest
+from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfse_request_rps_number
 from apps.finance.services.mappers import extract_items_from_batch, map_batch_payload, map_item_payload
 from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder
 from apps.finance.services.webmania_auth import (
@@ -337,19 +338,23 @@ def build_nfse_payload(*, nfse_request: NfseRequest, request: HttpRequest | None
     ambiente = int(getattr(settings, "WEBMANIA_AMBIENT", "2"))
     notification_url = build_webmania_webhook_url(request=request)
 
+    first_rps: dict[str, Any] = {
+        "servico": {
+            "valor_servicos": _service_total_value(nfse_request, slider_override=slider_override),
+            "discriminacao": _default_service_description(nfse_request),
+            "classe_imposto": nfse_request.tax_class,
+        },
+        "tomador": _build_taker_payload(nfse_request),
+    }
+    if nfse_request.reserved_rps_number is not None:
+        first_rps["numero"] = int(nfse_request.reserved_rps_number)
+    if str(nfse_request.reserved_rps_series or "").strip():
+        first_rps["serie"] = str(nfse_request.reserved_rps_series)
+
     payload = {
         "ambiente": ambiente,
         "url_notificacao": notification_url,
-        "rps": [
-            {
-                "servico": {
-                    "valor_servicos": _service_total_value(nfse_request, slider_override=slider_override),
-                    "discriminacao": _default_service_description(nfse_request),
-                    "classe_imposto": nfse_request.tax_class,
-                },
-                "tomador": _build_taker_payload(nfse_request),
-            }
-        ],
+        "rps": [first_rps],
     }
 
     first_rps = payload["rps"][0]
@@ -381,11 +386,17 @@ def build_nfse_payload(*, nfse_request: NfseRequest, request: HttpRequest | None
 
 
 def emit_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None = None, slider_override: int | None = None) -> dict[str, Any]:
-    payload = build_nfse_payload(nfse_request=nfse_request, request=request, slider_override=slider_override)
     emit_url = _build_emit_url()
     headers = _build_headers(workshop=nfse_request.workshop)
 
     tax_class_payload = _validate_tax_class_for_emission(nfse_request=nfse_request, headers=headers)
+
+    try:
+        reserve_nfse_request_rps_number(nfse_request=nfse_request)
+    except EmissionNumberReservationError as exc:
+        raise NfseEmissionError(str(exc)) from exc
+
+    payload = build_nfse_payload(nfse_request=nfse_request, request=request, slider_override=slider_override)
 
     _debug_print(
         "Iniciando emissao de NFS-e",
@@ -606,6 +617,12 @@ def sync_emission_response(*, nfse_request: NfseRequest, response_payload: dict[
             updated_items = 0
 
             for item_payload in extract_items_from_batch(response_payload):
+                if not str(item_payload.get("rps_number") or "").strip() and nfse_request.reserved_rps_number is not None:
+                    item_payload["rps_number"] = str(nfse_request.reserved_rps_number)
+                if not str(item_payload.get("rps_series") or "").strip() and str(nfse_request.reserved_rps_series or "").strip():
+                    item_payload["rps_series"] = str(nfse_request.reserved_rps_series)
+                if not str(item_payload.get("number") or "").strip() and nfse_request.reserved_rps_number is not None:
+                    item_payload["number"] = str(nfse_request.reserved_rps_number)
                 item_uuid = item_payload.pop("uuid", None)
                 if not item_uuid:
                     continue
@@ -646,6 +663,12 @@ def sync_emission_response(*, nfse_request: NfseRequest, response_payload: dict[
             return
 
         mapped_item = map_item_payload(response_payload)
+        if not str(mapped_item.get("rps_number") or "").strip() and nfse_request.reserved_rps_number is not None:
+            mapped_item["rps_number"] = str(nfse_request.reserved_rps_number)
+        if not str(mapped_item.get("rps_series") or "").strip() and str(nfse_request.reserved_rps_series or "").strip():
+            mapped_item["rps_series"] = str(nfse_request.reserved_rps_series)
+        if not str(mapped_item.get("number") or "").strip() and nfse_request.reserved_rps_number is not None:
+            mapped_item["number"] = str(nfse_request.reserved_rps_number)
         item_uuid = mapped_item.pop("uuid", None)
         if not item_uuid:
             _debug_print("NFS-e sem UUID, sincronizacao ignorada", response_payload)

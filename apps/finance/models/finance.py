@@ -352,6 +352,8 @@ class NfseRequest(TimeStampedModel):
     )
     service_description = models.TextField(verbose_name="Discriminação do Serviço", blank=True, default="")
     tax_class = models.CharField(verbose_name="Classe de Imposto", max_length=30, default="REF000000")
+    reserved_rps_number = models.PositiveIntegerField(verbose_name="RPS reservado", null=True, blank=True)
+    reserved_rps_series = models.CharField(verbose_name="Série RPS reservada", max_length=20, blank=True, default="")
 
     def save(self, *args, **kwargs):
         if self.pk is None and self.pricing_slider is None:
@@ -417,6 +419,17 @@ class NfseRequest(TimeStampedModel):
         workorder_pk = getattr(self, "workorder_id", None) or "-"
         return f"NFS-e Request #{self.pk} - OS #{workorder_pk}"
 
+    @property
+    def rps_number_display(self) -> str:
+        if self.reserved_rps_number is not None:
+            return str(self.reserved_rps_number)
+
+        first_item = self.items.order_by("id").first()
+        if first_item is None:
+            return "-"
+
+        return str(first_item.rps_number or first_item.number or "-")
+
 
 class NfeRequest(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE)
@@ -431,6 +444,8 @@ class NfeRequest(TimeStampedModel):
         help_text="Copia o slider do orcamento na criacao e permanece independente para a emissao.",
     )
     tax_class = models.CharField(verbose_name="Classe de Imposto", max_length=30, default="REF000000")
+    reserved_number = models.PositiveIntegerField(verbose_name="Número reservado", null=True, blank=True)
+    reserved_series = models.PositiveIntegerField(verbose_name="Série reservada", null=True, blank=True)
 
     def save(self, *args, **kwargs):
         if self.pk is None and self.pricing_slider is None:
@@ -494,6 +509,17 @@ class NfeRequest(TimeStampedModel):
     def __str__(self):
         workorder_pk = getattr(self, "workorder_id", None) or "-"
         return f"NF-e Request #{self.pk} - OS #{workorder_pk}"
+
+    @property
+    def number_display(self) -> str:
+        if self.reserved_number is not None:
+            return str(self.reserved_number)
+
+        first_item = self.items.order_by("id").first()
+        if first_item is None:
+            return "-"
+
+        return str(first_item.number or "-")
 
 
 class NfseBatch(models.Model):

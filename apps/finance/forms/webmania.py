@@ -8,6 +8,7 @@ from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 from django import forms
 from django.urls import reverse
 
+from apps.core.webmania.util import is_webmania_homolog_environment
 from apps.core.widgets import CEPInput, CPForCNPJInput, CheckboxInput, EmailInput, PasswordInput, PhoneInput, SelectInput, TextInput, TextareaInput
 from apps.finance.models.finance import WebmaniaCompany, WebmaniaCompanyTaxType
 from apps.finance.services.webmania_secrets import encrypt_secret
@@ -36,6 +37,14 @@ WEBMANIA_ENABLED_FLAG_CHOICES = [
     ("1", "Sim"),
     ("0", "Não"),
 ]
+
+WEBMANIA_HOMOLOG_ONLY_FIELDS = (
+    "nfe_numero_dev",
+    "nfce_numero_dev",
+    "nfce_id_csc_dev",
+    "nfce_codigo_csc_dev",
+    "nfse_rps_numero_dev",
+)
 
 
 def _format_decimal(value: Decimal, *, places: int = 2) -> str:
@@ -188,6 +197,11 @@ class WebmaniaCompanyUpdateForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        self.show_homolog_fields = is_webmania_homolog_environment()
+        if not self.show_homolog_fields:
+            for field_name in WEBMANIA_HOMOLOG_ONLY_FIELDS:
+                self.fields.pop(field_name, None)
+
         self._initial_model_values = {field_name: getattr(self.instance, field_name, "") for field_name in self.Meta.fields}
         self._initial_secret_values = {field_name: getattr(self.instance, field_name, "") for field_name in self.secret_fields}
 
@@ -202,6 +216,58 @@ class WebmaniaCompanyUpdateForm(forms.ModelForm):
                 self.initial[field_name] = False
 
         cancel_url = reverse("finance:webmania_company_detail", kwargs={"pk": self.instance.pk})
+
+        nfe_fields: list[Any] = [
+            HTML("<p class='col-span-12 text-sm font-semibold text-base-content/80'>NF-e</p>"),
+            Field("nfe_serie", wrapper_class="col-span-12 lg:col-span-3"),
+            Field("nfe_numero", wrapper_class="col-span-12 lg:col-span-3"),
+        ]
+        if self.show_homolog_fields:
+            nfe_fields.append(Field("nfe_numero_dev", wrapper_class="col-span-12 lg:col-span-3"))
+
+        nfce_fields: list[Any] = [
+            HTML("<div class='col-span-12 divider my-1'></div>"),
+            HTML("<p class='col-span-12 text-sm font-semibold text-base-content/80'>NFC-e</p>"),
+            Field("nfce_serie", wrapper_class="col-span-12 lg:col-span-3"),
+            Field("nfce_numero", wrapper_class="col-span-12 lg:col-span-3"),
+        ]
+        if self.show_homolog_fields:
+            nfce_fields.extend(
+                [
+                    Field("nfce_numero_dev", wrapper_class="col-span-12 lg:col-span-3"),
+                ]
+            )
+        nfce_fields.extend(
+            [
+                Field("nfce_id_csc", wrapper_class="col-span-12 lg:col-span-6"),
+                Field("nfce_codigo_csc", wrapper_class="col-span-12 lg:col-span-6"),
+            ]
+        )
+        if self.show_homolog_fields:
+            nfce_fields.extend(
+                [
+                    Field("nfce_id_csc_dev", wrapper_class="col-span-12 lg:col-span-6"),
+                    Field("nfce_codigo_csc_dev", wrapper_class="col-span-12 lg:col-span-6"),
+                ]
+            )
+
+        nfse_fields: list[Any] = [
+            HTML("<div class='col-span-12 divider my-1'></div>"),
+            HTML("<p class='col-span-12 text-sm font-semibold text-base-content/80'>NFS-e</p>"),
+            Field("nfse_rps_serie", wrapper_class="col-span-12 lg:col-span-3"),
+            Field("nfse_rps_numero", wrapper_class="col-span-12 lg:col-span-3"),
+            Field("nfse_lote_rps_numero", wrapper_class="col-span-12 lg:col-span-3"),
+        ]
+        if self.show_homolog_fields:
+            nfse_fields.append(Field("nfse_rps_numero_dev", wrapper_class="col-span-12 lg:col-span-3"))
+        nfse_fields.extend(
+            [
+                Field("cnae", wrapper_class="col-span-12 lg:col-span-3"),
+                Field("regime_apuracao_sn", wrapper_class="col-span-12 lg:col-span-3"),
+                Field("regime_especial_nacional", wrapper_class="col-span-12 lg:col-span-3"),
+                Field("regime_especial_municipal", wrapper_class="col-span-12 lg:col-span-3"),
+            ]
+        )
 
         self.helper = FormHelper()
         self.helper.form_method = "post"
@@ -247,29 +313,9 @@ class WebmaniaCompanyUpdateForm(forms.ModelForm):
                 Field("informacoes_fisco", wrapper_class="col-span-12"),
                 Field("cnae_issqn", wrapper_class="col-span-12 lg:col-span-3"),
                 HTML("<div class='col-span-12 divider my-1'></div>"),
-                HTML("<p class='col-span-12 text-sm font-semibold text-base-content/80'>NF-e</p>"),
-                Field("nfe_serie", wrapper_class="col-span-12 lg:col-span-3"),
-                Field("nfe_numero", wrapper_class="col-span-12 lg:col-span-3"),
-                Field("nfe_numero_dev", wrapper_class="col-span-12 lg:col-span-3"),
-                HTML("<div class='col-span-12 divider my-1'></div>"),
-                HTML("<p class='col-span-12 text-sm font-semibold text-base-content/80'>NFC-e</p>"),
-                Field("nfce_serie", wrapper_class="col-span-12 lg:col-span-3"),
-                Field("nfce_numero", wrapper_class="col-span-12 lg:col-span-3"),
-                Field("nfce_numero_dev", wrapper_class="col-span-12 lg:col-span-3"),
-                Field("nfce_id_csc", wrapper_class="col-span-12 lg:col-span-6"),
-                Field("nfce_codigo_csc", wrapper_class="col-span-12 lg:col-span-6"),
-                Field("nfce_id_csc_dev", wrapper_class="col-span-12 lg:col-span-6"),
-                Field("nfce_codigo_csc_dev", wrapper_class="col-span-12 lg:col-span-6"),
-                HTML("<div class='col-span-12 divider my-1'></div>"),
-                HTML("<p class='col-span-12 text-sm font-semibold text-base-content/80'>NFS-e</p>"),
-                Field("nfse_rps_serie", wrapper_class="col-span-12 lg:col-span-3"),
-                Field("nfse_rps_numero", wrapper_class="col-span-12 lg:col-span-3"),
-                Field("nfse_lote_rps_numero", wrapper_class="col-span-12 lg:col-span-3"),
-                Field("nfse_rps_numero_dev", wrapper_class="col-span-12 lg:col-span-3"),
-                Field("cnae", wrapper_class="col-span-12 lg:col-span-3"),
-                Field("regime_apuracao_sn", wrapper_class="col-span-12 lg:col-span-3"),
-                Field("regime_especial_nacional", wrapper_class="col-span-12 lg:col-span-3"),
-                Field("regime_especial_municipal", wrapper_class="col-span-12 lg:col-span-3"),
+                *nfe_fields,
+                *nfce_fields,
+                *nfse_fields,
                 HTML("<div class='col-span-12 divider my-1'></div>"),
                 HTML("<p class='col-span-12 text-sm font-semibold text-base-content/80'>Acesso NFS-e e certificado</p>"),
                 Field("nfse_login", wrapper_class="col-span-12 lg:col-span-4"),
