@@ -43,7 +43,7 @@ class FinancialMovementListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTem
 
 class FinancialMovementCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixin, CreateView):
     model = FinancialMovement
-    template_name = "finance/movement_form.html"
+    template_name = "finance/financial_movement/financial_movement_form.html"
     workshop_permission_codename = "add_financialmovement"
 
     def get(self, request, *args, **kwargs):
