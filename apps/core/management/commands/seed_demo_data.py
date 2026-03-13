@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from itertools import cycle
+from typing import Any, cast
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
@@ -191,6 +192,7 @@ class ProductSpec:
     code: str
     group_name: str
     name: str
+    ncm: str
     description: str
     unit: str
     brand: str
@@ -246,6 +248,50 @@ class QuestionSpec:
     options: tuple[str, ...] = ()
 
 
+PRODUCT_NCM_BY_NAME: dict[str, str] = {
+    "Oleo sintetico 5W30 1L": "27101932",
+    "Oleo semissintetico 10W40 1L": "27101932",
+    "Fluido de freio DOT4 500ml": "38190000",
+    "Aditivo para radiador organico 1L": "38200000",
+    "Filtro de oleo blindado": "84212300",
+    "Filtro de ar do motor": "84213100",
+    "Filtro de cabine com carvao": "84213990",
+    "Filtro de combustivel flex": "84212300",
+    "Pastilha de freio dianteira ceramica": "87083090",
+    "Pastilha de freio traseira premium": "87083090",
+    "Disco de freio ventilado dianteiro": "87083090",
+    "Sapata de freio traseira": "87083090",
+    "Amortecedor dianteiro pressurizado": "87088000",
+    "Amortecedor traseiro pressurizado": "87088000",
+    "Bieleta da barra estabilizadora": "87088000",
+    "Bandeja dianteira completa": "87088000",
+    "Valvula termostatica": "84818099",
+    "Bomba dagua com junta": "84133090",
+    "Reservatorio de expansao": "39269090",
+    "Sensor de temperatura do motor": "90251990",
+    "Vela de ignicao iridium": "85111000",
+    "Jogo de cabos de vela silicone": "85443000",
+    "Bobina de ignicao compacta": "85113020",
+    "Bateria 60Ah selada": "85071000",
+    "Kit de embreagem completo": "87089300",
+    "Coxim de cambio dianteiro": "87089990",
+    "Oleo ATF sintetico 1L": "27101932",
+    "Oleo cambio manual 75W80 1L": "27101932",
+    "Lampada H7 12V 55W": "85392190",
+    "Fusivel mini 15A": "85361000",
+    "Sensor ABS dianteiro": "90318099",
+    "Rele auxiliar universal": "85364100",
+    "Palheta silicone 24 pol": "85124010",
+    "Limpa contato eletrico 300ml": "38140090",
+    "Limpa bicos concentrado 500ml": "38119090",
+    "Higienizador de ar interno 200ml": "38089429",
+    "Aditivo de combustivel flex": "38119090",
+    "Trava de roda antifurto": "83014000",
+    "Tapete de borracha universal": "40169990",
+    "Capa de volante couro sintetico": "42050000",
+}
+
+
 def _decimal(value: Decimal | str | int | float) -> Decimal:
     if isinstance(value, Decimal):
         return value
@@ -261,6 +307,38 @@ def _margin(cost_price: Decimal, selling_price: Decimal) -> Decimal:
     if cost_price <= 0:
         return Decimal("0.000000")
     return ((selling_price - cost_price) / cost_price).quantize(MARGIN_QUANTIZER, rounding=ROUND_HALF_UP)
+
+
+def _normalize_ncm(value: str) -> str:
+    return "".join(character for character in str(value or "") if character.isdigit())
+
+
+def _is_blank_seed_value(value: object) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    if isinstance(value, (list, tuple, dict, set)):
+        return len(value) == 0
+    return False
+
+
+def _merge_missing_seed_fields(instance: object, *, defaults: dict[str, object], overwrite: bool = False) -> list[str]:
+    update_fields: list[str] = []
+    for field_name, new_value in defaults.items():
+        if _is_blank_seed_value(new_value):
+            continue
+
+        current_value = getattr(instance, field_name)
+        if not overwrite and not _is_blank_seed_value(current_value):
+            continue
+        if current_value == new_value:
+            continue
+
+        setattr(instance, field_name, new_value)
+        update_fields.append(field_name)
+
+    return update_fields
 
 
 def _normalize_text(value: str) -> str:
@@ -469,6 +547,7 @@ def _build_product_specs() -> list[ProductSpec]:
                     code=f"PRD-{next_code}",
                     group_name=group_name,
                     name=name,
+                    ncm=PRODUCT_NCM_BY_NAME[name],
                     description=description,
                     unit=unit,
                     brand=brand,
@@ -992,7 +1071,7 @@ QUESTION_SPECS = _build_question_specs()
 class Command(BaseCommand):
     help = "Popula a oficina 1 com dados de demonstracao realistas e deterministas."
 
-    def add_arguments(self, parser) -> None:
+    def add_arguments(self, parser: Any) -> None:
         parser.add_argument(
             "--seed",
             type=int,
@@ -1000,8 +1079,18 @@ class Command(BaseCommand):
             help="Seed deterministica para datas, enderecos e pequenas variacoes.",
         )
 
-    def handle(self, *args, **options) -> None:
-        seed = int(options["seed"])
+    def _get_or_create_and_fill_missing(self, *, model: Any, lookup: dict[str, object], defaults: dict[str, object]) -> tuple[Any, bool]:
+        instance, created = model.objects.get_or_create(defaults=defaults, **lookup)
+        if created:
+            return instance, created
+
+        update_fields = _merge_missing_seed_fields(instance, defaults=defaults)
+        if update_fields:
+            instance.save(update_fields=update_fields)
+        return instance, created
+
+    def handle(self, *args: object, **options: object) -> None:
+        seed = int(cast(Any, options["seed"]))
         workshop = Workshop.objects.filter(pk=WORKSHOP_ID).first()
         if workshop is None:
             raise CommandError(f"A oficina fixa de ID {WORKSHOP_ID} nao foi encontrada.")
@@ -1025,15 +1114,15 @@ class Command(BaseCommand):
         self.stdout.write(
             " | ".join(
                 (
-                    f"produtos: {workshop.products.count()}",
-                    f"servicos: {workshop.services.count()}",
-                    f"kits: {workshop.kits.count()}",
-                    f"clientes: {workshop.customers.count()}",
-                    f"fornecedores: {workshop.suppliers.count()}",
-                    f"checklists: {workshop.checklists.count()}",
-                    f"colaboradores: {workshop.collaborators.count()}",
-                    f"perguntas: {workshop.investigative_questions.count()}",
-                    f"custos: {workshop.workshop_costs.count()}",
+                    f"produtos: {Product.objects.filter(workshop=workshop).count()}",
+                    f"servicos: {Service.objects.filter(workshop=workshop).count()}",
+                    f"kits: {Kit.objects.filter(workshop=workshop).count()}",
+                    f"clientes: {Customer.objects.filter(workshop=workshop).count()}",
+                    f"fornecedores: {Supplier.objects.filter(workshop=workshop).count()}",
+                    f"checklists: {Checklist.objects.filter(workshop=workshop).count()}",
+                    f"colaboradores: {WorkshopCollaborator.objects.filter(workshop=workshop).count()}",
+                    f"perguntas: {cast(Any, InvestigativeQuestion).objects.filter(workshop=workshop).count()}",
+                    f"custos: {WorkshopCost.objects.filter(workshop=workshop).count()}",
                 )
             )
         )
@@ -1041,9 +1130,9 @@ class Command(BaseCommand):
     def _ensure_monthly_costs(self, *, workshop: Workshop) -> dict[str, MonthlyCost]:
         costs: dict[str, MonthlyCost] = {}
         for name in DEFAULT_MONTHLY_COSTS:
-            monthly_cost, _ = MonthlyCost.objects.get_or_create(
-                workshop=workshop,
-                name=name,
+            monthly_cost, _ = self._get_or_create_and_fill_missing(
+                model=MonthlyCost,
+                lookup={"workshop": workshop, "name": name},
                 defaults={"is_active": True, "is_editable": False},
             )
             costs[name] = monthly_cost
@@ -1069,51 +1158,73 @@ class Command(BaseCommand):
                 "is_active": True,
                 **_address(index + 20),
             }
-            supplier, _ = Supplier.objects.update_or_create(workshop=workshop, cnpj=_generate_cnpj(500 + index), defaults=defaults)
+            supplier, _ = self._get_or_create_and_fill_missing(
+                model=Supplier,
+                lookup={"workshop": workshop, "cnpj": _generate_cnpj(500 + index)},
+                defaults=defaults,
+            )
             suppliers.append(supplier)
         return suppliers
 
     def _seed_products(self, *, workshop: Workshop, groups: dict[str, CatalogGroup], suppliers: Sequence[Supplier]) -> dict[str, Product]:
         products: dict[str, Product] = {}
         for index, spec in enumerate(PRODUCT_SPECS, start=1):
-            product, _ = Product.objects.update_or_create(
-                workshop=workshop,
-                code=spec.code,
-                defaults={
-                    "name": spec.name,
-                    "description": spec.description,
-                    "unit": spec.unit,
-                    "group": groups[spec.group_name],
-                    "brand": spec.brand,
-                    "model": spec.model,
-                    "sku": f"SKU-{spec.code}",
-                    "barcode": "",
-                    "location": spec.location,
-                    "cost_price": _money(spec.cost_price),
-                    "selling_price": _money(spec.selling_price),
-                    "profit_margin": _margin(spec.cost_price, spec.selling_price),
-                    "ncm": "",
-                    "cest": "",
-                    "application": spec.application,
-                    "is_active": True,
-                },
+            normalized_ncm = _normalize_ncm(spec.ncm)
+            if len(normalized_ncm) != 8:
+                raise CommandError(f"NCM invalido no seed do produto {spec.code}: {spec.ncm!r}")
+
+            product_defaults = {
+                "name": spec.name,
+                "description": spec.description,
+                "unit": spec.unit,
+                "group": groups[spec.group_name],
+                "brand": spec.brand,
+                "model": spec.model,
+                "sku": f"SKU-{spec.code}",
+                "barcode": "",
+                "location": spec.location,
+                "cost_price": _money(spec.cost_price),
+                "selling_price": _money(spec.selling_price),
+                "profit_margin": _margin(spec.cost_price, spec.selling_price),
+                "ncm": normalized_ncm,
+                "cest": "",
+                "application": spec.application,
+                "is_active": True,
+            }
+            product, product_created = self._get_or_create_and_fill_missing(
+                model=Product,
+                lookup={"workshop": workshop, "code": spec.code},
+                defaults=product_defaults,
             )
-            stock_product, _ = StockProduct.objects.get_or_create(workshop=workshop, product=product)
-            stock_product.supplier = suppliers[(index - 1) % len(suppliers)]
-            stock_product.current_quantity = 6 + ((index * 3) % 28)
-            stock_product.minimum_quantity = 2 + (index % 4)
-            stock_product.restock_quantity = 4 + (index % 6)
-            stock_product.last_nf = f"NF-{202500 + index:06d}"
-            stock_product.save(update_fields=["supplier", "current_quantity", "minimum_quantity", "restock_quantity", "last_nf"])
+            stock_defaults: dict[str, object] = {
+                "supplier": suppliers[(index - 1) % len(suppliers)],
+                "current_quantity": 6 + ((index * 3) % 28),
+                "minimum_quantity": 2 + (index % 4),
+                "restock_quantity": 4 + (index % 6),
+                "last_nf": f"NF-{202500 + index:06d}",
+            }
+            stock_product, stock_created = StockProduct.objects.get_or_create(
+                workshop=workshop,
+                product=product,
+                defaults=stock_defaults,
+            )
+            if not stock_created:
+                update_fields = _merge_missing_seed_fields(
+                    stock_product,
+                    defaults=stock_defaults,
+                    overwrite=product_created,
+                )
+                if update_fields:
+                    stock_product.save(update_fields=update_fields)
             products[spec.code] = product
         return products
 
     def _seed_services(self, *, workshop: Workshop) -> dict[str, Service]:
         services: dict[str, Service] = {}
         for spec in SERVICE_SPECS:
-            service, _ = Service.objects.update_or_create(
-                workshop=workshop,
-                name=spec.name,
+            service, _ = self._get_or_create_and_fill_missing(
+                model=Service,
+                lookup={"workshop": workshop, "name": spec.name},
                 defaults={
                     "description": spec.description,
                     "duration": spec.duration,
@@ -1128,38 +1239,44 @@ class Command(BaseCommand):
 
     def _seed_kits(self, *, workshop: Workshop, products: dict[str, Product], services: dict[str, Service]) -> None:
         for spec in KIT_SPECS:
-            kit, _ = Kit.objects.update_or_create(
-                workshop=workshop,
-                name=spec.name,
-                defaults={"description": spec.description, "is_active": True},
-            )
-
-            KitProduct.objects.filter(kit=kit).delete()
-            KitService.objects.filter(kit=kit).delete()
-
             total_price = Decimal("0.00")
             total_duration = timedelta()
+            for product_item in spec.products:
+                product = products[product_item.code]
+                total_price += product.selling_price.amount * product_item.quantity
 
-            kit_products: list[KitProduct] = []
-            for item in spec.products:
-                product = products[item.code]
-                kit_products.append(KitProduct(kit=kit, product=product, quantity=item.quantity))
-                total_price += product.selling_price.amount * item.quantity
+            for service_item in spec.services:
+                service = services[service_item.name]
+                row_duration = service_item.duration if service_item.duration is not None else service.duration
+                total_price += service.selling_price.amount * service_item.quantity
+                total_duration += row_duration * service_item.quantity
 
-            kit_services: list[KitService] = []
-            for item in spec.services:
-                service = services[item.name]
-                row_duration = item.duration if item.duration is not None else service.duration
-                kit_services.append(KitService(kit=kit, service=service, quantity=item.quantity, duration=row_duration))
-                total_price += service.selling_price.amount * item.quantity
-                total_duration += row_duration * item.quantity
+            kit, _ = self._get_or_create_and_fill_missing(
+                model=Kit,
+                lookup={"workshop": workshop, "name": spec.name},
+                defaults={
+                    "description": spec.description,
+                    "is_active": True,
+                    "total_price": _money(total_price),
+                    "total_duration": total_duration,
+                },
+            )
 
-            KitProduct.objects.bulk_create(kit_products)
-            KitService.objects.bulk_create(kit_services)
+            for product_item in spec.products:
+                KitProduct.objects.get_or_create(
+                    kit=kit,
+                    product=products[product_item.code],
+                    defaults={"quantity": product_item.quantity},
+                )
 
-            kit.total_price = _money(total_price)
-            kit.total_duration = total_duration
-            kit.save(update_fields=["description", "is_active", "total_price", "total_duration"])
+            for service_item in spec.services:
+                service = services[service_item.name]
+                row_duration = service_item.duration if service_item.duration is not None else service.duration
+                KitService.objects.get_or_create(
+                    kit=kit,
+                    service=service,
+                    defaults={"quantity": service_item.quantity, "duration": row_duration},
+                )
 
     def _seed_customers(self, *, workshop: Workshop) -> None:
         for index, (name, sex) in enumerate(PF_CUSTOMERS, start=1):
@@ -1178,7 +1295,11 @@ class Command(BaseCommand):
                 "foundation_date": None,
                 **_address(index + 40),
             }
-            Customer.objects.update_or_create(workshop=workshop, cpf_or_cnpj=_generate_cpf(index), defaults=defaults)
+            self._get_or_create_and_fill_missing(
+                model=Customer,
+                lookup={"workshop": workshop, "cpf_or_cnpj": _generate_cpf(index)},
+                defaults=defaults,
+            )
 
         for index, (name, fantasy_name) in enumerate(PJ_CUSTOMERS, start=1):
             defaults = {
@@ -1196,7 +1317,11 @@ class Command(BaseCommand):
                 "foundation_date": date(2008 + (index % 10), ((index * 3) % 12) + 1, ((index * 2) % 28) + 1),
                 **_address(index + 60),
             }
-            Customer.objects.update_or_create(workshop=workshop, cpf_or_cnpj=_generate_cnpj(800 + index), defaults=defaults)
+            self._get_or_create_and_fill_missing(
+                model=Customer,
+                lookup={"workshop": workshop, "cpf_or_cnpj": _generate_cnpj(800 + index)},
+                defaults=defaults,
+            )
 
     def _seed_collaborators(self, *, workshop: Workshop) -> list[WorkshopCollaborator]:
         collaborators: list[WorkshopCollaborator] = []
@@ -1230,33 +1355,37 @@ class Command(BaseCommand):
                 "commission_percentage": commission_percentage,
                 "is_active": True,
             }
-            collaborator, _ = WorkshopCollaborator.objects.update_or_create(workshop=workshop, cpf=_generate_cpf(2000 + index), defaults=defaults)
+            collaborator, _ = self._get_or_create_and_fill_missing(
+                model=WorkshopCollaborator,
+                lookup={"workshop": workshop, "cpf": _generate_cpf(2000 + index)},
+                defaults=defaults,
+            )
             collaborators.append(collaborator)
         return collaborators
 
     def _seed_checklists(self, *, workshop: Workshop) -> None:
         for index, blueprint in enumerate(CHECKLIST_BLUEPRINTS):
-            checklist = Checklist.objects.filter(workshop=workshop, name=blueprint.name).order_by("pk").first()
-            if checklist is None:
-                checklist = Checklist.objects.create(workshop=workshop, name=blueprint.name)
-            elif checklist.name != blueprint.name:
-                checklist.name = blueprint.name
-                checklist.save(update_fields=["name"])
-
-            checklist.items.all().delete()
+            checklist, _ = Checklist.objects.get_or_create(workshop=workshop, name=blueprint.name)
             items = self._build_checklist_items(blueprint=blueprint, seed_index=index)
-            ChecklistItem.objects.bulk_create(
-                [
-                    ChecklistItem(
+            existing_items = {(item.group, item.description): item for item in ChecklistItem.objects.filter(checklist=checklist)}
+            for order, (group, description, response_type) in enumerate(items):
+                existing_item = existing_items.get((group, description))
+                if existing_item is None:
+                    ChecklistItem.objects.create(
                         checklist=checklist,
                         group=group,
                         description=description,
                         response_type=response_type,
                         order=order,
                     )
-                    for order, (group, description, response_type) in enumerate(items)
-                ]
-            )
+                    continue
+
+                update_fields = _merge_missing_seed_fields(
+                    existing_item,
+                    defaults={"response_type": response_type, "order": order},
+                )
+                if update_fields:
+                    existing_item.save(update_fields=update_fields)
 
     def _build_checklist_items(self, *, blueprint: ChecklistBlueprint, seed_index: int) -> list[tuple[str, str, str]]:
         grouped_positions = {group: seed_index % len(CHECKLIST_ITEM_BANK[group]) for group in blueprint.groups}
@@ -1288,23 +1417,16 @@ class Command(BaseCommand):
 
     def _seed_questions(self, *, workshop: Workshop) -> None:
         for order, spec in enumerate(QUESTION_SPECS):
-            question = InvestigativeQuestion.objects.filter(workshop=workshop, text=spec.text).order_by("pk").first()
-            if question is None:
-                question = InvestigativeQuestion.objects.create(
-                    workshop=workshop,
-                    text=spec.text,
-                    response_type=spec.response_type,
-                    options=list(spec.options),
-                    order=order,
-                    is_active=True,
-                )
-                continue
-
-            question.response_type = spec.response_type
-            question.options = list(spec.options)
-            question.order = order
-            question.is_active = True
-            question.save(update_fields=["response_type", "options", "order", "is_active"])
+            self._get_or_create_and_fill_missing(
+                model=InvestigativeQuestion,
+                lookup={"workshop": workshop, "text": spec.text},
+                defaults={
+                    "response_type": spec.response_type,
+                    "options": list(spec.options),
+                    "order": order,
+                    "is_active": True,
+                },
+            )
 
     def _seed_workshop_costs(self, *, workshop: Workshop, monthly_costs: dict[str, MonthlyCost], collaborators: Sequence[WorkshopCollaborator], rng: random.Random) -> None:
         active_productive = [collaborator for collaborator in collaborators if collaborator.is_active and collaborator.collaborator_type == WorkshopCollaborator.CollaboratorType.PRODUCTIVE]
@@ -1314,14 +1436,23 @@ class Command(BaseCommand):
         administrative_salary_total = sum((collaborator.salary.amount for collaborator in active_administrative), Decimal("0.00"))
 
         reference_date = timezone.localdate()
+        calculated_fields = (
+            "total_value",
+            "total_monthly_costs",
+            "profit_target",
+            "gross_revenue_target",
+            "profitability_multiplier",
+            "working_hours_per_month",
+            "minimum_hourly_cost",
+            "hourly_cost_value",
+        )
         for offset in range(6):
             month, year = _reference_month(reference_date, offset)
             factor = Decimal("0.97") + Decimal(5 - offset) * Decimal("0.01") + Decimal(rng.randint(0, 2)) * Decimal("0.005")
 
-            workshop_cost, _ = WorkshopCost.objects.update_or_create(
-                workshop=workshop,
-                month=month,
-                year=year,
+            workshop_cost, workshop_cost_created = self._get_or_create_and_fill_missing(
+                model=WorkshopCost,
+                lookup={"workshop": workshop, "month": month, "year": year},
                 defaults={
                     "mechanic_quantity": len(active_productive),
                     "work_hours_per_day": timedelta(hours=8),
@@ -1345,14 +1476,26 @@ class Command(BaseCommand):
                     administrative_salary_total=administrative_salary_total,
                     factor=factor,
                 )
-                WorkshopCostItem.objects.update_or_create(
-                    workshop_cost=workshop_cost,
-                    monthly_cost=monthly_cost,
+                self._get_or_create_and_fill_missing(
+                    model=WorkshopCostItem,
+                    lookup={"workshop_cost": workshop_cost, "monthly_cost": monthly_cost},
                     defaults={"amount": amount},
                 )
 
+            if workshop_cost_created:
+                workshop_cost.calculate_all()
+                workshop_cost.save()
+                continue
+
+            original_values = {field_name: getattr(workshop_cost, field_name) for field_name in calculated_fields}
             workshop_cost.calculate_all()
-            workshop_cost.save()
+            calculated_values = {field_name: getattr(workshop_cost, field_name) for field_name in calculated_fields}
+            for field_name, original_value in original_values.items():
+                setattr(workshop_cost, field_name, original_value)
+
+            update_fields = _merge_missing_seed_fields(workshop_cost, defaults=calculated_values)
+            if update_fields:
+                workshop_cost.save(update_fields=update_fields)
 
     def _monthly_cost_amount(self, *, name: str, productive_salary_total: Decimal, administrative_salary_total: Decimal, factor: Decimal) -> Money:
         normalized_name = _normalize_text(name)
