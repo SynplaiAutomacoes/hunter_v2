@@ -132,16 +132,23 @@
             <input type="hidden" name="tab" value="nfse">
 
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-3 items-end p-4 border border-base-300 rounded-xl bg-base-200/50">
-                <div class="lg:col-span-8">
+                <div class="lg:col-span-5">
                     <label class="label"><span class="label-text font-semibold">Preset pronto</span></label>
-                    <select name="preset_key" class="select select-bordered w-full">
+                    <select name="preset_key" id="id_nfse_preset_key" class="select select-bordered w-full">
                         <option value="">Selecione um preset</option>
                         {% for preset in nfse_presets %}
-                            <option value="{{ preset.key }}" {% if selected_preset_key == preset.key %}selected{% endif %}>{{ preset.label }}</option>
+                            <option value="{{ preset.key }}" data-nfse-model="{{ preset.model }}" {% if selected_preset_key == preset.key %}selected{% endif %}>{{ preset.label }}</option>
                         {% endfor %}
                     </select>
                 </div>
                 <div class="lg:col-span-4">
+                    <label class="label" for="{{ nfse_form.modelo.id_for_label }}"><span class="label-text font-semibold">Modelo da NFS-e</span></label>
+                    {{ nfse_form.modelo }}
+                    {% if nfse_form.modelo.errors %}
+                        <p class="mt-1 text-sm text-error">{{ nfse_form.modelo.errors|join:", " }}</p>
+                    {% endif %}
+                </div>
+                <div class="lg:col-span-3">
                     <button type="submit" name="form_action" value="apply_preset" class="btn btn-outline w-full" formnovalidate>Aplicar preset</button>
                 </div>
             </div>
@@ -179,6 +186,59 @@
 
         container.insertAdjacentHTML("beforeend", rowHtml);
         totalFormsInput.value = String(nextIndex + 1);
+    });
+
+    document.addEventListener("DOMContentLoaded", function () {
+        const modelSelect = document.getElementById("{{ nfse_form.modelo.id_for_label|default:'id_modelo' }}");
+        const presetSelect = document.getElementById("id_nfse_preset_key");
+
+        function toggleNfseModelSections() {
+            if (!modelSelect) {
+                return;
+            }
+
+            const selectedModel = modelSelect.value || "sao_paulo";
+            document.querySelectorAll(".js-nfse-group").forEach(function (element) {
+                const isSaoPaulo = element.classList.contains("js-nfse-group-sao-paulo");
+                const isPadraoNacional = element.classList.contains("js-nfse-group-padrao-nacional");
+                const shouldShow = (selectedModel === "sao_paulo" && isSaoPaulo) || (selectedModel === "padrao_nacional" && isPadraoNacional);
+
+                element.classList.toggle("hidden", !shouldShow);
+                element.querySelectorAll("input, select, textarea").forEach(function (field) {
+                    field.disabled = !shouldShow;
+                });
+            });
+        }
+
+        function filterNfsePresets() {
+            if (!modelSelect || !presetSelect) {
+                return;
+            }
+
+            const selectedModel = modelSelect.value || "sao_paulo";
+            let selectedOptionStillVisible = false;
+            presetSelect.querySelectorAll("option[data-nfse-model]").forEach(function (option) {
+                const shouldShow = option.dataset.nfseModel === selectedModel;
+                option.hidden = !shouldShow;
+                option.disabled = !shouldShow;
+                if (shouldShow && option.selected) {
+                    selectedOptionStillVisible = true;
+                }
+            });
+
+            if (!selectedOptionStillVisible) {
+                presetSelect.value = "";
+            }
+        }
+
+        if (modelSelect) {
+            modelSelect.addEventListener("change", function () {
+                toggleNfseModelSections();
+                filterNfsePresets();
+            });
+            toggleNfseModelSections();
+            filterNfsePresets();
+        }
     });
     </script>
 {% endblock %}

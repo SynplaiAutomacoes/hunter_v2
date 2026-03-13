@@ -131,6 +131,27 @@ def _is_nfse_tax_class(payload: dict[str, Any]) -> bool:
     return bool(str(payload.get("tipo_emissao") or "").strip()) and bool(str(payload.get("codigo_servico") or "").strip())
 
 
+def _is_padrao_nacional_tax_class(payload: dict[str, Any]) -> bool:
+    model = str(payload.get("modelo") or payload.get("model") or "").strip().lower()
+    if model == "padrao_nacional":
+        return True
+
+    pn_specific_fields = (
+        "identificador_beneficio_municipal",
+        "pis_cofins_retido",
+        "data_competencia",
+        "codigo_interno",
+        "aliquota_tributos_aproximados",
+        "codigo_nbs",
+        "uf_local_prestacao",
+        "cidade_local_prestacao",
+    )
+    if any(_has_payload_value(payload.get(field_name)) for field_name in pn_specific_fields):
+        return True
+
+    return _has_payload_value(payload.get("tributacao_iss")) and (_has_payload_value(payload.get("codigo_tributacao_municipio")) or _has_payload_value(payload.get("ibs_cbs")))
+
+
 def _validate_tax_class_for_emission(*, nfse_request: NfseRequest, headers: dict[str, str]) -> dict[str, Any]:
     reference = str(nfse_request.tax_class or "").strip()
     if not reference:
@@ -191,6 +212,7 @@ def _validate_tax_class_for_emission(*, nfse_request: NfseRequest, headers: dict
 
 def _build_fallback_payload_with_explicit_tax_data(*, payload: dict[str, Any], tax_class_payload: dict[str, Any]) -> dict[str, Any]:
     fallback_payload = deepcopy(payload)
+    is_padrao_nacional = _is_padrao_nacional_tax_class(tax_class_payload)
 
     rps = fallback_payload.get("rps")
     if not isinstance(rps, list) or not rps:
@@ -206,29 +228,66 @@ def _build_fallback_payload_with_explicit_tax_data(*, payload: dict[str, Any], t
 
     service_payload.pop("classe_imposto", None)
 
-    service_fields = (
-        "codigo_servico",
-        "natureza_operacao",
-        "iss_retido",
-        "exigibilidade_iss",
-        "tributacao_iss",
-        "tipo_emissao",
-        "codigo_tributacao_municipio",
-        "tipo_imunidade",
-        "responsavel_retencao",
-        "codigo_cnae",
-        "finalidade",
-        "consumidor_final",
-        "cod_indicador_operacao",
-        "codigo_nbs",
-        "cidade_local_prestacao",
-        "uf_local_prestacao",
-        "numero_processo",
-        "deducoes",
-        "desconto_incondicionado",
-        "desconto_condicionado",
-        "outras_retencoes",
-    )
+    if is_padrao_nacional:
+        for field_name in (
+            "tipo_emissao",
+            "natureza_operacao",
+            "exigibilidade_iss",
+            "iss_retido",
+            "retencao_iss",
+            "responsavel_retencao",
+            "codigo_cnae",
+            "retencao_pis_cofins",
+        ):
+            service_payload.pop(field_name, None)
+
+    service_fields: tuple[str, ...]
+    if is_padrao_nacional:
+        service_fields = (
+            "codigo_servico",
+            "codigo_tributacao_municipio",
+            "identificador_beneficio_municipal",
+            "tributacao_iss",
+            "tipo_imunidade",
+            "pis_cofins_retido",
+            "data_competencia",
+            "codigo_nbs",
+            "codigo_interno",
+            "aliquota_tributos_aproximados",
+            "uf_local_prestacao",
+            "cidade_local_prestacao",
+            "informacoes_complementares",
+        )
+    else:
+        service_fields = (
+            "codigo_servico",
+            "natureza_operacao",
+            "iss_retido",
+            "exigibilidade_iss",
+            "tributacao_iss",
+            "tipo_emissao",
+            "codigo_tributacao_municipio",
+            "tipo_imunidade",
+            "responsavel_retencao",
+            "codigo_cnae",
+            "identificador_beneficio_municipal",
+            "pis_cofins_retido",
+            "data_competencia",
+            "codigo_interno",
+            "finalidade",
+            "consumidor_final",
+            "cod_indicador_operacao",
+            "codigo_nbs",
+            "cidade_local_prestacao",
+            "uf_local_prestacao",
+            "aliquota_tributos_aproximados",
+            "informacoes_complementares",
+            "numero_processo",
+            "deducoes",
+            "desconto_incondicionado",
+            "desconto_condicionado",
+            "outras_retencoes",
+        )
     for field_name in service_fields:
         if _has_payload_value(service_payload.get(field_name)):
             continue
@@ -241,8 +300,17 @@ def _build_fallback_payload_with_explicit_tax_data(*, payload: dict[str, Any], t
         if _has_payload_value(legacy_retencao_iss):
             service_payload["iss_retido"] = legacy_retencao_iss
 
+    if not _has_payload_value(service_payload.get("pis_cofins_retido")):
+        pis_cofins_retido = tax_class_payload.get("pis_cofins_retido")
+        if not _has_payload_value(pis_cofins_retido):
+            pis_cofins_retido = tax_class_payload.get("retencao_pis_cofins")
+        if _has_payload_value(pis_cofins_retido):
+            service_payload["pis_cofins_retido"] = pis_cofins_retido
+
     impostos_payload_raw = service_payload.get("impostos")
     impostos_payload = dict(impostos_payload_raw) if isinstance(impostos_payload_raw, dict) else {}
+    if is_padrao_nacional:
+        impostos_payload.pop("iss", None)
 
     class_impostos_raw = tax_class_payload.get("impostos")
     class_impostos_payload = dict(class_impostos_raw) if isinstance(class_impostos_raw, dict) else {}
@@ -266,6 +334,8 @@ def _build_fallback_payload_with_explicit_tax_data(*, payload: dict[str, Any], t
         "ibs_cbs",
     )
     for field_name in tax_fields:
+        if is_padrao_nacional and field_name == "iss":
+            continue
         if _has_payload_value(impostos_payload.get(field_name)):
             continue
         value = tax_class_payload.get(field_name)

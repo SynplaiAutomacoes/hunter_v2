@@ -25,6 +25,7 @@ from apps.finance.forms import (
 )
 from apps.finance.models.finance import NfseRequest
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
+from apps.finance.tax_class_utils import NFSE_MODEL_PADRAO_NACIONAL, NFSE_MODEL_SAO_PAULO
 from apps.workshops.mixin import WorkshopScopedMixin
 
 
@@ -109,29 +110,64 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
     }
 
     NFSE_PRESETS: dict[str, dict[str, object]] = {
-        "nfse_abrasf_basico": {
-            "label": "NFS-e ABRASF - Serviço padrão",
-            "description": "Preset básico com código de serviço no formato XX.XX.XX.",
+        "nfse_sao_paulo_basico": {
+            "label": "Sao Paulo - Servico padrao",
+            "description": "Preset basico com codigo Webmania em XX.XX e codigo do cliente em XX.XX.XX.",
+            "model": NFSE_MODEL_SAO_PAULO,
             "payload": {
                 "descricao": "Classe de impostos para prestação de serviço",
                 "tipo": "nfse",
-                "codigo_servico": "01.05.01",
+                "modelo": NFSE_MODEL_SAO_PAULO,
+                "codigo_servico_cliente": "01.05.01",
+                "codigo_servico": "01.05",
                 "natureza_operacao": "1",
-                "exigibilidade_iss": "1",
                 "iss_retido": "2",
             },
         },
-        "nfse_abrasf_retido": {
-            "label": "NFS-e ABRASF - ISS retido",
+        "nfse_sao_paulo_retido": {
+            "label": "Sao Paulo - ISS retido",
             "description": "Preset com retenção de ISS pelo tomador.",
+            "model": NFSE_MODEL_SAO_PAULO,
             "payload": {
                 "descricao": "Classe de impostos para serviço com ISS retido",
                 "tipo": "nfse",
-                "codigo_servico": "01.05.01",
+                "modelo": NFSE_MODEL_SAO_PAULO,
+                "codigo_servico_cliente": "01.05.01",
+                "codigo_servico": "01.05",
                 "natureza_operacao": "1",
-                "exigibilidade_iss": "1",
                 "iss_retido": "1",
                 "responsavel_retencao": "1",
+            },
+        },
+        "nfse_padrao_nacional_basico": {
+            "label": "Padrao Nacional - Servico padrao",
+            "description": "Preset basico com codigo do servico em XX.XX.XX.",
+            "model": NFSE_MODEL_PADRAO_NACIONAL,
+            "payload": {
+                "descricao": "Classe de impostos para serviço no padrão nacional",
+                "tipo": "nfse",
+                "modelo": NFSE_MODEL_PADRAO_NACIONAL,
+                "codigo_servico_cliente": "01.05.01",
+                "codigo_servico": "01.05.01",
+                "tributacao_iss": "1",
+            },
+        },
+        "nfse_padrao_nacional_reforma": {
+            "label": "Padrao Nacional - Reforma",
+            "description": "Preset com campos iniciais para reforma tributaria.",
+            "model": NFSE_MODEL_PADRAO_NACIONAL,
+            "payload": {
+                "descricao": "Classe de impostos PN com IBS/CBS",
+                "tipo": "nfse",
+                "modelo": NFSE_MODEL_PADRAO_NACIONAL,
+                "codigo_servico_cliente": "01.05.01",
+                "codigo_servico": "01.05.01",
+                "tributacao_iss": "1",
+                "cst_pis_cofins": "00",
+                "ibs_cbs": {
+                    "situacao_tributaria": "000",
+                    "classificacao_tributaria": "000001",
+                },
             },
         },
     }
@@ -158,22 +194,31 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
         return cls.NFE_PRESETS
 
     @classmethod
-    def _preset_options(cls, tab: str) -> list[dict[str, str]]:
+    def _preset_options(cls, tab: str, *, nfse_model: str | None = None) -> list[dict[str, str]]:
         options: list[dict[str, str]] = []
         for key, preset in cls._preset_registry(tab).items():
+            preset_model = str(preset.get("model") or "").strip()
+            if tab == cls.TAB_NFSE and nfse_model and preset_model and preset_model != nfse_model:
+                continue
+
             options.append(
                 {
                     "key": key,
                     "label": str(preset.get("label") or key),
                     "description": str(preset.get("description") or ""),
+                    "model": preset_model,
                 }
             )
         return options
 
     @classmethod
-    def _get_preset_payload(cls, *, tab: str, preset_key: str) -> dict[str, object] | None:
+    def _get_preset_payload(cls, *, tab: str, preset_key: str, nfse_model: str | None = None) -> dict[str, object] | None:
         preset = cls._preset_registry(tab).get(preset_key)
         if not isinstance(preset, dict):
+            return None
+
+        preset_model = str(preset.get("model") or "").strip()
+        if tab == cls.TAB_NFSE and nfse_model and preset_model and preset_model != nfse_model:
             return None
 
         payload = preset.get("payload")
@@ -404,6 +449,7 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
             if not isinstance(nfe_formsets, dict):
                 nfe_formsets = self._build_nfe_formsets(data=None, editing_tax_class=None)
 
+        selected_nfse_model = str(nfse_form["modelo"].value() or NfseTaxClassForm.DEFAULT_MODELO)
         nfe_tax_classes, nfse_tax_classes = self._split_tax_classes(tax_classes)
 
         nfe_formset_sections = [
@@ -427,8 +473,9 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
                 "edit_reference": edit_reference,
                 "editing_tax_class": editing_tax_class,
                 "selected_preset_key": selected_preset_key,
+                "selected_nfse_model": selected_nfse_model,
                 "nfe_presets": self._preset_options(self.TAB_NFE),
-                "nfse_presets": self._preset_options(self.TAB_NFSE),
+                "nfse_presets": self._preset_options(self.TAB_NFSE, nfse_model=selected_nfse_model),
                 "nfe_tax_classes": nfe_tax_classes,
                 "nfse_tax_classes": nfse_tax_classes,
             }
@@ -439,6 +486,7 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
         active_tab = self._normalize_tab(request.POST.get("tab"))
         form_action = str(request.POST.get("form_action") or "save").strip().lower()
         selected_preset_key = str(request.POST.get("preset_key") or "").strip()
+        selected_nfse_model = str(request.POST.get("modelo") or NfseTaxClassForm.DEFAULT_MODELO).strip()
 
         logger.info(
             "tax_class_manager_post workshop_id=%s user_id=%s tab=%s action=%s",
@@ -453,7 +501,7 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
         editing_tax_class = self._find_tax_class_by_reference(tax_classes, edit_reference)
 
         if form_action == "apply_preset":
-            preset_payload = self._get_preset_payload(tab=active_tab, preset_key=selected_preset_key)
+            preset_payload = self._get_preset_payload(tab=active_tab, preset_key=selected_preset_key, nfse_model=selected_nfse_model)
             if preset_payload is None:
                 logger.warning(
                     "tax_class_preset_invalid workshop_id=%s user_id=%s tab=%s preset=%s",
@@ -717,6 +765,7 @@ class TaxClassFormBaseView(TaxClassManagerView):
         active_tab = self._normalize_tab(request.POST.get("tab"))
         form_action = str(request.POST.get("form_action") or "save").strip().lower()
         selected_preset_key = str(request.POST.get("preset_key") or "").strip()
+        selected_nfse_model = str(request.POST.get("modelo") or NfseTaxClassForm.DEFAULT_MODELO).strip()
 
         logger.info(
             "tax_class_form_post workshop_id=%s user_id=%s is_update=%s tab=%s action=%s",
@@ -737,7 +786,7 @@ class TaxClassFormBaseView(TaxClassManagerView):
             active_tab = self._tab_from_tax_class(editing_tax_class)
 
         if form_action == "apply_preset":
-            preset_payload = self._get_preset_payload(tab=active_tab, preset_key=selected_preset_key)
+            preset_payload = self._get_preset_payload(tab=active_tab, preset_key=selected_preset_key, nfse_model=selected_nfse_model)
             if preset_payload is None:
                 messages.error(request, "Selecione um preset valido para aplicar.")
                 return self.render_to_response(
