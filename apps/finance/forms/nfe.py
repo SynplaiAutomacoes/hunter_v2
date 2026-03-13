@@ -57,7 +57,7 @@ class NfeRequestStep3Form(forms.ModelForm):
 
         slider_field = self.fields["pricing_slider"]
         slider_field.label = "Slider da emissao"
-        slider_field.help_text = "Ajuste a distribuicao da margem para esta NF-e sem alterar o orcamento."
+        slider_field.help_text = "Ajuste a distribuicao do valor total para esta NF-e sem alterar o orcamento."
         slider_field.widget = forms.NumberInput(
             attrs=build_slider_widget_attrs(
                 preview_url=f"{preview_url}&preview=1" if preview_url else "",

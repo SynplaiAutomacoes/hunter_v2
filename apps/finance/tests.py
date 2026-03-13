@@ -16,10 +16,11 @@ from djmoney.money import Money
 from apps.budget.models import Budget, BudgetItem
 from apps.accounts.models import Account, User
 from apps.catalog.models.groups import CatalogGroup
-from apps.catalog.models.kits import Kit, KitProduct
+from apps.catalog.models.kits import Kit, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.collaborators.models import WorkshopMember
+from apps.customer.models import Customer, Vehicle
 from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm
 from apps.finance.forms.financial_group import FinancialGroupForm
 from apps.finance.forms.payment_method import PaymentMethodForm
@@ -45,7 +46,7 @@ from apps.finance.services.webmania_errors import extract_webmania_error_message
 from apps.finance.services.webmania_secrets import decrypt_secret, encrypt_secret, is_encrypted_secret
 from apps.finance.views.nfse import NfseRequestCreateView
 from apps.iam.utils import get_or_create_director_role
-from apps.workorder.models import WorkOrder, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderStatus
 from apps.workshops.models.workshops import Workshop
 
 
@@ -674,17 +675,17 @@ class SliderPricingAllocationTests(TestCase):
         self.assertEqual(allocation.total_base, Decimal("60.00"))
         self.assertEqual(allocation.products_base, Decimal("17.14"))
         self.assertEqual(allocation.services_base, Decimal("42.86"))
-        self.assertEqual(allocation.products_target, Decimal("34.29"))
-        self.assertEqual(allocation.services_target, Decimal("25.71"))
+        self.assertEqual(allocation.products_target, Decimal("60.00"))
+        self.assertEqual(allocation.services_target, Decimal("0.00"))
         self.assertEqual(allocation.products_target + allocation.services_target, Decimal("60.00"))
 
     def test_nfse_service_total_uses_slider_override_on_workorder_snapshot(self) -> None:
         workorder, _, _ = self._build_workorder_with_product_and_service(suffix=92)
         nfse_request = SimpleNamespace(workorder=workorder)
 
-        service_total = _service_total_value(nfse_request=nfse_request, slider_override=-100)  # type: ignore[arg-type]
+        service_total = _service_total_value(nfse_request=nfse_request, slider_override=100)  # type: ignore[arg-type]
 
-        self.assertEqual(service_total, "30.00")
+        self.assertEqual(service_total, "70.00")
 
     def test_nfse_service_total_raises_when_slider_override_exhausts_services(self) -> None:
         workorder, _, _ = self._build_workorder_with_product_and_service(suffix=93, service_cost="0.00")
@@ -704,7 +705,7 @@ class SliderPricingAllocationTests(TestCase):
 
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["description"], "Servico Slider 94")
-        self.assertEqual(rows[0]["total_value"], Decimal("50.00"))
+        self.assertEqual(rows[0]["total_value"], Money("50.00", "BRL"))
         self.assertEqual(description, "1x Servico Slider 94")
 
     def test_nfse_request_copies_budget_slider_on_create(self) -> None:
@@ -734,7 +735,8 @@ class SliderPricingAllocationTests(TestCase):
         budget.slider = 0
         budget.save(update_fields=["slider"])
 
-        self.assertEqual(_service_total_value(nfse_request=nfse_request), "30.00")
+        with self.assertRaisesMessage(NfseEmissionError, "nao possui saldo de servicos"):
+            _service_total_value(nfse_request=nfse_request)
 
     def test_nfse_service_total_falls_back_to_budget_slider_for_compatibility_request_without_persisted_slider(self) -> None:
         workorder, budget, _ = self._build_workorder_with_product_and_service(suffix=98)
@@ -745,7 +747,8 @@ class SliderPricingAllocationTests(TestCase):
         NfseRequest.objects.filter(pk=nfse_request.pk).update(pricing_slider=None)
         compat_request = NfseRequest.objects.get(pk=nfse_request.pk)
 
-        self.assertEqual(_service_total_value(nfse_request=compat_request), "30.00")
+        with self.assertRaisesMessage(NfseEmissionError, "nao possui saldo de servicos"):
+            _service_total_value(nfse_request=compat_request)
 
     def test_nfe_products_payload_prefers_persisted_request_slider(self) -> None:
         workorder, budget, _ = self._build_workorder_with_product_and_service(suffix=99)
@@ -758,7 +761,7 @@ class SliderPricingAllocationTests(TestCase):
 
         _, total_products_value, allocation = _build_nfe_products_payload(nfe_request=nfe_request)
 
-        self.assertEqual(total_products_value, Decimal("40.00"))
+        self.assertEqual(total_products_value, Decimal("70.00"))
         self.assertEqual(allocation.slider, -100)
 
     def test_nfe_products_payload_falls_back_to_budget_slider_for_compatibility_request_without_persisted_slider(self) -> None:
@@ -774,7 +777,7 @@ class SliderPricingAllocationTests(TestCase):
 
         _, total_products_value, allocation = _build_nfe_products_payload(nfe_request=compat_request)
 
-        self.assertEqual(total_products_value, Decimal("40.00"))
+        self.assertEqual(total_products_value, Decimal("70.00"))
         self.assertEqual(allocation.slider, -100)
 
 
@@ -1870,6 +1873,39 @@ class UnifiedEmissionWizardTests(TestCase):
         workorder.sync_from_budget()
         return workorder
 
+    def _build_workorder_with_kit(self, *, suffix: int) -> tuple[WorkOrder, WorkOrderItem, Product, Service]:
+        budget = Budget(workshop=self.workshop, entry_date=timezone.now().date())
+        budget.save()
+
+        product_group = CatalogGroup.objects.create(workshop=self.workshop, name=f"Grupo Kit {suffix}")
+        product = Product.objects.create(
+            workshop=self.workshop,
+            code=f"P-KIT-{suffix}",
+            unit=Product.Unit.UND,
+            name=f"Produto Kit {suffix}",
+            ncm="87089990",
+            group=product_group,
+            cost_price=Money("12.00", "BRL"),
+            selling_price=Money("18.00", "BRL"),
+        )
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name=f"Servico Kit {suffix}",
+            description="Servico de kit",
+            duration=timedelta(hours=1),
+            suggested_cost=Money("8.00", "BRL"),
+            selling_price=Money("22.00", "BRL"),
+        )
+        kit = Kit.objects.create(workshop=self.workshop, name=f"Kit Emissao {suffix}")
+        KitProduct.objects.create(kit=kit, product=product, quantity=1)
+        KitService.objects.create(kit=kit, service=service, quantity=1)
+        BudgetItem.objects.create(workshop=self.workshop, budget=budget, kit=kit, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        workorder.sync_from_budget()
+        kit_item = WorkOrderItem.objects.get(workorder=workorder, kit=kit)
+        return workorder, kit_item, product, service
+
     @staticmethod
     def _wizard_url(*, step: int, tipo: str | None = None) -> str:
         base_url = reverse("finance:emission_create")
@@ -2005,6 +2041,127 @@ class UnifiedEmissionWizardTests(TestCase):
         self.assertContains(response, 'id="emission-display-venda-pecas"', html=False)
         self.assertContains(response, 'id="emission-display-venda-mo"', html=False)
         self.assertContains(response, "Itens consolidados da emissao")
+
+    def test_unified_customer_step_exposes_quick_edit_links(self) -> None:
+        customer = Customer.objects.create(
+            workshop=self.workshop,
+            name="Cliente Emissao",
+            cpf_or_cnpj="12345678901",
+            customer_type="PF",
+        )
+        vehicle = Vehicle.objects.create(
+            workshop=self.workshop,
+            customer=customer,
+            plate="ABC1D23",
+            brand="Ford",
+            model="Fiesta",
+            year_model="2020",
+            year_fabrication="2020",
+        )
+        self.workorder.budget.customer = customer
+        self.workorder.budget.vehicle = vehicle
+        self.workorder.budget.save(update_fields=["customer", "vehicle"])
+
+        self.client.post(self._wizard_url(step=1), {"workorder": self.workorder.pk})
+        response = self.client.get(self._wizard_url(step=2))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("customer:quick_update", kwargs={"pk": customer.pk}))
+        self.assertContains(response, reverse("customer:vehicle_quick_update", kwargs={"pk": vehicle.pk}))
+        self.assertContains(response, "Editar cliente")
+        self.assertContains(response, "Editar veiculo")
+
+    def test_unified_items_step_exposes_item_edit_actions_and_updates_workorder_item(self) -> None:
+        self.client.post(self._wizard_url(step=1), {"workorder": self.workorder.pk})
+        self.client.post(self._wizard_url(step=2), {})
+
+        product_item = WorkOrderItem.objects.filter(workorder=self.workorder, product__isnull=False).first()
+        assert product_item is not None
+
+        response = self.client.get(self._wizard_url(step=3))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            reverse("finance:emission_workorder_item_edit", kwargs={"workorder_pk": self.workorder.pk, "item_id": product_item.pk}),
+        )
+
+        response = self.client.post(
+            reverse("finance:emission_workorder_item_edit", kwargs={"workorder_pk": self.workorder.pk, "item_id": product_item.pk}),
+            {
+                "description": "Produto ajustado na emissao",
+                "quantity": "2",
+                "product_selling_price_0": "25.00",
+                "product_selling_price_1": "BRL",
+                "product_cost_price_0": "10.00",
+                "product_cost_price_1": "BRL",
+                "shipping_0": "0.00",
+                "shipping_1": "BRL",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(response.headers.get("HX-Trigger"), "financeEmissionWorkorderItemSaved")
+
+        product_item.refresh_from_db()
+        self.assertEqual(product_item.description, "Produto ajustado na emissao")
+        self.assertEqual(product_item.quantity, 2)
+        self.assertEqual(product_item.product_selling_price, Money("25.00", "BRL"))
+
+    def test_unified_items_step_lists_kit_components_as_editable_product_and_service_rows(self) -> None:
+        workorder, kit_item, product, service = self._build_workorder_with_kit(suffix=89)
+        self.client.post(self._wizard_url(step=1), {"workorder": workorder.pk})
+        self.client.post(self._wizard_url(step=2), {})
+
+        response = self.client.get(self._wizard_url(step=3))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, product.name)
+        self.assertContains(response, service.name)
+        self.assertContains(response, f"Kit: {kit_item.kit.name}")
+        self.assertContains(
+            response,
+            reverse(
+                "finance:emission_workorder_kit_component_edit",
+                kwargs={
+                    "workorder_pk": workorder.pk,
+                    "item_id": kit_item.pk,
+                    "component_type": "product",
+                    "component_id": product.pk,
+                },
+            ),
+        )
+
+        response = self.client.post(
+            reverse(
+                "finance:emission_workorder_kit_component_edit",
+                kwargs={
+                    "workorder_pk": workorder.pk,
+                    "item_id": kit_item.pk,
+                    "component_type": "product",
+                    "component_id": product.pk,
+                },
+            ),
+            {
+                "quantity": "2",
+                "cost_0": "9.00",
+                "cost_1": "BRL",
+                "price_0": "19.00",
+                "price_1": "BRL",
+                "shipping_0": "4.00",
+                "shipping_1": "BRL",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(response.headers.get("HX-Trigger"), "financeEmissionWorkorderItemSaved")
+
+        override = WorkOrderKitItemOverride.objects.get(workorder_item=kit_item, product=product)
+        self.assertEqual(override.quantity, 2)
+        self.assertEqual(override.product_cost_price, Money("9.00", "BRL"))
+        self.assertEqual(override.product_selling_price, Money("19.00", "BRL"))
+        self.assertEqual(override.shipping, Money("4.00", "BRL"))
 
     def test_emission_preview_returns_summary_body_with_slider_values(self) -> None:
         self._advance_to_step_4()
@@ -2228,7 +2385,7 @@ class CompatibilityEmissionUpdateFlowTests(TestCase):
         self.assertContains(response, 'hx-swap-oob="true"', html=False)
         self.assertContains(response, 'id="nfe-display-venda-pecas"', html=False)
         self.assertContains(response, 'id="nfe-display-venda-mo"', html=False)
-        self.assertContains(response, "R$ 40,00")
+        self.assertContains(response, "R$ 70,00")
 
         with (
             patch("apps.finance.views.request_workflow.list_tax_classes", return_value=tax_classes),
@@ -2283,7 +2440,7 @@ class CompatibilityEmissionUpdateFlowTests(TestCase):
         self.assertContains(response, 'hx-swap-oob="true"', html=False)
         self.assertContains(response, 'id="nfse-display-venda-pecas"', html=False)
         self.assertContains(response, 'id="nfse-display-venda-mo"', html=False)
-        self.assertContains(response, "R$ 60,00")
+        self.assertContains(response, "R$ 70,00")
 
         with (
             patch("apps.finance.views.request_workflow.list_tax_classes", return_value=tax_classes),

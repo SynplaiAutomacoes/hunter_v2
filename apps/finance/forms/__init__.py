@@ -3,6 +3,8 @@ from __future__ import annotations
 from .emission import (
     EMISSION_NOTE_MODE_CHOICES,
     EMISSION_NOTE_TYPE_CHOICES,
+    EmissionKitProductComponentForm,
+    EmissionKitServiceComponentForm,
     EmissionNfeConfigForm,
     EmissionNfseConfigForm,
     EmissionStep1Form,
@@ -53,6 +55,8 @@ __all__ = [
     "FinancialGroupForm",
     "EMISSION_NOTE_MODE_CHOICES",
     "EMISSION_NOTE_TYPE_CHOICES",
+    "EmissionKitProductComponentForm",
+    "EmissionKitServiceComponentForm",
     "EmissionNfeConfigForm",
     "EmissionNfseConfigForm",
     "EmissionStep1Form",

@@ -6,12 +6,16 @@ from typing import Any
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse
-from django.shortcuts import redirect
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.views import View
 from django.views.generic import FormView, RedirectView
+from djmoney.money import Money
 
 from apps.finance.forms import (
     EMISSION_NOTE_MODE_CHOICES,
+    EmissionKitProductComponentForm,
+    EmissionKitServiceComponentForm,
     EmissionNfeConfigForm,
     EmissionNfseConfigForm,
     EmissionStep1Form,
@@ -24,7 +28,8 @@ from apps.finance.models.finance import NfeRequest, NfeRequestStatus, NfseReques
 from apps.finance.services.emission import NfseEmissionError, emit_nfse_request, sync_emission_response
 from apps.finance.services.nfe_emission import NfeEmissionError, emit_nfe_request, sync_nfe_emission_response
 from apps.finance.services.tax_classes import TaxClassServiceError, list_tax_classes
-from apps.workorder.models import WorkOrder
+from apps.workorder.forms import WorkOrderItemEditForm
+from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderKitItemOverride
 from apps.workshops.mixin import WorkshopScopedMixin
 
 
@@ -650,3 +655,149 @@ class EmissionPreviewView(EmissionRequestCreateView):
 
         form = self.get_form()
         return self.render_to_response(self.get_context_data(form=form))
+
+
+class EmissionWorkOrderItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "workorder"
+    workshop_permission_model = "workorder"
+    workshop_permission_codename = "change_workorder"
+
+    def _get_workorder(self, workorder_pk: int) -> WorkOrder:
+        return get_object_or_404(WorkOrder, pk=workorder_pk, workshop=self.workshop)
+
+    @staticmethod
+    def _render_modal(*, request, workorder: WorkOrder, item: WorkOrderItem, form: WorkOrderItemEditForm) -> HttpResponse:
+        return render(
+            request,
+            "finance/partials/modal_edit_workorder_item.html",
+            {
+                "workorder": workorder,
+                "item": item,
+                "form": form,
+            },
+        )
+
+    def get(self, request, workorder_pk: int, item_id: int):
+        workorder = self._get_workorder(workorder_pk)
+        item = get_object_or_404(WorkOrderItem, pk=item_id, workorder=workorder, workshop=self.workshop)
+        form = WorkOrderItemEditForm(instance=item)
+        return self._render_modal(request=request, workorder=workorder, item=item, form=form)
+
+    def post(self, request, workorder_pk: int, item_id: int):
+        workorder = self._get_workorder(workorder_pk)
+        item = get_object_or_404(WorkOrderItem, pk=item_id, workorder=workorder, workshop=self.workshop)
+        form = WorkOrderItemEditForm(request.POST, instance=item)
+        if form.is_valid():
+            form.save()
+            response = HttpResponse(status=204)
+            response["HX-Trigger"] = "financeEmissionWorkorderItemSaved"
+            return response
+
+        return self._render_modal(request=request, workorder=workorder, item=item, form=form)
+
+
+class EmissionWorkOrderKitComponentUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "workorder"
+    workshop_permission_model = "workorder"
+    workshop_permission_codename = "change_workorder"
+
+    def _get_workorder_item(self, *, workorder_pk: int, item_id: int) -> WorkOrderItem:
+        workorder = get_object_or_404(WorkOrder, pk=workorder_pk, workshop=self.workshop)
+        return get_object_or_404(
+            WorkOrderItem.objects.select_related("kit").prefetch_related("kit__kit_products__product", "kit__kit_services__service", "kit_overrides"),
+            pk=item_id,
+            workorder=workorder,
+            workshop=self.workshop,
+            kit__isnull=False,
+        )
+
+    @staticmethod
+    def _render_modal(*, request, workorder_item: WorkOrderItem, form, component_name: str, component_kind: str) -> HttpResponse:
+        return render(
+            request,
+            "finance/partials/modal_edit_workorder_kit_component.html",
+            {
+                "workorder": workorder_item.workorder,
+                "item": workorder_item,
+                "form": form,
+                "component_name": component_name,
+                "component_kind": component_kind,
+            },
+        )
+
+    def get(self, request, workorder_pk: int, item_id: int, component_type: str, component_id: int):
+        workorder_item = self._get_workorder_item(workorder_pk=workorder_pk, item_id=item_id)
+        parent_quantity = int(workorder_item.quantity or 1)
+        product_overrides, service_overrides = workorder_item._get_kit_override_maps()
+
+        if component_type == "product":
+            kit_product = get_object_or_404(workorder_item.kit.kit_products.select_related("product"), product_id=component_id)
+            override = product_overrides.get(component_id)
+            form = EmissionKitProductComponentForm(
+                initial={
+                    "quantity": override.quantity if override else kit_product.quantity,
+                    "cost": override.product_cost_price if override else kit_product.product.cost_price,
+                    "price": override.product_selling_price if override else kit_product.product.selling_price,
+                    "shipping": override.shipping if override else Money(0, "BRL"),
+                },
+                parent_quantity=parent_quantity,
+            )
+            return self._render_modal(request=request, workorder_item=workorder_item, form=form, component_name=str(kit_product.product.name), component_kind="product")
+
+        kit_service = get_object_or_404(workorder_item.kit.kit_services.select_related("service"), service_id=component_id)
+        override = service_overrides.get(component_id)
+        form = EmissionKitServiceComponentForm(
+            initial={
+                "quantity": override.quantity if override else kit_service.quantity,
+                "cost": override.service_cost_price if override else (kit_service.service.suggested_cost or Money(0, "BRL")),
+                "price": override.service_selling_price if override else kit_service.service.selling_price,
+                "duration": override.duration if override and override.duration else kit_service.service.duration,
+            },
+            parent_quantity=parent_quantity,
+        )
+        return self._render_modal(request=request, workorder_item=workorder_item, form=form, component_name=str(kit_service.service.name), component_kind="service")
+
+    def post(self, request, workorder_pk: int, item_id: int, component_type: str, component_id: int):
+        workorder_item = self._get_workorder_item(workorder_pk=workorder_pk, item_id=item_id)
+        parent_quantity = int(workorder_item.quantity or 1)
+
+        if component_type == "product":
+            kit_product = get_object_or_404(workorder_item.kit.kit_products.select_related("product"), product_id=component_id)
+            form = EmissionKitProductComponentForm(request.POST, parent_quantity=parent_quantity)
+            if form.is_valid():
+                WorkOrderKitItemOverride.objects.update_or_create(
+                    workshop=self.workshop,
+                    workorder_item=workorder_item,
+                    product=kit_product.product,
+                    defaults={
+                        "quantity": int(form.cleaned_data.get("quantity") or 0),
+                        "product_cost_price": form.cleaned_data.get("cost") or Money(0, "BRL"),
+                        "product_selling_price": form.cleaned_data.get("price") or Money(0, "BRL"),
+                        "shipping": form.cleaned_data.get("shipping") or Money(0, "BRL"),
+                    },
+                )
+                response = HttpResponse(status=204)
+                response["HX-Trigger"] = "financeEmissionWorkorderItemSaved"
+                return response
+
+            return self._render_modal(request=request, workorder_item=workorder_item, form=form, component_name=str(kit_product.product.name), component_kind="product")
+
+        kit_service = get_object_or_404(workorder_item.kit.kit_services.select_related("service"), service_id=component_id)
+        form = EmissionKitServiceComponentForm(request.POST, parent_quantity=parent_quantity)
+        if form.is_valid():
+            WorkOrderKitItemOverride.objects.update_or_create(
+                workshop=self.workshop,
+                workorder_item=workorder_item,
+                service=kit_service.service,
+                defaults={
+                    "quantity": int(form.cleaned_data.get("quantity") or 0),
+                    "service_cost_price": form.cleaned_data.get("cost") or Money(0, "BRL"),
+                    "service_selling_price": form.cleaned_data.get("price") or Money(0, "BRL"),
+                    "duration": form.cleaned_data.get("duration"),
+                },
+            )
+            response = HttpResponse(status=204)
+            response["HX-Trigger"] = "financeEmissionWorkorderItemSaved"
+            return response
+
+        return self._render_modal(request=request, workorder_item=workorder_item, form=form, component_name=str(kit_service.service.name), component_kind="service")
