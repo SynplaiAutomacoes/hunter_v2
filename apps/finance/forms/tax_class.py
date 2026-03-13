@@ -10,12 +10,6 @@ from django import forms
 from django.forms import formset_factory
 
 from apps.core.widgets import CheckboxInput, DecimalInput, SelectInput, TextInput, TextareaInput
-from apps.finance.tax_class_utils import (
-    digits_only,
-    is_supported_nfse_service_code,
-    normalize_nfse_service_code,
-    NFSE_SERVICE_CODE_VALIDATION_MESSAGE,
-)
 
 
 NFE_SCENARIO_CHOICES = (
@@ -89,22 +83,26 @@ RETENCAO_PIS_COFINS_CHOICES = (
     ("3", "3 - PIS/COFINS/CSLL retidos"),
     ("4", "4 - PIS/COFINS retidos"),
 )
-PIS_COFINS_RETIDO_CHOICES = (
-    ("", "Selecione"),
-    ("0", "0 - PIS/COFINS/CSLL não retidos"),
-    ("3", "3 - PIS/COFINS/CSLL retidos"),
-    ("4", "4 - PIS/COFINS retidos, CSLL não retido"),
-    ("5", "5 - PIS retido, COFINS/CSLL não retidos"),
-    ("6", "6 - COFINS retido, PIS/CSLL não retidos"),
-    ("7", "7 - PIS não retido, COFINS/CSLL retidos"),
-    ("8", "8 - PIS/COFINS não retidos, CSLL retido"),
-    ("9", "9 - COFINS não retido, PIS/CSLL retidos"),
-)
 
 
 def _format_decimal(value: Decimal, *, places: int = 2) -> str:
     quantizer = Decimal(1).scaleb(-places)
     return f"{value.quantize(quantizer):f}"
+
+
+def _service_code_digits(value: object) -> str:
+    return "".join(char for char in str(value or "") if char.isdigit())
+
+
+def _format_service_code_for_api(value: object) -> str:
+    digits = _service_code_digits(value)
+    if len(digits) == 4:
+        return f"{digits[:2]}.{digits[2:]}"
+    return str(value or "").strip()
+
+
+def _is_service_code_xx_xx(value: str) -> bool:
+    return len(value) == 5 and value[2] == "." and value.replace(".", "").isdigit()
 
 
 class TaxClassFormBase(forms.Form):
@@ -166,7 +164,7 @@ class NfeTaxClassForm(TaxClassFormBase):
 
 
 class NfseTaxClassForm(TaxClassFormBase):
-    codigo_servico = forms.CharField(label="Código do serviço", required=True, widget=TextInput(attrs={"placeholder": "00.00"}))
+    codigo_servico = forms.CharField(label="Código do serviço", required=True, widget=TextInput())
     tipo_emissao = forms.ChoiceField(label="Tipo de emissão", required=False, choices=TIPO_EMISSAO_NFSE_CHOICES, widget=SelectInput(choices=TIPO_EMISSAO_NFSE_CHOICES))
     codigo_tributacao_municipio = forms.CharField(label="Código tributação município", required=False, widget=TextInput())
     tributacao_iss = forms.ChoiceField(label="Tributação ISS", required=False, choices=TRIBUTACAO_ISS_CHOICES, widget=SelectInput(choices=TRIBUTACAO_ISS_CHOICES))
@@ -175,9 +173,9 @@ class NfseTaxClassForm(TaxClassFormBase):
     cst_pis_cofins = forms.ChoiceField(label="CST PIS/COFINS", required=False, choices=CST_PIS_COFINS_CHOICES, widget=SelectInput(choices=CST_PIS_COFINS_CHOICES))
     retencao_pis_cofins = forms.ChoiceField(label="Retenção PIS/COFINS", required=False, choices=RETENCAO_PIS_COFINS_CHOICES, widget=SelectInput(choices=RETENCAO_PIS_COFINS_CHOICES))
 
-    natureza_operacao = forms.ChoiceField(label="Natureza da operação", required=False, choices=NATUREZA_OPERACAO_CHOICES, widget=SelectInput(choices=NATUREZA_OPERACAO_CHOICES))
-    exigibilidade_iss = forms.ChoiceField(label="Exigibilidade ISS", required=False, choices=EXIGIBILIDADE_ISS_CHOICES, widget=SelectInput(choices=EXIGIBILIDADE_ISS_CHOICES))
-    iss_retido = forms.ChoiceField(label="ISS retido", required=False, choices=ISS_RETIDO_CHOICES, widget=SelectInput(choices=ISS_RETIDO_CHOICES))
+    natureza_operacao = forms.ChoiceField(label="Natureza da operação (ABRASF)", required=False, choices=NATUREZA_OPERACAO_CHOICES, widget=SelectInput(choices=NATUREZA_OPERACAO_CHOICES))
+    exigibilidade_iss = forms.ChoiceField(label="Exigibilidade ISS (ABRASF)", required=True, choices=EXIGIBILIDADE_ISS_CHOICES, widget=SelectInput(choices=EXIGIBILIDADE_ISS_CHOICES))
+    iss_retido = forms.ChoiceField(label="ISS retido (ABRASF)", required=True, choices=ISS_RETIDO_CHOICES, widget=SelectInput(choices=ISS_RETIDO_CHOICES))
     responsavel_retencao = forms.ChoiceField(label="Responsável retenção", required=False, choices=RESPONSAVEL_RETENCAO_CHOICES, widget=SelectInput(choices=RESPONSAVEL_RETENCAO_CHOICES))
     codigo_cnae = forms.CharField(label="Código CNAE", required=False, widget=TextInput())
 
@@ -226,7 +224,7 @@ class NfseTaxClassForm(TaxClassFormBase):
             if field_name in payload and payload.get(field_name) not in (None, ""):
                 value = payload.get(field_name)
                 if field_name == "codigo_servico":
-                    initial[field_name] = normalize_nfse_service_code(value)
+                    initial[field_name] = _format_service_code_for_api(value)
                 else:
                     initial[field_name] = str(value)
 
@@ -259,6 +257,7 @@ class NfseTaxClassForm(TaxClassFormBase):
         super().__init__(*args, **kwargs)
         if not self.is_bound:
             self.initial.setdefault("natureza_operacao", "1")
+            self.initial.setdefault("exigibilidade_iss", "1")
             self.initial.setdefault("iss_retido", "2")
 
         self.helper = FormHelper()
@@ -272,31 +271,32 @@ class NfseTaxClassForm(TaxClassFormBase):
                     css_class="grid grid-cols-12 gap-4",
                 ),
                 Div(
-                    Field("tipo_emissao", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("codigo_servico", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("codigo_cnae", wrapper_class="col-span-12 lg:col-span-4"),
-                    css_class="grid grid-cols-12 gap-4",
-                ),
-                Div(
-                    Field("natureza_operacao", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("exigibilidade_iss", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("iss_retido", wrapper_class="col-span-12 lg:col-span-4"),
-                    css_class="grid grid-cols-12 gap-4",
-                ),
-                Div(
-                    Field("responsavel_retencao", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("retencao_pis_cofins", wrapper_class="col-span-12 lg:col-span-4"),
-                    css_class="grid grid-cols-12 gap-4",
-                ),
-                Div(
+                    Field("tipo_emissao", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("codigo_servico", wrapper_class="col-span-12 lg:col-span-3"),
                     Field("codigo_tributacao_municipio", wrapper_class="col-span-12 lg:col-span-3"),
                     Field("tributacao_iss", wrapper_class="col-span-12 lg:col-span-3"),
-                    Field("tipo_imunidade", wrapper_class="col-span-12 lg:col-span-3"),
-                    Field("retencao_iss", wrapper_class="col-span-12 lg:col-span-3"),
                     css_class="grid grid-cols-12 gap-4",
                 ),
                 Div(
+                    Field("tipo_imunidade", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("retencao_iss", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("cst_pis_cofins", wrapper_class="col-span-12 lg:col-span-4"),
+                    css_class="grid grid-cols-12 gap-4",
+                ),
+                Field("retencao_pis_cofins"),
+                HTML("<h3 class='font-semibold mt-2'>Campos específicos de provedor (opcional)</h3>"),
+                Div(
+                    Field("natureza_operacao", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("exigibilidade_iss", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("iss_retido", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("responsavel_retencao", wrapper_class="col-span-12 lg:col-span-3"),
+                    css_class="grid grid-cols-12 gap-4",
+                ),
+                Div(
+                    Field("codigo_cnae", wrapper_class="col-span-12 lg:col-span-4"),
+                    css_class="grid grid-cols-12 gap-4 items-end",
+                ),
+                Div(
                     Field("iss", wrapper_class="col-span-12 sm:col-span-6 lg:col-span-2"),
                     Field("pis", wrapper_class="col-span-12 sm:col-span-6 lg:col-span-2"),
                     Field("cofins", wrapper_class="col-span-12 sm:col-span-6 lg:col-span-2"),
@@ -332,14 +332,15 @@ class NfseTaxClassForm(TaxClassFormBase):
 
     def clean(self) -> dict[str, Any]:
         cleaned_data = super().clean() or {}
-        codigo_servico = normalize_nfse_service_code(cleaned_data.get("codigo_servico"))
-        if codigo_servico and not is_supported_nfse_service_code(codigo_servico):
-            self.add_error("codigo_servico", NFSE_SERVICE_CODE_VALIDATION_MESSAGE)
+
+        codigo_servico = _format_service_code_for_api(cleaned_data.get("codigo_servico"))
+        if codigo_servico and not _is_service_code_xx_xx(codigo_servico):
+            self.add_error("codigo_servico", "Informe o código do serviço no formato XX.XX.")
         elif codigo_servico:
             cleaned_data["codigo_servico"] = codigo_servico
 
         codigo_tributacao = str(cleaned_data.get("codigo_tributacao_municipio") or "")
-        codigo_tributacao_digits = digits_only(codigo_tributacao)
+        codigo_tributacao_digits = _service_code_digits(codigo_tributacao)
         if codigo_tributacao_digits:
             if len(codigo_tributacao_digits) != 3:
                 self.add_error("codigo_tributacao_municipio", "Informe o código de tributação com 3 dígitos.")
@@ -351,25 +352,35 @@ class NfseTaxClassForm(TaxClassFormBase):
         iss_retido = cleaned_data.get("iss_retido")
         responsavel_retencao = cleaned_data.get("responsavel_retencao")
 
-        if not cleaned_data.get("natureza_operacao"):
-            self.add_error("natureza_operacao", "Informe a natureza da operação.")
-
-        if not iss_retido:
-            self.add_error("iss_retido", "Informe se o ISS é retido.")
-
         if iss_retido == "1" and not responsavel_retencao:
             self.add_error("responsavel_retencao", "Informe o responsável pela retenção quando o ISS for retido.")
 
         if iss_retido != "1" and responsavel_retencao:
             self.add_error("responsavel_retencao", "Preencha apenas quando o ISS for retido.")
 
+        has_service_tax_data = any(
+            cleaned_data.get(field_name) not in (None, "")
+            for field_name in (
+                "natureza_operacao",
+                "exigibilidade_iss",
+                "iss_retido",
+                "iss",
+                "pis",
+                "cofins",
+                "inss",
+                "ir",
+                "csll",
+            )
+        )
+
+        if has_service_tax_data and not cleaned_data.get("codigo_servico"):
+            self.add_error("codigo_servico", "Informe o código do serviço para utilizar os campos de tributação.")
+
         return cleaned_data
 
     def build_payload(self) -> dict[str, Any]:
         payload = self.get_base_payload()
         payload["tipo"] = "nfse"
-
-        payload.pop("ibs_cbs", None)
 
         text_fields = (
             "referencia",
@@ -390,7 +401,6 @@ class NfseTaxClassForm(TaxClassFormBase):
             "informacoes_fisco",
             "informacoes_complementares",
         )
-
         for field_name in text_fields:
             value = self.cleaned_data.get(field_name)
             if value in (None, ""):
@@ -405,7 +415,7 @@ class NfseTaxClassForm(TaxClassFormBase):
                 continue
             payload[field_name] = _format_decimal(value, places=2)
 
-        ibs_cbs_payload: dict[str, Any] = {}
+        ibs_cbs_payload = dict(payload.get("ibs_cbs") or {})
         for field_name, payload_key in (
             ("ibs_situacao_tributaria", "situacao_tributaria"),
             ("ibs_classificacao_tributaria", "classificacao_tributaria"),
@@ -415,6 +425,7 @@ class NfseTaxClassForm(TaxClassFormBase):
         ):
             value = self.cleaned_data.get(field_name)
             if value in (None, ""):
+                ibs_cbs_payload.pop(payload_key, None)
                 continue
             ibs_cbs_payload[payload_key] = str(value).strip()
 
@@ -426,11 +437,14 @@ class NfseTaxClassForm(TaxClassFormBase):
         for field_name, payload_key in differimento_map:
             value = self.cleaned_data.get(field_name)
             if value is None:
+                ibs_cbs_payload.pop(payload_key, None)
                 continue
             ibs_cbs_payload[payload_key] = {"aliquota_diferimento": float(value)}
 
         if ibs_cbs_payload:
             payload["ibs_cbs"] = ibs_cbs_payload
+        else:
+            payload.pop("ibs_cbs", None)
 
         return payload
 

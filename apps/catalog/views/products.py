@@ -165,10 +165,6 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
                 "status": item.workorder.get_status_display(),
                 "label": f"OS #{item.workorder.id}",
                 "sub_label": "Ordem de Serviço",
-                "type": "workorder", "id": item.workorder.id,
-                "obj": item.workorder, "date": item.workorder.criado_em,
-                "quantity": item.quantity, "status": item.workorder.get_status_display(),
-                "label": f"OS #{item.workorder.budget.id}", "sub_label": "Ordem de Serviço",
                 "url": reverse_lazy("workorder:workorder_detail", kwargs={"pk": item.workorder.id}),
             }
 

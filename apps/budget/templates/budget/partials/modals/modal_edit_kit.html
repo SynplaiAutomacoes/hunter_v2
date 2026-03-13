@@ -30,7 +30,6 @@
                         <thead>
                             <tr class="bg-base-200">
                                 <th class="w-1/3">Descrição</th>
-                                <th class="w-20 text-center">Em Estoque</th>
                                 <th class="w-20 text-center">Qtd</th>
                                 <th class="w-32">Custo (R$)</th>
                                 <th class="w-32">Venda (R$)</th>
@@ -42,11 +41,6 @@
                             {% for product in kit_products %}
                             <tr data-product-id="{{ product.id }}">
                                 <td class="font-medium">{{ product.name }}</td>
-                                <td class="text-center">
-                                    <span class="badge badge-ghost font-mono font-bold">
-                                        {{ product.stock_quantity }}
-                                    </span>
-                                </td>
                                 <td class="text-center">
                                     {{ product.form.quantity }}
                                 </td>

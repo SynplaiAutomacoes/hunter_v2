@@ -4,7 +4,7 @@ from django.core.exceptions import PermissionDenied
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
-from apps.accounts.mixins import AccountOwnerOrDirectorRequiredMixin
+from apps.accounts.mixins import AccountOwnerRequiredMixin
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
@@ -12,7 +12,7 @@ from apps.iam.forms import WorkshopRoleForm
 from apps.iam.models import WorkshopRole
 
 
-class WorkshopRoleListView(AccountOwnerOrDirectorRequiredMixin, HtmxTemplateResponseMixin, ListView):
+class WorkshopRoleListView(AccountOwnerRequiredMixin, HtmxTemplateResponseMixin, ListView):
     model = WorkshopRole
     template_name = "iam/role_list.html"
     context_object_name = "roles"
@@ -48,7 +48,7 @@ class WorkshopRoleListView(AccountOwnerOrDirectorRequiredMixin, HtmxTemplateResp
         return context
 
 
-class WorkshopRoleCreateView(AccountOwnerOrDirectorRequiredMixin, CreateView):
+class WorkshopRoleCreateView(AccountOwnerRequiredMixin, CreateView):
     model = WorkshopRole
     form_class = WorkshopRoleForm
     template_name = "iam/role_create.html"
@@ -59,7 +59,7 @@ class WorkshopRoleCreateView(AccountOwnerOrDirectorRequiredMixin, CreateView):
         return super().form_valid(form)
 
 
-class WorkshopRoleUpdateView(AccountOwnerOrDirectorRequiredMixin, UpdateView):
+class WorkshopRoleUpdateView(AccountOwnerRequiredMixin, UpdateView):
     model = WorkshopRole
     form_class = WorkshopRoleForm
     template_name = "iam/role_update.html"
@@ -75,7 +75,7 @@ class WorkshopRoleUpdateView(AccountOwnerOrDirectorRequiredMixin, UpdateView):
         return response
 
 
-class WorkshopRoleDeleteView(AccountOwnerOrDirectorRequiredMixin, HtmxDeleteResponseMixin, DeleteView):
+class WorkshopRoleDeleteView(AccountOwnerRequiredMixin, HtmxDeleteResponseMixin, DeleteView):
     model = WorkshopRole
     success_url = reverse_lazy("iam:role_list")
 
