@@ -19,6 +19,7 @@ from django.utils import timezone
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView
 
+from apps.accounts.mixins import AccountOwnerOrDirectorRequiredMixin
 from apps.collaborators.models import WorkshopMember
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
@@ -68,7 +69,7 @@ def _to_public_integration_message(raw_message: object) -> str:
 
 
 # TODO: Não permitir nome igual de oficina
-class WorkshopCreateView(LoginRequiredMixin, CreateView):
+class WorkshopCreateView(AccountOwnerOrDirectorRequiredMixin, CreateView):
     model = Workshop
     form_class = WorkshopForm
     template_name = "workshops/workshop_create.html"
@@ -139,17 +140,6 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
         )
 
         return context
-
-    def dispatch(self, request, *args, **kwargs):
-        user = cast(Any, request.user)
-        user_account = getattr(user, "account", None)
-        if user_account is None:
-            raise PermissionDenied
-
-        if getattr(user_account, "owner_id", None) != getattr(user, "id", None):
-            raise PermissionDenied
-
-        return super().dispatch(request, *args, **kwargs)
 
     def form_valid(self, form):
         user = cast(Any, self.request.user)
