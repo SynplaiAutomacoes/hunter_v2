@@ -24,7 +24,7 @@
                 </div>
                 <div class="text-right">
                     <h4 class="font-bold text-lg">ORDEM DE SERVIÇO</h4>
-                    <p class="text-2xl font-bold">{{workorder.id}}</p>
+                    <p class="text-2xl font-bold">{{workorder.budget.id}}</p>
                     <p class="">{{workorder.criado_em}}</p>
                 </div>
             </div>
@@ -66,7 +66,6 @@
                         <thead>
                             <tr class="border-b">
                                 <th class="p-2 font-semibold">Código</th>
-                                <th class="p-2 font-semibold">Nome</th>
                                 <th class="p-2 font-semibold">Descrição</th>
                                 <th class="p-2 font-semibold">Aplicação</th>
                                 <th class="p-2 font-semibold text-center">Qtd.</th>
@@ -77,10 +76,9 @@
                         <tbody class="divide-y divide-gray-100">
                             {% for item in summary_product_items %}
                                 <tr>
-                                    <td class="p-2">{{ item.product.code|default:"-" }}</td>
-                                    <td class="p-2">{{ item.product.name }}</td>
-                                    <td class="p-2">{{ item.product.description }}</td>
-                                    <td class="p-2 whitespace-normal break-words">{{ item.product.application|default:"-" }}</td>
+                                    <td class="p-2">{{ item.code|default:"-" }}</td>
+                                    <td class="p-2">{{ item.description|default:"-" }}</td>
+                                    <td class="p-2 whitespace-normal break-words">{{ item.application|default:"-" }}</td>
                                     <td class="p-2 text-center">{{ item.quantity }}</td>
                                     <td class="p-2">{{ item.unit_price }}</td>
                                     <td class="p-2 font-semibold">{{ item.total_price }}</td>
@@ -110,7 +108,7 @@
                     <tbody class="divide-y divide-gray-100">
                         {% for item in summary_service_items %}
                             <tr>
-                                <td class="p-2">{{ item.service.name }}</td>
+                                <td class="p-2">{{ item.description }}</td>
                                 <td class="p-2 font-semibold">{{ item.total_price }}</td>
                             </tr>
                         {% empty %}
