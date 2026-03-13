@@ -10,6 +10,12 @@ from django import forms
 from django.forms import formset_factory
 
 from apps.core.widgets import CheckboxInput, DecimalInput, SelectInput, TextInput, TextareaInput
+from apps.finance.tax_class_utils import (
+    NFSE_SERVICE_CODE_VALIDATION_MESSAGE,
+    digits_only,
+    is_supported_nfse_service_code,
+    normalize_nfse_service_code,
+)
 
 
 NFE_SCENARIO_CHOICES = (
@@ -88,21 +94,6 @@ RETENCAO_PIS_COFINS_CHOICES = (
 def _format_decimal(value: Decimal, *, places: int = 2) -> str:
     quantizer = Decimal(1).scaleb(-places)
     return f"{value.quantize(quantizer):f}"
-
-
-def _service_code_digits(value: object) -> str:
-    return "".join(char for char in str(value or "") if char.isdigit())
-
-
-def _format_service_code_for_api(value: object) -> str:
-    digits = _service_code_digits(value)
-    if len(digits) == 4:
-        return f"{digits[:2]}.{digits[2:]}"
-    return str(value or "").strip()
-
-
-def _is_service_code_xx_xx(value: str) -> bool:
-    return len(value) == 5 and value[2] == "." and value.replace(".", "").isdigit()
 
 
 class TaxClassFormBase(forms.Form):
@@ -224,7 +215,7 @@ class NfseTaxClassForm(TaxClassFormBase):
             if field_name in payload and payload.get(field_name) not in (None, ""):
                 value = payload.get(field_name)
                 if field_name == "codigo_servico":
-                    initial[field_name] = _format_service_code_for_api(value)
+                    initial[field_name] = normalize_nfse_service_code(value)
                 else:
                     initial[field_name] = str(value)
 
@@ -333,14 +324,14 @@ class NfseTaxClassForm(TaxClassFormBase):
     def clean(self) -> dict[str, Any]:
         cleaned_data = super().clean() or {}
 
-        codigo_servico = _format_service_code_for_api(cleaned_data.get("codigo_servico"))
-        if codigo_servico and not _is_service_code_xx_xx(codigo_servico):
-            self.add_error("codigo_servico", "Informe o código do serviço no formato XX.XX.")
+        codigo_servico = normalize_nfse_service_code(cleaned_data.get("codigo_servico"))
+        if codigo_servico and not is_supported_nfse_service_code(codigo_servico):
+            self.add_error("codigo_servico", NFSE_SERVICE_CODE_VALIDATION_MESSAGE)
         elif codigo_servico:
             cleaned_data["codigo_servico"] = codigo_servico
 
         codigo_tributacao = str(cleaned_data.get("codigo_tributacao_municipio") or "")
-        codigo_tributacao_digits = _service_code_digits(codigo_tributacao)
+        codigo_tributacao_digits = digits_only(codigo_tributacao)
         if codigo_tributacao_digits:
             if len(codigo_tributacao_digits) != 3:
                 self.add_error("codigo_tributacao_municipio", "Informe o código de tributação com 3 dígitos.")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
@@ -24,6 +25,7 @@ from apps.finance.forms.payment_method import PaymentMethodForm
 from apps.finance.models.finance import TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassSyncState, WebmaniaCompany
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
+from apps.finance.tax_class_utils import NFSE_SERVICE_CODE_VALIDATION_MESSAGE
 from apps.finance.services.emission import NfseEmissionError, _build_taker_payload, _service_total_value, build_webmania_webhook_token, emit_nfse_request
 from apps.finance.services.nfe_emission import _extract_product_lines
 from apps.finance.services.pricing import build_slider_allocation_for_workorder, compute_slider_allocation, distribute_total_proportionally
@@ -468,6 +470,33 @@ class TaxClassServiceTests(TestCase):
         self.assertEqual(str(tax_class.ibs_aliquota_diferimento_estadual), "1.25")
         self.assertTrue(TaxClassSyncState.objects.filter(workshop=workshop, synced_once=True).exists())
 
+    def test_save_tax_class_formats_canonical_nfse_service_code(self) -> None:
+        workshop = create_workshop(suffix=3)
+        payload = {
+            "descricao": "Classe NFSE Canonica",
+            "tipo": "nfse",
+            "tipo_emissao": "1",
+            "codigo_servico": "010501",
+        }
+        response_payload = {
+            "referencia": "REFNFSE003",
+            "status": "ativo",
+            "data": "2026-02-18",
+        }
+
+        with (
+            patch("apps.finance.services.tax_classes._build_headers", return_value={}),
+            patch("apps.finance.services.tax_classes.requests.post", return_value=_mock_response(response_payload)) as post_mock,
+        ):
+            saved = save_tax_class(workshop=workshop, payload=payload)
+
+        sent_payload = post_mock.call_args.kwargs.get("json", {})
+        self.assertEqual(sent_payload.get("codigo_servico"), "01.05.01")
+
+        tax_class = TaxClassNfse.objects.get(workshop=workshop, reference="REFNFSE003")
+        self.assertEqual(saved.get("codigo_servico"), "01.05.01")
+        self.assertEqual(tax_class.codigo_servico, "01.05.01")
+
     def test_delete_tax_class_removes_local_on_success(self) -> None:
         workshop = create_workshop()
         TaxClassNfe.objects.create(
@@ -527,6 +556,24 @@ class NfseTaxClassFormTests(TestCase):
         self.assertNotIn("cst_pis_cofins", payload)
         self.assertNotIn("retencao_pis_cofins", payload)
 
+    def test_build_payload_formats_service_code_as_xx_xx_xx(self) -> None:
+        form = NfseTaxClassForm(
+            data={
+                "descricao": "Classe NFS-e",
+                "codigo_servico": "010501",
+                "codigo_tributacao_municipio": "",
+                "natureza_operacao": "1",
+                "exigibilidade_iss": "1",
+                "iss_retido": "2",
+                "base_payload_json": "{}",
+            }
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        payload = form.build_payload()
+
+        self.assertEqual(payload.get("codigo_servico"), "01.05.01")
+
     def test_initial_from_tax_class_formats_service_code_for_display(self) -> None:
         initial = NfseTaxClassForm.initial_from_tax_class(
             {
@@ -540,6 +587,20 @@ class NfseTaxClassFormTests(TestCase):
         )
 
         self.assertEqual(initial.get("codigo_servico"), "01.05")
+
+    def test_initial_from_tax_class_formats_canonical_service_code_for_display(self) -> None:
+        initial = NfseTaxClassForm.initial_from_tax_class(
+            {
+                "tipo": "nfse",
+                "descricao": "Classe NFS-e",
+                "codigo_servico": "010501",
+                "natureza_operacao": "1",
+                "exigibilidade_iss": "1",
+                "iss_retido": "2",
+            }
+        )
+
+        self.assertEqual(initial.get("codigo_servico"), "01.05.01")
 
     def test_requires_exigibilidade_and_iss_retido(self) -> None:
         form = NfseTaxClassForm(
@@ -557,11 +618,11 @@ class NfseTaxClassFormTests(TestCase):
         self.assertIn("Este campo é obrigatório.", form.errors.get("exigibilidade_iss", []))
         self.assertIn("Este campo é obrigatório.", form.errors.get("iss_retido", []))
 
-    def test_requires_service_code_in_xx_xx_format(self) -> None:
+    def test_requires_service_code_in_supported_format(self) -> None:
         form = NfseTaxClassForm(
             data={
                 "descricao": "Classe NFS-e",
-                "codigo_servico": "01.05.01",
+                "codigo_servico": "01.05.01.99",
                 "natureza_operacao": "1",
                 "exigibilidade_iss": "1",
                 "iss_retido": "2",
@@ -570,7 +631,7 @@ class NfseTaxClassFormTests(TestCase):
         )
 
         self.assertFalse(form.is_valid())
-        self.assertIn("Informe o código do serviço no formato XX.XX.", form.errors.get("codigo_servico", []))
+        self.assertIn(NFSE_SERVICE_CODE_VALIDATION_MESSAGE, form.errors.get("codigo_servico", []))
 
 
 class NfseEmissionPayloadTests(TestCase):
@@ -1585,6 +1646,59 @@ class TaxClassPresetViewTests(TestCase):
         nfe_formset_sections = response.context["nfe_formset_sections"]
         icms_section = next(section for section in nfe_formset_sections if section["key"] == "icms")
         self.assertGreaterEqual(icms_section["formset"].total_form_count(), 5)
+
+    def test_apply_nfse_preset_uses_canonical_service_code_format(self) -> None:
+        response = self.client.post(
+            reverse("finance:tax_class_create"),
+            data={
+                "tab": "nfse",
+                "form_action": "apply_preset",
+                "preset_key": "nfse_abrasf_basico",
+                "referencia": "REFPRENFSE001",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        nfse_form = response.context["nfse_form"]
+        self.assertEqual(str(nfse_form["referencia"].value() or ""), "REFPRENFSE001")
+        self.assertEqual(str(nfse_form["codigo_servico"].value() or ""), "01.05.01")
+
+    def test_apply_nfse_preset_on_update_preserves_hidden_payload_fields(self) -> None:
+        reference = "REFPRENFSE002"
+        existing_payload = {
+            "referencia": reference,
+            "descricao": "Classe antiga",
+            "tipo": "nfse",
+            "codigo_servico": "01.05",
+            "natureza_operacao": "1",
+            "exigibilidade_iss": "1",
+            "iss_retido": "2",
+            "campo_provedor": "valor-antigo",
+            "impostos": {"campo_extra": "preservado"},
+        }
+
+        with patch("apps.finance.views.tax_class.list_tax_classes", return_value=[existing_payload]):
+            response = self.client.post(
+                reverse("finance:tax_class_update", kwargs={"reference": reference}),
+                data={
+                    "tab": "nfse",
+                    "form_action": "apply_preset",
+                    "preset_key": "nfse_abrasf_retido",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        nfse_form = response.context["nfse_form"]
+        base_payload = json.loads(str(nfse_form["base_payload_json"].value() or "{}"))
+
+        self.assertEqual(str(nfse_form["referencia"].value() or ""), reference)
+        self.assertEqual(str(nfse_form["codigo_servico"].value() or ""), "01.05.01")
+        self.assertEqual(base_payload.get("referencia"), reference)
+        self.assertEqual(base_payload.get("campo_provedor"), "valor-antigo")
+        self.assertEqual(base_payload.get("impostos", {}).get("campo_extra"), "preservado")
+        self.assertEqual(base_payload.get("codigo_servico"), "01.05.01")
+        self.assertEqual(base_payload.get("iss_retido"), "1")
+        self.assertEqual(base_payload.get("responsavel_retencao"), "1")
 
 
 class NfseEmissionAuthTests(TestCase):

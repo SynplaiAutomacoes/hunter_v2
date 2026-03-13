@@ -17,6 +17,7 @@ from apps.finance.models.finance import (
     TaxClassNfse,
     TaxClassSyncState,
 )
+from apps.finance.tax_class_utils import normalize_nfse_service_code
 from apps.finance.services.webmania_auth import (
     WebmaniaAuthError,
     build_webmania_headers,
@@ -147,11 +148,7 @@ def _normalize_tax_class_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _format_nfse_service_code_for_api(value: Any) -> str:
-    raw_value = _clean_string(value)
-    code_digits = _digits_only(raw_value)
-    if len(code_digits) == 4:
-        return f"{code_digits[:2]}.{code_digits[2:]}"
-    return raw_value
+    return normalize_nfse_service_code(value)
 
 
 def _normalize_payload_for_api(payload: dict[str, Any]) -> dict[str, Any]:
