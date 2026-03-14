@@ -4,7 +4,10 @@
 {% block crud_subtitle %}Gerencie classes fiscais de NF-e e NFS-e.{% endblock %}
 
 {% block crud_header_actions %}
-    <a href="{% url 'finance:tax_class_create' %}?tab={{ active_tab }}" class="btn btn-primary">Criar nova Classe de Imposto</a>
+    <div class="flex flex-wrap gap-2">
+        <a href="{% url 'finance:tax_class_preset_list' %}?tab={{ active_tab }}" class="btn btn-outline">Gerenciar presets</a>
+        <a href="{% url 'finance:tax_class_create' %}?tab={{ active_tab }}" class="btn btn-primary">Criar nova Classe de Imposto</a>
+    </div>
 {% endblock %}
 
 {% block crud_table %}

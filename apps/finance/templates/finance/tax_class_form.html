@@ -40,7 +40,10 @@
                     </select>
                 </div>
                 <div class="lg:col-span-4">
-                    <button type="button" class="btn btn-outline w-full apply-preset-button" data-form-action="apply_preset">Aplicar preset</button>
+                    <div class="flex gap-2">
+                        <button type="button" class="btn btn-outline flex-1 apply-preset-button" data-form-action="apply_preset">Aplicar preset</button>
+                        <a href="{% url 'finance:tax_class_preset_list' %}?tab=nfe" class="btn btn-ghost">Gerenciar</a>
+                    </div>
                 </div>
             </div>
 
@@ -142,7 +145,10 @@
                     </select>
                 </div>
                 <div class="lg:col-span-4">
-                    <button type="button" class="btn btn-outline w-full apply-preset-button" data-form-action="apply_preset">Aplicar preset</button>
+                    <div class="flex gap-2">
+                        <button type="button" class="btn btn-outline flex-1 apply-preset-button" data-form-action="apply_preset">Aplicar preset</button>
+                        <a href="{% url 'finance:tax_class_preset_list' %}?tab=nfse" class="btn btn-ghost">Gerenciar</a>
+                    </div>
                 </div>
             </div>
 
