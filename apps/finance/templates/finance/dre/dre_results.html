@@ -7,18 +7,25 @@
     {% url 'finance:dre_report' as dre_report_url %}
     {% url 'finance:dre_pdf_preview' as dre_pdf_preview_url %}
     {% url 'finance:dre_pdf' as dre_pdf_url %}
+    {% url 'finance:dre_excel' as dre_excel_url %}
     <div class="space-y-6">
         <div class="flex items-center justify-between gap-4">
             <a href="{{ dre_report_url }}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="hidden md:flex btn btn-ghost gap-2 text-base-content/70">
                 <span class="material-icons text-sm">arrow_back</span>
                 Voltar
             </a>
-            <button type="button"
-                    class="btn btn-outline gap-2"
-                    onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { url: '{{ dre_pdf_preview_url }}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}', downloadUrl: '{{ dre_pdf_url }}?download=1{% if request.GET %}&{{ request.GET.urlencode }}{% endif %}' } }))">
-                <span class="material-icons text-sm">picture_as_pdf</span>
-                Gerar PDF
-            </button>
+            <div class="flex items-center gap-2">
+                <a href="{{ dre_excel_url }}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-primary gap-2">
+                    <span class="material-icons text-sm">table_view</span>
+                    Exportar Excel
+                </a>
+                <button type="button"
+                        class="btn btn-outline gap-2"
+                        onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { url: '{{ dre_pdf_preview_url }}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}', downloadUrl: '{{ dre_pdf_url }}?download=1{% if request.GET %}&{{ request.GET.urlencode }}{% endif %}' } }))">
+                    <span class="material-icons text-sm">picture_as_pdf</span>
+                    Gerar PDF
+                </button>
+            </div>
         </div>
 
         <div class="card overflow-hidden border border-base-300 bg-base-100 shadow-xl">

@@ -12,7 +12,7 @@ from django.views.generic import TemplateView
 
 from apps.core.documents.http import build_pdf_http_response
 from apps.core.templatetags.table_tags import TableColumn
-from apps.finance.documents.provider import render_dre_pdf_document
+from apps.finance.documents.provider import build_dre_excel_document, render_dre_pdf_document
 from apps.finance.forms.dre import DreForm
 from apps.finance.models import FinancialGroup
 from apps.finance.services.dre import build_dre_calculation
@@ -161,6 +161,17 @@ class DrePdfView(DreBaseView):
         context = self._build_results_context()
         document = render_dre_pdf_document(context=context, request=request)
         return build_pdf_http_response(document=document, download=request.GET.get("download") == "1")
+
+
+class DreExcelView(DreBaseView):
+    def get(self, request, *args: Any, **kwargs: Any) -> HttpResponse:
+        context = self._build_results_context()
+        document = build_dre_excel_document(context=context)
+        response = HttpResponse(document.content, content_type=document.content_type)
+        response["Content-Disposition"] = f'attachment; filename="{document.filename}"'
+        response["X-Content-Type-Options"] = "nosniff"
+        response["Cache-Control"] = "no-store"
+        return response
 
 
 @method_decorator(xframe_options_exempt, name="dispatch")

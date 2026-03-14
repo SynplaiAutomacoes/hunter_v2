@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from io import BytesIO
 from datetime import date, datetime, timedelta
 import re
 from decimal import Decimal
@@ -13,6 +14,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from djmoney.money import Money
+from openpyxl import load_workbook
 
 from apps.budget.models import Budget, BudgetItem
 from apps.accounts.models import Account, User
@@ -23,7 +25,7 @@ from apps.catalog.models.services import Service
 from apps.collaborators.models import WorkshopMember
 from apps.customer.models import Customer
 from apps.core.documents.contract import DocumentPayload
-from apps.finance.documents.provider import build_dre_pdf_render_request
+from apps.finance.documents.provider import build_dre_excel_document, build_dre_pdf_render_request
 from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm
 from apps.finance.forms.financial_group import FinancialGroupForm
 from apps.finance.forms.payment_method import PaymentMethodForm
@@ -2166,6 +2168,27 @@ class DreReportViewTests(TestCase):
         self.assertContains(response, "@open-pdf-modal.window=\"pdfUrl = $event.detail.url; pdfDownloadUrl = $event.detail.downloadUrl || ''; $el.showModal()\"")
         self.assertNotContains(response, 'target="_blank"')
 
+    def test_results_page_renders_excel_button_with_download_url(self) -> None:
+        revenue_group = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+                "financial_groups": [str(revenue_group.pk)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Exportar Excel")
+        self.assertContains(
+            response,
+            f'href="{reverse("finance:dre_excel")}?filial={self.workshop.pk}&amp;data_inicial=2026-01-01&amp;data_final=2026-01-31&amp;tipo_data=A&amp;financial_groups={revenue_group.pk}"',
+        )
+
     def test_pdf_preview_view_renders_html_for_iframe(self) -> None:
         response = self.client.get(
             reverse("finance:dre_pdf_preview"),
@@ -2193,6 +2216,20 @@ class DreReportViewTests(TestCase):
         )
 
         self.assertEqual(render_request.filename, "dre_oficina_sao_jose_matriz_01_01_2026_31_01_2026.pdf")
+
+    def test_build_dre_excel_document_uses_normalized_workshop_name_in_filename(self) -> None:
+        self.workshop.name = "Oficina São José / Matriz"
+        document = build_dre_excel_document(
+            context={
+                "selected_workshop": self.workshop,
+                "data_inicial_label": "01/01/2026",
+                "data_final_label": "31/01/2026",
+                "dre_summary_cards": [],
+                "dre_rows": [],
+            }
+        )
+
+        self.assertEqual(document.filename, "dre_oficina_sao_jose_matriz_01_01_2026_31_01_2026.xlsx")
 
     def test_results_page_calculates_dynamic_dre_values_from_workorders_and_costs(self) -> None:
         FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
@@ -2603,6 +2640,73 @@ class DreReportViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn('attachment; filename="dre.pdf"', response["Content-Disposition"])
+
+    def test_excel_view_returns_styled_workbook_with_filtered_detailed_context(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+        workorder = self._create_workorder_with_values(
+            reference_date=date(2026, 1, 15),
+            product_selling_price="100.00",
+            product_cost_price="40.00",
+            service_selling_price="200.00",
+            service_cost_price="80.00",
+            customer_name="Cliente Excel DRE",
+            payment_due_date=date(2026, 1, 20),
+        )
+        self._create_workshop_cost_snapshot(
+            month=1,
+            year=2026,
+            tax_rate="0.10",
+            operational_cost="60.00",
+            financial_cost="10.00",
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_excel"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        self.assertIn('attachment; filename="dre_', response["Content-Disposition"])
+
+        workbook = load_workbook(filename=BytesIO(response.content))
+        self.assertEqual(workbook.sheetnames, ["Resumo", "Detalhes"])
+
+        summary_sheet = workbook["Resumo"]
+        details_sheet = workbook["Detalhes"]
+
+        self.assertEqual(summary_sheet["A1"].value, "DRE - Demonstracao do Resultado do Exercicio")
+        self.assertEqual(summary_sheet["B3"].value, self.workshop.name)
+        self.assertEqual(summary_sheet["B4"].value, "01/01/2026 ate 31/01/2026")
+        self.assertEqual(summary_sheet["A1"].fill.fgColor.rgb[-6:], "1E3A8A")
+        self.assertEqual(details_sheet["A1"].fill.fgColor.rgb[-6:], "1E3A8A")
+
+        summary_values = [cell for row in summary_sheet.iter_rows(values_only=True) for cell in row if cell is not None]
+        detail_rows = list(details_sheet.iter_rows(values_only=True))
+        detail_values = [cell for row in detail_rows for cell in row if cell is not None]
+        summary_header_row = next(index for index, row in enumerate(summary_sheet.iter_rows(values_only=True), start=1) if row[:3] == ("Descricao", "Formula", "Valor"))
+        summary_headers = [summary_sheet.cell(row=summary_header_row, column=column).value for column in range(1, 4)]
+        detail_headers = [details_sheet.cell(row=3, column=column).value for column in range(1, 7)]
+
+        self.assertNotIn("Grupos selecionados", summary_values)
+        self.assertNotIn("Tipo de data", summary_values)
+        self.assertNotIn("Indicador", summary_values)
+        self.assertNotIn("Tipo", summary_values)
+        self.assertNotIn("Detalhavel", summary_values)
+        self.assertNotIn("Tipo", detail_values)
+        self.assertEqual(summary_headers, ["Descricao", "Formula", "Valor"])
+        self.assertEqual(detail_headers, ["Linha DRE", "Resumo", "Referencia", "Data Entrada", "Data Saida", "Valor"])
+        self.assertIn("(+) Receita Bruta de Vendas e Serviços", summary_values)
+        self.assertIn(180, summary_values)
+        self.assertIn(f"OS/PEDIDO Nº {workorder.pk} - Cliente Excel DRE", detail_values)
+        self.assertIn("Taxas bancarias 1/2026", detail_values)
 
 
 class PaymentMethodFormTests(TestCase):

@@ -14,7 +14,7 @@ from .webmania import (
     WebmaniaCompanyUpdateView,
     WebmaniaRequestsView,
 )
-from .dre import DrePdfPreviewView, DrePdfView, DreReportView, DreResultsView
+from .dre import DreExcelView, DrePdfPreviewView, DrePdfView, DreReportView, DreResultsView
 
 
 __all__ = [
@@ -44,4 +44,5 @@ __all__ = [
     "DreResultsView",
     "DrePdfView",
     "DrePdfPreviewView",
+    "DreExcelView",
 ]
