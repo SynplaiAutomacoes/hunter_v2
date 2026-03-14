@@ -2147,7 +2147,6 @@ class DreReportViewTests(TestCase):
         self.assertEqual(rows["(+) Receitas Financeiras"], Money("0.00", "BRL"))
         self.assertEqual(rows["(-) Despesas Financeiras"], Money("10.00", "BRL"))
         self.assertEqual(rows["(=) Resultado Operacional"], Money("-10.00", "BRL"))
-        self.assertEqual(cards["Receita Bruta de Vendas e Serviços"], Money("300.00", "BRL"))
         self.assertEqual(cards["Receita Bruta de Vendas"], Money("180.00", "BRL"))
         self.assertEqual(cards["Resultado Operacional"], Money("-10.00", "BRL"))
         content = response.content.decode("utf-8")

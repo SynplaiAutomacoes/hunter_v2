@@ -50,12 +50,12 @@
             </div>
         </div>
 
-        <div class="grid gap-4 lg:grid-cols-3">
+        <div class="grid gap-8 md:grid-cols-2 md:gap-16">
             {% for card in dre_summary_cards %}
-                <div class="card border border-base-300 bg-base-100 shadow-lg">
-                    <div class="card-body gap-2 p-5">
-                        <p class="text-xs font-semibold uppercase tracking-[0.2em] text-base-content/50">{{ card.label }}</p>
-                        <p class="text-3xl font-black {{ card.accent }}">{{ card.amount }}</p>
+                <div class="card min-h-[180px] border border-base-300 bg-base-100 shadow-lg">
+                    <div class="card-body justify-center gap-4 p-8 md:p-10">
+                        <p class="text-sm font-semibold uppercase tracking-[0.2em] text-base-content/50">{{ card.label }}</p>
+                        <p class="text-4xl font-black md:text-5xl {{ card.accent }}">{{ card.amount }}</p>
                     </div>
                 </div>
             {% endfor %}

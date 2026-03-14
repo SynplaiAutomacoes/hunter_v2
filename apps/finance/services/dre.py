@@ -111,7 +111,6 @@ def build_dre_calculation(
             row_details=row_details,
         ),
         summary_cards=_build_summary_cards(
-            receita_bruta_vendas_e_servicos=visible_amounts["receita_bruta_vendas_e_servicos"],
             receita_bruta_de_vendas=receita_bruta_de_vendas,
             resultado_operacional=resultado_operacional,
         ),
@@ -222,12 +221,10 @@ def _build_rows(
 
 def _build_summary_cards(
     *,
-    receita_bruta_vendas_e_servicos: Money = _ZERO_MONEY,
     receita_bruta_de_vendas: Money = _ZERO_MONEY,
     resultado_operacional: Money = _ZERO_MONEY,
 ) -> list[dict[str, object]]:
     return [
-        {"label": "Receita Bruta de Vendas e Serviços", "amount": receita_bruta_vendas_e_servicos, "accent": "text-emerald-700"},
         {"label": "Receita Bruta de Vendas", "amount": receita_bruta_de_vendas, "accent": "text-sky-700"},
         {"label": "Resultado Operacional", "amount": resultado_operacional, "accent": "text-amber-700"},
     ]
