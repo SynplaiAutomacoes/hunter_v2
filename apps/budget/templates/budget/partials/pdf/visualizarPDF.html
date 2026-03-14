@@ -241,10 +241,10 @@
                     <span>Total de Serviços:</span>
                     <span>{{ total_servicos }}</span>
                 </div>
-                {% if budget.discount_value.amount > 0 %}
+                {% if budget.resolved_discount_value.amount > 0 %}
                 <div class="flex justify-between mb-1 text-red-600">
                     <span>Desconto:</span>
-                    <span>- {{ budget.discount_value }}</span>
+                    <span>- {{ budget.resolved_discount_value }}</span>
                 </div>
                 {% endif %}
                 <div class="flex justify-between font-bold text-[16px] mt-2 pt-2 border-t border-gray-300">

@@ -432,7 +432,7 @@ class WorkOrder(TimeStampedModel):
             if overrides_to_create:
                 WorkOrderKitItemOverride.objects.bulk_create(overrides_to_create)
 
-            self.discount_value = self.budget.discount_value
+            self.discount_value = self.budget.resolved_discount_value
             self.save(update_fields=["discount_value"])
 
     class Meta:
