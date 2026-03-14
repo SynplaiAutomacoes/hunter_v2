@@ -348,21 +348,12 @@ class CustomerForm(AddressFormMixin, forms.ModelForm):
 class QuickCustomerForm(AddressFormMixin, forms.ModelForm):
     class Meta:
         model = Customer
-        fields = [
-            "customer_type",
-            "cpf_or_cnpj",
-            "name",
-            "email",
-            "cep",
-            "logradouro",
-            "numero",
-            "bairro",
-            "cidade",
-            "estado",
-        ]
+        fields = ["customer_type", "cpf_or_cnpj", "birth_date", "name", "email", "phone", "cep", "logradouro", "numero", "bairro", "cidade", "estado", "complemento"]
         widgets = {
             "cpf_or_cnpj": CPForCNPJInput(mode="both"),
             "name": TextInput(),
+            "birth_date": CalendarDateInput(),
+            "phone": PhoneInput(),
             "email": EmailInput(),
         }
 
@@ -421,8 +412,10 @@ class QuickCustomerForm(AddressFormMixin, forms.ModelForm):
                 Field("cpf_or_cnpj", wrapper_class="col-span-12"),
                 Field("name", wrapper_class="col-span-12 lg:col-span-6"),
                 Field("email", wrapper_class="col-span-12 lg:col-span-6"),
+                Field("birth_date", wrapper_class="col-span-12 lg:col-span-6"),
+                Field("phone", wrapper_class="col-span-12 lg:col-span-6"),
                 HTML('<div class="col-span-12 divider my-1"></div>'),
-                address_layout(include_complemento=False),
+                address_layout(include_complemento=True),
                 HTML("</div>"),
                 css_class="grid grid-cols-12 gap-2",
             )

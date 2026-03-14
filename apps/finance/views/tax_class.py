@@ -109,27 +109,25 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
     }
 
     NFSE_PRESETS: dict[str, dict[str, object]] = {
-        "nfse_abrasf_basico": {
-            "label": "NFS-e ABRASF - Serviço padrão",
-            "description": "Preset básico com código de serviço no formato XX.XX.",
+        "nfse_sao_paulo_basico": {
+            "label": "Sao Paulo - Servico padrao",
+            "description": "Preset basico com codigo de servico no formato XX.XX.",
             "payload": {
                 "descricao": "Classe de impostos para prestação de serviço",
                 "tipo": "nfse",
                 "codigo_servico": "01.05",
                 "natureza_operacao": "1",
-                "exigibilidade_iss": "1",
                 "iss_retido": "2",
             },
         },
-        "nfse_abrasf_retido": {
-            "label": "NFS-e ABRASF - ISS retido",
+        "nfse_sao_paulo_retido": {
+            "label": "Sao Paulo - ISS retido",
             "description": "Preset com retenção de ISS pelo tomador.",
             "payload": {
                 "descricao": "Classe de impostos para serviço com ISS retido",
                 "tipo": "nfse",
                 "codigo_servico": "01.05",
                 "natureza_operacao": "1",
-                "exigibilidade_iss": "1",
                 "iss_retido": "1",
                 "responsavel_retencao": "1",
             },
@@ -181,6 +179,20 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
             return None
 
         return deepcopy(payload)
+
+    @classmethod
+    def _merge_tax_class_payload(cls, *, base_payload: dict[str, Any] | None, override_payload: dict[str, Any]) -> dict[str, Any]:
+        merged_payload = deepcopy(base_payload) if isinstance(base_payload, dict) else {}
+
+        for key, value in override_payload.items():
+            existing_value = merged_payload.get(key)
+            if isinstance(existing_value, dict) and isinstance(value, dict):
+                merged_payload[key] = cls._merge_tax_class_payload(base_payload=existing_value, override_payload=value)
+                continue
+
+            merged_payload[key] = deepcopy(value)
+
+        return merged_payload
 
     def _load_tax_classes(self) -> list[dict[str, object]]:
         try:
@@ -475,13 +487,15 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
             if reference_to_keep:
                 preset_payload["referencia"] = reference_to_keep
 
+            target_payload = self._merge_tax_class_payload(base_payload=editing_tax_class, override_payload=preset_payload)
+
             if active_tab == self.TAB_NFE:
                 return self.render_to_response(
                     self.get_context_data(
                         active_tab=active_tab,
                         tax_classes=tax_classes,
-                        nfe_form=self._build_nfe_form(data=None, editing_tax_class=preset_payload),
-                        nfe_formsets=self._build_nfe_formsets(data=None, editing_tax_class=preset_payload),
+                        nfe_form=self._build_nfe_form(data=None, editing_tax_class=target_payload),
+                        nfe_formsets=self._build_nfe_formsets(data=None, editing_tax_class=target_payload),
                         edit_reference=reference_to_keep,
                         selected_preset_key=selected_preset_key,
                     )
@@ -491,7 +505,7 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
                 self.get_context_data(
                     active_tab=active_tab,
                     tax_classes=tax_classes,
-                    nfse_form=self._build_nfse_form(data=None, editing_tax_class=preset_payload),
+                    nfse_form=self._build_nfse_form(data=None, editing_tax_class=target_payload),
                     edit_reference=reference_to_keep,
                     selected_preset_key=selected_preset_key,
                 )
@@ -742,13 +756,15 @@ class TaxClassFormBaseView(TaxClassManagerView):
             if reference_to_keep:
                 preset_payload["referencia"] = reference_to_keep
 
+            target_payload = self._merge_tax_class_payload(base_payload=editing_tax_class, override_payload=preset_payload)
+
             return self.render_to_response(
                 super().get_context_data(
                     active_tab=active_tab,
                     tax_classes=tax_classes,
-                    nfe_form=self._build_nfe_form(data=None, editing_tax_class=preset_payload) if active_tab == self.TAB_NFE else None,
-                    nfe_formsets=self._build_nfe_formsets(data=None, editing_tax_class=preset_payload) if active_tab == self.TAB_NFE else None,
-                    nfse_form=self._build_nfse_form(data=None, editing_tax_class=preset_payload) if active_tab == self.TAB_NFSE else None,
+                    nfe_form=self._build_nfe_form(data=None, editing_tax_class=target_payload) if active_tab == self.TAB_NFE else None,
+                    nfe_formsets=self._build_nfe_formsets(data=None, editing_tax_class=target_payload) if active_tab == self.TAB_NFE else None,
+                    nfse_form=self._build_nfse_form(data=None, editing_tax_class=target_payload) if active_tab == self.TAB_NFSE else None,
                     edit_reference=reference_to_keep,
                     selected_preset_key=selected_preset_key,
                 )
