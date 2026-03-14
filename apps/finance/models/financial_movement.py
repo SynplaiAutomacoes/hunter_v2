@@ -26,8 +26,8 @@ class FinancialMovement(TimeStampedModel):
     items_observation = models.TextField(verbose_name="Observações dos Itens", blank=True, null=True)
 
     # Financeiro
-    direction = models.CharField(max_length=15, choices=MovementDirection.choices, default=MovementDirection.DEBIT, blank=True, null=True)
-    payment_method = models.ForeignKey(PaymentMethod, on_delete=models.PROTECT, blank=True, null=True)
+    direction = models.CharField(max_length=15, verbose_name="Tipo", choices=MovementDirection.choices, default=MovementDirection.DEBIT, blank=True, null=True)
+    payment_method = models.ForeignKey(PaymentMethod, verbose_name="Forma de Pagamento", on_delete=models.PROTECT, blank=True, null=True)
     nf_number = models.CharField(max_length=50, verbose_name="Número da NF", blank=True, null=True)
     amount = MoneyField(verbose_name="Valor", max_digits=14, decimal_places=2, default=0, null=True)
     due_date = models.DateField(verbose_name="Data de Vencimento", blank=True, null=True)
