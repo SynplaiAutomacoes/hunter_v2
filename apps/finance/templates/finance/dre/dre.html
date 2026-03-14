@@ -13,7 +13,7 @@
 
     <div class="card bg-base-100 shadow-xl">
         <div class="card-body p-6 md:p-8">
-            <form method="get" class="space-y-6">
+            <form method="get" action="{% url 'finance:dre_results' %}" class="space-y-6">
                 {% crispy form %}
 
                 <div class="divider my-0"></div>
@@ -35,7 +35,7 @@
                 </div>
 
                 <div class="pt-2">
-                    <button type="submit" class="btn btn-primary">Gerar DRE</button>
+                    <button type="submit" class="btn btn-primary">Gerar Relatório</button>
                 </div>
             </form>
         </div>

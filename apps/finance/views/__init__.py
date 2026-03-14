@@ -14,7 +14,7 @@ from .webmania import (
     WebmaniaCompanyUpdateView,
     WebmaniaRequestsView,
 )
-from .dre import DreReportView
+from .dre import DreReportView, DreResultsView
 
 
 __all__ = [
@@ -41,4 +41,5 @@ __all__ = [
     "WebmaniaRequestsView",
     "sync_b2b_companies_to_database",
     "DreReportView",
+    "DreResultsView",
 ]

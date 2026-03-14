@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -8,40 +9,70 @@ from django.views.generic import TemplateView
 from apps.core.templatetags.table_tags import TableColumn
 from apps.finance.forms.dre import DreForm
 from apps.finance.models import FinancialGroup
+from apps.finance.services.dre import build_dre_calculation
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.mixin import WorkshopScopedMixin
 
 
-class DreReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
+class DreBaseView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     model = FinancialGroup
     workshop_permission_codename = "view_financialgroup"
-    template_name = "finance/dre/dre.html"
 
-    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
-        context = super().get_context_data(**kwargs)
-        workshops_qs = (
+    def _get_workshops_queryset(self):
+        return (
             Workshop.objects.filter(
                 account_id=self.request.user.account_id,
                 is_active=True,
                 members__user=self.request.user,
                 members__is_active=True,
             )
-            .distinct()  # Remove duplicatas
+            .distinct()
             .order_by("name")
         )
 
-        workshops = list(workshops_qs)
-
+    def _get_selected_workshop(self, workshops_qs):
         selected_filial = (self.request.GET.get("filial") or "").strip()
-        selected_workshop = None
-        if selected_filial:
-            try:
-                selected_filial_id = int(selected_filial)
-            except (TypeError, ValueError):
-                selected_filial_id = None
+        if not selected_filial:
+            return None
 
-            if selected_filial_id is not None:
-                selected_workshop = workshops_qs.filter(pk=selected_filial_id).first()
+        try:
+            selected_filial_id = int(selected_filial)
+        except (TypeError, ValueError):
+            return None
+
+        return workshops_qs.filter(pk=selected_filial_id).first()
+
+    def _build_period_label(self) -> str:
+        start_label = self._format_date_param(self.request.GET.get("data_inicial"))
+        end_label = self._format_date_param(self.request.GET.get("data_final"))
+        return f"{start_label} ate {end_label}"
+
+    def _format_date_param(self, raw_value: str | None) -> str:
+        value = str(raw_value or "").strip()
+        if not value:
+            return "-"
+
+        try:
+            parsed = date.fromisoformat(value)
+        except ValueError:
+            return value
+        return parsed.strftime("%d/%m/%Y")
+
+    def _get_selected_financial_groups(self, *, financial_groups_qs):
+        selected_group_ids = [value for value in self.request.GET.getlist("financial_groups") if value.strip()]
+        if not selected_group_ids:
+            return []
+        return list(financial_groups_qs.filter(pk__in=selected_group_ids).order_by("sort_key", "id"))
+
+
+class DreReportView(DreBaseView):
+    template_name = "finance/dre/dre.html"
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        workshops_qs = self._get_workshops_queryset()
+        workshops = list(workshops_qs)
+        selected_workshop = self._get_selected_workshop(workshops_qs)
 
         if selected_workshop is None:
             financial_groups = FinancialGroup.objects.none()
@@ -68,3 +99,51 @@ class DreReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         context["form"] = form
 
         return context
+
+
+class DreResultsView(DreBaseView):
+    template_name = "finance/dre/dre_results.html"
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        workshops_qs = self._get_workshops_queryset()
+        selected_workshop = self._get_selected_workshop(workshops_qs)
+
+        if selected_workshop is None:
+            financial_groups = FinancialGroup.objects.none()
+        else:
+            financial_groups = FinancialGroup.objects.filter(workshop=selected_workshop).order_by("sort_key", "id")
+
+        selected_financial_groups = self._get_selected_financial_groups(financial_groups_qs=financial_groups)
+        tipo_data = (self.request.GET.get("tipo_data") or "A").strip() or "A"
+        tipo_data_label = dict(DreForm.TIPO_DATA_CHOICES).get(tipo_data, "AMBOS")
+        dre_calculation = build_dre_calculation(
+            workshop=selected_workshop,
+            start_date=self._parse_date_param(self.request.GET.get("data_inicial")),
+            end_date=self._parse_date_param(self.request.GET.get("data_final")),
+            selected_financial_groups=selected_financial_groups,
+        )
+
+        context.update(
+            {
+                "selected_workshop": selected_workshop,
+                "period_label": self._build_period_label(),
+                "data_inicial_label": self._format_date_param(self.request.GET.get("data_inicial")),
+                "data_final_label": self._format_date_param(self.request.GET.get("data_final")),
+                "tipo_data_label": tipo_data_label,
+                "selected_financial_groups": selected_financial_groups,
+                "dre_rows": dre_calculation.rows,
+                "dre_summary_cards": dre_calculation.summary_cards,
+            }
+        )
+        return context
+
+    def _parse_date_param(self, raw_value: str | None) -> date | None:
+        value = str(raw_value or "").strip()
+        if not value:
+            return None
+
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            return None

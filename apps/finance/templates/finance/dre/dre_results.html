@@ -1,0 +1,101 @@
+{% extends 'crud/page.html' %}
+
+{% load static %}
+{% load format_tags %}
+
+{% block crud_content %}
+    <div class="space-y-6">
+        <div class="card overflow-hidden border border-base-300 bg-base-100 shadow-xl">
+            <div class="card-body gap-0 p-0">
+                <div class="border-b border-base-300 bg-gradient-to-r from-base-200 via-base-100 to-base-200 px-6 py-8 lg:px-8">
+                    <div class="grid gap-4 lg:grid-cols-3">
+                        <div class="flex min-h-[210px] items-center justify-center rounded-3xl border border-base-300 bg-base-100/90 p-6 text-center shadow-sm">
+                            <div class="flex h-24 w-full max-w-[180px] items-center justify-center">
+                                <img src="{% static 'image/logo.svg' %}" alt="Hunter" class="h-auto max-h-12 w-full max-w-[140px] object-contain">
+                            </div>
+                        </div>
+
+                        <div class="flex min-h-[210px] items-center justify-center rounded-3xl border border-base-300 bg-base-100/90 p-6 text-center shadow-sm">
+                            <div class="space-y-4">
+                                <div class="space-y-2">
+                                    <h1 class="text-2xl font-black uppercase leading-tight text-base-content md:text-3xl">Demonstração de Resultado de Exercício</h1>
+                                    <p class="text-base font-semibold uppercase tracking-[0.16em] text-base-content/75">{{ selected_workshop.name|default:"Todas as filiais" }}</p>
+                                </div>
+
+                                <div class="rounded-2xl border border-base-300 bg-base-100 px-4 py-3 text-sm shadow-sm">
+                                    <p class="text-xs font-semibold uppercase tracking-[0.2em] text-base-content/50">Período</p>
+                                    <p class="mt-1 text-base font-bold text-base-content">{{ data_inicial_label }} até {{ data_final_label }}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex min-h-[210px] items-center justify-center rounded-3xl border border-base-300 bg-base-100/90 p-6 text-center shadow-sm lg:justify-end lg:text-right">
+                            {% if selected_workshop %}
+                                <div class="space-y-2 text-sm leading-relaxed text-base-content/75 lg:w-full lg:max-w-[280px]">
+                                    <p class="text-lg font-bold text-base-content">{{ selected_workshop.name }}</p>
+                                    <p><span class="font-semibold">CNPJ:</span> {{ selected_workshop.cnpj|cnpj_br|default:"-" }}</p>
+                                    <p><span class="font-semibold">Endereço:</span> {{ selected_workshop.address|default:"-" }}</p>
+                                    <p><span class="font-semibold">Telefone:</span> {{ selected_workshop.phone|phone_br|default:"-" }}</p>
+                                    <p><span class="font-semibold">UF:</span> {{ selected_workshop.uf|default:"-" }}</p>
+                                </div>
+                            {% else %}
+                                <div class="space-y-2 text-sm leading-relaxed text-base-content/70 lg:w-full lg:max-w-[280px]">
+                                    <p class="text-lg font-semibold text-base-content">Nenhuma filial selecionada</p>
+                                    <p>Os valores consideram os filtros informados na etapa anterior.</p>
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid gap-4 lg:grid-cols-3">
+            {% for card in dre_summary_cards %}
+                <div class="card border border-base-300 bg-base-100 shadow-lg">
+                    <div class="card-body gap-2 p-5">
+                        <p class="text-xs font-semibold uppercase tracking-[0.2em] text-base-content/50">{{ card.label }}</p>
+                        <p class="text-3xl font-black {{ card.accent }}">{{ card.amount }}</p>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+
+        <div class="card border border-base-300 bg-base-100 shadow-xl">
+            <div class="card-body p-6 md:p-8">
+                <div class="flex flex-col gap-2 border-b border-base-300 pb-4 md:flex-row md:items-end md:justify-between">
+                    <div>
+                        <h2 class="text-2xl font-bold text-base-content">Resumo DRE</h2>
+                        <p class="text-sm text-base-content/65">Estrutura alinhada com o modelo operacional validado pelo cliente.</p>
+                    </div>
+                </div>
+
+                <div class="mt-6 overflow-hidden rounded-2xl border border-base-300">
+                    <table class="table table-zebra">
+                        <thead class="bg-base-200 text-xs uppercase tracking-[0.18em] text-base-content/60">
+                            <tr>
+                                <th class="w-[70%]">Descrição</th>
+                                <th class="text-right">Valor</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in dre_rows %}
+                                <tr class="{% if row.tone == 'highlight' %}bg-info/10{% elif row.tone == 'result' %}bg-warning/15{% endif %}">
+                                    <td>
+                                        <div class="space-y-1">
+                                            <span class="{% if row.tone == 'result' %}font-black uppercase text-base-content{% elif row.tone == 'highlight' %}font-bold text-base-content{% else %}font-medium text-base-content/80{% endif %}">{{ row.label }}</span>
+                                            {% if row.formula %}
+                                                <p class="text-xs italic text-base-content/55">{{ row.formula }}</p>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                    <td class="text-right font-semibold {% if row.tone == 'negative' %}text-error{% elif row.tone == 'positive' %}text-success{% elif row.tone == 'result' %}text-warning-content{% else %}text-base-content{% endif %}">{{ row.amount }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

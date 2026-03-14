@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date, datetime, timedelta
 import re
 from decimal import Decimal
 from types import SimpleNamespace
@@ -18,6 +19,7 @@ from apps.accounts.models import Account, User
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.kits import Kit, KitProduct
 from apps.catalog.models.products import Product
+from apps.catalog.models.services import Service
 from apps.collaborators.models import WorkshopMember
 from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm
 from apps.finance.forms.financial_group import FinancialGroupForm
@@ -45,6 +47,9 @@ from apps.finance.services.webmania_secrets import decrypt_secret, encrypt_secre
 from apps.finance.views.nfse import NfseRequestCreateView
 from apps.iam.utils import get_or_create_director_role
 from apps.workorder.models import WorkOrder
+from apps.workorder.models import WorkOrderItem
+from apps.workshops.models.monthly_costs import MonthlyCost
+from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from apps.workshops.models.workshops import Workshop
 
 
@@ -1909,6 +1914,72 @@ class DreReportViewTests(TestCase):
         session["active_workshop_id"] = self.workshop.pk
         session.save()
 
+    def _create_workorder_with_values(
+        self,
+        *,
+        reference_date: date,
+        product_selling_price: str,
+        product_cost_price: str,
+        service_selling_price: str,
+        service_cost_price: str,
+    ) -> WorkOrder:
+        budget = Budget(workshop=self.workshop, entry_date=reference_date)
+        budget.save()
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget)
+        WorkOrder.objects.filter(pk=workorder.pk).update(criado_em=timezone.make_aware(datetime.combine(reference_date, datetime.min.time())))
+        workorder.refresh_from_db()
+
+        product_group = CatalogGroup.objects.create(workshop=self.workshop, name=f"Grupo DRE {reference_date.isoformat()}")
+        product = Product.objects.create(
+            workshop=self.workshop,
+            code=f"DRE-P-{reference_date.strftime('%m%d')}",
+            unit=Product.Unit.UND,
+            name=f"Produto DRE {reference_date.isoformat()}",
+            group=product_group,
+            cost_price=Money(product_cost_price, "BRL"),
+            selling_price=Money(product_selling_price, "BRL"),
+        )
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name=f"Servico DRE {reference_date.isoformat()}",
+            duration=timedelta(hours=1),
+            suggested_cost=Money(service_cost_price, "BRL"),
+            selling_price=Money(service_selling_price, "BRL"),
+            is_third_party=True,
+        )
+
+        WorkOrderItem.objects.create(workshop=self.workshop, workorder=workorder, product=product, quantity=1, shipping=Money("0.00", "BRL"))
+        WorkOrderItem.objects.create(workshop=self.workshop, workorder=workorder, service=service, quantity=1)
+        return workorder
+
+    def _create_workshop_cost_snapshot(
+        self,
+        *,
+        month: int,
+        year: int,
+        tax_rate: str,
+        operational_cost: str,
+        financial_cost: str,
+    ) -> None:
+        workshop_cost = WorkshopCost.objects.create(
+            workshop=self.workshop,
+            month=month,
+            year=year,
+            mechanic_quantity=1,
+            work_hours_per_day=timedelta(hours=8),
+            work_days_per_month=22,
+            productivity_average=Decimal("0.60"),
+            tax_rate=Decimal(tax_rate),
+            working_hours_per_month=Decimal("176.00"),
+        )
+        mechanic_salary_cost = MonthlyCost.objects.create(workshop=self.workshop, name="Salarios mecanicos produtivos")
+        rent_cost = MonthlyCost.objects.create(workshop=self.workshop, name=f"Aluguel {month}/{year}")
+        bank_fee_cost = MonthlyCost.objects.create(workshop=self.workshop, name=f"Taxas bancarias {month}/{year}")
+
+        WorkshopCostItem.objects.create(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_cost, amount=Money("0.00", "BRL"))
+        WorkshopCostItem.objects.create(workshop_cost=workshop_cost, monthly_cost=rent_cost, amount=Money(operational_cost, "BRL"))
+        WorkshopCostItem.objects.create(workshop_cost=workshop_cost, monthly_cost=bank_fee_cost, amount=Money(financial_cost, "BRL"))
+
     def test_report_requires_filial_selection_before_loading_financial_groups(self) -> None:
         FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
 
@@ -1980,6 +2051,86 @@ class DreReportViewTests(TestCase):
         if third_input is None:
             self.fail("Checkbox do terceiro grupo financeiro não foi renderizado.")
         self.assertNotIn("checked", third_input.group(0))
+
+    def test_report_form_submits_to_results_page(self) -> None:
+        response = self.client.get(reverse("finance:dre_report"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'action="{reverse("finance:dre_results")}"')
+
+    def test_report_form_requires_start_and_end_dates(self) -> None:
+        response = self.client.get(reverse("finance:dre_report"), data={"filial": str(self.workshop.pk), "tipo_data": "A"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Este campo é obrigatório.", count=2)
+
+    def test_results_page_renders_dynamic_header_with_selected_workshop(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Demonstração de Resultado de Exercício")
+        self.assertContains(response, self.workshop.name)
+        self.assertContains(response, "01/01/2026 até 31/01/2026")
+        self.assertContains(response, "(=) Resultado Operacional")
+
+    def test_results_page_calculates_dynamic_dre_values_from_workorders_and_costs(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+        reference_date = date(2026, 1, 15)
+
+        self._create_workorder_with_values(
+            reference_date=reference_date,
+            product_selling_price="100.00",
+            product_cost_price="40.00",
+            service_selling_price="200.00",
+            service_cost_price="80.00",
+        )
+        self._create_workshop_cost_snapshot(
+            month=1,
+            year=2026,
+            tax_rate="0.10",
+            operational_cost="60.00",
+            financial_cost="10.00",
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        rows = {row["label"]: row["amount"] for row in response.context["dre_rows"]}
+        cards = {card["label"]: card["amount"] for card in response.context["dre_summary_cards"]}
+
+        self.assertEqual(rows["(+) Receita Bruta de Vendas e Serviços"], Money("300.00", "BRL"))
+        self.assertEqual(rows["(-) Custos Mercadorias Vendidas"], Money("120.00", "BRL"))
+        self.assertEqual(rows["(=) Receita Bruta de Vendas"], Money("180.00", "BRL"))
+        self.assertEqual(rows["(+) Receitas Financeiras"], Money("0.00", "BRL"))
+        self.assertEqual(rows["(-) Despesas Financeiras"], Money("10.00", "BRL"))
+        self.assertEqual(rows["(=) Resultado Operacional"], Money("-10.00", "BRL"))
+        self.assertEqual(cards["Receita Bruta de Vendas e Serviços"], Money("300.00", "BRL"))
+        self.assertEqual(cards["Receita Bruta de Vendas"], Money("180.00", "BRL"))
+        self.assertEqual(cards["Resultado Operacional"], Money("-10.00", "BRL"))
+        content = response.content.decode("utf-8")
+        self.assertIn("(Receita Bruta de Vendas e Serviços - Custos Mercadorias Vendidas)", content)
+        self.assertIn("(Receitas Financeiras - Despesas Financeiras)", content)
 
 
 class PaymentMethodFormTests(TestCase):
