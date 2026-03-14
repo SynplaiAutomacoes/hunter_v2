@@ -2,14 +2,18 @@ from django.urls import path
 from django.views.generic import RedirectView
 
 from apps.finance.views import (
+    EmissionPreviewView,
+    EmissionRequestCreateView,
+    EmissionWorkOrderKitComponentUpdateView,
+    EmissionWorkOrderItemUpdateView,
     FinancialGroupCreateView,
     FinancialGroupDeleteView,
     FinancialGroupListView,
     FinancialGroupUpdateView,
-    NfeRequestCreateView,
+    NfeCreateRedirectView,
     NfeRequestListView,
     NfeRequestUpdateView,
-    NfseRequestCreateView,
+    NfseCreateRedirectView,
     NfseRequestListView,
     NfseRequestUpdateView,
     TaxClassCreateView,
@@ -37,10 +41,15 @@ urlpatterns = [
     path("payment-methods/", PaymentMethodListView.as_view(), name="payment_methods_list"),
     path("payment-methods/create/", PaymentMethodCreateView.as_view(), name="payment_methods_create"),
     path("payment-methods/<int:pk>/update/", PaymentMethodUpdateView.as_view(), name="payment_methods_update"),
+    # Unified emission
+    path("emissao/preview/", EmissionPreviewView.as_view(), name="emission_preview"),
+    path("emissao/workorder/<int:workorder_pk>/item/<int:item_id>/edit/", EmissionWorkOrderItemUpdateView.as_view(), name="emission_workorder_item_edit"),
+    path("emissao/workorder/<int:workorder_pk>/kit-item/<int:item_id>/<str:component_type>/<int:component_id>/edit/", EmissionWorkOrderKitComponentUpdateView.as_view(), name="emission_workorder_kit_component_edit"),
+    path("emissao/", EmissionRequestCreateView.as_view(), name="emission_create"),
     # NFE
     path("nfe/", NfeRequestListView.as_view(), name="nfe_emit"),
     path("nfe/list/", NfeRequestListView.as_view(), name="nfe_list"),
-    path("nfe/create/", NfeRequestCreateView.as_view(), name="nfe_create"),
+    path("nfe/create/", NfeCreateRedirectView.as_view(), name="nfe_create"),
     path("nfe/<int:pk>/edit/", NfeRequestUpdateView.as_view(), name="nfe_update"),
     # Classe Imposto
     path("classe-imposto/", TaxClassListView.as_view(), name="tax_class_list"),
@@ -58,7 +67,7 @@ urlpatterns = [
     path("financial-movement/source_details/", SourceDetailView.as_view(), name="source_details"),
     # NFS-e
     path("nfse/", NfseRequestListView.as_view(), name="nfse_list"),
-    path("nfse/create/", NfseRequestCreateView.as_view(), name="nfse_create"),
+    path("nfse/create/", NfseCreateRedirectView.as_view(), name="nfse_create"),
     path("nfse/<int:pk>/edit/", NfseRequestUpdateView.as_view(), name="nfse_update"),
     # WebMania
     path("webmania/empresas/", WebmaniaCompanyListView.as_view(), name="webmania_company_list"),

@@ -21,7 +21,7 @@
 
                 {% if not forloop.last %} lg:rounded-none {% endif %}"
 
-                {% if step.number <= max_reached_step and step.number != current_step %}
+                {% if step.number <= max_reached_step and step.number >= min_accessible_step|default:1 and step.number != current_step %}
                     hx-get="?step={{ step.number }}{% if object.pk %}&pk={{ object.pk }}{% endif %}"
                     hx-target="#step-container"
                     hx-push-url="true"
