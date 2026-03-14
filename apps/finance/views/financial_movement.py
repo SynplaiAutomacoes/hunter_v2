@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.shortcuts import redirect, get_object_or_404
+from django.http import HttpResponse
+from django.shortcuts import redirect, get_object_or_404, render
+from django.template.loader import render_to_string
 from django.urls import reverse
+from django.views import View
 from django.views.generic import CreateView, ListView
 
 from apps.core.forms import MultiStepFormMixin
@@ -12,6 +15,7 @@ from apps.core.views import HtmxTemplateResponseMixin
 from apps.finance.forms.financial_movement import MovementStep1Form, MovementStep2Form, MovementStep3Form, \
     MovementStep4Form
 from apps.finance.models.financial_movement import FinancialMovement
+from apps.sources.models import Source
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
@@ -30,7 +34,7 @@ class FinancialMovementListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTem
         context = super().get_context_data(**kw)
         context["fields"] = [
             TableColumn("ID", attr="id"),
-            TableColumn(FinancialMovement.source.field.verbose_name, attr="source__name"),
+            TableColumn(FinancialMovement.source.field.verbose_name, attr="source"),
             TableColumn("Tipo", attr="get_direction_display"),
             TableColumn(FinancialMovement.amount.field.verbose_name, attr=FinancialMovement.amount.field.name),
             TableColumn(FinancialMovement.due_date.field.verbose_name, attr=FinancialMovement.due_date.field.name),
@@ -163,3 +167,13 @@ class FinancialMovementUpdateView(FinancialMovementCreateView):
             return response
 
         return redirect(success_url)
+
+
+class SourceDetailView(View):
+    def get(self, request, *args, **kwargs):
+        source_id = request.GET.get("source")
+        source_obj = None
+        if source_id:
+            source_obj = Source.objects.filter(id=source_id).first()
+
+        return render(request, "finance/partials/source_resume.html", {"source_obj": source_obj})
