@@ -4,7 +4,23 @@
 {% load format_tags %}
 
 {% block crud_content %}
+    {% url 'finance:dre_report' as dre_report_url %}
+    {% url 'finance:dre_pdf_preview' as dre_pdf_preview_url %}
+    {% url 'finance:dre_pdf' as dre_pdf_url %}
     <div class="space-y-6">
+        <div class="flex items-center justify-between gap-4">
+            <a href="{{ dre_report_url }}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="hidden md:flex btn btn-ghost gap-2 text-base-content/70">
+                <span class="material-icons text-sm">arrow_back</span>
+                Voltar
+            </a>
+            <button type="button"
+                    class="btn btn-outline gap-2"
+                    onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { url: '{{ dre_pdf_preview_url }}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}', downloadUrl: '{{ dre_pdf_url }}?download=1{% if request.GET %}&{{ request.GET.urlencode }}{% endif %}' } }))">
+                <span class="material-icons text-sm">picture_as_pdf</span>
+                Gerar PDF
+            </button>
+        </div>
+
         <div class="card overflow-hidden border border-base-300 bg-base-100 shadow-xl">
             <div class="card-body gap-0 p-0">
                 <div class="border-b border-base-300 bg-gradient-to-r from-base-200 via-base-100 to-base-200 px-6 py-8 lg:px-8">
@@ -169,5 +185,47 @@
                 </div>
             </div>
         </div>
+
+        <dialog id="pdfModal"
+                class="modal"
+                x-data="{ pdfUrl: '', pdfDownloadUrl: '' }"
+                @open-pdf-modal.window="pdfUrl = $event.detail.url; pdfDownloadUrl = $event.detail.downloadUrl || ''; $el.showModal()">
+
+            <div class="modal-box flex h-[90vh] w-full max-w-5xl flex-col p-0">
+                <div class="flex items-center justify-between border-b bg-base-200 px-6 py-4">
+                    <h3 class="flex items-center gap-2 text-xl font-bold">
+                        <span class="material-icons">description</span>
+                        Visualização do PDF
+                    </h3>
+
+                    <div class="flex gap-2">
+                        <button type="button"
+                                class="btn btn-sm btn-success"
+                                onclick="const frame = document.querySelector('#pdfModal iframe'); const downloadUrl = frame ? frame.dataset.downloadUrl : ''; if (downloadUrl) { window.open(downloadUrl, '_blank'); }">
+                            Baixar PDF
+                        </button>
+
+                        <button type="button"
+                                class="btn btn-sm"
+                                onclick="document.getElementById('pdfModal').close()">
+                            Fechar
+                        </button>
+                    </div>
+                </div>
+
+                <div class="flex-1 bg-gray-100">
+                    <template x-if="pdfUrl">
+                        <iframe :src="pdfUrl"
+                                :data-download-url="pdfDownloadUrl"
+                                class="h-full w-full"
+                                frameborder="0"></iframe>
+                    </template>
+                </div>
+            </div>
+
+            <form method="dialog" class="modal-backdrop">
+                <button>close</button>
+            </form>
+        </dialog>
     </div>
 {% endblock %}

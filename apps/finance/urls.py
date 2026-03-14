@@ -20,6 +20,8 @@ from apps.finance.views import (
     WebmaniaCompanyListView,
     WebmaniaCompanySyncView,
     WebmaniaCompanyUpdateView,
+    DrePdfPreviewView,
+    DrePdfView,
     DreReportView,
     DreResultsView,
 )
@@ -62,4 +64,6 @@ urlpatterns = [
     # DRE
     path("dre/", DreReportView.as_view(), name="dre_report"),
     path("dre/resultados/", DreResultsView.as_view(), name="dre_results"),
+    path("dre/pdf/preview/", DrePdfPreviewView.as_view(), name="dre_pdf_preview"),
+    path("dre/pdf/", DrePdfView.as_view(), name="dre_pdf"),
 ]

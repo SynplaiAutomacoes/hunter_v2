@@ -22,6 +22,8 @@ from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.collaborators.models import WorkshopMember
 from apps.customer.models import Customer
+from apps.core.documents.contract import DocumentPayload
+from apps.finance.documents.provider import build_dre_pdf_render_request
 from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm
 from apps.finance.forms.financial_group import FinancialGroupForm
 from apps.finance.forms.payment_method import PaymentMethodForm
@@ -2121,6 +2123,77 @@ class DreReportViewTests(TestCase):
         self.assertContains(response, "01/01/2026 até 31/01/2026")
         self.assertContains(response, "(=) Resultado Operacional")
 
+    def test_results_page_renders_back_button_to_report_with_current_filters(self) -> None:
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Voltar")
+        self.assertContains(
+            response,
+            f'href="{reverse("finance:dre_report")}?filial={self.workshop.pk}&amp;data_inicial=2026-01-01&amp;data_final=2026-01-31&amp;tipo_data=A"',
+        )
+
+    def test_results_page_renders_pdf_button_with_modal_urls(self) -> None:
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Gerar PDF")
+        self.assertContains(
+            response,
+            f"url: '{reverse('finance:dre_pdf_preview')}?filial={self.workshop.pk}&amp;data_inicial=2026-01-01&amp;data_final=2026-01-31&amp;tipo_data=A'",
+        )
+        self.assertContains(
+            response,
+            f"downloadUrl: '{reverse('finance:dre_pdf')}?download=1&filial={self.workshop.pk}&amp;data_inicial=2026-01-01&amp;data_final=2026-01-31&amp;tipo_data=A'",
+        )
+        self.assertContains(response, 'id="pdfModal"')
+        self.assertContains(response, "@open-pdf-modal.window=\"pdfUrl = $event.detail.url; pdfDownloadUrl = $event.detail.downloadUrl || ''; $el.showModal()\"")
+        self.assertNotContains(response, 'target="_blank"')
+
+    def test_pdf_preview_view_renders_html_for_iframe(self) -> None:
+        response = self.client.get(
+            reverse("finance:dre_pdf_preview"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "<!DOCTYPE html>", html=False)
+        self.assertContains(response, "Demonstração do Resultado do Exercício")
+        self.assertIsNone(response.headers.get("X-Frame-Options"))
+
+    def test_build_dre_pdf_render_request_uses_normalized_workshop_name_in_filename(self) -> None:
+        self.workshop.name = "Oficina São José / Matriz"
+        render_request = build_dre_pdf_render_request(
+            context={
+                "selected_workshop": self.workshop,
+                "data_inicial_label": "01/01/2026",
+                "data_final_label": "31/01/2026",
+            }
+        )
+
+        self.assertEqual(render_request.filename, "dre_oficina_sao_jose_matriz_01_01_2026_31_01_2026.pdf")
+
     def test_results_page_calculates_dynamic_dre_values_from_workorders_and_costs(self) -> None:
         FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
         FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
@@ -2458,6 +2531,78 @@ class DreReportViewTests(TestCase):
         self.assertEqual(content.count("chevron_right"), 4)
         self.assertEqual(content.count("expand_more"), 4)
         self.assertEqual(sum(1 for row in response.context["dre_rows"] if row["is_expandable"]), 4)
+
+    @patch("apps.finance.views.dre.render_dre_pdf_document")
+    def test_pdf_view_returns_inline_pdf_with_filtered_detailed_context(self, render_document_mock) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+        workorder = self._create_workorder_with_values(
+            reference_date=date(2026, 1, 15),
+            product_selling_price="100.00",
+            product_cost_price="40.00",
+            service_selling_price="200.00",
+            service_cost_price="80.00",
+            customer_name="Cliente PDF DRE",
+            payment_due_date=date(2026, 1, 20),
+        )
+        self._create_workshop_cost_snapshot(
+            month=1,
+            year=2026,
+            tax_rate="0.10",
+            operational_cost="60.00",
+            financial_cost="10.00",
+        )
+        render_document_mock.return_value = DocumentPayload(content=b"%PDF-dre", filename="dre.pdf")
+
+        response = self.client.get(
+            reverse("finance:dre_pdf"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"%PDF-dre")
+        self.assertIn('inline; filename="dre.pdf"', response["Content-Disposition"])
+        render_document_mock.assert_called_once()
+
+        context = render_document_mock.call_args.kwargs["context"]
+        self.assertEqual(context["selected_workshop"], self.workshop)
+        self.assertEqual(context["data_inicial_label"], "01/01/2026")
+        self.assertEqual(context["data_final_label"], "31/01/2026")
+        self.assertEqual(context["tipo_data_label"], "AMBOS")
+
+        gross_revenue_row = next(row for row in context["dre_rows"] if row["component"] == "receita_bruta_vendas_e_servicos")
+        costs_row = next(row for row in context["dre_rows"] if row["component"] == "custos_mercadorias_vendidas")
+        expense_row = next(row for row in context["dre_rows"] if row["component"] == "despesas_financeiras")
+
+        self.assertEqual(gross_revenue_row["details"][0]["summary"], f"OS/PEDIDO Nº {workorder.pk} - Cliente PDF DRE")
+        self.assertEqual(gross_revenue_row["details"][0]["payment_date"], date(2026, 1, 20))
+        self.assertEqual(costs_row["details"][0]["amount"], Money("120.00", "BRL"))
+        self.assertEqual(expense_row["details"][0]["summary"], "Taxas bancarias 1/2026")
+        self.assertEqual(expense_row["details"][0]["reference"], "Janeiro/2026")
+
+    @patch("apps.finance.views.dre.render_dre_pdf_document")
+    def test_pdf_view_supports_download_disposition(self, render_document_mock) -> None:
+        render_document_mock.return_value = DocumentPayload(content=b"%PDF-dre", filename="dre.pdf")
+
+        response = self.client.get(
+            reverse("finance:dre_pdf"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+                "download": "1",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('attachment; filename="dre.pdf"', response["Content-Disposition"])
 
 
 class PaymentMethodFormTests(TestCase):
