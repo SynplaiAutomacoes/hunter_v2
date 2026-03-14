@@ -301,6 +301,7 @@ def _build_workorder_detail(*, workorder: WorkOrder, amount: Money) -> dict[str,
     customer_name = getattr(getattr(workorder, "budget", None), "customer", None)
     latest_payment_date = _get_latest_payment_due_date(workorder=workorder)
     return {
+        "workorder_id": workorder.pk,
         "summary": f"OS/PEDIDO Nº {workorder.pk} - {customer_name or '-'}",
         "entry_date": getattr(workorder.budget, "entry_date", None),
         "payment_date": latest_payment_date,

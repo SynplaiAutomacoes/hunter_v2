@@ -2183,6 +2183,7 @@ class DreReportViewTests(TestCase):
         self.assertEqual(len(gross_revenue_row["details"]), 1)
         self.assertEqual(gross_revenue_row["detail_kind"], "workorders")
         detail = gross_revenue_row["details"][0]
+        self.assertEqual(detail["workorder_id"], workorder.pk)
         self.assertEqual(detail["summary"], f"OS/PEDIDO Nº {workorder.pk} - Cliente DRE Expandido")
         self.assertEqual(detail["entry_date"], date(2026, 1, 15))
         self.assertEqual(detail["payment_date"], date(2026, 1, 20))
@@ -2190,6 +2191,7 @@ class DreReportViewTests(TestCase):
 
         content = response.content.decode("utf-8")
         self.assertIn(f"OS/PEDIDO Nº {workorder.pk} - Cliente DRE Expandido", content)
+        self.assertContains(response, f'href="{reverse("workorder:workorder_detail", kwargs={"pk": workorder.pk})}"')
         self.assertIn("Data Entrada: 15/01/2026 | Data Saída: 20/01/2026", content)
         self.assertIn("R$\u00a0300,00", content)
         self.assertIn("chevron_right", content)
@@ -2223,6 +2225,7 @@ class DreReportViewTests(TestCase):
         self.assertEqual(cost_row["detail_kind"], "workorders")
         self.assertEqual(len(cost_row["details"]), 1)
         detail = cost_row["details"][0]
+        self.assertEqual(detail["workorder_id"], workorder.pk)
         self.assertEqual(detail["summary"], f"OS/PEDIDO Nº {workorder.pk} - Cliente Custo")
         self.assertEqual(detail["amount"], Money("120.00", "BRL"))
 
