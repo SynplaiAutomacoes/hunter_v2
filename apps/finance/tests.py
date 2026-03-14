@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from io import BytesIO
+from datetime import date, datetime, timedelta
+import re
 import json
 from decimal import Decimal
 from types import SimpleNamespace
@@ -12,14 +15,20 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from djmoney.money import Money
+from openpyxl import load_workbook
 
 from apps.budget.models import Budget, BudgetItem
 from apps.accounts.models import Account, User
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.kits import Kit, KitProduct
 from apps.catalog.models.products import Product
+from apps.catalog.models.services import Service
 from apps.collaborators.models import WorkshopMember
+from apps.customer.models import Customer
+from apps.core.documents.contract import DocumentPayload
+from apps.finance.documents.provider import build_dre_excel_document, build_dre_pdf_render_request
 from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm
+from apps.finance.forms.dre import DreForm
 from apps.finance.forms.financial_group import FinancialGroupForm
 from apps.finance.forms.payment_method import PaymentMethodForm
 from apps.finance.models.finance import TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassSyncState, WebmaniaCompany
@@ -46,6 +55,10 @@ from apps.finance.services.webmania_secrets import decrypt_secret, encrypt_secre
 from apps.finance.views.nfse import NfseRequestCreateView
 from apps.iam.utils import get_or_create_director_role
 from apps.workorder.models import WorkOrder
+from apps.workorder.models import WorkOrderItem
+from apps.workorder.models import WorkOrderPaymentMethod
+from apps.workshops.models.monthly_costs import MonthlyCost
+from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from apps.workshops.models.workshops import Workshop
 
 
@@ -1944,6 +1957,948 @@ class FinancialGroupViewsTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertTrue(FinancialGroup.objects.filter(pk=parent.pk).exists())
+
+
+class DreReportViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=88)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def _create_additional_workshop(self, *, suffix: int) -> Workshop:
+        workshop = Workshop.objects.create(
+            account=self.workshop.account,
+            name=f"Oficina Filial {suffix}",
+            cnpj=f"22.333.444/0001-{suffix:02d}",
+            phone="+5511977777777",
+            address=f"Rua Filial, {suffix}",
+        )
+        membership = WorkshopMember.objects.get(user=self.user, workshop=self.workshop)
+        WorkshopMember.objects.create(user=self.user, workshop=workshop, role=membership.role, is_active=True)
+        return workshop
+
+    def _create_workorder_with_values(
+        self,
+        *,
+        reference_date: date,
+        product_selling_price: str,
+        product_cost_price: str,
+        service_selling_price: str,
+        service_cost_price: str,
+        customer_name: str | None = None,
+        payment_due_date: date | None = None,
+        workshop: Workshop | None = None,
+    ) -> WorkOrder:
+        selected_workshop = workshop or self.workshop
+        budget = Budget(workshop=selected_workshop, entry_date=reference_date)
+        if customer_name:
+            customer = Customer.objects.create(
+                workshop=selected_workshop,
+                name=customer_name,
+                cpf_or_cnpj=f"1234567890{reference_date.day:02d}",
+                email=f"cliente{reference_date.strftime('%Y%m%d')}@example.com",
+            )
+            budget.customer = customer
+        budget.save()
+        workorder = WorkOrder.objects.create(workshop=selected_workshop, budget=budget)
+        WorkOrder.objects.filter(pk=workorder.pk).update(criado_em=timezone.make_aware(datetime.combine(reference_date, datetime.min.time())))
+        workorder.refresh_from_db()
+
+        product_group = CatalogGroup.objects.create(workshop=selected_workshop, name=f"Grupo DRE {reference_date.isoformat()}")
+        product = Product.objects.create(
+            workshop=selected_workshop,
+            code=f"DRE-P-{reference_date.strftime('%m%d')}",
+            unit=Product.Unit.UND,
+            name=f"Produto DRE {reference_date.isoformat()}",
+            group=product_group,
+            cost_price=Money(product_cost_price, "BRL"),
+            selling_price=Money(product_selling_price, "BRL"),
+        )
+        service = Service.objects.create(
+            workshop=selected_workshop,
+            name=f"Servico DRE {reference_date.isoformat()}",
+            duration=timedelta(hours=1),
+            suggested_cost=Money(service_cost_price, "BRL"),
+            selling_price=Money(service_selling_price, "BRL"),
+            is_third_party=True,
+        )
+
+        WorkOrderItem.objects.create(workshop=selected_workshop, workorder=workorder, product=product, quantity=1, shipping=Money("0.00", "BRL"))
+        WorkOrderItem.objects.create(workshop=selected_workshop, workorder=workorder, service=service, quantity=1)
+        if payment_due_date:
+            payment_method = PaymentMethod.objects.create(workshop=selected_workshop, description=f"Pagamento DRE {reference_date.isoformat()}")
+            WorkOrderPaymentMethod.objects.create(
+                workorder=workorder,
+                payment_method=payment_method,
+                installments_count=1,
+                first_installment_amount=Money(product_selling_price, "BRL") + Money(service_selling_price, "BRL"),
+                remaining_installments_amount=Money("0.00", "BRL"),
+                due_date=payment_due_date,
+            )
+        return workorder
+
+    def _create_workshop_cost_snapshot(
+        self,
+        *,
+        month: int,
+        year: int,
+        tax_rate: str,
+        operational_cost: str,
+        financial_cost: str,
+        workshop: Workshop | None = None,
+    ) -> None:
+        selected_workshop = workshop or self.workshop
+        workshop_cost = WorkshopCost.objects.create(
+            workshop=selected_workshop,
+            month=month,
+            year=year,
+            mechanic_quantity=1,
+            work_hours_per_day=timedelta(hours=8),
+            work_days_per_month=22,
+            productivity_average=Decimal("0.60"),
+            tax_rate=Decimal(tax_rate),
+            working_hours_per_month=Decimal("176.00"),
+        )
+        mechanic_salary_cost = MonthlyCost.objects.create(workshop=selected_workshop, name="Salarios mecanicos produtivos")
+        rent_cost = MonthlyCost.objects.create(workshop=selected_workshop, name=f"Aluguel {month}/{year}")
+        bank_fee_cost = MonthlyCost.objects.create(workshop=selected_workshop, name=f"Taxas bancarias {month}/{year}")
+
+        WorkshopCostItem.objects.create(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_cost, amount=Money("0.00", "BRL"))
+        WorkshopCostItem.objects.create(workshop_cost=workshop_cost, monthly_cost=rent_cost, amount=Money(operational_cost, "BRL"))
+        WorkshopCostItem.objects.create(workshop_cost=workshop_cost, monthly_cost=bank_fee_cost, amount=Money(financial_cost, "BRL"))
+
+    def test_report_requires_filial_selection_before_loading_financial_groups(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+
+        response = self.client.get(reverse("finance:dre_report"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "É necessário selecionar uma filial")
+        self.assertNotContains(response, "Não há grupos financeiros")
+
+    def test_report_shows_empty_message_when_selected_filial_has_no_financial_groups(self) -> None:
+        response = self.client.get(reverse("finance:dre_report"), data={"filial": str(self.workshop.pk)})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Não há grupos financeiros")
+        self.assertNotContains(response, "É necessário selecionar uma filial")
+
+    def test_report_with_invalid_filial_keeps_selection_required_message(self) -> None:
+        response = self.client.get(reverse("finance:dre_report"), data={"filial": "invalida"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "É necessário selecionar uma filial")
+        self.assertNotContains(response, "Não há grupos financeiros")
+
+    def test_report_refreshes_financial_groups_table_when_filial_changes(self) -> None:
+        response = self.client.get(reverse("finance:dre_report"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'hx-get="{reverse("finance:dre_report")}"')
+        self.assertContains(response, 'hx-trigger="change from:#id_filial"')
+        self.assertContains(response, 'hx-target="#dre-financial-groups-table-content"')
+        self.assertContains(response, 'hx-select="#dre-financial-groups-table-content"')
+        self.assertContains(response, 'hx-swap="outerHTML"')
+        self.assertContains(response, 'hx-include="#id_filial"')
+
+    def test_report_renders_financial_groups_with_expected_hierarchy_indentation(self) -> None:
+        root = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        child = FinancialGroup.objects.create(workshop=self.workshop, parent=root, name="Receitas de Serviços")
+        grandchild = FinancialGroup.objects.create(workshop=self.workshop, parent=child, name="Receitas de Serviços Diretos")
+
+        response = self.client.get(reverse("finance:dre_report"), data={"filial": str(self.workshop.pk)})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="dre-financial-groups-table"')
+        self.assertNotContains(response, "É necessário selecionar uma filial")
+        self.assertNotContains(response, "Não há grupos financeiros")
+
+        content = response.content.decode("utf-8")
+        self.assertIn(f"{root.code}. {root.name}", content)
+        self.assertIn(f"\u00a0\u00a0\u00a0\u00a0└ {child.code}. {child.name}", content)
+        self.assertIn(f"\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0└ {grandchild.code}. {grandchild.name}", content)
+
+    def test_report_keeps_selected_financial_groups_checked(self) -> None:
+        first = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        second = FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+        third = FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+
+        response = self.client.get(
+            reverse("finance:dre_report"),
+            data={"filial": str(self.workshop.pk), "financial_groups": [str(first.pk), str(second.pk)]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+
+        self.assertRegex(content, rf'<input[^>]*name="financial_groups"[^>]*value="{first.pk}"[^>]*checked')
+        self.assertRegex(content, rf'<input[^>]*name="financial_groups"[^>]*value="{second.pk}"[^>]*checked')
+
+        third_input = re.search(rf'<input[^>]*name="financial_groups"[^>]*value="{third.pk}"[^>]*>', content)
+        if third_input is None:
+            self.fail("Checkbox do terceiro grupo financeiro não foi renderizado.")
+        self.assertNotIn("checked", third_input.group(0))
+
+    def test_report_renders_hierarchical_checkbox_metadata_for_financial_groups(self) -> None:
+        root = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        child = FinancialGroup.objects.create(workshop=self.workshop, parent=root, name="Receitas de Serviços")
+        grandchild = FinancialGroup.objects.create(workshop=self.workshop, parent=child, name="Receitas de Serviços Diretos")
+
+        response = self.client.get(reverse("finance:dre_report"), data={"filial": str(self.workshop.pk)})
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+
+        self.assertIn("hierarchicalSelection: true", content)
+        self.assertRegex(content, rf'<input[^>]*name="financial_groups"[^>]*value="{root.pk}"[^>]*data-row-id="{root.pk}"')
+        self.assertRegex(content, rf'<input[^>]*name="financial_groups"[^>]*value="{child.pk}"[^>]*data-row-id="{child.pk}"[^>]*data-parent-id="{root.pk}"')
+        self.assertRegex(content, rf'<input[^>]*name="financial_groups"[^>]*value="{grandchild.pk}"[^>]*data-row-id="{grandchild.pk}"[^>]*data-parent-id="{child.pk}"')
+        self.assertIn("handleRowCheckboxChange($event)", content)
+
+    def test_report_form_submits_to_results_page(self) -> None:
+        response = self.client.get(reverse("finance:dre_report"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'action="{reverse("finance:dre_results")}"')
+
+    def test_report_form_requires_start_and_end_dates(self) -> None:
+        response = self.client.get(reverse("finance:dre_report"), data={"filial": str(self.workshop.pk), "tipo_data": "A"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Este campo é obrigatório.", count=2)
+
+    def test_report_renders_all_workshops_option(self) -> None:
+        response = self.client.get(reverse("finance:dre_report"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'data-value="{DreForm.ALL_WORKSHOPS_VALUE}"', html=False)
+        self.assertContains(response, 'data-label="TODAS AS FILIAIS"', html=False)
+
+    def test_report_lists_financial_groups_from_all_workshops_with_workshop_headers(self) -> None:
+        second_workshop = self._create_additional_workshop(suffix=89)
+        first_group = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        second_group = FinancialGroup.objects.create(workshop=second_workshop, name="Receitas")
+
+        response = self.client.get(reverse("finance:dre_report"), data={"filial": DreForm.ALL_WORKSHOPS_VALUE})
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertIn("Grupos financeiros por filial", content)
+        self.assertIn(self.workshop.name, content)
+        self.assertIn(second_workshop.name, content)
+        self.assertIn(f"{first_group.code}. {first_group.name}", content)
+        self.assertIn(f"{second_group.code}. {second_group.name}", content)
+        self.assertNotContains(response, "É necessário selecionar uma filial")
+
+    def test_results_page_calculates_consolidated_values_for_all_workshops(self) -> None:
+        second_workshop = self._create_additional_workshop(suffix=90)
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+        FinancialGroup.objects.create(workshop=second_workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=second_workshop, name="Custos")
+        FinancialGroup.objects.create(workshop=second_workshop, name="Despesas")
+
+        self._create_workorder_with_values(
+            reference_date=date(2026, 1, 15),
+            product_selling_price="100.00",
+            product_cost_price="40.00",
+            service_selling_price="200.00",
+            service_cost_price="80.00",
+            workshop=self.workshop,
+        )
+        self._create_workshop_cost_snapshot(
+            month=1,
+            year=2026,
+            tax_rate="0.10",
+            operational_cost="60.00",
+            financial_cost="10.00",
+            workshop=self.workshop,
+        )
+        self._create_workorder_with_values(
+            reference_date=date(2026, 1, 18),
+            product_selling_price="50.00",
+            product_cost_price="20.00",
+            service_selling_price="150.00",
+            service_cost_price="30.00",
+            workshop=second_workshop,
+        )
+        self._create_workshop_cost_snapshot(
+            month=1,
+            year=2026,
+            tax_rate="0.10",
+            operational_cost="20.00",
+            financial_cost="5.00",
+            workshop=second_workshop,
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": DreForm.ALL_WORKSHOPS_VALUE,
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        rows = {row["label"]: row["amount"] for row in response.context["dre_rows"]}
+        self.assertEqual(rows["(+) Receita Bruta de Vendas e Serviços"], Money("500.00", "BRL"))
+        self.assertEqual(rows["(-) Custos Mercadorias Vendidas"], Money("170.00", "BRL"))
+        self.assertEqual(rows["(=) Receita Bruta de Vendas"], Money("330.00", "BRL"))
+        self.assertEqual(rows["(-) Despesas Financeiras"], Money("15.00", "BRL"))
+        self.assertEqual(rows["(=) Resultado Operacional"], Money("-15.00", "BRL"))
+        self.assertEqual(response.context["selected_workshop_label"], "Todas as filiais")
+        self.assertTrue(response.context["is_consolidated_workshops"])
+        self.assertContains(response, "Consolidado de 2 filiais")
+
+    @patch("apps.finance.views.dre.render_dre_pdf_document")
+    def test_pdf_view_uses_consolidated_context_for_all_workshops(self, render_document_mock) -> None:
+        second_workshop = self._create_additional_workshop(suffix=91)
+        render_document_mock.return_value = DocumentPayload(content=b"%PDF-dre", filename="dre.pdf")
+
+        response = self.client.get(
+            reverse("finance:dre_pdf"),
+            data={
+                "filial": DreForm.ALL_WORKSHOPS_VALUE,
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        context = render_document_mock.call_args.kwargs["context"]
+        self.assertIsNone(context["selected_workshop"])
+        self.assertEqual(context["selected_workshop_label"], "Todas as filiais")
+        self.assertTrue(context["is_consolidated_workshops"])
+        self.assertEqual([workshop.pk for workshop in context["selected_workshops"]], [self.workshop.pk, second_workshop.pk])
+
+    def test_excel_view_uses_all_workshops_label_in_summary_sheet(self) -> None:
+        second_workshop = self._create_additional_workshop(suffix=92)
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=second_workshop, name="Receitas")
+
+        response = self.client.get(
+            reverse("finance:dre_excel"),
+            data={
+                "filial": DreForm.ALL_WORKSHOPS_VALUE,
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        workbook = load_workbook(filename=BytesIO(response.content))
+        summary_sheet = workbook["Resumo"]
+        self.assertEqual(summary_sheet["B3"].value, "Todas as filiais")
+
+    def test_results_page_renders_dynamic_header_with_selected_workshop(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Demonstração de Resultado de Exercício")
+        self.assertContains(response, self.workshop.name)
+        self.assertContains(response, "01/01/2026 até 31/01/2026")
+        self.assertContains(response, "(=) Resultado Operacional")
+
+    def test_results_page_renders_back_button_to_report_with_current_filters(self) -> None:
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Voltar")
+        self.assertContains(
+            response,
+            f'href="{reverse("finance:dre_report")}?filial={self.workshop.pk}&amp;data_inicial=2026-01-01&amp;data_final=2026-01-31&amp;tipo_data=A"',
+        )
+
+    def test_results_page_renders_pdf_button_with_modal_urls(self) -> None:
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Gerar PDF")
+        self.assertContains(
+            response,
+            f"url: '{reverse('finance:dre_pdf_preview')}?filial={self.workshop.pk}&amp;data_inicial=2026-01-01&amp;data_final=2026-01-31&amp;tipo_data=A'",
+        )
+        self.assertContains(
+            response,
+            f"downloadUrl: '{reverse('finance:dre_pdf')}?download=1&filial={self.workshop.pk}&amp;data_inicial=2026-01-01&amp;data_final=2026-01-31&amp;tipo_data=A'",
+        )
+        self.assertContains(response, 'id="pdfModal"')
+        self.assertContains(response, "@open-pdf-modal.window=\"pdfUrl = $event.detail.url; pdfDownloadUrl = $event.detail.downloadUrl || ''; $el.showModal()\"")
+        self.assertNotContains(response, 'target="_blank"')
+
+    def test_results_page_renders_excel_button_with_download_url(self) -> None:
+        revenue_group = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+                "financial_groups": [str(revenue_group.pk)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Exportar Excel")
+        self.assertContains(
+            response,
+            f'href="{reverse("finance:dre_excel")}?filial={self.workshop.pk}&amp;data_inicial=2026-01-01&amp;data_final=2026-01-31&amp;tipo_data=A&amp;financial_groups={revenue_group.pk}"',
+        )
+
+    def test_pdf_preview_view_renders_html_for_iframe(self) -> None:
+        response = self.client.get(
+            reverse("finance:dre_pdf_preview"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "<!DOCTYPE html>", html=False)
+        self.assertContains(response, "Demonstração do Resultado do Exercício")
+        self.assertIsNone(response.headers.get("X-Frame-Options"))
+
+    def test_build_dre_pdf_render_request_uses_normalized_workshop_name_in_filename(self) -> None:
+        self.workshop.name = "Oficina São José / Matriz"
+        render_request = build_dre_pdf_render_request(
+            context={
+                "selected_workshop": self.workshop,
+                "data_inicial_label": "01/01/2026",
+                "data_final_label": "31/01/2026",
+            }
+        )
+
+        self.assertEqual(render_request.filename, "dre_oficina_sao_jose_matriz_01_01_2026_31_01_2026.pdf")
+
+    def test_build_dre_excel_document_uses_normalized_workshop_name_in_filename(self) -> None:
+        self.workshop.name = "Oficina São José / Matriz"
+        document = build_dre_excel_document(
+            context={
+                "selected_workshop": self.workshop,
+                "data_inicial_label": "01/01/2026",
+                "data_final_label": "31/01/2026",
+                "dre_summary_cards": [],
+                "dre_rows": [],
+            }
+        )
+
+        self.assertEqual(document.filename, "dre_oficina_sao_jose_matriz_01_01_2026_31_01_2026.xlsx")
+
+    def test_results_page_calculates_dynamic_dre_values_from_workorders_and_costs(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+        reference_date = date(2026, 1, 15)
+
+        self._create_workorder_with_values(
+            reference_date=reference_date,
+            product_selling_price="100.00",
+            product_cost_price="40.00",
+            service_selling_price="200.00",
+            service_cost_price="80.00",
+        )
+        self._create_workshop_cost_snapshot(
+            month=1,
+            year=2026,
+            tax_rate="0.10",
+            operational_cost="60.00",
+            financial_cost="10.00",
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        rows = {row["label"]: row["amount"] for row in response.context["dre_rows"]}
+        cards = {card["label"]: card["amount"] for card in response.context["dre_summary_cards"]}
+
+        self.assertEqual(rows["(+) Receita Bruta de Vendas e Serviços"], Money("300.00", "BRL"))
+        self.assertEqual(rows["(-) Custos Mercadorias Vendidas"], Money("120.00", "BRL"))
+        self.assertEqual(rows["(=) Receita Bruta de Vendas"], Money("180.00", "BRL"))
+        self.assertEqual(rows["(+) Receitas Financeiras"], Money("0.00", "BRL"))
+        self.assertEqual(rows["(-) Despesas Financeiras"], Money("10.00", "BRL"))
+        self.assertEqual(rows["(=) Resultado Operacional"], Money("-10.00", "BRL"))
+        self.assertEqual(cards["Receita Bruta de Vendas"], Money("180.00", "BRL"))
+        self.assertEqual(cards["Resultado Operacional"], Money("-10.00", "BRL"))
+        content = response.content.decode("utf-8")
+        self.assertIn("(Receita Bruta de Vendas e Serviços - Custos Mercadorias Vendidas)", content)
+        self.assertIn("(Receitas Financeiras - Despesas Financeiras)", content)
+
+    def test_results_page_uses_only_selected_financial_groups_in_calculation(self) -> None:
+        revenue_group = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+        reference_date = date(2026, 1, 15)
+
+        self._create_workorder_with_values(
+            reference_date=reference_date,
+            product_selling_price="100.00",
+            product_cost_price="40.00",
+            service_selling_price="200.00",
+            service_cost_price="80.00",
+        )
+        self._create_workshop_cost_snapshot(
+            month=1,
+            year=2026,
+            tax_rate="0.10",
+            operational_cost="60.00",
+            financial_cost="10.00",
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+                "financial_groups": [str(revenue_group.pk)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        rows = {row["label"]: row["amount"] for row in response.context["dre_rows"]}
+        cards = {card["label"]: card["amount"] for card in response.context["dre_summary_cards"]}
+
+        self.assertEqual(rows["(+) Receita Bruta de Vendas e Serviços"], Money("300.00", "BRL"))
+        self.assertEqual(rows["(-) Custos Mercadorias Vendidas"], Money("0.00", "BRL"))
+        self.assertEqual(rows["(=) Receita Bruta de Vendas"], Money("300.00", "BRL"))
+        self.assertEqual(rows["(+) Receitas Financeiras"], Money("0.00", "BRL"))
+        self.assertEqual(rows["(-) Despesas Financeiras"], Money("0.00", "BRL"))
+        self.assertEqual(rows["(=) Resultado Operacional"], Money("0.00", "BRL"))
+        self.assertEqual(cards["Receita Bruta de Vendas"], Money("300.00", "BRL"))
+        self.assertEqual(cards["Resultado Operacional"], Money("0.00", "BRL"))
+
+    def test_results_page_does_not_fallback_to_all_when_selected_group_has_no_component_mapping(self) -> None:
+        unmapped_group = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas de Servicos Diretos")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+        reference_date = date(2026, 1, 15)
+
+        self._create_workorder_with_values(
+            reference_date=reference_date,
+            product_selling_price="100.00",
+            product_cost_price="40.00",
+            service_selling_price="200.00",
+            service_cost_price="80.00",
+        )
+        self._create_workshop_cost_snapshot(
+            month=1,
+            year=2026,
+            tax_rate="0.10",
+            operational_cost="60.00",
+            financial_cost="10.00",
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+                "financial_groups": [str(unmapped_group.pk)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        rows = {row["label"]: row["amount"] for row in response.context["dre_rows"]}
+        cards = {card["label"]: card["amount"] for card in response.context["dre_summary_cards"]}
+
+        self.assertEqual(rows["(+) Receita Bruta de Vendas e Serviços"], Money("0.00", "BRL"))
+        self.assertEqual(rows["(-) Custos Mercadorias Vendidas"], Money("0.00", "BRL"))
+        self.assertEqual(rows["(=) Receita Bruta de Vendas"], Money("0.00", "BRL"))
+        self.assertEqual(rows["(+) Receitas Financeiras"], Money("0.00", "BRL"))
+        self.assertEqual(rows["(-) Despesas Financeiras"], Money("0.00", "BRL"))
+        self.assertEqual(rows["(=) Resultado Operacional"], Money("0.00", "BRL"))
+        self.assertEqual(cards["Receita Bruta de Vendas"], Money("0.00", "BRL"))
+        self.assertEqual(cards["Resultado Operacional"], Money("0.00", "BRL"))
+
+    def test_results_page_includes_expandable_workorder_details_for_gross_revenue_row(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        reference_date = date(2026, 1, 15)
+
+        workorder = self._create_workorder_with_values(
+            reference_date=reference_date,
+            product_selling_price="100.00",
+            product_cost_price="40.00",
+            service_selling_price="200.00",
+            service_cost_price="80.00",
+            customer_name="Cliente DRE Expandido",
+            payment_due_date=date(2026, 1, 20),
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        gross_revenue_row = next(row for row in response.context["dre_rows"] if row["component"] == "receita_bruta_vendas_e_servicos")
+
+        self.assertEqual(len(gross_revenue_row["details"]), 1)
+        self.assertEqual(gross_revenue_row["detail_kind"], "workorders")
+        detail = gross_revenue_row["details"][0]
+        self.assertEqual(detail["workorder_id"], workorder.pk)
+        self.assertEqual(detail["summary"], f"OS/PEDIDO Nº {workorder.pk} - Cliente DRE Expandido")
+        self.assertEqual(detail["entry_date"], date(2026, 1, 15))
+        self.assertEqual(detail["payment_date"], date(2026, 1, 20))
+        self.assertEqual(detail["amount"], Money("300.00", "BRL"))
+
+        content = response.content.decode("utf-8")
+        self.assertIn(f"OS/PEDIDO Nº {workorder.pk} - Cliente DRE Expandido", content)
+        self.assertContains(response, f'href="{reverse("workorder:workorder_detail", kwargs={"pk": workorder.pk})}"')
+        self.assertIn("Data Entrada: 15/01/2026 | Data Saída: 20/01/2026", content)
+        self.assertIn("R$\u00a0300,00", content)
+        self.assertIn("chevron_right", content)
+
+    def test_results_page_includes_expandable_workorder_cost_details_for_cost_row(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+
+        workorder = self._create_workorder_with_values(
+            reference_date=date(2026, 1, 15),
+            product_selling_price="100.00",
+            product_cost_price="40.00",
+            service_selling_price="200.00",
+            service_cost_price="80.00",
+            customer_name="Cliente Custo",
+            payment_due_date=date(2026, 1, 20),
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        cost_row = next(row for row in response.context["dre_rows"] if row["component"] == "custos_mercadorias_vendidas")
+
+        self.assertEqual(cost_row["detail_kind"], "workorders")
+        self.assertEqual(len(cost_row["details"]), 1)
+        detail = cost_row["details"][0]
+        self.assertEqual(detail["workorder_id"], workorder.pk)
+        self.assertEqual(detail["summary"], f"OS/PEDIDO Nº {workorder.pk} - Cliente Custo")
+        self.assertEqual(detail["amount"], Money("120.00", "BRL"))
+
+    def test_results_page_includes_expandable_financial_expense_details(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+        self._create_workshop_cost_snapshot(
+            month=1,
+            year=2026,
+            tax_rate="0.10",
+            operational_cost="60.00",
+            financial_cost="10.00",
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        expense_row = next(row for row in response.context["dre_rows"] if row["component"] == "despesas_financeiras")
+
+        self.assertEqual(expense_row["detail_kind"], "financial_entries")
+        self.assertEqual(len(expense_row["details"]), 1)
+        detail = expense_row["details"][0]
+        self.assertEqual(detail["summary"], "Taxas bancarias 1/2026")
+        self.assertEqual(detail["reference"], "Janeiro/2026")
+        self.assertEqual(detail["amount"], Money("10.00", "BRL"))
+
+    def test_results_page_keeps_expandable_source_rows_openable_without_data(self) -> None:
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        expandable_components = {
+            "receita_bruta_vendas_e_servicos",
+            "custos_mercadorias_vendidas",
+            "receitas_financeiras",
+            "despesas_financeiras",
+        }
+        for row in response.context["dre_rows"]:
+            if row["component"] in expandable_components:
+                self.assertTrue(row["is_expandable"])
+                self.assertEqual(row["details"], [])
+            else:
+                self.assertFalse(row["is_expandable"])
+                self.assertEqual(row["details"], [])
+
+        content = response.content.decode("utf-8")
+        self.assertEqual(content.count("chevron_right"), 4)
+        self.assertIn("Não há dados neste período.", content)
+
+    def test_results_page_keeps_derived_rows_static_without_dropdown_details(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+        self._create_workorder_with_values(
+            reference_date=date(2026, 1, 15),
+            product_selling_price="100.00",
+            product_cost_price="40.00",
+            service_selling_price="200.00",
+            service_cost_price="80.00",
+        )
+        self._create_workshop_cost_snapshot(
+            month=1,
+            year=2026,
+            tax_rate="0.10",
+            operational_cost="60.00",
+            financial_cost="10.00",
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        gross_sales_row = next(row for row in response.context["dre_rows"] if row["component"] == "receita_bruta_de_vendas")
+        operating_result_row = next(row for row in response.context["dre_rows"] if row["component"] == "resultado_operacional")
+
+        self.assertEqual(gross_sales_row["detail_kind"], "components")
+        self.assertFalse(gross_sales_row["is_expandable"])
+        self.assertEqual(gross_sales_row["details"], [])
+        self.assertEqual(operating_result_row["detail_kind"], "components")
+        self.assertFalse(operating_result_row["is_expandable"])
+        self.assertEqual(operating_result_row["details"], [])
+
+        content = response.content.decode("utf-8")
+        self.assertIn("bg-base-200", content)
+
+    def test_results_page_renders_only_source_row_dropdowns_without_data(self) -> None:
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+
+        self.assertEqual(content.count("chevron_right"), 4)
+        self.assertEqual(content.count("expand_more"), 4)
+        self.assertEqual(sum(1 for row in response.context["dre_rows"] if row["is_expandable"]), 4)
+
+    @patch("apps.finance.views.dre.render_dre_pdf_document")
+    def test_pdf_view_returns_inline_pdf_with_filtered_detailed_context(self, render_document_mock) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+        workorder = self._create_workorder_with_values(
+            reference_date=date(2026, 1, 15),
+            product_selling_price="100.00",
+            product_cost_price="40.00",
+            service_selling_price="200.00",
+            service_cost_price="80.00",
+            customer_name="Cliente PDF DRE",
+            payment_due_date=date(2026, 1, 20),
+        )
+        self._create_workshop_cost_snapshot(
+            month=1,
+            year=2026,
+            tax_rate="0.10",
+            operational_cost="60.00",
+            financial_cost="10.00",
+        )
+        render_document_mock.return_value = DocumentPayload(content=b"%PDF-dre", filename="dre.pdf")
+
+        response = self.client.get(
+            reverse("finance:dre_pdf"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"%PDF-dre")
+        self.assertIn('inline; filename="dre.pdf"', response["Content-Disposition"])
+        render_document_mock.assert_called_once()
+
+        context = render_document_mock.call_args.kwargs["context"]
+        self.assertEqual(context["selected_workshop"], self.workshop)
+        self.assertEqual(context["data_inicial_label"], "01/01/2026")
+        self.assertEqual(context["data_final_label"], "31/01/2026")
+        self.assertEqual(context["tipo_data_label"], "AMBOS")
+
+        gross_revenue_row = next(row for row in context["dre_rows"] if row["component"] == "receita_bruta_vendas_e_servicos")
+        costs_row = next(row for row in context["dre_rows"] if row["component"] == "custos_mercadorias_vendidas")
+        expense_row = next(row for row in context["dre_rows"] if row["component"] == "despesas_financeiras")
+
+        self.assertEqual(gross_revenue_row["details"][0]["summary"], f"OS/PEDIDO Nº {workorder.pk} - Cliente PDF DRE")
+        self.assertEqual(gross_revenue_row["details"][0]["payment_date"], date(2026, 1, 20))
+        self.assertEqual(costs_row["details"][0]["amount"], Money("120.00", "BRL"))
+        self.assertEqual(expense_row["details"][0]["summary"], "Taxas bancarias 1/2026")
+        self.assertEqual(expense_row["details"][0]["reference"], "Janeiro/2026")
+
+    @patch("apps.finance.views.dre.render_dre_pdf_document")
+    def test_pdf_view_supports_download_disposition(self, render_document_mock) -> None:
+        render_document_mock.return_value = DocumentPayload(content=b"%PDF-dre", filename="dre.pdf")
+
+        response = self.client.get(
+            reverse("finance:dre_pdf"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+                "download": "1",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('attachment; filename="dre.pdf"', response["Content-Disposition"])
+
+    def test_excel_view_returns_styled_workbook_with_filtered_detailed_context(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+        workorder = self._create_workorder_with_values(
+            reference_date=date(2026, 1, 15),
+            product_selling_price="100.00",
+            product_cost_price="40.00",
+            service_selling_price="200.00",
+            service_cost_price="80.00",
+            customer_name="Cliente Excel DRE",
+            payment_due_date=date(2026, 1, 20),
+        )
+        self._create_workshop_cost_snapshot(
+            month=1,
+            year=2026,
+            tax_rate="0.10",
+            operational_cost="60.00",
+            financial_cost="10.00",
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_excel"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        self.assertIn('attachment; filename="dre_', response["Content-Disposition"])
+
+        workbook = load_workbook(filename=BytesIO(response.content))
+        self.assertEqual(workbook.sheetnames, ["Resumo", "Detalhes"])
+
+        summary_sheet = workbook["Resumo"]
+        details_sheet = workbook["Detalhes"]
+
+        self.assertEqual(summary_sheet["A1"].value, "DRE - Demonstracao do Resultado do Exercicio")
+        self.assertEqual(summary_sheet["B3"].value, self.workshop.name)
+        self.assertEqual(summary_sheet["B4"].value, "01/01/2026 ate 31/01/2026")
+        self.assertEqual(summary_sheet["A1"].fill.fgColor.rgb[-6:], "1E3A8A")
+        self.assertEqual(details_sheet["A1"].fill.fgColor.rgb[-6:], "1E3A8A")
+
+        summary_values = [cell for row in summary_sheet.iter_rows(values_only=True) for cell in row if cell is not None]
+        detail_rows = list(details_sheet.iter_rows(values_only=True))
+        detail_values = [cell for row in detail_rows for cell in row if cell is not None]
+        summary_header_row = next(index for index, row in enumerate(summary_sheet.iter_rows(values_only=True), start=1) if row[:3] == ("Descricao", "Formula", "Valor"))
+        summary_headers = [summary_sheet.cell(row=summary_header_row, column=column).value for column in range(1, 4)]
+        detail_headers = [details_sheet.cell(row=3, column=column).value for column in range(1, 7)]
+
+        self.assertNotIn("Grupos selecionados", summary_values)
+        self.assertNotIn("Tipo de data", summary_values)
+        self.assertNotIn("Indicador", summary_values)
+        self.assertNotIn("Tipo", summary_values)
+        self.assertNotIn("Detalhavel", summary_values)
+        self.assertNotIn("Tipo", detail_values)
+        self.assertEqual(summary_headers, ["Descricao", "Formula", "Valor"])
+        self.assertEqual(detail_headers, ["Linha DRE", "Resumo", "Referencia", "Data Entrada", "Data Saida", "Valor"])
+        self.assertIn("(+) Receita Bruta de Vendas e Serviços", summary_values)
+        self.assertIn(180, summary_values)
+        self.assertIn(f"OS/PEDIDO Nº {workorder.pk} - Cliente Excel DRE", detail_values)
+        self.assertIn("Taxas bancarias 1/2026", detail_values)
 
 
 class PaymentMethodFormTests(TestCase):

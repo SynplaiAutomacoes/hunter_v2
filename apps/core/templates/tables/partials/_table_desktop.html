@@ -57,6 +57,10 @@
                                     class="checkbox row-checkbox"
                                     name="{{ checkbox_name }}"
                                     value="{{ row.pk }}"
+                                    data-row-id="{{ row.pk }}"
+                                    {% if row.parent_pk %}data-parent-id="{{ row.parent_pk }}"{% endif %}
+                                    {% if row.is_selected %}checked{% endif %}
+                                    @change="handleRowCheckboxChange($event)"
                                     aria-label="Selecionar linha"
                                 />
                             </td>
