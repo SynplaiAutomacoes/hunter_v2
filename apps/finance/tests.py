@@ -2259,6 +2259,37 @@ class DreReportViewTests(TestCase):
         self.assertEqual(detail["reference"], "Janeiro/2026")
         self.assertEqual(detail["amount"], Money("10.00", "BRL"))
 
+    def test_results_page_keeps_expandable_source_rows_openable_without_data(self) -> None:
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        expandable_components = {
+            "receita_bruta_vendas_e_servicos",
+            "custos_mercadorias_vendidas",
+            "receitas_financeiras",
+            "despesas_financeiras",
+        }
+        for row in response.context["dre_rows"]:
+            if row["component"] in expandable_components:
+                self.assertTrue(row["is_expandable"])
+                self.assertEqual(row["details"], [])
+            else:
+                self.assertFalse(row["is_expandable"])
+                self.assertEqual(row["details"], [])
+
+        content = response.content.decode("utf-8")
+        self.assertEqual(content.count("chevron_right"), 4)
+        self.assertIn("Não há dados neste período.", content)
+
     def test_results_page_keeps_derived_rows_static_without_dropdown_details(self) -> None:
         FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
         FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
@@ -2293,14 +2324,16 @@ class DreReportViewTests(TestCase):
         operating_result_row = next(row for row in response.context["dre_rows"] if row["component"] == "resultado_operacional")
 
         self.assertEqual(gross_sales_row["detail_kind"], "components")
+        self.assertFalse(gross_sales_row["is_expandable"])
         self.assertEqual(gross_sales_row["details"], [])
         self.assertEqual(operating_result_row["detail_kind"], "components")
+        self.assertFalse(operating_result_row["is_expandable"])
         self.assertEqual(operating_result_row["details"], [])
 
         content = response.content.decode("utf-8")
         self.assertIn("bg-base-200", content)
 
-    def test_results_page_does_not_render_expandable_details_for_rows_without_workorders(self) -> None:
+    def test_results_page_renders_only_source_row_dropdowns_without_data(self) -> None:
         response = self.client.get(
             reverse("finance:dre_results"),
             data={
@@ -2314,10 +2347,9 @@ class DreReportViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         content = response.content.decode("utf-8")
 
-        self.assertNotIn("chevron_right", content)
-        self.assertNotIn("expand_more", content)
-        for row in response.context["dre_rows"]:
-            self.assertEqual(row["details"], [])
+        self.assertEqual(content.count("chevron_right"), 4)
+        self.assertEqual(content.count("expand_more"), 4)
+        self.assertEqual(sum(1 for row in response.context["dre_rows"] if row["is_expandable"]), 4)
 
 
 class PaymentMethodFormTests(TestCase):

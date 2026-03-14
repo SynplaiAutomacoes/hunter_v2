@@ -172,6 +172,7 @@ def _build_rows(
             tone="positive",
             component=_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS,
             detail_kind="workorders",
+            is_expandable=True,
             details=details.get(_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS, []),
         ),
         _build_row(
@@ -180,6 +181,7 @@ def _build_rows(
             tone="negative",
             component=_ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS,
             detail_kind="workorders",
+            is_expandable=True,
             details=details.get(_ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS, []),
         ),
         _build_row(
@@ -197,6 +199,7 @@ def _build_rows(
             tone="positive",
             component=_ROW_COMPONENT_RECEITAS_FINANCEIRAS,
             detail_kind="financial_entries",
+            is_expandable=True,
             details=details.get(_ROW_COMPONENT_RECEITAS_FINANCEIRAS, []),
         ),
         _build_row(
@@ -205,6 +208,7 @@ def _build_rows(
             tone="negative",
             component=_ROW_COMPONENT_DESPESAS_FINANCEIRAS,
             detail_kind="financial_entries",
+            is_expandable=True,
             details=details.get(_ROW_COMPONENT_DESPESAS_FINANCEIRAS, []),
         ),
         _build_row(
@@ -342,6 +346,7 @@ def _build_row(
     formula: str | None = None,
     component: str | None = None,
     detail_kind: str | None = None,
+    is_expandable: bool = False,
     details: list[dict[str, object]] | None = None,
 ) -> dict[str, Any]:
     return {
@@ -351,5 +356,6 @@ def _build_row(
         "formula": formula,
         "component": component,
         "detail_kind": detail_kind,
+        "is_expandable": is_expandable,
         "details": details or [],
     }
