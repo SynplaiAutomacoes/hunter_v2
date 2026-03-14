@@ -54,9 +54,6 @@
             {% if latest_item %}
                 <div class="flex flex-wrap items-center gap-3 mb-6">
                     <span class="badge {{ latest_item_status_badge.class }}">{{ latest_item_status_badge.text }}</span>
-                    {% if latest_item.last_webhook_at %}
-                        <span class="text-sm text-base-content/70">Webhook: {{ latest_item.last_webhook_at|date:'d/m/Y H:i' }}</span>
-                    {% endif %}
                     {% if latest_item.last_reconciled_at %}
                         <span class="text-sm text-base-content/70">Consulta: {{ latest_item.last_reconciled_at|date:'d/m/Y H:i' }}</span>
                     {% endif %}
