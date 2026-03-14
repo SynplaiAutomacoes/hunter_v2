@@ -180,6 +180,21 @@ class WorkOrder(TimeStampedModel):
         return self.pricing_snapshot.total_products_shipping
 
     @property
+    def resolved_discount_percentage(self) -> Decimal:
+        base_amount = Decimal(getattr(self.total_base_value, "amount", Decimal("0.00")) or Decimal("0.00"))
+        discount_amount = Decimal(getattr(self.discount_value, "amount", Decimal("0.00")) or Decimal("0.00"))
+
+        if base_amount <= Decimal("0.00") or discount_amount <= Decimal("0.00"):
+            return Decimal("0.00")
+
+        percentage = (discount_amount / base_amount) * Decimal("100")
+        return min(percentage, Decimal("100.00")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    @property
+    def discount_percentage_display(self) -> str:
+        return f"{self.resolved_discount_percentage:.2f}%".replace(".", ",")
+
+    @property
     def total_costs_products_value(self) -> Money:
         return self.pricing_snapshot.total_costs_products_value
 
@@ -432,7 +447,7 @@ class WorkOrder(TimeStampedModel):
             if overrides_to_create:
                 WorkOrderKitItemOverride.objects.bulk_create(overrides_to_create)
 
-            self.discount_value = self.budget.discount_value
+            self.discount_value = self.budget.resolved_discount_value
             self.save(update_fields=["discount_value"])
 
     class Meta:

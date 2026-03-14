@@ -192,6 +192,64 @@ class WorkOrderTotalsConsistencyTests(TestCase):
         self.assertEqual(workorder.total_base_value, Money("15.00", "BRL"))
         self.assertEqual(workorder.total_budget_value, Money("10.00", "BRL"))
 
+    def test_sync_from_budget_uses_resolved_discount_value_from_percentage(self) -> None:
+        workshop = create_workshop(suffix=83)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+
+        group = CatalogGroup.objects.create(workshop=workshop, name="Grupo Percentual")
+        product = Product.objects.create(
+            workshop=workshop,
+            code="P-003",
+            unit=Product.Unit.UND,
+            name="Produto Percentual",
+            group=group,
+            cost_price=Money("20.00", "BRL"),
+            selling_price=Money("100.00", "BRL"),
+        )
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            product=product,
+            quantity=1,
+        )
+
+        budget.discount_percentage = Decimal("0.10")
+        budget.discount_value = Money("0.00", "BRL")
+        budget.save(update_fields=["discount_percentage", "discount_value"])
+
+        workorder.sync_from_budget()
+        workorder.refresh_from_db()
+
+        self.assertEqual(workorder.discount_value, Money("10.00", "BRL"))
+
+    def test_discount_percentage_display_uses_current_totals(self) -> None:
+        workshop = create_workshop(suffix=84)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+
+        group = CatalogGroup.objects.create(workshop=workshop, name="Grupo Display")
+        product = Product.objects.create(
+            workshop=workshop,
+            code="P-004",
+            unit=Product.Unit.UND,
+            name="Produto Display",
+            group=group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("200.00", "BRL"),
+        )
+        WorkOrderItem.objects.create(
+            workshop=workshop,
+            workorder=workorder,
+            product=product,
+            quantity=1,
+        )
+
+        workorder.discount_value = Money("30.00", "BRL")
+        workorder.save(update_fields=["discount_value"])
+
+        self.assertEqual(workorder.discount_percentage_display, "15,00%")
+
 
 class WorkOrderSignatureTokenModelTests(TestCase):
     def test_workorder_starts_with_active_signature_token(self) -> None:

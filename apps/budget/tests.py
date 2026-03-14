@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 from unittest.mock import PropertyMock, patch
 
 import requests
+from apps.accounts.models import Account, User
 from django.http import Http404, HttpResponse
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
@@ -34,6 +35,8 @@ from apps.core.documents.services import SignatureDeliveryServiceError, get_sign
 from apps.customer.models import Customer
 from apps.budget.views.pdf_views import signature_file, signature_preview, visualizar_pdf_assinatura
 from apps.budget.views.workflow_views import trigger_signature_send_if_needed
+from apps.collaborators.models import WorkshopMember
+from apps.iam.utils import get_or_create_director_role
 from apps.workshops.models.workshops import Workshop
 
 
@@ -50,6 +53,26 @@ def create_budget(*, workshop: Workshop) -> Budget:
     budget = Budget(workshop=workshop, entry_date=timezone.now().date())
     budget.save()
     return budget
+
+
+def create_director_user_with_workshop(*, suffix: int = 1) -> tuple[User, Workshop]:
+    user = User.objects.create_user(username=f"budget-director{suffix}", password="123", cpf=f"12345678{suffix:03d}")
+    account = Account.objects.create(name=f"Conta Budget {suffix}", owner=user)
+    user.account = account
+    user.is_account_owner = True
+    user.save(update_fields=["account", "is_account_owner"])
+
+    workshop = Workshop.objects.create(
+        account=account,
+        name=f"Oficina Diretor Budget {suffix}",
+        cnpj=f"11.555.666/0001-{suffix:02d}",
+        phone="+5511966666666",
+        address="Rua Diretor Budget, 123",
+    )
+
+    director_role = get_or_create_director_role(account=account, with_all_permissions=True)
+    WorkshopMember.objects.create(user=user, workshop=workshop, role=director_role, is_active=True)
+    return user, workshop
 
 
 def create_customer(*, workshop: Workshop, suffix: int = 1, phone: str = "+5511999999999") -> Customer:
@@ -146,6 +169,103 @@ class BudgetTotalsConsistencyTests(TestCase):
 
         self.assertEqual(budget.total_base_value, Money("0.01", "BRL"))
         self.assertEqual(budget.total_budget_value, Money("0.00", "BRL"))
+
+    def test_discount_percentage_recomputes_discount_value_from_subtotal(self) -> None:
+        workshop = create_workshop(suffix=73)
+        budget = create_budget(workshop=workshop)
+
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            is_local=True,
+            description="Servico percentual",
+            quantity=1,
+            service_selling_price=Money("200.00", "BRL"),
+        )
+
+        budget.discount_percentage = Decimal("0.15")
+        budget.discount_value = Money("0.00", "BRL")
+        budget.save(update_fields=["discount_percentage", "discount_value"])
+
+        budget.refresh_from_db()
+        self.assertEqual(budget.resolved_discount_value, Money("30.00", "BRL"))
+        self.assertEqual(budget.discount_value, Money("30.00", "BRL"))
+        self.assertEqual(budget.discount_percentage, Decimal("0.150000"))
+        self.assertEqual(budget.total_budget_value, Money("170.00", "BRL"))
+
+    def test_discount_value_recomputes_discount_percentage(self) -> None:
+        workshop = create_workshop(suffix=74)
+        budget = create_budget(workshop=workshop)
+
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            is_local=True,
+            description="Servico valor",
+            quantity=1,
+            service_selling_price=Money("250.00", "BRL"),
+        )
+
+        budget.discount_value = Money("50.00", "BRL")
+        budget.discount_percentage = Decimal("0")
+        budget.save(update_fields=["discount_value", "discount_percentage"])
+
+        budget.refresh_from_db()
+        self.assertEqual(budget.discount_value, Money("50.00", "BRL"))
+        self.assertEqual(budget.discount_percentage, Decimal("0.200000"))
+        self.assertEqual(budget.total_budget_value, Money("200.00", "BRL"))
+
+
+class BudgetDiscountUpdateViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=80)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_update_budget_discount_accepts_percentage_as_source_of_truth(self) -> None:
+        budget = create_budget(workshop=self.workshop)
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            is_local=True,
+            description="Servico percentual view",
+            quantity=1,
+            service_selling_price=Money("300.00", "BRL"),
+        )
+
+        response = self.client.post(
+            reverse("budget:update_budget_discount", kwargs={"budget_id": budget.pk}),
+            data={"discount_percentage": "0.10", "discount_value_0": "0.00"},
+        )
+
+        budget.refresh_from_db()
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(budget.discount_percentage, Decimal("0.100000"))
+        self.assertEqual(budget.discount_value, Money("30.00", "BRL"))
+
+    def test_update_budget_discount_recomputes_percentage_from_value(self) -> None:
+        budget = create_budget(workshop=self.workshop)
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            is_local=True,
+            description="Servico valor view",
+            quantity=1,
+            service_selling_price=Money("400.00", "BRL"),
+        )
+
+        response = self.client.post(
+            reverse("budget:update_budget_discount", kwargs={"budget_id": budget.pk}),
+            data={"discount_percentage": "0", "discount_value_0": "40.00"},
+        )
+
+        budget.refresh_from_db()
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(budget.discount_value, Money("40.00", "BRL"))
+        self.assertEqual(budget.discount_percentage, Decimal("0.100000"))
 
 
 class BudgetSignaturePersistenceTests(TestCase):

@@ -237,6 +237,33 @@ class TaxClassSyncState(TimeStampedModel):
         return f"TaxClassSyncState[{state}] ({workshop_id})"
 
 
+class TaxClassPresetKind(models.TextChoices):
+    NFE = "nfe", "NF-e"
+    NFSE = "nfse", "NFS-e"
+
+
+class TaxClassPreset(TimeStampedModel):
+    workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="tax_class_presets")
+    kind = models.CharField(verbose_name="Tipo", max_length=10, choices=TaxClassPresetKind.choices)
+    name = models.CharField(verbose_name="Nome do preset", max_length=120)
+    description = models.CharField(verbose_name="Descrição do preset", max_length=255, blank=True, default="")
+    is_active = models.BooleanField(verbose_name="Ativo", default=True)
+    payload = models.JSONField(verbose_name="Payload", blank=True, default=dict)
+
+    class Meta(TimeStampedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["workshop", "kind", "name"], name="unique_tax_class_preset_per_workshop_kind_name"),
+        ]
+        indexes = [
+            models.Index(fields=["workshop", "kind", "is_active"]),
+        ]
+        ordering = ["kind", "name", "id"]
+
+    def __str__(self) -> str:
+        workshop_id = getattr(self, "workshop_id", "-")
+        return f"Preset {self.get_kind_display()} {self.name} ({workshop_id})"
+
+
 class WebmaniaCompanyTaxType(models.TextChoices):
     SIMPLES_NACIONAL = "simples_nacional", "Simples Nacional"
     LUCRO_NORMAL = "lucro_normal", "Lucro Normal"

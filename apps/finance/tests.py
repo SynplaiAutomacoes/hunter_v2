@@ -23,9 +23,10 @@ from apps.catalog.models.services import Service
 from apps.collaborators.models import WorkshopMember
 from apps.customer.models import Customer, Vehicle
 from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm
+from apps.finance.forms.emission_ui import build_step5_pricing_panel_data
 from apps.finance.forms.financial_group import FinancialGroupForm
 from apps.finance.forms.payment_method import PaymentMethodForm
-from apps.finance.models.finance import NfeItem, NfeRequest, NfeRequestStatus, NfseItem, NfseRequest, NfseRequestStatus, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
+from apps.finance.models.finance import NfeItem, NfeRequest, NfeRequestStatus, NfseItem, NfseRequest, NfseRequestStatus, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.services.emission import NfseEmissionError, _build_taker_payload, _default_service_description, _service_total_value, build_nfse_payload, build_webmania_webhook_token, emit_nfse_request, sync_emission_response
@@ -475,6 +476,32 @@ class TaxClassServiceTests(TestCase):
         self.assertEqual(str(tax_class.ibs_aliquota_diferimento_estadual), "1.25")
         self.assertTrue(TaxClassSyncState.objects.filter(workshop=workshop, synced_once=True).exists())
 
+    def test_save_tax_class_preserves_nfse_service_code_with_five_digits(self) -> None:
+        workshop = create_workshop()
+        payload = {
+            "descricao": "Classe NFSE",
+            "tipo": "nfse",
+            "tipo_emissao": "1",
+            "codigo_servico": "12345",
+        }
+        response_payload = {
+            "referencia": "REFNFSE005",
+            "status": "ativo",
+            "data": "2026-02-17",
+        }
+
+        with (
+            patch("apps.finance.services.tax_classes._build_headers", return_value={}),
+            patch("apps.finance.services.tax_classes.requests.post", return_value=_mock_response(response_payload)) as post_mock,
+        ):
+            save_tax_class(workshop=workshop, payload=payload)
+
+        sent_payload = post_mock.call_args.kwargs.get("json", {})
+        self.assertEqual(sent_payload.get("codigo_servico"), "12345")
+
+        tax_class = TaxClassNfse.objects.get(workshop=workshop, reference="REFNFSE005")
+        self.assertEqual(tax_class.codigo_servico, "12345")
+
     def test_save_tax_class_ignores_success_message_and_persists_update(self) -> None:
         workshop = create_workshop()
         TaxClassNfe.objects.create(
@@ -685,6 +712,24 @@ class NfseTaxClassFormTests(TestCase):
         self.assertNotIn("cst_pis_cofins", payload)
         self.assertNotIn("retencao_pis_cofins", payload)
 
+    def test_build_payload_accepts_service_code_as_five_digits(self) -> None:
+        form = NfseTaxClassForm(
+            data={
+                "descricao": "Classe NFS-e",
+                "codigo_servico": "12345",
+                "codigo_tributacao_municipio": "",
+                "natureza_operacao": "1",
+                "exigibilidade_iss": "1",
+                "iss_retido": "2",
+                "base_payload_json": "{}",
+            }
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        payload = form.build_payload()
+
+        self.assertEqual(payload.get("codigo_servico"), "12345")
+
     def test_initial_from_tax_class_formats_service_code_for_display(self) -> None:
         initial = NfseTaxClassForm.initial_from_tax_class(
             {
@@ -715,7 +760,7 @@ class NfseTaxClassFormTests(TestCase):
         self.assertIn("Este campo é obrigatório.", form.errors.get("exigibilidade_iss", []))
         self.assertIn("Este campo é obrigatório.", form.errors.get("iss_retido", []))
 
-    def test_requires_service_code_in_xx_xx_format(self) -> None:
+    def test_requires_service_code_in_xx_xx_or_xxxxx_format(self) -> None:
         form = NfseTaxClassForm(
             data={
                 "descricao": "Classe NFS-e",
@@ -728,7 +773,7 @@ class NfseTaxClassFormTests(TestCase):
         )
 
         self.assertFalse(form.is_valid())
-        self.assertIn("Informe o código do serviço no formato XX.XX.", form.errors.get("codigo_servico", []))
+        self.assertIn("Informe o código do serviço no formato XX.XX ou XXXXX.", form.errors.get("codigo_servico", []))
 
 
 class NfseEmissionPayloadTests(TestCase):
@@ -760,8 +805,6 @@ class SliderPricingAllocationTests(TestCase):
         workshop = create_workshop(suffix=suffix)
         budget = Budget(workshop=workshop, entry_date=timezone.now().date())
         budget.save()
-        budget.discount_value = Money(discount_value, "BRL")
-        budget.save(update_fields=["discount_value"])
 
         product_group = CatalogGroup.objects.create(workshop=workshop, name=f"Grupo Slider {suffix}")
         product = Product.objects.create(
@@ -785,6 +828,9 @@ class SliderPricingAllocationTests(TestCase):
 
         BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=1)
         service_item = BudgetItem.objects.create(workshop=workshop, budget=budget, service=service, quantity=1)
+
+        budget.discount_value = Money(discount_value, "BRL")
+        budget.save(update_fields=["discount_value"])
 
         workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
         workorder.sync_from_budget()
@@ -848,6 +894,32 @@ class SliderPricingAllocationTests(TestCase):
 
         with self.assertRaisesMessage(NfseEmissionError, "nao possui saldo de servicos"):
             _service_total_value(nfse_request=nfse_request, slider_override=-100)  # type: ignore[arg-type]
+
+    def test_build_step5_pricing_panel_data_exposes_discount_percentage_display(self) -> None:
+        workshop = create_workshop(suffix=31)
+        budget = Budget(workshop=workshop, entry_date=timezone.now().date())
+        budget.save()
+
+        product_group = CatalogGroup.objects.create(workshop=workshop, name="Grupo Painel 31")
+        product = Product.objects.create(
+            workshop=workshop,
+            code="P-DISC-31",
+            unit=Product.Unit.UND,
+            name="Produto Painel 31",
+            ncm="87089990",
+            group=product_group,
+            cost_price=Money("40.00", "BRL"),
+            selling_price=Money("200.00", "BRL"),
+        )
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        WorkOrderItem.objects.create(workshop=workshop, workorder=workorder, product=product, quantity=1)
+        workorder.discount_value = Money("30.00", "BRL")
+        workorder.save(update_fields=["discount_value"])
+
+        panel_data = build_step5_pricing_panel_data(workorder=workorder, selected_slider=0)
+
+        self.assertEqual(panel_data.discount_display, Money("30.00", "BRL"))
+        self.assertEqual(panel_data.discount_percentage_display, "15,00%")
 
     def test_nfse_preview_rows_and_default_description_use_workorder_items(self) -> None:
         workorder, _, service_item = self._build_workorder_with_product_and_service(suffix=94)
@@ -2169,22 +2241,69 @@ class TaxClassPresetViewTests(TestCase):
         session.save()
         TaxClassSyncState.objects.update_or_create(workshop=self.workshop, defaults={"synced_once": True})
 
+    def _create_preset(
+        self,
+        *,
+        kind: str,
+        name: str,
+        payload: dict[str, Any],
+        description: str = "",
+        is_active: bool = True,
+        workshop: Workshop | None = None,
+    ) -> TaxClassPreset:
+        return TaxClassPreset.objects.create(
+            workshop=workshop or self.workshop,
+            kind=kind,
+            name=name,
+            description=description,
+            is_active=is_active,
+            payload=payload,
+        )
+
     def test_preset_buttons_are_not_default_submit_buttons(self) -> None:
+        self._create_preset(
+            kind="nfe",
+            name="Revenda",
+            description="Preset NFE",
+            payload={"descricao": "Classe NFE", "icms": [{"tipo_tributacao": "simples_nacional", "cenario": "saida_dentro_estado", "tipo_pessoa": "fisica", "codigo_cfop": "5102", "situacao_tributaria": "102"}]},
+        )
+        self._create_preset(
+            kind="nfse",
+            name="Servico",
+            description="Preset NFSE",
+            payload={"tipo": "nfse", "descricao": "Classe NFSE", "codigo_servico": "01.05", "exigibilidade_iss": "1", "iss_retido": "2"},
+        )
+
         nfe_response = self.client.get(f"{reverse('finance:tax_class_create')}?tab=nfe")
         nfse_response = self.client.get(f"{reverse('finance:tax_class_create')}?tab=nfse")
 
         self.assertEqual(nfe_response.status_code, 200)
         self.assertEqual(nfse_response.status_code, 200)
-        self.assertIn('type="button" class="btn btn-outline w-full apply-preset-button"', nfe_response.content.decode())
-        self.assertIn('type="button" class="btn btn-outline w-full apply-preset-button"', nfse_response.content.decode())
+        self.assertIn('type="button" class="btn btn-outline flex-1 apply-preset-button"', nfe_response.content.decode())
+        self.assertIn(reverse("finance:tax_class_preset_list") + "?tab=nfe", nfe_response.content.decode())
+        self.assertIn('type="button" class="btn btn-outline flex-1 apply-preset-button"', nfse_response.content.decode())
+        self.assertIn(reverse("finance:tax_class_preset_list") + "?tab=nfse", nfse_response.content.decode())
 
     def test_apply_nfe_preset_keeps_reference_and_loads_scenarios(self) -> None:
+        preset = self._create_preset(
+            kind="nfe",
+            name="Revenda padrão",
+            description="Preset NFE",
+            payload={
+                "descricao": "Classe de impostos para Saída de produtos de revenda",
+                "icms": [
+                    {"tipo_tributacao": "simples_nacional", "cenario": "saida_dentro_estado", "tipo_pessoa": "fisica", "codigo_cfop": "5102", "situacao_tributaria": "102"},
+                    {"tipo_tributacao": "simples_nacional", "cenario": "saida_fora_estado", "tipo_pessoa": "fisica", "codigo_cfop": "6102", "situacao_tributaria": "102"},
+                ],
+            },
+        )
+
         response = self.client.post(
             reverse("finance:tax_class_create"),
             data={
                 "tab": "nfe",
                 "form_action": "apply_preset",
-                "preset_key": "simples_nacional_revenda",
+                "preset_key": str(preset.pk),
                 "referencia": "REFPRE001",
             },
         )
@@ -2199,7 +2318,124 @@ class TaxClassPresetViewTests(TestCase):
 
         nfe_formset_sections = response.context["nfe_formset_sections"]
         icms_section = next(section for section in nfe_formset_sections if section["key"] == "icms")
-        self.assertGreaterEqual(icms_section["formset"].total_form_count(), 5)
+        self.assertGreaterEqual(icms_section["formset"].total_form_count(), 3)
+
+    def test_apply_nfse_preset_loads_fields_from_workshop_preset(self) -> None:
+        preset = self._create_preset(
+            kind="nfse",
+            name="Servico padrao",
+            description="Preset NFSE",
+            payload={
+                "tipo": "nfse",
+                "descricao": "Classe de serviço padrão",
+                "tipo_emissao": "1",
+                "codigo_servico": "01.05",
+                "exigibilidade_iss": "1",
+                "iss_retido": "2",
+            },
+        )
+
+        response = self.client.post(
+            reverse("finance:tax_class_create"),
+            data={
+                "tab": "nfse",
+                "form_action": "apply_preset",
+                "preset_key": str(preset.pk),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        nfse_form = response.context["nfse_form"]
+        self.assertEqual(str(nfse_form["descricao"].value() or ""), "Classe de serviço padrão")
+        self.assertEqual(str(nfse_form["codigo_servico"].value() or ""), "01.05")
+        self.assertEqual(str(nfse_form["iss_retido"].value() or ""), "2")
+
+    def test_apply_preset_rejects_other_workshop_preset(self) -> None:
+        other_workshop = create_workshop(suffix=42)
+        preset = self._create_preset(
+            workshop=other_workshop,
+            kind="nfe",
+            name="Outro preset",
+            description="Outro",
+            payload={"descricao": "Classe externa"},
+        )
+
+        response = self.client.post(
+            reverse("finance:tax_class_create"),
+            data={
+                "tab": "nfe",
+                "form_action": "apply_preset",
+                "preset_key": str(preset.pk),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        messages = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertIn("Selecione um preset válido para aplicar.", messages)
+
+    def test_can_create_nfse_preset_from_new_screen(self) -> None:
+        response = self.client.post(
+            reverse("finance:tax_class_preset_create"),
+            data={
+                "tab": "nfse",
+                "name": "Servico oficina",
+                "description": "Padrao da oficina",
+                "is_active": "on",
+                "descricao": "Classe padrão de serviço",
+                "tipo_emissao": "1",
+                "codigo_servico": "01.05",
+                "exigibilidade_iss": "1",
+                "iss_retido": "2",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        preset = TaxClassPreset.objects.get(workshop=self.workshop, kind="nfse", name="Servico oficina")
+        self.assertEqual(preset.description, "Padrao da oficina")
+        self.assertEqual(preset.payload.get("descricao"), "Classe padrão de serviço")
+        self.assertEqual(preset.payload.get("tipo"), "nfse")
+
+    def test_can_update_preset_and_keep_workshop_scope(self) -> None:
+        preset = self._create_preset(
+            kind="nfse",
+            name="Servico oficina",
+            description="Antigo",
+            payload={"tipo": "nfse", "descricao": "Classe antiga", "codigo_servico": "01.05", "exigibilidade_iss": "1", "iss_retido": "2"},
+        )
+
+        response = self.client.post(
+            reverse("finance:tax_class_preset_update", kwargs={"pk": preset.pk}),
+            data={
+                "tab": "nfse",
+                "name": "Servico oficina atualizado",
+                "description": "Novo resumo",
+                "descricao": "Classe nova",
+                "tipo_emissao": "1",
+                "codigo_servico": "14.01",
+                "exigibilidade_iss": "1",
+                "iss_retido": "2",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        preset.refresh_from_db()
+        self.assertEqual(preset.name, "Servico oficina atualizado")
+        self.assertEqual(preset.description, "Novo resumo")
+        self.assertEqual(preset.payload.get("descricao"), "Classe nova")
+        self.assertEqual(preset.payload.get("codigo_servico"), "14.01")
+
+    def test_preset_list_is_scoped_to_active_workshop(self) -> None:
+        self._create_preset(kind="nfe", name="Preset local", payload={"descricao": "Local"})
+        other_workshop = create_workshop(suffix=43)
+        TaxClassPreset.objects.create(workshop=other_workshop, kind="nfe", name="Preset externo", payload={"descricao": "Externo"})
+
+        response = self.client.get(f"{reverse('finance:tax_class_preset_list')}?tab=nfe")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Preset local")
+        self.assertNotContains(response, "Preset externo")
 
 
 class NfseEmissionAuthTests(TestCase):

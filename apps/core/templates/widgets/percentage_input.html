@@ -5,7 +5,8 @@
         '{{ raw|unlocalize|escapejs }}', 
         '{{ widget.min_percent|default:0|unlocalize|escapejs }}', 
         '{{ widget.max_percent|default:100|unlocalize|escapejs }}',
-        '{{ widget.decimal_places|default:2 }}'
+        '{{ widget.decimal_places|default:2 }}',
+        '{{ widget.behavior|default:"free_decimal"|escapejs }}'
     )"
     x-init="init()"
     class="relative"

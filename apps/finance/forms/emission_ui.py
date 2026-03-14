@@ -30,6 +30,7 @@ class Step5PricingPanelData:
     mlr: Decimal
     mlo: Decimal
     discount_display: Money
+    discount_percentage_display: str
     total_base_value: Money
     total_budget_value: Money
 
@@ -41,6 +42,21 @@ def format_money(value: Any) -> str:
     else:
         amount = Decimal(str(value or 0))
     return f"R$ {amount:.2f}".replace(".", ",")
+
+
+def format_percentage(value: Decimal) -> str:
+    return f"{value.quantize(Decimal('0.01')):.2f}%".replace(".", ",")
+
+
+def resolve_discount_percentage_display(*, total_base_value: Money, discount_value: Money) -> str:
+    base_amount = Decimal(getattr(total_base_value, "amount", Decimal("0.00")) or Decimal("0.00"))
+    discount_amount = Decimal(getattr(discount_value, "amount", Decimal("0.00")) or Decimal("0.00"))
+
+    if base_amount <= Decimal("0.00") or discount_amount <= Decimal("0.00"):
+        return format_percentage(Decimal("0.00"))
+
+    percentage = ((discount_amount / base_amount) * Decimal("100")).quantize(Decimal("0.01"))
+    return format_percentage(min(percentage, Decimal("100.00")))
 
 
 def clamp_slider_value(value: object, default: int = 0) -> int:
@@ -120,6 +136,7 @@ def build_step5_pricing_panel_data(*, workorder: WorkOrder, selected_slider: int
 
     discount_value = getattr(workorder, "discount_value", None) or zero_money
     discount_display = discount_value if getattr(discount_value, "amount", Decimal("0")) != Decimal("0") else zero_money
+    discount_percentage_display = resolve_discount_percentage_display(total_base_value=snapshot.total_base_value, discount_value=discount_display)
     products_cost_base = workorder.total_costs_products_value + workorder.total_products_shipping
     services_cost_base = workorder.total_third_party_services_cost + workorder.total_labor_cost_value
     mlr = (snapshot.total_products_by_slider.amount / products_cost_base.amount).quantize(Decimal("0.01")) if products_cost_base.amount > 0 else Decimal("0.00")
@@ -143,6 +160,7 @@ def build_step5_pricing_panel_data(*, workorder: WorkOrder, selected_slider: int
         mlr=mlr,
         mlo=mlo,
         discount_display=discount_display,
+        discount_percentage_display=discount_percentage_display,
         total_base_value=snapshot.total_base_value,
         total_budget_value=snapshot.total_budget_value,
     )
@@ -292,8 +310,15 @@ def build_step5_pricing_panel_layout(*, prefix: str, panel_data: Step5PricingPan
                         HTML('<h4 class="font-bold text-lg mb-2">Desconto</h4>'),
                         HTML(
                             f"""
-                            <div class="rounded-lg border border-base-300 bg-base-100 px-4 py-3 text-lg font-semibold">
-                                {panel_data.discount_display}
+                            <div class="rounded-lg border border-base-300 bg-base-100 px-4 py-3 space-y-2">
+                                <div class="flex justify-between text-sm font-semibold text-base-content/70">
+                                    <span>Percentual</span>
+                                    <span>{panel_data.discount_percentage_display}</span>
+                                </div>
+                                <div class="flex justify-between text-lg font-semibold">
+                                    <span>Valor</span>
+                                    <span>{panel_data.discount_display}</span>
+                                </div>
                             </div>
                             """
                         ),
@@ -310,7 +335,7 @@ def build_step5_pricing_panel_layout(*, prefix: str, panel_data: Step5PricingPan
                                     <span>{panel_data.total_base_value}</span>
                                 </div>
                                 <div class="flex justify-between text-xl font-semibold">
-                                    <span>Desconto:</span>
+                                    <span>Desconto ({panel_data.discount_percentage_display}):</span>
                                     <span>{panel_data.discount_display}</span>
                                 </div>
                                 <div class="flex justify-between text-xl font-black">
@@ -451,8 +476,15 @@ def build_step5_summary_layout(*, prefix: str, panel_data: Step5PricingPanelData
                         HTML('<h4 class="font-bold text-lg mb-2">Desconto</h4>'),
                         HTML(
                             f"""
-                            <div class="rounded-lg border border-base-300 bg-base-100 px-4 py-3 text-lg font-semibold">
-                                {panel_data.discount_display}
+                            <div class="rounded-lg border border-base-300 bg-base-100 px-4 py-3 space-y-2">
+                                <div class="flex justify-between text-sm font-semibold text-base-content/70">
+                                    <span>Percentual</span>
+                                    <span>{panel_data.discount_percentage_display}</span>
+                                </div>
+                                <div class="flex justify-between text-lg font-semibold">
+                                    <span>Valor</span>
+                                    <span>{panel_data.discount_display}</span>
+                                </div>
                             </div>
                             """
                         ),
@@ -469,7 +501,7 @@ def build_step5_summary_layout(*, prefix: str, panel_data: Step5PricingPanelData
                                     <span>{panel_data.total_base_value}</span>
                                 </div>
                                 <div class="flex justify-between text-xl font-semibold">
-                                    <span>Desconto:</span>
+                                    <span>Desconto ({panel_data.discount_percentage_display}):</span>
                                     <span>{panel_data.discount_display}</span>
                                 </div>
                                 <div class="flex justify-between text-xl font-black">

@@ -23,6 +23,9 @@ from apps.finance.views import (
     NfseRequestUpdateView,
     TaxClassCreateView,
     TaxClassListView,
+    TaxClassPresetCreateView,
+    TaxClassPresetListView,
+    TaxClassPresetUpdateView,
     TaxClassUpdateView,
     WebhookView,
     WebmaniaCompanyDetailView,
@@ -64,6 +67,10 @@ urlpatterns = [
     path("classe-imposto/", TaxClassListView.as_view(), name="tax_class_manager"),
     path("classe-imposto/create/", TaxClassCreateView.as_view(), name="tax_class_create"),
     path("classe-imposto/<str:reference>/edit/", TaxClassUpdateView.as_view(), name="tax_class_update"),
+    path("classe-imposto/presets/", TaxClassPresetListView.as_view(), name="tax_class_preset_list"),
+    path("classe-imposto/presets/create/", TaxClassPresetCreateView.as_view(), name="tax_class_preset_create"),
+    path("classe-imposto/presets/<int:pk>/edit/", TaxClassPresetUpdateView.as_view(), name="tax_class_preset_update"),
+    # Bank Account
     # Conta Bancária
     path("bank-account/", BankAccountListView.as_view(), name="bank_account_list"),
     path("bank-account/create/", BankAccountCreateView.as_view(), name="bank_account_create"),
