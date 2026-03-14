@@ -475,6 +475,157 @@ class TaxClassServiceTests(TestCase):
         self.assertEqual(str(tax_class.ibs_aliquota_diferimento_estadual), "1.25")
         self.assertTrue(TaxClassSyncState.objects.filter(workshop=workshop, synced_once=True).exists())
 
+    def test_save_tax_class_ignores_success_message_and_persists_update(self) -> None:
+        workshop = create_workshop()
+        TaxClassNfe.objects.create(
+            workshop=workshop,
+            reference="REFNFE003",
+            description="Classe antiga",
+            status="ativo",
+        )
+
+        payload = {
+            "referencia": "REFNFE003",
+            "descricao": "Classe atualizada",
+            "icms": [{"codigo_cfop": "6102", "tipo_pessoa": "juridica"}],
+        }
+        response_payload = {
+            "referencia": "REFNFE003",
+            "tipo": "nfe",
+            "status": "ativo",
+            "data": "2026-02-18",
+            "message": "Classe de imposto atualizada com sucesso.",
+        }
+
+        with (
+            patch("apps.finance.services.tax_classes._build_headers", return_value={}),
+            patch("apps.finance.services.tax_classes.requests.post", return_value=_mock_response(response_payload)),
+        ):
+            saved = save_tax_class(workshop=workshop, payload=payload)
+
+        tax_class = TaxClassNfe.objects.get(workshop=workshop, reference="REFNFE003")
+        scenario_queryset = TaxClassNfeIcmsScenario.objects.filter(tax_class=tax_class)
+        scenario = scenario_queryset.first()
+        if scenario is None:
+            self.fail("Cenário ICMS não foi persistido na atualização com mensagem de sucesso")
+        self.assertEqual(saved.get("referencia"), "REFNFE003")
+        self.assertEqual(tax_class.description, "Classe atualizada")
+        self.assertEqual(scenario_queryset.count(), 1)
+        self.assertEqual(scenario.codigo_cfop, "6102")
+
+    def test_save_tax_class_ignores_success_msg_and_persists_nfse_update(self) -> None:
+        workshop = create_workshop()
+        TaxClassNfse.objects.create(
+            workshop=workshop,
+            reference="REFNFSE003",
+            description="Classe antiga",
+            status="ativo",
+            tipo_emissao="1",
+            codigo_servico="01.05",
+        )
+
+        payload = {
+            "referencia": "REFNFSE003",
+            "descricao": "Classe NFSE atualizada",
+            "tipo": "nfse",
+            "codigo_servico": "1401",
+            "iss": "3.50",
+        }
+        response_payload = {
+            "referencia": "REFNFSE003",
+            "tipo": "nfse",
+            "status": "ativo",
+            "data": "2026-02-18",
+            "msg": "Classe de imposto atualizada com sucesso.",
+        }
+
+        with (
+            patch("apps.finance.services.tax_classes._build_headers", return_value={}),
+            patch("apps.finance.services.tax_classes.requests.post", return_value=_mock_response(response_payload)),
+        ):
+            saved = save_tax_class(workshop=workshop, payload=payload)
+
+        tax_class = TaxClassNfse.objects.get(workshop=workshop, reference="REFNFSE003")
+        self.assertEqual(saved.get("referencia"), "REFNFSE003")
+        self.assertEqual(tax_class.description, "Classe NFSE atualizada")
+        self.assertEqual(tax_class.codigo_servico, "14.01")
+        self.assertEqual(str(tax_class.iss), "3.50")
+
+    def test_save_tax_class_ignores_plain_updated_message_and_persists_nfe_update(self) -> None:
+        workshop = create_workshop()
+        TaxClassNfe.objects.create(
+            workshop=workshop,
+            reference="REFNFE004",
+            description="Classe antiga",
+            status="ativo",
+        )
+
+        payload = {
+            "referencia": "REFNFE004",
+            "descricao": "Classe atualizada sem sufixo",
+            "icms": [{"codigo_cfop": "5405", "tipo_pessoa": "juridica"}],
+        }
+        response_payload = {
+            "referencia": "REFNFE004",
+            "tipo": "nfe",
+            "status": "ativo",
+            "data": "2026-02-18",
+            "message": "Classe de imposto atualizada.",
+        }
+
+        with (
+            patch("apps.finance.services.tax_classes._build_headers", return_value={}),
+            patch("apps.finance.services.tax_classes.requests.post", return_value=_mock_response(response_payload)),
+        ):
+            saved = save_tax_class(workshop=workshop, payload=payload)
+
+        tax_class = TaxClassNfe.objects.get(workshop=workshop, reference="REFNFE004")
+        scenario_queryset = TaxClassNfeIcmsScenario.objects.filter(tax_class=tax_class)
+        scenario = scenario_queryset.first()
+        if scenario is None:
+            self.fail("Cenário ICMS não foi persistido na atualização com mensagem simples")
+        self.assertEqual(saved.get("referencia"), "REFNFE004")
+        self.assertEqual(tax_class.description, "Classe atualizada sem sufixo")
+        self.assertEqual(scenario.codigo_cfop, "5405")
+
+    def test_save_tax_class_ignores_plain_updated_msg_and_persists_nfse_update(self) -> None:
+        workshop = create_workshop()
+        TaxClassNfse.objects.create(
+            workshop=workshop,
+            reference="REFNFSE004",
+            description="Classe antiga",
+            status="ativo",
+            tipo_emissao="1",
+            codigo_servico="01.05",
+        )
+
+        payload = {
+            "referencia": "REFNFSE004",
+            "descricao": "Classe NFSE atualizada sem sufixo",
+            "tipo": "nfse",
+            "codigo_servico": "1701",
+            "iss": "4.20",
+        }
+        response_payload = {
+            "referencia": "REFNFSE004",
+            "tipo": "nfse",
+            "status": "ativo",
+            "data": "2026-02-18",
+            "msg": "Classe de imposto atualizada.",
+        }
+
+        with (
+            patch("apps.finance.services.tax_classes._build_headers", return_value={}),
+            patch("apps.finance.services.tax_classes.requests.post", return_value=_mock_response(response_payload)),
+        ):
+            saved = save_tax_class(workshop=workshop, payload=payload)
+
+        tax_class = TaxClassNfse.objects.get(workshop=workshop, reference="REFNFSE004")
+        self.assertEqual(saved.get("referencia"), "REFNFSE004")
+        self.assertEqual(tax_class.description, "Classe NFSE atualizada sem sufixo")
+        self.assertEqual(tax_class.codigo_servico, "17.01")
+        self.assertEqual(str(tax_class.iss), "4.20")
+
     def test_delete_tax_class_removes_local_on_success(self) -> None:
         workshop = create_workshop()
         TaxClassNfe.objects.create(
@@ -2018,14 +2169,14 @@ class TaxClassPresetViewTests(TestCase):
         session.save()
         TaxClassSyncState.objects.update_or_create(workshop=self.workshop, defaults={"synced_once": True})
 
-    def test_preset_buttons_use_formnovalidate(self) -> None:
+    def test_preset_buttons_are_not_default_submit_buttons(self) -> None:
         nfe_response = self.client.get(f"{reverse('finance:tax_class_create')}?tab=nfe")
         nfse_response = self.client.get(f"{reverse('finance:tax_class_create')}?tab=nfse")
 
         self.assertEqual(nfe_response.status_code, 200)
         self.assertEqual(nfse_response.status_code, 200)
-        self.assertIn("formnovalidate", nfe_response.content.decode())
-        self.assertIn("formnovalidate", nfse_response.content.decode())
+        self.assertIn('type="button" class="btn btn-outline w-full apply-preset-button"', nfe_response.content.decode())
+        self.assertIn('type="button" class="btn btn-outline w-full apply-preset-button"', nfse_response.content.decode())
 
     def test_apply_nfe_preset_keeps_reference_and_loads_scenarios(self) -> None:
         response = self.client.post(
