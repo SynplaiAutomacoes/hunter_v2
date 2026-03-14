@@ -175,6 +175,5 @@ class SourceDetailView(View):
         source_obj = None
         if source_id:
             source_obj = Source.objects.filter(id=source_id).first()
-        print(f"source_id: {source_id}")
 
         return render(request, "finance/partials/source_resume.html", {"source_obj": source_obj})
