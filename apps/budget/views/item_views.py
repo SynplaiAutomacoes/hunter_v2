@@ -97,7 +97,6 @@ class ItemSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, TemplateVi
         # Get already added items to mark them as selected
         existing_items = set()
         if item_type == "product":
-            queryset = queryset.select_related("stock_products")
             existing_items = set(budget.items.filter(product__isnull=False).values_list("product_id", flat=True))
         elif item_type == "service":
             existing_items = set(budget.items.filter(service__isnull=False).values_list("service_id", flat=True))

@@ -1,0 +1,111 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Presets de Classe de Imposto{% endblock %}
+{% block crud_subtitle %}Monte modelos reutilizáveis de NF-e e NFS-e para cada oficina sem depender de presets hardcoded.{% endblock %}
+
+{% block crud_header_actions %}
+    <div class="flex flex-wrap gap-2">
+        <a href="{% url 'finance:tax_class_list' %}?tab={{ active_tab }}" class="btn btn-outline">Ver classes fiscais</a>
+        <a href="{% url 'finance:tax_class_preset_create' %}?tab={{ active_tab }}" class="btn btn-primary">Novo preset</a>
+    </div>
+{% endblock %}
+
+{% block crud_table %}
+    <div class="tabs tabs-lift mb-6">
+        <a href="{% url 'finance:tax_class_preset_list' %}?tab=nfe" class="tab {% if active_tab == 'nfe' %}tab-active{% endif %}">NF-e</a>
+        <a href="{% url 'finance:tax_class_preset_list' %}?tab=nfse" class="tab {% if active_tab == 'nfse' %}tab-active{% endif %}">NFS-e</a>
+    </div>
+
+    <div class="overflow-x-auto">
+        <table class="table table-zebra w-full">
+            <thead>
+                <tr>
+                    <th>Preset</th>
+                    <th>Resumo</th>
+                    <th>Descricao da classe</th>
+                    <th class="text-center">Status</th>
+                    <th class="text-center">Acoes</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if active_tab == 'nfe' %}
+                    {% for preset in nfe_presets %}
+                        <tr>
+                            <td>
+                                <p class="font-semibold">{{ preset.name }}</p>
+                                <p class="text-xs text-base-content/60">Criado em {{ preset.criado_em|date:'d/m/Y H:i' }}</p>
+                            </td>
+                            <td>{{ preset.description|default:'-' }}</td>
+                            <td>{{ preset.payload.descricao|default:'-' }}</td>
+                            <td class="text-center">
+                                {% if preset.is_active %}
+                                    <span class="badge badge-success">Ativo</span>
+                                {% else %}
+                                    <span class="badge badge-ghost">Inativo</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">
+                                <div class="flex items-center justify-center gap-2">
+                                    <a href="{% url 'finance:tax_class_preset_update' pk=preset.pk %}?tab=nfe" class="btn-table-edit" aria-label="Editar preset" title="Editar">
+                                        <span class="material-icons text-base">edit</span>
+                                    </a>
+                                    <form method="post" action="{% url 'finance:tax_class_preset_list' %}?tab=nfe" onsubmit="return confirm('Deseja realmente excluir o preset {{ preset.name }}?');">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="form_action" value="delete">
+                                        <input type="hidden" name="tab" value="nfe">
+                                        <input type="hidden" name="preset_id" value="{{ preset.pk }}">
+                                        <button type="submit" class="btn-table-delete" aria-label="Excluir preset" title="Excluir">
+                                            <span class="material-icons text-base">delete</span>
+                                        </button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="5" class="text-center text-base-content/60 py-6">Nenhum preset de NF-e cadastrado para esta oficina.</td>
+                        </tr>
+                    {% endfor %}
+                {% else %}
+                    {% for preset in nfse_presets %}
+                        <tr>
+                            <td>
+                                <p class="font-semibold">{{ preset.name }}</p>
+                                <p class="text-xs text-base-content/60">Criado em {{ preset.criado_em|date:'d/m/Y H:i' }}</p>
+                            </td>
+                            <td>{{ preset.description|default:'-' }}</td>
+                            <td>{{ preset.payload.descricao|default:'-' }}</td>
+                            <td class="text-center">
+                                {% if preset.is_active %}
+                                    <span class="badge badge-success">Ativo</span>
+                                {% else %}
+                                    <span class="badge badge-ghost">Inativo</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">
+                                <div class="flex items-center justify-center gap-2">
+                                    <a href="{% url 'finance:tax_class_preset_update' pk=preset.pk %}?tab=nfse" class="btn-table-edit" aria-label="Editar preset" title="Editar">
+                                        <span class="material-icons text-base">edit</span>
+                                    </a>
+                                    <form method="post" action="{% url 'finance:tax_class_preset_list' %}?tab=nfse" onsubmit="return confirm('Deseja realmente excluir o preset {{ preset.name }}?');">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="form_action" value="delete">
+                                        <input type="hidden" name="tab" value="nfse">
+                                        <input type="hidden" name="preset_id" value="{{ preset.pk }}">
+                                        <button type="submit" class="btn-table-delete" aria-label="Excluir preset" title="Excluir">
+                                            <span class="material-icons text-base">delete</span>
+                                        </button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="5" class="text-center text-base-content/60 py-6">Nenhum preset de NFS-e cadastrado para esta oficina.</td>
+                        </tr>
+                    {% endfor %}
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+{% endblock %}

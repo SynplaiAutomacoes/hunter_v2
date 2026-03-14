@@ -2,18 +2,16 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Any
 
-from django.db import transaction
 from django.http import JsonResponse
 from django.utils.crypto import constant_time_compare
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
-from apps.finance.models.finance import NfeItem, NfseBatch, NfseItem
 from apps.finance.services.emission import build_webmania_webhook_token
-from apps.finance.services.mappers import extract_items_from_batch, map_batch_payload, map_item_payload
-from apps.finance.services.nfe_emission import map_nfe_item_payload
+from apps.finance.services.webmania_webhooks import extract_event_uuid, process_webhook_event, store_webhook_event
 
 
 logger = logging.getLogger(__name__)
@@ -21,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 @method_decorator(csrf_exempt, name="dispatch")
 class WebhookView(View):
+    supported_models = {"lote_rps", "nfse", "nfe"}
+
     def get(self, request):
         return JsonResponse({"ok": True, "message": "Pong"}, status=200)
 
@@ -34,131 +34,64 @@ class WebhookView(View):
         provided_token = self._request_webhook_token(request)
         return bool(provided_token) and constant_time_compare(provided_token, expected_token)
 
+    @staticmethod
+    def _deserialize_form_value(value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+
+        normalized = value.strip()
+        if not normalized:
+            return value
+
+        if normalized[0] not in "[{":
+            return value
+
+        try:
+            return json.loads(normalized)
+        except json.JSONDecodeError:
+            return value
+
+    def _parse_payload(self, request) -> dict[str, Any]:
+        try:
+            parsed_json = json.loads(request.body)
+        except json.JSONDecodeError as exc:
+            if not request.POST:
+                raise exc
+
+            payload = {key: self._deserialize_form_value(request.POST.get(key)) for key in request.POST.keys()}
+            return payload
+
+        if not isinstance(parsed_json, dict):
+            raise json.JSONDecodeError("JSON root must be an object", str(request.body), 0)
+        return parsed_json
+
     def post(self, request):
         if not self._is_authorized_request(request):
-            logger.warning("Webhook de NFS-e rejeitado por token invalido")
+            logger.warning("Webhook da Webmania rejeitado por token invalido")
             return JsonResponse({"ok": False, "message": "Unauthorized webhook request"}, status=403)
 
         try:
-            payload = json.loads(request.body)
+            payload = self._parse_payload(request)
         except json.JSONDecodeError:
-            payload = request.POST.dict()
-            if not payload:
-                logger.warning("Erro ao decodificar payload JSON no webhook de NFS-e")
-                return JsonResponse({"ok": False, "message": "Invalid JSON"}, status=400)
+            logger.warning("Payload invalido recebido no webhook da Webmania")
+            return JsonResponse({"ok": False, "message": "Invalid payload"}, status=400)
 
-        model = payload.get("modelo")
-        if not model:
-            logger.warning("Payload recebido sem campo 'modelo' no webhook de NFS-e")
-            return JsonResponse({"ok": False, "message": "Missing 'modelo' field"}, status=400)
+        model = str(payload.get("modelo") or "").strip().lower()
+        if model not in self.supported_models:
+            logger.warning("Payload recebido com modelo invalido no webhook da Webmania", extra={"modelo": model})
+            return JsonResponse({"ok": False, "message": "Missing or invalid 'modelo' field"}, status=400)
 
-        logger.info("nfse_webhook_received model=%s", str(model))
+        event_uuid = extract_event_uuid(payload)
+        if not event_uuid:
+            return JsonResponse({"ok": False, "message": "Missing event uuid"}, status=400)
 
-        if model == "lote_rps":
-            batch_payload = map_batch_payload(payload)
-            batch_uuid = batch_payload.get("uuid")
-            if not batch_uuid:
-                return JsonResponse({"ok": False, "message": "Missing batch uuid"}, status=400)
+        logger.info("webmania_webhook_received model=%s uuid=%s", model, event_uuid)
 
-            batch = NfseBatch.objects.filter(uuid=batch_uuid).select_related("request", "workorder", "workshop").order_by("-id").first()
-            if batch is None:
-                return JsonResponse({"ok": False, "message": f"Batch não encontrado para UUID: {batch_uuid}"}, status=404)
-
-            items = extract_items_from_batch(payload)
-
-            with transaction.atomic():
-                for key, value in batch_payload.items():
-                    setattr(batch, key, value)
-                batch.raw_payload = payload
-                batch.save()
-
-                for item_payload in items:
-                    item_uuid = item_payload.get("uuid")
-                    if not item_uuid:
-                        continue
-
-                    item, created = NfseItem.objects.get_or_create(
-                        workorder=batch.workorder,
-                        uuid=item_uuid,
-                        defaults={
-                            "workshop": batch.workshop,
-                            "request": batch.request,
-                            "batch": batch,
-                            **item_payload,
-                        },
-                    )
-                    if not created:
-                        for key, value in item_payload.items():
-                            setattr(item, key, value)
-                        item.batch = batch
-                        item.request = batch.request
-                        item.raw_payload = payload
-                        item.save()
-                    else:
-                        item.raw_payload = payload
-                        item.save(update_fields=["raw_payload"])
-
-                if batch.request:
-                    batch.request.update_status_based_on_request(payload.get("status"))
-
-            logger.info(
-                "nfse_webhook_batch_processed batch_uuid=%s items=%s",
-                str(batch_uuid),
-                len(items),
-            )
-
+        event = store_webhook_event(payload=payload)
+        if process_webhook_event(event):
             return JsonResponse({"ok": True, "message": "Payload processed successfully"}, status=200)
 
-        if model == "nfse":
-            item_payload = map_item_payload(payload)
-            item_uuid = item_payload.get("uuid")
-            if not item_uuid:
-                return JsonResponse({"ok": False, "message": "Missing item uuid"}, status=400)
-
-            item = NfseItem.objects.filter(uuid=item_uuid).select_related("request").order_by("-id").first()
-            if item is None:
-                return JsonResponse({"ok": False, "message": f"Item não encontrado para UUID: {item_uuid}"}, status=404)
-
-            with transaction.atomic():
-                for key, value in item_payload.items():
-                    setattr(item, key, value)
-                item.raw_payload = payload
-                item.save()
-
-            if item.request:
-                item.request.update_status_based_on_request(payload.get("status"))
-
-            logger.info(
-                "nfse_webhook_item_processed item_uuid=%s",
-                str(item_uuid),
-            )
-
-            return JsonResponse({"ok": True, "message": "Payload processed successfully"}, status=200)
-
-        if model == "nfe":
-            item_payload = map_nfe_item_payload(payload)
-            item_uuid = item_payload.get("uuid")
-            if not item_uuid:
-                return JsonResponse({"ok": False, "message": "Missing item uuid"}, status=400)
-
-            item = NfeItem.objects.filter(uuid=item_uuid).select_related("request").order_by("-id").first()
-            if item is None:
-                return JsonResponse({"ok": False, "message": f"Item nao encontrado para UUID: {item_uuid}"}, status=404)
-
-            with transaction.atomic():
-                for key, value in item_payload.items():
-                    setattr(item, key, value)
-                item.raw_payload = payload
-                item.save()
-
-            if item.request:
-                item.request.update_status_based_on_request(payload.get("status"))
-
-            logger.info(
-                "nfe_webhook_item_processed item_uuid=%s",
-                str(item_uuid),
-            )
-
-            return JsonResponse({"ok": True, "message": "Payload processed successfully"}, status=200)
-
-        return JsonResponse({"ok": False, "message": "Invalid payload"}, status=400)
+        return JsonResponse(
+            {"ok": True, "message": "Payload accepted for deferred processing", "event_id": event.pk},
+            status=202,
+        )

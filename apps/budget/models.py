@@ -12,14 +12,13 @@ from apps.catalog.models.services import Service
 from apps.core.models import TimeStampedModel
 from djmoney.models.fields import MoneyField
 
+from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot
 from apps.workorder.models import WorkOrder
 
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from apps.workshops.util.monthly_costs import get_mechanic_salary_monthly_cost
 from django.utils import timezone
 from decimal import Decimal, ROUND_HALF_UP
-
-from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot
 
 
 class BudgetStatus(models.TextChoices):
@@ -90,6 +89,13 @@ class Budget(TimeStampedModel):
 
     # Financeiro
     discount_value = MoneyField(verbose_name="Aplicar Desconto (R$)", max_digits=14, decimal_places=2, default=0.00)
+    discount_percentage = models.DecimalField(
+        verbose_name="Aplicar Desconto (%)",
+        max_digits=7,
+        decimal_places=6,
+        default=0.00,
+        validators=[MinValueValidator(0), MaxValueValidator(1)],
+    )
 
     # Margens e Ajustes
     profit_margin_parts = models.DecimalField(verbose_name="Percentual Lucro de Peças", max_digits=5, decimal_places=2, default=0.00)
@@ -111,6 +117,14 @@ class Budget(TimeStampedModel):
     signature_sent_at = models.DateTimeField(blank=True, null=True)
 
     def save(self, *args, **kwargs):
+        self.sync_discount_fields()
+
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            update_fields_set = set(update_fields)
+            update_fields_set.update({"discount_value", "discount_value_currency", "discount_percentage"})
+            kwargs["update_fields"] = list(update_fields_set)
+
         is_new = self.pk is None
 
         old_status = None
@@ -449,12 +463,32 @@ class Budget(TimeStampedModel):
                 items=list(self._iter_items()),
                 slider=int(self.slider or 0),
                 discount_value=self.discount_value,
+                discount_percentage=self.discount_percentage,
                 labor_cost_value=self.total_labor_cost_value,
                 is_local_product_item=self._is_local_product_item,
                 is_local_service_item=self._is_local_service_item,
             )
             setattr(self, "_pricing_snapshot_cache", cached_snapshot)
         return cached_snapshot
+
+    def invalidate_pricing_snapshot_cache(self) -> None:
+        if hasattr(self, "_pricing_snapshot_cache"):
+            delattr(self, "_pricing_snapshot_cache")
+
+    def sync_discount_fields(self) -> None:
+        self.invalidate_pricing_snapshot_cache()
+        snapshot = build_pricing_snapshot(
+            items=list(self._iter_items()),
+            slider=int(self.slider or 0),
+            discount_value=self.discount_value,
+            discount_percentage=self.discount_percentage,
+            labor_cost_value=self.total_labor_cost_value,
+            is_local_product_item=self._is_local_product_item,
+            is_local_service_item=self._is_local_service_item,
+        )
+        self.discount_value = snapshot.resolved_discount_value
+        self.discount_percentage = snapshot.resolved_discount_percentage
+        self.invalidate_pricing_snapshot_cache()
 
     ## Products
     @property
@@ -514,6 +548,14 @@ class Budget(TimeStampedModel):
     @property
     def total_budget_value(self) -> Money:
         return self.pricing_snapshot.total_budget_value
+
+    @property
+    def resolved_discount_value(self) -> Money:
+        return self.pricing_snapshot.resolved_discount_value
+
+    @property
+    def resolved_discount_percentage(self) -> Decimal:
+        return self.pricing_snapshot.resolved_discount_percentage
 
     @property
     def has_local_items(self):

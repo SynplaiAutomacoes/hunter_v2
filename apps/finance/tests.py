@@ -4,11 +4,13 @@ from io import BytesIO
 from datetime import date, datetime, timedelta
 import re
 import json
+from datetime import timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import Mock, patch
+from unittest.mock import ANY, Mock, patch
 
+from django.contrib.messages import get_messages
 from django.core.exceptions import ValidationError
 from django.contrib.auth.models import Permission
 from django.test import TestCase, override_settings
@@ -20,24 +22,26 @@ from openpyxl import load_workbook
 from apps.budget.models import Budget, BudgetItem
 from apps.accounts.models import Account, User
 from apps.catalog.models.groups import CatalogGroup
-from apps.catalog.models.kits import Kit, KitProduct
+from apps.catalog.models.kits import Kit, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.collaborators.models import WorkshopMember
-from apps.customer.models import Customer
 from apps.core.documents.contract import DocumentPayload
 from apps.finance.documents.provider import build_dre_excel_document, build_dre_pdf_render_request
 from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm
 from apps.finance.forms.dre import DreForm
+from apps.customer.models import Customer, Vehicle
+from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm
+from apps.finance.forms.emission_ui import build_step5_pricing_panel_data
 from apps.finance.forms.financial_group import FinancialGroupForm
 from apps.finance.forms.payment_method import PaymentMethodForm
-from apps.finance.models.finance import TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassSyncState, WebmaniaCompany
+from apps.finance.models.finance import NfeItem, NfeRequest, NfeRequestStatus, NfseItem, NfseRequest, NfseRequestStatus, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
-from apps.finance.tax_class_utils import NFSE_SERVICE_CODE_VALIDATION_MESSAGE
-from apps.finance.services.emission import NfseEmissionError, _build_taker_payload, _service_total_value, build_webmania_webhook_token, emit_nfse_request
-from apps.finance.services.nfe_emission import _extract_product_lines
-from apps.finance.services.pricing import build_slider_allocation_for_workorder, compute_slider_allocation, distribute_total_proportionally
+from apps.finance.services.emission import NfseEmissionError, _build_taker_payload, _default_service_description, _service_total_value, build_nfse_payload, build_webmania_webhook_token, emit_nfse_request, sync_emission_response
+from apps.finance.services.nfe_emission import NfeEmissionError, _build_nfe_products_payload, _extract_product_lines, build_nfe_payload, sync_nfe_emission_response
+from apps.finance.services.numbering import reserve_nfe_request_number, reserve_nfse_request_rps_number
+from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder, compute_slider_allocation, distribute_total_proportionally
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
 from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers
 from apps.finance.services.webmania_b2b import (
@@ -50,6 +54,7 @@ from apps.finance.services.webmania_b2b import (
     sync_b2b_companies_to_database,
     update_webmania_company,
 )
+from apps.finance.services.webmania_documents import DownloadedWebmaniaDocument
 from apps.finance.services.webmania_errors import extract_webmania_error_message, sanitize_webmania_api_message
 from apps.finance.services.webmania_secrets import decrypt_secret, encrypt_secret, is_encrypted_secret
 from apps.finance.views.nfse import NfseRequestCreateView
@@ -59,6 +64,8 @@ from apps.workorder.models import WorkOrderItem
 from apps.workorder.models import WorkOrderPaymentMethod
 from apps.workshops.models.monthly_costs import MonthlyCost
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
+from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderStatus
+from apps.workshops.forms.workshops import WorkshopFiscalSectionForm
 from apps.workshops.models.workshops import Workshop
 
 
@@ -483,6 +490,183 @@ class TaxClassServiceTests(TestCase):
         self.assertEqual(str(tax_class.ibs_aliquota_diferimento_estadual), "1.25")
         self.assertTrue(TaxClassSyncState.objects.filter(workshop=workshop, synced_once=True).exists())
 
+    def test_save_tax_class_preserves_nfse_service_code_with_five_digits(self) -> None:
+        workshop = create_workshop()
+        payload = {
+            "descricao": "Classe NFSE",
+            "tipo": "nfse",
+            "tipo_emissao": "1",
+            "codigo_servico": "12345",
+        }
+        response_payload = {
+            "referencia": "REFNFSE005",
+            "status": "ativo",
+            "data": "2026-02-17",
+        }
+
+        with (
+            patch("apps.finance.services.tax_classes._build_headers", return_value={}),
+            patch("apps.finance.services.tax_classes.requests.post", return_value=_mock_response(response_payload)) as post_mock,
+        ):
+            save_tax_class(workshop=workshop, payload=payload)
+
+        sent_payload = post_mock.call_args.kwargs.get("json", {})
+        self.assertEqual(sent_payload.get("codigo_servico"), "12345")
+
+        tax_class = TaxClassNfse.objects.get(workshop=workshop, reference="REFNFSE005")
+        self.assertEqual(tax_class.codigo_servico, "12345")
+
+    def test_save_tax_class_ignores_success_message_and_persists_update(self) -> None:
+        workshop = create_workshop()
+        TaxClassNfe.objects.create(
+            workshop=workshop,
+            reference="REFNFE003",
+            description="Classe antiga",
+            status="ativo",
+        )
+
+        payload = {
+            "referencia": "REFNFE003",
+            "descricao": "Classe atualizada",
+            "icms": [{"codigo_cfop": "6102", "tipo_pessoa": "juridica"}],
+        }
+        response_payload = {
+            "referencia": "REFNFE003",
+            "tipo": "nfe",
+            "status": "ativo",
+            "data": "2026-02-18",
+            "message": "Classe de imposto atualizada com sucesso.",
+        }
+
+        with (
+            patch("apps.finance.services.tax_classes._build_headers", return_value={}),
+            patch("apps.finance.services.tax_classes.requests.post", return_value=_mock_response(response_payload)),
+        ):
+            saved = save_tax_class(workshop=workshop, payload=payload)
+
+        tax_class = TaxClassNfe.objects.get(workshop=workshop, reference="REFNFE003")
+        scenario_queryset = TaxClassNfeIcmsScenario.objects.filter(tax_class=tax_class)
+        scenario = scenario_queryset.first()
+        if scenario is None:
+            self.fail("Cenário ICMS não foi persistido na atualização com mensagem de sucesso")
+        self.assertEqual(saved.get("referencia"), "REFNFE003")
+        self.assertEqual(tax_class.description, "Classe atualizada")
+        self.assertEqual(scenario_queryset.count(), 1)
+        self.assertEqual(scenario.codigo_cfop, "6102")
+
+    def test_save_tax_class_ignores_success_msg_and_persists_nfse_update(self) -> None:
+        workshop = create_workshop()
+        TaxClassNfse.objects.create(
+            workshop=workshop,
+            reference="REFNFSE003",
+            description="Classe antiga",
+            status="ativo",
+            tipo_emissao="1",
+            codigo_servico="01.05",
+        )
+
+        payload = {
+            "referencia": "REFNFSE003",
+            "descricao": "Classe NFSE atualizada",
+            "tipo": "nfse",
+            "codigo_servico": "1401",
+            "iss": "3.50",
+        }
+        response_payload = {
+            "referencia": "REFNFSE003",
+            "tipo": "nfse",
+            "status": "ativo",
+            "data": "2026-02-18",
+            "msg": "Classe de imposto atualizada com sucesso.",
+        }
+
+        with (
+            patch("apps.finance.services.tax_classes._build_headers", return_value={}),
+            patch("apps.finance.services.tax_classes.requests.post", return_value=_mock_response(response_payload)),
+        ):
+            saved = save_tax_class(workshop=workshop, payload=payload)
+
+        tax_class = TaxClassNfse.objects.get(workshop=workshop, reference="REFNFSE003")
+        self.assertEqual(saved.get("referencia"), "REFNFSE003")
+        self.assertEqual(tax_class.description, "Classe NFSE atualizada")
+        self.assertEqual(tax_class.codigo_servico, "14.01")
+        self.assertEqual(str(tax_class.iss), "3.50")
+
+    def test_save_tax_class_ignores_plain_updated_message_and_persists_nfe_update(self) -> None:
+        workshop = create_workshop()
+        TaxClassNfe.objects.create(
+            workshop=workshop,
+            reference="REFNFE004",
+            description="Classe antiga",
+            status="ativo",
+        )
+
+        payload = {
+            "referencia": "REFNFE004",
+            "descricao": "Classe atualizada sem sufixo",
+            "icms": [{"codigo_cfop": "5405", "tipo_pessoa": "juridica"}],
+        }
+        response_payload = {
+            "referencia": "REFNFE004",
+            "tipo": "nfe",
+            "status": "ativo",
+            "data": "2026-02-18",
+            "message": "Classe de imposto atualizada.",
+        }
+
+        with (
+            patch("apps.finance.services.tax_classes._build_headers", return_value={}),
+            patch("apps.finance.services.tax_classes.requests.post", return_value=_mock_response(response_payload)),
+        ):
+            saved = save_tax_class(workshop=workshop, payload=payload)
+
+        tax_class = TaxClassNfe.objects.get(workshop=workshop, reference="REFNFE004")
+        scenario_queryset = TaxClassNfeIcmsScenario.objects.filter(tax_class=tax_class)
+        scenario = scenario_queryset.first()
+        if scenario is None:
+            self.fail("Cenário ICMS não foi persistido na atualização com mensagem simples")
+        self.assertEqual(saved.get("referencia"), "REFNFE004")
+        self.assertEqual(tax_class.description, "Classe atualizada sem sufixo")
+        self.assertEqual(scenario.codigo_cfop, "5405")
+
+    def test_save_tax_class_ignores_plain_updated_msg_and_persists_nfse_update(self) -> None:
+        workshop = create_workshop()
+        TaxClassNfse.objects.create(
+            workshop=workshop,
+            reference="REFNFSE004",
+            description="Classe antiga",
+            status="ativo",
+            tipo_emissao="1",
+            codigo_servico="01.05",
+        )
+
+        payload = {
+            "referencia": "REFNFSE004",
+            "descricao": "Classe NFSE atualizada sem sufixo",
+            "tipo": "nfse",
+            "codigo_servico": "1701",
+            "iss": "4.20",
+        }
+        response_payload = {
+            "referencia": "REFNFSE004",
+            "tipo": "nfse",
+            "status": "ativo",
+            "data": "2026-02-18",
+            "msg": "Classe de imposto atualizada.",
+        }
+
+        with (
+            patch("apps.finance.services.tax_classes._build_headers", return_value={}),
+            patch("apps.finance.services.tax_classes.requests.post", return_value=_mock_response(response_payload)),
+        ):
+            saved = save_tax_class(workshop=workshop, payload=payload)
+
+        tax_class = TaxClassNfse.objects.get(workshop=workshop, reference="REFNFSE004")
+        self.assertEqual(saved.get("referencia"), "REFNFSE004")
+        self.assertEqual(tax_class.description, "Classe NFSE atualizada sem sufixo")
+        self.assertEqual(tax_class.codigo_servico, "17.01")
+        self.assertEqual(str(tax_class.iss), "4.20")
+
     def test_delete_tax_class_removes_local_on_success(self) -> None:
         workshop = create_workshop()
         TaxClassNfe.objects.create(
@@ -515,6 +699,7 @@ class NfseTaxClassFormTests(TestCase):
         form = NfseTaxClassForm()
 
         self.assertEqual(form.initial.get("natureza_operacao"), "1")
+        self.assertEqual(form.initial.get("exigibilidade_iss"), "1")
         self.assertEqual(form.initial.get("iss_retido"), "2")
 
     def test_build_payload_formats_service_code_as_xx_xx(self) -> None:
@@ -522,7 +707,9 @@ class NfseTaxClassFormTests(TestCase):
             data={
                 "descricao": "Classe NFS-e",
                 "codigo_servico": "0105",
+                "codigo_tributacao_municipio": "",
                 "natureza_operacao": "1",
+                "exigibilidade_iss": "1",
                 "iss_retido": "2",
                 "base_payload_json": "{}",
             }
@@ -533,10 +720,29 @@ class NfseTaxClassFormTests(TestCase):
 
         self.assertEqual(payload.get("codigo_servico"), "01.05")
         self.assertNotIn("codigo_tributacao_municipio", payload)
+        self.assertNotIn("tipo_emissao", payload)
         self.assertNotIn("tributacao_iss", payload)
         self.assertNotIn("retencao_iss", payload)
         self.assertNotIn("cst_pis_cofins", payload)
         self.assertNotIn("retencao_pis_cofins", payload)
+
+    def test_build_payload_accepts_service_code_as_five_digits(self) -> None:
+        form = NfseTaxClassForm(
+            data={
+                "descricao": "Classe NFS-e",
+                "codigo_servico": "12345",
+                "codigo_tributacao_municipio": "",
+                "natureza_operacao": "1",
+                "exigibilidade_iss": "1",
+                "iss_retido": "2",
+                "base_payload_json": "{}",
+            }
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        payload = form.build_payload()
+
+        self.assertEqual(payload.get("codigo_servico"), "12345")
 
     def test_initial_from_tax_class_formats_service_code_for_display(self) -> None:
         initial = NfseTaxClassForm.initial_from_tax_class(
@@ -545,40 +751,43 @@ class NfseTaxClassFormTests(TestCase):
                 "descricao": "Classe NFS-e",
                 "codigo_servico": "0105",
                 "natureza_operacao": "1",
+                "exigibilidade_iss": "1",
                 "iss_retido": "2",
             }
         )
 
         self.assertEqual(initial.get("codigo_servico"), "01.05")
 
-    def test_requires_natureza_operacao_and_iss_retido(self) -> None:
+    def test_requires_exigibilidade_and_iss_retido(self) -> None:
         form = NfseTaxClassForm(
             data={
                 "descricao": "Classe NFS-e",
                 "codigo_servico": "01.05",
-                "natureza_operacao": "",
+                "natureza_operacao": "1",
+                "exigibilidade_iss": "",
                 "iss_retido": "",
                 "base_payload_json": "{}",
             }
         )
 
         self.assertFalse(form.is_valid())
-        self.assertIn("Informe a natureza da operação.", form.errors.get("natureza_operacao", []))
-        self.assertIn("Informe se o ISS é retido.", form.errors.get("iss_retido", []))
+        self.assertIn("Este campo é obrigatório.", form.errors.get("exigibilidade_iss", []))
+        self.assertIn("Este campo é obrigatório.", form.errors.get("iss_retido", []))
 
-    def test_requires_service_code_in_xx_xx_format(self) -> None:
+    def test_requires_service_code_in_xx_xx_or_xxxxx_format(self) -> None:
         form = NfseTaxClassForm(
             data={
                 "descricao": "Classe NFS-e",
                 "codigo_servico": "01.05.01",
                 "natureza_operacao": "1",
+                "exigibilidade_iss": "1",
                 "iss_retido": "2",
                 "base_payload_json": "{}",
             }
         )
 
         self.assertFalse(form.is_valid())
-        self.assertIn(NFSE_SERVICE_CODE_VALIDATION_MESSAGE, form.errors.get("codigo_servico", []))
+        self.assertIn("Informe o código do serviço no formato XX.XX ou XXXXX.", form.errors.get("codigo_servico", []))
 
 
 class NfseEmissionPayloadTests(TestCase):
@@ -600,6 +809,47 @@ class NfseEmissionPayloadTests(TestCase):
 
 
 class SliderPricingAllocationTests(TestCase):
+    def _build_workorder_with_product_and_service(
+        self,
+        *,
+        suffix: int,
+        discount_value: str = "0.00",
+        service_cost: str = "30.00",
+    ) -> tuple[WorkOrder, Budget, BudgetItem]:
+        workshop = create_workshop(suffix=suffix)
+        budget = Budget(workshop=workshop, entry_date=timezone.now().date())
+        budget.save()
+
+        product_group = CatalogGroup.objects.create(workshop=workshop, name=f"Grupo Slider {suffix}")
+        product = Product.objects.create(
+            workshop=workshop,
+            code=f"P-SL-{suffix}",
+            unit=Product.Unit.UND,
+            name=f"Produto Slider {suffix}",
+            ncm="87089990",
+            group=product_group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+        )
+        service = Service.objects.create(
+            workshop=workshop,
+            name=f"Servico Slider {suffix}",
+            description="Servico de teste",
+            duration=timedelta(hours=1),
+            suggested_cost=Money(service_cost, "BRL"),
+            selling_price=Money("50.00", "BRL"),
+        )
+
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=1)
+        service_item = BudgetItem.objects.create(workshop=workshop, budget=budget, service=service, quantity=1)
+
+        budget.discount_value = Money(discount_value, "BRL")
+        budget.save(update_fields=["discount_value"])
+
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        workorder.sync_from_budget()
+        return workorder, budget, service_item
+
     def test_compute_slider_allocation_transfers_full_service_to_products(self) -> None:
         products_target, services_target = compute_slider_allocation(
             products_base=Decimal("400.00"),
@@ -630,51 +880,387 @@ class SliderPricingAllocationTests(TestCase):
 
         self.assertEqual(distributed, [Decimal("50.00"), Decimal("150.00"), Decimal("300.00")])
 
-    def test_build_slider_allocation_caps_totals_to_budget_final_value(self) -> None:
-        workorder = SimpleNamespace(
-            total_products_value=SimpleNamespace(amount=Decimal("500.00")),
-            total_services_value=SimpleNamespace(amount=Decimal("300.00")),
-            budget=SimpleNamespace(
-                slider=-100,
-                total_budget_value=SimpleNamespace(amount=Decimal("700.00")),
-            ),
-        )
+    def test_build_slider_allocation_uses_workorder_discount_and_budget_margin_rules(self) -> None:
+        workorder, budget, _ = self._build_workorder_with_product_and_service(suffix=91, discount_value="10.00")
+        budget.discount_value = Money("25.00", "BRL")
+        budget.save(update_fields=["discount_value"])
 
-        allocation = build_slider_allocation_for_workorder(workorder=workorder)  # type: ignore[arg-type]
+        allocation = build_slider_allocation_for_workorder(workorder=workorder, slider_override=-100)
 
-        self.assertEqual(allocation.total_base, Decimal("700.00"))
-        self.assertEqual(allocation.products_target, Decimal("700.00"))
+        self.assertEqual(allocation.total_base, Decimal("60.00"))
+        self.assertEqual(allocation.products_base, Decimal("17.14"))
+        self.assertEqual(allocation.services_base, Decimal("42.86"))
+        self.assertEqual(allocation.products_target, Decimal("60.00"))
         self.assertEqual(allocation.services_target, Decimal("0.00"))
-        self.assertEqual(allocation.products_target + allocation.services_target, Decimal("700.00"))
+        self.assertEqual(allocation.products_target + allocation.services_target, Decimal("60.00"))
 
-    def test_nfse_service_total_uses_slider_distribution(self) -> None:
-        workorder = SimpleNamespace(
-            total_products_value=SimpleNamespace(amount=Decimal("400.00")),
-            total_services_value=SimpleNamespace(amount=Decimal("600.00")),
-            budget=SimpleNamespace(
-                slider=-50,
-                total_budget_value=SimpleNamespace(amount=Decimal("1000.00")),
-            ),
-        )
+    def test_nfse_service_total_uses_slider_override_on_workorder_snapshot(self) -> None:
+        workorder, _, _ = self._build_workorder_with_product_and_service(suffix=92)
         nfse_request = SimpleNamespace(workorder=workorder)
 
-        service_total = _service_total_value(nfse_request=nfse_request)  # type: ignore[arg-type]
+        service_total = _service_total_value(nfse_request=nfse_request, slider_override=100)  # type: ignore[arg-type]
 
-        self.assertEqual(service_total, "300.00")
+        self.assertEqual(service_total, "70.00")
 
-    def test_nfse_service_total_raises_when_slider_100_to_products(self) -> None:
-        workorder = SimpleNamespace(
-            total_products_value=SimpleNamespace(amount=Decimal("400.00")),
-            total_services_value=SimpleNamespace(amount=Decimal("600.00")),
-            budget=SimpleNamespace(
-                slider=-100,
-                total_budget_value=SimpleNamespace(amount=Decimal("1000.00")),
-            ),
-        )
+    def test_nfse_service_total_raises_when_slider_override_exhausts_services(self) -> None:
+        workorder, _, _ = self._build_workorder_with_product_and_service(suffix=93, service_cost="0.00")
         nfse_request = SimpleNamespace(workorder=workorder)
 
         with self.assertRaisesMessage(NfseEmissionError, "nao possui saldo de servicos"):
-            _service_total_value(nfse_request=nfse_request)  # type: ignore[arg-type]
+            _service_total_value(nfse_request=nfse_request, slider_override=-100)  # type: ignore[arg-type]
+
+    def test_build_step5_pricing_panel_data_exposes_discount_percentage_display(self) -> None:
+        workshop = create_workshop(suffix=31)
+        budget = Budget(workshop=workshop, entry_date=timezone.now().date())
+        budget.save()
+
+        product_group = CatalogGroup.objects.create(workshop=workshop, name="Grupo Painel 31")
+        product = Product.objects.create(
+            workshop=workshop,
+            code="P-DISC-31",
+            unit=Product.Unit.UND,
+            name="Produto Painel 31",
+            ncm="87089990",
+            group=product_group,
+            cost_price=Money("40.00", "BRL"),
+            selling_price=Money("200.00", "BRL"),
+        )
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        WorkOrderItem.objects.create(workshop=workshop, workorder=workorder, product=product, quantity=1)
+        workorder.discount_value = Money("30.00", "BRL")
+        workorder.save(update_fields=["discount_value"])
+
+        panel_data = build_step5_pricing_panel_data(workorder=workorder, selected_slider=0)
+
+        self.assertEqual(panel_data.discount_display, Money("30.00", "BRL"))
+        self.assertEqual(panel_data.discount_percentage_display, "15,00%")
+
+    def test_nfse_preview_rows_and_default_description_use_workorder_items(self) -> None:
+        workorder, _, service_item = self._build_workorder_with_product_and_service(suffix=94)
+        service_item.description = "Servico alterado no orcamento"
+        service_item.service_selling_price = Money("999.00", "BRL")
+        service_item.save(update_fields=["description", "service_selling_price"])
+
+        rows = build_nfse_service_preview_rows(workorder=workorder)
+        description = _default_service_description(SimpleNamespace(service_description="", workorder=workorder))  # type: ignore[arg-type]
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["description"], "Servico Slider 94")
+        self.assertEqual(rows[0]["total_value"], Money("50.00", "BRL"))
+        self.assertEqual(description, "1x Servico Slider 94")
+
+    def test_nfse_request_copies_budget_slider_on_create(self) -> None:
+        workorder, budget, _ = self._build_workorder_with_product_and_service(suffix=95)
+        budget.slider = -35
+        budget.save(update_fields=["slider"])
+
+        nfse_request = NfseRequest.objects.create(workshop=workorder.workshop, workorder=workorder)
+
+        self.assertEqual(nfse_request.pricing_slider, -35)
+
+    def test_nfe_request_copies_budget_slider_on_create(self) -> None:
+        workorder, budget, _ = self._build_workorder_with_product_and_service(suffix=96)
+        budget.slider = 45
+        budget.save(update_fields=["slider"])
+
+        nfe_request = NfeRequest.objects.create(workshop=workorder.workshop, workorder=workorder)
+
+        self.assertEqual(nfe_request.pricing_slider, 45)
+
+    def test_nfse_service_total_prefers_persisted_request_slider(self) -> None:
+        workorder, budget, _ = self._build_workorder_with_product_and_service(suffix=97)
+        budget.slider = -100
+        budget.save(update_fields=["slider"])
+        nfse_request = NfseRequest.objects.create(workshop=workorder.workshop, workorder=workorder)
+
+        budget.slider = 0
+        budget.save(update_fields=["slider"])
+
+        with self.assertRaisesMessage(NfseEmissionError, "nao possui saldo de servicos"):
+            _service_total_value(nfse_request=nfse_request)
+
+    def test_nfse_service_total_falls_back_to_budget_slider_for_compatibility_request_without_persisted_slider(self) -> None:
+        workorder, budget, _ = self._build_workorder_with_product_and_service(suffix=98)
+        budget.slider = -100
+        budget.save(update_fields=["slider"])
+        nfse_request = NfseRequest.objects.create(workshop=workorder.workshop, workorder=workorder)
+
+        NfseRequest.objects.filter(pk=nfse_request.pk).update(pricing_slider=None)
+        compat_request = NfseRequest.objects.get(pk=nfse_request.pk)
+
+        with self.assertRaisesMessage(NfseEmissionError, "nao possui saldo de servicos"):
+            _service_total_value(nfse_request=compat_request)
+
+    def test_nfe_products_payload_prefers_persisted_request_slider(self) -> None:
+        workorder, budget, _ = self._build_workorder_with_product_and_service(suffix=99)
+        budget.slider = -100
+        budget.save(update_fields=["slider"])
+        nfe_request = NfeRequest.objects.create(workshop=workorder.workshop, workorder=workorder, tax_class="REF000001")
+
+        budget.slider = 0
+        budget.save(update_fields=["slider"])
+
+        _, total_products_value, allocation = _build_nfe_products_payload(nfe_request=nfe_request)
+
+        self.assertEqual(total_products_value, Decimal("70.00"))
+        self.assertEqual(allocation.slider, -100)
+
+    def test_nfe_products_payload_falls_back_to_budget_slider_for_compatibility_request_without_persisted_slider(self) -> None:
+        workorder, budget, _ = self._build_workorder_with_product_and_service(suffix=89)
+        budget.slider = 0
+        budget.save(update_fields=["slider"])
+        nfe_request = NfeRequest.objects.create(workshop=workorder.workshop, workorder=workorder, tax_class="REF000001")
+
+        NfeRequest.objects.filter(pk=nfe_request.pk).update(pricing_slider=None)
+        budget.slider = -100
+        budget.save(update_fields=["slider"])
+        compat_request = NfeRequest.objects.get(pk=nfe_request.pk)
+
+        _, total_products_value, allocation = _build_nfe_products_payload(nfe_request=compat_request)
+
+        self.assertEqual(total_products_value, Decimal("70.00"))
+        self.assertEqual(allocation.slider, -100)
+
+
+class EmissionRequestNumberReservationTests(TestCase):
+    def _build_requests(self, *, suffix: int) -> tuple[WebmaniaCompany, WorkOrder, NfeRequest, NfseRequest]:
+        workshop = create_workshop(suffix=suffix)
+        customer = Customer.objects.create(
+            workshop=workshop,
+            customer_type="PF",
+            name=f"Cliente Numeracao {suffix}",
+            cpf_or_cnpj="12345678901",
+            email=f"cliente{suffix}@teste.com",
+            logradouro="Rua Teste",
+            numero="123",
+            bairro="Centro",
+            cidade="Sao Paulo",
+            estado="SP",
+            cep="01001-000",
+        )
+        vehicle = Vehicle.objects.create(
+            workshop=workshop,
+            customer=customer,
+            plate=f"ABC{suffix:04d}"[-7:],
+            brand="Ford",
+            model="Fiesta",
+            year_fabrication="2020",
+            year_model="2020",
+            color="Prata",
+        )
+
+        budget = Budget(workshop=workshop, entry_date=timezone.now().date(), customer=customer, vehicle=vehicle)
+        budget.save()
+
+        product_group = CatalogGroup.objects.create(workshop=workshop, name=f"Grupo Numero {suffix}")
+        product = Product.objects.create(
+            workshop=workshop,
+            code=f"P-NUM-{suffix}",
+            unit=Product.Unit.UND,
+            name=f"Produto Numero {suffix}",
+            ncm="87089990",
+            group=product_group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+        )
+        service = Service.objects.create(
+            workshop=workshop,
+            name=f"Servico Numero {suffix}",
+            description="Servico para numeracao",
+            duration=timedelta(hours=1),
+            suggested_cost=Money("30.00", "BRL"),
+            selling_price=Money("50.00", "BRL"),
+        )
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, service=service, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        workorder.sync_from_budget()
+
+        company = WebmaniaCompany.objects.create(
+            workshop=workshop,
+            webmania_company_id=f"NUM-{suffix}",
+            nfe_serie=1,
+            nfe_numero=1000,
+            nfe_numero_dev=9000,
+            nfse_rps_serie="A1",
+            nfse_rps_numero=2000,
+            nfse_rps_numero_dev=8000,
+        )
+        nfe_request = NfeRequest.objects.create(workshop=workshop, workorder=workorder, tax_class="REFNFE999")
+        nfse_request = NfseRequest.objects.create(workshop=workshop, workorder=workorder, tax_class="REFNFSE999", service_description="Servico teste")
+        return company, workorder, nfe_request, nfse_request
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_reserve_nfe_request_number_uses_dev_counter_and_reuses_same_number(self) -> None:
+        company, _, nfe_request, _ = self._build_requests(suffix=70)
+
+        reserved = reserve_nfe_request_number(nfe_request=nfe_request)
+        reserved_again = reserve_nfe_request_number(nfe_request=nfe_request)
+
+        company.refresh_from_db()
+        nfe_request.refresh_from_db()
+
+        self.assertEqual(reserved.number, 9000)
+        self.assertEqual(reserved.series, 1)
+        self.assertEqual(reserved_again.number, 9000)
+        self.assertEqual(company.nfe_numero_dev, 9001)
+        self.assertEqual(company.nfe_numero, 1000)
+        self.assertEqual(nfe_request.reserved_number, 9000)
+        self.assertEqual(nfe_request.reserved_series, 1)
+
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_reserve_nfse_request_rps_number_uses_production_counter_and_reuses_same_number(self) -> None:
+        company, _, _, nfse_request = self._build_requests(suffix=71)
+
+        reserved = reserve_nfse_request_rps_number(nfse_request=nfse_request)
+        reserved_again = reserve_nfse_request_rps_number(nfse_request=nfse_request)
+
+        company.refresh_from_db()
+        nfse_request.refresh_from_db()
+
+        self.assertEqual(reserved.number, 2000)
+        self.assertEqual(reserved.series, "A1")
+        self.assertEqual(reserved_again.number, 2000)
+        self.assertEqual(company.nfse_rps_numero, 2001)
+        self.assertEqual(company.nfse_rps_numero_dev, 8000)
+        self.assertEqual(nfse_request.reserved_rps_number, 2000)
+        self.assertEqual(nfse_request.reserved_rps_series, "A1")
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_build_nfe_payload_includes_reserved_number_and_series(self) -> None:
+        _, _, nfe_request, _ = self._build_requests(suffix=72)
+        reserve_nfe_request_number(nfe_request=nfe_request)
+
+        payload = build_nfe_payload(nfe_request=nfe_request)
+
+        self.assertEqual(payload.get("numero"), 9000)
+        self.assertEqual(payload.get("serie"), 1)
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_build_nfse_payload_includes_reserved_rps_number_and_series(self) -> None:
+        _, _, _, nfse_request = self._build_requests(suffix=73)
+        reserve_nfse_request_rps_number(nfse_request=nfse_request)
+
+        payload = build_nfse_payload(nfse_request=nfse_request)
+        first_rps = payload.get("rps", [{}])[0]
+
+        self.assertEqual(first_rps.get("numero"), 8000)
+        self.assertEqual(first_rps.get("serie"), "A1")
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_sync_nfe_emission_response_backfills_reserved_number_when_api_omits_it(self) -> None:
+        _, _, nfe_request, _ = self._build_requests(suffix=74)
+        reserve_nfe_request_number(nfe_request=nfe_request)
+
+        sync_nfe_emission_response(
+            nfe_request=nfe_request,
+            response_payload={
+                "uuid": "7f47b1b5-3f2a-4f50-8f1d-6b02872d7a74",
+                "modelo": "nfe",
+                "status": "processando",
+            },
+        )
+
+        item = nfe_request.items.get()
+        self.assertEqual(item.number, "9000")
+        self.assertEqual(item.series, "1")
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_sync_nfse_emission_response_backfills_reserved_rps_number_when_api_omits_it(self) -> None:
+        _, _, _, nfse_request = self._build_requests(suffix=75)
+        reserve_nfse_request_rps_number(nfse_request=nfse_request)
+
+        sync_emission_response(
+            nfse_request=nfse_request,
+            response_payload={
+                "uuid": "87f7fe5f-3a6d-47c4-9481-1ad2710b7e75",
+                "modelo": "nfse",
+                "status": "processando",
+            },
+        )
+
+        item = nfse_request.items.get()
+        self.assertEqual(item.rps_number, "8000")
+        self.assertEqual(item.rps_series, "A1")
+        self.assertEqual(item.number, "8000")
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_sync_nfe_emission_response_replays_pending_webhook_event(self) -> None:
+        _, _, nfe_request, _ = self._build_requests(suffix=76)
+        reserve_nfe_request_number(nfe_request=nfe_request)
+        webhook_uuid = "d2f2867f-0b8c-44c8-ae39-11f88fdaf61c"
+        event = WebmaniaWebhookEvent.objects.create(
+            model="nfe",
+            event_uuid=webhook_uuid,
+            payload={
+                "uuid": webhook_uuid,
+                "modelo": "nfe",
+                "status": "aprovado",
+                "motivo": "Autorizado o uso da NF-e",
+                "nfe": "9000",
+                "serie": "1",
+                "xml": "https://files.test/xml.xml",
+                "danfe": "https://files.test/danfe.pdf",
+            },
+        )
+
+        sync_nfe_emission_response(
+            nfe_request=nfe_request,
+            response_payload={
+                "uuid": webhook_uuid,
+                "modelo": "nfe",
+                "status": "processando",
+            },
+        )
+
+        item = nfe_request.items.get()
+        event.refresh_from_db()
+
+        self.assertEqual(item.status, "aprovado")
+        self.assertEqual(item.xml_url, "https://files.test/xml.xml")
+        self.assertEqual(item.danfe_url, "https://files.test/danfe.pdf")
+        self.assertIsNotNone(item.last_webhook_at)
+        self.assertIsNotNone(event.processed_at)
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_sync_nfse_emission_response_replays_pending_webhook_event(self) -> None:
+        _, _, _, nfse_request = self._build_requests(suffix=77)
+        reserve_nfse_request_rps_number(nfse_request=nfse_request)
+        webhook_uuid = "e6d2458d-53fa-41c1-86de-89ecb7c97aa1"
+        event = WebmaniaWebhookEvent.objects.create(
+            model="nfse",
+            event_uuid=webhook_uuid,
+            payload={
+                "uuid": webhook_uuid,
+                "modelo": "nfse",
+                "status": "processado",
+                "motivo": "NFS-e gerada",
+                "numero": "8000",
+                "numero_rps": "8000",
+                "serie_rps": "A1",
+                "xml": "https://files.test/nfse.xml",
+                "pdf_nfse": "https://files.test/nfse.pdf",
+            },
+        )
+
+        sync_emission_response(
+            nfse_request=nfse_request,
+            response_payload={
+                "uuid": webhook_uuid,
+                "modelo": "nfse",
+                "status": "processando",
+            },
+        )
+
+        item = nfse_request.items.get()
+        event.refresh_from_db()
+
+        self.assertEqual(item.status, "aprovado")
+        self.assertEqual(item.xml_url, "https://files.test/nfse.xml")
+        self.assertEqual(item.pdf_nfse_url, "https://files.test/nfse.pdf")
+        self.assertIsNotNone(item.last_webhook_at)
+        self.assertIsNotNone(event.processed_at)
 
 
 class NfeProductExtractionTests(TestCase):
@@ -1526,6 +2112,39 @@ class WebmaniaCompanyUpdateFormTests(TestCase):
         self.assertTrue(is_encrypted_secret(kept_company.certificado))
         self.assertEqual(decrypt_secret(kept_company.certificado), "NOVO_CERTIFICADO")
 
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_hides_homolog_fields_when_not_in_homolog_environment(self) -> None:
+        form = WebmaniaCompanyUpdateForm(instance=self.company)
+
+        self.assertFalse(form.show_homolog_fields)
+        self.assertNotIn("nfe_numero_dev", form.fields)
+        self.assertNotIn("nfce_numero_dev", form.fields)
+        self.assertNotIn("nfce_id_csc_dev", form.fields)
+        self.assertNotIn("nfce_codigo_csc_dev", form.fields)
+        self.assertNotIn("nfse_rps_numero_dev", form.fields)
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_shows_homolog_fields_when_in_homolog_environment(self) -> None:
+        form = WebmaniaCompanyUpdateForm(instance=self.company)
+
+        self.assertTrue(form.show_homolog_fields)
+        self.assertIn("nfe_numero_dev", form.fields)
+        self.assertIn("nfce_numero_dev", form.fields)
+        self.assertIn("nfce_id_csc_dev", form.fields)
+        self.assertIn("nfce_codigo_csc_dev", form.fields)
+        self.assertIn("nfse_rps_numero_dev", form.fields)
+
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_workshop_fiscal_form_hides_homolog_fields_when_not_in_homolog_environment(self) -> None:
+        form = WorkshopFiscalSectionForm(instance=self.company, workshop=self.company.workshop)
+
+        self.assertFalse(form.show_homolog_fields)
+        self.assertNotIn("nfe_numero_dev", form.fields)
+        self.assertNotIn("nfce_numero_dev", form.fields)
+        self.assertNotIn("nfce_id_csc_dev", form.fields)
+        self.assertNotIn("nfce_codigo_csc_dev", form.fields)
+        self.assertNotIn("nfse_rps_numero_dev", form.fields)
+
 
 class WebmaniaCompanyDetailViewTests(TestCase):
     def setUp(self) -> None:
@@ -1551,6 +2170,80 @@ class WebmaniaCompanyDetailViewTests(TestCase):
         self.assertTrue(bool(consumer_key_field.get("has_value")))
         self.assertEqual(str(consumer_key_field.get("value") or ""), "ck_real")
 
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_detail_view_hides_homolog_fields_outside_homolog_environment(self) -> None:
+        company = WebmaniaCompany.objects.create(
+            workshop=self.workshop,
+            webmania_company_id="D-002",
+            nfe_numero_dev=123,
+            nfce_numero_dev=456,
+            nfse_rps_numero_dev=789,
+        )
+
+        response = self.client.get(reverse("finance:webmania_company_detail", kwargs={"pk": company.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "NF-e Número Homologação")
+        self.assertNotContains(response, "NFC-e Número Homologação")
+        self.assertNotContains(response, "NFS-e RPS Número Homologação")
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_detail_view_shows_homolog_fields_in_homolog_environment(self) -> None:
+        company = WebmaniaCompany.objects.create(
+            workshop=self.workshop,
+            webmania_company_id="D-003",
+            nfe_numero_dev=123,
+            nfce_numero_dev=456,
+            nfse_rps_numero_dev=789,
+        )
+
+        response = self.client.get(reverse("finance:webmania_company_detail", kwargs={"pk": company.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "NF-e Número Homologação")
+        self.assertContains(response, "NFC-e Número Homologação")
+        self.assertContains(response, "NFS-e RPS Número Homologação")
+
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_workshop_update_hides_homolog_fields_outside_homolog_environment(self) -> None:
+        WebmaniaCompany.objects.update_or_create(workshop=self.workshop, defaults={"webmania_company_id": "D-004"})
+
+        response = self.client.get(reverse("workshops:update", kwargs={"pk": self.workshop.pk}) + "?tab=nota_fiscal&nf_tab=nfe")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Próximo número NF-e homologação")
+        self.assertNotContains(response, "Próximo número NFC-e homologação")
+        self.assertNotContains(response, "Próximo RPS homologação")
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_workshop_update_shows_homolog_fields_in_homolog_environment(self) -> None:
+        WebmaniaCompany.objects.update_or_create(workshop=self.workshop, defaults={"webmania_company_id": "D-005"})
+
+        response = self.client.get(reverse("workshops:update", kwargs={"pk": self.workshop.pk}) + "?tab=nota_fiscal&nf_tab=nfe")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Próximo número NF-e homologação")
+
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_finance_update_hides_homolog_fields_outside_homolog_environment(self) -> None:
+        company = WebmaniaCompany.objects.create(workshop=self.workshop, webmania_company_id="D-006")
+
+        response = self.client.get(reverse("finance:webmania_company_update", kwargs={"pk": company.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Próximo número NF-e homologação")
+        self.assertNotContains(response, "Próximo número NFC-e homologação")
+        self.assertNotContains(response, "Próximo RPS homologação")
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_finance_update_shows_homolog_fields_in_homolog_environment(self) -> None:
+        company = WebmaniaCompany.objects.create(workshop=self.workshop, webmania_company_id="D-007")
+
+        response = self.client.get(reverse("finance:webmania_company_update", kwargs={"pk": company.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Próximo número NF-e homologação")
+
 
 class TaxClassPresetViewTests(TestCase):
     def setUp(self) -> None:
@@ -1562,22 +2255,69 @@ class TaxClassPresetViewTests(TestCase):
         session.save()
         TaxClassSyncState.objects.update_or_create(workshop=self.workshop, defaults={"synced_once": True})
 
-    def test_preset_buttons_use_formnovalidate(self) -> None:
+    def _create_preset(
+        self,
+        *,
+        kind: str,
+        name: str,
+        payload: dict[str, Any],
+        description: str = "",
+        is_active: bool = True,
+        workshop: Workshop | None = None,
+    ) -> TaxClassPreset:
+        return TaxClassPreset.objects.create(
+            workshop=workshop or self.workshop,
+            kind=kind,
+            name=name,
+            description=description,
+            is_active=is_active,
+            payload=payload,
+        )
+
+    def test_preset_buttons_are_not_default_submit_buttons(self) -> None:
+        self._create_preset(
+            kind="nfe",
+            name="Revenda",
+            description="Preset NFE",
+            payload={"descricao": "Classe NFE", "icms": [{"tipo_tributacao": "simples_nacional", "cenario": "saida_dentro_estado", "tipo_pessoa": "fisica", "codigo_cfop": "5102", "situacao_tributaria": "102"}]},
+        )
+        self._create_preset(
+            kind="nfse",
+            name="Servico",
+            description="Preset NFSE",
+            payload={"tipo": "nfse", "descricao": "Classe NFSE", "codigo_servico": "01.05", "exigibilidade_iss": "1", "iss_retido": "2"},
+        )
+
         nfe_response = self.client.get(f"{reverse('finance:tax_class_create')}?tab=nfe")
         nfse_response = self.client.get(f"{reverse('finance:tax_class_create')}?tab=nfse")
 
         self.assertEqual(nfe_response.status_code, 200)
         self.assertEqual(nfse_response.status_code, 200)
-        self.assertIn("formnovalidate", nfe_response.content.decode())
-        self.assertIn("formnovalidate", nfse_response.content.decode())
+        self.assertIn('type="button" class="btn btn-outline flex-1 apply-preset-button"', nfe_response.content.decode())
+        self.assertIn(reverse("finance:tax_class_preset_list") + "?tab=nfe", nfe_response.content.decode())
+        self.assertIn('type="button" class="btn btn-outline flex-1 apply-preset-button"', nfse_response.content.decode())
+        self.assertIn(reverse("finance:tax_class_preset_list") + "?tab=nfse", nfse_response.content.decode())
 
     def test_apply_nfe_preset_keeps_reference_and_loads_scenarios(self) -> None:
+        preset = self._create_preset(
+            kind="nfe",
+            name="Revenda padrão",
+            description="Preset NFE",
+            payload={
+                "descricao": "Classe de impostos para Saída de produtos de revenda",
+                "icms": [
+                    {"tipo_tributacao": "simples_nacional", "cenario": "saida_dentro_estado", "tipo_pessoa": "fisica", "codigo_cfop": "5102", "situacao_tributaria": "102"},
+                    {"tipo_tributacao": "simples_nacional", "cenario": "saida_fora_estado", "tipo_pessoa": "fisica", "codigo_cfop": "6102", "situacao_tributaria": "102"},
+                ],
+            },
+        )
+
         response = self.client.post(
             reverse("finance:tax_class_create"),
             data={
                 "tab": "nfe",
                 "form_action": "apply_preset",
-                "preset_key": "simples_nacional_revenda",
+                "preset_key": str(preset.pk),
                 "referencia": "REFPRE001",
             },
         )
@@ -1592,59 +2332,124 @@ class TaxClassPresetViewTests(TestCase):
 
         nfe_formset_sections = response.context["nfe_formset_sections"]
         icms_section = next(section for section in nfe_formset_sections if section["key"] == "icms")
-        self.assertGreaterEqual(icms_section["formset"].total_form_count(), 5)
+        self.assertGreaterEqual(icms_section["formset"].total_form_count(), 3)
 
-    def test_apply_nfse_sao_paulo_preset_loads_service_code(self) -> None:
+    def test_apply_nfse_preset_loads_fields_from_workshop_preset(self) -> None:
+        preset = self._create_preset(
+            kind="nfse",
+            name="Servico padrao",
+            description="Preset NFSE",
+            payload={
+                "tipo": "nfse",
+                "descricao": "Classe de serviço padrão",
+                "tipo_emissao": "1",
+                "codigo_servico": "01.05",
+                "exigibilidade_iss": "1",
+                "iss_retido": "2",
+            },
+        )
+
         response = self.client.post(
             reverse("finance:tax_class_create"),
             data={
                 "tab": "nfse",
                 "form_action": "apply_preset",
-                "preset_key": "nfse_sao_paulo_basico",
-                "referencia": "REFPRENFSE001",
+                "preset_key": str(preset.pk),
             },
         )
 
         self.assertEqual(response.status_code, 200)
         nfse_form = response.context["nfse_form"]
-        self.assertEqual(str(nfse_form["referencia"].value() or ""), "REFPRENFSE001")
+        self.assertEqual(str(nfse_form["descricao"].value() or ""), "Classe de serviço padrão")
         self.assertEqual(str(nfse_form["codigo_servico"].value() or ""), "01.05")
+        self.assertEqual(str(nfse_form["iss_retido"].value() or ""), "2")
 
-    def test_apply_nfse_preset_on_update_preserves_hidden_payload_fields(self) -> None:
-        reference = "REFPRENFSE002"
-        existing_payload = {
-            "referencia": reference,
-            "descricao": "Classe antiga",
-            "tipo": "nfse",
-            "codigo_servico": "01.05",
-            "natureza_operacao": "1",
-            "iss_retido": "2",
-            "campo_provedor": "valor-antigo",
-            "impostos": {"campo_extra": "preservado"},
-        }
+    def test_apply_preset_rejects_other_workshop_preset(self) -> None:
+        other_workshop = create_workshop(suffix=42)
+        preset = self._create_preset(
+            workshop=other_workshop,
+            kind="nfe",
+            name="Outro preset",
+            description="Outro",
+            payload={"descricao": "Classe externa"},
+        )
 
-        with patch("apps.finance.views.tax_class.list_tax_classes", return_value=[existing_payload]):
-            response = self.client.post(
-                reverse("finance:tax_class_update", kwargs={"reference": reference}),
-                data={
-                    "tab": "nfse",
-                    "form_action": "apply_preset",
-                    "preset_key": "nfse_sao_paulo_retido",
-                },
-            )
+        response = self.client.post(
+            reverse("finance:tax_class_create"),
+            data={
+                "tab": "nfe",
+                "form_action": "apply_preset",
+                "preset_key": str(preset.pk),
+            },
+        )
 
         self.assertEqual(response.status_code, 200)
-        nfse_form = response.context["nfse_form"]
-        base_payload = json.loads(str(nfse_form["base_payload_json"].value() or "{}"))
+        messages = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertIn("Selecione um preset válido para aplicar.", messages)
 
-        self.assertEqual(str(nfse_form["referencia"].value() or ""), reference)
-        self.assertEqual(str(nfse_form["codigo_servico"].value() or ""), "01.05")
-        self.assertEqual(base_payload.get("referencia"), reference)
-        self.assertEqual(base_payload.get("campo_provedor"), "valor-antigo")
-        self.assertEqual(base_payload.get("impostos", {}).get("campo_extra"), "preservado")
-        self.assertEqual(base_payload.get("codigo_servico"), "01.05")
-        self.assertEqual(base_payload.get("iss_retido"), "1")
-        self.assertEqual(base_payload.get("responsavel_retencao"), "1")
+    def test_can_create_nfse_preset_from_new_screen(self) -> None:
+        response = self.client.post(
+            reverse("finance:tax_class_preset_create"),
+            data={
+                "tab": "nfse",
+                "name": "Servico oficina",
+                "description": "Padrao da oficina",
+                "is_active": "on",
+                "descricao": "Classe padrão de serviço",
+                "tipo_emissao": "1",
+                "codigo_servico": "01.05",
+                "exigibilidade_iss": "1",
+                "iss_retido": "2",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        preset = TaxClassPreset.objects.get(workshop=self.workshop, kind="nfse", name="Servico oficina")
+        self.assertEqual(preset.description, "Padrao da oficina")
+        self.assertEqual(preset.payload.get("descricao"), "Classe padrão de serviço")
+        self.assertEqual(preset.payload.get("tipo"), "nfse")
+
+    def test_can_update_preset_and_keep_workshop_scope(self) -> None:
+        preset = self._create_preset(
+            kind="nfse",
+            name="Servico oficina",
+            description="Antigo",
+            payload={"tipo": "nfse", "descricao": "Classe antiga", "codigo_servico": "01.05", "exigibilidade_iss": "1", "iss_retido": "2"},
+        )
+
+        response = self.client.post(
+            reverse("finance:tax_class_preset_update", kwargs={"pk": preset.pk}),
+            data={
+                "tab": "nfse",
+                "name": "Servico oficina atualizado",
+                "description": "Novo resumo",
+                "descricao": "Classe nova",
+                "tipo_emissao": "1",
+                "codigo_servico": "14.01",
+                "exigibilidade_iss": "1",
+                "iss_retido": "2",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        preset.refresh_from_db()
+        self.assertEqual(preset.name, "Servico oficina atualizado")
+        self.assertEqual(preset.description, "Novo resumo")
+        self.assertEqual(preset.payload.get("descricao"), "Classe nova")
+        self.assertEqual(preset.payload.get("codigo_servico"), "14.01")
+
+    def test_preset_list_is_scoped_to_active_workshop(self) -> None:
+        self._create_preset(kind="nfe", name="Preset local", payload={"descricao": "Local"})
+        other_workshop = create_workshop(suffix=43)
+        TaxClassPreset.objects.create(workshop=other_workshop, kind="nfe", name="Preset externo", payload={"descricao": "Externo"})
+
+        response = self.client.get(f"{reverse('finance:tax_class_preset_list')}?tab=nfe")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Preset local")
+        self.assertNotContains(response, "Preset externo")
 
 
 class NfseEmissionAuthTests(TestCase):
@@ -1761,6 +2566,718 @@ class NfseRequestCreateViewHtmxTests(TestCase):
         self.assertEqual(response.headers.get("HX-Redirect"), step_url)
 
 
+class UnifiedEmissionWizardTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=86)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+        self.workorder = self._build_workorder_with_product_and_service(suffix=87)
+
+    def _build_workorder_with_product_and_service(self, *, suffix: int) -> WorkOrder:
+        budget = Budget(workshop=self.workshop, entry_date=timezone.now().date())
+        budget.save()
+
+        product_group = CatalogGroup.objects.create(workshop=self.workshop, name=f"Grupo Unificado {suffix}")
+        product = Product.objects.create(
+            workshop=self.workshop,
+            code=f"P-UNI-{suffix}",
+            unit=Product.Unit.UND,
+            name=f"Produto Unificado {suffix}",
+            ncm="87089990",
+            group=product_group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+        )
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name=f"Servico Unificado {suffix}",
+            description="Servico de integracao",
+            duration=timedelta(hours=1),
+            suggested_cost=Money("30.00", "BRL"),
+            selling_price=Money("50.00", "BRL"),
+        )
+
+        BudgetItem.objects.create(workshop=self.workshop, budget=budget, product=product, quantity=1)
+        BudgetItem.objects.create(workshop=self.workshop, budget=budget, service=service, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        workorder.sync_from_budget()
+        return workorder
+
+    def _build_service_only_workorder(self, *, suffix: int) -> WorkOrder:
+        budget = Budget(workshop=self.workshop, entry_date=timezone.now().date())
+        budget.save()
+
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name=f"Servico Only {suffix}",
+            description="Servico sem produto",
+            duration=timedelta(hours=1),
+            suggested_cost=Money("30.00", "BRL"),
+            selling_price=Money("50.00", "BRL"),
+        )
+        BudgetItem.objects.create(workshop=self.workshop, budget=budget, service=service, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        workorder.sync_from_budget()
+        return workorder
+
+    def _build_workorder_with_kit(self, *, suffix: int) -> tuple[WorkOrder, WorkOrderItem, Product, Service]:
+        budget = Budget(workshop=self.workshop, entry_date=timezone.now().date())
+        budget.save()
+
+        product_group = CatalogGroup.objects.create(workshop=self.workshop, name=f"Grupo Kit {suffix}")
+        product = Product.objects.create(
+            workshop=self.workshop,
+            code=f"P-KIT-{suffix}",
+            unit=Product.Unit.UND,
+            name=f"Produto Kit {suffix}",
+            ncm="87089990",
+            group=product_group,
+            cost_price=Money("12.00", "BRL"),
+            selling_price=Money("18.00", "BRL"),
+        )
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name=f"Servico Kit {suffix}",
+            description="Servico de kit",
+            duration=timedelta(hours=1),
+            suggested_cost=Money("8.00", "BRL"),
+            selling_price=Money("22.00", "BRL"),
+        )
+        kit = Kit.objects.create(workshop=self.workshop, name=f"Kit Emissao {suffix}")
+        KitProduct.objects.create(kit=kit, product=product, quantity=1)
+        KitService.objects.create(kit=kit, service=service, quantity=1)
+        BudgetItem.objects.create(workshop=self.workshop, budget=budget, kit=kit, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        workorder.sync_from_budget()
+        kit_item = WorkOrderItem.objects.get(workorder=workorder, kit=kit)
+        return workorder, kit_item, product, service
+
+    @staticmethod
+    def _wizard_url(*, step: int, tipo: str | None = None) -> str:
+        base_url = reverse("finance:emission_create")
+        query = f"?step={step}"
+        if tipo:
+            query += f"&tipo={tipo}"
+        return f"{base_url}{query}"
+
+    @staticmethod
+    def _preview_url(**params: str) -> str:
+        base_url = reverse("finance:emission_preview")
+        if not params:
+            return base_url
+        query = "&".join(f"{key}={value}" for key, value in params.items())
+        return f"{base_url}?{query}"
+
+    def _wizard_session_key(self) -> str:
+        return f"finance.emission_wizard:{self.workshop.pk}:{self.user.pk}"
+
+    def _advance_to_step_4(self, *, tipo: str | None = None) -> None:
+        self.client.post(self._wizard_url(step=1, tipo=tipo), {"workorder": self.workorder.pk})
+        self.client.post(self._wizard_url(step=2), {})
+        self.client.post(self._wizard_url(step=3), {})
+
+    def _advance_to_step_5(self, *, tipo: str | None = None, pricing_slider: str = "0") -> None:
+        self._advance_to_step_4(tipo=tipo)
+        self.client.post(self._wizard_url(step=4), {"pricing_slider": pricing_slider})
+
+    def test_unified_wizard_creates_nfe_request_with_persisted_slider(self) -> None:
+        tax_classes = [{"referencia": "REFNFE900", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e"}]
+
+        with (
+            patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.emission.emit_nfe_request", return_value={"status": "processando"}) as emit_mock,
+            patch("apps.finance.views.emission.sync_nfe_emission_response") as sync_mock,
+        ):
+            response = self.client.post(self._wizard_url(step=1), {"workorder": self.workorder.pk})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=2))
+
+            response = self.client.post(self._wizard_url(step=2), {})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=3))
+
+            response = self.client.post(self._wizard_url(step=3), {})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=4))
+
+            response = self.client.post(self._wizard_url(step=4), {"pricing_slider": "-15"})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=5))
+
+            response = self.client.post(self._wizard_url(step=5), {"note_mode": "nfe"})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=6))
+
+            response = self.client.post(
+                self._wizard_url(step=6),
+                {
+                    "tax_class": "REFNFE900",
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("finance:nfe_emit"))
+
+        nfe_request = NfeRequest.objects.get(workshop=self.workshop)
+        self.assertEqual(nfe_request.workorder, self.workorder)
+        self.assertEqual(nfe_request.pricing_slider, -15)
+        self.assertEqual(nfe_request.tax_class, "REFNFE900")
+        self.assertEqual(nfe_request.current_step, 3)
+        self.assertEqual(nfe_request.status, NfeRequestStatus.PROCESSING)
+        emit_mock.assert_called_once_with(nfe_request=nfe_request, request=ANY)
+        sync_mock.assert_called_once()
+
+    def test_unified_wizard_creates_nfse_request_with_service_description(self) -> None:
+        tax_classes = [{"referencia": "REFNFSE901", "tipo": "nfse", "status": "ativo", "descricao": "Classe NFS-e", "codigo_servico": "01.05"}]
+
+        with (
+            patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.emission.emit_nfse_request", return_value={"status": "processando"}) as emit_mock,
+            patch("apps.finance.views.emission.sync_emission_response") as sync_mock,
+        ):
+            self._advance_to_step_5(tipo="nfse", pricing_slider="25")
+
+            response = self.client.post(self._wizard_url(step=5), {"note_mode": "nfse"})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=6))
+
+            response = self.client.post(
+                self._wizard_url(step=6),
+                {
+                    "tax_class": "REFNFSE901",
+                    "service_description": "Servico executado na OS unificada",
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("finance:nfse_list"))
+
+        nfse_request = NfseRequest.objects.get(workshop=self.workshop)
+        self.assertEqual(nfse_request.workorder, self.workorder)
+        self.assertEqual(nfse_request.pricing_slider, 25)
+        self.assertEqual(nfse_request.tax_class, "REFNFSE901")
+        self.assertEqual(nfse_request.service_description, "Servico executado na OS unificada")
+        self.assertEqual(nfse_request.current_step, 3)
+        self.assertEqual(nfse_request.status, NfseRequestStatus.PROCESSING)
+        emit_mock.assert_called_once_with(nfse_request=nfse_request, request=ANY)
+        sync_mock.assert_called_once()
+
+    def test_unified_summary_step_uses_step5_layout_and_slider_preview_updates_partial_regions(self) -> None:
+        self._advance_to_step_4()
+
+        response = self.client.get(self._wizard_url(step=4))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Resumo")
+        self.assertContains(response, "Metodo Hunter")
+        self.assertContains(response, "Margem de Lucro")
+        self.assertContains(response, "Desconto")
+        self.assertContains(response, "Itens consolidados da emissao")
+        self.assertContains(response, 'id="emission-display-venda-pecas"', html=False)
+        self.assertContains(response, 'id="emission-display-venda-mo"', html=False)
+
+        response = self.client.post(
+            f"{self._wizard_url(step=4)}&preview=1",
+            {
+                "pricing_slider": "-100",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'hx-swap-oob="true"', html=False)
+        self.assertContains(response, 'id="emission-display-venda-pecas"', html=False)
+        self.assertContains(response, 'id="emission-display-venda-mo"', html=False)
+        self.assertContains(response, "Itens consolidados da emissao")
+
+    def test_unified_customer_step_exposes_quick_edit_links(self) -> None:
+        customer = Customer.objects.create(
+            workshop=self.workshop,
+            name="Cliente Emissao",
+            cpf_or_cnpj="12345678901",
+            customer_type="PF",
+        )
+        vehicle = Vehicle.objects.create(
+            workshop=self.workshop,
+            customer=customer,
+            plate="ABC1D23",
+            brand="Ford",
+            model="Fiesta",
+            year_model="2020",
+            year_fabrication="2020",
+        )
+        self.workorder.budget.customer = customer
+        self.workorder.budget.vehicle = vehicle
+        self.workorder.budget.save(update_fields=["customer", "vehicle"])
+
+        self.client.post(self._wizard_url(step=1), {"workorder": self.workorder.pk})
+        response = self.client.get(self._wizard_url(step=2))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("customer:quick_update", kwargs={"pk": customer.pk}))
+        self.assertContains(response, reverse("customer:vehicle_quick_update", kwargs={"pk": vehicle.pk}))
+        self.assertContains(response, "Editar cliente")
+        self.assertContains(response, "Editar veiculo")
+
+    def test_unified_items_step_exposes_item_edit_actions_and_updates_workorder_item(self) -> None:
+        self.client.post(self._wizard_url(step=1), {"workorder": self.workorder.pk})
+        self.client.post(self._wizard_url(step=2), {})
+
+        product_item = WorkOrderItem.objects.filter(workorder=self.workorder, product__isnull=False).first()
+        assert product_item is not None
+
+        response = self.client.get(self._wizard_url(step=3))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            reverse("finance:emission_workorder_item_edit", kwargs={"workorder_pk": self.workorder.pk, "item_id": product_item.pk}),
+        )
+
+        response = self.client.post(
+            reverse("finance:emission_workorder_item_edit", kwargs={"workorder_pk": self.workorder.pk, "item_id": product_item.pk}),
+            {
+                "description": "Produto ajustado na emissao",
+                "quantity": "2",
+                "product_selling_price_0": "25.00",
+                "product_selling_price_1": "BRL",
+                "product_cost_price_0": "10.00",
+                "product_cost_price_1": "BRL",
+                "shipping_0": "0.00",
+                "shipping_1": "BRL",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(response.headers.get("HX-Trigger"), "financeEmissionWorkorderItemSaved")
+
+        product_item.refresh_from_db()
+        self.assertEqual(product_item.description, "Produto ajustado na emissao")
+        self.assertEqual(product_item.quantity, 2)
+        self.assertEqual(product_item.product_selling_price, Money("25.00", "BRL"))
+
+    def test_unified_items_step_lists_kit_components_as_editable_product_and_service_rows(self) -> None:
+        workorder, kit_item, product, service = self._build_workorder_with_kit(suffix=89)
+        self.client.post(self._wizard_url(step=1), {"workorder": workorder.pk})
+        self.client.post(self._wizard_url(step=2), {})
+
+        response = self.client.get(self._wizard_url(step=3))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, product.name)
+        self.assertContains(response, service.name)
+        self.assertContains(response, f"Kit: {kit_item.kit.name}")
+        self.assertContains(
+            response,
+            reverse(
+                "finance:emission_workorder_kit_component_edit",
+                kwargs={
+                    "workorder_pk": workorder.pk,
+                    "item_id": kit_item.pk,
+                    "component_type": "product",
+                    "component_id": product.pk,
+                },
+            ),
+        )
+
+        response = self.client.post(
+            reverse(
+                "finance:emission_workorder_kit_component_edit",
+                kwargs={
+                    "workorder_pk": workorder.pk,
+                    "item_id": kit_item.pk,
+                    "component_type": "product",
+                    "component_id": product.pk,
+                },
+            ),
+            {
+                "quantity": "2",
+                "cost_0": "9.00",
+                "cost_1": "BRL",
+                "price_0": "19.00",
+                "price_1": "BRL",
+                "shipping_0": "4.00",
+                "shipping_1": "BRL",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(response.headers.get("HX-Trigger"), "financeEmissionWorkorderItemSaved")
+
+        override = WorkOrderKitItemOverride.objects.get(workorder_item=kit_item, product=product)
+        self.assertEqual(override.quantity, 2)
+        self.assertEqual(override.product_cost_price, Money("9.00", "BRL"))
+        self.assertEqual(override.product_selling_price, Money("19.00", "BRL"))
+        self.assertEqual(override.shipping, Money("4.00", "BRL"))
+
+    def test_emission_preview_returns_summary_body_with_slider_values(self) -> None:
+        self._advance_to_step_4()
+
+        response = self.client.get(self._preview_url(pricing_slider="20"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="emission-step4-body"', html=False)
+        self.assertContains(response, "Itens consolidados da emissao")
+        self.assertContains(response, "Valor Unitario")
+
+    def test_unified_summary_step_shows_warning_for_service_only_workorder(self) -> None:
+        service_only_workorder = self._build_service_only_workorder(suffix=88)
+        self.client.post(self._wizard_url(step=1), {"workorder": service_only_workorder.pk})
+        self.client.post(self._wizard_url(step=2), {})
+        self.client.post(self._wizard_url(step=3), {})
+
+        response = self.client.get(self._wizard_url(step=4))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "nao ha saldo de produtos para emitir NF-e")
+
+    def test_unified_wizard_both_mode_retries_only_nfse_after_partial_failure(self) -> None:
+        tax_classes = [
+            {"referencia": "REFNFE910", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e"},
+            {"referencia": "REFNFSE910", "tipo": "nfse", "status": "ativo", "descricao": "Classe NFS-e", "codigo_servico": "01.05"},
+        ]
+
+        with (
+            patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.emission.emit_nfe_request", return_value={"status": "processando"}) as emit_nfe_mock,
+            patch("apps.finance.views.emission.sync_nfe_emission_response"),
+            patch("apps.finance.views.emission.emit_nfse_request", side_effect=[NfseEmissionError("Falha ao emitir NFS-e"), {"status": "processando"}]) as emit_nfse_mock,
+            patch("apps.finance.views.emission.sync_emission_response"),
+        ):
+            self._advance_to_step_5(pricing_slider="10")
+
+            response = self.client.post(self._wizard_url(step=5), {"note_mode": "both"})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=6))
+
+            response = self.client.post(self._wizard_url(step=6), {"tax_class": "REFNFE910"})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=7))
+
+            response = self.client.post(
+                self._wizard_url(step=7),
+                {
+                    "tax_class": "REFNFSE910",
+                    "service_description": "Descricao unificada",
+                },
+            )
+
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=7))
+
+            failed_step_response = self.client.get(self._wizard_url(step=7))
+            self.assertEqual(failed_step_response.status_code, 200)
+            self.assertContains(failed_step_response, "reenvio tentara apenas a NFS-e pendente")
+            self.assertContains(failed_step_response, "Fechar emissao")
+            self.assertContains(failed_step_response, reverse("finance:nfe_update", kwargs={"pk": NfeRequest.objects.get(workshop=self.workshop).pk}))
+            self.assertContains(failed_step_response, reverse("finance:nfse_update", kwargs={"pk": NfseRequest.objects.get(workshop=self.workshop).pk}))
+
+            response = self.client.post(
+                self._wizard_url(step=7),
+                {
+                    "tax_class": "REFNFSE910",
+                    "service_description": "Descricao unificada",
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("workshops:emission_history"))
+        emit_nfe_mock.assert_called_once()
+        self.assertEqual(emit_nfse_mock.call_count, 2)
+
+        nfe_request = NfeRequest.objects.get(workshop=self.workshop)
+        nfse_request = NfseRequest.objects.get(workshop=self.workshop)
+        self.assertEqual(nfe_request.tax_class, "REFNFE910")
+        self.assertEqual(nfse_request.tax_class, "REFNFSE910")
+        self.assertEqual(nfse_request.service_description, "Descricao unificada")
+
+    def test_unified_wizard_both_mode_shows_separate_success_and_error_toasts(self) -> None:
+        tax_classes = [
+            {"referencia": "REFNFE911", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e"},
+            {"referencia": "REFNFSE911", "tipo": "nfse", "status": "ativo", "descricao": "Classe NFS-e", "codigo_servico": "01.05"},
+        ]
+
+        with (
+            patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.emission.emit_nfe_request", return_value={"status": "processando"}),
+            patch("apps.finance.views.emission.sync_nfe_emission_response"),
+            patch("apps.finance.views.emission.emit_nfse_request", side_effect=NfseEmissionError("Falha ao emitir NFS-e")),
+            patch("apps.finance.views.emission.sync_emission_response"),
+        ):
+            self._advance_to_step_5(pricing_slider="10")
+            self.client.post(self._wizard_url(step=5), {"note_mode": "both"})
+            self.client.post(self._wizard_url(step=6), {"tax_class": "REFNFE911"})
+
+            response = self.client.post(
+                self._wizard_url(step=7),
+                {
+                    "tax_class": "REFNFSE911",
+                    "service_description": "Descricao unificada",
+                },
+                follow=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        flashed_messages = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertIn("NF-e enviada com sucesso.", flashed_messages)
+        self.assertIn("Falha ao enviar NFS-e: Falha ao emitir NFS-e", flashed_messages)
+
+    def test_unified_wizard_both_mode_shows_one_success_toast_per_note(self) -> None:
+        tax_classes = [
+            {"referencia": "REFNFE912", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e"},
+            {"referencia": "REFNFSE912", "tipo": "nfse", "status": "ativo", "descricao": "Classe NFS-e", "codigo_servico": "01.05"},
+        ]
+
+        with (
+            patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.emission.emit_nfe_request", return_value={"status": "processando"}),
+            patch("apps.finance.views.emission.sync_nfe_emission_response"),
+            patch("apps.finance.views.emission.emit_nfse_request", return_value={"status": "processando"}),
+            patch("apps.finance.views.emission.sync_emission_response"),
+        ):
+            self._advance_to_step_5(pricing_slider="10")
+            self.client.post(self._wizard_url(step=5), {"note_mode": "both"})
+            self.client.post(self._wizard_url(step=6), {"tax_class": "REFNFE912"})
+
+            response = self.client.post(
+                self._wizard_url(step=7),
+                {
+                    "tax_class": "REFNFSE912",
+                    "service_description": "Descricao unificada",
+                },
+                follow=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        flashed_messages = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertIn("NF-e enviada com sucesso.", flashed_messages)
+        self.assertIn("NFS-e enviada com sucesso.", flashed_messages)
+
+    def test_unified_wizard_close_clears_state_and_redirects_to_pending_list(self) -> None:
+        tax_classes = [{"referencia": "REFNFE920", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e"}]
+
+        with (
+            patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.emission.emit_nfe_request", side_effect=NfeEmissionError("Falha ao emitir NF-e")),
+            patch("apps.finance.views.emission.sync_nfe_emission_response"),
+        ):
+            self._advance_to_step_5(pricing_slider="15")
+
+            response = self.client.post(self._wizard_url(step=5), {"note_mode": "nfe"})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=6))
+
+            response = self.client.post(self._wizard_url(step=6), {"tax_class": "REFNFE920"})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=6))
+
+            response = self.client.get(f"{reverse('finance:emission_create')}?close=1")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("finance:nfe_emit"))
+        self.assertNotIn(self._wizard_session_key(), self.client.session)
+        self.assertTrue(NfeRequest.objects.filter(workshop=self.workshop).exists())
+
+    def test_unified_wizard_reset_query_starts_new_flow(self) -> None:
+        self._advance_to_step_5(pricing_slider="30")
+
+        response = self.client.get(f"{reverse('finance:emission_create')}?tipo=nfse&reset=1")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Selecionar Ordem de Servico")
+        session_state = self.client.session[self._wizard_session_key()]
+        self.assertEqual(session_state.get("workorder_id"), None)
+        self.assertEqual(session_state.get("note_mode"), "nfse")
+
+
+class CompatibilityEmissionRouteTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=90)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_compatibility_nfe_create_redirects_to_unified_wizard(self) -> None:
+        response = self.client.get(reverse("finance:nfe_create"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), f"{reverse('finance:emission_create')}?tipo=nfe&reset=1")
+
+    def test_compatibility_nfse_create_redirects_to_unified_wizard(self) -> None:
+        response = self.client.get(reverse("finance:nfse_create"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), f"{reverse('finance:emission_create')}?tipo=nfse&reset=1")
+
+    def test_finance_navbar_uses_single_emitir_nota_entry(self) -> None:
+        response = self.client.get(reverse("finance:nfe_emit"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Emitir nota")
+        self.assertContains(response, f"{reverse('finance:emission_create')}?reset=1")
+        self.assertContains(response, "NFS-e Emitidas")
+
+
+class CompatibilityEmissionUpdateFlowTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=91)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def _build_workorder_with_product_and_service(self, *, suffix: int) -> WorkOrder:
+        budget = Budget(workshop=self.workshop, entry_date=timezone.now().date())
+        budget.save()
+
+        product_group = CatalogGroup.objects.create(workshop=self.workshop, name=f"Grupo Update {suffix}")
+        product = Product.objects.create(
+            workshop=self.workshop,
+            code=f"P-UP-{suffix}",
+            unit=Product.Unit.UND,
+            name=f"Produto Update {suffix}",
+            ncm="87089990",
+            group=product_group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+        )
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name=f"Servico Update {suffix}",
+            description="Servico para update",
+            duration=timedelta(hours=1),
+            suggested_cost=Money("30.00", "BRL"),
+            selling_price=Money("50.00", "BRL"),
+        )
+
+        BudgetItem.objects.create(workshop=self.workshop, budget=budget, product=product, quantity=1)
+        BudgetItem.objects.create(workshop=self.workshop, budget=budget, service=service, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        workorder.sync_from_budget()
+        return workorder
+
+    def test_nfe_update_step_three_preview_and_save_persist_slider(self) -> None:
+        workorder = self._build_workorder_with_product_and_service(suffix=102)
+        nfe_request = NfeRequest.objects.create(
+            workshop=self.workshop,
+            workorder=workorder,
+            current_step=3,
+            status=NfeRequestStatus.CHECKING_PRODUCTS,
+            tax_class="REFNFE950",
+            pricing_slider=0,
+        )
+        tax_classes = [{"referencia": "REFNFE950", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e update"}]
+
+        with patch("apps.finance.views.request_workflow.list_tax_classes", return_value=tax_classes):
+            response = self.client.get(
+                reverse("finance:nfe_update", kwargs={"pk": nfe_request.pk}),
+                data={"step": 3},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Metodo Hunter")
+        self.assertContains(response, "Margem de Lucro")
+        self.assertContains(response, 'id="nfe-display-venda-pecas"', html=False)
+        self.assertContains(response, 'id="nfe-display-venda-mo"', html=False)
+
+        with patch("apps.finance.views.request_workflow.list_tax_classes", return_value=tax_classes):
+            response = self.client.post(
+                f"{reverse('finance:nfe_update', kwargs={'pk': nfe_request.pk})}?step=3&preview=1",
+                data={"pricing_slider": -100, "tax_class": "REFNFE950"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'hx-swap-oob="true"', html=False)
+        self.assertContains(response, 'id="nfe-display-venda-pecas"', html=False)
+        self.assertContains(response, 'id="nfe-display-venda-mo"', html=False)
+        self.assertContains(response, "R$ 70,00")
+
+        with (
+            patch("apps.finance.views.request_workflow.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.nfe.emit_nfe_request", return_value={"status": "processando"}),
+            patch("apps.finance.views.nfe.sync_nfe_emission_response"),
+        ):
+            response = self.client.post(
+                f"{reverse('finance:nfe_update', kwargs={'pk': nfe_request.pk})}?step=3",
+                data={"pricing_slider": -100, "tax_class": "REFNFE950"},
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("finance:nfe_emit"))
+        nfe_request.refresh_from_db()
+        self.assertEqual(nfe_request.pricing_slider, -100)
+
+    def test_nfse_update_step_three_preview_and_save_persist_slider(self) -> None:
+        workorder = self._build_workorder_with_product_and_service(suffix=103)
+        nfse_request = NfseRequest.objects.create(
+            workshop=self.workshop,
+            workorder=workorder,
+            current_step=3,
+            status=NfseRequestStatus.CHECKING_SERVICES,
+            tax_class="REFNFSE951",
+            pricing_slider=0,
+        )
+        tax_classes = [{"referencia": "REFNFSE951", "tipo": "nfse", "status": "ativo", "descricao": "Classe NFS-e update", "codigo_servico": "01.05"}]
+
+        with patch("apps.finance.views.request_workflow.list_tax_classes", return_value=tax_classes):
+            response = self.client.get(
+                reverse("finance:nfse_update", kwargs={"pk": nfse_request.pk}),
+                data={"step": 3},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Metodo Hunter")
+        self.assertContains(response, "Margem de Lucro")
+        self.assertContains(response, 'id="nfse-display-venda-pecas"', html=False)
+        self.assertContains(response, 'id="nfse-display-venda-mo"', html=False)
+
+        with patch("apps.finance.views.request_workflow.list_tax_classes", return_value=tax_classes):
+            response = self.client.post(
+                f"{reverse('finance:nfse_update', kwargs={'pk': nfse_request.pk})}?step=3&preview=1",
+                data={
+                    "pricing_slider": 100,
+                    "tax_class": "REFNFSE951",
+                    "service_description": "Descricao atualizada",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'hx-swap-oob="true"', html=False)
+        self.assertContains(response, 'id="nfse-display-venda-pecas"', html=False)
+        self.assertContains(response, 'id="nfse-display-venda-mo"', html=False)
+        self.assertContains(response, "R$ 70,00")
+
+        with (
+            patch("apps.finance.views.request_workflow.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.nfse.emit_nfse_request", return_value={"status": "processando"}),
+            patch("apps.finance.views.nfse.sync_emission_response"),
+        ):
+            response = self.client.post(
+                f"{reverse('finance:nfse_update', kwargs={'pk': nfse_request.pk})}?step=3",
+                data={
+                    "pricing_slider": 100,
+                    "tax_class": "REFNFSE951",
+                    "service_description": "Descricao atualizada",
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("finance:nfse_list"))
+        nfse_request.refresh_from_db()
+        self.assertEqual(nfse_request.pricing_slider, 100)
+        self.assertEqual(nfse_request.service_description, "Descricao atualizada")
+
+
 class NfePermissionFallbackTests(TestCase):
     def setUp(self) -> None:
         self.user, self.workshop = create_director_user_with_workshop(suffix=84)
@@ -1805,6 +3322,158 @@ class WebhookSecurityTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 400)
+
+    def test_webhook_stores_pending_event_when_item_does_not_exist_yet(self) -> None:
+        token = build_webmania_webhook_token()
+
+        response = self.client.post(
+            f"{reverse('finance:webhook')}?token={token}",
+            data={
+                "uuid": "73ca23d6-ff08-4da1-8dc5-341f4fb115a7",
+                "modelo": "nfe",
+                "status": "aprovado",
+                "motivo": "Autorizado o uso da NF-e",
+            },
+        )
+
+        self.assertEqual(response.status_code, 202)
+        event = WebmaniaWebhookEvent.objects.get()
+        self.assertEqual(event.model, "nfe")
+        self.assertEqual(event.event_uuid, "73ca23d6-ff08-4da1-8dc5-341f4fb115a7")
+        self.assertIsNone(event.processed_at)
+        self.assertIn("ainda nao foi sincronizada", event.processing_error)
+
+
+class FiscalDocumentDetailFlowTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=20)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+        self.customer = Customer.objects.create(
+            workshop=self.workshop,
+            customer_type="PF",
+            name="Cliente Fiscal",
+            cpf_or_cnpj="12345678901",
+            email="cliente.fiscal@teste.com",
+            logradouro="Rua Fiscal",
+            numero="100",
+            bairro="Centro",
+            cidade="Sao Paulo",
+            estado="SP",
+            cep="01001-000",
+        )
+        self.vehicle = Vehicle.objects.create(
+            workshop=self.workshop,
+            customer=self.customer,
+            plate="ABC1234",
+            brand="Ford",
+            model="Ka",
+            year_fabrication="2020",
+            year_model="2020",
+            color="Prata",
+        )
+        budget = Budget(workshop=self.workshop, entry_date=timezone.now().date(), customer=self.customer, vehicle=self.vehicle)
+        budget.save()
+        self.workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+
+    def test_nfe_reconcile_view_updates_item_status(self) -> None:
+        nfe_request = NfeRequest.objects.create(workshop=self.workshop, workorder=self.workorder, tax_class="REFNFE120")
+        item = NfeItem.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            request=nfe_request,
+            uuid="3f895e61-c0da-46ee-a880-a03f8547a9bc",
+            status="processando",
+        )
+
+        consulta_payload = {
+            "uuid": str(item.uuid),
+            "modelo": "nfe",
+            "status": "aprovado",
+            "motivo": "Autorizado o uso da NF-e",
+            "nfe": "12345",
+            "serie": "1",
+            "chave": "12345678901234567890123456789012345678901234",
+            "xml": "https://files.test/nfe.xml",
+            "danfe": "https://files.test/danfe.pdf",
+        }
+
+        with (
+            patch("apps.finance.services.nfe_consulta._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_consulta.requests.get", return_value=_mock_response(consulta_payload)),
+        ):
+            response = self.client.post(reverse("finance:nfe_reconcile", kwargs={"pk": nfe_request.pk}))
+
+        self.assertEqual(response.status_code, 302)
+        item.refresh_from_db()
+        nfe_request.refresh_from_db()
+        self.assertEqual(item.status, "aprovado")
+        self.assertEqual(item.danfe_url, "https://files.test/danfe.pdf")
+        self.assertIsNotNone(item.last_reconciled_at)
+        self.assertEqual(nfe_request.status, NfeRequestStatus.APPROVED)
+
+    def test_nfe_document_download_view_returns_file(self) -> None:
+        nfe_request = NfeRequest.objects.create(workshop=self.workshop, workorder=self.workorder, tax_class="REFNFE121")
+        NfeItem.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            request=nfe_request,
+            uuid="c6bd3ec0-208f-4dd8-a2c6-6a590972cfab",
+            status="aprovado",
+            number="12345",
+            danfe_url="https://files.test/danfe.pdf",
+        )
+
+        with patch(
+            "apps.finance.views.nfe.download_webmania_document",
+            return_value=DownloadedWebmaniaDocument(
+                content=b"pdf-content",
+                content_type="application/pdf",
+                content_disposition="",
+            ),
+        ):
+            response = self.client.get(reverse("finance:nfe_document_download", kwargs={"pk": nfe_request.pk, "document": "danfe"}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn("nfe-danfe-12345.pdf", response["Content-Disposition"])
+        self.assertEqual(response.content, b"pdf-content")
+
+    def test_nfse_document_download_view_returns_file(self) -> None:
+        nfse_request = NfseRequest.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            tax_class="REFNFSE121",
+            service_description="Servico fiscal",
+        )
+        NfseItem.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            request=nfse_request,
+            uuid="8f3d9954-c324-4280-a875-7be274d6b646",
+            status="aprovado",
+            number="54321",
+            pdf_nfse_url="https://files.test/nfse.pdf",
+        )
+
+        with patch(
+            "apps.finance.views.nfse.download_webmania_document",
+            return_value=DownloadedWebmaniaDocument(
+                content=b"pdf-content-nfse",
+                content_type="application/pdf",
+                content_disposition="",
+            ),
+        ):
+            response = self.client.get(reverse("finance:nfse_document_download", kwargs={"pk": nfse_request.pk, "document": "pdf_nfse"}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn("nfse-pdf_nfse-54321.pdf", response["Content-Disposition"])
+        self.assertEqual(response.content, b"pdf-content-nfse")
 
 
 class WebmaniaCompanySyncFlowTests(TestCase):

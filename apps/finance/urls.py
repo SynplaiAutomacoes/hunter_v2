@@ -2,18 +2,30 @@ from django.urls import path
 from django.views.generic import RedirectView
 
 from apps.finance.views import (
+    EmissionPreviewView,
+    EmissionRequestCreateView,
+    EmissionWorkOrderKitComponentUpdateView,
+    EmissionWorkOrderItemUpdateView,
     FinancialGroupCreateView,
     FinancialGroupDeleteView,
     FinancialGroupListView,
     FinancialGroupUpdateView,
-    NfeRequestCreateView,
+    NfeCreateRedirectView,
+    NfeDocumentDownloadView,
+    NfeRequestDetailView,
     NfeRequestListView,
+    NfeRequestReconcileView,
     NfeRequestUpdateView,
-    NfseRequestCreateView,
+    NfseCreateRedirectView,
+    NfseDocumentDownloadView,
+    NfseRequestDetailView,
     NfseRequestListView,
     NfseRequestUpdateView,
     TaxClassCreateView,
     TaxClassListView,
+    TaxClassPresetCreateView,
+    TaxClassPresetListView,
+    TaxClassPresetUpdateView,
     TaxClassUpdateView,
     WebhookView,
     WebmaniaCompanyDetailView,
@@ -26,6 +38,8 @@ from apps.finance.views import (
     DreReportView,
     DreResultsView,
 )
+from apps.finance.views.bank_account import BankAccountListView, BankAccountUpdateView, BankAccountCreateView
+from apps.finance.views.financial_movement import FinancialMovementListView, FinancialMovementCreateView, FinancialMovementUpdateView, SourceDetailView
 from apps.finance.views.payment_method import PaymentMethodListView, PaymentMethodCreateView, PaymentMethodUpdateView
 
 app_name = "finance"
@@ -40,19 +54,42 @@ urlpatterns = [
     path("payment-methods/", PaymentMethodListView.as_view(), name="payment_methods_list"),
     path("payment-methods/create/", PaymentMethodCreateView.as_view(), name="payment_methods_create"),
     path("payment-methods/<int:pk>/update/", PaymentMethodUpdateView.as_view(), name="payment_methods_update"),
+    # Unified emission
+    path("emissao/preview/", EmissionPreviewView.as_view(), name="emission_preview"),
+    path("emissao/workorder/<int:workorder_pk>/item/<int:item_id>/edit/", EmissionWorkOrderItemUpdateView.as_view(), name="emission_workorder_item_edit"),
+    path("emissao/workorder/<int:workorder_pk>/kit-item/<int:item_id>/<str:component_type>/<int:component_id>/edit/", EmissionWorkOrderKitComponentUpdateView.as_view(), name="emission_workorder_kit_component_edit"),
+    path("emissao/", EmissionRequestCreateView.as_view(), name="emission_create"),
     # NFE
     path("nfe/", NfeRequestListView.as_view(), name="nfe_emit"),
     path("nfe/list/", NfeRequestListView.as_view(), name="nfe_list"),
-    path("nfe/create/", NfeRequestCreateView.as_view(), name="nfe_create"),
+    path("nfe/create/", NfeCreateRedirectView.as_view(), name="nfe_create"),
+    path("nfe/<int:pk>/", NfeRequestDetailView.as_view(), name="nfe_detail"),
+    path("nfe/<int:pk>/reconciliar/", NfeRequestReconcileView.as_view(), name="nfe_reconcile"),
+    path("nfe/<int:pk>/documentos/<str:document>/", NfeDocumentDownloadView.as_view(), name="nfe_document_download"),
     path("nfe/<int:pk>/edit/", NfeRequestUpdateView.as_view(), name="nfe_update"),
     # Classe Imposto
     path("classe-imposto/", TaxClassListView.as_view(), name="tax_class_list"),
     path("classe-imposto/", TaxClassListView.as_view(), name="tax_class_manager"),
     path("classe-imposto/create/", TaxClassCreateView.as_view(), name="tax_class_create"),
     path("classe-imposto/<str:reference>/edit/", TaxClassUpdateView.as_view(), name="tax_class_update"),
+    path("classe-imposto/presets/", TaxClassPresetListView.as_view(), name="tax_class_preset_list"),
+    path("classe-imposto/presets/create/", TaxClassPresetCreateView.as_view(), name="tax_class_preset_create"),
+    path("classe-imposto/presets/<int:pk>/edit/", TaxClassPresetUpdateView.as_view(), name="tax_class_preset_update"),
+    # Bank Account
+    # Conta Bancária
+    path("bank-account/", BankAccountListView.as_view(), name="bank_account_list"),
+    path("bank-account/create/", BankAccountCreateView.as_view(), name="bank_account_create"),
+    path("bank-account/<int:pk>/update/", BankAccountUpdateView.as_view(), name="bank_account_update"),
+    # Movimentação Financeira
+    path("financial-movement/", FinancialMovementListView.as_view(), name="financial_movement_list"),
+    path("financial-movement/create/", FinancialMovementCreateView.as_view(), name="financial_movement_create"),
+    path("financial-movement/<int:pk>/update/", FinancialMovementUpdateView.as_view(), name="financial_movement_update"),
+    path("financial-movement/source_details/", SourceDetailView.as_view(), name="source_details"),
     # NFS-e
     path("nfse/", NfseRequestListView.as_view(), name="nfse_list"),
-    path("nfse/create/", NfseRequestCreateView.as_view(), name="nfse_create"),
+    path("nfse/create/", NfseCreateRedirectView.as_view(), name="nfse_create"),
+    path("nfse/<int:pk>/", NfseRequestDetailView.as_view(), name="nfse_detail"),
+    path("nfse/<int:pk>/documentos/<str:document>/", NfseDocumentDownloadView.as_view(), name="nfse_document_download"),
     path("nfse/<int:pk>/edit/", NfseRequestUpdateView.as_view(), name="nfse_update"),
     # WebMania
     path("webmania/empresas/", WebmaniaCompanyListView.as_view(), name="webmania_company_list"),

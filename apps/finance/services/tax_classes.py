@@ -17,7 +17,6 @@ from apps.finance.models.finance import (
     TaxClassNfse,
     TaxClassSyncState,
 )
-from apps.finance.tax_class_utils import normalize_nfse_service_code
 from apps.finance.services.webmania_auth import (
     WebmaniaAuthError,
     build_webmania_headers,
@@ -30,6 +29,32 @@ from apps.workshops.models.workshops import Workshop
 
 
 logger = logging.getLogger(__name__)
+
+_SUCCESS_MESSAGE_KEYWORDS = (
+    "sucesso",
+    "atualizada com sucesso",
+    "atualizado com sucesso",
+    "classe de imposto atualizada",
+    "classe de imposto atualizado",
+    "criada com sucesso",
+    "criado com sucesso",
+    "classe de imposto criada",
+    "classe de imposto criado",
+    "salva com sucesso",
+    "salvo com sucesso",
+    "classe de imposto salva",
+    "classe de imposto salvo",
+)
+
+_ERROR_MESSAGE_KEYWORDS = (
+    "erro",
+    "falha",
+    "invál",
+    "invalid",
+    "obrigat",
+    "não",
+    "nao",
+)
 
 
 class TaxClassServiceError(Exception):
@@ -81,6 +106,27 @@ def _build_endpoint_url() -> str:
 
 def _extract_error_message(payload: Any) -> str:
     return extract_webmania_error_message(payload, scope="tax_class")
+
+
+def _is_success_message(message: object) -> bool:
+    normalized_message = str(message or "").strip().lower()
+    if not normalized_message:
+        return False
+    if any(keyword in normalized_message for keyword in _ERROR_MESSAGE_KEYWORDS):
+        return False
+    return any(keyword in normalized_message for keyword in _SUCCESS_MESSAGE_KEYWORDS)
+
+
+def _extract_tax_class_save_error_message(payload: dict[str, Any]) -> str:
+    explicit_error = _extract_error_message(payload.get("error"))
+    if explicit_error:
+        return explicit_error
+
+    message = _extract_error_message(payload.get("message") or payload.get("msg"))
+    if message and not _is_success_message(message):
+        return message
+
+    return ""
 
 
 def _parse_json_response(response: requests.Response) -> Any:
@@ -148,7 +194,11 @@ def _normalize_tax_class_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _format_nfse_service_code_for_api(value: Any) -> str:
-    return normalize_nfse_service_code(value)
+    raw_value = _clean_string(value)
+    code_digits = _digits_only(raw_value)
+    if len(code_digits) == 4:
+        return f"{code_digits[:2]}.{code_digits[2:]}"
+    return raw_value
 
 
 def _normalize_payload_for_api(payload: dict[str, Any]) -> dict[str, Any]:
@@ -504,7 +554,6 @@ def _upsert_local_nfse_tax_class(*, workshop: Workshop, payload: dict[str, Any])
     ibs_municipal: dict[str, Any] = dict(ibs_municipal_raw) if isinstance(ibs_municipal_raw, dict) else {}
     cbs_raw = ibs_cbs.get("cbs")
     cbs: dict[str, Any] = dict(cbs_raw) if isinstance(cbs_raw, dict) else {}
-    codigo_servico = _format_nfse_service_code_for_api(payload.get("codigo_servico"))
 
     tax_class, _ = TaxClassNfse.objects.update_or_create(
         workshop=workshop,
@@ -517,7 +566,7 @@ def _upsert_local_nfse_tax_class(*, workshop: Workshop, payload: dict[str, Any])
             "informacoes_fisco": _clean_string(payload.get("informacoes_fisco")),
             "informacoes_complementares": _clean_string(payload.get("informacoes_complementares")),
             "tipo_emissao": _clean_string(payload.get("tipo_emissao")),
-            "codigo_servico": codigo_servico,
+            "codigo_servico": _format_nfse_service_code_for_api(payload.get("codigo_servico")),
             "codigo_tributacao_municipio": _clean_string(payload.get("codigo_tributacao_municipio")),
             "tributacao_iss": _clean_string(payload.get("tributacao_iss")),
             "tipo_imunidade": _clean_string(payload.get("tipo_imunidade")),
@@ -655,12 +704,6 @@ def save_tax_class(*, workshop: Workshop, payload: dict[str, Any]) -> dict[str, 
     if not payload:
         raise TaxClassServiceError("Informe o payload da classe de imposto.")
 
-    local_payload = _normalize_tax_class_payload(dict(payload))
-    if _looks_like_nfse(local_payload):
-        service_code = local_payload.get("codigo_servico")
-        if service_code not in (None, ""):
-            local_payload["codigo_servico"] = _format_nfse_service_code_for_api(service_code)
-
     normalized_payload = _normalize_payload_for_api(payload)
     endpoint = _build_endpoint_url()
     headers = _build_tax_class_headers(workshop=workshop)
@@ -677,11 +720,11 @@ def save_tax_class(*, workshop: Workshop, payload: dict[str, Any]) -> dict[str, 
     if not isinstance(data, dict):
         raise TaxClassServiceError("Resposta inválida da API ao salvar classe de imposto.")
 
-    error_message = _extract_error_message(data.get("error") or data.get("message") or data.get("msg"))
+    error_message = _extract_tax_class_save_error_message(data)
     if error_message:
         raise TaxClassServiceError(error_message)
 
-    merged_payload = _merge_tax_class_payloads(sent_payload=local_payload, response_payload=data)
+    merged_payload = _merge_tax_class_payloads(sent_payload=normalized_payload, response_payload=data)
     saved_payload = _upsert_local_tax_class(workshop=workshop, payload=merged_payload)
     _mark_initial_sync_done(workshop=workshop)
     return saved_payload
