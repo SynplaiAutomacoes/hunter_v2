@@ -2074,6 +2074,22 @@ class DreReportViewTests(TestCase):
             self.fail("Checkbox do terceiro grupo financeiro não foi renderizado.")
         self.assertNotIn("checked", third_input.group(0))
 
+    def test_report_renders_hierarchical_checkbox_metadata_for_financial_groups(self) -> None:
+        root = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        child = FinancialGroup.objects.create(workshop=self.workshop, parent=root, name="Receitas de Serviços")
+        grandchild = FinancialGroup.objects.create(workshop=self.workshop, parent=child, name="Receitas de Serviços Diretos")
+
+        response = self.client.get(reverse("finance:dre_report"), data={"filial": str(self.workshop.pk)})
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+
+        self.assertIn("hierarchicalSelection: true", content)
+        self.assertRegex(content, rf'<input[^>]*name="financial_groups"[^>]*value="{root.pk}"[^>]*data-row-id="{root.pk}"')
+        self.assertRegex(content, rf'<input[^>]*name="financial_groups"[^>]*value="{child.pk}"[^>]*data-row-id="{child.pk}"[^>]*data-parent-id="{root.pk}"')
+        self.assertRegex(content, rf'<input[^>]*name="financial_groups"[^>]*value="{grandchild.pk}"[^>]*data-row-id="{grandchild.pk}"[^>]*data-parent-id="{child.pk}"')
+        self.assertIn("handleRowCheckboxChange($event)", content)
+
     def test_report_form_submits_to_results_page(self) -> None:
         response = self.client.get(reverse("finance:dre_report"))
 
@@ -2152,6 +2168,98 @@ class DreReportViewTests(TestCase):
         content = response.content.decode("utf-8")
         self.assertIn("(Receita Bruta de Vendas e Serviços - Custos Mercadorias Vendidas)", content)
         self.assertIn("(Receitas Financeiras - Despesas Financeiras)", content)
+
+    def test_results_page_uses_only_selected_financial_groups_in_calculation(self) -> None:
+        revenue_group = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+        reference_date = date(2026, 1, 15)
+
+        self._create_workorder_with_values(
+            reference_date=reference_date,
+            product_selling_price="100.00",
+            product_cost_price="40.00",
+            service_selling_price="200.00",
+            service_cost_price="80.00",
+        )
+        self._create_workshop_cost_snapshot(
+            month=1,
+            year=2026,
+            tax_rate="0.10",
+            operational_cost="60.00",
+            financial_cost="10.00",
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+                "financial_groups": [str(revenue_group.pk)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        rows = {row["label"]: row["amount"] for row in response.context["dre_rows"]}
+        cards = {card["label"]: card["amount"] for card in response.context["dre_summary_cards"]}
+
+        self.assertEqual(rows["(+) Receita Bruta de Vendas e Serviços"], Money("300.00", "BRL"))
+        self.assertEqual(rows["(-) Custos Mercadorias Vendidas"], Money("0.00", "BRL"))
+        self.assertEqual(rows["(=) Receita Bruta de Vendas"], Money("300.00", "BRL"))
+        self.assertEqual(rows["(+) Receitas Financeiras"], Money("0.00", "BRL"))
+        self.assertEqual(rows["(-) Despesas Financeiras"], Money("0.00", "BRL"))
+        self.assertEqual(rows["(=) Resultado Operacional"], Money("0.00", "BRL"))
+        self.assertEqual(cards["Receita Bruta de Vendas"], Money("300.00", "BRL"))
+        self.assertEqual(cards["Resultado Operacional"], Money("0.00", "BRL"))
+
+    def test_results_page_does_not_fallback_to_all_when_selected_group_has_no_component_mapping(self) -> None:
+        unmapped_group = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas de Servicos Diretos")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+        reference_date = date(2026, 1, 15)
+
+        self._create_workorder_with_values(
+            reference_date=reference_date,
+            product_selling_price="100.00",
+            product_cost_price="40.00",
+            service_selling_price="200.00",
+            service_cost_price="80.00",
+        )
+        self._create_workshop_cost_snapshot(
+            month=1,
+            year=2026,
+            tax_rate="0.10",
+            operational_cost="60.00",
+            financial_cost="10.00",
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+                "financial_groups": [str(unmapped_group.pk)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        rows = {row["label"]: row["amount"] for row in response.context["dre_rows"]}
+        cards = {card["label"]: card["amount"] for card in response.context["dre_summary_cards"]}
+
+        self.assertEqual(rows["(+) Receita Bruta de Vendas e Serviços"], Money("0.00", "BRL"))
+        self.assertEqual(rows["(-) Custos Mercadorias Vendidas"], Money("0.00", "BRL"))
+        self.assertEqual(rows["(=) Receita Bruta de Vendas"], Money("0.00", "BRL"))
+        self.assertEqual(rows["(+) Receitas Financeiras"], Money("0.00", "BRL"))
+        self.assertEqual(rows["(-) Despesas Financeiras"], Money("0.00", "BRL"))
+        self.assertEqual(rows["(=) Resultado Operacional"], Money("0.00", "BRL"))
+        self.assertEqual(cards["Receita Bruta de Vendas"], Money("0.00", "BRL"))
+        self.assertEqual(cards["Resultado Operacional"], Money("0.00", "BRL"))
 
     def test_results_page_includes_expandable_workorder_details_for_gross_revenue_row(self) -> None:
         FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")

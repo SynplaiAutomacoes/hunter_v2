@@ -256,7 +256,7 @@ def _resolve_visible_components(*, selected_financial_groups: list[FinancialGrou
     if {"despesas", "despesas financeiras"} & selected_names:
         visible_components.add("despesas_financeiras")
 
-    return visible_components or all_components
+    return visible_components
 
 
 def _is_financial_expense(monthly_cost: MonthlyCost) -> bool:

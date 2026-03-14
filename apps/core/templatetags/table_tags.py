@@ -410,6 +410,7 @@ def _render_rows(
             {
                 "object": obj,
                 "pk": obj_pk,
+                "parent_pk": getattr(obj, "parent_id", None),
                 "cells": cells,
                 "actions": row_actions,
                 "is_selected": str(obj_pk) in selected_keys,
@@ -502,6 +503,7 @@ def render_table(
     filter_param_names: str | Sequence[str] = (),
     show_controls: bool = True,
     preserve_selection: bool = False,
+    hierarchical_selection: bool = False,
 ) -> dict[str, Any]:
     """
     Inclusion tag principal para renderizar uma tabela de dados completa.
@@ -530,6 +532,7 @@ def render_table(
             Pode ser string separada por vírgula (ex.: "city,state") ou sequência.
         show_controls: Se False, oculta os controles superiores (busca/ordenação/filtros).
         preserve_selection: Se True, mantém checkboxes de linha marcados com base na query string atual.
+        hierarchical_selection: Se True, sincroniza seleção pai/filhos via metadados de hierarquia.
     """
     parent_context = _copy_parent_context(context)
     request: HttpRequest = parent_context["request"]
@@ -601,6 +604,7 @@ def render_table(
         "next_url": next_url,
         "selectable": selectable,
         "checkbox_name": checkbox_name,
+        "hierarchical_selection": hierarchical_selection,
         "empty_text": empty_text,
         "show_search": show_search,
         "search_param": search_param,

@@ -3,11 +3,94 @@
     class="w-full"
     x-data="{
         all: false,
+        hierarchicalSelection: {{ hierarchical_selection|yesno:'true,false' }},
+        getRowCheckboxes() {
+            return Array.from($el.querySelectorAll('input.row-checkbox[data-row-id]'))
+        },
+        getUniqueRowIds() {
+            return [...new Set(this.getRowCheckboxes().map((checkbox) => checkbox.dataset.rowId).filter(Boolean))]
+        },
+        getCheckboxesForRow(rowId) {
+            return this.getRowCheckboxes().filter((checkbox) => checkbox.dataset.rowId === String(rowId))
+        },
+        getFirstCheckboxForRow(rowId) {
+            return this.getCheckboxesForRow(rowId)[0] || null
+        },
+        setRowChecked(rowId, checked) {
+            this.getCheckboxesForRow(rowId).forEach((checkbox) => {
+                checkbox.checked = checked
+            })
+        },
+        isRowChecked(rowId) {
+            return this.getCheckboxesForRow(rowId).some((checkbox) => checkbox.checked)
+        },
+        getDirectChildIds(parentId) {
+            return [...new Set(this.getRowCheckboxes().filter((checkbox) => (checkbox.dataset.parentId || '') === String(parentId)).map((checkbox) => checkbox.dataset.rowId).filter(Boolean))]
+        },
+        getDescendantIds(parentId) {
+            const descendants = []
+            const pendingIds = [...this.getDirectChildIds(parentId)]
+            const visited = new Set()
+
+            while (pendingIds.length > 0) {
+                const currentId = pendingIds.shift()
+                if (!currentId || visited.has(currentId)) {
+                    continue
+                }
+
+                visited.add(currentId)
+                descendants.push(currentId)
+                pendingIds.push(...this.getDirectChildIds(currentId))
+            }
+
+            return descendants
+        },
+        getParentId(rowId) {
+            const checkbox = this.getFirstCheckboxForRow(rowId)
+            return checkbox ? (checkbox.dataset.parentId || '') : ''
+        },
+        updateAncestorState(rowId) {
+            let parentId = this.getParentId(rowId)
+
+            while (parentId) {
+                const childIds = this.getDirectChildIds(parentId)
+                const shouldCheckParent = childIds.length > 0 && childIds.every((childId) => this.isRowChecked(childId))
+                this.setRowChecked(parentId, shouldCheckParent)
+                parentId = this.getParentId(parentId)
+            }
+        },
+        syncMasterCheckbox() {
+            const rowIds = this.getUniqueRowIds()
+            this.all = rowIds.length > 0 && rowIds.every((rowId) => this.isRowChecked(rowId))
+        },
         toggleAll() {
-            $el.querySelectorAll('input.row-checkbox').forEach(cb => cb.checked = this.all)
+            this.getUniqueRowIds().forEach((rowId) => {
+                this.setRowChecked(rowId, this.all)
+            })
+            this.syncMasterCheckbox()
+        },
+        handleRowCheckboxChange(event) {
+            const checkbox = event.target
+            const rowId = checkbox.dataset.rowId || checkbox.value
+            if (!rowId) {
+                this.syncMasterCheckbox()
+                return
+            }
+
+            this.setRowChecked(rowId, checkbox.checked)
+
+            if (this.hierarchicalSelection) {
+                this.getDescendantIds(rowId).forEach((descendantId) => {
+                    this.setRowChecked(descendantId, checkbox.checked)
+                })
+                this.updateAncestorState(rowId)
+            }
+
+            this.syncMasterCheckbox()
         }
     }"
-    @htmx:after-swap.window="all = false"
+    x-init="syncMasterCheckbox()"
+    @htmx:after-swap.window="syncMasterCheckbox()"
 >
     <div id="{{ table_id }}-content" hx-disinherit="hx-vals">
         {% if show_controls|default:True %}
