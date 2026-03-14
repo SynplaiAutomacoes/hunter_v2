@@ -23,6 +23,7 @@ from apps.catalog.models.services import Service
 from apps.collaborators.models import WorkshopMember
 from apps.customer.models import Customer, Vehicle
 from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm
+from apps.finance.forms.emission_ui import build_step5_pricing_panel_data
 from apps.finance.forms.financial_group import FinancialGroupForm
 from apps.finance.forms.payment_method import PaymentMethodForm
 from apps.finance.models.finance import NfeItem, NfeRequest, NfeRequestStatus, NfseItem, NfseRequest, NfseRequestStatus, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
@@ -760,8 +761,6 @@ class SliderPricingAllocationTests(TestCase):
         workshop = create_workshop(suffix=suffix)
         budget = Budget(workshop=workshop, entry_date=timezone.now().date())
         budget.save()
-        budget.discount_value = Money(discount_value, "BRL")
-        budget.save(update_fields=["discount_value"])
 
         product_group = CatalogGroup.objects.create(workshop=workshop, name=f"Grupo Slider {suffix}")
         product = Product.objects.create(
@@ -785,6 +784,9 @@ class SliderPricingAllocationTests(TestCase):
 
         BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=1)
         service_item = BudgetItem.objects.create(workshop=workshop, budget=budget, service=service, quantity=1)
+
+        budget.discount_value = Money(discount_value, "BRL")
+        budget.save(update_fields=["discount_value"])
 
         workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
         workorder.sync_from_budget()
@@ -848,6 +850,32 @@ class SliderPricingAllocationTests(TestCase):
 
         with self.assertRaisesMessage(NfseEmissionError, "nao possui saldo de servicos"):
             _service_total_value(nfse_request=nfse_request, slider_override=-100)  # type: ignore[arg-type]
+
+    def test_build_step5_pricing_panel_data_exposes_discount_percentage_display(self) -> None:
+        workshop = create_workshop(suffix=31)
+        budget = Budget(workshop=workshop, entry_date=timezone.now().date())
+        budget.save()
+
+        product_group = CatalogGroup.objects.create(workshop=workshop, name="Grupo Painel 31")
+        product = Product.objects.create(
+            workshop=workshop,
+            code="P-DISC-31",
+            unit=Product.Unit.UND,
+            name="Produto Painel 31",
+            ncm="87089990",
+            group=product_group,
+            cost_price=Money("40.00", "BRL"),
+            selling_price=Money("200.00", "BRL"),
+        )
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        WorkOrderItem.objects.create(workshop=workshop, workorder=workorder, product=product, quantity=1)
+        workorder.discount_value = Money("30.00", "BRL")
+        workorder.save(update_fields=["discount_value"])
+
+        panel_data = build_step5_pricing_panel_data(workorder=workorder, selected_slider=0)
+
+        self.assertEqual(panel_data.discount_display, Money("30.00", "BRL"))
+        self.assertEqual(panel_data.discount_percentage_display, "15,00%")
 
     def test_nfse_preview_rows_and_default_description_use_workorder_items(self) -> None:
         workorder, _, service_item = self._build_workorder_with_product_and_service(suffix=94)

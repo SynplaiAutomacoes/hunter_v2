@@ -223,6 +223,33 @@ class WorkOrderTotalsConsistencyTests(TestCase):
 
         self.assertEqual(workorder.discount_value, Money("10.00", "BRL"))
 
+    def test_discount_percentage_display_uses_current_totals(self) -> None:
+        workshop = create_workshop(suffix=84)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+
+        group = CatalogGroup.objects.create(workshop=workshop, name="Grupo Display")
+        product = Product.objects.create(
+            workshop=workshop,
+            code="P-004",
+            unit=Product.Unit.UND,
+            name="Produto Display",
+            group=group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("200.00", "BRL"),
+        )
+        WorkOrderItem.objects.create(
+            workshop=workshop,
+            workorder=workorder,
+            product=product,
+            quantity=1,
+        )
+
+        workorder.discount_value = Money("30.00", "BRL")
+        workorder.save(update_fields=["discount_value"])
+
+        self.assertEqual(workorder.discount_percentage_display, "15,00%")
+
 
 class WorkOrderSignatureTokenModelTests(TestCase):
     def test_workorder_starts_with_active_signature_token(self) -> None:
