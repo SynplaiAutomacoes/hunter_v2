@@ -182,17 +182,27 @@ class DecimalInput(forms.TextInput):
 class PercentageInput(forms.TextInput):
     template_name = "widgets/percentage_input.html"
 
-    def __init__(self, *args, min_percent: float = 0, max_percent: float = 100, decimal_places: int = 2, **kwargs):
+    def __init__(
+        self,
+        *args,
+        min_percent: float = 0,
+        max_percent: float = 100,
+        decimal_places: int = 2,
+        behavior: Literal["free_decimal", "digit_stream"] = "free_decimal",
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self.min_percent = min_percent
         self.max_percent = max_percent
         self.decimal_places = decimal_places
+        self.behavior = behavior
 
     def get_context(self, name, value, attrs):
         ctx = super().get_context(name, value, attrs)
         ctx["widget"]["min_percent"] = self.min_percent
         ctx["widget"]["max_percent"] = self.max_percent
         ctx["widget"]["decimal_places"] = self.decimal_places
+        ctx["widget"]["behavior"] = self.behavior
         return ctx
 
 
