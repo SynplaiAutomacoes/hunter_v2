@@ -4,6 +4,7 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from apps.core.models import TimeStampedModel
+from apps.finance.services.webmania_status import normalize_nfe_request_status, normalize_nfse_request_status
 
 
 logger = logging.getLogger(__name__)
@@ -397,15 +398,14 @@ class NfseRequest(TimeStampedModel):
         if not request_status:
             return False
 
-        normalized_status = str(request_status).strip().lower()
+        normalized_status = normalize_nfse_request_status(request_status)
         status_mapping = {
-            "processando": NfseRequestStatus.PROCESSING,
-            "processado": NfseRequestStatus.APPROVED,
-            "aprovado": NfseRequestStatus.APPROVED,
-            "reprovado": NfseRequestStatus.REPROVED,
-            "agendado": NfseRequestStatus.SCHEDULED,
-            "cancelado": NfseRequestStatus.CANCELED,
-            "contingencia": NfseRequestStatus.CONTINGENCY,
+            "processing": NfseRequestStatus.PROCESSING,
+            "approved": NfseRequestStatus.APPROVED,
+            "reproved": NfseRequestStatus.REPROVED,
+            "scheduled": NfseRequestStatus.SCHEDULED,
+            "canceled": NfseRequestStatus.CANCELED,
+            "contingency": NfseRequestStatus.CONTINGENCY,
         }
         mapped_status = status_mapping.get(normalized_status)
         if not mapped_status:
@@ -489,14 +489,14 @@ class NfeRequest(TimeStampedModel):
         if not request_status:
             return False
 
-        normalized_status = str(request_status).strip().lower()
+        normalized_status = normalize_nfe_request_status(request_status)
         status_mapping = {
-            "processando": NfeRequestStatus.PROCESSING,
-            "aprovado": NfeRequestStatus.APPROVED,
-            "reprovado": NfeRequestStatus.REPROVED,
-            "cancelado": NfeRequestStatus.CANCELED,
-            "denegado": NfeRequestStatus.DENIED,
-            "contingencia": NfeRequestStatus.CONTINGENCY,
+            "processing": NfeRequestStatus.PROCESSING,
+            "approved": NfeRequestStatus.APPROVED,
+            "reproved": NfeRequestStatus.REPROVED,
+            "canceled": NfeRequestStatus.CANCELED,
+            "denied": NfeRequestStatus.DENIED,
+            "contingency": NfeRequestStatus.CONTINGENCY,
         }
         mapped_status = status_mapping.get(normalized_status)
         if not mapped_status:
@@ -536,6 +536,8 @@ class NfseBatch(models.Model):
     protocol = models.CharField(max_length=60, blank=True, default="")
     log_payload = models.JSONField(blank=True, default=dict)
     raw_payload = models.JSONField(blank=True, default=dict)
+    last_webhook_at = models.DateTimeField(null=True, blank=True)
+    last_sync_error = models.TextField(blank=True, default="")
 
     class Meta:
         constraints = [
@@ -566,6 +568,9 @@ class NfseItem(models.Model):
     pdf_rps_url = models.URLField(blank=True, default="")
     log_payload = models.JSONField(blank=True, default=dict)
     raw_payload = models.JSONField(blank=True, default=dict)
+    last_webhook_at = models.DateTimeField(null=True, blank=True)
+    last_reconciled_at = models.DateTimeField(null=True, blank=True)
+    last_sync_error = models.TextField(blank=True, default="")
 
     class Meta:
         constraints = [
@@ -595,6 +600,9 @@ class NfeItem(models.Model):
     danfe_label_url = models.URLField(blank=True, default="")
     log_payload = models.JSONField(blank=True, default=dict)
     raw_payload = models.JSONField(blank=True, default=dict)
+    last_webhook_at = models.DateTimeField(null=True, blank=True)
+    last_reconciled_at = models.DateTimeField(null=True, blank=True)
+    last_sync_error = models.TextField(blank=True, default="")
 
     class Meta:
         constraints = [
@@ -604,3 +612,20 @@ class NfeItem(models.Model):
         indexes = [
             models.Index(fields=["workshop", "status"]),
         ]
+
+
+class WebmaniaWebhookEvent(TimeStampedModel):
+    model = models.CharField(max_length=32, db_index=True)
+    event_uuid = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    payload = models.JSONField(blank=True, default=dict)
+    processed_at = models.DateTimeField(null=True, blank=True)
+    processing_error = models.TextField(blank=True, default="")
+
+    class Meta(TimeStampedModel.Meta):
+        indexes = [
+            models.Index(fields=["model", "event_uuid"]),
+            models.Index(fields=["processed_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"Webhook[{self.model}:{self.event_uuid or '-'}]"

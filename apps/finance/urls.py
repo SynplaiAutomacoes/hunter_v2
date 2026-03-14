@@ -11,9 +11,14 @@ from apps.finance.views import (
     FinancialGroupListView,
     FinancialGroupUpdateView,
     NfeCreateRedirectView,
+    NfeDocumentDownloadView,
+    NfeRequestDetailView,
     NfeRequestListView,
+    NfeRequestReconcileView,
     NfeRequestUpdateView,
     NfseCreateRedirectView,
+    NfseDocumentDownloadView,
+    NfseRequestDetailView,
     NfseRequestListView,
     NfseRequestUpdateView,
     TaxClassCreateView,
@@ -50,6 +55,9 @@ urlpatterns = [
     path("nfe/", NfeRequestListView.as_view(), name="nfe_emit"),
     path("nfe/list/", NfeRequestListView.as_view(), name="nfe_list"),
     path("nfe/create/", NfeCreateRedirectView.as_view(), name="nfe_create"),
+    path("nfe/<int:pk>/", NfeRequestDetailView.as_view(), name="nfe_detail"),
+    path("nfe/<int:pk>/reconciliar/", NfeRequestReconcileView.as_view(), name="nfe_reconcile"),
+    path("nfe/<int:pk>/documentos/<str:document>/", NfeDocumentDownloadView.as_view(), name="nfe_document_download"),
     path("nfe/<int:pk>/edit/", NfeRequestUpdateView.as_view(), name="nfe_update"),
     # Classe Imposto
     path("classe-imposto/", TaxClassListView.as_view(), name="tax_class_list"),
@@ -68,6 +76,8 @@ urlpatterns = [
     # NFS-e
     path("nfse/", NfseRequestListView.as_view(), name="nfse_list"),
     path("nfse/create/", NfseCreateRedirectView.as_view(), name="nfse_create"),
+    path("nfse/<int:pk>/", NfseRequestDetailView.as_view(), name="nfse_detail"),
+    path("nfse/<int:pk>/documentos/<str:document>/", NfseDocumentDownloadView.as_view(), name="nfse_document_download"),
     path("nfse/<int:pk>/edit/", NfseRequestUpdateView.as_view(), name="nfse_update"),
     # WebMania
     path("webmania/empresas/", WebmaniaCompanyListView.as_view(), name="webmania_company_list"),

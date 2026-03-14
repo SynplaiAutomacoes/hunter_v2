@@ -4,14 +4,18 @@ import logging
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.views.generic import ListView
+from django.http import Http404, HttpResponse
+from django.shortcuts import get_object_or_404
+from django.views import View
+from django.views.generic import DetailView, ListView
 
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxTemplateResponseMixin
 from apps.finance.forms import NfseRequestStep1Form, NfseRequestStep2Form, NfseRequestStep3Form
-from apps.finance.models.finance import NfseRequest, NfseRequestStatus
+from apps.finance.models.finance import NfseItem, NfseRequest, NfseRequestStatus
 from apps.finance.services.emission import NfseEmissionError, emit_nfse_request, sync_emission_response
+from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.finance.views.request_workflow import SharedEmissionRequestCreateBaseView, SharedEmissionRequestUpdateBaseView
 from apps.workshops.mixin import WorkshopScopedMixin
 
@@ -41,13 +45,104 @@ class NfseRequestListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
             TableColumn("RPS", attr="rps_number_display"),
             TableColumn("Ordem de Serviço", attr="workorder"),
             TableColumn("Cliente", attr="customer_name"),
-            TableColumn(NfseRequest.criado_em.field.verbose_name, attr=NfseRequest.criado_em.field.name),
+            TableColumn("Criado em", attr=NfseRequest.criado_em.field.name),
             TableColumn("Status", attr="nfse_request_status_badge", format="status_badge"),
         ]
         context["actions"] = [
+            TableActionDefaults.view("finance:nfse_detail"),
             TableActionDefaults.edit("finance:nfse_update"),
         ]
         return context
+
+
+def _format_item_status_badge(status: str) -> dict[str, str]:
+    status_map = {
+        "processando": {"text": "Processando", "class": "badge-soft badge-warning"},
+        "aprovado": {"text": "Aprovado", "class": "badge-success"},
+        "agendado": {"text": "Agendado", "class": "badge-soft badge-warning"},
+        "reprovado": {"text": "Reprovado", "class": "badge-error"},
+        "cancelado": {"text": "Cancelado", "class": "badge-soft badge-error"},
+        "contingencia": {"text": "Contingência", "class": "badge-soft badge-warning"},
+    }
+    return status_map.get(str(status or "").strip().lower(), {"text": str(status or "-") or "-", "class": "badge-ghost"})
+
+
+def _build_field(label: str, value: object) -> dict[str, str]:
+    normalized = str(value or "-").strip() or "-"
+    return {"label": label, "value": normalized}
+
+
+class NfseRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
+    model = NfseRequest
+    template_name = "finance/nfse_request_detail.html"
+    context_object_name = "nfse_request"
+
+    def get_queryset(self):
+        return super().get_queryset().select_related("workorder", "workorder__budget", "workorder__budget__customer", "workorder__budget__vehicle").prefetch_related("items", "batches")
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        latest_item = self.object.items.order_by("-id").first()
+        latest_batch = self.object.batches.order_by("-id").first()
+        context.update(
+            {
+                "latest_item": latest_item,
+                "latest_batch": latest_batch,
+                "request_fields": [
+                    _build_field("ID da requisição", self.object.pk),
+                    _build_field("Ordem de serviço", self.object.workorder),
+                    _build_field("Cliente", self.object.customer_name),
+                    _build_field("Classe de imposto", self.object.tax_class),
+                    _build_field("RPS reservado", self.object.reserved_rps_number),
+                    _build_field("Série RPS reservada", self.object.reserved_rps_series),
+                    _build_field("Discriminação", self.object.service_description),
+                    _build_field("Criado em", self.object.criado_em.strftime("%d/%m/%Y %H:%M") if self.object.criado_em else "-"),
+                    _build_field("Atualizado em", self.object.atualizado_em.strftime("%d/%m/%Y %H:%M") if self.object.atualizado_em else "-"),
+                ],
+                "latest_item_status_badge": _format_item_status_badge(getattr(latest_item, "status", "")),
+            }
+        )
+        return context
+
+
+class NfseDocumentDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "view_nfserequest"
+
+    document_fields = {
+        "xml": ("xml_url", "xml"),
+        "pdf_nfse": ("pdf_nfse_url", "pdf"),
+        "pdf_rps": ("pdf_rps_url", "pdf"),
+    }
+
+    def get(self, request, *args, **kwargs):
+        nfse_request = get_object_or_404(NfseRequest, pk=kwargs.get("pk"), workshop=self.workshop)
+        document_kind = str(kwargs.get("document") or "").strip().lower()
+        if document_kind not in self.document_fields:
+            raise Http404("Documento nao suportado")
+
+        item = nfse_request.items.order_by("-id").first()
+        if item is None:
+            raise Http404("Documento ainda nao disponivel")
+
+        field_name, extension = self.document_fields[document_kind]
+        document_url = str(getattr(item, field_name, "") or "").strip()
+
+        try:
+            downloaded = download_webmania_document(workshop=self.workshop, url=document_url)
+        except WebmaniaDocumentDownloadError as exc:
+            return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
+
+        response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
+        response["Content-Disposition"] = self._build_content_disposition(item=item, document_kind=document_kind, extension=extension)
+        return response
+
+    @staticmethod
+    def _build_content_disposition(*, item: NfseItem, document_kind: str, extension: str) -> str:
+        identifier = str(item.number or item.rps_number or item.uuid or "documento").strip()
+        safe_identifier = identifier.replace(" ", "-")
+        return f'attachment; filename="nfse-{document_kind}-{safe_identifier}.{extension}"'
 
 
 class NfseRequestCreateView(SharedEmissionRequestCreateBaseView):
