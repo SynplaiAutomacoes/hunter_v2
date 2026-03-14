@@ -20,6 +20,7 @@ from apps.catalog.models.services import Service
 from apps.checklist.models import Checklist, ChecklistItem
 from apps.collaborators.models import WorkshopCollaborator
 from apps.customer.models import Customer
+from apps.finance.models import FinancialGroup, PaymentMethod
 from apps.quote.models.investigative_questions import InvestigativeQuestion
 from apps.stock.models import StockProduct
 from apps.suppliers.models import Supplier
@@ -183,6 +184,37 @@ ADMINISTRATIVE_POSITIONS: tuple[str, ...] = (
     "Assistente financeiro",
     "Comprador",
     "Gerente operacional",
+)
+
+FINANCIAL_GROUP_SPECS: tuple[tuple[str, str | None], ...] = (
+    ("Receitas", None),
+    ("Receitas de Serviços", "Receitas"),
+    ("Receitas de Peças", "Receitas"),
+    ("Receitas Outras", "Receitas"),
+    ("Despesas", None),
+    ("Despesas Operacionais", "Despesas"),
+    ("Despesas com Pessoal", "Despesas"),
+    ("Despesas Financeiras", "Despesas"),
+    ("Despesas Administrativas", "Despesas"),
+    ("Custos", None),
+    ("Custos de Peças", "Custos"),
+    ("Custos de Serviços", "Custos"),
+)
+
+PAYMENT_METHOD_SPECS: tuple[tuple[str, int, Decimal | None, Decimal | None], ...] = (
+    ("Dinheiro", 1, None, None),
+    ("Débito em Conta", 1, None, None),
+    ("Débito em Cartão", 1, Decimal("0.99"), None),
+    ("Crédito 1x", 1, Decimal("1.49"), None),
+    ("Crédito 2x", 2, Decimal("2.99"), None),
+    ("Crédito 3x", 3, Decimal("3.99"), None),
+    ("Crédito 4x", 4, Decimal("4.99"), None),
+    ("Crédito 5x", 5, Decimal("5.49"), None),
+    ("Crédito 6x", 6, Decimal("5.99"), None),
+    ("Crédito 12x", 12, Decimal("8.99"), None),
+    ("PIX", 1, None, None),
+    ("Cheque", 1, None, None),
+    ("Boleto", 1, Decimal("1.99"), None),
 )
 
 
@@ -577,7 +609,7 @@ def _build_kit_specs() -> list[KitSpec]:
         ),
         KitSpec(
             name="Kit Revisao 20.000 km Compacto",
-            description="Combo para manutencao completa de fluidos, filtros e ignicao.",
+            description="Combo para manutencao completa de fluidos, filtros e ignacao.",
             products=(
                 KitProductSpec("PRD-1001", 4),
                 KitProductSpec("PRD-1003"),
@@ -1019,6 +1051,8 @@ class Command(BaseCommand):
             collaborators = self._seed_collaborators(workshop=workshop)
             self._seed_checklists(workshop=workshop)
             self._seed_questions(workshop=workshop)
+            self._seed_financial_groups(workshop=workshop)
+            self._seed_payment_methods(workshop=workshop)
             self._seed_workshop_costs(workshop=workshop, monthly_costs=monthly_costs, collaborators=collaborators, rng=rng)
 
         self.stdout.write(self.style.SUCCESS(f"Seed concluido para a oficina {WORKSHOP_ID} com seed {seed}."))
@@ -1033,6 +1067,8 @@ class Command(BaseCommand):
                     f"checklists: {workshop.checklists.count()}",
                     f"colaboradores: {workshop.collaborators.count()}",
                     f"perguntas: {workshop.investigative_questions.count()}",
+                    f"grupos financeiros: {workshop.financial_groups.count()}",
+                    f"formas de pagamento: {workshop.payment_methods.count()}",
                     f"custos: {workshop.workshop_costs.count()}",
                 )
             )
@@ -1305,6 +1341,43 @@ class Command(BaseCommand):
             question.order = order
             question.is_active = True
             question.save(update_fields=["response_type", "options", "order", "is_active"])
+
+    def _seed_financial_groups(self, *, workshop: Workshop) -> dict[str, FinancialGroup]:
+        financial_groups: dict[str, FinancialGroup] = {}
+
+        for spec_name, parent_name in FINANCIAL_GROUP_SPECS:
+            parent = financial_groups.get(parent_name) if parent_name else None
+
+            group, _ = FinancialGroup.objects.update_or_create(
+                workshop=workshop,
+                name=spec_name,
+                parent=parent,
+                defaults={
+                    "is_active": True,
+                },
+            )
+            financial_groups[spec_name] = group
+
+        return financial_groups
+
+    def _seed_payment_methods(self, *, workshop: Workshop) -> None:
+        for description, installments_count, tax_percentage, tax_value_amount in PAYMENT_METHOD_SPECS:
+            defaults: dict[str, object] = {
+                "installments_count": installments_count,
+                "is_active": True,
+            }
+
+            if tax_percentage is not None:
+                defaults["tax_percentage"] = tax_percentage
+
+            if tax_value_amount is not None:
+                defaults["tax_value"] = _money(tax_value_amount)
+
+            PaymentMethod.objects.update_or_create(
+                workshop=workshop,
+                description=description,
+                defaults=defaults,
+            )
 
     def _seed_workshop_costs(self, *, workshop: Workshop, monthly_costs: dict[str, MonthlyCost], collaborators: Sequence[WorkshopCollaborator], rng: random.Random) -> None:
         active_productive = [collaborator for collaborator in collaborators if collaborator.is_active and collaborator.collaborator_type == WorkshopCollaborator.CollaboratorType.PRODUCTIVE]

@@ -351,6 +351,7 @@ def _render_rows(
     page_obj: Any,
     columns: Sequence[TableColumn],
     actions: Sequence[TableAction],
+    selected_values: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Transforma os objetos da página atual em uma estrutura de lista de dicionários
@@ -358,8 +359,10 @@ def _render_rows(
     """
     rows: list[dict[str, Any]] = []
     has_actions = bool(actions)
+    selected_keys = selected_values or set()
 
     for obj in page_obj.object_list:
+        obj_pk = getattr(obj, "pk", None)
         cells: list[dict[str, Any]] = []
         for col in columns:
             value = _resolve_attr(obj, col.attr)
@@ -403,7 +406,15 @@ def _render_rows(
                     }
                 )
 
-        rows.append({"object": obj, "pk": getattr(obj, "pk", None), "cells": cells, "actions": row_actions})
+        rows.append(
+            {
+                "object": obj,
+                "pk": obj_pk,
+                "cells": cells,
+                "actions": row_actions,
+                "is_selected": str(obj_pk) in selected_keys,
+            }
+        )
 
     return rows
 
@@ -489,6 +500,8 @@ def render_table(
     filter_button_label: str = "Filtro",
     filter_panel_title: str = "Filtrar resultados",
     filter_param_names: str | Sequence[str] = (),
+    show_controls: bool = True,
+    preserve_selection: bool = False,
 ) -> dict[str, Any]:
     """
     Inclusion tag principal para renderizar uma tabela de dados completa.
@@ -515,6 +528,8 @@ def render_table(
         filter_panel_title: Título exibido no painel de filtros.
         filter_param_names: Nomes dos parâmetros GET usados pelos filtros extras.
             Pode ser string separada por vírgula (ex.: "city,state") ou sequência.
+        show_controls: Se False, oculta os controles superiores (busca/ordenação/filtros).
+        preserve_selection: Se True, mantém checkboxes de linha marcados com base na query string atual.
     """
     parent_context = _copy_parent_context(context)
     request: HttpRequest = parent_context["request"]
@@ -549,7 +564,11 @@ def render_table(
     page_obj, paginator = _paginate(ordered_qs, per_page=per_page, page_number=page_number)
 
     rendered_columns = _render_columns(columns=columns, request=request, sort_attr=sort_attr, sort_desc=sort_desc)
-    rows = _render_rows(page_obj=page_obj, columns=columns, actions=action_list)
+    selected_values: set[str] = set()
+    if selectable and preserve_selection:
+        selected_values = {str(raw_value) for raw_value in request.GET.getlist(checkbox_name) if str(raw_value).strip() != ""}
+
+    rows = _render_rows(page_obj=page_obj, columns=columns, actions=action_list, selected_values=selected_values)
 
     prev_url = _build_url(request, updates={"page": page_obj.previous_page_number()}) if page_obj.has_previous() else None
     next_url = _build_url(request, updates={"page": page_obj.next_page_number()}) if page_obj.has_next() else None
@@ -559,8 +578,7 @@ def render_table(
     has_active_filters = show_filter_controls and any(str(value).strip() != "" for param_name in normalized_filter_param_names for value in request.GET.getlist(param_name))
     clear_filter_url = None
     if show_filter_controls and normalized_filter_param_names:
-        clear_filter_updates = {param_name: None for param_name in normalized_filter_param_names}
-        clear_filter_updates["page"] = 1
+        clear_filter_updates: dict[str, Any] = {**{param_name: None for param_name in normalized_filter_param_names}, "page": 1}
         clear_filter_url = _build_url(request, updates=clear_filter_updates)
 
     colspan = len(rendered_columns) + (1 if selectable else 0) + (1 if has_actions else 0)
@@ -574,6 +592,7 @@ def render_table(
         "rows": rows,
         "has_actions": has_actions,
         "actions_label": actions_label,
+        "show_controls": show_controls,
         "colspan": colspan,
         "page_obj": page_obj,
         "paginator": paginator,

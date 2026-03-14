@@ -1,0 +1,44 @@
+{% extends 'crud/page.html' %}
+
+{% load crispy_forms_tags %}
+{% load table_tags %}
+
+{% block crud_content %}
+    <div class="flex items-center justify-between gap-4">
+        <div>
+            <h1 class="text-3xl font-bold text-base-content">DRE - Demonstração do Resultado do Exercício</h1>
+            <p class="text-base-content/70 mt-1">Selecione os filtros e grupos financeiros para gerar o relatório</p>
+        </div>
+    </div>
+
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body p-6 md:p-8">
+            <form method="get" class="space-y-6">
+                {% crispy form %}
+
+                <div class="divider my-0"></div>
+
+                <div class="space-y-1">
+                    <h2 class="text-lg font-bold text-base-content">Selecione os Grupos Financeiros</h2>
+                </div>
+
+                <div
+                    class="rounded-xl border border-base-300 bg-base-200/40 p-2 md:p-3"
+                    hx-get="{% url 'finance:dre_report' %}"
+                    hx-trigger="change from:#id_filial"
+                    hx-target="#dre-financial-groups-table-content"
+                    hx-select="#dre-financial-groups-table-content"
+                    hx-swap="outerHTML"
+                    hx-include="#id_filial"
+                >
+                    {% render_table financial_groups dre_table_fields table_id='dre-financial-groups-table' per_page=financial_groups_per_page show_search=False selectable=dre_financial_groups_selectable checkbox_name='financial_groups' preserve_selection=True show_controls=False empty_text=dre_financial_groups_empty_text %}
+                </div>
+
+                <div class="pt-2">
+                    <button type="submit" class="btn btn-primary">Gerar DRE</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+{% endblock %}

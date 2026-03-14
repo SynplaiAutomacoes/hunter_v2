@@ -57,6 +57,7 @@
                                     class="checkbox row-checkbox"
                                     name="{{ checkbox_name }}"
                                     value="{{ row.pk }}"
+                                    {% if row.is_selected %}checked{% endif %}
                                     aria-label="Selecionar linha"
                                 />
                             </td>

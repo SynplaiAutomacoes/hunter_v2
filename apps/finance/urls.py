@@ -20,6 +20,7 @@ from apps.finance.views import (
     WebmaniaCompanyListView,
     WebmaniaCompanySyncView,
     WebmaniaCompanyUpdateView,
+    DreReportView,
 )
 from apps.finance.views.payment_method import PaymentMethodListView, PaymentMethodCreateView, PaymentMethodUpdateView
 
@@ -57,4 +58,6 @@ urlpatterns = [
     path("webmania/requisicoes/", RedirectView.as_view(pattern_name="workshops:emission_history", permanent=False), name="webmania_requests"),
     path("webmania/webhook/ping/", WebhookView.as_view(), name="webhook_ping"),
     path("webmania/webhook/", WebhookView.as_view(), name="webhook"),
+    # DRE
+    path("dre/", DreReportView.as_view(), name="dre_report"),
 ]

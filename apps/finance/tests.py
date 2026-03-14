@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
@@ -1897,6 +1898,88 @@ class FinancialGroupViewsTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertTrue(FinancialGroup.objects.filter(pk=parent.pk).exists())
+
+
+class DreReportViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=88)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_report_requires_filial_selection_before_loading_financial_groups(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+
+        response = self.client.get(reverse("finance:dre_report"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "É necessário selecionar uma filial")
+        self.assertNotContains(response, "Não há grupos financeiros")
+
+    def test_report_shows_empty_message_when_selected_filial_has_no_financial_groups(self) -> None:
+        response = self.client.get(reverse("finance:dre_report"), data={"filial": str(self.workshop.pk)})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Não há grupos financeiros")
+        self.assertNotContains(response, "É necessário selecionar uma filial")
+
+    def test_report_with_invalid_filial_keeps_selection_required_message(self) -> None:
+        response = self.client.get(reverse("finance:dre_report"), data={"filial": "invalida"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "É necessário selecionar uma filial")
+        self.assertNotContains(response, "Não há grupos financeiros")
+
+    def test_report_refreshes_financial_groups_table_when_filial_changes(self) -> None:
+        response = self.client.get(reverse("finance:dre_report"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'hx-get="{reverse("finance:dre_report")}"')
+        self.assertContains(response, 'hx-trigger="change from:#id_filial"')
+        self.assertContains(response, 'hx-target="#dre-financial-groups-table-content"')
+        self.assertContains(response, 'hx-select="#dre-financial-groups-table-content"')
+        self.assertContains(response, 'hx-swap="outerHTML"')
+        self.assertContains(response, 'hx-include="#id_filial"')
+
+    def test_report_renders_financial_groups_with_expected_hierarchy_indentation(self) -> None:
+        root = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        child = FinancialGroup.objects.create(workshop=self.workshop, parent=root, name="Receitas de Serviços")
+        grandchild = FinancialGroup.objects.create(workshop=self.workshop, parent=child, name="Receitas de Serviços Diretos")
+
+        response = self.client.get(reverse("finance:dre_report"), data={"filial": str(self.workshop.pk)})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="dre-financial-groups-table"')
+        self.assertNotContains(response, "É necessário selecionar uma filial")
+        self.assertNotContains(response, "Não há grupos financeiros")
+
+        content = response.content.decode("utf-8")
+        self.assertIn(f"{root.code}. {root.name}", content)
+        self.assertIn(f"\u00a0\u00a0\u00a0\u00a0└ {child.code}. {child.name}", content)
+        self.assertIn(f"\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0└ {grandchild.code}. {grandchild.name}", content)
+
+    def test_report_keeps_selected_financial_groups_checked(self) -> None:
+        first = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        second = FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+        third = FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+
+        response = self.client.get(
+            reverse("finance:dre_report"),
+            data={"filial": str(self.workshop.pk), "financial_groups": [str(first.pk), str(second.pk)]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+
+        self.assertRegex(content, rf'<input[^>]*name="financial_groups"[^>]*value="{first.pk}"[^>]*checked')
+        self.assertRegex(content, rf'<input[^>]*name="financial_groups"[^>]*value="{second.pk}"[^>]*checked')
+
+        third_input = re.search(rf'<input[^>]*name="financial_groups"[^>]*value="{third.pk}"[^>]*>', content)
+        if third_input is None:
+            self.fail("Checkbox do terceiro grupo financeiro não foi renderizado.")
+        self.assertNotIn("checked", third_input.group(0))
 
 
 class PaymentMethodFormTests(TestCase):
