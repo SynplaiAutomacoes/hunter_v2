@@ -29,14 +29,15 @@ class MovementStep1Form(FinancialMovementBaseForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.fields["source"].widget.attrs.update(
-            {
-                "hx-get": reverse_lazy("financial:source-detail"),
-                "hx-trigger": "change",
-                "hx-target": "#source-details-content",
-                "hx-swap": "outerHTML",
-            }
-        )
+        # self.fields["source"].widget.attrs.update(
+        #     {
+        #         "hx-get": reverse_lazy("finance:source_details"),
+        #         "hx-trigger": "change",
+        #         "hx-target": "#source-details",
+        #         "hx-swap": "innerHTML",
+        #         "hx-include": "[name='source']",
+        #     }
+        # )
 
         if self.workshop:
             queryset = Source.objects.filter(workshop=self.workshop)
@@ -51,6 +52,36 @@ class MovementStep1Form(FinancialMovementBaseForm):
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
+            HTML("""<script>
+                document.addEventListener('DOMContentLoaded', function() {
+                    const sourceInput = document.querySelector('input[name="source"]');
+                    const detailsContainer = document.querySelector('#source-details');
+                
+                    if (sourceInput) {
+                        sourceInput.addEventListener('change', function() {
+                            const sourceId = this.value;
+                            
+                            if (!sourceId) {
+                                detailsContainer.innerHTML = "<p class='italic opacity-50 text-center py-8'>Selecione uma origem para ver os detalhes.</p>";
+                                return;
+                            }
+                
+                            const url = `{% url 'finance:source_details' %}?source=${sourceId}`;
+                
+                            fetch(url, {
+                                headers: {
+                                    'X-Requested-With': 'XMLHttpRequest'
+                                }
+                            })
+                            .then(response => response.text())
+                            .then(html => {
+                                detailsContainer.innerHTML = html;
+                            })
+                            .catch(error => console.error('Erro ao buscar detalhes:', error));
+                        });
+                    }
+                });
+            </script>"""),
             Div(
                 Div(
                     HTML('<h2 class="text-xl font-bold mb-4">Origem da Movimentação</h2>'),
