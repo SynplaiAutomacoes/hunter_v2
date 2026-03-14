@@ -21,6 +21,7 @@ from apps.catalog.models.kits import Kit, KitProduct
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.collaborators.models import WorkshopMember
+from apps.customer.models import Customer
 from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm
 from apps.finance.forms.financial_group import FinancialGroupForm
 from apps.finance.forms.payment_method import PaymentMethodForm
@@ -48,6 +49,7 @@ from apps.finance.views.nfse import NfseRequestCreateView
 from apps.iam.utils import get_or_create_director_role
 from apps.workorder.models import WorkOrder
 from apps.workorder.models import WorkOrderItem
+from apps.workorder.models import WorkOrderPaymentMethod
 from apps.workshops.models.monthly_costs import MonthlyCost
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from apps.workshops.models.workshops import Workshop
@@ -1922,8 +1924,18 @@ class DreReportViewTests(TestCase):
         product_cost_price: str,
         service_selling_price: str,
         service_cost_price: str,
+        customer_name: str | None = None,
+        payment_due_date: date | None = None,
     ) -> WorkOrder:
         budget = Budget(workshop=self.workshop, entry_date=reference_date)
+        if customer_name:
+            customer = Customer.objects.create(
+                workshop=self.workshop,
+                name=customer_name,
+                cpf_or_cnpj=f"1234567890{reference_date.day:02d}",
+                email=f"cliente{reference_date.strftime('%Y%m%d')}@example.com",
+            )
+            budget.customer = customer
         budget.save()
         workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget)
         WorkOrder.objects.filter(pk=workorder.pk).update(criado_em=timezone.make_aware(datetime.combine(reference_date, datetime.min.time())))
@@ -1950,6 +1962,16 @@ class DreReportViewTests(TestCase):
 
         WorkOrderItem.objects.create(workshop=self.workshop, workorder=workorder, product=product, quantity=1, shipping=Money("0.00", "BRL"))
         WorkOrderItem.objects.create(workshop=self.workshop, workorder=workorder, service=service, quantity=1)
+        if payment_due_date:
+            payment_method = PaymentMethod.objects.create(workshop=self.workshop, description=f"Pagamento DRE {reference_date.isoformat()}")
+            WorkOrderPaymentMethod.objects.create(
+                workorder=workorder,
+                payment_method=payment_method,
+                installments_count=1,
+                first_installment_amount=Money(product_selling_price, "BRL") + Money(service_selling_price, "BRL"),
+                remaining_installments_amount=Money("0.00", "BRL"),
+                due_date=payment_due_date,
+            )
         return workorder
 
     def _create_workshop_cost_snapshot(
@@ -2131,6 +2153,169 @@ class DreReportViewTests(TestCase):
         content = response.content.decode("utf-8")
         self.assertIn("(Receita Bruta de Vendas e Serviços - Custos Mercadorias Vendidas)", content)
         self.assertIn("(Receitas Financeiras - Despesas Financeiras)", content)
+
+    def test_results_page_includes_expandable_workorder_details_for_gross_revenue_row(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        reference_date = date(2026, 1, 15)
+
+        workorder = self._create_workorder_with_values(
+            reference_date=reference_date,
+            product_selling_price="100.00",
+            product_cost_price="40.00",
+            service_selling_price="200.00",
+            service_cost_price="80.00",
+            customer_name="Cliente DRE Expandido",
+            payment_due_date=date(2026, 1, 20),
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        gross_revenue_row = next(row for row in response.context["dre_rows"] if row["component"] == "receita_bruta_vendas_e_servicos")
+
+        self.assertEqual(len(gross_revenue_row["details"]), 1)
+        self.assertEqual(gross_revenue_row["detail_kind"], "workorders")
+        detail = gross_revenue_row["details"][0]
+        self.assertEqual(detail["summary"], f"OS/PEDIDO Nº {workorder.pk} - Cliente DRE Expandido")
+        self.assertEqual(detail["entry_date"], date(2026, 1, 15))
+        self.assertEqual(detail["payment_date"], date(2026, 1, 20))
+        self.assertEqual(detail["amount"], Money("300.00", "BRL"))
+
+        content = response.content.decode("utf-8")
+        self.assertIn(f"OS/PEDIDO Nº {workorder.pk} - Cliente DRE Expandido", content)
+        self.assertIn("Data Entrada: 15/01/2026 | Data Saída: 20/01/2026", content)
+        self.assertIn("R$\u00a0300,00", content)
+        self.assertIn("chevron_right", content)
+
+    def test_results_page_includes_expandable_workorder_cost_details_for_cost_row(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+
+        workorder = self._create_workorder_with_values(
+            reference_date=date(2026, 1, 15),
+            product_selling_price="100.00",
+            product_cost_price="40.00",
+            service_selling_price="200.00",
+            service_cost_price="80.00",
+            customer_name="Cliente Custo",
+            payment_due_date=date(2026, 1, 20),
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        cost_row = next(row for row in response.context["dre_rows"] if row["component"] == "custos_mercadorias_vendidas")
+
+        self.assertEqual(cost_row["detail_kind"], "workorders")
+        self.assertEqual(len(cost_row["details"]), 1)
+        detail = cost_row["details"][0]
+        self.assertEqual(detail["summary"], f"OS/PEDIDO Nº {workorder.pk} - Cliente Custo")
+        self.assertEqual(detail["amount"], Money("120.00", "BRL"))
+
+    def test_results_page_includes_expandable_financial_expense_details(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+        self._create_workshop_cost_snapshot(
+            month=1,
+            year=2026,
+            tax_rate="0.10",
+            operational_cost="60.00",
+            financial_cost="10.00",
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        expense_row = next(row for row in response.context["dre_rows"] if row["component"] == "despesas_financeiras")
+
+        self.assertEqual(expense_row["detail_kind"], "financial_entries")
+        self.assertEqual(len(expense_row["details"]), 1)
+        detail = expense_row["details"][0]
+        self.assertEqual(detail["summary"], "Taxas bancarias 1/2026")
+        self.assertEqual(detail["reference"], "Janeiro/2026")
+        self.assertEqual(detail["amount"], Money("10.00", "BRL"))
+
+    def test_results_page_keeps_derived_rows_static_without_dropdown_details(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+        self._create_workorder_with_values(
+            reference_date=date(2026, 1, 15),
+            product_selling_price="100.00",
+            product_cost_price="40.00",
+            service_selling_price="200.00",
+            service_cost_price="80.00",
+        )
+        self._create_workshop_cost_snapshot(
+            month=1,
+            year=2026,
+            tax_rate="0.10",
+            operational_cost="60.00",
+            financial_cost="10.00",
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        gross_sales_row = next(row for row in response.context["dre_rows"] if row["component"] == "receita_bruta_de_vendas")
+        operating_result_row = next(row for row in response.context["dre_rows"] if row["component"] == "resultado_operacional")
+
+        self.assertEqual(gross_sales_row["detail_kind"], "components")
+        self.assertEqual(gross_sales_row["details"], [])
+        self.assertEqual(operating_result_row["detail_kind"], "components")
+        self.assertEqual(operating_result_row["details"], [])
+
+        content = response.content.decode("utf-8")
+        self.assertIn("bg-base-200", content)
+
+    def test_results_page_does_not_render_expandable_details_for_rows_without_workorders(self) -> None:
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+
+        self.assertNotIn("chevron_right", content)
+        self.assertNotIn("expand_more", content)
+        for row in response.context["dre_rows"]:
+            self.assertEqual(row["details"], [])
 
 
 class PaymentMethodFormTests(TestCase):

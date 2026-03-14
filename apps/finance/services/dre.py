@@ -20,12 +20,34 @@ from apps.workshops.util.monthly_costs import MECHANIC_SALARY_MONTHLY_COST_NAME
 _ZERO_MONEY = Money("0.00", "BRL")
 _MONEY_QUANTIZER = Decimal("0.01")
 _FINANCIAL_EXPENSE_KEYWORDS = ("banc", "emprest", "juros", "financeir")
+_MONTH_LABELS = {
+    1: "Janeiro",
+    2: "Fevereiro",
+    3: "Marco",
+    4: "Abril",
+    5: "Maio",
+    6: "Junho",
+    7: "Julho",
+    8: "Agosto",
+    9: "Setembro",
+    10: "Outubro",
+    11: "Novembro",
+    12: "Dezembro",
+}
 
 
 @dataclass(frozen=True)
 class DreCalculationResult:
     rows: list[dict[str, object]]
     summary_cards: list[dict[str, object]]
+
+
+_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS = "receita_bruta_vendas_e_servicos"
+_ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS = "custos_mercadorias_vendidas"
+_ROW_COMPONENT_RECEITA_BRUTA_DE_VENDAS = "receita_bruta_de_vendas"
+_ROW_COMPONENT_RECEITAS_FINANCEIRAS = "receitas_financeiras"
+_ROW_COMPONENT_DESPESAS_FINANCEIRAS = "despesas_financeiras"
+_ROW_COMPONENT_RESULTADO_OPERACIONAL = "resultado_operacional"
 
 
 def build_dre_calculation(
@@ -67,9 +89,16 @@ def build_dre_calculation(
 
     visible_components = _resolve_visible_components(selected_financial_groups=selected_financial_groups)
     visible_amounts = {key: amount if key in visible_components else _ZERO_MONEY for key, amount in all_amounts.items()}
-
     receita_bruta_de_vendas = visible_amounts["receita_bruta_vendas_e_servicos"] - visible_amounts["custos_mercadorias_vendidas"]
     resultado_operacional = visible_amounts["receitas_financeiras"] - visible_amounts["despesas_financeiras"]
+    row_details = _build_row_details(
+        workorders=workorders,
+        workshop_costs=workshop_costs,
+        visible_components=visible_components,
+        all_amounts=visible_amounts,
+        receita_bruta_de_vendas=receita_bruta_de_vendas,
+        resultado_operacional=resultado_operacional,
+    )
 
     return DreCalculationResult(
         rows=_build_rows(
@@ -79,6 +108,7 @@ def build_dre_calculation(
             receitas_financeiras=visible_amounts["receitas_financeiras"],
             despesas_financeiras=visible_amounts["despesas_financeiras"],
             resultado_operacional=resultado_operacional,
+            row_details=row_details,
         ),
         summary_cards=_build_summary_cards(
             receita_bruta_vendas_e_servicos=visible_amounts["receita_bruta_vendas_e_servicos"],
@@ -96,8 +126,9 @@ def _get_workorders(*, workshop: Workshop, start_date: date, end_date: date) -> 
             criado_em__date__lte=end_date,
         )
         .exclude(status__in=[WorkOrderStatus.REJECTED, WorkOrderStatus.CANCELLED])
-        .select_related("budget")
+        .select_related("budget", "budget__customer")
         .prefetch_related(
+            "payments",
             "items",
             "items__product",
             "items__service",
@@ -132,14 +163,60 @@ def _build_rows(
     receitas_financeiras: Money = _ZERO_MONEY,
     despesas_financeiras: Money = _ZERO_MONEY,
     resultado_operacional: Money = _ZERO_MONEY,
+    row_details: dict[str, list[dict[str, object]]] | None = None,
 ) -> list[dict[str, object]]:
+    details = row_details or {}
     return [
-        _build_row(label="(+) Receita Bruta de Vendas e Serviços", amount=receita_bruta_vendas_e_servicos, tone="positive"),
-        _build_row(label="(-) Custos Mercadorias Vendidas", amount=custos_mercadorias_vendidas, tone="negative"),
-        _build_row(label="(=) Receita Bruta de Vendas", amount=receita_bruta_de_vendas, tone="highlight", formula="(Receita Bruta de Vendas e Serviços - Custos Mercadorias Vendidas)"),
-        _build_row(label="(+) Receitas Financeiras", amount=receitas_financeiras, tone="positive"),
-        _build_row(label="(-) Despesas Financeiras", amount=despesas_financeiras, tone="negative"),
-        _build_row(label="(=) Resultado Operacional", amount=resultado_operacional, tone="result", formula="(Receitas Financeiras - Despesas Financeiras)"),
+        _build_row(
+            label="(+) Receita Bruta de Vendas e Serviços",
+            amount=receita_bruta_vendas_e_servicos,
+            tone="positive",
+            component=_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS,
+            detail_kind="workorders",
+            details=details.get(_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS, []),
+        ),
+        _build_row(
+            label="(-) Custos Mercadorias Vendidas",
+            amount=custos_mercadorias_vendidas,
+            tone="negative",
+            component=_ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS,
+            detail_kind="workorders",
+            details=details.get(_ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS, []),
+        ),
+        _build_row(
+            label="(=) Receita Bruta de Vendas",
+            amount=receita_bruta_de_vendas,
+            tone="highlight",
+            formula="(Receita Bruta de Vendas e Serviços - Custos Mercadorias Vendidas)",
+            component=_ROW_COMPONENT_RECEITA_BRUTA_DE_VENDAS,
+            detail_kind="components",
+            details=details.get(_ROW_COMPONENT_RECEITA_BRUTA_DE_VENDAS, []),
+        ),
+        _build_row(
+            label="(+) Receitas Financeiras",
+            amount=receitas_financeiras,
+            tone="positive",
+            component=_ROW_COMPONENT_RECEITAS_FINANCEIRAS,
+            detail_kind="financial_entries",
+            details=details.get(_ROW_COMPONENT_RECEITAS_FINANCEIRAS, []),
+        ),
+        _build_row(
+            label="(-) Despesas Financeiras",
+            amount=despesas_financeiras,
+            tone="negative",
+            component=_ROW_COMPONENT_DESPESAS_FINANCEIRAS,
+            detail_kind="financial_entries",
+            details=details.get(_ROW_COMPONENT_DESPESAS_FINANCEIRAS, []),
+        ),
+        _build_row(
+            label="(=) Resultado Operacional",
+            amount=resultado_operacional,
+            tone="result",
+            formula="(Receitas Financeiras - Despesas Financeiras)",
+            component=_ROW_COMPONENT_RESULTADO_OPERACIONAL,
+            detail_kind="components",
+            details=details.get(_ROW_COMPONENT_RESULTADO_OPERACIONAL, []),
+        ),
     ]
 
 
@@ -195,10 +272,86 @@ def _quantize_money(value: Decimal) -> Money:
     return Money(value.quantize(_MONEY_QUANTIZER, rounding=ROUND_HALF_UP), "BRL")
 
 
-def _build_row(*, label: str, amount: Money, tone: str, formula: str | None = None) -> dict[str, Any]:
+def _build_row_details(
+    *,
+    workorders: list[WorkOrder],
+    workshop_costs: list[WorkshopCost],
+    visible_components: set[str],
+    all_amounts: dict[str, Money],
+    receita_bruta_de_vendas: Money,
+    resultado_operacional: Money,
+) -> dict[str, list[dict[str, object]]]:
+    details: dict[str, list[dict[str, object]]] = {}
+
+    if _ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS in visible_components:
+        revenue_details = [_build_workorder_detail(workorder=workorder, amount=workorder.total_services_value + workorder.total_products_value) for workorder in workorders]
+        if revenue_details:
+            details[_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS] = revenue_details
+
+    if _ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS in visible_components:
+        cost_details = [_build_workorder_detail(workorder=workorder, amount=workorder.total_costs_products_value + workorder.total_costs_services_value) for workorder in workorders]
+        if cost_details:
+            details[_ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS] = cost_details
+
+    financial_expense_details = _build_financial_expense_details(workshop_costs=workshop_costs)
+    if _ROW_COMPONENT_DESPESAS_FINANCEIRAS in visible_components and financial_expense_details:
+        details[_ROW_COMPONENT_DESPESAS_FINANCEIRAS] = financial_expense_details
+
+    return details
+
+
+def _build_workorder_detail(*, workorder: WorkOrder, amount: Money) -> dict[str, object]:
+    customer_name = getattr(getattr(workorder, "budget", None), "customer", None)
+    latest_payment_date = _get_latest_payment_due_date(workorder=workorder)
+    return {
+        "summary": f"OS/PEDIDO Nº {workorder.pk} - {customer_name or '-'}",
+        "entry_date": getattr(workorder.budget, "entry_date", None),
+        "payment_date": latest_payment_date,
+        "amount": amount,
+    }
+
+
+def _build_financial_expense_details(*, workshop_costs: list[WorkshopCost]) -> list[dict[str, object]]:
+    details: list[dict[str, object]] = []
+    for workshop_cost in workshop_costs:
+        for item in getattr(workshop_cost, "items").all():
+            monthly_cost_name = _normalize_label(item.monthly_cost.name)
+            if monthly_cost_name == _normalize_label(MECHANIC_SALARY_MONTHLY_COST_NAME):
+                continue
+            if not _is_financial_expense(item.monthly_cost):
+                continue
+            details.append(
+                {
+                    "summary": item.monthly_cost.name,
+                    "reference": f"{_MONTH_LABELS.get(workshop_cost.month, str(workshop_cost.month))}/{workshop_cost.year}",
+                    "amount": item.amount,
+                }
+            )
+    return details
+
+
+def _get_latest_payment_due_date(*, workorder: WorkOrder) -> date | None:
+    payments = list(getattr(workorder, "payments").all())
+    payment_dates = [payment.due_date for payment in payments if payment.due_date]
+    return max(payment_dates, default=None)
+
+
+def _build_row(
+    *,
+    label: str,
+    amount: Money,
+    tone: str,
+    formula: str | None = None,
+    component: str | None = None,
+    detail_kind: str | None = None,
+    details: list[dict[str, object]] | None = None,
+) -> dict[str, Any]:
     return {
         "label": label,
         "amount": amount,
         "tone": tone,
         "formula": formula,
+        "component": component,
+        "detail_kind": detail_kind,
+        "details": details or [],
     }
