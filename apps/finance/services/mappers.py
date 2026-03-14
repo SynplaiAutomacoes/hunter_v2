@@ -1,5 +1,7 @@
 import logging
 
+from apps.finance.services.webmania_status import normalize_nfse_batch_status, normalize_nfse_item_status
+
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +22,7 @@ def map_batch_payload(payload: dict) -> dict:
     return {
         "uuid": payload.get("uuid", None),
         "model": payload.get("modelo", "lote_rps"),
-        "status": payload.get("status", "processando"),
+        "status": normalize_nfse_batch_status(payload.get("status") or "processando"),
         "reason": payload.get("motivo", ""),
         "batch_number": payload.get("numero_lote", ""),
         "batch_series": payload.get("serie_lote", ""),
@@ -39,7 +41,7 @@ def map_item_payload(payload: dict) -> dict:
     return {
         "uuid": payload.get("uuid", None),
         "model": payload.get("modelo", "nfse"),
-        "status": payload.get("status", "processando"),
+        "status": normalize_nfse_item_status(payload.get("status") or "processando"),
         "reason": payload.get("motivo", ""),
         "number": payload.get("numero", ""),
         "verification_code": payload.get("codigo_verificacao", ""),
@@ -47,7 +49,7 @@ def map_item_payload(payload: dict) -> dict:
         "rps_number": payload.get("numero_rps", ""),
         "xml_url": payload.get("xml", ""),
         "pdf_nfse_url": payload.get("pdf_nfse", ""),
-        "pdf_nfse_status": payload.get("pdf_nfse_status", "processando"),
+        "pdf_nfse_status": normalize_nfse_batch_status(payload.get("pdf_nfse_status") or "processando"),
         "pdf_rps_url": payload.get("pdf_rps", ""),
         "log_payload": log_payload,
     }

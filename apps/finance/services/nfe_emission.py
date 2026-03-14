@@ -22,6 +22,7 @@ from apps.finance.services.webmania_auth import (
     should_use_global_webmania_auth,
 )
 from apps.finance.services.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
+from apps.finance.services.webmania_status import normalize_nfe_status
 from apps.workorder.models import WorkOrder
 
 
@@ -310,7 +311,7 @@ def build_nfe_payload(*, nfe_request: NfeRequest, request: HttpRequest | None = 
     ambiente = int(getattr(settings, "WEBMANIA_AMBIENT", "2"))
 
     payload = {
-        "ID": str(nfe_request.workorder.pk),
+        "ID": str(nfe_request.pk),
         "operacao": 1,
         "natureza_operacao": sanitize_webmania_setting(getattr(settings, "WEBMANIA_NFE_NATUREZA_OPERACAO", "Venda de mercadoria")) or "Venda de mercadoria",
         "modelo": 1,
@@ -387,7 +388,7 @@ def map_nfe_item_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "uuid": payload.get("uuid"),
         "model": payload.get("modelo") or "nfe",
-        "status": payload.get("status") or "processando",
+        "status": normalize_nfe_status(payload.get("status") or "processando"),
         "reason": payload.get("motivo") or "",
         "number": str(payload.get("nfe") or ""),
         "series": str(payload.get("serie") or ""),
@@ -399,6 +400,41 @@ def map_nfe_item_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "danfe_label_url": str(payload.get("danfe_etiqueta") or ""),
         "log_payload": _ensure_log_payload(payload.get("log")),
     }
+
+
+def apply_nfe_item_payload(
+    *,
+    item: NfeItem,
+    response_payload: dict[str, Any],
+    webhook_received_at=None,
+    reconciled_at=None,
+) -> NfeItem:
+    mapped_payload = map_nfe_item_payload(response_payload)
+    for key, value in mapped_payload.items():
+        if key == "uuid":
+            continue
+        setattr(item, key, value)
+    item.raw_payload = response_payload
+    if webhook_received_at is not None:
+        item.last_webhook_at = webhook_received_at
+    if reconciled_at is not None:
+        item.last_reconciled_at = reconciled_at
+    item.last_sync_error = ""
+    item.save()
+
+    if item.request:
+        item.request.update_status_based_on_request(response_payload.get("status"))
+
+    return item
+
+
+def _replay_pending_nfe_webhooks_for_uuid(*, event_uuid: str) -> None:
+    if not event_uuid:
+        return
+
+    from apps.finance.services.webmania_webhooks import process_pending_webhook_events
+
+    process_pending_webhook_events(model="nfe", event_uuid=event_uuid)
 
 
 def sync_nfe_emission_response(*, nfe_request: NfeRequest, response_payload: dict[str, Any]) -> None:
@@ -419,9 +455,12 @@ def sync_nfe_emission_response(*, nfe_request: NfeRequest, response_payload: dic
                 "workshop": nfe_request.workshop,
                 "request": nfe_request,
                 "raw_payload": response_payload,
+                "last_sync_error": "",
                 **mapped_payload,
             },
         )
+
+    _replay_pending_nfe_webhooks_for_uuid(event_uuid=str(nfe_uuid))
 
 
 def build_nfe_preview_rows(

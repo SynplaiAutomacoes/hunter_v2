@@ -1,0 +1,143 @@
+{% extends 'crud/detail.html' %}
+
+{% block crud_title %}Detalhes da NFS-e{% endblock %}
+{% block crud_subtitle %}Acompanhe o status, identificadores e documentos da NFS-e emitida.{% endblock %}
+{% block crud_back_url %}{% url 'finance:nfse_list' %}{% endblock %}
+
+{% block crud_header_actions %}
+    <a href="{% url 'finance:nfse_update' pk=nfse_request.pk %}" class="btn btn-sm btn-primary gap-2">
+        <span class="material-icons text-sm">edit</span>
+        Editar
+    </a>
+{% endblock %}
+
+{% block crud_detail_content %}
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body p-6 md:p-8">
+            <div class="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="material-icons text-base-content/80">request_quote</span>
+                        <h2 class="text-xl font-bold text-base-content">Resumo da emissão</h2>
+                    </div>
+                    <div class="divider mt-0 mb-6"></div>
+                </div>
+                <span class="badge {{ nfse_request.nfse_request_status_badge.class }}">{{ nfse_request.nfse_request_status_badge.text }}</span>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {% for field in request_fields %}
+                    <div>
+                        <p class="text-xs text-base-content/70 mb-1">{{ field.label }}</p>
+                        <p class="font-medium break-all">{{ field.value }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    {% if latest_batch %}
+        <div class="card bg-base-100 shadow-xl">
+            <div class="card-body p-6 md:p-8">
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="material-icons text-base-content/80">inventory_2</span>
+                    <h2 class="text-xl font-bold text-base-content">Lote RPS</h2>
+                </div>
+                <div class="divider mt-0 mb-6"></div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <p class="text-xs text-base-content/70 mb-1">UUID</p>
+                        <p class="font-medium break-all">{{ latest_batch.uuid }}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-base-content/70 mb-1">Status</p>
+                        <p class="font-medium">{{ latest_batch.status|default:'-' }}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-base-content/70 mb-1">Número / Série</p>
+                        <p class="font-medium">{{ latest_batch.batch_number|default:'-' }} / {{ latest_batch.batch_series|default:'-' }}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-base-content/70 mb-1">Protocolo</p>
+                        <p class="font-medium break-all">{{ latest_batch.protocol|default:'-' }}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body p-6 md:p-8">
+            <div class="flex items-center gap-2 mb-2">
+                <span class="material-icons text-base-content/80">description</span>
+                <h2 class="text-xl font-bold text-base-content">Documento fiscal</h2>
+            </div>
+            <div class="divider mt-0 mb-6"></div>
+
+            {% if latest_item %}
+                <div class="flex flex-wrap items-center gap-3 mb-6">
+                    <span class="badge {{ latest_item_status_badge.class }}">{{ latest_item_status_badge.text }}</span>
+                    {% if latest_item.last_webhook_at %}
+                        <span class="text-sm text-base-content/70">Webhook: {{ latest_item.last_webhook_at|date:'d/m/Y H:i' }}</span>
+                    {% endif %}
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                    <div>
+                        <p class="text-xs text-base-content/70 mb-1">UUID</p>
+                        <p class="font-medium break-all">{{ latest_item.uuid }}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-base-content/70 mb-1">Motivo</p>
+                        <p class="font-medium break-all">{{ latest_item.reason|default:'-' }}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-base-content/70 mb-1">Número</p>
+                        <p class="font-medium">{{ latest_item.number|default:'-' }}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-base-content/70 mb-1">Código de verificação</p>
+                        <p class="font-medium break-all">{{ latest_item.verification_code|default:'-' }}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-base-content/70 mb-1">RPS</p>
+                        <p class="font-medium">{{ latest_item.rps_number|default:'-' }}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-base-content/70 mb-1">Série RPS</p>
+                        <p class="font-medium">{{ latest_item.rps_series|default:'-' }}</p>
+                    </div>
+                    {% if latest_item.last_sync_error %}
+                        <div class="md:col-span-2">
+                            <p class="text-xs text-error mb-1">Último erro</p>
+                            <p class="font-medium text-error break-all">{{ latest_item.last_sync_error }}</p>
+                        </div>
+                    {% endif %}
+                </div>
+
+                <div class="flex flex-wrap gap-2">
+                    {% if latest_item.xml_url %}
+                        <a href="{% url 'finance:nfse_document_download' pk=nfse_request.pk document='xml' %}" class="btn btn-outline btn-sm">Baixar XML</a>
+                    {% else %}
+                        <span class="btn btn-outline btn-sm btn-disabled">Baixar XML</span>
+                    {% endif %}
+                    {% if latest_item.pdf_nfse_url %}
+                        <a href="{% url 'finance:nfse_document_download' pk=nfse_request.pk document='pdf_nfse' %}" class="btn btn-outline btn-sm">Baixar PDF NFS-e</a>
+                    {% else %}
+                        <span class="btn btn-outline btn-sm btn-disabled">Baixar PDF NFS-e</span>
+                    {% endif %}
+                    {% if latest_item.pdf_rps_url %}
+                        <a href="{% url 'finance:nfse_document_download' pk=nfse_request.pk document='pdf_rps' %}" class="btn btn-outline btn-sm">Baixar PDF RPS</a>
+                    {% else %}
+                        <span class="btn btn-outline btn-sm btn-disabled">Baixar PDF RPS</span>
+                    {% endif %}
+                </div>
+            {% else %}
+                <div class="alert alert-warning">
+                    <span>A NFS-e ainda nao possui item sincronizado. Aguarde o retorno da Webmania.</span>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}
