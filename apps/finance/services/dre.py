@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 import unicodedata
-from typing import Any
+from typing import Any, Sequence
 
 from django.db.models import Prefetch
 from djmoney.money import Money
@@ -52,16 +52,16 @@ _ROW_COMPONENT_RESULTADO_OPERACIONAL = "resultado_operacional"
 
 def build_dre_calculation(
     *,
-    workshop: Workshop | None,
+    workshops: Sequence[Workshop],
     start_date: date | None,
     end_date: date | None,
     selected_financial_groups: list[FinancialGroup] | None = None,
 ) -> DreCalculationResult:
-    if workshop is None or start_date is None or end_date is None or start_date > end_date:
+    if not workshops or start_date is None or end_date is None or start_date > end_date:
         return DreCalculationResult(rows=_build_rows(), summary_cards=_build_summary_cards())
 
-    workorders = _get_workorders(workshop=workshop, start_date=start_date, end_date=end_date)
-    workshop_costs = _get_workshop_costs(workshop=workshop, start_date=start_date, end_date=end_date)
+    workorders = _get_workorders(workshops=workshops, start_date=start_date, end_date=end_date)
+    workshop_costs = _get_workshop_costs(workshops=workshops, start_date=start_date, end_date=end_date)
     receita_bruta_vendas_e_servicos = _ZERO_MONEY
     custos_mercadorias_vendidas = _ZERO_MONEY
 
@@ -117,10 +117,10 @@ def build_dre_calculation(
     )
 
 
-def _get_workorders(*, workshop: Workshop, start_date: date, end_date: date) -> list[WorkOrder]:
+def _get_workorders(*, workshops: Sequence[Workshop], start_date: date, end_date: date) -> list[WorkOrder]:
     return list(
         WorkOrder.objects.filter(
-            workshop=workshop,
+            workshop__in=workshops,
             criado_em__date__gte=start_date,
             criado_em__date__lte=end_date,
         )
@@ -140,8 +140,8 @@ def _get_workorders(*, workshop: Workshop, start_date: date, end_date: date) -> 
     )
 
 
-def _get_workshop_costs(*, workshop: Workshop, start_date: date, end_date: date) -> list[WorkshopCost]:
-    workshop_costs = WorkshopCost.objects.filter(workshop=workshop, year__gte=start_date.year, year__lte=end_date.year).prefetch_related(Prefetch("items", queryset=WorkshopCostItem.objects.select_related("monthly_cost"))).order_by("year", "month", "pk")
+def _get_workshop_costs(*, workshops: Sequence[Workshop], start_date: date, end_date: date) -> list[WorkshopCost]:
+    workshop_costs = WorkshopCost.objects.filter(workshop__in=workshops, year__gte=start_date.year, year__lte=end_date.year).prefetch_related(Prefetch("items", queryset=WorkshopCostItem.objects.select_related("monthly_cost"))).order_by("year", "month", "pk")
     return [workshop_cost for workshop_cost in workshop_costs if _month_overlaps_range(workshop_cost=workshop_cost, start_date=start_date, end_date=end_date)]
 
 

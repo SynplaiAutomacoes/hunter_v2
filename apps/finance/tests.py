@@ -27,6 +27,7 @@ from apps.customer.models import Customer
 from apps.core.documents.contract import DocumentPayload
 from apps.finance.documents.provider import build_dre_excel_document, build_dre_pdf_render_request
 from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm
+from apps.finance.forms.dre import DreForm
 from apps.finance.forms.financial_group import FinancialGroupForm
 from apps.finance.forms.payment_method import PaymentMethodForm
 from apps.finance.models.finance import TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassSyncState, WebmaniaCompany
@@ -1920,6 +1921,18 @@ class DreReportViewTests(TestCase):
         session["active_workshop_id"] = self.workshop.pk
         session.save()
 
+    def _create_additional_workshop(self, *, suffix: int) -> Workshop:
+        workshop = Workshop.objects.create(
+            account=self.workshop.account,
+            name=f"Oficina Filial {suffix}",
+            cnpj=f"22.333.444/0001-{suffix:02d}",
+            phone="+5511977777777",
+            address=f"Rua Filial, {suffix}",
+        )
+        membership = WorkshopMember.objects.get(user=self.user, workshop=self.workshop)
+        WorkshopMember.objects.create(user=self.user, workshop=workshop, role=membership.role, is_active=True)
+        return workshop
+
     def _create_workorder_with_values(
         self,
         *,
@@ -1930,24 +1943,26 @@ class DreReportViewTests(TestCase):
         service_cost_price: str,
         customer_name: str | None = None,
         payment_due_date: date | None = None,
+        workshop: Workshop | None = None,
     ) -> WorkOrder:
-        budget = Budget(workshop=self.workshop, entry_date=reference_date)
+        selected_workshop = workshop or self.workshop
+        budget = Budget(workshop=selected_workshop, entry_date=reference_date)
         if customer_name:
             customer = Customer.objects.create(
-                workshop=self.workshop,
+                workshop=selected_workshop,
                 name=customer_name,
                 cpf_or_cnpj=f"1234567890{reference_date.day:02d}",
                 email=f"cliente{reference_date.strftime('%Y%m%d')}@example.com",
             )
             budget.customer = customer
         budget.save()
-        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget)
+        workorder = WorkOrder.objects.create(workshop=selected_workshop, budget=budget)
         WorkOrder.objects.filter(pk=workorder.pk).update(criado_em=timezone.make_aware(datetime.combine(reference_date, datetime.min.time())))
         workorder.refresh_from_db()
 
-        product_group = CatalogGroup.objects.create(workshop=self.workshop, name=f"Grupo DRE {reference_date.isoformat()}")
+        product_group = CatalogGroup.objects.create(workshop=selected_workshop, name=f"Grupo DRE {reference_date.isoformat()}")
         product = Product.objects.create(
-            workshop=self.workshop,
+            workshop=selected_workshop,
             code=f"DRE-P-{reference_date.strftime('%m%d')}",
             unit=Product.Unit.UND,
             name=f"Produto DRE {reference_date.isoformat()}",
@@ -1956,7 +1971,7 @@ class DreReportViewTests(TestCase):
             selling_price=Money(product_selling_price, "BRL"),
         )
         service = Service.objects.create(
-            workshop=self.workshop,
+            workshop=selected_workshop,
             name=f"Servico DRE {reference_date.isoformat()}",
             duration=timedelta(hours=1),
             suggested_cost=Money(service_cost_price, "BRL"),
@@ -1964,10 +1979,10 @@ class DreReportViewTests(TestCase):
             is_third_party=True,
         )
 
-        WorkOrderItem.objects.create(workshop=self.workshop, workorder=workorder, product=product, quantity=1, shipping=Money("0.00", "BRL"))
-        WorkOrderItem.objects.create(workshop=self.workshop, workorder=workorder, service=service, quantity=1)
+        WorkOrderItem.objects.create(workshop=selected_workshop, workorder=workorder, product=product, quantity=1, shipping=Money("0.00", "BRL"))
+        WorkOrderItem.objects.create(workshop=selected_workshop, workorder=workorder, service=service, quantity=1)
         if payment_due_date:
-            payment_method = PaymentMethod.objects.create(workshop=self.workshop, description=f"Pagamento DRE {reference_date.isoformat()}")
+            payment_method = PaymentMethod.objects.create(workshop=selected_workshop, description=f"Pagamento DRE {reference_date.isoformat()}")
             WorkOrderPaymentMethod.objects.create(
                 workorder=workorder,
                 payment_method=payment_method,
@@ -1986,9 +2001,11 @@ class DreReportViewTests(TestCase):
         tax_rate: str,
         operational_cost: str,
         financial_cost: str,
+        workshop: Workshop | None = None,
     ) -> None:
+        selected_workshop = workshop or self.workshop
         workshop_cost = WorkshopCost.objects.create(
-            workshop=self.workshop,
+            workshop=selected_workshop,
             month=month,
             year=year,
             mechanic_quantity=1,
@@ -1998,9 +2015,9 @@ class DreReportViewTests(TestCase):
             tax_rate=Decimal(tax_rate),
             working_hours_per_month=Decimal("176.00"),
         )
-        mechanic_salary_cost = MonthlyCost.objects.create(workshop=self.workshop, name="Salarios mecanicos produtivos")
-        rent_cost = MonthlyCost.objects.create(workshop=self.workshop, name=f"Aluguel {month}/{year}")
-        bank_fee_cost = MonthlyCost.objects.create(workshop=self.workshop, name=f"Taxas bancarias {month}/{year}")
+        mechanic_salary_cost = MonthlyCost.objects.create(workshop=selected_workshop, name="Salarios mecanicos produtivos")
+        rent_cost = MonthlyCost.objects.create(workshop=selected_workshop, name=f"Aluguel {month}/{year}")
+        bank_fee_cost = MonthlyCost.objects.create(workshop=selected_workshop, name=f"Taxas bancarias {month}/{year}")
 
         WorkshopCostItem.objects.create(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_cost, amount=Money("0.00", "BRL"))
         WorkshopCostItem.objects.create(workshop_cost=workshop_cost, monthly_cost=rent_cost, amount=Money(operational_cost, "BRL"))
@@ -2105,6 +2122,134 @@ class DreReportViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Este campo é obrigatório.", count=2)
+
+    def test_report_renders_all_workshops_option(self) -> None:
+        response = self.client.get(reverse("finance:dre_report"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'data-value="{DreForm.ALL_WORKSHOPS_VALUE}"', html=False)
+        self.assertContains(response, 'data-label="TODAS AS FILIAIS"', html=False)
+
+    def test_report_lists_financial_groups_from_all_workshops_with_workshop_headers(self) -> None:
+        second_workshop = self._create_additional_workshop(suffix=89)
+        first_group = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        second_group = FinancialGroup.objects.create(workshop=second_workshop, name="Receitas")
+
+        response = self.client.get(reverse("finance:dre_report"), data={"filial": DreForm.ALL_WORKSHOPS_VALUE})
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertIn("Grupos financeiros por filial", content)
+        self.assertIn(self.workshop.name, content)
+        self.assertIn(second_workshop.name, content)
+        self.assertIn(f"{first_group.code}. {first_group.name}", content)
+        self.assertIn(f"{second_group.code}. {second_group.name}", content)
+        self.assertNotContains(response, "É necessário selecionar uma filial")
+
+    def test_results_page_calculates_consolidated_values_for_all_workshops(self) -> None:
+        second_workshop = self._create_additional_workshop(suffix=90)
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+        FinancialGroup.objects.create(workshop=second_workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=second_workshop, name="Custos")
+        FinancialGroup.objects.create(workshop=second_workshop, name="Despesas")
+
+        self._create_workorder_with_values(
+            reference_date=date(2026, 1, 15),
+            product_selling_price="100.00",
+            product_cost_price="40.00",
+            service_selling_price="200.00",
+            service_cost_price="80.00",
+            workshop=self.workshop,
+        )
+        self._create_workshop_cost_snapshot(
+            month=1,
+            year=2026,
+            tax_rate="0.10",
+            operational_cost="60.00",
+            financial_cost="10.00",
+            workshop=self.workshop,
+        )
+        self._create_workorder_with_values(
+            reference_date=date(2026, 1, 18),
+            product_selling_price="50.00",
+            product_cost_price="20.00",
+            service_selling_price="150.00",
+            service_cost_price="30.00",
+            workshop=second_workshop,
+        )
+        self._create_workshop_cost_snapshot(
+            month=1,
+            year=2026,
+            tax_rate="0.10",
+            operational_cost="20.00",
+            financial_cost="5.00",
+            workshop=second_workshop,
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": DreForm.ALL_WORKSHOPS_VALUE,
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        rows = {row["label"]: row["amount"] for row in response.context["dre_rows"]}
+        self.assertEqual(rows["(+) Receita Bruta de Vendas e Serviços"], Money("500.00", "BRL"))
+        self.assertEqual(rows["(-) Custos Mercadorias Vendidas"], Money("170.00", "BRL"))
+        self.assertEqual(rows["(=) Receita Bruta de Vendas"], Money("330.00", "BRL"))
+        self.assertEqual(rows["(-) Despesas Financeiras"], Money("15.00", "BRL"))
+        self.assertEqual(rows["(=) Resultado Operacional"], Money("-15.00", "BRL"))
+        self.assertEqual(response.context["selected_workshop_label"], "Todas as filiais")
+        self.assertTrue(response.context["is_consolidated_workshops"])
+        self.assertContains(response, "Consolidado de 2 filiais")
+
+    @patch("apps.finance.views.dre.render_dre_pdf_document")
+    def test_pdf_view_uses_consolidated_context_for_all_workshops(self, render_document_mock) -> None:
+        second_workshop = self._create_additional_workshop(suffix=91)
+        render_document_mock.return_value = DocumentPayload(content=b"%PDF-dre", filename="dre.pdf")
+
+        response = self.client.get(
+            reverse("finance:dre_pdf"),
+            data={
+                "filial": DreForm.ALL_WORKSHOPS_VALUE,
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        context = render_document_mock.call_args.kwargs["context"]
+        self.assertIsNone(context["selected_workshop"])
+        self.assertEqual(context["selected_workshop_label"], "Todas as filiais")
+        self.assertTrue(context["is_consolidated_workshops"])
+        self.assertEqual([workshop.pk for workshop in context["selected_workshops"]], [self.workshop.pk, second_workshop.pk])
+
+    def test_excel_view_uses_all_workshops_label_in_summary_sheet(self) -> None:
+        second_workshop = self._create_additional_workshop(suffix=92)
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=second_workshop, name="Receitas")
+
+        response = self.client.get(
+            reverse("finance:dre_excel"),
+            data={
+                "filial": DreForm.ALL_WORKSHOPS_VALUE,
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        workbook = load_workbook(filename=BytesIO(response.content))
+        summary_sheet = workbook["Resumo"]
+        self.assertEqual(summary_sheet["B3"].value, "Todas as filiais")
 
     def test_results_page_renders_dynamic_header_with_selected_workshop(self) -> None:
         FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")

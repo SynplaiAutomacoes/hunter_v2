@@ -10,6 +10,8 @@ from apps.finance.models import FinancialGroup
 
 
 class DreForm(forms.Form):
+    ALL_WORKSHOPS_VALUE = "__all__"
+
     TIPO_DATA_CHOICES = (
         ("PG", "PAGOS"),
         ("NPG", "SERÃO PAGOS"),
@@ -35,6 +37,7 @@ class DreForm(forms.Form):
 
         if workshops:
             choices = [("", "SELECIONE UMA FILIAL")]
+            choices.append((self.ALL_WORKSHOPS_VALUE, "TODAS AS FILIAIS"))
             choices += [(w.id, w.name) for w in workshops]
             filial_field = cast(forms.ChoiceField, self.fields["filial"])
             filial_field.choices = choices

@@ -47,7 +47,7 @@
                 <div class="min-w-0 flex-1">
                     <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500">Relatório financeiro</p>
                     <h1 class="mt-1 text-[20px] font-bold uppercase">Demonstração do Resultado do Exercício</h1>
-                    <p class="mt-1 text-[12px] font-semibold">{{ selected_workshop.name|default:"Todas as filiais" }}</p>
+                    <p class="mt-1 text-[12px] font-semibold">{{ selected_workshop_label }}</p>
                     <p class="mt-2 text-[11px] text-gray-600">Período: {{ data_inicial_label }} até {{ data_final_label }}</p>
                 </div>
                 <div class="w-[230px] rounded-md bg-gray-50 p-3 text-right text-[11px]">
@@ -57,6 +57,9 @@
                         <p>Telefone: {{ selected_workshop.phone|phone_br|default:"-" }}</p>
                         <p>Endereço: {{ selected_workshop.address|default:"-" }}</p>
                         <p>UF: {{ selected_workshop.uf|default:"-" }}</p>
+                    {% elif is_consolidated_workshops %}
+                        <p class="font-bold">Consolidado de {{ selected_workshops|length }} filiais</p>
+                        <p class="mt-1">O PDF considera a soma de todas as filiais disponiveis para o cliente.</p>
                     {% else %}
                         <p class="font-bold">Sem filial selecionada</p>
                         <p class="mt-1">O PDF considera os filtros informados na consulta.</p>

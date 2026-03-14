@@ -93,6 +93,7 @@ def _build_filename(*, workshop: Workshop | None, data_inicial_label: str, data_
 def _populate_summary_sheet(*, summary_sheet, context: dict[str, object]) -> None:
     selected_workshop = context.get("selected_workshop")
     workshop = selected_workshop if isinstance(selected_workshop, Workshop) else None
+    selected_workshop_label = str(context.get("selected_workshop_label") or "Consolidado")
     summary_cards = _get_context_dict_list(context, "dre_summary_cards")
     dre_rows = _get_context_dict_list(context, "dre_rows")
     summary_sheet.sheet_view.showGridLines = False
@@ -106,7 +107,7 @@ def _populate_summary_sheet(*, summary_sheet, context: dict[str, object]) -> Non
     summary_sheet.row_dimensions[1].height = 28
 
     metadata_rows = [
-        ("Filial", workshop.name if workshop is not None else "Consolidado"),
+        ("Filial", workshop.name if workshop is not None else selected_workshop_label),
         ("Periodo", f"{context.get('data_inicial_label', '-')} ate {context.get('data_final_label', '-')}"),
     ]
     for index, (label, value) in enumerate(metadata_rows, start=3):

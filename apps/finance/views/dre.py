@@ -25,9 +25,10 @@ class DreBaseView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     workshop_permission_codename = "view_financialgroup"
 
     def _get_workshops_queryset(self):
+        user_account_id = getattr(self.request.user, "account_id", None)
         return (
             Workshop.objects.filter(
-                account_id=self.request.user.account_id,
+                account_id=user_account_id,
                 is_active=True,
                 members__user=self.request.user,
                 members__is_active=True,
@@ -41,12 +42,27 @@ class DreBaseView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         if not selected_filial:
             return None
 
+        if selected_filial == DreForm.ALL_WORKSHOPS_VALUE:
+            return None
+
         try:
             selected_filial_id = int(selected_filial)
         except (TypeError, ValueError):
             return None
 
         return workshops_qs.filter(pk=selected_filial_id).first()
+
+    def _is_all_workshops_selected(self) -> bool:
+        return (self.request.GET.get("filial") or "").strip() == DreForm.ALL_WORKSHOPS_VALUE
+
+    def _get_selected_workshops(self, workshops_qs) -> list[Workshop]:
+        if self._is_all_workshops_selected():
+            return list(workshops_qs)
+
+        selected_workshop = self._get_selected_workshop(workshops_qs)
+        if selected_workshop is None:
+            return []
+        return [selected_workshop]
 
     def _build_period_label(self) -> str:
         start_label = self._format_date_param(self.request.GET.get("data_inicial"))
@@ -70,20 +86,58 @@ class DreBaseView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             return []
         return list(financial_groups_qs.filter(pk__in=selected_group_ids).order_by("sort_key", "id"))
 
-    def _get_financial_groups_queryset(self, *, selected_workshop: Workshop | None):
-        if selected_workshop is None:
+    def _get_financial_groups_queryset(self, *, selected_workshops: list[Workshop]):
+        if not selected_workshops:
             return FinancialGroup.objects.none()
-        return FinancialGroup.objects.filter(workshop=selected_workshop).order_by("sort_key", "id")
+        return FinancialGroup.objects.filter(workshop__in=selected_workshops).select_related("workshop", "parent").order_by("workshop__name", "sort_key", "id")
+
+    def _get_selected_workshop_label(self, *, selected_workshop: Workshop | None, is_consolidated: bool) -> str:
+        if is_consolidated:
+            return "Todas as filiais"
+        if selected_workshop is not None:
+            return selected_workshop.name
+        return "Nenhuma filial selecionada"
+
+    def _build_grouped_financial_groups(self, *, financial_groups_qs) -> list[dict[str, Any]]:
+        selected_group_ids = {value for value in self.request.GET.getlist("financial_groups") if value.strip()}
+        grouped_financial_groups: list[dict[str, Any]] = []
+        current_workshop_id: int | None = None
+        current_group: dict[str, Any] | None = None
+
+        for financial_group in financial_groups_qs:
+            if financial_group.workshop_id != current_workshop_id:
+                current_workshop_id = financial_group.workshop_id
+                current_group = {
+                    "workshop": financial_group.workshop,
+                    "financial_groups": [],
+                }
+                grouped_financial_groups.append(current_group)
+
+            if current_group is None:
+                continue
+
+            current_group["financial_groups"].append(
+                {
+                    "pk": financial_group.pk,
+                    "parent_pk": financial_group.parent_id,
+                    "label": financial_group.dre_hierarchy_label,
+                    "is_selected": str(financial_group.pk) in selected_group_ids,
+                }
+            )
+
+        return grouped_financial_groups
 
     def _build_results_context(self) -> dict[str, Any]:
         workshops_qs = self._get_workshops_queryset()
+        is_consolidated = self._is_all_workshops_selected()
         selected_workshop = self._get_selected_workshop(workshops_qs)
-        financial_groups = self._get_financial_groups_queryset(selected_workshop=selected_workshop)
+        selected_workshops = self._get_selected_workshops(workshops_qs)
+        financial_groups = self._get_financial_groups_queryset(selected_workshops=selected_workshops)
         selected_financial_groups = self._get_selected_financial_groups(financial_groups_qs=financial_groups)
         tipo_data = (self.request.GET.get("tipo_data") or "A").strip() or "A"
         tipo_data_label = dict(DreForm.TIPO_DATA_CHOICES).get(tipo_data, "AMBOS")
         dre_calculation = build_dre_calculation(
-            workshop=selected_workshop,
+            workshops=selected_workshops,
             start_date=self._parse_date_param(self.request.GET.get("data_inicial")),
             end_date=self._parse_date_param(self.request.GET.get("data_final")),
             selected_financial_groups=selected_financial_groups,
@@ -91,6 +145,9 @@ class DreBaseView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
 
         return {
             "selected_workshop": selected_workshop,
+            "selected_workshop_label": self._get_selected_workshop_label(selected_workshop=selected_workshop, is_consolidated=is_consolidated),
+            "selected_workshops": selected_workshops,
+            "is_consolidated_workshops": is_consolidated,
             "period_label": self._build_period_label(),
             "data_inicial_label": self._format_date_param(self.request.GET.get("data_inicial")),
             "data_final_label": self._format_date_param(self.request.GET.get("data_final")),
@@ -118,17 +175,19 @@ class DreReportView(DreBaseView):
         context = super().get_context_data(**kwargs)
         workshops_qs = self._get_workshops_queryset()
         workshops = list(workshops_qs)
-        selected_workshop = self._get_selected_workshop(workshops_qs)
+        selected_workshops = self._get_selected_workshops(workshops_qs)
 
-        if selected_workshop is None:
+        if not selected_workshops:
             financial_groups = FinancialGroup.objects.none()
             empty_text = "É necessário selecionar uma filial"
         else:
-            financial_groups = self._get_financial_groups_queryset(selected_workshop=selected_workshop)
+            financial_groups = self._get_financial_groups_queryset(selected_workshops=selected_workshops)
             empty_text = "Não há grupos financeiros"
 
         financial_groups_count = financial_groups.count()
         context["financial_groups"] = financial_groups
+        context["grouped_financial_groups"] = self._build_grouped_financial_groups(financial_groups_qs=financial_groups)
+        context["show_grouped_financial_groups"] = self._is_all_workshops_selected() and financial_groups_count > 0
         context["financial_groups_per_page"] = max(financial_groups_count, 1)
         context["dre_financial_groups_empty_text"] = empty_text
         context["dre_financial_groups_selectable"] = financial_groups_count > 0

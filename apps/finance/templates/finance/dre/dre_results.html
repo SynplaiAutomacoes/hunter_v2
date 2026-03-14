@@ -42,7 +42,7 @@
                             <div class="space-y-4">
                                 <div class="space-y-2">
                                     <h1 class="text-2xl font-black uppercase leading-tight text-base-content md:text-3xl">Demonstração de Resultado de Exercício</h1>
-                                    <p class="text-base font-semibold uppercase tracking-[0.16em] text-base-content/75">{{ selected_workshop.name|default:"Todas as filiais" }}</p>
+                                    <p class="text-base font-semibold uppercase tracking-[0.16em] text-base-content/75">{{ selected_workshop_label }}</p>
                                 </div>
 
                                 <div class="rounded-2xl border border-base-300 bg-base-100 px-4 py-3 text-sm shadow-sm">
@@ -60,6 +60,11 @@
                                     <p><span class="font-semibold">Endereço:</span> {{ selected_workshop.address|default:"-" }}</p>
                                     <p><span class="font-semibold">Telefone:</span> {{ selected_workshop.phone|phone_br|default:"-" }}</p>
                                     <p><span class="font-semibold">UF:</span> {{ selected_workshop.uf|default:"-" }}</p>
+                                </div>
+                            {% elif is_consolidated_workshops %}
+                                <div class="space-y-2 text-sm leading-relaxed text-base-content/70 lg:w-full lg:max-w-[280px]">
+                                    <p class="text-lg font-semibold text-base-content">Consolidado de {{ selected_workshops|length }} filiais</p>
+                                    <p>Os valores somam os dados de todas as filiais selecionadas no cliente.</p>
                                 </div>
                             {% else %}
                                 <div class="space-y-2 text-sm leading-relaxed text-base-content/70 lg:w-full lg:max-w-[280px]">

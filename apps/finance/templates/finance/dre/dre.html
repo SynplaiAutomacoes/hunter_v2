@@ -31,7 +31,7 @@
                     hx-swap="outerHTML"
                     hx-include="#id_filial"
                 >
-                    {% render_table financial_groups dre_table_fields table_id='dre-financial-groups-table' per_page=financial_groups_per_page show_search=False selectable=dre_financial_groups_selectable checkbox_name='financial_groups' preserve_selection=True hierarchical_selection=True show_controls=False empty_text=dre_financial_groups_empty_text %}
+                    {% include 'finance/dre/partials/financial_groups_selector.html' %}
                 </div>
 
                 <div class="pt-2">
