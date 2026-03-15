@@ -385,6 +385,8 @@ class WorkOrder(TimeStampedModel):
         return self.pricing_snapshot.total_budget_value
 
     def sync_from_budget(self) -> None:
+        from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
+
         budget_items = list(
             self.budget.items.select_related("product", "service", "kit")
             .prefetch_related(
@@ -449,6 +451,11 @@ class WorkOrder(TimeStampedModel):
 
             self.discount_value = self.budget.resolved_discount_value
             self.save(update_fields=["discount_value"])
+
+            if hasattr(self, "_pricing_snapshot_cache"):
+                delattr(self, "_pricing_snapshot_cache")
+
+            sync_workorder_financial_movement(workorder=self)
 
     class Meta:
         verbose_name = "Ordem de Serviço"

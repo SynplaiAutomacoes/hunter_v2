@@ -22,7 +22,12 @@ from apps.checklist.models import Checklist, ChecklistItem
 from apps.collaborators.models import WorkshopCollaborator
 from apps.customer.models import Customer
 from apps.finance.models import FinancialGroup, PaymentMethod
+from apps.finance.models.bank_account import BankAccount
+from apps.finance.models.finance import TaxClassNfe, TaxClassNfeCofinsScenario, TaxClassNfeIcmsScenario, TaxClassNfeIpiScenario, TaxClassNfePisScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState
+from apps.finance.models.financial_movement import FinancialMovement
+from apps.finance.services.tax_class_presets import get_default_tax_class_presets
 from apps.quote.models.investigative_questions import InvestigativeQuestion
+from apps.sources.models import Source
 from apps.stock.models import StockProduct
 from apps.suppliers.models import Supplier
 from apps.workshops.models.monthly_costs import MonthlyCost
@@ -187,6 +192,44 @@ ADMINISTRATIVE_POSITIONS: tuple[str, ...] = (
     "Gerente operacional",
 )
 
+
+@dataclass(frozen=True)
+class SourceSpec:
+    name: str
+    email: str
+
+
+@dataclass(frozen=True)
+class BankAccountSpec:
+    bank_code: str
+    bank_name: str
+    account_type: str
+    agency: str
+    account_number: str
+
+
+@dataclass(frozen=True)
+class FinancialMovementSpec:
+    description: str
+    direction: str
+    amount: Decimal
+    due_in_days: int
+    source_name: str
+    payment_method: str
+    budget_group: str
+    bank_account: str | None = None
+    nf_number: str | None = None
+    items_observation: str = ""
+    financial_observation: str = ""
+
+
+@dataclass(frozen=True)
+class TaxClassSeedSpec:
+    reference: str
+    description: str
+    payload: dict[str, object]
+
+
 FINANCIAL_GROUP_SPECS: tuple[tuple[str, str | None], ...] = (
     ("Receitas", None),
     ("Receitas de Serviços", "Receitas"),
@@ -216,6 +259,46 @@ PAYMENT_METHOD_SPECS: tuple[tuple[str, int, Decimal | None, Decimal | None], ...
     ("PIX", 1, None, None),
     ("Cheque", 1, None, None),
     ("Boleto", 1, Decimal("1.99"), None),
+)
+
+SOURCE_SPECS: tuple[SourceSpec, ...] = (
+    SourceSpec("Distribuidora Via Pistao", "financeiro@viapistao.com.br"),
+    SourceSpec("Nova Torque Autopecas", "contas@novatorque.com.br"),
+    SourceSpec("Prime Lub Auto Supply", "boletos@primelub.com.br"),
+    SourceSpec("Frente Sul Componentes", "nf@frentesul.com.br"),
+    SourceSpec("Casa do Radiador Paulista", "pagamentos@radiadorpaulista.com.br"),
+    SourceSpec("Despachante Leste Servicos", "faturamento@despachanteleste.com.br"),
+)
+
+BANK_ACCOUNT_SPECS: tuple[BankAccountSpec, ...] = (
+    BankAccountSpec("001", "Banco do Brasil", BankAccount.AccountType.CORRENTE, "1234-5", "100245-9"),
+    BankAccountSpec("237", "Bradesco", BankAccount.AccountType.CORRENTE, "2487", "55421-0"),
+    BankAccountSpec("341", "Itaú", BankAccount.AccountType.PAGAMENTO, "7788", "99231-4"),
+)
+
+FINANCIAL_MOVEMENT_SPECS: tuple[FinancialMovementSpec, ...] = (
+    FinancialMovementSpec("Recebimento de servicos de manutencao preventiva", FinancialMovement.MovementDirection.CREDIT, Decimal("3480.00"), -5, "Despachante Leste Servicos", "PIX", "Receitas de Serviços", "Banco do Brasil"),
+    FinancialMovementSpec("Recebimento de pecas para revisao premium", FinancialMovement.MovementDirection.CREDIT, Decimal("2190.00"), -12, "Distribuidora Via Pistao", "Crédito 3x", "Receitas de Peças", "Itaú", "55120"),
+    FinancialMovementSpec("Receita de higienizacao e servicos agregados", FinancialMovement.MovementDirection.CREDIT, Decimal("1280.00"), -18, "Nova Torque Autopecas", "Débito em Cartão", "Receitas Outras", "Bradesco"),
+    FinancialMovementSpec("Compra de filtros e lubrificantes", FinancialMovement.MovementDirection.DEBIT, Decimal("1840.00"), -7, "Prime Lub Auto Supply", "Boleto", "Custos de Peças", "Banco do Brasil", "90211", "Reposicao de estoque para revisoes da semana.", "Pagamento programado junto ao fornecedor principal."),
+    FinancialMovementSpec("Servico terceirizado de retifica", FinancialMovement.MovementDirection.DEBIT, Decimal("960.00"), -14, "Casa do Radiador Paulista", "PIX", "Custos de Serviços", "Itaú", None, "Servico externo para motor com entrega em 48h."),
+    FinancialMovementSpec("Tarifas bancarias e servicos de cobranca", FinancialMovement.MovementDirection.DEBIT, Decimal("315.00"), -2, "Despachante Leste Servicos", "Débito em Conta", "Despesas Financeiras", "Bradesco"),
+    FinancialMovementSpec("Adiantamento de marketing local e panfletagem", FinancialMovement.MovementDirection.DEBIT, Decimal("540.00"), 4, "Nova Torque Autopecas", "Crédito 1x", "Despesas Administrativas", "Itaú"),
+    FinancialMovementSpec("Recebimento de revisao de frota empresarial", FinancialMovement.MovementDirection.CREDIT, Decimal("6120.00"), 9, "Frente Sul Componentes", "Boleto", "Receitas de Serviços", "Banco do Brasil", "55183"),
+    FinancialMovementSpec("Compra emergencial de pastilhas e discos", FinancialMovement.MovementDirection.DEBIT, Decimal("2435.00"), 12, "Distribuidora Via Pistao", "Crédito 2x", "Custos de Peças", "Banco do Brasil", "90302"),
+    FinancialMovementSpec("Consultoria contabil e fechamento mensal", FinancialMovement.MovementDirection.DEBIT, Decimal("690.00"), 16, "Despachante Leste Servicos", "PIX", "Despesas Administrativas", "Bradesco"),
+)
+
+DEFAULT_TAX_CLASS_PRESETS = get_default_tax_class_presets()
+
+NFE_TAX_CLASS_SPECS: tuple[TaxClassSeedSpec, ...] = (
+    TaxClassSeedSpec("REFNFE100", "Revenda padrao para saidas de produtos.", cast(dict[str, object], DEFAULT_TAX_CLASS_PRESETS["nfe"][0]["payload"])),
+    TaxClassSeedSpec("REFNFE200", "Revenda com credito de ICMS para PJ.", cast(dict[str, object], DEFAULT_TAX_CLASS_PRESETS["nfe"][1]["payload"])),
+)
+
+NFSE_TAX_CLASS_SPECS: tuple[TaxClassSeedSpec, ...] = (
+    TaxClassSeedSpec("REFNFSE100", "Prestacao de servico padrao em oficina.", cast(dict[str, object], DEFAULT_TAX_CLASS_PRESETS["nfse"][0]["payload"])),
+    TaxClassSeedSpec("REFNFSE200", "Prestacao de servico com ISS retido.", cast(dict[str, object], DEFAULT_TAX_CLASS_PRESETS["nfse"][1]["payload"])),
 )
 
 
@@ -1140,25 +1223,20 @@ class Command(BaseCommand):
             collaborators = self._seed_collaborators(workshop=workshop)
             self._seed_checklists(workshop=workshop)
             self._seed_questions(workshop=workshop)
-            self._seed_financial_groups(workshop=workshop)
-            self._seed_payment_methods(workshop=workshop)
+            financial_groups = self._seed_financial_groups(workshop=workshop)
+            payment_methods = self._seed_payment_methods(workshop=workshop)
+            sources = self._seed_sources(workshop=workshop)
+            bank_accounts = self._seed_bank_accounts(workshop=workshop)
+            self._seed_tax_class_presets(workshop=workshop)
+            self._seed_tax_class_sync_state(workshop=workshop)
+            self._seed_tax_classes(workshop=workshop)
+            self._seed_financial_movements(workshop=workshop, financial_groups=financial_groups, payment_methods=payment_methods, sources=sources, bank_accounts=bank_accounts)
             self._seed_workshop_costs(workshop=workshop, monthly_costs=monthly_costs, collaborators=collaborators, rng=rng)
 
         self.stdout.write(self.style.SUCCESS(f"Seed concluido para a oficina {WORKSHOP_ID} com seed {seed}."))
         self.stdout.write(
             " | ".join(
                 (
-                    f"produtos: {workshop.products.count()}",
-                    f"servicos: {workshop.services.count()}",
-                    f"kits: {workshop.kits.count()}",
-                    f"clientes: {workshop.customers.count()}",
-                    f"fornecedores: {workshop.suppliers.count()}",
-                    f"checklists: {workshop.checklists.count()}",
-                    f"colaboradores: {workshop.collaborators.count()}",
-                    f"perguntas: {workshop.investigative_questions.count()}",
-                    f"grupos financeiros: {workshop.financial_groups.count()}",
-                    f"formas de pagamento: {workshop.payment_methods.count()}",
-                    f"custos: {workshop.workshop_costs.count()}",
                     f"produtos: {Product.objects.filter(workshop=workshop).count()}",
                     f"servicos: {Service.objects.filter(workshop=workshop).count()}",
                     f"kits: {Kit.objects.filter(workshop=workshop).count()}",
@@ -1167,6 +1245,14 @@ class Command(BaseCommand):
                     f"checklists: {Checklist.objects.filter(workshop=workshop).count()}",
                     f"colaboradores: {WorkshopCollaborator.objects.filter(workshop=workshop).count()}",
                     f"perguntas: {cast(Any, InvestigativeQuestion).objects.filter(workshop=workshop).count()}",
+                    f"grupos financeiros: {FinancialGroup.objects.filter(workshop=workshop).count()}",
+                    f"formas de pagamento: {PaymentMethod.objects.filter(workshop=workshop).count()}",
+                    f"origens: {Source.objects.filter(workshop=workshop).count()}",
+                    f"contas: {BankAccount.objects.filter(workshop=workshop).count()}",
+                    f"movimentacoes: {FinancialMovement.objects.filter(workshop=workshop).count()}",
+                    f"presets fiscais: {TaxClassPreset.objects.filter(workshop=workshop).count()}",
+                    f"classes NFe: {TaxClassNfe.objects.filter(workshop=workshop).count()}",
+                    f"classes NFSe: {TaxClassNfse.objects.filter(workshop=workshop).count()}",
                     f"custos: {WorkshopCost.objects.filter(workshop=workshop).count()}",
                 )
             )
@@ -1491,7 +1577,8 @@ class Command(BaseCommand):
 
         return financial_groups
 
-    def _seed_payment_methods(self, *, workshop: Workshop) -> None:
+    def _seed_payment_methods(self, *, workshop: Workshop) -> dict[str, PaymentMethod]:
+        payment_methods: dict[str, PaymentMethod] = {}
         for description, installments_count, tax_percentage, tax_value_amount in PAYMENT_METHOD_SPECS:
             defaults: dict[str, object] = {
                 "installments_count": installments_count,
@@ -1504,9 +1591,191 @@ class Command(BaseCommand):
             if tax_value_amount is not None:
                 defaults["tax_value"] = _money(tax_value_amount)
 
-            PaymentMethod.objects.update_or_create(
+            payment_method, _ = PaymentMethod.objects.update_or_create(
                 workshop=workshop,
                 description=description,
+                defaults=defaults,
+            )
+            payment_methods[description] = payment_method
+
+        return payment_methods
+
+    def _seed_sources(self, *, workshop: Workshop) -> dict[str, Source]:
+        sources: dict[str, Source] = {}
+
+        for index, spec in enumerate(SOURCE_SPECS, start=1):
+            source, _ = Source.objects.update_or_create(
+                workshop=workshop,
+                name=spec.name,
+                defaults={
+                    "cnpj": _generate_cnpj(700 + index),
+                    "phone": _landline_phone(200 + index),
+                    "email": spec.email,
+                },
+            )
+            sources[spec.name] = source
+
+        return sources
+
+    def _seed_bank_accounts(self, *, workshop: Workshop) -> dict[str, BankAccount]:
+        bank_accounts: dict[str, BankAccount] = {}
+
+        for spec in BANK_ACCOUNT_SPECS:
+            bank_account, _ = BankAccount.objects.update_or_create(
+                workshop=workshop,
+                bank_code=spec.bank_code,
+                account_number=spec.account_number,
+                defaults={
+                    "bank_name": spec.bank_name,
+                    "account_type": spec.account_type,
+                    "agency": spec.agency,
+                    "is_active": True,
+                },
+            )
+            bank_accounts[spec.bank_name] = bank_account
+
+        return bank_accounts
+
+    def _seed_tax_class_presets(self, *, workshop: Workshop) -> None:
+        for kind, preset_items in DEFAULT_TAX_CLASS_PRESETS.items():
+            for preset_item in preset_items:
+                TaxClassPreset.objects.update_or_create(
+                    workshop=workshop,
+                    kind=kind,
+                    name=str(preset_item["name"]),
+                    defaults={
+                        "description": str(preset_item.get("description") or ""),
+                        "is_active": True,
+                        "payload": cast(dict[str, object], preset_item.get("payload") or {}),
+                    },
+                )
+
+    def _seed_tax_class_sync_state(self, *, workshop: Workshop) -> None:
+        TaxClassSyncState.objects.update_or_create(
+            workshop=workshop,
+            defaults={"synced_once": True},
+        )
+
+    def _seed_tax_classes(self, *, workshop: Workshop) -> None:
+        for spec in NFE_TAX_CLASS_SPECS:
+            tax_class, _ = TaxClassNfe.objects.update_or_create(
+                workshop=workshop,
+                reference=spec.reference,
+                defaults={
+                    "description": spec.description,
+                    "status": "active",
+                    "informacoes_fisco": "Classe seeded para demonstracao offline.",
+                    "informacoes_complementares": "Usada para simular fluxos de configuracao fiscal.",
+                },
+            )
+            self._sync_nfe_scenarios(tax_class=tax_class, payload=spec.payload)
+
+        for spec in NFSE_TAX_CLASS_SPECS:
+            payload = spec.payload
+            tax_class, _ = TaxClassNfse.objects.update_or_create(
+                workshop=workshop,
+                reference=spec.reference,
+                defaults={
+                    "description": spec.description,
+                    "status": "active",
+                    "informacoes_fisco": "Classe seeded para demonstracao offline.",
+                    "informacoes_complementares": "Configuracao basica para emissao de servicos.",
+                    "tipo_emissao": str(payload.get("tipo") or "nfse"),
+                    "codigo_servico": str(payload.get("codigo_servico") or ""),
+                    "natureza_operacao": str(payload.get("natureza_operacao") or ""),
+                    "exigibilidade_iss": str(payload.get("exigibilidade_iss") or ""),
+                    "iss_retido": str(payload.get("iss_retido") or ""),
+                    "responsavel_retencao": str(payload.get("responsavel_retencao") or ""),
+                },
+            )
+
+            update_fields = _merge_missing_seed_fields(
+                tax_class,
+                defaults={
+                    "tipo_emissao": str(payload.get("tipo") or "nfse"),
+                    "codigo_servico": str(payload.get("codigo_servico") or ""),
+                    "natureza_operacao": str(payload.get("natureza_operacao") or ""),
+                    "exigibilidade_iss": str(payload.get("exigibilidade_iss") or ""),
+                    "iss_retido": str(payload.get("iss_retido") or ""),
+                    "responsavel_retencao": str(payload.get("responsavel_retencao") or ""),
+                },
+            )
+            if update_fields:
+                tax_class.save(update_fields=update_fields)
+
+    def _sync_nfe_scenarios(self, *, tax_class: TaxClassNfe, payload: dict[str, object]) -> None:
+        self._sync_scenario_rows(
+            model=TaxClassNfeIcmsScenario,
+            parent_field_name="tax_class",
+            parent=tax_class,
+            rows=cast(list[dict[str, object]], payload.get("icms") or []),
+        )
+        self._sync_scenario_rows(
+            model=TaxClassNfeIpiScenario,
+            parent_field_name="tax_class",
+            parent=tax_class,
+            rows=cast(list[dict[str, object]], payload.get("ipi") or []),
+        )
+        self._sync_scenario_rows(
+            model=TaxClassNfePisScenario,
+            parent_field_name="tax_class",
+            parent=tax_class,
+            rows=cast(list[dict[str, object]], payload.get("pis") or []),
+        )
+        self._sync_scenario_rows(
+            model=TaxClassNfeCofinsScenario,
+            parent_field_name="tax_class",
+            parent=tax_class,
+            rows=cast(list[dict[str, object]], payload.get("cofins") or []),
+        )
+
+    def _sync_scenario_rows(self, *, model: Any, parent_field_name: str, parent: object, rows: list[dict[str, object]]) -> None:
+        for position, raw_row in enumerate(rows):
+            defaults = {field_name: (_decimal(cast(Decimal | str | int | float, field_value)) if field_name.startswith("aliquota") and field_value not in (None, "") else field_value) for field_name, field_value in raw_row.items()}
+            instance = model.objects.filter(**{parent_field_name: parent, "position": position}).order_by("pk").first()
+            if instance is None:
+                model.objects.create(**{parent_field_name: parent, "position": position, **defaults})
+                continue
+
+            update_fields = _merge_missing_seed_fields(instance, defaults=defaults)
+            if update_fields:
+                instance.save(update_fields=update_fields)
+
+    def _seed_financial_movements(
+        self,
+        *,
+        workshop: Workshop,
+        financial_groups: dict[str, FinancialGroup],
+        payment_methods: dict[str, PaymentMethod],
+        sources: dict[str, Source],
+        bank_accounts: dict[str, BankAccount],
+    ) -> None:
+        base_date = timezone.localdate()
+
+        for spec in FINANCIAL_MOVEMENT_SPECS:
+            due_date = base_date + timedelta(days=spec.due_in_days)
+            defaults: dict[str, object] = {
+                "current_step": 4,
+                "description": spec.description,
+                "items_observation": spec.items_observation,
+                "direction": spec.direction,
+                "payment_method": payment_methods[spec.payment_method],
+                "nf_number": spec.nf_number,
+                "amount": _money(spec.amount),
+                "due_date": due_date,
+                "budget_plan": financial_groups[spec.budget_group],
+                "bank_account": bank_accounts.get(spec.bank_account or ""),
+                "financial_observation": spec.financial_observation,
+            }
+            self._get_or_create_and_fill_missing(
+                model=FinancialMovement,
+                lookup={
+                    "workshop": workshop,
+                    "source": sources[spec.source_name],
+                    "description": spec.description,
+                    "due_date": due_date,
+                    "direction": spec.direction,
+                },
                 defaults=defaults,
             )
 

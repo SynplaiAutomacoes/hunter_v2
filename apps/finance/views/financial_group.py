@@ -28,9 +28,7 @@ class FinancialGroupListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempla
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         context["fields"] = [
-            TableColumn(label="Código", attr="code", search_by="code"),
-            TableColumn(label="Grupo / Subgrupo", attr="name", sort_by="sort_key", search_by="name"),
-            TableColumn(label="Grupo pai", attr="parent_display", sort_by=["parent__sort_key", "sort_key"], search_by="parent__name"),
+            TableColumn(label="Grupo / Subgrupo", attr="dre_hierarchy_label", sort_by="sort_key", search_by="name"),
             TableColumn(label="Ativo", attr="is_active"),
         ]
         context["actions"] = [

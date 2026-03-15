@@ -22,9 +22,7 @@ class MovementStep1Form(FinancialMovementBaseForm):
     class Meta:
         model = FinancialMovement
         fields = ["source"]
-        widgets = {
-            "source": SearchableSelectInput()
-        }
+        widgets = {"source": SearchableSelectInput()}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -97,7 +95,7 @@ class MovementStep1Form(FinancialMovementBaseForm):
                     css_class="col-span-12 lg:col-span-6",
                 ),
                 css_class="grid grid-cols-12 gap-6",
-            )
+            ),
         )
 
 
@@ -105,51 +103,43 @@ class MovementStep2Form(FinancialMovementBaseForm):
     class Meta:
         model = FinancialMovement
         fields = ["description", "items_observation"]
-        widgets = {
-            "description": TextInput(),
-            "items_observation": TextareaInput(attrs={"rows": 4, "placeholder": "Ex: Compra de 50 cápsulas de café expresso..."})
-        }
+        widgets = {"description": TextInput(), "items_observation": TextareaInput(attrs={"rows": 4, "placeholder": "Ex: Compra de 50 cápsulas de café expresso..."})}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['description'].required = True
+        self.fields["description"].required = True
         self.helper = FormHelper()
         self.helper.form_tag = False
 
 
 class MovementStep3Form(FinancialMovementBaseForm):
+    is_paid = forms.TypedChoiceField(
+        label="Pago",
+        required=True,
+        coerce=lambda value: str(value).lower() == "true",
+        choices=((False, "Não"), (True, "Sim")),
+        widget=SelectInput(choices=[(False, "Não"), (True, "Sim")]),
+        initial=False,
+    )
+
     class Meta:
         model = FinancialMovement
-        fields = ["direction", "payment_method", "amount", "due_date", "nf_number", "budget_plan", "bank_account", "attachment", "financial_observation"]
-        widgets = {
-            "direction": SelectInput(),
-            "payment_method": SearchableSelectInput(),
-            "amount": MoneyInput(),
-            "due_date": CalendarDateInput(),
-            "nf_number": NumberInput(),
-            "budget_plan": SearchableSelectInput(),
-            "bank_account": SearchableSelectInput(),
-            "financial_observation": TextareaInput(attrs={"rows": 4})
-        }
+        fields = ["direction", "payment_method", "is_paid", "amount", "due_date", "nf_number", "budget_plan", "bank_account", "attachment", "financial_observation"]
+        widgets = {"direction": SelectInput(), "payment_method": SearchableSelectInput(), "amount": MoneyInput(), "due_date": CalendarDateInput(), "nf_number": NumberInput(), "budget_plan": SearchableSelectInput(), "bank_account": SearchableSelectInput(), "financial_observation": TextareaInput(attrs={"rows": 4})}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.fields['due_date'].required = True
-        self.fields['direction'].required = True
-        self.fields['amount'].required = True
-        self.fields['payment_method'].required = True
+        self.fields["due_date"].required = True
+        self.fields["direction"].required = True
+        self.fields["amount"].required = True
+        self.fields["payment_method"].required = True
+        self.fields["is_paid"].initial = bool(self.instance.is_paid) if self.instance.pk else False
 
         if self.workshop:
-            self.fields["payment_method"].widget.choices = [
-                (pm.id, str(pm)) for pm in PaymentMethod.objects.filter(workshop=self.workshop)
-            ]
-            self.fields["budget_plan"].widget.choices = [
-                (bp.id, str(bp)) for bp in FinancialGroup.objects.filter(workshop=self.workshop)
-            ]
-            self.fields["bank_account"].widget.choices = [
-                (ba.id, str(ba)) for ba in BankAccount.objects.filter(workshop=self.workshop)
-            ]
+            self.fields["payment_method"].widget.choices = [(pm.id, str(pm)) for pm in PaymentMethod.objects.filter(workshop=self.workshop)]
+            self.fields["budget_plan"].widget.choices = [(bp.id, str(bp)) for bp in FinancialGroup.objects.filter(workshop=self.workshop)]
+            self.fields["bank_account"].widget.choices = [(ba.id, str(ba)) for ba in BankAccount.objects.filter(workshop=self.workshop)]
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -162,8 +152,9 @@ class MovementStep3Form(FinancialMovementBaseForm):
                 Div("budget_plan", css_class="col-span-6"),
                 Div("bank_account", css_class="col-span-6"),
                 #
-                Div("payment_method", css_class="col-span-6"),
-                Div("nf_number", css_class="col-span-6"),
+                Div("payment_method", css_class="col-span-4"),
+                Div("is_paid", css_class="col-span-4"),
+                Div("nf_number", css_class="col-span-4"),
                 Div("attachment", css_class="col-span-12"),
                 #
                 Div("financial_observation", css_class="col-span-12"),

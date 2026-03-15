@@ -16,19 +16,29 @@ from apps.catalog.models.services import Service
 from apps.checklist.models import Checklist, ChecklistItem
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.management.commands.seed_demo_data import (
+    BANK_ACCOUNT_SPECS,
     CHECKLIST_BLUEPRINTS,
     COLLABORATOR_NAMES,
+    FINANCIAL_MOVEMENT_SPECS,
     KIT_SPECS,
+    NFE_TAX_CLASS_SPECS,
+    NFSE_TAX_CLASS_SPECS,
     PF_CUSTOMERS,
     PJ_CUSTOMERS,
     PRODUCT_SPECS,
     QUESTION_SPECS,
     SERVICE_SPECS,
+    SOURCE_SPECS,
     SUPPLIER_SPECS,
     WORKSHOP_ID,
 )
 from apps.customer.models import Customer
+from apps.finance.models.bank_account import BankAccount
+from apps.finance.models.finance import TaxClassNfe, TaxClassNfse, TaxClassPreset, TaxClassSyncState
+from apps.finance.models.financial_movement import FinancialMovement
+from apps.finance.services.tax_class_presets import get_default_tax_class_presets
 from apps.quote.models.investigative_questions import InvestigativeQuestion
+from apps.sources.models import Source
 from apps.stock.models import StockProduct
 from apps.suppliers.models import Supplier
 from apps.workshops.models.monthly_costs import MonthlyCost
@@ -62,6 +72,13 @@ class SeedDemoDataCommandTests(TestCase):
         self.assertEqual(cast(Any, InvestigativeQuestion).objects.filter(workshop=self.workshop).count(), len(QUESTION_SPECS))
         self.assertEqual(MonthlyCost.objects.filter(workshop=self.workshop).count(), len(DEFAULT_MONTHLY_COSTS))
         self.assertEqual(WorkshopCost.objects.filter(workshop=self.workshop).count(), 6)
+        self.assertEqual(Source.objects.filter(workshop=self.workshop).count(), len(SOURCE_SPECS))
+        self.assertEqual(BankAccount.objects.filter(workshop=self.workshop).count(), len(BANK_ACCOUNT_SPECS))
+        self.assertEqual(FinancialMovement.objects.filter(workshop=self.workshop).count(), len(FINANCIAL_MOVEMENT_SPECS))
+        self.assertEqual(TaxClassPreset.objects.filter(workshop=self.workshop).count(), sum(len(items) for items in get_default_tax_class_presets().values()))
+        self.assertEqual(TaxClassNfe.objects.filter(workshop=self.workshop).count(), len(NFE_TAX_CLASS_SPECS))
+        self.assertEqual(TaxClassNfse.objects.filter(workshop=self.workshop).count(), len(NFSE_TAX_CLASS_SPECS))
+        self.assertTrue(TaxClassSyncState.objects.filter(workshop=self.workshop, synced_once=True).exists())
         self.assertEqual(
             ChecklistItem.objects.filter(checklist__workshop=self.workshop).count(),
             sum(blueprint.item_count for blueprint in CHECKLIST_BLUEPRINTS),
@@ -72,6 +89,37 @@ class SeedDemoDataCommandTests(TestCase):
         for product in Product.objects.filter(workshop=self.workshop).order_by("code"):
             normalized_ncm = re.sub(r"\D", "", product.ncm)
             self.assertEqual(len(normalized_ncm), 8, f"Produto {product.code} ficou sem NCM valido")
+
+        self.assertTrue(
+            FinancialMovement.objects.filter(
+                workshop=self.workshop,
+                direction=FinancialMovement.MovementDirection.CREDIT,
+            ).exists()
+        )
+        self.assertTrue(
+            FinancialMovement.objects.filter(
+                workshop=self.workshop,
+                direction=FinancialMovement.MovementDirection.DEBIT,
+            ).exists()
+        )
+
+        movement = FinancialMovement.objects.filter(workshop=self.workshop).select_related("source", "payment_method", "budget_plan", "bank_account").first()
+        assert movement is not None
+        self.assertIsNotNone(movement.source)
+        self.assertIsNotNone(movement.payment_method)
+        self.assertIsNotNone(movement.budget_plan)
+
+        tax_class_nfe = TaxClassNfe.objects.filter(workshop=self.workshop).prefetch_related("icms_scenarios", "ipi_scenarios", "pis_scenarios", "cofins_scenarios").first()
+        assert tax_class_nfe is not None
+        tax_class_nfe_any = cast(Any, tax_class_nfe)
+        self.assertGreater(tax_class_nfe_any.icms_scenarios.count(), 0)
+        self.assertGreater(tax_class_nfe_any.ipi_scenarios.count(), 0)
+        self.assertGreater(tax_class_nfe_any.pis_scenarios.count(), 0)
+        self.assertGreater(tax_class_nfe_any.cofins_scenarios.count(), 0)
+
+        tax_class_nfse = TaxClassNfse.objects.filter(workshop=self.workshop).first()
+        assert tax_class_nfse is not None
+        self.assertTrue(tax_class_nfse.codigo_servico)
 
         call_command("seed_demo_data", seed=123)
 
@@ -133,4 +181,11 @@ class SeedDemoDataCommandTests(TestCase):
             "questions": cast(Any, InvestigativeQuestion).objects.filter(workshop=self.workshop).count(),
             "monthly_costs": MonthlyCost.objects.filter(workshop=self.workshop).count(),
             "workshop_costs": WorkshopCost.objects.filter(workshop=self.workshop).count(),
+            "sources": Source.objects.filter(workshop=self.workshop).count(),
+            "bank_accounts": BankAccount.objects.filter(workshop=self.workshop).count(),
+            "financial_movements": FinancialMovement.objects.filter(workshop=self.workshop).count(),
+            "tax_class_presets": TaxClassPreset.objects.filter(workshop=self.workshop).count(),
+            "tax_classes_nfe": TaxClassNfe.objects.filter(workshop=self.workshop).count(),
+            "tax_classes_nfse": TaxClassNfse.objects.filter(workshop=self.workshop).count(),
+            "tax_class_sync_state": TaxClassSyncState.objects.filter(workshop=self.workshop).count(),
         }

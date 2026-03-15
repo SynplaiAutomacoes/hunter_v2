@@ -41,7 +41,10 @@ def format_money(value: Any) -> str:
         amount = value.amount
     else:
         amount = Decimal(str(value or 0))
-    return f"R$ {amount:.2f}".replace(".", ",")
+    amount = amount.quantize(Decimal("0.01"))
+    integer_part, decimal_part = f"{amount:.2f}".split(".")
+    grouped_integer = f"{int(integer_part):,}".replace(",", ".")
+    return f"R$ {grouped_integer},{decimal_part}"
 
 
 def format_percentage(value: Decimal) -> str:

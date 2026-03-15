@@ -9,6 +9,7 @@ from apps.finance.views import (
     FinancialGroupCreateView,
     FinancialGroupDeleteView,
     FinancialGroupListView,
+    FinancialReportsHomeView,
     FinancialGroupUpdateView,
     NfeCreateRedirectView,
     NfeDocumentDownloadView,
@@ -45,6 +46,7 @@ from apps.finance.views.payment_method import PaymentMethodListView, PaymentMeth
 app_name = "finance"
 
 urlpatterns = [
+    path("reports/", FinancialReportsHomeView.as_view(), name="reports_home"),
     # Financial Groups
     path("financial-groups/", FinancialGroupListView.as_view(), name="financial_groups_list"),
     path("financial-groups/create/", FinancialGroupCreateView.as_view(), name="financial_groups_create"),
