@@ -439,7 +439,7 @@ class TestRenderTableTag(TestCase):
         self.assertIn('id="t-controls-form"', html)
         self.assertIn('type="submit"', html)
         self.assertIn('id="t-content" hx-disinherit="hx-vals"', html)
-        self.assertIn('@htmx:after-swap.window="all = false"', html)
+        self.assertIn('@htmx:after-swap.window="syncMasterCheckbox()"', html)
         self.assertNotIn("@htmx:afterSwap.window", html)
         self.assertIn('@htmx:before-request.window="if ($event.detail && $event.detail.elt && $event.detail.elt.id === controlsFormId && $refs.filterModal?.open) $refs.filterModal.close()"', html)
         self.assertNotIn("@htmx:beforeRequest.window", html)
