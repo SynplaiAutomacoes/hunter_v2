@@ -1,0 +1,120 @@
+{% extends 'crud/detail.html' %}
+
+{% block crud_title %}Detalhes da NF-e{% endblock %}
+{% block crud_subtitle %}Acompanhe o status, identificadores e documentos da NF-e emitida.{% endblock %}
+{% block crud_back_url %}{% url 'finance:nfe_list' %}{% endblock %}
+
+{% block crud_header_actions %}
+    <a href="{% url 'finance:nfe_update' pk=nfe_request.pk %}" class="btn btn-sm btn-primary gap-2">
+        <span class="material-icons text-sm">edit</span>
+        Editar
+    </a>
+    <form method="post" action="{% url 'finance:nfe_reconcile' pk=nfe_request.pk %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-sm btn-outline gap-2">
+            <span class="material-icons text-sm">sync</span>
+            Reconsultar status
+        </button>
+    </form>
+{% endblock %}
+
+{% block crud_detail_content %}
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body p-6 md:p-8">
+            <div class="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="material-icons text-base-content/80">receipt_long</span>
+                        <h2 class="text-xl font-bold text-base-content">Resumo da emissão</h2>
+                    </div>
+                    <div class="divider mt-0 mb-6"></div>
+                </div>
+                <span class="badge {{ nfe_request.nfe_request_status_badge.class }}">{{ nfe_request.nfe_request_status_badge.text }}</span>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {% for field in request_fields %}
+                    <div>
+                        <p class="text-xs text-base-content/70 mb-1">{{ field.label }}</p>
+                        <p class="font-medium break-all">{{ field.value }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body p-6 md:p-8">
+            <div class="flex items-center gap-2 mb-2">
+                <span class="material-icons text-base-content/80">description</span>
+                <h2 class="text-xl font-bold text-base-content">Documento fiscal</h2>
+            </div>
+            <div class="divider mt-0 mb-6"></div>
+
+            {% if latest_item %}
+                <div class="flex flex-wrap items-center gap-3 mb-6">
+                    <span class="badge {{ latest_item_status_badge.class }}">{{ latest_item_status_badge.text }}</span>
+                    {% if latest_item.last_reconciled_at %}
+                        <span class="text-sm text-base-content/70">Consulta: {{ latest_item.last_reconciled_at|date:'d/m/Y H:i' }}</span>
+                    {% endif %}
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                    <div>
+                        <p class="text-xs text-base-content/70 mb-1">UUID</p>
+                        <p class="font-medium break-all">{{ latest_item.uuid }}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-base-content/70 mb-1">Motivo</p>
+                        <p class="font-medium break-all">{{ latest_item.reason|default:'-' }}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-base-content/70 mb-1">Número / Série</p>
+                        <p class="font-medium">{{ latest_item.number|default:'-' }} / {{ latest_item.series|default:'-' }}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-base-content/70 mb-1">Recibo</p>
+                        <p class="font-medium">{{ latest_item.receipt|default:'-' }}</p>
+                    </div>
+                    <div class="md:col-span-2">
+                        <p class="text-xs text-base-content/70 mb-1">Chave de acesso</p>
+                        <p class="font-medium break-all">{{ latest_item.access_key|default:'-' }}</p>
+                    </div>
+                    {% if latest_item.last_sync_error %}
+                        <div class="md:col-span-2">
+                            <p class="text-xs text-error mb-1">Último erro</p>
+                            <p class="font-medium text-error break-all">{{ latest_item.last_sync_error }}</p>
+                        </div>
+                    {% endif %}
+                </div>
+
+                <div class="flex flex-wrap gap-2">
+                    {% if latest_item.xml_url %}
+                        <a href="{% url 'finance:nfe_document_download' pk=nfe_request.pk document='xml' %}" class="btn btn-outline btn-sm">Baixar XML</a>
+                    {% else %}
+                        <span class="btn btn-outline btn-sm btn-disabled">Baixar XML</span>
+                    {% endif %}
+                    {% if latest_item.danfe_url %}
+                        <a href="{% url 'finance:nfe_document_download' pk=nfe_request.pk document='danfe' %}" class="btn btn-outline btn-sm">Baixar DANFE</a>
+                    {% else %}
+                        <span class="btn btn-outline btn-sm btn-disabled">Baixar DANFE</span>
+                    {% endif %}
+                    {% if latest_item.danfe_simple_url %}
+                        <a href="{% url 'finance:nfe_document_download' pk=nfe_request.pk document='danfe_simples' %}" class="btn btn-outline btn-sm">DANFE simples</a>
+                    {% else %}
+                        <span class="btn btn-outline btn-sm btn-disabled">DANFE simples</span>
+                    {% endif %}
+                    {% if latest_item.danfe_label_url %}
+                        <a href="{% url 'finance:nfe_document_download' pk=nfe_request.pk document='danfe_etiqueta' %}" class="btn btn-outline btn-sm">DANFE etiqueta</a>
+                    {% else %}
+                        <span class="btn btn-outline btn-sm btn-disabled">DANFE etiqueta</span>
+                    {% endif %}
+                </div>
+            {% else %}
+                <div class="alert alert-warning">
+                    <span>A NF-e ainda nao possui item sincronizado. Reenvie a consulta quando a Webmania retornar o processamento.</span>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}

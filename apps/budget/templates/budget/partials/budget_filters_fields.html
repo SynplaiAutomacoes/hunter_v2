@@ -1,0 +1,47 @@
+<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+    <div>
+        <label for="{{ table_id }}-filter-client">Cliente</label>
+        <input
+            type="text"
+            name="client"
+            id="{{ table_id }}-filter-client"
+            value="{{ request.GET.client|default:'' }}"
+            placeholder="Digite o cliente"
+            class="input-theme"
+        />
+    </div>
+
+    <div>
+        <label for="{{ table_id }}-filter-vehicle">Veiculo</label>
+        <input
+            type="text"
+            name="vehicle"
+            id="{{ table_id }}-filter-vehicle"
+            value="{{ request.GET.vehicle|default:'' }}"
+            placeholder="Digite a placa"
+            class="input-theme"
+        />
+    </div>
+
+    <div>
+        <label for="{{ table_id }}-filter-collaborator">Colaborador</label>
+        <input
+            type="text"
+            name="collaborator"
+            id="{{ table_id }}-filter-collaborator"
+            value="{{ request.GET.collaborator|default:'' }}"
+            placeholder="Digite o colaborador"
+            class="input-theme"
+        />
+    </div>
+
+    <div>
+        <label for="{{ table_id }}-filter-status">Status</label>
+        <select name="status" id="{{ table_id }}-filter-status" class="select select-bordered w-full">
+            <option value="">Todos</option>
+            {% for value, label in status_choices %}
+                <option value="{{ value }}" {% if request.GET.status == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
+</div>

@@ -4,21 +4,20 @@ import logging
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import HttpResponse
-from django.shortcuts import redirect
-from django.urls import reverse
-from django.views.generic import CreateView, ListView
+from django.http import Http404, HttpResponse
+from django.shortcuts import get_object_or_404
+from django.views import View
+from django.views.generic import DetailView, ListView
 
-from apps.core.forms import MultiStepFormMixin
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxTemplateResponseMixin
 from apps.finance.forms import NfseRequestStep1Form, NfseRequestStep2Form, NfseRequestStep3Form
-from apps.finance.models.finance import NfseRequest, NfseRequestStatus
+from apps.finance.models.finance import NfseItem, NfseRequest, NfseRequestStatus
 from apps.finance.services.emission import NfseEmissionError, emit_nfse_request, sync_emission_response
-from apps.finance.services.tax_classes import TaxClassServiceError, list_tax_classes
+from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
+from apps.finance.views.request_workflow import SharedEmissionRequestCreateBaseView, SharedEmissionRequestUpdateBaseView
 from apps.workshops.mixin import WorkshopScopedMixin
-from apps.workshops.util.workshops import get_active_workshop_or_404
 
 
 logger = logging.getLogger(__name__)
@@ -31,7 +30,7 @@ class NfseRequestListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
     htmx_template_name = "finance/partials/nfse_request_table.html"
 
     def get_queryset(self):
-        return super().get_queryset().select_related("workorder", "workorder__budget", "workorder__budget__customer", "workorder__budget__vehicle")
+        return super().get_queryset().select_related("workorder", "workorder__budget", "workorder__budget__customer", "workorder__budget__vehicle").prefetch_related("items")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -43,108 +42,129 @@ class NfseRequestListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
         )
         context["fields"] = [
             TableColumn("ID", attr="id"),
+            TableColumn("RPS", attr="rps_number_display"),
             TableColumn("Ordem de Serviço", attr="workorder"),
             TableColumn("Cliente", attr="customer_name"),
-            TableColumn(NfseRequest.criado_em.field.verbose_name, attr=NfseRequest.criado_em.field.name),
+            TableColumn("Criado em", attr=NfseRequest.criado_em.field.name),
             TableColumn("Status", attr="nfse_request_status_badge", format="status_badge"),
         ]
         context["actions"] = [
+            TableActionDefaults.view("finance:nfse_detail"),
             TableActionDefaults.edit("finance:nfse_update"),
         ]
         return context
 
 
-class NfseRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixin, CreateView):
+def _format_item_status_badge(status: str) -> dict[str, str]:
+    status_map = {
+        "processando": {"text": "Processando", "class": "badge-soft badge-warning"},
+        "aprovado": {"text": "Aprovado", "class": "badge-success"},
+        "agendado": {"text": "Agendado", "class": "badge-soft badge-warning"},
+        "reprovado": {"text": "Reprovado", "class": "badge-error"},
+        "cancelado": {"text": "Cancelado", "class": "badge-soft badge-error"},
+        "contingencia": {"text": "Contingência", "class": "badge-soft badge-warning"},
+    }
+    return status_map.get(str(status or "").strip().lower(), {"text": str(status or "-") or "-", "class": "badge-ghost"})
+
+
+def _build_field(label: str, value: object) -> dict[str, str]:
+    normalized = str(value or "-").strip() or "-"
+    return {"label": label, "value": normalized}
+
+
+class NfseRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
+    model = NfseRequest
+    template_name = "finance/nfse_request_detail.html"
+    context_object_name = "nfse_request"
+
+    def get_queryset(self):
+        return super().get_queryset().select_related("workorder", "workorder__budget", "workorder__budget__customer", "workorder__budget__vehicle").prefetch_related("items", "batches")
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        latest_item = self.object.items.order_by("-id").first()
+        latest_batch = self.object.batches.order_by("-id").first()
+        context.update(
+            {
+                "latest_item": latest_item,
+                "latest_batch": latest_batch,
+                "request_fields": [
+                    _build_field("ID da requisição", self.object.pk),
+                    _build_field("Ordem de serviço", self.object.workorder),
+                    _build_field("Cliente", self.object.customer_name),
+                    _build_field("Classe de imposto", self.object.tax_class),
+                    _build_field("Número da NFS-e", self.object.reserved_rps_number),
+                    _build_field("Série da NFS-e", self.object.reserved_rps_series),
+                    _build_field("Discriminação", self.object.service_description),
+                    _build_field("Criado em", self.object.criado_em.strftime("%d/%m/%Y %H:%M") if self.object.criado_em else "-"),
+                    _build_field("Atualizado em", self.object.atualizado_em.strftime("%d/%m/%Y %H:%M") if self.object.atualizado_em else "-"),
+                ],
+                "latest_item_status_badge": _format_item_status_badge(getattr(latest_item, "status", "")),
+            }
+        )
+        return context
+
+
+class NfseDocumentDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "view_nfserequest"
+
+    document_fields = {
+        "xml": ("xml_url", "xml"),
+        "pdf_nfse": ("pdf_nfse_url", "pdf"),
+        "pdf_rps": ("pdf_rps_url", "pdf"),
+    }
+
+    def get(self, request, *args, **kwargs):
+        nfse_request = get_object_or_404(NfseRequest, pk=kwargs.get("pk"), workshop=self.workshop)
+        document_kind = str(kwargs.get("document") or "").strip().lower()
+        if document_kind not in self.document_fields:
+            raise Http404("Documento nao suportado")
+
+        item = nfse_request.items.order_by("-id").first()
+        if item is None:
+            raise Http404("Documento ainda nao disponivel")
+
+        field_name, extension = self.document_fields[document_kind]
+        document_url = str(getattr(item, field_name, "") or "").strip()
+
+        try:
+            downloaded = download_webmania_document(workshop=self.workshop, url=document_url)
+        except WebmaniaDocumentDownloadError as exc:
+            return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
+
+        response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
+        response["Content-Disposition"] = self._build_content_disposition(item=item, document_kind=document_kind, extension=extension)
+        return response
+
+    @staticmethod
+    def _build_content_disposition(*, item: NfseItem, document_kind: str, extension: str) -> str:
+        identifier = str(item.number or item.rps_number or item.uuid or "documento").strip()
+        safe_identifier = identifier.replace(" ", "-")
+        return f'attachment; filename="nfse-{document_kind}-{safe_identifier}.{extension}"'
+
+
+class NfseRequestCreateView(SharedEmissionRequestCreateBaseView):
     model = NfseRequest
     template_name = "finance/nfse_request_form.html"
+    partial_template_name = "finance/partials/nfse_step_content.html"
+    preview_template_name = "finance/partials/nfse_step3_preview.html"
+    step3_form_class = NfseRequestStep3Form
+    preview_initial_fields = ("pricing_slider", "tax_class", "service_description")
+    tax_class_kind = "nfse"
+    tax_class_warning_message = "Nao foi possivel carregar classes de imposto de NFS-e: {error}"
+    success_redirect_name = "finance:nfse_list"
+    status_by_step = {
+        1: NfseRequestStatus.CHECKING_CLIENT,
+        2: NfseRequestStatus.CHECKING_SERVICES,
+    }
 
     steps_definition = [
         {"title": "Selecionar OS", "form_class": NfseRequestStep1Form},
         {"title": "Conferir Cliente", "form_class": NfseRequestStep2Form},
         {"title": "Conferir Serviços", "form_class": NfseRequestStep3Form},
     ]
-
-    def get_template_names(self):
-        if self.request.htmx:
-            return ["finance/partials/nfse_step_content.html"]
-        return [self.template_name]
-
-    def get_object(self, queryset=None):
-        pk = self.kwargs.get("pk") or self.request.GET.get("pk")
-        if not pk:
-            return None
-        return NfseRequest.objects.select_related("workorder", "workorder__budget", "workorder__budget__customer", "workorder__budget__vehicle").filter(pk=pk, workshop=self.workshop).first()
-
-    def get_form_kwargs(self):
-        kwargs = super().get_form_kwargs()
-        kwargs["request"] = self.request
-        kwargs["workshop"] = self.workshop
-        kwargs["instance"] = self.get_object()
-
-        form_class = self.get_form_class()
-        if isinstance(form_class, type) and issubclass(form_class, NfseRequestStep3Form):
-            kwargs["tax_class_choices"] = self._get_nfse_tax_class_choices()
-
-        return kwargs
-
-    def _get_nfse_tax_class_choices(self) -> list[tuple[str, str]]:
-        try:
-            tax_classes = list_tax_classes(workshop=self.workshop, force_refresh=True)
-        except TaxClassServiceError as exc:
-            logger.warning(
-                "nfse_tax_class_choices_load_failed workshop_id=%s user_id=%s error=%s",
-                getattr(self.workshop, "pk", None),
-                getattr(self.request.user, "id", None),
-                str(exc),
-            )
-            messages.warning(self.request, f"Nao foi possivel carregar classes de imposto de NFS-e: {exc}")
-            return []
-
-        choices: list[tuple[str, str]] = []
-        for tax_class in tax_classes:
-            reference = str(tax_class.get("referencia") or "").strip()
-            if not reference:
-                continue
-
-            tax_type = str(tax_class.get("tipo") or tax_class.get("type") or "").strip().lower()
-            is_nfse_tax_class = tax_type in {"nfse", "nfs-e", "nsfe"}
-
-            if not is_nfse_tax_class:
-                has_nfse_shape = bool(tax_class.get("tipo_emissao")) and bool(tax_class.get("codigo_servico"))
-                if not has_nfse_shape:
-                    continue
-
-            if str(tax_class.get("status") or "").strip().lower() == "inativo":
-                continue
-
-            description = str(tax_class.get("descricao") or "").strip()
-            if description:
-                label = f"{reference} - {description}"
-            else:
-                label = reference
-            choices.append((reference, label))
-
-        logger.info(
-            "nfse_tax_class_choices_loaded workshop_id=%s user_id=%s total_choices=%s",
-            getattr(self.workshop, "pk", None),
-            getattr(self.request.user, "id", None),
-            len(choices),
-        )
-        return choices
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context.setdefault("is_update", False)
-        return context
-
-    def _step_url(self, step: int) -> str:
-        return f"{self.request.path}?step={step}&pk={self.object.pk}"
-
-    def _update_request_status_by_step(self, *, current_step: int) -> None:
-        if current_step == 1:
-            self.object.set_status(NfseRequestStatus.CHECKING_CLIENT)
-        elif current_step == 2:
-            self.object.set_status(NfseRequestStatus.CHECKING_SERVICES)
 
     def _finalize_emission(self) -> bool:
         logger.info(
@@ -174,103 +194,7 @@ class NfseRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFo
             messages.error(self.request, str(exc))
             return False
 
-    def form_valid(self, form):
-        form.instance.workshop = self.workshop
-        self.object = form.save()
 
-        current_step = self.get_current_step()
-        total_steps = len(self.get_steps_config())
-
-        logger.info(
-            "nfse_form_step_saved nfse_request_id=%s workshop_id=%s user_id=%s step=%s total_steps=%s",
-            getattr(self.object, "pk", None),
-            getattr(self.workshop, "pk", None),
-            getattr(self.request.user, "id", None),
-            current_step,
-            total_steps,
-        )
-
-        self._update_request_status_by_step(current_step=current_step)
-
-        next_step_value = min(current_step + 1, total_steps)
-        if self.object.current_step < next_step_value:
-            self.object.current_step = next_step_value
-            self.object.save(update_fields=["current_step"])
-
-        if current_step < total_steps:
-            success_url = self._step_url(step=current_step + 1)
-            logger.info(
-                "nfse_form_next_step_redirect nfse_request_id=%s next_step=%s user_id=%s",
-                getattr(self.object, "pk", None),
-                current_step + 1,
-                getattr(self.request.user, "id", None),
-            )
-            if self.request.htmx:
-                response = redirect(success_url)
-                response["HX-Push-Url"] = success_url
-                return response
-            return redirect(success_url)
-
-        if not self._finalize_emission():
-            step_url = self._step_url(step=current_step)
-            logger.warning(
-                "nfse_finalize_failed_redirect nfse_request_id=%s step=%s user_id=%s",
-                getattr(self.object, "pk", None),
-                current_step,
-                getattr(self.request.user, "id", None),
-            )
-            if self.request.htmx:
-                response = HttpResponse()
-                response["HX-Redirect"] = step_url
-                return response
-            return redirect(step_url)
-
-        success_url = reverse("finance:nfse_list")
-        logger.info(
-            "nfse_flow_completed nfse_request_id=%s user_id=%s",
-            getattr(self.object, "pk", None),
-            getattr(self.request.user, "id", None),
-        )
-        if self.request.htmx:
-            response = HttpResponse()
-            response["HX-Redirect"] = success_url
-            return response
-        return redirect(success_url)
-
-
-class NfseRequestUpdateView(NfseRequestCreateView):
-    def get(self, request, *args, **kwargs):
-        self.object = self.get_object()
-        step_in_url = int(request.GET.get("step", 0))
-
-        if not step_in_url and self.object:
-            target_step = self.object.current_step
-            return redirect(f"{reverse('finance:nfse_update', kwargs={'pk': self.object.pk})}?step={target_step}")
-
-        return super().get(request, *args, **kwargs)
-
-    def dispatch(self, request, *args, **kwargs):
-        self.workshop = get_active_workshop_or_404(request)
-        if not self.model_instance:
-            logger.warning(
-                "nfse_update_missing_instance workshop_id=%s user_id=%s pk=%s",
-                getattr(self.workshop, "pk", None),
-                getattr(request.user, "id", None),
-                kwargs.get("pk"),
-            )
-            return redirect("finance:nfse_list")
-        return super().dispatch(request, *args, **kwargs)
-
-    def get_object(self, queryset=None):
-        pk = self.kwargs.get("pk")
-        if pk:
-            return NfseRequest.objects.select_related("workorder", "workorder__budget", "workorder__budget__customer", "workorder__budget__vehicle").filter(pk=pk, workshop=self.workshop).first()
-        return super().get_object(queryset=queryset)
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context["is_update"] = True
-        return context
-
-    def _step_url(self, step: int) -> str:
-        return f"{reverse('finance:nfse_update', kwargs={'pk': self.object.pk})}?step={step}"
+class NfseRequestUpdateView(SharedEmissionRequestUpdateBaseView, NfseRequestCreateView):
+    update_url_name = "finance:nfse_update"
+    missing_update_redirect_name = "finance:nfse_list"

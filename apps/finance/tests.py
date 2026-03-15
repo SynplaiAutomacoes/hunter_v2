@@ -1,34 +1,50 @@
 from __future__ import annotations
 
+from io import BytesIO
+from datetime import date, datetime, timedelta
+import re
 import json
+from datetime import timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import Mock, patch
+from unittest.mock import ANY, Mock, patch
 
+from django.contrib.messages import get_messages
 from django.core.exceptions import ValidationError
 from django.contrib.auth.models import Permission
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from djmoney.money import Money
+from openpyxl import load_workbook
 
-from apps.budget.models import Budget, BudgetItem
+from apps.budget.models import Budget, BudgetItem, BudgetStatus
 from apps.accounts.models import Account, User
 from apps.catalog.models.groups import CatalogGroup
-from apps.catalog.models.kits import Kit, KitProduct
+from apps.catalog.models.kits import Kit, KitProduct, KitService
 from apps.catalog.models.products import Product
+from apps.catalog.models.services import Service
 from apps.collaborators.models import WorkshopMember
+from apps.core.documents.contract import DocumentPayload
+from apps.finance.documents.provider import build_dre_excel_document, build_dre_pdf_render_request
 from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm
+from apps.finance.forms.dre import DreForm
+from apps.customer.models import Customer, Vehicle
+from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm
+from apps.finance.forms.emission_ui import build_step5_pricing_panel_data
 from apps.finance.forms.financial_group import FinancialGroupForm
 from apps.finance.forms.payment_method import PaymentMethodForm
-from apps.finance.models.finance import TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassSyncState, WebmaniaCompany
+from apps.finance.models.financial_movement import FinancialMovement
+from apps.finance.models.finance import NfeItem, NfeRequest, NfeRequestStatus, NfseItem, NfseRequest, NfseRequestStatus, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
+from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
-from apps.finance.tax_class_utils import NFSE_SERVICE_CODE_VALIDATION_MESSAGE
-from apps.finance.services.emission import NfseEmissionError, _build_taker_payload, _service_total_value, build_webmania_webhook_token, emit_nfse_request
-from apps.finance.services.nfe_emission import _extract_product_lines
-from apps.finance.services.pricing import build_slider_allocation_for_workorder, compute_slider_allocation, distribute_total_proportionally
+from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
+from apps.finance.services.emission import NfseEmissionError, _build_taker_payload, _default_service_description, _service_total_value, build_nfse_payload, build_webmania_webhook_token, emit_nfse_request, sync_emission_response
+from apps.finance.services.nfe_emission import NfeEmissionError, _build_nfe_products_payload, _extract_product_lines, build_nfe_payload, sync_nfe_emission_response
+from apps.finance.services.numbering import reserve_nfe_request_number, reserve_nfse_request_rps_number
+from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder, compute_slider_allocation, distribute_total_proportionally
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
 from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers
 from apps.finance.services.webmania_b2b import (
@@ -41,11 +57,19 @@ from apps.finance.services.webmania_b2b import (
     sync_b2b_companies_to_database,
     update_webmania_company,
 )
+from apps.finance.services.webmania_documents import DownloadedWebmaniaDocument
 from apps.finance.services.webmania_errors import extract_webmania_error_message, sanitize_webmania_api_message
 from apps.finance.services.webmania_secrets import decrypt_secret, encrypt_secret, is_encrypted_secret
 from apps.finance.views.nfse import NfseRequestCreateView
 from apps.iam.utils import get_or_create_director_role
+from apps.sources.models import Source
 from apps.workorder.models import WorkOrder
+from apps.workorder.models import WorkOrderItem
+from apps.workorder.models import WorkOrderPaymentMethod
+from apps.workshops.models.monthly_costs import MonthlyCost
+from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
+from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderStatus
+from apps.workshops.forms.workshops import WorkshopFiscalSectionForm
 from apps.workshops.models.workshops import Workshop
 
 
@@ -470,6 +494,183 @@ class TaxClassServiceTests(TestCase):
         self.assertEqual(str(tax_class.ibs_aliquota_diferimento_estadual), "1.25")
         self.assertTrue(TaxClassSyncState.objects.filter(workshop=workshop, synced_once=True).exists())
 
+    def test_save_tax_class_preserves_nfse_service_code_with_five_digits(self) -> None:
+        workshop = create_workshop()
+        payload = {
+            "descricao": "Classe NFSE",
+            "tipo": "nfse",
+            "tipo_emissao": "1",
+            "codigo_servico": "12345",
+        }
+        response_payload = {
+            "referencia": "REFNFSE005",
+            "status": "ativo",
+            "data": "2026-02-17",
+        }
+
+        with (
+            patch("apps.finance.services.tax_classes._build_headers", return_value={}),
+            patch("apps.finance.services.tax_classes.requests.post", return_value=_mock_response(response_payload)) as post_mock,
+        ):
+            save_tax_class(workshop=workshop, payload=payload)
+
+        sent_payload = post_mock.call_args.kwargs.get("json", {})
+        self.assertEqual(sent_payload.get("codigo_servico"), "12345")
+
+        tax_class = TaxClassNfse.objects.get(workshop=workshop, reference="REFNFSE005")
+        self.assertEqual(tax_class.codigo_servico, "12345")
+
+    def test_save_tax_class_ignores_success_message_and_persists_update(self) -> None:
+        workshop = create_workshop()
+        TaxClassNfe.objects.create(
+            workshop=workshop,
+            reference="REFNFE003",
+            description="Classe antiga",
+            status="ativo",
+        )
+
+        payload = {
+            "referencia": "REFNFE003",
+            "descricao": "Classe atualizada",
+            "icms": [{"codigo_cfop": "6102", "tipo_pessoa": "juridica"}],
+        }
+        response_payload = {
+            "referencia": "REFNFE003",
+            "tipo": "nfe",
+            "status": "ativo",
+            "data": "2026-02-18",
+            "message": "Classe de imposto atualizada com sucesso.",
+        }
+
+        with (
+            patch("apps.finance.services.tax_classes._build_headers", return_value={}),
+            patch("apps.finance.services.tax_classes.requests.post", return_value=_mock_response(response_payload)),
+        ):
+            saved = save_tax_class(workshop=workshop, payload=payload)
+
+        tax_class = TaxClassNfe.objects.get(workshop=workshop, reference="REFNFE003")
+        scenario_queryset = TaxClassNfeIcmsScenario.objects.filter(tax_class=tax_class)
+        scenario = scenario_queryset.first()
+        if scenario is None:
+            self.fail("Cenário ICMS não foi persistido na atualização com mensagem de sucesso")
+        self.assertEqual(saved.get("referencia"), "REFNFE003")
+        self.assertEqual(tax_class.description, "Classe atualizada")
+        self.assertEqual(scenario_queryset.count(), 1)
+        self.assertEqual(scenario.codigo_cfop, "6102")
+
+    def test_save_tax_class_ignores_success_msg_and_persists_nfse_update(self) -> None:
+        workshop = create_workshop()
+        TaxClassNfse.objects.create(
+            workshop=workshop,
+            reference="REFNFSE003",
+            description="Classe antiga",
+            status="ativo",
+            tipo_emissao="1",
+            codigo_servico="01.05",
+        )
+
+        payload = {
+            "referencia": "REFNFSE003",
+            "descricao": "Classe NFSE atualizada",
+            "tipo": "nfse",
+            "codigo_servico": "1401",
+            "iss": "3.50",
+        }
+        response_payload = {
+            "referencia": "REFNFSE003",
+            "tipo": "nfse",
+            "status": "ativo",
+            "data": "2026-02-18",
+            "msg": "Classe de imposto atualizada com sucesso.",
+        }
+
+        with (
+            patch("apps.finance.services.tax_classes._build_headers", return_value={}),
+            patch("apps.finance.services.tax_classes.requests.post", return_value=_mock_response(response_payload)),
+        ):
+            saved = save_tax_class(workshop=workshop, payload=payload)
+
+        tax_class = TaxClassNfse.objects.get(workshop=workshop, reference="REFNFSE003")
+        self.assertEqual(saved.get("referencia"), "REFNFSE003")
+        self.assertEqual(tax_class.description, "Classe NFSE atualizada")
+        self.assertEqual(tax_class.codigo_servico, "14.01")
+        self.assertEqual(str(tax_class.iss), "3.50")
+
+    def test_save_tax_class_ignores_plain_updated_message_and_persists_nfe_update(self) -> None:
+        workshop = create_workshop()
+        TaxClassNfe.objects.create(
+            workshop=workshop,
+            reference="REFNFE004",
+            description="Classe antiga",
+            status="ativo",
+        )
+
+        payload = {
+            "referencia": "REFNFE004",
+            "descricao": "Classe atualizada sem sufixo",
+            "icms": [{"codigo_cfop": "5405", "tipo_pessoa": "juridica"}],
+        }
+        response_payload = {
+            "referencia": "REFNFE004",
+            "tipo": "nfe",
+            "status": "ativo",
+            "data": "2026-02-18",
+            "message": "Classe de imposto atualizada.",
+        }
+
+        with (
+            patch("apps.finance.services.tax_classes._build_headers", return_value={}),
+            patch("apps.finance.services.tax_classes.requests.post", return_value=_mock_response(response_payload)),
+        ):
+            saved = save_tax_class(workshop=workshop, payload=payload)
+
+        tax_class = TaxClassNfe.objects.get(workshop=workshop, reference="REFNFE004")
+        scenario_queryset = TaxClassNfeIcmsScenario.objects.filter(tax_class=tax_class)
+        scenario = scenario_queryset.first()
+        if scenario is None:
+            self.fail("Cenário ICMS não foi persistido na atualização com mensagem simples")
+        self.assertEqual(saved.get("referencia"), "REFNFE004")
+        self.assertEqual(tax_class.description, "Classe atualizada sem sufixo")
+        self.assertEqual(scenario.codigo_cfop, "5405")
+
+    def test_save_tax_class_ignores_plain_updated_msg_and_persists_nfse_update(self) -> None:
+        workshop = create_workshop()
+        TaxClassNfse.objects.create(
+            workshop=workshop,
+            reference="REFNFSE004",
+            description="Classe antiga",
+            status="ativo",
+            tipo_emissao="1",
+            codigo_servico="01.05",
+        )
+
+        payload = {
+            "referencia": "REFNFSE004",
+            "descricao": "Classe NFSE atualizada sem sufixo",
+            "tipo": "nfse",
+            "codigo_servico": "1701",
+            "iss": "4.20",
+        }
+        response_payload = {
+            "referencia": "REFNFSE004",
+            "tipo": "nfse",
+            "status": "ativo",
+            "data": "2026-02-18",
+            "msg": "Classe de imposto atualizada.",
+        }
+
+        with (
+            patch("apps.finance.services.tax_classes._build_headers", return_value={}),
+            patch("apps.finance.services.tax_classes.requests.post", return_value=_mock_response(response_payload)),
+        ):
+            saved = save_tax_class(workshop=workshop, payload=payload)
+
+        tax_class = TaxClassNfse.objects.get(workshop=workshop, reference="REFNFSE004")
+        self.assertEqual(saved.get("referencia"), "REFNFSE004")
+        self.assertEqual(tax_class.description, "Classe NFSE atualizada sem sufixo")
+        self.assertEqual(tax_class.codigo_servico, "17.01")
+        self.assertEqual(str(tax_class.iss), "4.20")
+
     def test_delete_tax_class_removes_local_on_success(self) -> None:
         workshop = create_workshop()
         TaxClassNfe.objects.create(
@@ -502,6 +703,7 @@ class NfseTaxClassFormTests(TestCase):
         form = NfseTaxClassForm()
 
         self.assertEqual(form.initial.get("natureza_operacao"), "1")
+        self.assertEqual(form.initial.get("exigibilidade_iss"), "1")
         self.assertEqual(form.initial.get("iss_retido"), "2")
 
     def test_build_payload_formats_service_code_as_xx_xx(self) -> None:
@@ -509,7 +711,9 @@ class NfseTaxClassFormTests(TestCase):
             data={
                 "descricao": "Classe NFS-e",
                 "codigo_servico": "0105",
+                "codigo_tributacao_municipio": "",
                 "natureza_operacao": "1",
+                "exigibilidade_iss": "1",
                 "iss_retido": "2",
                 "base_payload_json": "{}",
             }
@@ -520,10 +724,29 @@ class NfseTaxClassFormTests(TestCase):
 
         self.assertEqual(payload.get("codigo_servico"), "01.05")
         self.assertNotIn("codigo_tributacao_municipio", payload)
+        self.assertNotIn("tipo_emissao", payload)
         self.assertNotIn("tributacao_iss", payload)
         self.assertNotIn("retencao_iss", payload)
         self.assertNotIn("cst_pis_cofins", payload)
         self.assertNotIn("retencao_pis_cofins", payload)
+
+    def test_build_payload_accepts_service_code_as_five_digits(self) -> None:
+        form = NfseTaxClassForm(
+            data={
+                "descricao": "Classe NFS-e",
+                "codigo_servico": "12345",
+                "codigo_tributacao_municipio": "",
+                "natureza_operacao": "1",
+                "exigibilidade_iss": "1",
+                "iss_retido": "2",
+                "base_payload_json": "{}",
+            }
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        payload = form.build_payload()
+
+        self.assertEqual(payload.get("codigo_servico"), "12345")
 
     def test_initial_from_tax_class_formats_service_code_for_display(self) -> None:
         initial = NfseTaxClassForm.initial_from_tax_class(
@@ -532,40 +755,43 @@ class NfseTaxClassFormTests(TestCase):
                 "descricao": "Classe NFS-e",
                 "codigo_servico": "0105",
                 "natureza_operacao": "1",
+                "exigibilidade_iss": "1",
                 "iss_retido": "2",
             }
         )
 
         self.assertEqual(initial.get("codigo_servico"), "01.05")
 
-    def test_requires_natureza_operacao_and_iss_retido(self) -> None:
+    def test_requires_exigibilidade_and_iss_retido(self) -> None:
         form = NfseTaxClassForm(
             data={
                 "descricao": "Classe NFS-e",
                 "codigo_servico": "01.05",
-                "natureza_operacao": "",
+                "natureza_operacao": "1",
+                "exigibilidade_iss": "",
                 "iss_retido": "",
                 "base_payload_json": "{}",
             }
         )
 
         self.assertFalse(form.is_valid())
-        self.assertIn("Informe a natureza da operação.", form.errors.get("natureza_operacao", []))
-        self.assertIn("Informe se o ISS é retido.", form.errors.get("iss_retido", []))
+        self.assertIn("Este campo é obrigatório.", form.errors.get("exigibilidade_iss", []))
+        self.assertIn("Este campo é obrigatório.", form.errors.get("iss_retido", []))
 
-    def test_requires_service_code_in_xx_xx_format(self) -> None:
+    def test_requires_service_code_in_xx_xx_or_xxxxx_format(self) -> None:
         form = NfseTaxClassForm(
             data={
                 "descricao": "Classe NFS-e",
                 "codigo_servico": "01.05.01",
                 "natureza_operacao": "1",
+                "exigibilidade_iss": "1",
                 "iss_retido": "2",
                 "base_payload_json": "{}",
             }
         )
 
         self.assertFalse(form.is_valid())
-        self.assertIn(NFSE_SERVICE_CODE_VALIDATION_MESSAGE, form.errors.get("codigo_servico", []))
+        self.assertIn("Informe o código do serviço no formato XX.XX ou XXXXX.", form.errors.get("codigo_servico", []))
 
 
 class NfseEmissionPayloadTests(TestCase):
@@ -587,6 +813,47 @@ class NfseEmissionPayloadTests(TestCase):
 
 
 class SliderPricingAllocationTests(TestCase):
+    def _build_workorder_with_product_and_service(
+        self,
+        *,
+        suffix: int,
+        discount_value: str = "0.00",
+        service_cost: str = "30.00",
+    ) -> tuple[WorkOrder, Budget, BudgetItem]:
+        workshop = create_workshop(suffix=suffix)
+        budget = Budget(workshop=workshop, entry_date=timezone.now().date())
+        budget.save()
+
+        product_group = CatalogGroup.objects.create(workshop=workshop, name=f"Grupo Slider {suffix}")
+        product = Product.objects.create(
+            workshop=workshop,
+            code=f"P-SL-{suffix}",
+            unit=Product.Unit.UND,
+            name=f"Produto Slider {suffix}",
+            ncm="87089990",
+            group=product_group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+        )
+        service = Service.objects.create(
+            workshop=workshop,
+            name=f"Servico Slider {suffix}",
+            description="Servico de teste",
+            duration=timedelta(hours=1),
+            suggested_cost=Money(service_cost, "BRL"),
+            selling_price=Money("50.00", "BRL"),
+        )
+
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=1)
+        service_item = BudgetItem.objects.create(workshop=workshop, budget=budget, service=service, quantity=1)
+
+        budget.discount_value = Money(discount_value, "BRL")
+        budget.save(update_fields=["discount_value"])
+
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        workorder.sync_from_budget()
+        return workorder, budget, service_item
+
     def test_compute_slider_allocation_transfers_full_service_to_products(self) -> None:
         products_target, services_target = compute_slider_allocation(
             products_base=Decimal("400.00"),
@@ -617,51 +884,387 @@ class SliderPricingAllocationTests(TestCase):
 
         self.assertEqual(distributed, [Decimal("50.00"), Decimal("150.00"), Decimal("300.00")])
 
-    def test_build_slider_allocation_caps_totals_to_budget_final_value(self) -> None:
-        workorder = SimpleNamespace(
-            total_products_value=SimpleNamespace(amount=Decimal("500.00")),
-            total_services_value=SimpleNamespace(amount=Decimal("300.00")),
-            budget=SimpleNamespace(
-                slider=-100,
-                total_budget_value=SimpleNamespace(amount=Decimal("700.00")),
-            ),
-        )
+    def test_build_slider_allocation_uses_workorder_discount_and_budget_margin_rules(self) -> None:
+        workorder, budget, _ = self._build_workorder_with_product_and_service(suffix=91, discount_value="10.00")
+        budget.discount_value = Money("25.00", "BRL")
+        budget.save(update_fields=["discount_value"])
 
-        allocation = build_slider_allocation_for_workorder(workorder=workorder)  # type: ignore[arg-type]
+        allocation = build_slider_allocation_for_workorder(workorder=workorder, slider_override=-100)
 
-        self.assertEqual(allocation.total_base, Decimal("700.00"))
-        self.assertEqual(allocation.products_target, Decimal("700.00"))
+        self.assertEqual(allocation.total_base, Decimal("60.00"))
+        self.assertEqual(allocation.products_base, Decimal("17.14"))
+        self.assertEqual(allocation.services_base, Decimal("42.86"))
+        self.assertEqual(allocation.products_target, Decimal("60.00"))
         self.assertEqual(allocation.services_target, Decimal("0.00"))
-        self.assertEqual(allocation.products_target + allocation.services_target, Decimal("700.00"))
+        self.assertEqual(allocation.products_target + allocation.services_target, Decimal("60.00"))
 
-    def test_nfse_service_total_uses_slider_distribution(self) -> None:
-        workorder = SimpleNamespace(
-            total_products_value=SimpleNamespace(amount=Decimal("400.00")),
-            total_services_value=SimpleNamespace(amount=Decimal("600.00")),
-            budget=SimpleNamespace(
-                slider=-50,
-                total_budget_value=SimpleNamespace(amount=Decimal("1000.00")),
-            ),
-        )
+    def test_nfse_service_total_uses_slider_override_on_workorder_snapshot(self) -> None:
+        workorder, _, _ = self._build_workorder_with_product_and_service(suffix=92)
         nfse_request = SimpleNamespace(workorder=workorder)
 
-        service_total = _service_total_value(nfse_request=nfse_request)  # type: ignore[arg-type]
+        service_total = _service_total_value(nfse_request=nfse_request, slider_override=100)  # type: ignore[arg-type]
 
-        self.assertEqual(service_total, "300.00")
+        self.assertEqual(service_total, "70.00")
 
-    def test_nfse_service_total_raises_when_slider_100_to_products(self) -> None:
-        workorder = SimpleNamespace(
-            total_products_value=SimpleNamespace(amount=Decimal("400.00")),
-            total_services_value=SimpleNamespace(amount=Decimal("600.00")),
-            budget=SimpleNamespace(
-                slider=-100,
-                total_budget_value=SimpleNamespace(amount=Decimal("1000.00")),
-            ),
-        )
+    def test_nfse_service_total_raises_when_slider_override_exhausts_services(self) -> None:
+        workorder, _, _ = self._build_workorder_with_product_and_service(suffix=93, service_cost="0.00")
         nfse_request = SimpleNamespace(workorder=workorder)
 
         with self.assertRaisesMessage(NfseEmissionError, "nao possui saldo de servicos"):
-            _service_total_value(nfse_request=nfse_request)  # type: ignore[arg-type]
+            _service_total_value(nfse_request=nfse_request, slider_override=-100)  # type: ignore[arg-type]
+
+    def test_build_step5_pricing_panel_data_exposes_discount_percentage_display(self) -> None:
+        workshop = create_workshop(suffix=31)
+        budget = Budget(workshop=workshop, entry_date=timezone.now().date())
+        budget.save()
+
+        product_group = CatalogGroup.objects.create(workshop=workshop, name="Grupo Painel 31")
+        product = Product.objects.create(
+            workshop=workshop,
+            code="P-DISC-31",
+            unit=Product.Unit.UND,
+            name="Produto Painel 31",
+            ncm="87089990",
+            group=product_group,
+            cost_price=Money("40.00", "BRL"),
+            selling_price=Money("200.00", "BRL"),
+        )
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        WorkOrderItem.objects.create(workshop=workshop, workorder=workorder, product=product, quantity=1)
+        workorder.discount_value = Money("30.00", "BRL")
+        workorder.save(update_fields=["discount_value"])
+
+        panel_data = build_step5_pricing_panel_data(workorder=workorder, selected_slider=0)
+
+        self.assertEqual(panel_data.discount_display, Money("30.00", "BRL"))
+        self.assertEqual(panel_data.discount_percentage_display, "15,00%")
+
+    def test_nfse_preview_rows_and_default_description_use_workorder_items(self) -> None:
+        workorder, _, service_item = self._build_workorder_with_product_and_service(suffix=94)
+        service_item.description = "Servico alterado no orcamento"
+        service_item.service_selling_price = Money("999.00", "BRL")
+        service_item.save(update_fields=["description", "service_selling_price"])
+
+        rows = build_nfse_service_preview_rows(workorder=workorder)
+        description = _default_service_description(SimpleNamespace(service_description="", workorder=workorder))  # type: ignore[arg-type]
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["description"], "Servico Slider 94")
+        self.assertEqual(rows[0]["total_value"], Money("50.00", "BRL"))
+        self.assertEqual(description, "1x Servico Slider 94")
+
+    def test_nfse_request_copies_budget_slider_on_create(self) -> None:
+        workorder, budget, _ = self._build_workorder_with_product_and_service(suffix=95)
+        budget.slider = -35
+        budget.save(update_fields=["slider"])
+
+        nfse_request = NfseRequest.objects.create(workshop=workorder.workshop, workorder=workorder)
+
+        self.assertEqual(nfse_request.pricing_slider, -35)
+
+    def test_nfe_request_copies_budget_slider_on_create(self) -> None:
+        workorder, budget, _ = self._build_workorder_with_product_and_service(suffix=96)
+        budget.slider = 45
+        budget.save(update_fields=["slider"])
+
+        nfe_request = NfeRequest.objects.create(workshop=workorder.workshop, workorder=workorder)
+
+        self.assertEqual(nfe_request.pricing_slider, 45)
+
+    def test_nfse_service_total_prefers_persisted_request_slider(self) -> None:
+        workorder, budget, _ = self._build_workorder_with_product_and_service(suffix=97)
+        budget.slider = -100
+        budget.save(update_fields=["slider"])
+        nfse_request = NfseRequest.objects.create(workshop=workorder.workshop, workorder=workorder)
+
+        budget.slider = 0
+        budget.save(update_fields=["slider"])
+
+        with self.assertRaisesMessage(NfseEmissionError, "nao possui saldo de servicos"):
+            _service_total_value(nfse_request=nfse_request)
+
+    def test_nfse_service_total_falls_back_to_budget_slider_for_compatibility_request_without_persisted_slider(self) -> None:
+        workorder, budget, _ = self._build_workorder_with_product_and_service(suffix=98)
+        budget.slider = -100
+        budget.save(update_fields=["slider"])
+        nfse_request = NfseRequest.objects.create(workshop=workorder.workshop, workorder=workorder)
+
+        NfseRequest.objects.filter(pk=nfse_request.pk).update(pricing_slider=None)
+        compat_request = NfseRequest.objects.get(pk=nfse_request.pk)
+
+        with self.assertRaisesMessage(NfseEmissionError, "nao possui saldo de servicos"):
+            _service_total_value(nfse_request=compat_request)
+
+    def test_nfe_products_payload_prefers_persisted_request_slider(self) -> None:
+        workorder, budget, _ = self._build_workorder_with_product_and_service(suffix=99)
+        budget.slider = -100
+        budget.save(update_fields=["slider"])
+        nfe_request = NfeRequest.objects.create(workshop=workorder.workshop, workorder=workorder, tax_class="REF000001")
+
+        budget.slider = 0
+        budget.save(update_fields=["slider"])
+
+        _, total_products_value, allocation = _build_nfe_products_payload(nfe_request=nfe_request)
+
+        self.assertEqual(total_products_value, Decimal("70.00"))
+        self.assertEqual(allocation.slider, -100)
+
+    def test_nfe_products_payload_falls_back_to_budget_slider_for_compatibility_request_without_persisted_slider(self) -> None:
+        workorder, budget, _ = self._build_workorder_with_product_and_service(suffix=89)
+        budget.slider = 0
+        budget.save(update_fields=["slider"])
+        nfe_request = NfeRequest.objects.create(workshop=workorder.workshop, workorder=workorder, tax_class="REF000001")
+
+        NfeRequest.objects.filter(pk=nfe_request.pk).update(pricing_slider=None)
+        budget.slider = -100
+        budget.save(update_fields=["slider"])
+        compat_request = NfeRequest.objects.get(pk=nfe_request.pk)
+
+        _, total_products_value, allocation = _build_nfe_products_payload(nfe_request=compat_request)
+
+        self.assertEqual(total_products_value, Decimal("70.00"))
+        self.assertEqual(allocation.slider, -100)
+
+
+class EmissionRequestNumberReservationTests(TestCase):
+    def _build_requests(self, *, suffix: int) -> tuple[WebmaniaCompany, WorkOrder, NfeRequest, NfseRequest]:
+        workshop = create_workshop(suffix=suffix)
+        customer = Customer.objects.create(
+            workshop=workshop,
+            customer_type="PF",
+            name=f"Cliente Numeracao {suffix}",
+            cpf_or_cnpj="12345678901",
+            email=f"cliente{suffix}@teste.com",
+            logradouro="Rua Teste",
+            numero="123",
+            bairro="Centro",
+            cidade="Sao Paulo",
+            estado="SP",
+            cep="01001-000",
+        )
+        vehicle = Vehicle.objects.create(
+            workshop=workshop,
+            customer=customer,
+            plate=f"ABC{suffix:04d}"[-7:],
+            brand="Ford",
+            model="Fiesta",
+            year_fabrication="2020",
+            year_model="2020",
+            color="Prata",
+        )
+
+        budget = Budget(workshop=workshop, entry_date=timezone.now().date(), customer=customer, vehicle=vehicle)
+        budget.save()
+
+        product_group = CatalogGroup.objects.create(workshop=workshop, name=f"Grupo Numero {suffix}")
+        product = Product.objects.create(
+            workshop=workshop,
+            code=f"P-NUM-{suffix}",
+            unit=Product.Unit.UND,
+            name=f"Produto Numero {suffix}",
+            ncm="87089990",
+            group=product_group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+        )
+        service = Service.objects.create(
+            workshop=workshop,
+            name=f"Servico Numero {suffix}",
+            description="Servico para numeracao",
+            duration=timedelta(hours=1),
+            suggested_cost=Money("30.00", "BRL"),
+            selling_price=Money("50.00", "BRL"),
+        )
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, service=service, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        workorder.sync_from_budget()
+
+        company = WebmaniaCompany.objects.create(
+            workshop=workshop,
+            webmania_company_id=f"NUM-{suffix}",
+            nfe_serie=1,
+            nfe_numero=1000,
+            nfe_numero_dev=9000,
+            nfse_rps_serie="A1",
+            nfse_rps_numero=2000,
+            nfse_rps_numero_dev=8000,
+        )
+        nfe_request = NfeRequest.objects.create(workshop=workshop, workorder=workorder, tax_class="REFNFE999")
+        nfse_request = NfseRequest.objects.create(workshop=workshop, workorder=workorder, tax_class="REFNFSE999", service_description="Servico teste")
+        return company, workorder, nfe_request, nfse_request
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_reserve_nfe_request_number_uses_dev_counter_and_reuses_same_number(self) -> None:
+        company, _, nfe_request, _ = self._build_requests(suffix=70)
+
+        reserved = reserve_nfe_request_number(nfe_request=nfe_request)
+        reserved_again = reserve_nfe_request_number(nfe_request=nfe_request)
+
+        company.refresh_from_db()
+        nfe_request.refresh_from_db()
+
+        self.assertEqual(reserved.number, 9000)
+        self.assertEqual(reserved.series, 1)
+        self.assertEqual(reserved_again.number, 9000)
+        self.assertEqual(company.nfe_numero_dev, 9001)
+        self.assertEqual(company.nfe_numero, 1000)
+        self.assertEqual(nfe_request.reserved_number, 9000)
+        self.assertEqual(nfe_request.reserved_series, 1)
+
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_reserve_nfse_request_rps_number_uses_production_counter_and_reuses_same_number(self) -> None:
+        company, _, _, nfse_request = self._build_requests(suffix=71)
+
+        reserved = reserve_nfse_request_rps_number(nfse_request=nfse_request)
+        reserved_again = reserve_nfse_request_rps_number(nfse_request=nfse_request)
+
+        company.refresh_from_db()
+        nfse_request.refresh_from_db()
+
+        self.assertEqual(reserved.number, 2000)
+        self.assertEqual(reserved.series, "A1")
+        self.assertEqual(reserved_again.number, 2000)
+        self.assertEqual(company.nfse_rps_numero, 2001)
+        self.assertEqual(company.nfse_rps_numero_dev, 8000)
+        self.assertEqual(nfse_request.reserved_rps_number, 2000)
+        self.assertEqual(nfse_request.reserved_rps_series, "A1")
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_build_nfe_payload_includes_reserved_number_and_series(self) -> None:
+        _, _, nfe_request, _ = self._build_requests(suffix=72)
+        reserve_nfe_request_number(nfe_request=nfe_request)
+
+        payload = build_nfe_payload(nfe_request=nfe_request)
+
+        self.assertEqual(payload.get("numero"), 9000)
+        self.assertEqual(payload.get("serie"), 1)
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_build_nfse_payload_includes_reserved_rps_number_and_series(self) -> None:
+        _, _, _, nfse_request = self._build_requests(suffix=73)
+        reserve_nfse_request_rps_number(nfse_request=nfse_request)
+
+        payload = build_nfse_payload(nfse_request=nfse_request)
+        first_rps = payload.get("rps", [{}])[0]
+
+        self.assertEqual(first_rps.get("numero"), 8000)
+        self.assertEqual(first_rps.get("serie"), "A1")
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_sync_nfe_emission_response_backfills_reserved_number_when_api_omits_it(self) -> None:
+        _, _, nfe_request, _ = self._build_requests(suffix=74)
+        reserve_nfe_request_number(nfe_request=nfe_request)
+
+        sync_nfe_emission_response(
+            nfe_request=nfe_request,
+            response_payload={
+                "uuid": "7f47b1b5-3f2a-4f50-8f1d-6b02872d7a74",
+                "modelo": "nfe",
+                "status": "processando",
+            },
+        )
+
+        item = nfe_request.items.get()
+        self.assertEqual(item.number, "9000")
+        self.assertEqual(item.series, "1")
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_sync_nfse_emission_response_backfills_reserved_rps_number_when_api_omits_it(self) -> None:
+        _, _, _, nfse_request = self._build_requests(suffix=75)
+        reserve_nfse_request_rps_number(nfse_request=nfse_request)
+
+        sync_emission_response(
+            nfse_request=nfse_request,
+            response_payload={
+                "uuid": "87f7fe5f-3a6d-47c4-9481-1ad2710b7e75",
+                "modelo": "nfse",
+                "status": "processando",
+            },
+        )
+
+        item = nfse_request.items.get()
+        self.assertEqual(item.rps_number, "8000")
+        self.assertEqual(item.rps_series, "A1")
+        self.assertEqual(item.number, "8000")
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_sync_nfe_emission_response_replays_pending_webhook_event(self) -> None:
+        _, _, nfe_request, _ = self._build_requests(suffix=76)
+        reserve_nfe_request_number(nfe_request=nfe_request)
+        webhook_uuid = "d2f2867f-0b8c-44c8-ae39-11f88fdaf61c"
+        event = WebmaniaWebhookEvent.objects.create(
+            model="nfe",
+            event_uuid=webhook_uuid,
+            payload={
+                "uuid": webhook_uuid,
+                "modelo": "nfe",
+                "status": "aprovado",
+                "motivo": "Autorizado o uso da NF-e",
+                "nfe": "9000",
+                "serie": "1",
+                "xml": "https://files.test/xml.xml",
+                "danfe": "https://files.test/danfe.pdf",
+            },
+        )
+
+        sync_nfe_emission_response(
+            nfe_request=nfe_request,
+            response_payload={
+                "uuid": webhook_uuid,
+                "modelo": "nfe",
+                "status": "processando",
+            },
+        )
+
+        item = nfe_request.items.get()
+        event.refresh_from_db()
+
+        self.assertEqual(item.status, "aprovado")
+        self.assertEqual(item.xml_url, "https://files.test/xml.xml")
+        self.assertEqual(item.danfe_url, "https://files.test/danfe.pdf")
+        self.assertIsNotNone(item.last_webhook_at)
+        self.assertIsNotNone(event.processed_at)
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_sync_nfse_emission_response_replays_pending_webhook_event(self) -> None:
+        _, _, _, nfse_request = self._build_requests(suffix=77)
+        reserve_nfse_request_rps_number(nfse_request=nfse_request)
+        webhook_uuid = "e6d2458d-53fa-41c1-86de-89ecb7c97aa1"
+        event = WebmaniaWebhookEvent.objects.create(
+            model="nfse",
+            event_uuid=webhook_uuid,
+            payload={
+                "uuid": webhook_uuid,
+                "modelo": "nfse",
+                "status": "processado",
+                "motivo": "NFS-e gerada",
+                "numero": "8000",
+                "numero_rps": "8000",
+                "serie_rps": "A1",
+                "xml": "https://files.test/nfse.xml",
+                "pdf_nfse": "https://files.test/nfse.pdf",
+            },
+        )
+
+        sync_emission_response(
+            nfse_request=nfse_request,
+            response_payload={
+                "uuid": webhook_uuid,
+                "modelo": "nfse",
+                "status": "processando",
+            },
+        )
+
+        item = nfse_request.items.get()
+        event.refresh_from_db()
+
+        self.assertEqual(item.status, "aprovado")
+        self.assertEqual(item.xml_url, "https://files.test/nfse.xml")
+        self.assertEqual(item.pdf_nfse_url, "https://files.test/nfse.pdf")
+        self.assertIsNotNone(item.last_webhook_at)
+        self.assertIsNotNone(event.processed_at)
 
 
 class NfeProductExtractionTests(TestCase):
@@ -1513,6 +2116,39 @@ class WebmaniaCompanyUpdateFormTests(TestCase):
         self.assertTrue(is_encrypted_secret(kept_company.certificado))
         self.assertEqual(decrypt_secret(kept_company.certificado), "NOVO_CERTIFICADO")
 
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_hides_homolog_fields_when_not_in_homolog_environment(self) -> None:
+        form = WebmaniaCompanyUpdateForm(instance=self.company)
+
+        self.assertFalse(form.show_homolog_fields)
+        self.assertNotIn("nfe_numero_dev", form.fields)
+        self.assertNotIn("nfce_numero_dev", form.fields)
+        self.assertNotIn("nfce_id_csc_dev", form.fields)
+        self.assertNotIn("nfce_codigo_csc_dev", form.fields)
+        self.assertNotIn("nfse_rps_numero_dev", form.fields)
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_shows_homolog_fields_when_in_homolog_environment(self) -> None:
+        form = WebmaniaCompanyUpdateForm(instance=self.company)
+
+        self.assertTrue(form.show_homolog_fields)
+        self.assertIn("nfe_numero_dev", form.fields)
+        self.assertIn("nfce_numero_dev", form.fields)
+        self.assertIn("nfce_id_csc_dev", form.fields)
+        self.assertIn("nfce_codigo_csc_dev", form.fields)
+        self.assertIn("nfse_rps_numero_dev", form.fields)
+
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_workshop_fiscal_form_hides_homolog_fields_when_not_in_homolog_environment(self) -> None:
+        form = WorkshopFiscalSectionForm(instance=self.company, workshop=self.company.workshop)
+
+        self.assertFalse(form.show_homolog_fields)
+        self.assertNotIn("nfe_numero_dev", form.fields)
+        self.assertNotIn("nfce_numero_dev", form.fields)
+        self.assertNotIn("nfce_id_csc_dev", form.fields)
+        self.assertNotIn("nfce_codigo_csc_dev", form.fields)
+        self.assertNotIn("nfse_rps_numero_dev", form.fields)
+
 
 class WebmaniaCompanyDetailViewTests(TestCase):
     def setUp(self) -> None:
@@ -1538,6 +2174,80 @@ class WebmaniaCompanyDetailViewTests(TestCase):
         self.assertTrue(bool(consumer_key_field.get("has_value")))
         self.assertEqual(str(consumer_key_field.get("value") or ""), "ck_real")
 
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_detail_view_hides_homolog_fields_outside_homolog_environment(self) -> None:
+        company = WebmaniaCompany.objects.create(
+            workshop=self.workshop,
+            webmania_company_id="D-002",
+            nfe_numero_dev=123,
+            nfce_numero_dev=456,
+            nfse_rps_numero_dev=789,
+        )
+
+        response = self.client.get(reverse("finance:webmania_company_detail", kwargs={"pk": company.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "NF-e Número Homologação")
+        self.assertNotContains(response, "NFC-e Número Homologação")
+        self.assertNotContains(response, "NFS-e RPS Número Homologação")
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_detail_view_shows_homolog_fields_in_homolog_environment(self) -> None:
+        company = WebmaniaCompany.objects.create(
+            workshop=self.workshop,
+            webmania_company_id="D-003",
+            nfe_numero_dev=123,
+            nfce_numero_dev=456,
+            nfse_rps_numero_dev=789,
+        )
+
+        response = self.client.get(reverse("finance:webmania_company_detail", kwargs={"pk": company.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "NF-e Número Homologação")
+        self.assertContains(response, "NFC-e Número Homologação")
+        self.assertContains(response, "NFS-e RPS Número Homologação")
+
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_workshop_update_hides_homolog_fields_outside_homolog_environment(self) -> None:
+        WebmaniaCompany.objects.update_or_create(workshop=self.workshop, defaults={"webmania_company_id": "D-004"})
+
+        response = self.client.get(reverse("workshops:update", kwargs={"pk": self.workshop.pk}) + "?tab=nota_fiscal&nf_tab=nfe")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Próximo número NF-e homologação")
+        self.assertNotContains(response, "Próximo número NFC-e homologação")
+        self.assertNotContains(response, "Próximo RPS homologação")
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_workshop_update_shows_homolog_fields_in_homolog_environment(self) -> None:
+        WebmaniaCompany.objects.update_or_create(workshop=self.workshop, defaults={"webmania_company_id": "D-005"})
+
+        response = self.client.get(reverse("workshops:update", kwargs={"pk": self.workshop.pk}) + "?tab=nota_fiscal&nf_tab=nfe")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Próximo número NF-e homologação")
+
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_finance_update_hides_homolog_fields_outside_homolog_environment(self) -> None:
+        company = WebmaniaCompany.objects.create(workshop=self.workshop, webmania_company_id="D-006")
+
+        response = self.client.get(reverse("finance:webmania_company_update", kwargs={"pk": company.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Próximo número NF-e homologação")
+        self.assertNotContains(response, "Próximo número NFC-e homologação")
+        self.assertNotContains(response, "Próximo RPS homologação")
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_finance_update_shows_homolog_fields_in_homolog_environment(self) -> None:
+        company = WebmaniaCompany.objects.create(workshop=self.workshop, webmania_company_id="D-007")
+
+        response = self.client.get(reverse("finance:webmania_company_update", kwargs={"pk": company.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Próximo número NF-e homologação")
+
 
 class TaxClassPresetViewTests(TestCase):
     def setUp(self) -> None:
@@ -1549,22 +2259,69 @@ class TaxClassPresetViewTests(TestCase):
         session.save()
         TaxClassSyncState.objects.update_or_create(workshop=self.workshop, defaults={"synced_once": True})
 
-    def test_preset_buttons_use_formnovalidate(self) -> None:
+    def _create_preset(
+        self,
+        *,
+        kind: str,
+        name: str,
+        payload: dict[str, Any],
+        description: str = "",
+        is_active: bool = True,
+        workshop: Workshop | None = None,
+    ) -> TaxClassPreset:
+        return TaxClassPreset.objects.create(
+            workshop=workshop or self.workshop,
+            kind=kind,
+            name=name,
+            description=description,
+            is_active=is_active,
+            payload=payload,
+        )
+
+    def test_preset_buttons_are_not_default_submit_buttons(self) -> None:
+        self._create_preset(
+            kind="nfe",
+            name="Revenda",
+            description="Preset NFE",
+            payload={"descricao": "Classe NFE", "icms": [{"tipo_tributacao": "simples_nacional", "cenario": "saida_dentro_estado", "tipo_pessoa": "fisica", "codigo_cfop": "5102", "situacao_tributaria": "102"}]},
+        )
+        self._create_preset(
+            kind="nfse",
+            name="Servico",
+            description="Preset NFSE",
+            payload={"tipo": "nfse", "descricao": "Classe NFSE", "codigo_servico": "01.05", "exigibilidade_iss": "1", "iss_retido": "2"},
+        )
+
         nfe_response = self.client.get(f"{reverse('finance:tax_class_create')}?tab=nfe")
         nfse_response = self.client.get(f"{reverse('finance:tax_class_create')}?tab=nfse")
 
         self.assertEqual(nfe_response.status_code, 200)
         self.assertEqual(nfse_response.status_code, 200)
-        self.assertIn("formnovalidate", nfe_response.content.decode())
-        self.assertIn("formnovalidate", nfse_response.content.decode())
+        self.assertIn('type="button" class="btn btn-outline flex-1 apply-preset-button"', nfe_response.content.decode())
+        self.assertIn(reverse("finance:tax_class_preset_list") + "?tab=nfe", nfe_response.content.decode())
+        self.assertIn('type="button" class="btn btn-outline flex-1 apply-preset-button"', nfse_response.content.decode())
+        self.assertIn(reverse("finance:tax_class_preset_list") + "?tab=nfse", nfse_response.content.decode())
 
     def test_apply_nfe_preset_keeps_reference_and_loads_scenarios(self) -> None:
+        preset = self._create_preset(
+            kind="nfe",
+            name="Revenda padrão",
+            description="Preset NFE",
+            payload={
+                "descricao": "Classe de impostos para Saída de produtos de revenda",
+                "icms": [
+                    {"tipo_tributacao": "simples_nacional", "cenario": "saida_dentro_estado", "tipo_pessoa": "fisica", "codigo_cfop": "5102", "situacao_tributaria": "102"},
+                    {"tipo_tributacao": "simples_nacional", "cenario": "saida_fora_estado", "tipo_pessoa": "fisica", "codigo_cfop": "6102", "situacao_tributaria": "102"},
+                ],
+            },
+        )
+
         response = self.client.post(
             reverse("finance:tax_class_create"),
             data={
                 "tab": "nfe",
                 "form_action": "apply_preset",
-                "preset_key": "simples_nacional_revenda",
+                "preset_key": str(preset.pk),
                 "referencia": "REFPRE001",
             },
         )
@@ -1579,59 +2336,124 @@ class TaxClassPresetViewTests(TestCase):
 
         nfe_formset_sections = response.context["nfe_formset_sections"]
         icms_section = next(section for section in nfe_formset_sections if section["key"] == "icms")
-        self.assertGreaterEqual(icms_section["formset"].total_form_count(), 5)
+        self.assertGreaterEqual(icms_section["formset"].total_form_count(), 3)
 
-    def test_apply_nfse_sao_paulo_preset_loads_service_code(self) -> None:
+    def test_apply_nfse_preset_loads_fields_from_workshop_preset(self) -> None:
+        preset = self._create_preset(
+            kind="nfse",
+            name="Servico padrao",
+            description="Preset NFSE",
+            payload={
+                "tipo": "nfse",
+                "descricao": "Classe de serviço padrão",
+                "tipo_emissao": "1",
+                "codigo_servico": "01.05",
+                "exigibilidade_iss": "1",
+                "iss_retido": "2",
+            },
+        )
+
         response = self.client.post(
             reverse("finance:tax_class_create"),
             data={
                 "tab": "nfse",
                 "form_action": "apply_preset",
-                "preset_key": "nfse_sao_paulo_basico",
-                "referencia": "REFPRENFSE001",
+                "preset_key": str(preset.pk),
             },
         )
 
         self.assertEqual(response.status_code, 200)
         nfse_form = response.context["nfse_form"]
-        self.assertEqual(str(nfse_form["referencia"].value() or ""), "REFPRENFSE001")
+        self.assertEqual(str(nfse_form["descricao"].value() or ""), "Classe de serviço padrão")
         self.assertEqual(str(nfse_form["codigo_servico"].value() or ""), "01.05")
+        self.assertEqual(str(nfse_form["iss_retido"].value() or ""), "2")
 
-    def test_apply_nfse_preset_on_update_preserves_hidden_payload_fields(self) -> None:
-        reference = "REFPRENFSE002"
-        existing_payload = {
-            "referencia": reference,
-            "descricao": "Classe antiga",
-            "tipo": "nfse",
-            "codigo_servico": "01.05",
-            "natureza_operacao": "1",
-            "iss_retido": "2",
-            "campo_provedor": "valor-antigo",
-            "impostos": {"campo_extra": "preservado"},
-        }
+    def test_apply_preset_rejects_other_workshop_preset(self) -> None:
+        other_workshop = create_workshop(suffix=42)
+        preset = self._create_preset(
+            workshop=other_workshop,
+            kind="nfe",
+            name="Outro preset",
+            description="Outro",
+            payload={"descricao": "Classe externa"},
+        )
 
-        with patch("apps.finance.views.tax_class.list_tax_classes", return_value=[existing_payload]):
-            response = self.client.post(
-                reverse("finance:tax_class_update", kwargs={"reference": reference}),
-                data={
-                    "tab": "nfse",
-                    "form_action": "apply_preset",
-                    "preset_key": "nfse_sao_paulo_retido",
-                },
-            )
+        response = self.client.post(
+            reverse("finance:tax_class_create"),
+            data={
+                "tab": "nfe",
+                "form_action": "apply_preset",
+                "preset_key": str(preset.pk),
+            },
+        )
 
         self.assertEqual(response.status_code, 200)
-        nfse_form = response.context["nfse_form"]
-        base_payload = json.loads(str(nfse_form["base_payload_json"].value() or "{}"))
+        messages = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertIn("Selecione um preset válido para aplicar.", messages)
 
-        self.assertEqual(str(nfse_form["referencia"].value() or ""), reference)
-        self.assertEqual(str(nfse_form["codigo_servico"].value() or ""), "01.05")
-        self.assertEqual(base_payload.get("referencia"), reference)
-        self.assertEqual(base_payload.get("campo_provedor"), "valor-antigo")
-        self.assertEqual(base_payload.get("impostos", {}).get("campo_extra"), "preservado")
-        self.assertEqual(base_payload.get("codigo_servico"), "01.05")
-        self.assertEqual(base_payload.get("iss_retido"), "1")
-        self.assertEqual(base_payload.get("responsavel_retencao"), "1")
+    def test_can_create_nfse_preset_from_new_screen(self) -> None:
+        response = self.client.post(
+            reverse("finance:tax_class_preset_create"),
+            data={
+                "tab": "nfse",
+                "name": "Servico oficina",
+                "description": "Padrao da oficina",
+                "is_active": "on",
+                "descricao": "Classe padrão de serviço",
+                "tipo_emissao": "1",
+                "codigo_servico": "01.05",
+                "exigibilidade_iss": "1",
+                "iss_retido": "2",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        preset = TaxClassPreset.objects.get(workshop=self.workshop, kind="nfse", name="Servico oficina")
+        self.assertEqual(preset.description, "Padrao da oficina")
+        self.assertEqual(preset.payload.get("descricao"), "Classe padrão de serviço")
+        self.assertEqual(preset.payload.get("tipo"), "nfse")
+
+    def test_can_update_preset_and_keep_workshop_scope(self) -> None:
+        preset = self._create_preset(
+            kind="nfse",
+            name="Servico oficina",
+            description="Antigo",
+            payload={"tipo": "nfse", "descricao": "Classe antiga", "codigo_servico": "01.05", "exigibilidade_iss": "1", "iss_retido": "2"},
+        )
+
+        response = self.client.post(
+            reverse("finance:tax_class_preset_update", kwargs={"pk": preset.pk}),
+            data={
+                "tab": "nfse",
+                "name": "Servico oficina atualizado",
+                "description": "Novo resumo",
+                "descricao": "Classe nova",
+                "tipo_emissao": "1",
+                "codigo_servico": "14.01",
+                "exigibilidade_iss": "1",
+                "iss_retido": "2",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        preset.refresh_from_db()
+        self.assertEqual(preset.name, "Servico oficina atualizado")
+        self.assertEqual(preset.description, "Novo resumo")
+        self.assertEqual(preset.payload.get("descricao"), "Classe nova")
+        self.assertEqual(preset.payload.get("codigo_servico"), "14.01")
+
+    def test_preset_list_is_scoped_to_active_workshop(self) -> None:
+        self._create_preset(kind="nfe", name="Preset local", payload={"descricao": "Local"})
+        other_workshop = create_workshop(suffix=43)
+        TaxClassPreset.objects.create(workshop=other_workshop, kind="nfe", name="Preset externo", payload={"descricao": "Externo"})
+
+        response = self.client.get(f"{reverse('finance:tax_class_preset_list')}?tab=nfe")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Preset local")
+        self.assertNotContains(response, "Preset externo")
 
 
 class NfseEmissionAuthTests(TestCase):
@@ -1748,6 +2570,718 @@ class NfseRequestCreateViewHtmxTests(TestCase):
         self.assertEqual(response.headers.get("HX-Redirect"), step_url)
 
 
+class UnifiedEmissionWizardTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=86)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+        self.workorder = self._build_workorder_with_product_and_service(suffix=87)
+
+    def _build_workorder_with_product_and_service(self, *, suffix: int) -> WorkOrder:
+        budget = Budget(workshop=self.workshop, entry_date=timezone.now().date())
+        budget.save()
+
+        product_group = CatalogGroup.objects.create(workshop=self.workshop, name=f"Grupo Unificado {suffix}")
+        product = Product.objects.create(
+            workshop=self.workshop,
+            code=f"P-UNI-{suffix}",
+            unit=Product.Unit.UND,
+            name=f"Produto Unificado {suffix}",
+            ncm="87089990",
+            group=product_group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+        )
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name=f"Servico Unificado {suffix}",
+            description="Servico de integracao",
+            duration=timedelta(hours=1),
+            suggested_cost=Money("30.00", "BRL"),
+            selling_price=Money("50.00", "BRL"),
+        )
+
+        BudgetItem.objects.create(workshop=self.workshop, budget=budget, product=product, quantity=1)
+        BudgetItem.objects.create(workshop=self.workshop, budget=budget, service=service, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        workorder.sync_from_budget()
+        return workorder
+
+    def _build_service_only_workorder(self, *, suffix: int) -> WorkOrder:
+        budget = Budget(workshop=self.workshop, entry_date=timezone.now().date())
+        budget.save()
+
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name=f"Servico Only {suffix}",
+            description="Servico sem produto",
+            duration=timedelta(hours=1),
+            suggested_cost=Money("30.00", "BRL"),
+            selling_price=Money("50.00", "BRL"),
+        )
+        BudgetItem.objects.create(workshop=self.workshop, budget=budget, service=service, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        workorder.sync_from_budget()
+        return workorder
+
+    def _build_workorder_with_kit(self, *, suffix: int) -> tuple[WorkOrder, WorkOrderItem, Product, Service]:
+        budget = Budget(workshop=self.workshop, entry_date=timezone.now().date())
+        budget.save()
+
+        product_group = CatalogGroup.objects.create(workshop=self.workshop, name=f"Grupo Kit {suffix}")
+        product = Product.objects.create(
+            workshop=self.workshop,
+            code=f"P-KIT-{suffix}",
+            unit=Product.Unit.UND,
+            name=f"Produto Kit {suffix}",
+            ncm="87089990",
+            group=product_group,
+            cost_price=Money("12.00", "BRL"),
+            selling_price=Money("18.00", "BRL"),
+        )
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name=f"Servico Kit {suffix}",
+            description="Servico de kit",
+            duration=timedelta(hours=1),
+            suggested_cost=Money("8.00", "BRL"),
+            selling_price=Money("22.00", "BRL"),
+        )
+        kit = Kit.objects.create(workshop=self.workshop, name=f"Kit Emissao {suffix}")
+        KitProduct.objects.create(kit=kit, product=product, quantity=1)
+        KitService.objects.create(kit=kit, service=service, quantity=1)
+        BudgetItem.objects.create(workshop=self.workshop, budget=budget, kit=kit, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        workorder.sync_from_budget()
+        kit_item = WorkOrderItem.objects.get(workorder=workorder, kit=kit)
+        return workorder, kit_item, product, service
+
+    @staticmethod
+    def _wizard_url(*, step: int, tipo: str | None = None) -> str:
+        base_url = reverse("finance:emission_create")
+        query = f"?step={step}"
+        if tipo:
+            query += f"&tipo={tipo}"
+        return f"{base_url}{query}"
+
+    @staticmethod
+    def _preview_url(**params: str) -> str:
+        base_url = reverse("finance:emission_preview")
+        if not params:
+            return base_url
+        query = "&".join(f"{key}={value}" for key, value in params.items())
+        return f"{base_url}?{query}"
+
+    def _wizard_session_key(self) -> str:
+        return f"finance.emission_wizard:{self.workshop.pk}:{self.user.pk}"
+
+    def _advance_to_step_4(self, *, tipo: str | None = None) -> None:
+        self.client.post(self._wizard_url(step=1, tipo=tipo), {"workorder": self.workorder.pk})
+        self.client.post(self._wizard_url(step=2), {})
+        self.client.post(self._wizard_url(step=3), {})
+
+    def _advance_to_step_5(self, *, tipo: str | None = None, pricing_slider: str = "0") -> None:
+        self._advance_to_step_4(tipo=tipo)
+        self.client.post(self._wizard_url(step=4), {"pricing_slider": pricing_slider})
+
+    def test_unified_wizard_creates_nfe_request_with_persisted_slider(self) -> None:
+        tax_classes = [{"referencia": "REFNFE900", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e"}]
+
+        with (
+            patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.emission.emit_nfe_request", return_value={"status": "processando"}) as emit_mock,
+            patch("apps.finance.views.emission.sync_nfe_emission_response") as sync_mock,
+        ):
+            response = self.client.post(self._wizard_url(step=1), {"workorder": self.workorder.pk})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=2))
+
+            response = self.client.post(self._wizard_url(step=2), {})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=3))
+
+            response = self.client.post(self._wizard_url(step=3), {})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=4))
+
+            response = self.client.post(self._wizard_url(step=4), {"pricing_slider": "-15"})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=5))
+
+            response = self.client.post(self._wizard_url(step=5), {"note_mode": "nfe"})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=6))
+
+            response = self.client.post(
+                self._wizard_url(step=6),
+                {
+                    "tax_class": "REFNFE900",
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("finance:nfe_emit"))
+
+        nfe_request = NfeRequest.objects.get(workshop=self.workshop)
+        self.assertEqual(nfe_request.workorder, self.workorder)
+        self.assertEqual(nfe_request.pricing_slider, -15)
+        self.assertEqual(nfe_request.tax_class, "REFNFE900")
+        self.assertEqual(nfe_request.current_step, 3)
+        self.assertEqual(nfe_request.status, NfeRequestStatus.PROCESSING)
+        emit_mock.assert_called_once_with(nfe_request=nfe_request, request=ANY)
+        sync_mock.assert_called_once()
+
+    def test_unified_wizard_creates_nfse_request_with_service_description(self) -> None:
+        tax_classes = [{"referencia": "REFNFSE901", "tipo": "nfse", "status": "ativo", "descricao": "Classe NFS-e", "codigo_servico": "01.05"}]
+
+        with (
+            patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.emission.emit_nfse_request", return_value={"status": "processando"}) as emit_mock,
+            patch("apps.finance.views.emission.sync_emission_response") as sync_mock,
+        ):
+            self._advance_to_step_5(tipo="nfse", pricing_slider="25")
+
+            response = self.client.post(self._wizard_url(step=5), {"note_mode": "nfse"})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=6))
+
+            response = self.client.post(
+                self._wizard_url(step=6),
+                {
+                    "tax_class": "REFNFSE901",
+                    "service_description": "Servico executado na OS unificada",
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("finance:nfse_list"))
+
+        nfse_request = NfseRequest.objects.get(workshop=self.workshop)
+        self.assertEqual(nfse_request.workorder, self.workorder)
+        self.assertEqual(nfse_request.pricing_slider, 25)
+        self.assertEqual(nfse_request.tax_class, "REFNFSE901")
+        self.assertEqual(nfse_request.service_description, "Servico executado na OS unificada")
+        self.assertEqual(nfse_request.current_step, 3)
+        self.assertEqual(nfse_request.status, NfseRequestStatus.PROCESSING)
+        emit_mock.assert_called_once_with(nfse_request=nfse_request, request=ANY)
+        sync_mock.assert_called_once()
+
+    def test_unified_summary_step_uses_step5_layout_and_slider_preview_updates_partial_regions(self) -> None:
+        self._advance_to_step_4()
+
+        response = self.client.get(self._wizard_url(step=4))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Resumo")
+        self.assertContains(response, "Metodo Hunter")
+        self.assertContains(response, "Margem de Lucro")
+        self.assertContains(response, "Desconto")
+        self.assertContains(response, "Itens consolidados da emissao")
+        self.assertContains(response, 'id="emission-display-venda-pecas"', html=False)
+        self.assertContains(response, 'id="emission-display-venda-mo"', html=False)
+
+        response = self.client.post(
+            f"{self._wizard_url(step=4)}&preview=1",
+            {
+                "pricing_slider": "-100",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'hx-swap-oob="true"', html=False)
+        self.assertContains(response, 'id="emission-display-venda-pecas"', html=False)
+        self.assertContains(response, 'id="emission-display-venda-mo"', html=False)
+        self.assertContains(response, "Itens consolidados da emissao")
+
+    def test_unified_customer_step_exposes_quick_edit_links(self) -> None:
+        customer = Customer.objects.create(
+            workshop=self.workshop,
+            name="Cliente Emissao",
+            cpf_or_cnpj="12345678901",
+            customer_type="PF",
+        )
+        vehicle = Vehicle.objects.create(
+            workshop=self.workshop,
+            customer=customer,
+            plate="ABC1D23",
+            brand="Ford",
+            model="Fiesta",
+            year_model="2020",
+            year_fabrication="2020",
+        )
+        self.workorder.budget.customer = customer
+        self.workorder.budget.vehicle = vehicle
+        self.workorder.budget.save(update_fields=["customer", "vehicle"])
+
+        self.client.post(self._wizard_url(step=1), {"workorder": self.workorder.pk})
+        response = self.client.get(self._wizard_url(step=2))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("customer:quick_update", kwargs={"pk": customer.pk}))
+        self.assertContains(response, reverse("customer:vehicle_quick_update", kwargs={"pk": vehicle.pk}))
+        self.assertContains(response, "Editar cliente")
+        self.assertContains(response, "Editar veiculo")
+
+    def test_unified_items_step_exposes_item_edit_actions_and_updates_workorder_item(self) -> None:
+        self.client.post(self._wizard_url(step=1), {"workorder": self.workorder.pk})
+        self.client.post(self._wizard_url(step=2), {})
+
+        product_item = WorkOrderItem.objects.filter(workorder=self.workorder, product__isnull=False).first()
+        assert product_item is not None
+
+        response = self.client.get(self._wizard_url(step=3))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            reverse("finance:emission_workorder_item_edit", kwargs={"workorder_pk": self.workorder.pk, "item_id": product_item.pk}),
+        )
+
+        response = self.client.post(
+            reverse("finance:emission_workorder_item_edit", kwargs={"workorder_pk": self.workorder.pk, "item_id": product_item.pk}),
+            {
+                "description": "Produto ajustado na emissao",
+                "quantity": "2",
+                "product_selling_price_0": "25.00",
+                "product_selling_price_1": "BRL",
+                "product_cost_price_0": "10.00",
+                "product_cost_price_1": "BRL",
+                "shipping_0": "0.00",
+                "shipping_1": "BRL",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(response.headers.get("HX-Trigger"), "financeEmissionWorkorderItemSaved")
+
+        product_item.refresh_from_db()
+        self.assertEqual(product_item.description, "Produto ajustado na emissao")
+        self.assertEqual(product_item.quantity, 2)
+        self.assertEqual(product_item.product_selling_price, Money("25.00", "BRL"))
+
+    def test_unified_items_step_lists_kit_components_as_editable_product_and_service_rows(self) -> None:
+        workorder, kit_item, product, service = self._build_workorder_with_kit(suffix=89)
+        self.client.post(self._wizard_url(step=1), {"workorder": workorder.pk})
+        self.client.post(self._wizard_url(step=2), {})
+
+        response = self.client.get(self._wizard_url(step=3))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, product.name)
+        self.assertContains(response, service.name)
+        self.assertContains(response, f"Kit: {kit_item.kit.name}")
+        self.assertContains(
+            response,
+            reverse(
+                "finance:emission_workorder_kit_component_edit",
+                kwargs={
+                    "workorder_pk": workorder.pk,
+                    "item_id": kit_item.pk,
+                    "component_type": "product",
+                    "component_id": product.pk,
+                },
+            ),
+        )
+
+        response = self.client.post(
+            reverse(
+                "finance:emission_workorder_kit_component_edit",
+                kwargs={
+                    "workorder_pk": workorder.pk,
+                    "item_id": kit_item.pk,
+                    "component_type": "product",
+                    "component_id": product.pk,
+                },
+            ),
+            {
+                "quantity": "2",
+                "cost_0": "9.00",
+                "cost_1": "BRL",
+                "price_0": "19.00",
+                "price_1": "BRL",
+                "shipping_0": "4.00",
+                "shipping_1": "BRL",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(response.headers.get("HX-Trigger"), "financeEmissionWorkorderItemSaved")
+
+        override = WorkOrderKitItemOverride.objects.get(workorder_item=kit_item, product=product)
+        self.assertEqual(override.quantity, 2)
+        self.assertEqual(override.product_cost_price, Money("9.00", "BRL"))
+        self.assertEqual(override.product_selling_price, Money("19.00", "BRL"))
+        self.assertEqual(override.shipping, Money("4.00", "BRL"))
+
+    def test_emission_preview_returns_summary_body_with_slider_values(self) -> None:
+        self._advance_to_step_4()
+
+        response = self.client.get(self._preview_url(pricing_slider="20"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="emission-step4-body"', html=False)
+        self.assertContains(response, "Itens consolidados da emissao")
+        self.assertContains(response, "Valor Unitario")
+
+    def test_unified_summary_step_shows_warning_for_service_only_workorder(self) -> None:
+        service_only_workorder = self._build_service_only_workorder(suffix=88)
+        self.client.post(self._wizard_url(step=1), {"workorder": service_only_workorder.pk})
+        self.client.post(self._wizard_url(step=2), {})
+        self.client.post(self._wizard_url(step=3), {})
+
+        response = self.client.get(self._wizard_url(step=4))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "nao ha saldo de produtos para emitir NF-e")
+
+    def test_unified_wizard_both_mode_retries_only_nfse_after_partial_failure(self) -> None:
+        tax_classes = [
+            {"referencia": "REFNFE910", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e"},
+            {"referencia": "REFNFSE910", "tipo": "nfse", "status": "ativo", "descricao": "Classe NFS-e", "codigo_servico": "01.05"},
+        ]
+
+        with (
+            patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.emission.emit_nfe_request", return_value={"status": "processando"}) as emit_nfe_mock,
+            patch("apps.finance.views.emission.sync_nfe_emission_response"),
+            patch("apps.finance.views.emission.emit_nfse_request", side_effect=[NfseEmissionError("Falha ao emitir NFS-e"), {"status": "processando"}]) as emit_nfse_mock,
+            patch("apps.finance.views.emission.sync_emission_response"),
+        ):
+            self._advance_to_step_5(pricing_slider="10")
+
+            response = self.client.post(self._wizard_url(step=5), {"note_mode": "both"})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=6))
+
+            response = self.client.post(self._wizard_url(step=6), {"tax_class": "REFNFE910"})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=7))
+
+            response = self.client.post(
+                self._wizard_url(step=7),
+                {
+                    "tax_class": "REFNFSE910",
+                    "service_description": "Descricao unificada",
+                },
+            )
+
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=7))
+
+            failed_step_response = self.client.get(self._wizard_url(step=7))
+            self.assertEqual(failed_step_response.status_code, 200)
+            self.assertContains(failed_step_response, "reenvio tentara apenas a NFS-e pendente")
+            self.assertContains(failed_step_response, "Fechar emissao")
+            self.assertContains(failed_step_response, reverse("finance:nfe_update", kwargs={"pk": NfeRequest.objects.get(workshop=self.workshop).pk}))
+            self.assertContains(failed_step_response, reverse("finance:nfse_update", kwargs={"pk": NfseRequest.objects.get(workshop=self.workshop).pk}))
+
+            response = self.client.post(
+                self._wizard_url(step=7),
+                {
+                    "tax_class": "REFNFSE910",
+                    "service_description": "Descricao unificada",
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("workshops:emission_history"))
+        emit_nfe_mock.assert_called_once()
+        self.assertEqual(emit_nfse_mock.call_count, 2)
+
+        nfe_request = NfeRequest.objects.get(workshop=self.workshop)
+        nfse_request = NfseRequest.objects.get(workshop=self.workshop)
+        self.assertEqual(nfe_request.tax_class, "REFNFE910")
+        self.assertEqual(nfse_request.tax_class, "REFNFSE910")
+        self.assertEqual(nfse_request.service_description, "Descricao unificada")
+
+    def test_unified_wizard_both_mode_shows_separate_success_and_error_toasts(self) -> None:
+        tax_classes = [
+            {"referencia": "REFNFE911", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e"},
+            {"referencia": "REFNFSE911", "tipo": "nfse", "status": "ativo", "descricao": "Classe NFS-e", "codigo_servico": "01.05"},
+        ]
+
+        with (
+            patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.emission.emit_nfe_request", return_value={"status": "processando"}),
+            patch("apps.finance.views.emission.sync_nfe_emission_response"),
+            patch("apps.finance.views.emission.emit_nfse_request", side_effect=NfseEmissionError("Falha ao emitir NFS-e")),
+            patch("apps.finance.views.emission.sync_emission_response"),
+        ):
+            self._advance_to_step_5(pricing_slider="10")
+            self.client.post(self._wizard_url(step=5), {"note_mode": "both"})
+            self.client.post(self._wizard_url(step=6), {"tax_class": "REFNFE911"})
+
+            response = self.client.post(
+                self._wizard_url(step=7),
+                {
+                    "tax_class": "REFNFSE911",
+                    "service_description": "Descricao unificada",
+                },
+                follow=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        flashed_messages = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertIn("NF-e enviada com sucesso.", flashed_messages)
+        self.assertIn("Falha ao enviar NFS-e: Falha ao emitir NFS-e", flashed_messages)
+
+    def test_unified_wizard_both_mode_shows_one_success_toast_per_note(self) -> None:
+        tax_classes = [
+            {"referencia": "REFNFE912", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e"},
+            {"referencia": "REFNFSE912", "tipo": "nfse", "status": "ativo", "descricao": "Classe NFS-e", "codigo_servico": "01.05"},
+        ]
+
+        with (
+            patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.emission.emit_nfe_request", return_value={"status": "processando"}),
+            patch("apps.finance.views.emission.sync_nfe_emission_response"),
+            patch("apps.finance.views.emission.emit_nfse_request", return_value={"status": "processando"}),
+            patch("apps.finance.views.emission.sync_emission_response"),
+        ):
+            self._advance_to_step_5(pricing_slider="10")
+            self.client.post(self._wizard_url(step=5), {"note_mode": "both"})
+            self.client.post(self._wizard_url(step=6), {"tax_class": "REFNFE912"})
+
+            response = self.client.post(
+                self._wizard_url(step=7),
+                {
+                    "tax_class": "REFNFSE912",
+                    "service_description": "Descricao unificada",
+                },
+                follow=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        flashed_messages = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertIn("NF-e enviada com sucesso.", flashed_messages)
+        self.assertIn("NFS-e enviada com sucesso.", flashed_messages)
+
+    def test_unified_wizard_close_clears_state_and_redirects_to_pending_list(self) -> None:
+        tax_classes = [{"referencia": "REFNFE920", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e"}]
+
+        with (
+            patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.emission.emit_nfe_request", side_effect=NfeEmissionError("Falha ao emitir NF-e")),
+            patch("apps.finance.views.emission.sync_nfe_emission_response"),
+        ):
+            self._advance_to_step_5(pricing_slider="15")
+
+            response = self.client.post(self._wizard_url(step=5), {"note_mode": "nfe"})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=6))
+
+            response = self.client.post(self._wizard_url(step=6), {"tax_class": "REFNFE920"})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=6))
+
+            response = self.client.get(f"{reverse('finance:emission_create')}?close=1")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("finance:nfe_emit"))
+        self.assertNotIn(self._wizard_session_key(), self.client.session)
+        self.assertTrue(NfeRequest.objects.filter(workshop=self.workshop).exists())
+
+    def test_unified_wizard_reset_query_starts_new_flow(self) -> None:
+        self._advance_to_step_5(pricing_slider="30")
+
+        response = self.client.get(f"{reverse('finance:emission_create')}?tipo=nfse&reset=1")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Selecionar Ordem de Servico")
+        session_state = self.client.session[self._wizard_session_key()]
+        self.assertEqual(session_state.get("workorder_id"), None)
+        self.assertEqual(session_state.get("note_mode"), "nfse")
+
+
+class CompatibilityEmissionRouteTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=90)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_compatibility_nfe_create_redirects_to_unified_wizard(self) -> None:
+        response = self.client.get(reverse("finance:nfe_create"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), f"{reverse('finance:emission_create')}?tipo=nfe&reset=1")
+
+    def test_compatibility_nfse_create_redirects_to_unified_wizard(self) -> None:
+        response = self.client.get(reverse("finance:nfse_create"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), f"{reverse('finance:emission_create')}?tipo=nfse&reset=1")
+
+    def test_finance_navbar_uses_single_emitir_nota_entry(self) -> None:
+        response = self.client.get(reverse("finance:nfe_emit"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Emitir nota")
+        self.assertContains(response, f"{reverse('finance:emission_create')}?reset=1")
+        self.assertContains(response, "NFS-e Emitidas")
+
+
+class CompatibilityEmissionUpdateFlowTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=91)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def _build_workorder_with_product_and_service(self, *, suffix: int) -> WorkOrder:
+        budget = Budget(workshop=self.workshop, entry_date=timezone.now().date())
+        budget.save()
+
+        product_group = CatalogGroup.objects.create(workshop=self.workshop, name=f"Grupo Update {suffix}")
+        product = Product.objects.create(
+            workshop=self.workshop,
+            code=f"P-UP-{suffix}",
+            unit=Product.Unit.UND,
+            name=f"Produto Update {suffix}",
+            ncm="87089990",
+            group=product_group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+        )
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name=f"Servico Update {suffix}",
+            description="Servico para update",
+            duration=timedelta(hours=1),
+            suggested_cost=Money("30.00", "BRL"),
+            selling_price=Money("50.00", "BRL"),
+        )
+
+        BudgetItem.objects.create(workshop=self.workshop, budget=budget, product=product, quantity=1)
+        BudgetItem.objects.create(workshop=self.workshop, budget=budget, service=service, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        workorder.sync_from_budget()
+        return workorder
+
+    def test_nfe_update_step_three_preview_and_save_persist_slider(self) -> None:
+        workorder = self._build_workorder_with_product_and_service(suffix=102)
+        nfe_request = NfeRequest.objects.create(
+            workshop=self.workshop,
+            workorder=workorder,
+            current_step=3,
+            status=NfeRequestStatus.CHECKING_PRODUCTS,
+            tax_class="REFNFE950",
+            pricing_slider=0,
+        )
+        tax_classes = [{"referencia": "REFNFE950", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e update"}]
+
+        with patch("apps.finance.views.request_workflow.list_tax_classes", return_value=tax_classes):
+            response = self.client.get(
+                reverse("finance:nfe_update", kwargs={"pk": nfe_request.pk}),
+                data={"step": 3},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Metodo Hunter")
+        self.assertContains(response, "Margem de Lucro")
+        self.assertContains(response, 'id="nfe-display-venda-pecas"', html=False)
+        self.assertContains(response, 'id="nfe-display-venda-mo"', html=False)
+
+        with patch("apps.finance.views.request_workflow.list_tax_classes", return_value=tax_classes):
+            response = self.client.post(
+                f"{reverse('finance:nfe_update', kwargs={'pk': nfe_request.pk})}?step=3&preview=1",
+                data={"pricing_slider": -100, "tax_class": "REFNFE950"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'hx-swap-oob="true"', html=False)
+        self.assertContains(response, 'id="nfe-display-venda-pecas"', html=False)
+        self.assertContains(response, 'id="nfe-display-venda-mo"', html=False)
+        self.assertContains(response, "R$ 70,00")
+
+        with (
+            patch("apps.finance.views.request_workflow.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.nfe.emit_nfe_request", return_value={"status": "processando"}),
+            patch("apps.finance.views.nfe.sync_nfe_emission_response"),
+        ):
+            response = self.client.post(
+                f"{reverse('finance:nfe_update', kwargs={'pk': nfe_request.pk})}?step=3",
+                data={"pricing_slider": -100, "tax_class": "REFNFE950"},
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("finance:nfe_emit"))
+        nfe_request.refresh_from_db()
+        self.assertEqual(nfe_request.pricing_slider, -100)
+
+    def test_nfse_update_step_three_preview_and_save_persist_slider(self) -> None:
+        workorder = self._build_workorder_with_product_and_service(suffix=103)
+        nfse_request = NfseRequest.objects.create(
+            workshop=self.workshop,
+            workorder=workorder,
+            current_step=3,
+            status=NfseRequestStatus.CHECKING_SERVICES,
+            tax_class="REFNFSE951",
+            pricing_slider=0,
+        )
+        tax_classes = [{"referencia": "REFNFSE951", "tipo": "nfse", "status": "ativo", "descricao": "Classe NFS-e update", "codigo_servico": "01.05"}]
+
+        with patch("apps.finance.views.request_workflow.list_tax_classes", return_value=tax_classes):
+            response = self.client.get(
+                reverse("finance:nfse_update", kwargs={"pk": nfse_request.pk}),
+                data={"step": 3},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Metodo Hunter")
+        self.assertContains(response, "Margem de Lucro")
+        self.assertContains(response, 'id="nfse-display-venda-pecas"', html=False)
+        self.assertContains(response, 'id="nfse-display-venda-mo"', html=False)
+
+        with patch("apps.finance.views.request_workflow.list_tax_classes", return_value=tax_classes):
+            response = self.client.post(
+                f"{reverse('finance:nfse_update', kwargs={'pk': nfse_request.pk})}?step=3&preview=1",
+                data={
+                    "pricing_slider": 100,
+                    "tax_class": "REFNFSE951",
+                    "service_description": "Descricao atualizada",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'hx-swap-oob="true"', html=False)
+        self.assertContains(response, 'id="nfse-display-venda-pecas"', html=False)
+        self.assertContains(response, 'id="nfse-display-venda-mo"', html=False)
+        self.assertContains(response, "R$ 70,00")
+
+        with (
+            patch("apps.finance.views.request_workflow.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.nfse.emit_nfse_request", return_value={"status": "processando"}),
+            patch("apps.finance.views.nfse.sync_emission_response"),
+        ):
+            response = self.client.post(
+                f"{reverse('finance:nfse_update', kwargs={'pk': nfse_request.pk})}?step=3",
+                data={
+                    "pricing_slider": 100,
+                    "tax_class": "REFNFSE951",
+                    "service_description": "Descricao atualizada",
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("finance:nfse_list"))
+        nfse_request.refresh_from_db()
+        self.assertEqual(nfse_request.pricing_slider, 100)
+        self.assertEqual(nfse_request.service_description, "Descricao atualizada")
+
+
 class NfePermissionFallbackTests(TestCase):
     def setUp(self) -> None:
         self.user, self.workshop = create_director_user_with_workshop(suffix=84)
@@ -1792,6 +3326,158 @@ class WebhookSecurityTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 400)
+
+    def test_webhook_stores_pending_event_when_item_does_not_exist_yet(self) -> None:
+        token = build_webmania_webhook_token()
+
+        response = self.client.post(
+            f"{reverse('finance:webhook')}?token={token}",
+            data={
+                "uuid": "73ca23d6-ff08-4da1-8dc5-341f4fb115a7",
+                "modelo": "nfe",
+                "status": "aprovado",
+                "motivo": "Autorizado o uso da NF-e",
+            },
+        )
+
+        self.assertEqual(response.status_code, 202)
+        event = WebmaniaWebhookEvent.objects.get()
+        self.assertEqual(event.model, "nfe")
+        self.assertEqual(event.event_uuid, "73ca23d6-ff08-4da1-8dc5-341f4fb115a7")
+        self.assertIsNone(event.processed_at)
+        self.assertIn("ainda nao foi sincronizada", event.processing_error)
+
+
+class FiscalDocumentDetailFlowTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=20)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+        self.customer = Customer.objects.create(
+            workshop=self.workshop,
+            customer_type="PF",
+            name="Cliente Fiscal",
+            cpf_or_cnpj="12345678901",
+            email="cliente.fiscal@teste.com",
+            logradouro="Rua Fiscal",
+            numero="100",
+            bairro="Centro",
+            cidade="Sao Paulo",
+            estado="SP",
+            cep="01001-000",
+        )
+        self.vehicle = Vehicle.objects.create(
+            workshop=self.workshop,
+            customer=self.customer,
+            plate="ABC1234",
+            brand="Ford",
+            model="Ka",
+            year_fabrication="2020",
+            year_model="2020",
+            color="Prata",
+        )
+        budget = Budget(workshop=self.workshop, entry_date=timezone.now().date(), customer=self.customer, vehicle=self.vehicle)
+        budget.save()
+        self.workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+
+    def test_nfe_reconcile_view_updates_item_status(self) -> None:
+        nfe_request = NfeRequest.objects.create(workshop=self.workshop, workorder=self.workorder, tax_class="REFNFE120")
+        item = NfeItem.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            request=nfe_request,
+            uuid="3f895e61-c0da-46ee-a880-a03f8547a9bc",
+            status="processando",
+        )
+
+        consulta_payload = {
+            "uuid": str(item.uuid),
+            "modelo": "nfe",
+            "status": "aprovado",
+            "motivo": "Autorizado o uso da NF-e",
+            "nfe": "12345",
+            "serie": "1",
+            "chave": "12345678901234567890123456789012345678901234",
+            "xml": "https://files.test/nfe.xml",
+            "danfe": "https://files.test/danfe.pdf",
+        }
+
+        with (
+            patch("apps.finance.services.nfe_consulta._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_consulta.requests.get", return_value=_mock_response(consulta_payload)),
+        ):
+            response = self.client.post(reverse("finance:nfe_reconcile", kwargs={"pk": nfe_request.pk}))
+
+        self.assertEqual(response.status_code, 302)
+        item.refresh_from_db()
+        nfe_request.refresh_from_db()
+        self.assertEqual(item.status, "aprovado")
+        self.assertEqual(item.danfe_url, "https://files.test/danfe.pdf")
+        self.assertIsNotNone(item.last_reconciled_at)
+        self.assertEqual(nfe_request.status, NfeRequestStatus.APPROVED)
+
+    def test_nfe_document_download_view_returns_file(self) -> None:
+        nfe_request = NfeRequest.objects.create(workshop=self.workshop, workorder=self.workorder, tax_class="REFNFE121")
+        NfeItem.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            request=nfe_request,
+            uuid="c6bd3ec0-208f-4dd8-a2c6-6a590972cfab",
+            status="aprovado",
+            number="12345",
+            danfe_url="https://files.test/danfe.pdf",
+        )
+
+        with patch(
+            "apps.finance.views.nfe.download_webmania_document",
+            return_value=DownloadedWebmaniaDocument(
+                content=b"pdf-content",
+                content_type="application/pdf",
+                content_disposition="",
+            ),
+        ):
+            response = self.client.get(reverse("finance:nfe_document_download", kwargs={"pk": nfe_request.pk, "document": "danfe"}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn("nfe-danfe-12345.pdf", response["Content-Disposition"])
+        self.assertEqual(response.content, b"pdf-content")
+
+    def test_nfse_document_download_view_returns_file(self) -> None:
+        nfse_request = NfseRequest.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            tax_class="REFNFSE121",
+            service_description="Servico fiscal",
+        )
+        NfseItem.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            request=nfse_request,
+            uuid="8f3d9954-c324-4280-a875-7be274d6b646",
+            status="aprovado",
+            number="54321",
+            pdf_nfse_url="https://files.test/nfse.pdf",
+        )
+
+        with patch(
+            "apps.finance.views.nfse.download_webmania_document",
+            return_value=DownloadedWebmaniaDocument(
+                content=b"pdf-content-nfse",
+                content_type="application/pdf",
+                content_disposition="",
+            ),
+        ):
+            response = self.client.get(reverse("finance:nfse_document_download", kwargs={"pk": nfse_request.pk, "document": "pdf_nfse"}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn("nfse-pdf_nfse-54321.pdf", response["Content-Disposition"])
+        self.assertEqual(response.content, b"pdf-content-nfse")
 
 
 class WebmaniaCompanySyncFlowTests(TestCase):
@@ -1893,6 +3579,17 @@ class FinancialGroupFormTests(TestCase):
 
         self.assertTrue(form.fields["parent"].disabled)
 
+    def test_form_renders_parent_options_with_hierarchy_label(self) -> None:
+        workshop = create_workshop(suffix=74)
+        root = FinancialGroup.objects.create(workshop=workshop, name="Receitas")
+        child = FinancialGroup.objects.create(workshop=workshop, parent=root, name="Receitas de Serviços")
+
+        form = FinancialGroupForm(workshop=workshop)
+        content = str(form["parent"])
+
+        self.assertIn(root.dre_hierarchy_label, content)
+        self.assertIn(child.dre_hierarchy_label, content)
+
 
 class FinancialGroupViewsTests(TestCase):
     def setUp(self) -> None:
@@ -1912,6 +3609,20 @@ class FinancialGroupViewsTests(TestCase):
         self.assertContains(response, "Grupos Financeiros")
         self.assertContains(response, group.code)
         self.assertContains(response, group.name)
+
+    def test_list_view_renders_hierarchical_group_labels(self) -> None:
+        root = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        child = FinancialGroup.objects.create(workshop=self.workshop, parent=root, name="Receitas de Serviços")
+        grandchild = FinancialGroup.objects.create(workshop=self.workshop, parent=child, name="Receitas de Serviços Diretos")
+
+        response = self.client.get(reverse("finance:financial_groups_list"))
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+
+        self.assertIn(root.dre_hierarchy_label, content)
+        self.assertIn(child.dre_hierarchy_label, content)
+        self.assertIn(grandchild.dre_hierarchy_label, content)
 
     def test_create_view_creates_child_group_with_expected_code(self) -> None:
         parent = FinancialGroup.objects.create(workshop=self.workshop, name="Contas fixas")
@@ -1944,6 +3655,1746 @@ class FinancialGroupViewsTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertTrue(FinancialGroup.objects.filter(pk=parent.pk).exists())
+
+
+class FinancialReportsHomeViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=89)
+        self.client.force_login(self.user)
+        self.source = Source.objects.create(workshop=self.workshop, name="Fornecedor Base")
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def _create_bank_account(self, *, suffix: str) -> BankAccount:
+        return BankAccount.objects.create(
+            workshop=self.workshop,
+            bank_code=f"00{suffix}",
+            bank_name=f"Banco {suffix}",
+            account_number=f"12345-{suffix}",
+            agency="0001",
+        )
+
+    def _create_financial_group(self, *, name: str, parent: FinancialGroup | None = None) -> FinancialGroup:
+        return FinancialGroup.objects.create(workshop=self.workshop, parent=parent, name=name)
+
+    def _create_report_workorder(
+        self,
+        *,
+        customer_name: str,
+        total_value: str,
+        problem_description: str = "",
+        notes: str = "",
+        payment_specs: list[dict[str, str]] | None = None,
+    ) -> WorkOrder:
+        customer = Customer.objects.create(
+            workshop=self.workshop,
+            name=customer_name,
+            cpf_or_cnpj=f"1234567890{Customer.objects.count():02d}",
+            email=f"{customer_name.lower().replace(' ', '.')}.{Customer.objects.count()}@example.com",
+        )
+        budget = Budget(
+            workshop=self.workshop,
+            customer=customer,
+            entry_date=timezone.localdate(),
+            problem_description=problem_description,
+            notes=notes,
+        )
+        budget.save()
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        product_group = CatalogGroup.objects.create(workshop=self.workshop, name=f"Grupo Relatorio {workorder.pk}")
+        product = Product.objects.create(
+            workshop=self.workshop,
+            group=product_group,
+            code=f"REL-{workorder.pk}",
+            name=f"Produto Relatorio {workorder.pk}",
+            unit=Product.Unit.UND,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money(total_value, "BRL"),
+        )
+        WorkOrderItem.objects.create(workshop=self.workshop, workorder=workorder, product=product, quantity=1)
+
+        for payment_spec in payment_specs or []:
+            payment_method, _ = PaymentMethod.objects.get_or_create(
+                workshop=self.workshop,
+                description=payment_spec["description"],
+                defaults={"installments_count": int(payment_spec.get("installments_count", 1))},
+            )
+            WorkOrderPaymentMethod.objects.create(
+                workorder=workorder,
+                payment_method=payment_method,
+                installments_count=int(payment_spec.get("installments_count", 1)),
+                first_installment_amount=Money(payment_spec["amount"], "BRL"),
+                remaining_installments_amount=Money("0.00", "BRL"),
+                due_date=datetime.strptime(payment_spec["due_date"], "%Y-%m-%d").date(),
+            )
+
+        return workorder
+
+    def test_reports_home_view_displays_page(self) -> None:
+        response = self.client.get(reverse("finance:reports_home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Relatorios Financeiros")
+        self.assertContains(response, "Créditos e Débitos deste Mês")
+        self.assertContains(response, f"Balanço Geral {timezone.localdate().year}")
+        self.assertContains(response, "Créditos e Débitos de Seleção")
+
+    def test_reports_home_view_displays_current_month_credit_and_debit_totals(self) -> None:
+        today = timezone.localdate()
+        previous_month_date = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
+
+        credit_movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("1500.00", "BRL"),
+            due_date=today,
+        )
+        credit_movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("400.00", "BRL"),
+            due_date=today,
+        )
+        credit_movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("999.00", "BRL"),
+            due_date=previous_month_date,
+        )
+
+        response = self.client.get(reverse("finance:reports_home"))
+        monthly_card = response.context["top_summary_cards"][0]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Créditos e Débitos deste Mês")
+        self.assertContains(response, "R$ 1.500,00")
+        self.assertContains(response, "R$ 400,00")
+        self.assertContains(response, "R$ 1.100,00")
+        self.assertContains(response, "R$ 0,00", count=9)
+        self.assertEqual(monthly_card["rows"][0]["tone"], "credit")
+        self.assertEqual(monthly_card["rows"][2]["tone"], "debit")
+        self.assertEqual(monthly_card["results"][0]["tone"], "credit")
+        self.assertEqual(monthly_card["results"][1]["tone"], "neutral")
+        self.assertContains(response, 'style="color: #166534;"')
+        self.assertContains(response, 'style="color: #991b1b;"')
+
+    def test_reports_home_view_displays_current_year_totals_in_second_card(self) -> None:
+        today = timezone.localdate()
+        same_year_other_month = today.replace(month=1, day=15) if today.month != 1 else today.replace(month=2, day=15)
+        previous_year_date = today.replace(year=today.year - 1, month=12, day=15)
+
+        credit_movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("1500.00", "BRL"),
+            due_date=today,
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("250.00", "BRL"),
+            due_date=same_year_other_month,
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("400.00", "BRL"),
+            due_date=today,
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("100.00", "BRL"),
+            due_date=same_year_other_month,
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("999.00", "BRL"),
+            due_date=previous_year_date,
+        )
+
+        response = self.client.get(reverse("finance:reports_home"))
+        yearly_card = response.context["top_summary_cards"][1]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f"Balanço Geral {today.year}")
+        self.assertContains(response, "R$ 1.750,00")
+        self.assertContains(response, "R$ 500,00")
+        self.assertContains(response, "R$ 1.250,00")
+        self.assertContains(response, "R$ 0,00", count=9)
+        self.assertEqual(yearly_card["results"][0]["tone"], "credit")
+        self.assertEqual(yearly_card["results"][1]["tone"], "neutral")
+
+    def test_reports_home_view_displays_os_paid_values_in_summary_cards_by_payment_date(self) -> None:
+        today = timezone.localdate()
+        previous_month_date = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
+        workorder = self._create_report_workorder(
+            customer_name="Cliente Pago no Mes",
+            total_value="1000.00",
+            problem_description="OS com pagamentos",
+            payment_specs=[
+                {"description": "Pix", "amount": "500.00", "due_date": today.isoformat(), "installments_count": "1"},
+                {"description": "Crédito", "amount": "200.00", "due_date": previous_month_date.isoformat(), "installments_count": "2"},
+            ],
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            workorder=workorder,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("1000.00", "BRL"),
+            due_date=today,
+        )
+
+        response = self.client.get(reverse("finance:reports_home"))
+        monthly_card = response.context["top_summary_cards"][0]
+        yearly_card = response.context["top_summary_cards"][1]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(monthly_card["rows"][0]["value"], "R$ 1.000,00")
+        self.assertEqual(monthly_card["rows"][1]["value"], "R$ 500,00")
+        self.assertEqual(monthly_card["results"][0]["value"], "R$ 1.000,00")
+        self.assertEqual(monthly_card["results"][1]["value"], "R$ 500,00")
+        self.assertEqual(yearly_card["rows"][1]["value"], "R$ 700,00")
+        self.assertEqual(yearly_card["results"][1]["value"], "R$ 700,00")
+        self.assertContains(response, "R$ 500,00")
+        self.assertContains(response, "R$ 700,00")
+
+    def test_reports_home_view_counts_paid_manual_financial_movements_by_due_date(self) -> None:
+        today = timezone.localdate()
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("300.00", "BRL"),
+            due_date=today,
+            is_paid=True,
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("10.00", "BRL"),
+            due_date=today,
+            is_paid=True,
+            description="Cafe",
+        )
+
+        response = self.client.get(reverse("finance:reports_home"))
+        monthly_card = response.context["top_summary_cards"][0]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(monthly_card["rows"][0]["value"], "R$ 300,00")
+        self.assertEqual(monthly_card["rows"][1]["value"], "R$ 300,00")
+        self.assertEqual(monthly_card["rows"][2]["value"], "R$ 10,00")
+        self.assertEqual(monthly_card["rows"][3]["value"], "R$ 10,00")
+        self.assertEqual(monthly_card["results"][1]["value"], "R$ 290,00")
+
+    def test_reports_home_view_counts_os_payment_method_fee_as_debit(self) -> None:
+        today = timezone.localdate()
+        workorder = self._create_report_workorder(
+            customer_name="Cliente Taxa",
+            total_value="1000.00",
+            problem_description="OS com taxa",
+            payment_specs=[
+                {"description": "Crédito", "amount": "1000.00", "due_date": today.isoformat(), "installments_count": "10"},
+            ],
+        )
+        workorder.budget.status = BudgetStatus.APPROVED
+        workorder.budget.save(update_fields=["status"])
+        PaymentMethod.objects.filter(workshop=self.workshop, description="Crédito").update(tax_percentage=Decimal("10.00"))
+        parent_movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            workorder=workorder,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("1000.00", "BRL"),
+            due_date=today,
+        )
+        sync_workorder_financial_movement(workorder=workorder)
+
+        response = self.client.get(reverse("finance:reports_home"))
+        monthly_card = response.context["top_summary_cards"][0]
+        fee_movement = FinancialMovement.objects.get(
+            workorder=workorder,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_CARD_FEE,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(monthly_card["rows"][0]["value"], "R$ 1.000,00")
+        self.assertEqual(monthly_card["rows"][1]["value"], "R$ 1.000,00")
+        self.assertEqual(monthly_card["rows"][2]["value"], "R$ 100,00")
+        self.assertEqual(monthly_card["rows"][3]["value"], "R$ 100,00")
+        self.assertEqual(monthly_card["results"][0]["value"], "R$ 900,00")
+        self.assertEqual(monthly_card["results"][1]["value"], "R$ 900,00")
+        self.assertEqual(fee_movement.amount, Money("100.00", "BRL"))
+        self.assertEqual(fee_movement.description, "Pagamento da taxa da maquininha")
+        self.assertTrue(fee_movement.is_paid)
+        self.assertEqual(fee_movement.payment_method.description, "Crédito")
+        self.assertContains(response, "Pagamento da taxa da maquininha")
+        self.assertContains(response, reverse("finance:financial_movement_update", args=[parent_movement.pk]))
+        self.assertContains(response, reverse("finance:financial_movement_update", args=[fee_movement.pk]))
+
+    def test_reports_home_view_orders_financial_movements_by_newest_created(self) -> None:
+        older_created = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("100.00", "BRL"),
+            due_date=timezone.localdate() + timedelta(days=10),
+        )
+        newer_created = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("50.00", "BRL"),
+            due_date=timezone.localdate() - timedelta(days=10),
+        )
+
+        response = self.client.get(reverse("finance:reports_home"))
+        rows = response.context["financial_movement_report_rows"]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(rows[0]["component"], f"financial-movement-{newer_created.pk}")
+        self.assertEqual(rows[1]["component"], f"financial-movement-{older_created.pk}")
+
+    def test_workorder_sync_from_budget_creates_and_updates_parent_financial_movement(self) -> None:
+        customer = Customer.objects.create(
+            workshop=self.workshop,
+            name="Cliente Auto OS",
+            cpf_or_cnpj="123456789099",
+            email="cliente.auto.os@example.com",
+        )
+        budget = Budget(
+            workshop=self.workshop,
+            customer=customer,
+            entry_date=timezone.localdate(),
+            problem_description="Servico de alinhamento",
+            status=BudgetStatus.APPROVED,
+        )
+        budget.save()
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        product_group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo Auto OS")
+        product = Product.objects.create(
+            workshop=self.workshop,
+            group=product_group,
+            code="AUTO-OS",
+            name="Produto Auto OS",
+            unit=Product.Unit.UND,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("1000.00", "BRL"),
+        )
+        budget_item = BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            product=product,
+            quantity=1,
+        )
+
+        workorder.sync_from_budget()
+
+        movement = FinancialMovement.objects.get(workorder=workorder)
+        self.assertEqual(movement.movement_kind, FinancialMovement.MovementKind.WORKORDER_PARENT)
+        self.assertEqual(movement.source.name, f"OS Nº {workorder.pk}")
+        self.assertEqual(movement.direction, FinancialMovement.MovementDirection.CREDIT)
+        self.assertEqual(movement.amount, Money("1000.00", "BRL"))
+        self.assertEqual(movement.description, "Servico de alinhamento")
+        self.assertEqual(movement.due_date, workorder.criado_em.date())
+
+        BudgetItem.objects.filter(pk=budget_item.pk).update(product_selling_price=Money("1200.00", "BRL"))
+
+        workorder.sync_from_budget()
+
+        movement.refresh_from_db()
+        self.assertEqual(FinancialMovement.objects.filter(workorder=workorder).count(), 1)
+        self.assertEqual(movement.amount, Money("1200.00", "BRL"))
+
+    def test_budget_approval_creates_workorder_and_parent_financial_movement(self) -> None:
+        customer = Customer.objects.create(
+            workshop=self.workshop,
+            name="Cliente Aprovacao",
+            cpf_or_cnpj="123456789098",
+            email="cliente.aprovacao@example.com",
+        )
+        budget = Budget(
+            workshop=self.workshop,
+            customer=customer,
+            entry_date=timezone.localdate(),
+            problem_description="Troca de pastilhas",
+        )
+        budget.save()
+        product_group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo Aprovacao")
+        product = Product.objects.create(
+            workshop=self.workshop,
+            group=product_group,
+            code="APR-OS",
+            name="Produto Aprovacao",
+            unit=Product.Unit.UND,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("750.00", "BRL"),
+        )
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            product=product,
+            quantity=1,
+        )
+
+        budget.status = BudgetStatus.APPROVED
+        budget.save(update_fields=["status"])
+
+        workorder = WorkOrder.objects.get(budget=budget)
+        movement = FinancialMovement.objects.get(workorder=workorder)
+        self.assertEqual(movement.movement_kind, FinancialMovement.MovementKind.WORKORDER_PARENT)
+        self.assertEqual(movement.source.name, f"OS Nº {workorder.pk}")
+        self.assertEqual(movement.amount, Money("750.00", "BRL"))
+        self.assertEqual(movement.description, "Troca de pastilhas")
+        self.assertEqual(movement.due_date, workorder.criado_em.date())
+
+    def test_reports_home_view_includes_os_parent_movement_in_summary_cards(self) -> None:
+        workorder = self._create_report_workorder(
+            customer_name="Cliente Card OS",
+            total_value="900.00",
+            problem_description="Servico no resumo",
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            workorder=workorder,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("900.00", "BRL"),
+            due_date=timezone.localdate(),
+        )
+
+        response = self.client.get(reverse("finance:reports_home"))
+        monthly_card = response.context["top_summary_cards"][0]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(monthly_card["rows"][0]["value"], "R$ 900,00")
+        self.assertEqual(monthly_card["results"][0]["value"], "R$ 900,00")
+        self.assertContains(response, "R$ 900,00", count=7)
+
+    def test_reports_home_view_displays_financial_movements_table_with_expected_columns(self) -> None:
+        workorder = self._create_report_workorder(
+            customer_name="Cliente Tabela",
+            total_value="100.00",
+            problem_description="Linha base",
+            payment_specs=[{"description": "Pix", "amount": "100.00", "due_date": "2026-03-10", "installments_count": "1"}],
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            workorder=workorder,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("100.00", "BRL"),
+            due_date=date(2026, 3, 10),
+        )
+        response = self.client.get(reverse("finance:reports_home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Movimentações Financeiras")
+        self.assertContains(response, 'id="financial-reports-movements-table"')
+        self.assertContains(response, "Pago")
+        self.assertContains(response, "Tipo")
+        self.assertContains(response, "Vencimento")
+        self.assertContains(response, "Agente")
+        self.assertContains(response, "Origem")
+        self.assertContains(response, "Descrição")
+        self.assertContains(response, "Plano Orçamentário")
+        self.assertContains(response, "Conta")
+        self.assertContains(response, "Tipo Pagamento")
+        self.assertContains(response, "Total")
+        self.assertContains(response, "Data do Pagamento")
+
+    def test_reports_home_view_displays_mixed_financial_movements_and_os_payment_statuses(self) -> None:
+        unpaid_workorder = self._create_report_workorder(
+            customer_name="Cliente Sem Pagamento",
+            total_value="1000.00",
+            problem_description="Troca de bateria",
+        )
+        partial_workorder = self._create_report_workorder(
+            customer_name="Cliente Parcial",
+            total_value="1000.00",
+            problem_description="Revisão completa",
+            payment_specs=[
+                {"description": "Pix", "amount": "500.00", "due_date": "2026-03-10", "installments_count": "1"},
+            ],
+        )
+        paid_workorder = self._create_report_workorder(
+            customer_name="Cliente Pago",
+            total_value="1000.00",
+            notes="Pagamento integral da OS",
+            payment_specs=[
+                {"description": "Pix", "amount": "500.00", "due_date": "2026-03-10", "installments_count": "1"},
+                {"description": "Crédito", "amount": "500.00", "due_date": "2026-03-11", "installments_count": "4"},
+            ],
+        )
+        unpaid_movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            workorder=unpaid_workorder,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("1000.00", "BRL"),
+            due_date=None,
+        )
+        partial_movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            workorder=partial_workorder,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("1000.00", "BRL"),
+            due_date=date(2026, 3, 10),
+        )
+        paid_movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            workorder=paid_workorder,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("1000.00", "BRL"),
+            due_date=date(2026, 3, 11),
+        )
+        generic_movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("100.00", "BRL"),
+            due_date=date(2026, 3, 12),
+            is_paid=True,
+            nf_number="NF-2026-15",
+            description="Compra de insumos",
+        )
+
+        response = self.client.get(reverse("finance:reports_home"))
+        rows = response.context["financial_movement_report_rows"]
+        rows_by_origin = {str(row["origin"]): row for row in rows}
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(rows), 4)
+        self.assertEqual(rows_by_origin[f"OS #{paid_workorder.pk}"]["paid_status"]["label"], "Sim")
+        self.assertEqual(rows_by_origin[f"OS #{paid_workorder.pk}"]["payment_type"], "Múltiplos")
+        self.assertEqual(rows_by_origin[f"OS #{paid_workorder.pk}"]["due_date"], date(2026, 3, 11))
+        self.assertEqual(rows_by_origin[f"OS #{partial_workorder.pk}"]["paid_status"]["label"], "Parcial")
+        self.assertEqual(rows_by_origin[f"OS #{partial_workorder.pk}"]["payment_type"], "Pix")
+        self.assertEqual(rows_by_origin[f"OS #{partial_workorder.pk}"]["due_date"], date(2026, 3, 10))
+        self.assertEqual(rows_by_origin[f"OS #{unpaid_workorder.pk}"]["paid_status"]["label"], "Não")
+        self.assertEqual(rows_by_origin[f"OS #{unpaid_workorder.pk}"]["payment_type"], "-")
+        self.assertIsNone(rows_by_origin[f"OS #{unpaid_workorder.pk}"]["due_date"])
+        self.assertEqual(rows_by_origin["NF-2026-15"]["paid_status"]["label"], "Sim")
+        self.assertEqual(rows_by_origin["NF-2026-15"]["agent"], self.source.name)
+        self.assertEqual(rows_by_origin["NF-2026-15"]["description"], "Compra de insumos")
+        self.assertEqual(rows_by_origin["NF-2026-15"]["edit_url"], reverse("finance:financial_movement_update", args=[generic_movement.pk]))
+        self.assertContains(response, "Cliente Pago")
+        self.assertContains(response, "Cliente Parcial")
+        self.assertContains(response, "Cliente Sem Pagamento")
+        self.assertContains(response, "Compra de insumos")
+        self.assertContains(response, "check_circle")
+        self.assertContains(response, "schedule")
+        self.assertContains(response, "cancel")
+        self.assertContains(response, "NF-2026-15")
+        self.assertContains(response, "badge-error")
+        self.assertContains(response, "badge-success")
+        self.assertContains(response, "text-error font-semibold whitespace-nowrap")
+        self.assertContains(response, "text-success font-semibold whitespace-nowrap")
+        self.assertContains(response, "10/03/2026")
+        self.assertContains(response, "11/03/2026")
+        self.assertContains(response, "12/03/2026")
+        self.assertContains(response, "Troca de bateria")
+        self.assertContains(response, "Revisão completa")
+        self.assertContains(response, "Pagamento integral da OS")
+        self.assertContains(response, "+ R$ 1.000,00", count=3)
+        self.assertContains(response, "- R$ 100,00")
+        self.assertContains(response, reverse("finance:financial_movement_update", args=[paid_movement.pk]))
+        self.assertContains(response, reverse("finance:financial_movement_update", args=[partial_movement.pk]))
+        self.assertContains(response, reverse("finance:financial_movement_update", args=[unpaid_movement.pk]))
+
+    def test_reports_home_view_displays_child_payment_rows_with_pending_balances_for_os_movements(self) -> None:
+        workorder = self._create_report_workorder(
+            customer_name="Cliente Expansao",
+            total_value="1000.00",
+            problem_description="Pagamento dividido",
+            payment_specs=[
+                {"description": "Pix", "amount": "500.00", "due_date": "2026-03-10", "installments_count": "1"},
+                {"description": "Crédito", "amount": "500.00", "due_date": "2026-03-11", "installments_count": "4"},
+            ],
+        )
+        movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            workorder=workorder,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("1000.00", "BRL"),
+            due_date=date(2026, 3, 11),
+        )
+
+        response = self.client.get(reverse("finance:reports_home"))
+        rows = response.context["financial_movement_report_rows"]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(rows), 1)
+        self.assertTrue(rows[0]["is_expandable"])
+        self.assertEqual(len(rows[0]["details"]), 2)
+        self.assertEqual(rows[0]["details"][0]["payment_type"], "Pix")
+        self.assertEqual(rows[0]["details"][0]["payment_date"], date(2026, 3, 10))
+        self.assertEqual(rows[0]["details"][0]["amount"], "R$ 500,00")
+        self.assertEqual(rows[0]["details"][0]["pending_amount"], "R$ 500,00")
+        self.assertEqual(rows[0]["details"][0]["pending_class"], "text-warning")
+        self.assertEqual(rows[0]["details"][1]["payment_type"], "Crédito")
+        self.assertEqual(rows[0]["details"][1]["payment_date"], date(2026, 3, 11))
+        self.assertEqual(rows[0]["details"][1]["amount"], "R$ 500,00")
+        self.assertEqual(rows[0]["details"][1]["pending_amount"], "R$ 0,00")
+        self.assertEqual(rows[0]["details"][1]["pending_class"], "text-success")
+        self.assertContains(response, "Data do Pagamento")
+        self.assertContains(response, "Tipo Pagamento")
+        self.assertContains(response, "Pendente")
+        self.assertContains(response, "+ R$ 500,00", count=2)
+        self.assertContains(response, "R$ 500,00", count=3)
+        self.assertContains(response, "R$ 0,00")
+        self.assertContains(response, "text-warning")
+        self.assertContains(response, "text-success")
+        self.assertContains(response, reverse("finance:financial_movement_update", args=[movement.pk]))
+
+    def test_reports_home_view_renders_filter_controls(self) -> None:
+        revenue_group = self._create_financial_group(name="Receitas")
+        bank_account = self._create_bank_account(suffix="1")
+
+        response = self.client.get(reverse("finance:reports_home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Filtrar relatórios")
+        self.assertContains(response, 'name="data_inicial"', html=False)
+        self.assertContains(response, 'name="data_final"', html=False)
+        self.assertContains(response, 'name="direction"', html=False)
+        self.assertContains(response, 'name="bank_account"', html=False)
+        self.assertContains(response, 'name="financial_groups"', html=False)
+        self.assertContains(response, revenue_group.name)
+        self.assertContains(response, str(bank_account))
+
+    def test_reports_home_view_filters_table_and_selection_card_by_date_range_including_future_dates(self) -> None:
+        future_date = timezone.localdate() + timedelta(days=45)
+        earlier_date = future_date - timedelta(days=10)
+        later_date = future_date + timedelta(days=10)
+
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("500.00", "BRL"),
+            due_date=future_date,
+            is_paid=True,
+            description="Movimento futuro selecionado",
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("200.00", "BRL"),
+            due_date=timezone.localdate(),
+            is_paid=True,
+            description="Movimento atual fora do filtro",
+        )
+
+        response = self.client.get(
+            reverse("finance:reports_home"),
+            data={"data_inicial": earlier_date.isoformat(), "data_final": later_date.isoformat()},
+        )
+
+        selection_card = response.context["top_summary_cards"][2]
+        rows = response.context["financial_movement_report_rows"]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["description"], "Movimento futuro selecionado")
+        self.assertEqual(selection_card["rows"][0]["value"], "R$ 500,00")
+        self.assertEqual(selection_card["rows"][1]["value"], "R$ 500,00")
+        self.assertEqual(selection_card["rows"][2]["value"], "R$ 0,00")
+        self.assertEqual(selection_card["results"][0]["value"], "R$ 500,00")
+        self.assertEqual(selection_card["results"][1]["value"], "R$ 500,00")
+        self.assertContains(response, "Movimento futuro selecionado")
+        self.assertNotContains(response, "Movimento atual fora do filtro")
+
+    def test_reports_home_view_filters_table_and_selection_card_by_financial_group_and_direction(self) -> None:
+        root_group = self._create_financial_group(name="Receitas")
+        child_group = self._create_financial_group(name="Servicos", parent=root_group)
+        other_group = self._create_financial_group(name="Despesas")
+
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("300.00", "BRL"),
+            due_date=timezone.localdate(),
+            is_paid=True,
+            description="Receita filtrada",
+            budget_plan=child_group,
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("80.00", "BRL"),
+            due_date=timezone.localdate(),
+            is_paid=True,
+            description="Despesa fora do tipo",
+            budget_plan=child_group,
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("150.00", "BRL"),
+            due_date=timezone.localdate(),
+            is_paid=True,
+            description="Receita fora do grupo",
+            budget_plan=other_group,
+        )
+
+        response = self.client.get(
+            reverse("finance:reports_home"),
+            data={"financial_groups": [str(child_group.pk)], "direction": FinancialMovement.MovementDirection.CREDIT},
+        )
+
+        selection_card = response.context["top_summary_cards"][2]
+        rows = response.context["financial_movement_report_rows"]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["description"], "Receita filtrada")
+        self.assertEqual(selection_card["rows"][0]["value"], "R$ 300,00")
+        self.assertEqual(selection_card["rows"][1]["value"], "R$ 300,00")
+        self.assertEqual(selection_card["rows"][2]["value"], "R$ 0,00")
+        self.assertContains(response, "Receita filtrada")
+        self.assertNotContains(response, "Despesa fora do tipo")
+        self.assertNotContains(response, "Receita fora do grupo")
+
+    def test_reports_home_view_filters_table_and_selection_card_by_bank_account(self) -> None:
+        selected_account = self._create_bank_account(suffix="1")
+        other_account = self._create_bank_account(suffix="2")
+
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("120.00", "BRL"),
+            due_date=timezone.localdate(),
+            is_paid=True,
+            description="Despesa conta selecionada",
+            bank_account=selected_account,
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("90.00", "BRL"),
+            due_date=timezone.localdate(),
+            is_paid=True,
+            description="Despesa outra conta",
+            bank_account=other_account,
+        )
+
+        response = self.client.get(reverse("finance:reports_home"), data={"bank_account": str(selected_account.pk)})
+
+        selection_card = response.context["top_summary_cards"][2]
+        rows = response.context["financial_movement_report_rows"]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["description"], "Despesa conta selecionada")
+        self.assertEqual(selection_card["rows"][0]["value"], "R$ 0,00")
+        self.assertEqual(selection_card["rows"][2]["value"], "R$ 120,00")
+        self.assertEqual(selection_card["rows"][3]["value"], "R$ 120,00")
+        self.assertEqual(selection_card["results"][0]["value"], "R$ -120,00")
+        self.assertEqual(selection_card["results"][1]["value"], "R$ -120,00")
+        self.assertContains(response, "Despesa conta selecionada")
+        self.assertNotContains(response, "Despesa outra conta")
+
+
+class DreReportViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=88)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def _create_additional_workshop(self, *, suffix: int) -> Workshop:
+        workshop = Workshop.objects.create(
+            account=self.workshop.account,
+            name=f"Oficina Filial {suffix}",
+            cnpj=f"22.333.444/0001-{suffix:02d}",
+            phone="+5511977777777",
+            address=f"Rua Filial, {suffix}",
+        )
+        membership = WorkshopMember.objects.get(user=self.user, workshop=self.workshop)
+        WorkshopMember.objects.create(user=self.user, workshop=workshop, role=membership.role, is_active=True)
+        return workshop
+
+    def _create_workorder_with_values(
+        self,
+        *,
+        reference_date: date,
+        product_selling_price: str,
+        product_cost_price: str,
+        service_selling_price: str,
+        service_cost_price: str,
+        customer_name: str | None = None,
+        payment_due_date: date | None = None,
+        workshop: Workshop | None = None,
+    ) -> WorkOrder:
+        selected_workshop = workshop or self.workshop
+        budget = Budget(workshop=selected_workshop, entry_date=reference_date)
+        if customer_name:
+            customer = Customer.objects.create(
+                workshop=selected_workshop,
+                name=customer_name,
+                cpf_or_cnpj=f"1234567890{reference_date.day:02d}",
+                email=f"cliente{reference_date.strftime('%Y%m%d')}@example.com",
+            )
+            budget.customer = customer
+        budget.save()
+        workorder = WorkOrder.objects.create(workshop=selected_workshop, budget=budget)
+        WorkOrder.objects.filter(pk=workorder.pk).update(criado_em=timezone.make_aware(datetime.combine(reference_date, datetime.min.time())))
+        workorder.refresh_from_db()
+
+        product_group = CatalogGroup.objects.create(workshop=selected_workshop, name=f"Grupo DRE {reference_date.isoformat()}")
+        product = Product.objects.create(
+            workshop=selected_workshop,
+            code=f"DRE-P-{reference_date.strftime('%m%d')}",
+            unit=Product.Unit.UND,
+            name=f"Produto DRE {reference_date.isoformat()}",
+            group=product_group,
+            cost_price=Money(product_cost_price, "BRL"),
+            selling_price=Money(product_selling_price, "BRL"),
+        )
+        service = Service.objects.create(
+            workshop=selected_workshop,
+            name=f"Servico DRE {reference_date.isoformat()}",
+            duration=timedelta(hours=1),
+            suggested_cost=Money(service_cost_price, "BRL"),
+            selling_price=Money(service_selling_price, "BRL"),
+            is_third_party=True,
+        )
+
+        WorkOrderItem.objects.create(workshop=selected_workshop, workorder=workorder, product=product, quantity=1, shipping=Money("0.00", "BRL"))
+        WorkOrderItem.objects.create(workshop=selected_workshop, workorder=workorder, service=service, quantity=1)
+        if payment_due_date:
+            payment_method = PaymentMethod.objects.create(workshop=selected_workshop, description=f"Pagamento DRE {reference_date.isoformat()}")
+            WorkOrderPaymentMethod.objects.create(
+                workorder=workorder,
+                payment_method=payment_method,
+                installments_count=1,
+                first_installment_amount=Money(product_selling_price, "BRL") + Money(service_selling_price, "BRL"),
+                remaining_installments_amount=Money("0.00", "BRL"),
+                due_date=payment_due_date,
+            )
+        return workorder
+
+    def _create_workshop_cost_snapshot(
+        self,
+        *,
+        month: int,
+        year: int,
+        tax_rate: str,
+        operational_cost: str,
+        financial_cost: str,
+        workshop: Workshop | None = None,
+    ) -> None:
+        selected_workshop = workshop or self.workshop
+        workshop_cost = WorkshopCost.objects.create(
+            workshop=selected_workshop,
+            month=month,
+            year=year,
+            mechanic_quantity=1,
+            work_hours_per_day=timedelta(hours=8),
+            work_days_per_month=22,
+            productivity_average=Decimal("0.60"),
+            tax_rate=Decimal(tax_rate),
+            working_hours_per_month=Decimal("176.00"),
+        )
+        mechanic_salary_cost = MonthlyCost.objects.create(workshop=selected_workshop, name="Salarios mecanicos produtivos")
+        rent_cost = MonthlyCost.objects.create(workshop=selected_workshop, name=f"Aluguel {month}/{year}")
+        bank_fee_cost = MonthlyCost.objects.create(workshop=selected_workshop, name=f"Taxas bancarias {month}/{year}")
+
+        WorkshopCostItem.objects.create(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_cost, amount=Money("0.00", "BRL"))
+        WorkshopCostItem.objects.create(workshop_cost=workshop_cost, monthly_cost=rent_cost, amount=Money(operational_cost, "BRL"))
+        WorkshopCostItem.objects.create(workshop_cost=workshop_cost, monthly_cost=bank_fee_cost, amount=Money(financial_cost, "BRL"))
+
+    def test_report_requires_filial_selection_before_loading_financial_groups(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+
+        response = self.client.get(reverse("finance:dre_report"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "É necessário selecionar uma filial")
+        self.assertNotContains(response, "Não há grupos financeiros")
+
+    def test_report_shows_empty_message_when_selected_filial_has_no_financial_groups(self) -> None:
+        response = self.client.get(reverse("finance:dre_report"), data={"filial": str(self.workshop.pk)})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Não há grupos financeiros")
+        self.assertNotContains(response, "É necessário selecionar uma filial")
+
+    def test_report_with_invalid_filial_keeps_selection_required_message(self) -> None:
+        response = self.client.get(reverse("finance:dre_report"), data={"filial": "invalida"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "É necessário selecionar uma filial")
+        self.assertNotContains(response, "Não há grupos financeiros")
+
+    def test_report_refreshes_financial_groups_table_when_filial_changes(self) -> None:
+        response = self.client.get(reverse("finance:dre_report"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'hx-get="{reverse("finance:dre_report")}"')
+        self.assertContains(response, 'hx-trigger="change from:#id_filial"')
+        self.assertContains(response, 'hx-target="#dre-financial-groups-table-content"')
+        self.assertContains(response, 'hx-select="#dre-financial-groups-table-content"')
+        self.assertContains(response, 'hx-swap="outerHTML"')
+        self.assertContains(response, 'hx-include="#id_filial"')
+
+    def test_report_renders_financial_groups_with_expected_hierarchy_indentation(self) -> None:
+        root = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        child = FinancialGroup.objects.create(workshop=self.workshop, parent=root, name="Receitas de Serviços")
+        grandchild = FinancialGroup.objects.create(workshop=self.workshop, parent=child, name="Receitas de Serviços Diretos")
+
+        response = self.client.get(reverse("finance:dre_report"), data={"filial": str(self.workshop.pk)})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="dre-financial-groups-table"')
+        self.assertNotContains(response, "É necessário selecionar uma filial")
+        self.assertNotContains(response, "Não há grupos financeiros")
+
+        content = response.content.decode("utf-8")
+        self.assertIn(f"{root.code}. {root.name}", content)
+        self.assertIn(f"\u00a0\u00a0\u00a0\u00a0└ {child.code}. {child.name}", content)
+        self.assertIn(f"\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0└ {grandchild.code}. {grandchild.name}", content)
+
+    def test_report_keeps_selected_financial_groups_checked(self) -> None:
+        first = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        second = FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+        third = FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+
+        response = self.client.get(
+            reverse("finance:dre_report"),
+            data={"filial": str(self.workshop.pk), "financial_groups": [str(first.pk), str(second.pk)]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+
+        self.assertRegex(content, rf'<input[^>]*name="financial_groups"[^>]*value="{first.pk}"[^>]*checked')
+        self.assertRegex(content, rf'<input[^>]*name="financial_groups"[^>]*value="{second.pk}"[^>]*checked')
+
+        third_input = re.search(rf'<input[^>]*name="financial_groups"[^>]*value="{third.pk}"[^>]*>', content)
+        if third_input is None:
+            self.fail("Checkbox do terceiro grupo financeiro não foi renderizado.")
+        self.assertNotIn("checked", third_input.group(0))
+
+    def test_report_renders_hierarchical_checkbox_metadata_for_financial_groups(self) -> None:
+        root = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        child = FinancialGroup.objects.create(workshop=self.workshop, parent=root, name="Receitas de Serviços")
+        grandchild = FinancialGroup.objects.create(workshop=self.workshop, parent=child, name="Receitas de Serviços Diretos")
+
+        response = self.client.get(reverse("finance:dre_report"), data={"filial": str(self.workshop.pk)})
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+
+        self.assertIn("hierarchicalSelection: true", content)
+        self.assertRegex(content, rf'<input[^>]*name="financial_groups"[^>]*value="{root.pk}"[^>]*data-row-id="{root.pk}"')
+        self.assertRegex(content, rf'<input[^>]*name="financial_groups"[^>]*value="{child.pk}"[^>]*data-row-id="{child.pk}"[^>]*data-parent-id="{root.pk}"')
+        self.assertRegex(content, rf'<input[^>]*name="financial_groups"[^>]*value="{grandchild.pk}"[^>]*data-row-id="{grandchild.pk}"[^>]*data-parent-id="{child.pk}"')
+        self.assertIn("handleRowCheckboxChange($event)", content)
+
+    def test_report_form_submits_to_results_page(self) -> None:
+        response = self.client.get(reverse("finance:dre_report"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'action="{reverse("finance:dre_results")}"')
+
+    def test_report_form_requires_start_and_end_dates(self) -> None:
+        response = self.client.get(reverse("finance:dre_report"), data={"filial": str(self.workshop.pk), "tipo_data": "A"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Este campo é obrigatório.", count=2)
+
+    def test_report_renders_all_workshops_option(self) -> None:
+        response = self.client.get(reverse("finance:dre_report"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'data-value="{DreForm.ALL_WORKSHOPS_VALUE}"', html=False)
+        self.assertContains(response, 'data-label="TODAS AS FILIAIS"', html=False)
+
+    def test_report_lists_financial_groups_from_all_workshops_with_workshop_headers(self) -> None:
+        second_workshop = self._create_additional_workshop(suffix=89)
+        first_group = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        second_group = FinancialGroup.objects.create(workshop=second_workshop, name="Receitas")
+
+        response = self.client.get(reverse("finance:dre_report"), data={"filial": DreForm.ALL_WORKSHOPS_VALUE})
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertIn("Grupos financeiros por filial", content)
+        self.assertIn(self.workshop.name, content)
+        self.assertIn(second_workshop.name, content)
+        self.assertIn(f"{first_group.code}. {first_group.name}", content)
+        self.assertIn(f"{second_group.code}. {second_group.name}", content)
+        self.assertNotContains(response, "É necessário selecionar uma filial")
+
+    def test_results_page_calculates_consolidated_values_for_all_workshops(self) -> None:
+        second_workshop = self._create_additional_workshop(suffix=90)
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+        FinancialGroup.objects.create(workshop=second_workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=second_workshop, name="Custos")
+        FinancialGroup.objects.create(workshop=second_workshop, name="Despesas")
+
+        self._create_workorder_with_values(
+            reference_date=date(2026, 1, 15),
+            product_selling_price="100.00",
+            product_cost_price="40.00",
+            service_selling_price="200.00",
+            service_cost_price="80.00",
+            workshop=self.workshop,
+        )
+        self._create_workshop_cost_snapshot(
+            month=1,
+            year=2026,
+            tax_rate="0.10",
+            operational_cost="60.00",
+            financial_cost="10.00",
+            workshop=self.workshop,
+        )
+        self._create_workorder_with_values(
+            reference_date=date(2026, 1, 18),
+            product_selling_price="50.00",
+            product_cost_price="20.00",
+            service_selling_price="150.00",
+            service_cost_price="30.00",
+            workshop=second_workshop,
+        )
+        self._create_workshop_cost_snapshot(
+            month=1,
+            year=2026,
+            tax_rate="0.10",
+            operational_cost="20.00",
+            financial_cost="5.00",
+            workshop=second_workshop,
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": DreForm.ALL_WORKSHOPS_VALUE,
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        rows = {row["label"]: row["amount"] for row in response.context["dre_rows"]}
+        self.assertEqual(rows["(+) Receita Bruta de Vendas e Serviços"], Money("500.00", "BRL"))
+        self.assertEqual(rows["(-) Custos Mercadorias Vendidas"], Money("170.00", "BRL"))
+        self.assertEqual(rows["(=) Receita Bruta de Vendas"], Money("330.00", "BRL"))
+        self.assertEqual(rows["(-) Despesas Financeiras"], Money("15.00", "BRL"))
+        self.assertEqual(rows["(=) Resultado Operacional"], Money("-15.00", "BRL"))
+        self.assertEqual(response.context["selected_workshop_label"], "Todas as filiais")
+        self.assertTrue(response.context["is_consolidated_workshops"])
+        self.assertContains(response, "Consolidado de 2 filiais")
+
+    @patch("apps.finance.views.dre.render_dre_pdf_document")
+    def test_pdf_view_uses_consolidated_context_for_all_workshops(self, render_document_mock) -> None:
+        second_workshop = self._create_additional_workshop(suffix=91)
+        render_document_mock.return_value = DocumentPayload(content=b"%PDF-dre", filename="dre.pdf")
+
+        response = self.client.get(
+            reverse("finance:dre_pdf"),
+            data={
+                "filial": DreForm.ALL_WORKSHOPS_VALUE,
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        context = render_document_mock.call_args.kwargs["context"]
+        self.assertIsNone(context["selected_workshop"])
+        self.assertEqual(context["selected_workshop_label"], "Todas as filiais")
+        self.assertTrue(context["is_consolidated_workshops"])
+        self.assertEqual([workshop.pk for workshop in context["selected_workshops"]], [self.workshop.pk, second_workshop.pk])
+
+    def test_excel_view_uses_all_workshops_label_in_summary_sheet(self) -> None:
+        second_workshop = self._create_additional_workshop(suffix=92)
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=second_workshop, name="Receitas")
+
+        response = self.client.get(
+            reverse("finance:dre_excel"),
+            data={
+                "filial": DreForm.ALL_WORKSHOPS_VALUE,
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        workbook = load_workbook(filename=BytesIO(response.content))
+        summary_sheet = workbook["Resumo"]
+        self.assertEqual(summary_sheet["B3"].value, "Todas as filiais")
+
+    def test_results_page_renders_dynamic_header_with_selected_workshop(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Demonstração de Resultado de Exercício")
+        self.assertContains(response, self.workshop.name)
+        self.assertContains(response, "01/01/2026 até 31/01/2026")
+        self.assertContains(response, "(=) Resultado Operacional")
+
+    def test_results_page_renders_back_button_to_report_with_current_filters(self) -> None:
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Voltar")
+        self.assertContains(
+            response,
+            f'href="{reverse("finance:dre_report")}?filial={self.workshop.pk}&amp;data_inicial=2026-01-01&amp;data_final=2026-01-31&amp;tipo_data=A"',
+        )
+
+    def test_results_page_renders_pdf_button_with_modal_urls(self) -> None:
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Gerar PDF")
+        self.assertContains(
+            response,
+            f"url: '{reverse('finance:dre_pdf_preview')}?filial={self.workshop.pk}&amp;data_inicial=2026-01-01&amp;data_final=2026-01-31&amp;tipo_data=A'",
+        )
+        self.assertContains(
+            response,
+            f"downloadUrl: '{reverse('finance:dre_pdf')}?download=1&filial={self.workshop.pk}&amp;data_inicial=2026-01-01&amp;data_final=2026-01-31&amp;tipo_data=A'",
+        )
+        self.assertContains(response, 'id="pdfModal"')
+        self.assertContains(response, "@open-pdf-modal.window=\"pdfUrl = $event.detail.url; pdfDownloadUrl = $event.detail.downloadUrl || ''; $el.showModal()\"")
+        self.assertNotContains(response, 'target="_blank"')
+
+    def test_results_page_renders_excel_button_with_download_url(self) -> None:
+        revenue_group = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+                "financial_groups": [str(revenue_group.pk)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Exportar Excel")
+        self.assertContains(
+            response,
+            f'href="{reverse("finance:dre_excel")}?filial={self.workshop.pk}&amp;data_inicial=2026-01-01&amp;data_final=2026-01-31&amp;tipo_data=A&amp;financial_groups={revenue_group.pk}"',
+        )
+
+    def test_pdf_preview_view_renders_html_for_iframe(self) -> None:
+        response = self.client.get(
+            reverse("finance:dre_pdf_preview"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "<!DOCTYPE html>", html=False)
+        self.assertContains(response, "Demonstração do Resultado do Exercício")
+        self.assertIsNone(response.headers.get("X-Frame-Options"))
+
+    def test_build_dre_pdf_render_request_uses_normalized_workshop_name_in_filename(self) -> None:
+        self.workshop.name = "Oficina São José / Matriz"
+        render_request = build_dre_pdf_render_request(
+            context={
+                "selected_workshop": self.workshop,
+                "data_inicial_label": "01/01/2026",
+                "data_final_label": "31/01/2026",
+            }
+        )
+
+        self.assertEqual(render_request.filename, "dre_oficina_sao_jose_matriz_01_01_2026_31_01_2026.pdf")
+
+    def test_build_dre_excel_document_uses_normalized_workshop_name_in_filename(self) -> None:
+        self.workshop.name = "Oficina São José / Matriz"
+        document = build_dre_excel_document(
+            context={
+                "selected_workshop": self.workshop,
+                "data_inicial_label": "01/01/2026",
+                "data_final_label": "31/01/2026",
+                "dre_summary_cards": [],
+                "dre_rows": [],
+            }
+        )
+
+        self.assertEqual(document.filename, "dre_oficina_sao_jose_matriz_01_01_2026_31_01_2026.xlsx")
+
+    def test_results_page_calculates_dynamic_dre_values_from_workorders_and_costs(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+        reference_date = date(2026, 1, 15)
+
+        self._create_workorder_with_values(
+            reference_date=reference_date,
+            product_selling_price="100.00",
+            product_cost_price="40.00",
+            service_selling_price="200.00",
+            service_cost_price="80.00",
+        )
+        self._create_workshop_cost_snapshot(
+            month=1,
+            year=2026,
+            tax_rate="0.10",
+            operational_cost="60.00",
+            financial_cost="10.00",
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        rows = {row["label"]: row["amount"] for row in response.context["dre_rows"]}
+        cards = {card["label"]: card["amount"] for card in response.context["dre_summary_cards"]}
+
+        self.assertEqual(rows["(+) Receita Bruta de Vendas e Serviços"], Money("300.00", "BRL"))
+        self.assertEqual(rows["(-) Custos Mercadorias Vendidas"], Money("120.00", "BRL"))
+        self.assertEqual(rows["(=) Receita Bruta de Vendas"], Money("180.00", "BRL"))
+        self.assertEqual(rows["(+) Receitas Financeiras"], Money("0.00", "BRL"))
+        self.assertEqual(rows["(-) Despesas Financeiras"], Money("10.00", "BRL"))
+        self.assertEqual(rows["(=) Resultado Operacional"], Money("-10.00", "BRL"))
+        self.assertEqual(cards["Receita Bruta de Vendas"], Money("180.00", "BRL"))
+        self.assertEqual(cards["Resultado Operacional"], Money("-10.00", "BRL"))
+        content = response.content.decode("utf-8")
+        self.assertIn("(Receita Bruta de Vendas e Serviços - Custos Mercadorias Vendidas)", content)
+        self.assertIn("(Receitas Financeiras - Despesas Financeiras)", content)
+
+    def test_results_page_uses_only_selected_financial_groups_in_calculation(self) -> None:
+        revenue_group = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+        reference_date = date(2026, 1, 15)
+
+        self._create_workorder_with_values(
+            reference_date=reference_date,
+            product_selling_price="100.00",
+            product_cost_price="40.00",
+            service_selling_price="200.00",
+            service_cost_price="80.00",
+        )
+        self._create_workshop_cost_snapshot(
+            month=1,
+            year=2026,
+            tax_rate="0.10",
+            operational_cost="60.00",
+            financial_cost="10.00",
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+                "financial_groups": [str(revenue_group.pk)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        rows = {row["label"]: row["amount"] for row in response.context["dre_rows"]}
+        cards = {card["label"]: card["amount"] for card in response.context["dre_summary_cards"]}
+
+        self.assertEqual(rows["(+) Receita Bruta de Vendas e Serviços"], Money("300.00", "BRL"))
+        self.assertEqual(rows["(-) Custos Mercadorias Vendidas"], Money("0.00", "BRL"))
+        self.assertEqual(rows["(=) Receita Bruta de Vendas"], Money("300.00", "BRL"))
+        self.assertEqual(rows["(+) Receitas Financeiras"], Money("0.00", "BRL"))
+        self.assertEqual(rows["(-) Despesas Financeiras"], Money("0.00", "BRL"))
+        self.assertEqual(rows["(=) Resultado Operacional"], Money("0.00", "BRL"))
+        self.assertEqual(cards["Receita Bruta de Vendas"], Money("300.00", "BRL"))
+        self.assertEqual(cards["Resultado Operacional"], Money("0.00", "BRL"))
+
+    def test_results_page_does_not_fallback_to_all_when_selected_group_has_no_component_mapping(self) -> None:
+        unmapped_group = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas de Servicos Diretos")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+        reference_date = date(2026, 1, 15)
+
+        self._create_workorder_with_values(
+            reference_date=reference_date,
+            product_selling_price="100.00",
+            product_cost_price="40.00",
+            service_selling_price="200.00",
+            service_cost_price="80.00",
+        )
+        self._create_workshop_cost_snapshot(
+            month=1,
+            year=2026,
+            tax_rate="0.10",
+            operational_cost="60.00",
+            financial_cost="10.00",
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+                "financial_groups": [str(unmapped_group.pk)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        rows = {row["label"]: row["amount"] for row in response.context["dre_rows"]}
+        cards = {card["label"]: card["amount"] for card in response.context["dre_summary_cards"]}
+
+        self.assertEqual(rows["(+) Receita Bruta de Vendas e Serviços"], Money("0.00", "BRL"))
+        self.assertEqual(rows["(-) Custos Mercadorias Vendidas"], Money("0.00", "BRL"))
+        self.assertEqual(rows["(=) Receita Bruta de Vendas"], Money("0.00", "BRL"))
+        self.assertEqual(rows["(+) Receitas Financeiras"], Money("0.00", "BRL"))
+        self.assertEqual(rows["(-) Despesas Financeiras"], Money("0.00", "BRL"))
+        self.assertEqual(rows["(=) Resultado Operacional"], Money("0.00", "BRL"))
+        self.assertEqual(cards["Receita Bruta de Vendas"], Money("0.00", "BRL"))
+        self.assertEqual(cards["Resultado Operacional"], Money("0.00", "BRL"))
+
+    def test_results_page_includes_expandable_workorder_details_for_gross_revenue_row(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        reference_date = date(2026, 1, 15)
+
+        workorder = self._create_workorder_with_values(
+            reference_date=reference_date,
+            product_selling_price="100.00",
+            product_cost_price="40.00",
+            service_selling_price="200.00",
+            service_cost_price="80.00",
+            customer_name="Cliente DRE Expandido",
+            payment_due_date=date(2026, 1, 20),
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        gross_revenue_row = next(row for row in response.context["dre_rows"] if row["component"] == "receita_bruta_vendas_e_servicos")
+
+        self.assertEqual(len(gross_revenue_row["details"]), 1)
+        self.assertEqual(gross_revenue_row["detail_kind"], "workorders")
+        detail = gross_revenue_row["details"][0]
+        self.assertEqual(detail["workorder_id"], workorder.pk)
+        self.assertEqual(detail["summary"], f"OS/PEDIDO Nº {workorder.pk} - Cliente DRE Expandido")
+        self.assertEqual(detail["entry_date"], date(2026, 1, 15))
+        self.assertEqual(detail["payment_date"], date(2026, 1, 20))
+        self.assertEqual(detail["amount"], Money("300.00", "BRL"))
+
+        content = response.content.decode("utf-8")
+        self.assertIn(f"OS/PEDIDO Nº {workorder.pk} - Cliente DRE Expandido", content)
+        self.assertContains(response, f'href="{reverse("workorder:workorder_detail", kwargs={"pk": workorder.pk})}"')
+        self.assertIn("Data Entrada: 15/01/2026 | Data Saída: 20/01/2026", content)
+        self.assertIn("R$\u00a0300,00", content)
+        self.assertIn("chevron_right", content)
+
+    def test_results_page_includes_expandable_workorder_cost_details_for_cost_row(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+
+        workorder = self._create_workorder_with_values(
+            reference_date=date(2026, 1, 15),
+            product_selling_price="100.00",
+            product_cost_price="40.00",
+            service_selling_price="200.00",
+            service_cost_price="80.00",
+            customer_name="Cliente Custo",
+            payment_due_date=date(2026, 1, 20),
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        cost_row = next(row for row in response.context["dre_rows"] if row["component"] == "custos_mercadorias_vendidas")
+
+        self.assertEqual(cost_row["detail_kind"], "workorders")
+        self.assertEqual(len(cost_row["details"]), 1)
+        detail = cost_row["details"][0]
+        self.assertEqual(detail["workorder_id"], workorder.pk)
+        self.assertEqual(detail["summary"], f"OS/PEDIDO Nº {workorder.pk} - Cliente Custo")
+        self.assertEqual(detail["amount"], Money("120.00", "BRL"))
+
+    def test_results_page_includes_expandable_financial_expense_details(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+        self._create_workshop_cost_snapshot(
+            month=1,
+            year=2026,
+            tax_rate="0.10",
+            operational_cost="60.00",
+            financial_cost="10.00",
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        expense_row = next(row for row in response.context["dre_rows"] if row["component"] == "despesas_financeiras")
+
+        self.assertEqual(expense_row["detail_kind"], "financial_entries")
+        self.assertEqual(len(expense_row["details"]), 1)
+        detail = expense_row["details"][0]
+        self.assertEqual(detail["summary"], "Taxas bancarias 1/2026")
+        self.assertEqual(detail["reference"], "Janeiro/2026")
+        self.assertEqual(detail["amount"], Money("10.00", "BRL"))
+
+    def test_results_page_keeps_expandable_source_rows_openable_without_data(self) -> None:
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        expandable_components = {
+            "receita_bruta_vendas_e_servicos",
+            "custos_mercadorias_vendidas",
+            "receitas_financeiras",
+            "despesas_financeiras",
+        }
+        for row in response.context["dre_rows"]:
+            if row["component"] in expandable_components:
+                self.assertTrue(row["is_expandable"])
+                self.assertEqual(row["details"], [])
+            else:
+                self.assertFalse(row["is_expandable"])
+                self.assertEqual(row["details"], [])
+
+        content = response.content.decode("utf-8")
+        self.assertEqual(content.count("chevron_right"), 4)
+        self.assertIn("Não há dados neste período.", content)
+
+    def test_results_page_keeps_derived_rows_static_without_dropdown_details(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+        self._create_workorder_with_values(
+            reference_date=date(2026, 1, 15),
+            product_selling_price="100.00",
+            product_cost_price="40.00",
+            service_selling_price="200.00",
+            service_cost_price="80.00",
+        )
+        self._create_workshop_cost_snapshot(
+            month=1,
+            year=2026,
+            tax_rate="0.10",
+            operational_cost="60.00",
+            financial_cost="10.00",
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        gross_sales_row = next(row for row in response.context["dre_rows"] if row["component"] == "receita_bruta_de_vendas")
+        operating_result_row = next(row for row in response.context["dre_rows"] if row["component"] == "resultado_operacional")
+
+        self.assertEqual(gross_sales_row["detail_kind"], "components")
+        self.assertFalse(gross_sales_row["is_expandable"])
+        self.assertEqual(gross_sales_row["details"], [])
+        self.assertEqual(operating_result_row["detail_kind"], "components")
+        self.assertFalse(operating_result_row["is_expandable"])
+        self.assertEqual(operating_result_row["details"], [])
+
+        content = response.content.decode("utf-8")
+        self.assertIn("bg-base-200", content)
+
+    def test_results_page_renders_only_source_row_dropdowns_without_data(self) -> None:
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+
+        self.assertEqual(content.count("chevron_right"), 4)
+        self.assertEqual(content.count("expand_more"), 4)
+        self.assertEqual(sum(1 for row in response.context["dre_rows"] if row["is_expandable"]), 4)
+
+    @patch("apps.finance.views.dre.render_dre_pdf_document")
+    def test_pdf_view_returns_inline_pdf_with_filtered_detailed_context(self, render_document_mock) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+        workorder = self._create_workorder_with_values(
+            reference_date=date(2026, 1, 15),
+            product_selling_price="100.00",
+            product_cost_price="40.00",
+            service_selling_price="200.00",
+            service_cost_price="80.00",
+            customer_name="Cliente PDF DRE",
+            payment_due_date=date(2026, 1, 20),
+        )
+        self._create_workshop_cost_snapshot(
+            month=1,
+            year=2026,
+            tax_rate="0.10",
+            operational_cost="60.00",
+            financial_cost="10.00",
+        )
+        render_document_mock.return_value = DocumentPayload(content=b"%PDF-dre", filename="dre.pdf")
+
+        response = self.client.get(
+            reverse("finance:dre_pdf"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"%PDF-dre")
+        self.assertIn('inline; filename="dre.pdf"', response["Content-Disposition"])
+        render_document_mock.assert_called_once()
+
+        context = render_document_mock.call_args.kwargs["context"]
+        self.assertEqual(context["selected_workshop"], self.workshop)
+        self.assertEqual(context["data_inicial_label"], "01/01/2026")
+        self.assertEqual(context["data_final_label"], "31/01/2026")
+        self.assertEqual(context["tipo_data_label"], "AMBOS")
+
+        gross_revenue_row = next(row for row in context["dre_rows"] if row["component"] == "receita_bruta_vendas_e_servicos")
+        costs_row = next(row for row in context["dre_rows"] if row["component"] == "custos_mercadorias_vendidas")
+        expense_row = next(row for row in context["dre_rows"] if row["component"] == "despesas_financeiras")
+
+        self.assertEqual(gross_revenue_row["details"][0]["summary"], f"OS/PEDIDO Nº {workorder.pk} - Cliente PDF DRE")
+        self.assertEqual(gross_revenue_row["details"][0]["payment_date"], date(2026, 1, 20))
+        self.assertEqual(costs_row["details"][0]["amount"], Money("120.00", "BRL"))
+        self.assertEqual(expense_row["details"][0]["summary"], "Taxas bancarias 1/2026")
+        self.assertEqual(expense_row["details"][0]["reference"], "Janeiro/2026")
+
+    @patch("apps.finance.views.dre.render_dre_pdf_document")
+    def test_pdf_view_supports_download_disposition(self, render_document_mock) -> None:
+        render_document_mock.return_value = DocumentPayload(content=b"%PDF-dre", filename="dre.pdf")
+
+        response = self.client.get(
+            reverse("finance:dre_pdf"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+                "download": "1",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('attachment; filename="dre.pdf"', response["Content-Disposition"])
+
+    def test_excel_view_returns_styled_workbook_with_filtered_detailed_context(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+        workorder = self._create_workorder_with_values(
+            reference_date=date(2026, 1, 15),
+            product_selling_price="100.00",
+            product_cost_price="40.00",
+            service_selling_price="200.00",
+            service_cost_price="80.00",
+            customer_name="Cliente Excel DRE",
+            payment_due_date=date(2026, 1, 20),
+        )
+        self._create_workshop_cost_snapshot(
+            month=1,
+            year=2026,
+            tax_rate="0.10",
+            operational_cost="60.00",
+            financial_cost="10.00",
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_excel"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        self.assertIn('attachment; filename="dre_', response["Content-Disposition"])
+
+        workbook = load_workbook(filename=BytesIO(response.content))
+        self.assertEqual(workbook.sheetnames, ["Resumo", "Detalhes"])
+
+        summary_sheet = workbook["Resumo"]
+        details_sheet = workbook["Detalhes"]
+
+        self.assertEqual(summary_sheet["A1"].value, "DRE - Demonstracao do Resultado do Exercicio")
+        self.assertEqual(summary_sheet["B3"].value, self.workshop.name)
+        self.assertEqual(summary_sheet["B4"].value, "01/01/2026 ate 31/01/2026")
+        self.assertEqual(summary_sheet["A1"].fill.fgColor.rgb[-6:], "1E3A8A")
+        self.assertEqual(details_sheet["A1"].fill.fgColor.rgb[-6:], "1E3A8A")
+
+        summary_values = [cell for row in summary_sheet.iter_rows(values_only=True) for cell in row if cell is not None]
+        detail_rows = list(details_sheet.iter_rows(values_only=True))
+        detail_values = [cell for row in detail_rows for cell in row if cell is not None]
+        summary_header_row = next(index for index, row in enumerate(summary_sheet.iter_rows(values_only=True), start=1) if row[:3] == ("Descricao", "Formula", "Valor"))
+        summary_headers = [summary_sheet.cell(row=summary_header_row, column=column).value for column in range(1, 4)]
+        detail_headers = [details_sheet.cell(row=3, column=column).value for column in range(1, 7)]
+
+        self.assertNotIn("Grupos selecionados", summary_values)
+        self.assertNotIn("Tipo de data", summary_values)
+        self.assertNotIn("Indicador", summary_values)
+        self.assertNotIn("Tipo", summary_values)
+        self.assertNotIn("Detalhavel", summary_values)
+        self.assertNotIn("Tipo", detail_values)
+        self.assertEqual(summary_headers, ["Descricao", "Formula", "Valor"])
+        self.assertEqual(detail_headers, ["Linha DRE", "Resumo", "Referencia", "Data Entrada", "Data Saida", "Valor"])
+        self.assertIn("(+) Receita Bruta de Vendas e Serviços", summary_values)
+        self.assertIn(180, summary_values)
+        self.assertIn(f"OS/PEDIDO Nº {workorder.pk} - Cliente Excel DRE", detail_values)
+        self.assertIn("Taxas bancarias 1/2026", detail_values)
 
 
 class PaymentMethodFormTests(TestCase):

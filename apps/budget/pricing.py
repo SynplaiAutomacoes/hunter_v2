@@ -11,6 +11,7 @@ from djmoney.money import Money
 
 MONEY_CURRENCY = "BRL"
 MONEY_QUANT = Decimal("0.01")
+PERCENT_QUANT = Decimal("0.000001")
 
 
 def zero_money() -> Money:
@@ -23,6 +24,10 @@ def _quantize_decimal(value: Decimal) -> Decimal:
 
 def money_from_decimal(value: Decimal) -> Money:
     return Money(_quantize_decimal(value), MONEY_CURRENCY)
+
+
+def _quantize_percentage(value: Decimal) -> Decimal:
+    return value.quantize(PERCENT_QUANT, rounding=ROUND_HALF_UP)
 
 
 def money_div(total: Money, quantity: int) -> Money:
@@ -138,7 +143,41 @@ class PricingSnapshot:
     total_products_by_slider: Money
     total_services_by_slider: Money
     total_base_value: Money
+    resolved_discount_value: Money
+    resolved_discount_percentage: Decimal
     total_budget_value: Money
+
+
+def resolve_discount_fields(
+    *,
+    total_base_value: Money,
+    discount_value: Money | None = None,
+    discount_percentage: Decimal | None = None,
+) -> tuple[Money, Decimal]:
+    total_amount = max(_quantize_decimal(total_base_value.amount), Decimal("0.00"))
+    raw_discount_amount = max(
+        _quantize_decimal((discount_value.amount if discount_value is not None else Decimal("0.00"))),
+        Decimal("0.00"),
+    )
+    raw_discount_percentage = min(
+        max(Decimal(discount_percentage or 0), Decimal("0.00")),
+        Decimal("1.00"),
+    )
+    raw_discount_percentage = _quantize_percentage(raw_discount_percentage)
+
+    if total_amount <= Decimal("0.00"):
+        return zero_money(), Decimal("0.00")
+
+    if raw_discount_percentage > Decimal("0.00"):
+        resolved_discount_amount = min(_quantize_decimal(total_amount * raw_discount_percentage), total_amount)
+        return money_from_decimal(resolved_discount_amount), raw_discount_percentage
+
+    resolved_discount_amount = min(raw_discount_amount, total_amount)
+    if resolved_discount_amount <= Decimal("0.00"):
+        return zero_money(), Decimal("0.00")
+
+    resolved_discount_percentage = _quantize_percentage(resolved_discount_amount / total_amount)
+    return money_from_decimal(resolved_discount_amount), resolved_discount_percentage
 
 
 @dataclass(slots=True)
@@ -258,6 +297,7 @@ def build_pricing_snapshot(
     items: Iterable[Any],
     slider: int,
     discount_value: Money,
+    discount_percentage: Decimal | None = None,
     labor_cost_value: Money | None = None,
     is_local_product_item: Callable[[Any], bool] | None = None,
     is_local_service_item: Callable[[Any], bool] | None = None,
@@ -547,7 +587,12 @@ def build_pricing_snapshot(
         line.adjusted_total = line.cost_total + adjusted_total
 
     total_base_value = total_products_by_slider + total_services_by_slider
-    total_budget_value = total_base_value - discount_value
+    resolved_discount_value, resolved_discount_percentage = resolve_discount_fields(
+        total_base_value=total_base_value,
+        discount_value=discount_value,
+        discount_percentage=discount_percentage,
+    )
+    total_budget_value = total_base_value - resolved_discount_value
 
     return PricingSnapshot(
         product_lines=product_lines,
@@ -566,5 +611,7 @@ def build_pricing_snapshot(
         total_products_by_slider=total_products_by_slider,
         total_services_by_slider=total_services_by_slider,
         total_base_value=total_base_value,
+        resolved_discount_value=resolved_discount_value,
+        resolved_discount_percentage=resolved_discount_percentage,
         total_budget_value=total_budget_value,
     )

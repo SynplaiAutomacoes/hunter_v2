@@ -5,14 +5,19 @@ from decimal import Decimal
 from urllib.parse import urlparse
 from unittest.mock import PropertyMock, patch
 
+import requests
+from django.http import QueryDict
+from django.template import Context, Template
+from apps.accounts.models import Account, User
 from django.http import Http404, HttpResponse
+from django.db import connection
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from djmoney.money import Money
 
 from apps.budget.forms.shared import _render_budget_items_rows
-from apps.budget.models import Budget, BudgetItem, SignatureStatus
+from apps.budget.models import Budget, BudgetItem, BudgetStatus, SignatureStatus
 from apps.budget.pdf_context import build_budget_pdf_context
 from apps.budget.service import (
     BUDGET_SIGNATURE_DOCUMENT_ID_KEY,
@@ -30,10 +35,18 @@ from apps.catalog.models.services import Service
 from apps.core.documents.contract import DocumentPayload, SignatureDeliveryResult
 from apps.core.documents.signature import normalize_signature_phone_number, parse_document_signature_token
 from apps.core.documents.services import SignatureDeliveryServiceError, get_signed_document_url
-from apps.customer.models import Customer
 from apps.budget.views.pdf_views import signature_file, signature_preview, visualizar_pdf_assinatura
+from apps.budget.views.workflow_views import BUDGET_LIST_FILTERS, trigger_signature_send_if_needed
+from apps.collaborators.models import WorkshopCollaborator
+from apps.core.query_filters import apply_query_param_filters
+from apps.customer.models import Customer, Vehicle
 from apps.budget.views.workflow_views import trigger_signature_send_if_needed
+from apps.collaborators.models import WorkshopMember
+from apps.iam.utils import get_or_create_director_role
 from apps.workshops.models.workshops import Workshop
+
+
+BUDGET_TEST_DEFAULTS_PREPARED = False
 
 
 def create_workshop(*, suffix: int = 1) -> Workshop:
@@ -46,9 +59,36 @@ def create_workshop(*, suffix: int = 1) -> Workshop:
 
 
 def create_budget(*, workshop: Workshop) -> Budget:
+    global BUDGET_TEST_DEFAULTS_PREPARED
+
+    if not BUDGET_TEST_DEFAULTS_PREPARED:
+        with connection.cursor() as cursor:
+            cursor.execute("ALTER TABLE budget_budget ALTER COLUMN discount_percentage SET DEFAULT 0")
+        BUDGET_TEST_DEFAULTS_PREPARED = True
+
     budget = Budget(workshop=workshop, entry_date=timezone.now().date())
     budget.save()
     return budget
+
+
+def create_director_user_with_workshop(*, suffix: int = 1) -> tuple[User, Workshop]:
+    user = User.objects.create_user(username=f"budget-director{suffix}", password="123", cpf=f"12345678{suffix:03d}")
+    account = Account.objects.create(name=f"Conta Budget {suffix}", owner=user)
+    user.account = account
+    user.is_account_owner = True
+    user.save(update_fields=["account", "is_account_owner"])
+
+    workshop = Workshop.objects.create(
+        account=account,
+        name=f"Oficina Diretor Budget {suffix}",
+        cnpj=f"11.555.666/0001-{suffix:02d}",
+        phone="+5511966666666",
+        address="Rua Diretor Budget, 123",
+    )
+
+    director_role = get_or_create_director_role(account=account, with_all_permissions=True)
+    WorkshopMember.objects.create(user=user, workshop=workshop, role=director_role, is_active=True)
+    return user, workshop
 
 
 def create_customer(*, workshop: Workshop, suffix: int = 1, phone: str = "+5511999999999") -> Customer:
@@ -58,6 +98,31 @@ def create_customer(*, workshop: Workshop, suffix: int = 1, phone: str = "+55119
         cpf_or_cnpj=f"123.456.789-{suffix:02d}",
         email=f"cliente{suffix}@example.com",
         phone=phone,
+    )
+
+
+def create_vehicle(*, workshop: Workshop, customer: Customer, suffix: int = 1, plate: str | None = None) -> Vehicle:
+    return Vehicle.objects.create(
+        workshop=workshop,
+        customer=customer,
+        plate=plate or f"ABC1D{suffix:02d}",
+        brand=f"Marca {suffix}",
+        model=f"Modelo {suffix}",
+        year_fabrication="2024",
+        year_model="2024",
+        color="Prata",
+    )
+
+
+def create_collaborator(*, workshop: Workshop, suffix: int = 1, name: str | None = None) -> WorkshopCollaborator:
+    return WorkshopCollaborator.objects.create(
+        workshop=workshop,
+        name=name or f"Colaborador {suffix}",
+        cpf=f"123456789{suffix:02d}",
+        birth_date=timezone.now().date(),
+        salary=Money("0.00", "BRL"),
+        admission_date=timezone.now().date(),
+        collaborator_type=WorkshopCollaborator.CollaboratorType.PRODUCTIVE,
     )
 
 
@@ -95,6 +160,64 @@ def create_kit(*, workshop: Workshop, suffix: int, products: list[tuple[Product,
 
 def extract_token_from_url(url: str) -> str:
     return urlparse(url).path.rstrip("/").split("/")[-1]
+
+
+class BudgetListFiltersTests(TestCase):
+    def test_budget_list_filters_support_client_vehicle_collaborator_and_status(self) -> None:
+        workshop = create_workshop(suffix=70)
+
+        matching_customer = create_customer(workshop=workshop, suffix=70)
+        matching_vehicle = create_vehicle(workshop=workshop, customer=matching_customer, suffix=70, plate="ABC1234")
+        matching_collaborator = create_collaborator(workshop=workshop, suffix=70, name="Joao Silva")
+        matching_budget = create_budget(workshop=workshop)
+        matching_budget.customer = matching_customer
+        matching_budget.vehicle = matching_vehicle
+        matching_budget.collaborator = matching_collaborator
+        matching_budget.status = BudgetStatus.APPROVED
+        matching_budget.save(update_fields=["customer", "vehicle", "collaborator", "status"])
+
+        other_customer = create_customer(workshop=workshop, suffix=71)
+        other_vehicle = create_vehicle(workshop=workshop, customer=other_customer, suffix=71, plate="XYZ9876")
+        other_collaborator = create_collaborator(workshop=workshop, suffix=71, name="Maria Souza")
+        other_budget = create_budget(workshop=workshop)
+        other_budget.customer = other_customer
+        other_budget.vehicle = other_vehicle
+        other_budget.collaborator = other_collaborator
+        other_budget.status = BudgetStatus.CANCELLED
+        other_budget.save(update_fields=["customer", "vehicle", "collaborator", "status"])
+
+        params = QueryDict("client=Cliente+70&vehicle=ABC1234&collaborator=Joao&status=approved")
+
+        filtered = apply_query_param_filters(
+            Budget.objects.filter(workshop=workshop),
+            params=params,
+            filter_configs=BUDGET_LIST_FILTERS,
+        )
+
+        self.assertQuerySetEqual(filtered.order_by("pk"), [matching_budget], transform=lambda obj: obj)
+        self.assertNotIn(other_budget, filtered)
+
+    def test_budget_filter_fields_template_renders_new_inputs(self) -> None:
+        request = RequestFactory().get("/budget/", {"client": "Ana", "vehicle": "ABC1234", "collaborator": "Joao", "status": BudgetStatus.APPROVED})
+        template = Template("{% include 'budget/partials/budget_filters_fields.html' %}")
+
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "table_id": "budget-table",
+                    "status_choices": Budget.status.field.choices,
+                }
+            )
+        )
+
+        self.assertIn('name="client"', html)
+        self.assertIn('name="vehicle"', html)
+        self.assertIn('name="collaborator"', html)
+        self.assertIn('name="status"', html)
+        self.assertIn('value="Ana"', html)
+        self.assertIn('value="ABC1234"', html)
+        self.assertIn('value="Joao"', html)
 
 
 class BudgetTotalsConsistencyTests(TestCase):
@@ -146,16 +269,114 @@ class BudgetTotalsConsistencyTests(TestCase):
         self.assertEqual(budget.total_base_value, Money("0.01", "BRL"))
         self.assertEqual(budget.total_budget_value, Money("0.00", "BRL"))
 
-
-class BudgetSignaturePersistenceTests(TestCase):
-    def test_mark_signature_sent_persists_envelope_id(self) -> None:
+    def test_discount_percentage_recomputes_discount_value_from_subtotal(self) -> None:
         workshop = create_workshop(suffix=73)
         budget = create_budget(workshop=workshop)
 
-        budget.mark_signature_sent("env-123")
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            is_local=True,
+            description="Servico percentual",
+            quantity=1,
+            service_selling_price=Money("200.00", "BRL"),
+        )
+
+        budget.discount_percentage = Decimal("0.15")
+        budget.discount_value = Money("0.00", "BRL")
+        budget.save(update_fields=["discount_percentage", "discount_value"])
+
+        budget.refresh_from_db()
+        self.assertEqual(budget.resolved_discount_value, Money("30.00", "BRL"))
+        self.assertEqual(budget.discount_value, Money("30.00", "BRL"))
+        self.assertEqual(budget.discount_percentage, Decimal("0.150000"))
+        self.assertEqual(budget.total_budget_value, Money("170.00", "BRL"))
+
+    def test_discount_value_recomputes_discount_percentage(self) -> None:
+        workshop = create_workshop(suffix=74)
+        budget = create_budget(workshop=workshop)
+
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            is_local=True,
+            description="Servico valor",
+            quantity=1,
+            service_selling_price=Money("250.00", "BRL"),
+        )
+
+        budget.discount_value = Money("50.00", "BRL")
+        budget.discount_percentage = Decimal("0")
+        budget.save(update_fields=["discount_value", "discount_percentage"])
+
+        budget.refresh_from_db()
+        self.assertEqual(budget.discount_value, Money("50.00", "BRL"))
+        self.assertEqual(budget.discount_percentage, Decimal("0.200000"))
+        self.assertEqual(budget.total_budget_value, Money("200.00", "BRL"))
+
+
+class BudgetDiscountUpdateViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=80)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_update_budget_discount_accepts_percentage_as_source_of_truth(self) -> None:
+        budget = create_budget(workshop=self.workshop)
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            is_local=True,
+            description="Servico percentual view",
+            quantity=1,
+            service_selling_price=Money("300.00", "BRL"),
+        )
+
+        response = self.client.post(
+            reverse("budget:update_budget_discount", kwargs={"budget_id": budget.pk}),
+            data={"discount_percentage": "0.10", "discount_value_0": "0.00"},
+        )
+
+        budget.refresh_from_db()
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(budget.discount_percentage, Decimal("0.100000"))
+        self.assertEqual(budget.discount_value, Money("30.00", "BRL"))
+
+    def test_update_budget_discount_recomputes_percentage_from_value(self) -> None:
+        budget = create_budget(workshop=self.workshop)
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            is_local=True,
+            description="Servico valor view",
+            quantity=1,
+            service_selling_price=Money("400.00", "BRL"),
+        )
+
+        response = self.client.post(
+            reverse("budget:update_budget_discount", kwargs={"budget_id": budget.pk}),
+            data={"discount_percentage": "0", "discount_value_0": "40.00"},
+        )
+
+        budget.refresh_from_db()
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(budget.discount_value, Money("40.00", "BRL"))
+        self.assertEqual(budget.discount_percentage, Decimal("0.100000"))
+
+
+class BudgetSignaturePersistenceTests(TestCase):
+    def test_mark_signature_sent_persists_envelope_and_document_id(self) -> None:
+        workshop = create_workshop(suffix=73)
+        budget = create_budget(workshop=workshop)
+
+        budget.mark_signature_sent("env-123", document_id="doc-123")
         budget.refresh_from_db()
 
         self.assertEqual(budget.signature_external_id, "env-123")
+        self.assertEqual(budget.signature_document_id, "doc-123")
 
 
 class BudgetSignatureTokenUrlTests(TestCase):
@@ -457,9 +678,10 @@ class BudgetSignatureInternalPdfTests(TestCase):
     def test_visualizar_pdf_assinatura_returns_signed_pdf_when_available(self, download_signed_mock, active_workshop_mock) -> None:
         workshop = create_workshop(suffix=81)
         budget = create_budget(workshop=workshop)
-        budget.signature_request_status = SignatureStatus.SENT
+        budget.signature_request_status = SignatureStatus.APPROVED
         budget.signature_external_id = "env-81"
-        budget.save(update_fields=["signature_request_status", "signature_external_id"])
+        budget.signature_document_id = "doc-81"
+        budget.save(update_fields=["signature_request_status", "signature_external_id", "signature_document_id"])
 
         active_workshop_mock.return_value = workshop
         download_signed_mock.return_value = b"%PDF-signed"
@@ -470,6 +692,7 @@ class BudgetSignatureInternalPdfTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, b"%PDF-signed")
         self.assertIn("attachment;", response["Content-Disposition"])
+        download_signed_mock.assert_called_once_with(document_id="doc-81", envelope_id="env-81")
 
     @patch("apps.budget.views.pdf_views.get_active_workshop_or_404")
     @patch("apps.budget.views.pdf_views.render_budget_pdf_document")
@@ -477,7 +700,7 @@ class BudgetSignatureInternalPdfTests(TestCase):
     def test_visualizar_pdf_assinatura_falls_back_to_base_pdf(self, download_signed_mock, render_document_mock, active_workshop_mock) -> None:
         workshop = create_workshop(suffix=82)
         budget = create_budget(workshop=workshop)
-        budget.signature_request_status = SignatureStatus.SENT
+        budget.signature_request_status = SignatureStatus.APPROVED
         budget.signature_external_id = "env-82"
         budget.save(update_fields=["signature_request_status", "signature_external_id"])
 
@@ -493,6 +716,7 @@ class BudgetSignatureInternalPdfTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, b"%PDF-base")
         self.assertIn('inline; filename="orcamento_', response["Content-Disposition"])
+        download_signed_mock.assert_called_once_with(document_id=None, envelope_id="env-82")
 
 
 class BudgetSignatureWorkflowTests(TestCase):
@@ -516,6 +740,7 @@ class BudgetSignatureWorkflowTests(TestCase):
         self.assertEqual(toast_type, "success")
         self.assertEqual(budget.signature_request_status, SignatureStatus.SENT)
         self.assertEqual(budget.signature_external_id, "env-83")
+        self.assertEqual(budget.signature_document_id, "doc-83")
         self.assertEqual(redirect_url, reverse("budget:budget_list"))
 
     @patch("apps.budget.views.workflow_views.send_budget_for_signature")
@@ -549,9 +774,43 @@ class SuperSignDownloadUrlTests(TestCase):
         self.assertEqual(download_url, "https://files.example.com/signed.pdf")
         requests_get.assert_called_once()
         _, kwargs = requests_get.call_args
+        self.assertEqual(kwargs["params"], {"type": "signed"})
         self.assertIn("headers", kwargs)
         self.assertEqual(kwargs["headers"]["x-account-id"], "acc-1")
-        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer secret")
+        self.assertNotIn("Authorization", kwargs["headers"])
+
+    @patch("apps.core.documents.gateways.supersign.requests.get")
+    def test_retries_with_authorization_when_download_endpoint_requires_jwt(self, requests_get) -> None:
+        unauthorized_response = requests.Response()
+        unauthorized_response.status_code = 401
+        unauthorized_response._content = b'{"error":{"code":"MISSING_JWT","message":"JSON Web Token is missing"}}'
+
+        authorized_response = requests.Response()
+        authorized_response.status_code = 200
+        authorized_response._content = b'{"downloadUrl": "https://files.example.com/signed.pdf"}'
+
+        requests_get.side_effect = [
+            requests.HTTPError("missing jwt", response=unauthorized_response),
+            authorized_response,
+        ]
+
+        authorized_response.raise_for_status = lambda: None
+
+        with self.settings(
+            SUPERSIGN_BASE_URL="https://api.sign.supersign.com.br",
+            SUPERSIGN_ACCOUNT_ID="acc-1",
+            SUPERSIGN_API_KEY="secret",
+        ):
+            download_url = get_signed_document_url(document_id="doc-999")
+
+        self.assertEqual(download_url, "https://files.example.com/signed.pdf")
+        self.assertEqual(requests_get.call_count, 2)
+        first_call = requests_get.call_args_list[0].kwargs
+        second_call = requests_get.call_args_list[1].kwargs
+        self.assertEqual(first_call["params"], {"type": "signed"})
+        self.assertEqual(second_call["params"], {"type": "signed"})
+        self.assertNotIn("Authorization", first_call["headers"])
+        self.assertEqual(second_call["headers"]["Authorization"], "Bearer secret")
 
     @patch("apps.core.documents.gateways.supersign.requests.get")
     def test_raises_when_download_url_is_missing(self, requests_get) -> None:

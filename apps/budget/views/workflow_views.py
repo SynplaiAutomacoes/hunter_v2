@@ -12,11 +12,13 @@ from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView
+from djmoney.money import Money
 from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
 from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
 from apps.budget.models import Budget, BudgetItem, BudgetStatus, SignatureStatus
 from apps.budget.service import SuperSignError, send_budget_for_signature
 from apps.core.forms import MultiStepFormMixin
+from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
@@ -46,8 +48,33 @@ def trigger_signature_send_if_needed(*, request, budget: Budget) -> tuple[str, s
         logger.exception("Falha ao enviar orcamento para assinatura", extra={"budget_id": budget.pk})
         return "error", "Falha ao enviar orçamento para assinatura. Tente novamente em instantes.", None
 
-    budget.mark_signature_sent(result.envelope_id)
+    budget.mark_signature_sent(result.envelope_id, document_id=result.document_id)
     return "success", "Orçamento enviado para assinatura do cliente.", reverse("budget:budget_list")
+
+
+BUDGET_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
+    QueryParamFilter(
+        param_name="client",
+        lookup="customer__name",
+        kind="icontains",
+    ),
+    QueryParamFilter(
+        param_name="vehicle",
+        lookup="vehicle__plate",
+        kind="icontains",
+    ),
+    QueryParamFilter(
+        param_name="collaborator",
+        lookup="collaborator__name",
+        kind="icontains",
+    ),
+    QueryParamFilter(
+        param_name="status",
+        lookup="status",
+        kind="choice",
+        allowed_values=frozenset(str(status_value) for status_value, _ in (Budget.status.field.choices or ())),
+    ),
+)
 
 
 class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
@@ -57,7 +84,7 @@ class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespon
     htmx_template_name = "budget/partials/budget_table.html"
 
     def get_queryset(self):
-        return (
+        queryset = (
             super()
             .get_queryset()
             .select_related("customer", "vehicle", "collaborator")
@@ -73,8 +100,15 @@ class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespon
                     .order_by("id"),
                 )
             )
-            .order_by("-criado_em")
         )
+
+        queryset = apply_query_param_filters(
+            queryset,
+            params=self.request.GET,
+            filter_configs=BUDGET_LIST_FILTERS,
+        )
+
+        return queryset.order_by("-criado_em")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -90,6 +124,7 @@ class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespon
         context["actions"] = [
             TableActionDefaults.edit("budget:budget_update"),
         ]
+        context["status_choices"] = Budget.status.field.choices
         context["budget_events_enabled"] = getattr(settings, "BUDGET_EVENTS_ENABLED", False)
         context["budget_poll_interval_seconds"] = getattr(settings, "BUDGET_POLL_INTERVAL_SECONDS", 20)
         return context
@@ -354,13 +389,23 @@ class UpdateBudgetDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def post(self, request, budget_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
         try:
-            val = request.POST.get("discount_value_0", "0").replace(",", ".") or "0"
-            budget.discount_value = Decimal(val)
-            budget.save()
-        except (ValueError, TypeError, InvalidOperation):
-            logger.warning("Valor de desconto invalido recebido", extra={"budget_id": budget_id, "raw_discount": request.POST.get("discount_value_0")})
+            raw_discount_value = request.POST.get("discount_value_0", "0").replace(",", ".") or "0"
+            raw_discount_percentage = request.POST.get("discount_percentage", "0").replace(",", ".") or "0"
 
-        return HttpResponse(headers={"HX-Refresh": "true"})
+            budget.discount_value = Money(Decimal(raw_discount_value), "BRL")
+            budget.discount_percentage = Decimal(raw_discount_percentage)
+            budget.save(update_fields=["discount_value", "discount_percentage"])
+        except (ValueError, TypeError, InvalidOperation):
+            logger.warning(
+                "Valor de desconto invalido recebido",
+                extra={
+                    "budget_id": budget_id,
+                    "raw_discount": request.POST.get("discount_value_0"),
+                    "raw_discount_percentage": request.POST.get("discount_percentage"),
+                },
+            )
+
+        return HttpResponse(status=204)
 
 
 class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -422,7 +467,7 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
         slider_value = request.POST.get("slider")
         if slider_value is not None:
             budget.slider = int(slider_value)
-            budget.save()
+            budget.save(update_fields=["slider"])
 
         html = f"""
                 <span id="display-venda-pecas" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300 whitespace-nowrap step5-accent-text" data-base-val="{budget.get_total_products_by_slider.amount}" data-cost-val="{budget.total_costs_products_value.amount}" data-frete-val="{budget.total_products_shipping.amount}">
@@ -430,6 +475,15 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 </span>
                 <span id="display-venda-mo" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300 step5-accent-text" data-base-val="{budget.get_total_labor_by_slider.amount}" data-cost-val="{budget.total_labor_cost_value.amount}">
                     {budget.get_total_labor_by_slider}
+                </span>
+                <span id="step5-subtotal-display" hx-swap-oob="true" data-base-total="{budget.total_base_value.amount}">
+                    {budget.total_base_value}
+                </span>
+                <span id="step5-discount-display" hx-swap-oob="true">
+                    {budget.resolved_discount_value}
+                </span>
+                <span id="valor-final-display" hx-swap-oob="true">
+                    {budget.total_budget_value}
                 </span>
                 """
         return HttpResponse(html)

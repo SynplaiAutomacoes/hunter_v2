@@ -12,6 +12,18 @@
         {% elif cell.format == "status_badge" %}
             <span class="badge {{ cell.value.class }} badge-sm whitespace-nowrap">{{ cell.value.text }}</span>
 
+        {% elif cell.format == "status_icon" %}
+            {% if cell.value.icon %}
+                <span class="inline-flex items-center justify-center {{ cell.value.class }}" title="{{ cell.value.label }}" aria-label="{{ cell.value.label }}">
+                    <span class="material-icons text-base leading-none">{{ cell.value.icon }}</span>
+                </span>
+            {% else %}
+                {{ cell.value }}
+            {% endif %}
+
+        {% elif cell.format == "styled_text" %}
+            <span class="{{ cell.value.class }}">{{ cell.value.text }}</span>
+
         {% elif cell.format %}
             <span
                 data-hf="{{ cell.format }}"

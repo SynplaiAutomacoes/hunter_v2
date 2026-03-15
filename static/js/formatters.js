@@ -379,6 +379,14 @@
         },
     };
 
+    function emitFormattedChange(ref, detail) {
+        if (!ref || typeof ref.dispatchEvent !== 'function') return;
+        ref.dispatchEvent(new CustomEvent('widget:formatted-change', {
+            bubbles: true,
+            detail,
+        }));
+    }
+
     function formatValue(kind, raw) {
         const k = (kind ?? '').toString().toLowerCase();
         if (!raw && raw !== 0) return '';
@@ -410,7 +418,9 @@
 
     // Auto-aplica em páginas e após swaps HTMX.
     document.addEventListener('DOMContentLoaded', () => applyFormats(document));
-    document.addEventListener('htmx:afterSwap', (e) => applyFormats(e.target));
+    document.addEventListener('htmx:afterSwap', (e) => {
+        applyFormats(e.target);
+    });
 
     //TODO: Estamos normalizando o valor duas vezes, uma vez para o input e outra para o display. Podemos melhorar isso posteriormente.
     const widget = {
@@ -508,6 +518,10 @@
                     const normalized = money.normalizeToDotDecimal(e.target.value, this.maxDigits);
                     this.$refs.amount.value = normalized;
                     e.target.value = money.formatPtBrFromDotDecimal(normalized);
+                    emitFormattedChange(this.$refs.amount, {
+                        value: normalized,
+                        displayValue: e.target.value,
+                    });
                 },
             };
         },
@@ -592,15 +606,43 @@
                 }
             };
         },
-        percentageInput(rawFraction, minPercent, maxPercent, decimalPlaces) {
+        percentageInput(rawFraction, minPercent, maxPercent, decimalPlaces, behavior = 'free_decimal') {
             return {
                 rawValue: (rawFraction ?? '').toString(),
                 minPercent: Number(minPercent ?? 0),
                 maxPercent: Number(maxPercent ?? 100),
                 decimalPlaces: Number(decimalPlaces ?? 2),
                 maxParseFractionDigits: 6,
+                behavior: (behavior ?? 'free_decimal').toString(),
+                formatPercentValue(percentValue) {
+                    return percent.formatPtBrFromDotDecimal(percentValue, this.decimalPlaces);
+                },
+                syncDigitStreamDisplay(digits) {
+                    const safeDigits = digits || '0';
+                    const percentValue = Number((parseInt(safeDigits, 10) / (10 ** this.decimalPlaces)).toFixed(this.decimalPlaces));
+                    const clamped = percent.clamp(percentValue, this.minPercent, this.maxPercent);
+                    this.$refs.value.value = percent.percentToFractionDotDecimal(clamped);
+                    this.$refs.display.value = this.formatPercentValue(clamped);
+                    emitFormattedChange(this.$refs.value, {
+                        value: this.$refs.value.value,
+                        displayValue: this.$refs.display.value,
+                    });
+                },
                 init() {
                     const p = percent.fractionToPercentValue(this.rawValue);
+                    if (this.behavior === 'digit_stream') {
+                        if (p === '') {
+                            this.$refs.value.value = '0';
+                            this.$refs.display.value = this.formatPercentValue(0);
+                            return;
+                        }
+
+                        const clamped = percent.clamp(Number(p), this.minPercent, this.maxPercent);
+                        this.$refs.value.value = percent.percentToFractionDotDecimal(clamped);
+                        this.$refs.display.value = this.formatPercentValue(clamped);
+                        return;
+                    }
+
                     if (p === '') {
                         this.$refs.value.value = '';
                         this.$refs.display.value = '';
@@ -608,14 +650,25 @@
                     }
                     const clamped = percent.clamp(Number(p), this.minPercent, this.maxPercent);
                     this.$refs.value.value = percent.percentToFractionDotDecimal(clamped);
-                    this.$refs.display.value = percent.formatPtBrFromDotDecimal(clamped, this.decimalPlaces);
+                    this.$refs.display.value = this.formatPercentValue(clamped);
                 },
                 handleInput(e) {
+                    if (this.behavior === 'digit_stream') {
+                        let digits = onlyDigits(e.target.value);
+                        if (!digits) digits = '0';
+                        this.syncDigitStreamDisplay(digits);
+                        return;
+                    }
+
                     const typed = (e.target.value ?? '').toString();
                     const normalized = percent.normalizeToDotDecimal(typed, this.maxParseFractionDigits);
 
                     if (!normalized) {
                         this.$refs.value.value = '';
+                        emitFormattedChange(this.$refs.value, {
+                            value: '',
+                            displayValue: e.target.value,
+                        });
                         return;
                     }
 
@@ -623,6 +676,10 @@
                     if (Number.isNaN(n)) return;
 
                     this.$refs.value.value = percent.percentToFractionDotDecimal(n);
+                    emitFormattedChange(this.$refs.value, {
+                        value: this.$refs.value.value,
+                        displayValue: typed,
+                    });
 
                     // Permite que o usuário digite o separador decimal sem forçar a formatação imediata
                     // que poderia atrapalhar a digitação das casas decimais.
@@ -642,6 +699,21 @@
                     }
                 },
                 handleBlur() {
+                    if (this.behavior === 'digit_stream') {
+                        if (!this.$refs.value.value) {
+                            this.$refs.value.value = '0';
+                        }
+                        const percentValue = percent.fractionToPercentValue(this.$refs.value.value) || 0;
+                        const clamped = percent.clamp(Number(percentValue), this.minPercent, this.maxPercent);
+                        this.$refs.value.value = percent.percentToFractionDotDecimal(clamped);
+                        this.$refs.display.value = this.formatPercentValue(clamped);
+                        emitFormattedChange(this.$refs.value, {
+                            value: this.$refs.value.value,
+                            displayValue: this.$refs.display.value,
+                        });
+                        return;
+                    }
+
                     const raw = this.$refs.value.value;
                     if (!raw) return;
 
@@ -655,10 +727,11 @@
                     );
 
                     this.$refs.value.value = percent.percentToFractionDotDecimal(clamped);
-                    this.$refs.display.value = percent.formatPtBrFromDotDecimal(
-                        clamped,
-                        this.decimalPlaces
-                    );
+                    this.$refs.display.value = this.formatPercentValue(clamped);
+                    emitFormattedChange(this.$refs.value, {
+                        value: this.$refs.value.value,
+                        displayValue: this.$refs.display.value,
+                    });
                 },
             };
         },

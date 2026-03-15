@@ -14,7 +14,7 @@ from apps.workshops.models.workshops import Workshop
 
 class FinancialGroupParentChoiceField(forms.ModelChoiceField):
     def label_from_instance(self, obj: FinancialGroup) -> str:
-        return obj.code_label
+        return obj.dre_hierarchy_label
 
 
 class FinancialGroupForm(forms.ModelForm):

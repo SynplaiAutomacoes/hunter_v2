@@ -1,0 +1,45 @@
+{% if form.non_field_errors %}
+    <div class="alert alert-error mb-4">
+        {{ form.non_field_errors|join:", " }}
+    </div>
+{% endif %}
+
+<div class="modal-box w-11/12 max-w-4xl bg-base-100 p-0 overflow-hidden">
+    <div class="p-6 border-b border-base-200 flex justify-between items-center bg-base-50">
+        <div>
+            <h3 class="font-bold text-xl flex items-center gap-2">
+                <span class="material-icons text-primary">edit</span>
+                Editar {{ component_kind }} do kit
+            </h3>
+            <p class="text-sm text-base-content/70 mt-1">{{ component_name }} - {{ item.kit.name }}</p>
+        </div>
+        <button type="button" class="btn btn-sm btn-circle btn-ghost" onclick="window.closeEmissionModal && window.closeEmissionModal()">✕</button>
+    </div>
+
+    <form
+        hx-post="{{ request.path }}"
+        hx-target="#modal-container"
+        hx-swap="innerHTML"
+        class="p-6 space-y-4">
+        {% csrf_token %}
+
+        {% if item.quantity > 1 %}
+            <div class="alert alert-info">
+                Este kit aparece {{ item.quantity }}x na O.S.; os campos abaixo representam cada componente por kit.
+            </div>
+        {% endif %}
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {% include "workorder/partials/modals/modal_edit_item_form.html" %}
+        </div>
+
+        <div class="alert alert-info">
+            Esta edicao altera somente esta composicao do kit na O.S. atual.
+        </div>
+
+        <div class="pt-4 border-t border-base-200 flex justify-end gap-2">
+            <button type="button" class="btn btn-ghost" onclick="window.closeEmissionModal && window.closeEmissionModal()">Cancelar</button>
+            <button type="submit" class="btn btn-primary">Salvar</button>
+        </div>
+    </form>
+</div>

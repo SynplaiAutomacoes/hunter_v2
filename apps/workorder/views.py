@@ -4,305 +4,82 @@ import json
 import logging
 import re
 from datetime import timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.db.models import Prefetch
-from django.http import Http404, HttpResponse, JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
-from django.utils import timezone
 from django.views import View
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.generic import DetailView, ListView, TemplateView
 from djmoney.money import Money
 
-from apps.budget.fields import DurationField
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.models.kits import Kit
+from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
-from apps.core.documents.contract import DocumentPayload
 from apps.core.documents.http import build_pdf_http_response
 from apps.core.documents.services import SignatureDeliveryServiceError, download_signed_document_content
-from apps.core.documents.signature import SignatureTokenError, parse_document_signature_token
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxTemplateResponseMixin
+from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
 from apps.workorder.approval import WorkOrderApprovalError, approve_workorder_with_stock
-from apps.workorder.documents.provider import build_workorder_pdf_render_request, render_workorder_pdf_document
+from apps.workorder.documents.provider import render_workorder_pdf_document, build_workorder_pdf_render_request
 from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderItemEditForm, WorkOrderKitProductEditRowForm, WorkOrderKitServiceEditRowForm, WorkOrderPaymentForm
 from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
-from apps.workorder.service import (
-    WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
-    WORKORDER_SIGNATURE_TOKEN_SALT,
-    WorkOrderSignatureError,
-    send_workorder_for_signature,
+
+from apps.workorder.util import (
+    _get_workorder_for_workshop,
+    _build_edit_items_context,
+    _render_edit_items_modal,
+    _active_tab_from_item,
+    _get_workorder_item_for_workshop,
+    _parse_decimal_value,
+    _parse_duration_from_string,
+    _calculate_service_prices,
+    _get_workorder_workshop_cost,
+    _build_customer_approvement_context,
+    _build_workorder_pdf_file_response,
+    trigger_workorder_signature_send_if_needed,
+    _normalize_active_tab,
+    _normalize_selected_item_ids,
+    _get_workorder_from_signature_token,
 )
 from apps.workshops.mixin import WorkshopScopedMixin
-from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
 logger = logging.getLogger(__name__)
 THOUSAND_SEPARATED_INT_PATTERN = re.compile(r"^\d{1,3}(?:[\s.,]\d{3})+$")
 
 
-def _get_workorder_for_workshop(workshop, workorder_id: int) -> WorkOrder:
-    return get_object_or_404(WorkOrder, pk=workorder_id, workshop=workshop)
-
-
-def _get_workorder_item_for_workshop(workshop, workorder_id: int, item_id: int, **extra_filters) -> WorkOrderItem:
-    return get_object_or_404(
-        WorkOrderItem,
-        id=item_id,
-        workorder_id=workorder_id,
-        workshop=workshop,
-        **extra_filters,
-    )
-
-
-def _parse_decimal_value(raw_value, default: Decimal = Decimal("0")) -> Decimal:
-    if raw_value is None:
-        return default
-
-    text = str(raw_value).strip().replace("R$", "").replace(" ", "")
-    if not text:
-        return default
-
-    if "," in text:
-        text = text.replace(".", "").replace(",", ".")
-
-    try:
-        return Decimal(text)
-    except (InvalidOperation, ValueError, TypeError):
-        return default
-
-
-def _parse_duration_from_string(raw_duration: str | None) -> timedelta:
-    if not raw_duration:
-        return timedelta()
-
-    try:
-        parsed = DurationField.parse_duration(raw_duration)
-    except Exception:
-        parsed = None
-
-    return parsed or timedelta()
-
-
-def _normalize_selected_item_ids(raw_ids: list[str]) -> tuple[list[int], list[str]]:
-    normalized_ids: list[int] = []
-    invalid_ids: list[str] = []
-
-    for raw_id in raw_ids:
-        value = str(raw_id).strip()
-        if not value:
-            invalid_ids.append(value)
-            continue
-
-        if value.isdigit():
-            normalized_ids.append(int(value))
-            continue
-
-        if THOUSAND_SEPARATED_INT_PATTERN.fullmatch(value):
-            normalized_ids.append(int(re.sub(r"[\s.,]", "", value)))
-            continue
-
-        invalid_ids.append(value)
-
-    return list(dict.fromkeys(normalized_ids)), invalid_ids
-
-
-def _active_tab_from_item(item: WorkOrderItem) -> str:
-    if item.product:
-        return "products"
-    if item.service:
-        return "services"
-    return "kits"
-
-
-def _normalize_active_tab(active_tab: str | None) -> str:
-    normalized = (active_tab or "products").strip().lower()
-    if normalized in {"products", "services", "kits"}:
-        return normalized
-    return "products"
-
-
-def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products") -> dict[str, object]:
-    snapshot = workorder.budget.pricing_snapshot
-
-    summary_products = [
-        {
-            "description": line.description,
-            "quantity": line.quantity,
-            "application": line.application or "-",
-            "code": line.code or "-",
-            "location": line.location or "-",
-            "unit_price": line.unit_price,
-            "total_price": line.total_price,
-            "original_product": line.source_object
-        }
-        for line in snapshot.product_lines
-    ]
-
-    summary_services = [
-        {
-            "description": line.description,
-            "quantity": line.quantity,
-            "total_price": line.total_price,
-            "duration_display": line.duration_display,
-            "original_service": line.source_object
-        }
-        for line in snapshot.service_lines
-    ]
-
-    items = list(
-        workorder.items.select_related("product", "service", "kit")
-        .prefetch_related("kit_overrides")
-        .order_by("id")
-    )
-
-    return {
-        "workorder": workorder,
-        "pinto": 'pinto',
-        "product_items": [i for i in items if i.product],
-        "service_items": [i for i in items if i.service],
-        "kit_items": [i for i in items if i.kit],
-        "summary_product_items": summary_products,
-        "summary_service_items": summary_services,
-        "active_tab": _normalize_active_tab(active_tab),
-    }
-
-
-def _render_edit_items_modal(
-    request,
-    workorder: WorkOrder,
-    active_tab: str = "products",
-    trigger_refresh: bool = False,
-    extra_triggers: list[str] | None = None,
-    retarget: str | None = None,
-):
-    response = render(request, "workorder/partials/modals/modal_edit_items.html", _build_edit_items_context(workorder, active_tab))
-
-    triggers: list[str] = list(extra_triggers or [])
-    if trigger_refresh:
-        triggers.insert(0, "workorderItemsUpdated")
-
-    if triggers:
-        unique_triggers = list(dict.fromkeys(triggers))
-        response["HX-Trigger"] = ",".join(unique_triggers)
-
-    if retarget:
-        response["HX-Retarget"] = retarget
-
-    return response
-
-
-def _get_workorder_workshop_cost(workorder: WorkOrder, workshop):
-    try:
-        reference_date = workorder.criado_em if workorder.criado_em else timezone.now()
-        return WorkshopCost.objects.get(workshop=workshop, month=reference_date.month, year=reference_date.year)
-    except WorkshopCost.DoesNotExist:
-        try:
-            return WorkshopCost.objects.get(workshop=workshop, month=timezone.now().month, year=timezone.now().year)
-        except WorkshopCost.DoesNotExist:
-            return None
-
-
-def _build_customer_approvement_context(workorder: WorkOrder, attachment: WorkOrderAttachment | None = None) -> dict[str, object]:
-    latest_attachment = attachment if attachment is not None else workorder.attachments.last()
-    return {
-        "workorder": workorder,
-        "attachment_form": WorkOrderAttachmentForm(workorder=workorder, instance=latest_attachment),
-    }
-
-
-def _build_workorder_pdf_file_response(*, workorder: WorkOrder, download: bool, use_signed_name: bool, pdf_bytes: bytes) -> HttpResponse:
-    filename_suffix = "assinado" if use_signed_name else "base"
-    document = DocumentPayload(
-        content=pdf_bytes,
-        filename=f"ordem_servico_{workorder.id}_{filename_suffix}.pdf",
-    )
-    return build_pdf_http_response(document=document, download=download)
-
-
-def trigger_workorder_signature_send_if_needed(*, workorder: WorkOrder) -> tuple[str, str]:
-    with transaction.atomic():
-        locked_workorder = WorkOrder.objects.select_for_update().get(pk=workorder.pk)
-
-        if locked_workorder.signature_request_status == WorkOrderSignatureStatus.SENT and locked_workorder.signature_external_id:
-            return "info", "Ordem de serviço já enviada para assinatura do cliente."
-
-        if locked_workorder.signature_request_status == WorkOrderSignatureStatus.SENDING:
-            return "info", "O envio da ordem de serviço ainda está em processamento."
-
-        locked_workorder.mark_signature_sending()
-
-    try:
-        result = send_workorder_for_signature(workorder=workorder)
-    except WorkOrderSignatureError:
-        workorder.mark_signature_failed()
-        logger.exception("Falha ao enviar ordem de servico para assinatura", extra={"workorder_id": workorder.pk})
-        return "error", "Falha ao enviar ordem de serviço para assinatura. Tente novamente em instantes."
-
-    workorder.mark_signature_sent(result.envelope_id)
-    return "success", "Ordem de serviço enviada para assinatura do cliente."
-
-
-def _get_workorder_from_signature_token(token: str) -> WorkOrder:
-    try:
-        payload = parse_document_signature_token(
-            token=token,
-            token_salt=WORKORDER_SIGNATURE_TOKEN_SALT,
-            document_id_key=WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
-        )
-    except SignatureTokenError:
-        raise Http404("Arquivo não encotrado")
-
-    workorder = get_object_or_404(
-        WorkOrder.objects.select_related("workshop", "budget", "budget__customer", "budget__vehicle"),
-        pk=payload.document_id,
-    )
-
-    if not workorder.signature_token_active:
-        raise Http404("Arquivo não encotrado")
-
-    if workorder.signature_token_version != payload.version:
-        raise Http404("Arquivo não encotrado")
-
-    return workorder
-
-
-def signature_preview(request, token):
-    workorder = _get_workorder_from_signature_token(token)
-    render_request = build_workorder_pdf_render_request(workorder=workorder, request=request)
-    return render(request, render_request.template_name, render_request.context)
-
-
-def signature_file(request, token):
-    workorder = _get_workorder_from_signature_token(token)
-
-    try:
-        document = render_workorder_pdf_document(
-            workorder=workorder,
-            request=request,
-            filename=f"ordem_servico_{workorder.id}.pdf",
-        )
-    except Exception:
-        logger.exception("Falha ao gerar PDF via Playwright para assinatura da ordem de servico", extra={"workorder_id": workorder.id})
-        return HttpResponse("Erro ao gerar arquivo de assinatura", status=500)
-
-    return build_pdf_http_response(document=document, download=False)
-
-
-def _calculate_service_prices(duration: timedelta, workshop_cost) -> tuple[Money, Money]:
-    duration_hours = Decimal(duration.total_seconds()) / Decimal(3600)
-
-    if workshop_cost:
-        min_hourly = workshop_cost.minimum_hourly_cost or Money(0, "BRL")
-        hourly_val = workshop_cost.hourly_cost_value or Money(0, "BRL")
-        return min_hourly * duration_hours, hourly_val * duration_hours
-
-    return Money(0, "BRL"), Money(0, "BRL")
+WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
+    QueryParamFilter(
+        param_name="client",
+        lookup="budget__customer__name",
+        kind="icontains",
+    ),
+    QueryParamFilter(
+        param_name="vehicle",
+        lookup="budget__vehicle__plate",
+        kind="icontains",
+    ),
+    QueryParamFilter(
+        param_name="status",
+        lookup="status",
+        kind="choice",
+        allowed_values=frozenset(
+            {
+                WorkOrderStatus.DRAFT,
+                WorkOrderStatus.APPROVED,
+                WorkOrderStatus.REJECTED,
+                WorkOrderStatus.CANCELLED,
+            }
+        ),
+    ),
+)
 
 
 class WorkOrderListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
@@ -312,7 +89,7 @@ class WorkOrderListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRes
     htmx_template_name = "workorder/partials/workorder_table.html"
 
     def get_queryset(self):
-        return (
+        queryset = (
             super()
             .get_queryset()
             .select_related("budget", "budget__customer", "budget__vehicle")
@@ -328,14 +105,21 @@ class WorkOrderListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRes
                     .order_by("id"),
                 )
             )
-            .order_by("-criado_em")
         )
+
+        queryset = apply_query_param_filters(
+            queryset,
+            params=self.request.GET,
+            filter_configs=WORKORDER_LIST_FILTERS,
+        )
+
+        return queryset.order_by("-criado_em")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
 
         context["fields"] = [
-            TableColumn("ID", attr="budget.id"),
+            TableColumn("ID", attr="id"),
             TableColumn("Cliente", attr="budget.customer"),
             TableColumn(str(WorkOrder.criado_em.field.verbose_name), attr=WorkOrder.criado_em.field.name),
             TableColumn("Veículo", attr="budget.vehicle"),
@@ -346,6 +130,7 @@ class WorkOrderListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRes
         context["actions"] = [
             TableActionDefaults.edit("workorder:workorder_detail"),
         ]
+        context["status_choices"] = WorkOrder.status.field.choices
         return context
 
 
@@ -381,7 +166,9 @@ class WorkOrderDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
         context["payment_form"] = WorkOrderPaymentForm(workorder=self.object)
         context["attachment_form"] = WorkOrderAttachmentForm(instance=self.object.attachments.last(), workorder=self.object)
         items_context = _build_edit_items_context(self.object)
-        context.update(items_context)
+        context["product_items"] = items_context["product_items"]
+        context["service_items"] = items_context["service_items"]
+        context["kit_items"] = items_context["kit_items"]
         return context
 
 
@@ -731,6 +518,7 @@ class AddPaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
             payment = form.save(commit=False)
             payment.workorder = workorder
             payment.save()
+            sync_workorder_financial_movement(workorder=workorder)
             payment_form = WorkOrderPaymentForm(workorder=workorder)
         else:
             payment_form = form
@@ -751,6 +539,7 @@ class DeletePaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
         workorder = payment.workorder
 
         payment.delete()
+        sync_workorder_financial_movement(workorder=workorder)
 
         context = {"workorder": workorder, "payment_form": WorkOrderPaymentForm(workorder=workorder)}
 
@@ -841,9 +630,12 @@ def visualizar_pdf_workorder(request, pk):
     workorder = get_object_or_404(WorkOrder.objects.select_related("workshop"), pk=pk, workshop=workshop)
     should_download = request.GET.get("download") == "1"
 
-    if workorder.signature_external_id and workorder.signature_request_status == WorkOrderSignatureStatus.SENT:
+    if (workorder.signature_document_id or workorder.signature_external_id) and workorder.signature_request_status in {WorkOrderSignatureStatus.SENT, WorkOrderSignatureStatus.APPROVED}:
         try:
-            signed_pdf = download_signed_document_content(document_id=workorder.signature_external_id)
+            signed_pdf = download_signed_document_content(
+                document_id=workorder.signature_document_id,
+                envelope_id=workorder.signature_external_id,
+            )
             return _build_workorder_pdf_file_response(
                 workorder=workorder,
                 download=should_download,
@@ -853,7 +645,11 @@ def visualizar_pdf_workorder(request, pk):
         except SignatureDeliveryServiceError:
             logger.warning(
                 "Falha ao carregar PDF assinado da ordem de servico; retornando PDF base",
-                extra={"workorder_id": workorder.id, "envelope_id": workorder.signature_external_id},
+                extra={
+                    "workorder_id": workorder.id,
+                    "document_id": workorder.signature_document_id,
+                    "envelope_id": workorder.signature_external_id,
+                },
             )
 
     try:
@@ -875,3 +671,25 @@ def send_workorder_signature(request, pk):
     toast_type, toast_message = trigger_workorder_signature_send_if_needed(workorder=workorder)
     status_code = 200 if toast_type in {"success", "info"} else 400
     return JsonResponse({"success": toast_type in {"success", "info"}, "type": toast_type, "message": toast_message}, status=status_code)
+
+
+def signature_preview(request, token):
+    workorder = _get_workorder_from_signature_token(token)
+    render_request = build_workorder_pdf_render_request(workorder=workorder, request=request)
+    return render(request, render_request.template_name, render_request.context)
+
+
+def signature_file(request, token):
+    workorder = _get_workorder_from_signature_token(token)
+
+    try:
+        document = render_workorder_pdf_document(
+            workorder=workorder,
+            request=request,
+            filename=f"ordem_servico_{workorder.id}.pdf",
+        )
+    except Exception:
+        logger.exception("Falha ao gerar PDF via Playwright para assinatura da ordem de servico", extra={"workorder_id": workorder.id})
+        return HttpResponse("Erro ao gerar arquivo de assinatura", status=500)
+
+    return build_pdf_http_response(document=document, download=False)

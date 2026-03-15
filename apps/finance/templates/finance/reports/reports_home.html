@@ -1,0 +1,257 @@
+{% extends 'crud/page.html' %}
+
+{% block crud_content %}
+    <div class="space-y-6">
+        <div class="flex flex-col gap-2">
+            <h1 class="text-3xl font-bold text-base-content">Relatorios Financeiros</h1>
+            <p class="text-base-content/70">Acompanhe os principais indicadores financeiros da oficina a partir deste painel.</p>
+        </div>
+
+        <div class="grid items-start gap-4 lg:grid-cols-3">
+            {% for card in top_summary_cards %}
+                <div class="card self-start border border-base-300 bg-base-100 shadow-xl">
+                    <div x-data="{ open: false }" class="group">
+                        <button type="button" class="flex w-full cursor-pointer items-center justify-between gap-4 p-6 text-left md:p-8" @click="open = !open" :aria-expanded="open.toString()">
+                            <h2 class="text-lg font-semibold text-base-content md:text-xl">{{ card.title }}</h2>
+                            <span class="material-icons text-base-content/55 transition-transform duration-200" :class="open ? 'rotate-180' : ''">expand_more</span>
+                        </button>
+
+                        <div
+                            x-cloak
+                            x-show="open"
+                            x-transition:enter="transition duration-400 ease-out"
+                            x-transition:enter-start="opacity-0 -translate-y-1"
+                            x-transition:enter-end="opacity-100 translate-y-0"
+                            x-transition:leave="transition duration-200 ease-in"
+                            x-transition:leave-start="opacity-100 translate-y-0"
+                            x-transition:leave-end="opacity-0 -translate-y-1"
+                            class="overflow-hidden border-t border-base-300 px-6 pb-6 pt-5 md:px-8 md:pb-8"
+                        >
+                            {% if card.is_placeholder %}
+                                <div class="flex min-h-[220px] items-center justify-center text-center">
+                                    <p class="max-w-xs text-sm text-base-content/60">{{ card.description }}</p>
+                                </div>
+                            {% else %}
+                                <div class="flex min-h-[260px] flex-col justify-between gap-6">
+                                    <div class="space-y-4">
+                                        {% for row in card.rows %}
+                                            <div class="flex items-end justify-between gap-4">
+                                                <p class="{% if row.small %}text-sm{% else %}text-base font-semibold{% endif %} {% if row.tone == 'neutral' %}text-base-content{% endif %}"{% if row.tone == 'credit' %} style="color: #166534;"{% elif row.tone == 'debit' %} style="color: #991b1b;"{% endif %}>{{ row.label }}</p>
+                                                <p class="{% if row.small %}text-sm font-medium{% else %}text-xl font-black md:text-2xl{% endif %} {% if row.tone == 'neutral' %}text-base-content{% endif %}"{% if row.tone == 'credit' %} style="color: #166534;"{% elif row.tone == 'debit' %} style="color: #991b1b;"{% endif %}>{{ row.value }}</p>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+
+                                    <div class="space-y-3 border-t border-base-300 pt-5">
+                                        {% for result in card.results %}
+                                            <div class="flex items-end justify-between gap-4">
+                                                <p class="text-sm font-medium {% if result.tone == 'neutral' %}text-base-content/70{% endif %}"{% if result.tone == 'credit' %} style="color: #166534;"{% elif result.tone == 'debit' %} style="color: #991b1b;"{% endif %}>{{ result.label }}</p>
+                                                <p class="{% if result.accent %}text-xl font-black md:text-2xl{% else %}text-lg font-semibold{% endif %} {% if result.tone == 'neutral' %}text-base-content{% endif %}"{% if result.tone == 'credit' %} style="color: #166534;"{% elif result.tone == 'debit' %} style="color: #991b1b;"{% endif %}>{{ result.value }}</p>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+
+        <div class="card border border-base-300 bg-base-100 shadow-xl" x-data="{ openRow: null }">
+            <div class="card-body gap-6 p-5 md:p-6">
+                <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div class="flex flex-col gap-2">
+                        <h2 class="text-xl font-semibold text-base-content">Movimentações Financeiras</h2>
+                        <p class="text-sm text-base-content/70">Acompanhe as movimentações financeiras e expanda as linhas vinculadas a OS para ver os pagamentos realizados.</p>
+                    </div>
+
+                    <div class="flex w-full items-center gap-2 sm:w-auto" x-data>
+                        <button
+                            type="button"
+                            class="btn btn-primary flex-1 sm:w-auto sm:flex-none"
+                            aria-controls="financial-reports-filter-modal"
+                            aria-haspopup="dialog"
+                            @click="$refs.filterModal.showModal()"
+                        >
+                            <span class="material-icons text-[18px]" aria-hidden="true">filter_list</span>
+                            Filtro
+                        </button>
+
+                        {% if has_active_filters %}
+                            <a href="{{ clear_filters_url }}" class="btn btn-error flex-1 text-white sm:w-auto sm:flex-none">Limpar Filtro</a>
+                        {% endif %}
+
+                        <dialog
+                            id="financial-reports-filter-modal"
+                            class="modal"
+                            x-ref="filterModal"
+                            @click="if ($event.target === $el) $el.close()"
+                        >
+                            <div class="modal-box w-11/12 max-w-3xl border border-base-300 bg-base-100 shadow-2xl">
+                                <form method="get" action="{% url 'finance:reports_home' %}">
+                                    <h3 class="text-base font-semibold text-base-content">Filtrar relatórios</h3>
+
+                                    <div class="mt-4 max-h-[65vh] space-y-5 overflow-y-auto pr-1">
+                                        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                            <div>
+                                                <label for="reports-filter-data-inicial">Data inicial</label>
+                                                <input type="date" name="data_inicial" id="reports-filter-data-inicial" value="{{ request.GET.data_inicial|default:'' }}" class="input input-bordered w-full" />
+                                            </div>
+
+                                            <div>
+                                                <label for="reports-filter-data-final">Data final</label>
+                                                <input type="date" name="data_final" id="reports-filter-data-final" value="{{ request.GET.data_final|default:'' }}" class="input input-bordered w-full" />
+                                            </div>
+
+                                            <div>
+                                                <label for="reports-filter-direction">Tipo de conta</label>
+                                                <select name="direction" id="reports-filter-direction" class="select select-bordered w-full">
+                                                    {% for value, label in direction_filter_choices %}
+                                                        <option value="{{ value }}" {% if selected_direction == value %}selected{% endif %}>{{ label }}</option>
+                                                    {% endfor %}
+                                                </select>
+                                            </div>
+
+                                            <div>
+                                                <label for="reports-filter-bank-account">Conta bancária</label>
+                                                <select name="bank_account" id="reports-filter-bank-account" class="select select-bordered w-full">
+                                                    <option value="">Todas</option>
+                                                    {% for bank_account in bank_account_filters %}
+                                                        <option value="{{ bank_account.pk }}" {% if selected_bank_account_id == bank_account.pk %}selected{% endif %}>{{ bank_account }}</option>
+                                                    {% endfor %}
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        <div class="space-y-3 rounded-xl border border-base-300 bg-base-200/40 p-4">
+                                            <div class="space-y-1">
+                                                <h3 class="text-sm font-semibold text-base-content">Grupos e subgrupos do plano orçamentário</h3>
+                                                <p class="text-xs text-base-content/60">Selecione um ou mais grupos para filtrar as movimentações.</p>
+                                            </div>
+
+                                            <div class="max-h-64 space-y-2 overflow-y-auto pr-1">
+                                                {% for financial_group in financial_group_filters %}
+                                                    <label class="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition hover:bg-base-100/70">
+                                                        <input
+                                                            type="checkbox"
+                                                            class="checkbox checkbox-sm"
+                                                            name="financial_groups"
+                                                            value="{{ financial_group.pk }}"
+                                                            {% if financial_group.pk in selected_financial_group_ids %}checked{% endif %}
+                                                        />
+                                                        <span class="text-sm text-base-content">{{ financial_group.dre_hierarchy_label }}</span>
+                                                    </label>
+                                                {% empty %}
+                                                    <p class="text-sm text-base-content/60">Nenhum grupo financeiro cadastrado.</p>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
+                                        <button type="button" class="btn-form-cancel" @click="$refs.filterModal.close()">Cancelar</button>
+                                        <button type="submit" class="btn btn-primary">Filtrar</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </dialog>
+                    </div>
+                </div>
+
+                {% if financial_movement_report_rows %}
+                    <div class="overflow-hidden rounded-xl border border-base-300 bg-base-100">
+                        <div class="overflow-x-auto">
+                            <table id="financial-reports-movements-table" class="table table-sm md:table-md">
+                                <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
+                                    <tr>
+                                        <th>Pago</th>
+                                        <th>Tipo</th>
+                                        <th>Vencimento</th>
+                                        <th>Agente</th>
+                                        <th>Origem</th>
+                                        <th>Descrição</th>
+                                        <th>Plano Orçamentário</th>
+                                        <th>Conta</th>
+                                        <th>Tipo Pagamento</th>
+                                        <th class="text-center">Editar</th>
+                                        <th class="text-right">Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for row in financial_movement_report_rows %}
+                                        <tr class="bg-base-100">
+                                            <td class="{% if row.is_expandable %}cursor-pointer{% endif %}"{% if row.is_expandable %} @click="openRow = openRow === '{{ row.component }}' ? null : '{{ row.component }}'"{% endif %}>
+                                                <div class="flex items-center gap-2">
+                                                    {% if row.is_expandable %}
+                                                        <span class="material-icons text-base leading-none text-base-content/55" x-text="openRow === '{{ row.component }}' ? 'expand_more' : 'chevron_right'"></span>
+                                                    {% endif %}
+                                                    {% if row.paid_status.icon %}
+                                                        <span class="inline-flex items-center gap-1 {{ row.paid_status.class }}" title="{{ row.paid_status.label }}" aria-label="{{ row.paid_status.label }}">
+                                                            <span class="material-icons text-base leading-none">{{ row.paid_status.icon }}</span>
+                                                            <span class="font-medium">{{ row.paid_status.label }}</span>
+                                                        </span>
+                                                    {% else %}
+                                                        <span class="font-medium text-base-content/70">{{ row.paid_status }}</span>
+                                                    {% endif %}
+                                                </div>
+                                            </td>
+                                            <td><span class="badge {{ row.type_badge.class }} badge-sm whitespace-nowrap">{{ row.type_badge.text }}</span></td>
+                                            <td>{{ row.due_date|date:"d/m/Y"|default:"-" }}</td>
+                                            <td>{{ row.agent }}</td>
+                                            <td>{{ row.origin }}</td>
+                                            <td>{{ row.description }}</td>
+                                            <td>{{ row.budget_plan }}</td>
+                                            <td>{{ row.account }}</td>
+                                            <td>{{ row.payment_type }}</td>
+                                            <td class="text-center">
+                                                <a href="{{ row.edit_url }}" class="btn btn-ghost btn-xs" title="Editar Movimentação Financeira" aria-label="Editar Movimentação Financeira">
+                                                    <span class="material-icons text-sm">edit</span>
+                                                </a>
+                                            </td>
+                                            <td class="text-right"><span class="{{ row.total.class }}">{{ row.total.text }}</span></td>
+                                        </tr>
+                                        {% if row.is_expandable %}
+                                            <tr class="bg-base-200/40" x-cloak x-show="openRow === '{{ row.component }}'">
+                                                <td colspan="11" class="p-0">
+                                                    <div class="border-t border-base-300 px-4 py-4 md:px-6">
+                                                        <div class="overflow-hidden rounded-xl border border-base-300 bg-base-100">
+                                                            <table class="table table-sm">
+                                                                <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
+                                                                    <tr>
+                                                                        <th>Data do Pagamento</th>
+                                                                        <th>Tipo Pagamento</th>
+                                                                        <th class="text-right">Valor</th>
+                                                                        <th class="text-right">Pendente</th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody>
+                                                                    {% for detail in row.details %}
+                                                                        <tr>
+                                                                            <td>{{ detail.payment_date|date:"d/m/Y"|default:"-" }}</td>
+                                                                            <td>{{ detail.payment_type }}</td>
+                                                                            <td class="text-right font-semibold text-success">+ {{ detail.amount }}</td>
+                                                                            <td class="text-right font-semibold {{ detail.pending_class }}">{{ detail.pending_amount }}</td>
+                                                                        </tr>
+                                                                    {% endfor %}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        {% endif %}
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                {% else %}
+                    <div class="rounded-xl border border-dashed border-base-300 px-6 py-10 text-center text-sm text-base-content/60">
+                        Nenhuma movimentação financeira encontrada.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+{% endblock %}

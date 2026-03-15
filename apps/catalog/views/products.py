@@ -13,12 +13,26 @@ from apps.budget.models import BudgetItem
 from apps.catalog.forms.products import ProductForm
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
+from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.stock.models import StockMovement, StockProduct
 from apps.workorder.models import WorkOrderItem
 from apps.workshops.mixin import WorkshopScopedMixin
+
+
+PRODUCT_LIST_BASE_FILTERS: tuple[QueryParamFilter, ...] = (
+    QueryParamFilter(param_name="is_active", lookup="is_active", kind="boolean"),
+    QueryParamFilter(
+        param_name="unit",
+        lookup="unit",
+        kind="choice",
+        allowed_values=frozenset(str(unit_value) for unit_value, _ in Product.Unit.choices),
+    ),
+    QueryParamFilter(param_name="brand", lookup="brand", kind="icontains"),
+    QueryParamFilter(param_name="location", lookup="location", kind="icontains"),
+)
 
 
 class ProductListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
@@ -28,16 +42,31 @@ class ProductListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespo
     htmx_template_name = "products/partials/product_table.html"
 
     def get_queryset(self):
-        queryset = super().get_queryset().select_related("stock_products").order_by("-criado_em")
+        queryset = super().get_queryset().select_related("stock_products")
 
         search_query = self.request.GET.get("q", "").strip()
 
         if search_query:
-            queryset = queryset.filter(Q(name__icontains=search_query) |
-                                       Q(code__icontains=search_query) |
-                                       Q(brand__icontains=search_query))
+            queryset = queryset.filter(Q(name__icontains=search_query) | Q(code__icontains=search_query) | Q(brand__icontains=search_query))
 
-        return queryset
+        group_ids = frozenset(str(group_id) for group_id in CatalogGroup.objects.filter(workshop=self.workshop).values_list("id", flat=True))
+        product_list_filters: tuple[QueryParamFilter, ...] = (
+            QueryParamFilter(
+                param_name="group",
+                lookup="group_id",
+                kind="choice",
+                allowed_values=group_ids,
+            ),
+            *PRODUCT_LIST_BASE_FILTERS,
+        )
+
+        queryset = apply_query_param_filters(
+            queryset,
+            params=self.request.GET,
+            filter_configs=product_list_filters,
+        )
+
+        return queryset.order_by("-criado_em")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -58,6 +87,9 @@ class ProductListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespo
             TableActionDefaults.edit("catalog:product_update"),
             TableActionDefaults.delete("catalog:product_delete"),
         ]
+
+        context["group_choices"] = [(str(group_id), name) for group_id, name in CatalogGroup.objects.filter(workshop=self.workshop).order_by("name").values_list("id", "name")]
+        context["unit_choices"] = Product.Unit.choices
 
         return context
 
@@ -111,24 +143,32 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         # Orçamento
         for item in budget_items:
             history_dict[item.budget.id] = {
-                "type": "budget", "id": item.budget.id,
-                "obj": item.budget, "date": item.budget.criado_em,
-                "quantity": item.quantity, "status": item.budget.get_status_display(),
-                "label": f"Orçamento #{item.budget.id}", "sub_label": "Orçamento",
+                "type": "budget",
+                "id": item.budget.id,
+                "obj": item.budget,
+                "date": item.budget.criado_em,
+                "quantity": item.quantity,
+                "status": item.budget.get_status_display(),
+                "label": f"Orçamento #{item.budget.id}",
+                "sub_label": "Orçamento",
                 "url": reverse_lazy("budget:budget_update", kwargs={"pk": item.budget.id}),
             }
 
         # Ordem de Serviço
         for item in workorder_items:
             history_dict[item.workorder.budget.id] = {
-                "type": "workorder", "id": item.workorder.id,
-                "obj": item.workorder, "date": item.workorder.criado_em,
-                "quantity": item.quantity, "status": item.workorder.get_status_display(),
-                "label": f"OS #{item.workorder.budget.id}", "sub_label": "Ordem de Serviço",
+                "type": "workorder",
+                "id": item.workorder.id,
+                "obj": item.workorder,
+                "date": item.workorder.criado_em,
+                "quantity": item.quantity,
+                "status": item.workorder.get_status_display(),
+                "label": f"OS #{item.workorder.id}",
+                "sub_label": "Ordem de Serviço",
                 "url": reverse_lazy("workorder:workorder_detail", kwargs={"pk": item.workorder.id}),
             }
 
-        history_list = sorted(history_dict.values(), key=lambda x: x['date'], reverse=True)
+        history_list = sorted(history_dict.values(), key=lambda x: x["date"], reverse=True)
         context["history_list"] = history_list
 
         return context

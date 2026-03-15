@@ -45,35 +45,8 @@ class WorkOrder(TimeStampedModel):
     signature_token_active = models.BooleanField(verbose_name="Token de Assinatura Ativo", default=True)
     signature_request_status = models.CharField(max_length=30, choices=WorkOrderSignatureStatus.choices, default=WorkOrderSignatureStatus.NOT_SENT)
     signature_external_id = models.CharField(max_length=255, blank=True, null=True)
+    signature_document_id = models.CharField(max_length=255, blank=True, null=True)
     signature_sent_at = models.DateTimeField(blank=True, null=True)
-
-    @property
-    def summary_products(self):
-        snapshot = self.budget.pricing_snapshot
-        return [
-            {
-                "description": line.description,
-                "quantity": line.quantity,
-                "application": line.application or "-",
-                "code": line.code or "-",
-                "unit_price": line.unit_price,
-                "total_price": line.total_price,
-            }
-            for line in snapshot.product_lines
-        ]
-
-    @property
-    def summary_services(self):
-        snapshot = self.budget.pricing_snapshot
-        return [
-            {
-                "description": line.description,
-                "quantity": line.quantity,
-                "total_price": line.total_price,
-                "duration_display": line.duration_display,
-            }
-            for line in snapshot.service_lines
-        ]
 
     @property
     def workorder_status_badge(self):
@@ -177,11 +150,12 @@ class WorkOrder(TimeStampedModel):
         self.signature_request_status = WorkOrderSignatureStatus.SENDING
         self.save(update_fields=["signature_request_status"])
 
-    def mark_signature_sent(self, external_id: str) -> None:
+    def mark_signature_sent(self, external_id: str, *, document_id: str | None = None) -> None:
         self.signature_request_status = WorkOrderSignatureStatus.SENT
         self.signature_external_id = external_id
+        self.signature_document_id = document_id
         self.signature_sent_at = timezone.now()
-        self.save(update_fields=["signature_request_status", "signature_external_id", "signature_sent_at"])
+        self.save(update_fields=["signature_request_status", "signature_external_id", "signature_document_id", "signature_sent_at"])
 
     def mark_signature_failed(self) -> None:
         self.signature_request_status = WorkOrderSignatureStatus.FAILED
@@ -204,6 +178,21 @@ class WorkOrder(TimeStampedModel):
     @property
     def total_products_shipping(self) -> Money:
         return self.pricing_snapshot.total_products_shipping
+
+    @property
+    def resolved_discount_percentage(self) -> Decimal:
+        base_amount = Decimal(getattr(self.total_base_value, "amount", Decimal("0.00")) or Decimal("0.00"))
+        discount_amount = Decimal(getattr(self.discount_value, "amount", Decimal("0.00")) or Decimal("0.00"))
+
+        if base_amount <= Decimal("0.00") or discount_amount <= Decimal("0.00"):
+            return Decimal("0.00")
+
+        percentage = (discount_amount / base_amount) * Decimal("100")
+        return min(percentage, Decimal("100.00")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    @property
+    def discount_percentage_display(self) -> str:
+        return f"{self.resolved_discount_percentage:.2f}%".replace(".", ",")
 
     @property
     def total_costs_products_value(self) -> Money:
@@ -322,6 +311,8 @@ class WorkOrder(TimeStampedModel):
             "custo_total_mao_obra": custo_total_mao_obra,
             "duracao_total": self.total_duration_display,
             "lucro_operacional": lucro_operacional_trad,
+            "mlr": mlr,
+            "mlo": mlo,
             "venda_pecas": venda_pecas,
             "venda_servico_terceiro": venda_servico_terceiro,
             "venda_mao_obra": venda_mao_obra_trad,
@@ -394,6 +385,8 @@ class WorkOrder(TimeStampedModel):
         return self.pricing_snapshot.total_budget_value
 
     def sync_from_budget(self) -> None:
+        from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
+
         budget_items = list(
             self.budget.items.select_related("product", "service", "kit")
             .prefetch_related(
@@ -456,8 +449,13 @@ class WorkOrder(TimeStampedModel):
             if overrides_to_create:
                 WorkOrderKitItemOverride.objects.bulk_create(overrides_to_create)
 
-            self.discount_value = self.budget.discount_value
+            self.discount_value = self.budget.resolved_discount_value
             self.save(update_fields=["discount_value"])
+
+            if hasattr(self, "_pricing_snapshot_cache"):
+                delattr(self, "_pricing_snapshot_cache")
+
+            sync_workorder_financial_movement(workorder=self)
 
     class Meta:
         verbose_name = "Ordem de Serviço"
