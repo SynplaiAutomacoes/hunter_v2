@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
+from typing import Any
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse
@@ -8,8 +10,10 @@ from django.utils import timezone
 from django.views.generic import TemplateView
 
 from apps.finance.forms.emission_ui import format_money
+from apps.finance.models.bank_account import BankAccount
+from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
-from apps.finance.services.reports import FinancialOverview, build_monthly_financial_overview, build_yearly_financial_overview
+from apps.finance.services.reports import FinancialOverview, build_financial_overview, build_monthly_financial_overview, build_yearly_financial_overview
 from apps.workorder.models import WorkOrder
 from apps.workshops.mixin import WorkshopScopedMixin
 
@@ -18,6 +22,11 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
     model = FinancialMovement
     template_name = "finance/reports/reports_home.html"
     workshop_permission_codename = "view_financialmovement"
+    FILTER_DIRECTION_CHOICES = (
+        ("", "Todos"),
+        (FinancialMovement.MovementDirection.CREDIT, "Contas a receber"),
+        (FinancialMovement.MovementDirection.DEBIT, "Contas a pagar"),
+    )
 
     @staticmethod
     def _resolve_result_tone(value: object) -> str:
@@ -79,7 +88,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         return "Múltiplos"
 
     def _get_financial_movements_queryset(self):
-        return (
+        queryset = (
             FinancialMovement.objects.filter(workshop=self.workshop)
             .select_related(
                 "source",
@@ -92,6 +101,92 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             )
             .prefetch_related("workorder__payments", "workorder__payments__payment_method")
             .order_by("-criado_em", "-pk")
+        )
+        return self._apply_report_filters(queryset)
+
+    def _parse_date_param(self, raw_value: str | None) -> date | None:
+        value = str(raw_value or "").strip()
+        if not value:
+            return None
+
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            return None
+
+    def _get_selected_financial_group_ids(self) -> list[int]:
+        selected_group_ids: list[int] = []
+        for raw_value in self.request.GET.getlist("financial_groups"):
+            value = str(raw_value).strip()
+            if not value:
+                continue
+            try:
+                selected_group_ids.append(int(value))
+            except (TypeError, ValueError):
+                continue
+        return selected_group_ids
+
+    def _get_selected_bank_account_id(self) -> int | None:
+        raw_value = str(self.request.GET.get("bank_account") or "").strip()
+        if not raw_value:
+            return None
+
+        try:
+            return int(raw_value)
+        except (TypeError, ValueError):
+            return None
+
+    def _get_selected_direction(self) -> str:
+        selected_direction = str(self.request.GET.get("direction") or "").strip()
+        allowed_directions = {choice[0] for choice in self.FILTER_DIRECTION_CHOICES if choice[0]}
+        if selected_direction not in allowed_directions:
+            return ""
+        return selected_direction
+
+    def _get_filter_params(self) -> dict[str, Any]:
+        return {
+            "start_date": self._parse_date_param(self.request.GET.get("data_inicial")),
+            "end_date": self._parse_date_param(self.request.GET.get("data_final")),
+            "budget_plan_ids": self._get_selected_financial_group_ids(),
+            "bank_account_id": self._get_selected_bank_account_id(),
+            "direction": self._get_selected_direction(),
+        }
+
+    def _apply_report_filters(self, queryset):
+        filter_params = self._get_filter_params()
+        start_date = filter_params["start_date"]
+        end_date = filter_params["end_date"]
+        budget_plan_ids = filter_params["budget_plan_ids"]
+        bank_account_id = filter_params["bank_account_id"]
+        direction = filter_params["direction"]
+
+        if start_date is not None:
+            queryset = queryset.filter(due_date__gte=start_date)
+        if end_date is not None:
+            queryset = queryset.filter(due_date__lte=end_date)
+        if budget_plan_ids:
+            queryset = queryset.filter(budget_plan_id__in=budget_plan_ids)
+        if bank_account_id is not None:
+            queryset = queryset.filter(bank_account_id=bank_account_id)
+        if direction:
+            queryset = queryset.filter(direction=direction)
+
+        return queryset
+
+    def _get_financial_groups_queryset(self):
+        return FinancialGroup.objects.filter(workshop=self.workshop).order_by("sort_key", "id")
+
+    def _get_bank_accounts_queryset(self):
+        return BankAccount.objects.filter(workshop=self.workshop).order_by("bank_name", "account_number", "id")
+
+    def _has_active_filters(self) -> bool:
+        filter_params = self._get_filter_params()
+        return bool(filter_params["start_date"] or filter_params["end_date"] or filter_params["budget_plan_ids"] or filter_params["bank_account_id"] is not None or filter_params["direction"])
+
+    def _build_selection_summary_card(self) -> dict[str, object]:
+        return self._build_summary_card(
+            title="Créditos e Débitos de Seleção",
+            overview=build_financial_overview(workshop=self.workshop, **self._get_filter_params()),
         )
 
     def _build_financial_movement_row(self, movement: FinancialMovement) -> dict[str, object]:
@@ -166,11 +261,20 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         reference_date = timezone.localdate()
         monthly_overview = build_monthly_financial_overview(workshop=self.workshop, reference_date=reference_date)
         yearly_overview = build_yearly_financial_overview(workshop=self.workshop, reference_date=reference_date)
+        filter_params = self._get_filter_params()
 
         context["top_summary_cards"] = [
             self._build_summary_card(title="Créditos e Débitos deste Mês", overview=monthly_overview),
             self._build_summary_card(title=f"Balanço Geral {reference_date.year}", overview=yearly_overview),
-            self._build_summary_card(title="Créditos e Débitos de Seleção", overview=monthly_overview),
+            self._build_selection_summary_card(),
         ]
         context["financial_movement_report_rows"] = self._get_financial_movement_report_rows()
+        context["financial_group_filters"] = self._get_financial_groups_queryset()
+        context["bank_account_filters"] = self._get_bank_accounts_queryset()
+        context["direction_filter_choices"] = self.FILTER_DIRECTION_CHOICES
+        context["selected_financial_group_ids"] = set(filter_params["budget_plan_ids"])
+        context["selected_bank_account_id"] = filter_params["bank_account_id"]
+        context["selected_direction"] = filter_params["direction"]
+        context["has_active_filters"] = self._has_active_filters()
+        context["clear_filters_url"] = reverse("finance:reports_home")
         return context

@@ -60,9 +60,103 @@
 
         <div class="card border border-base-300 bg-base-100 shadow-xl" x-data="{ openRow: null }">
             <div class="card-body gap-6 p-5 md:p-6">
-                <div class="flex flex-col gap-2">
-                    <h2 class="text-xl font-semibold text-base-content">Movimentações Financeiras</h2>
-                    <p class="text-sm text-base-content/70">Acompanhe as movimentações financeiras e expanda as linhas vinculadas a OS para ver os pagamentos realizados.</p>
+                <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div class="flex flex-col gap-2">
+                        <h2 class="text-xl font-semibold text-base-content">Movimentações Financeiras</h2>
+                        <p class="text-sm text-base-content/70">Acompanhe as movimentações financeiras e expanda as linhas vinculadas a OS para ver os pagamentos realizados.</p>
+                    </div>
+
+                    <div class="flex w-full items-center gap-2 sm:w-auto" x-data>
+                        <button
+                            type="button"
+                            class="btn btn-primary flex-1 sm:w-auto sm:flex-none"
+                            aria-controls="financial-reports-filter-modal"
+                            aria-haspopup="dialog"
+                            @click="$refs.filterModal.showModal()"
+                        >
+                            <span class="material-icons text-[18px]" aria-hidden="true">filter_list</span>
+                            Filtro
+                        </button>
+
+                        {% if has_active_filters %}
+                            <a href="{{ clear_filters_url }}" class="btn btn-error flex-1 text-white sm:w-auto sm:flex-none">Limpar Filtro</a>
+                        {% endif %}
+
+                        <dialog
+                            id="financial-reports-filter-modal"
+                            class="modal"
+                            x-ref="filterModal"
+                            @click="if ($event.target === $el) $el.close()"
+                        >
+                            <div class="modal-box w-11/12 max-w-3xl border border-base-300 bg-base-100 shadow-2xl">
+                                <form method="get" action="{% url 'finance:reports_home' %}">
+                                    <h3 class="text-base font-semibold text-base-content">Filtrar relatórios</h3>
+
+                                    <div class="mt-4 max-h-[65vh] space-y-5 overflow-y-auto pr-1">
+                                        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                            <div>
+                                                <label for="reports-filter-data-inicial">Data inicial</label>
+                                                <input type="date" name="data_inicial" id="reports-filter-data-inicial" value="{{ request.GET.data_inicial|default:'' }}" class="input input-bordered w-full" />
+                                            </div>
+
+                                            <div>
+                                                <label for="reports-filter-data-final">Data final</label>
+                                                <input type="date" name="data_final" id="reports-filter-data-final" value="{{ request.GET.data_final|default:'' }}" class="input input-bordered w-full" />
+                                            </div>
+
+                                            <div>
+                                                <label for="reports-filter-direction">Tipo de conta</label>
+                                                <select name="direction" id="reports-filter-direction" class="select select-bordered w-full">
+                                                    {% for value, label in direction_filter_choices %}
+                                                        <option value="{{ value }}" {% if selected_direction == value %}selected{% endif %}>{{ label }}</option>
+                                                    {% endfor %}
+                                                </select>
+                                            </div>
+
+                                            <div>
+                                                <label for="reports-filter-bank-account">Conta bancária</label>
+                                                <select name="bank_account" id="reports-filter-bank-account" class="select select-bordered w-full">
+                                                    <option value="">Todas</option>
+                                                    {% for bank_account in bank_account_filters %}
+                                                        <option value="{{ bank_account.pk }}" {% if selected_bank_account_id == bank_account.pk %}selected{% endif %}>{{ bank_account }}</option>
+                                                    {% endfor %}
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        <div class="space-y-3 rounded-xl border border-base-300 bg-base-200/40 p-4">
+                                            <div class="space-y-1">
+                                                <h3 class="text-sm font-semibold text-base-content">Grupos e subgrupos do plano orçamentário</h3>
+                                                <p class="text-xs text-base-content/60">Selecione um ou mais grupos para filtrar as movimentações.</p>
+                                            </div>
+
+                                            <div class="max-h-64 space-y-2 overflow-y-auto pr-1">
+                                                {% for financial_group in financial_group_filters %}
+                                                    <label class="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition hover:bg-base-100/70">
+                                                        <input
+                                                            type="checkbox"
+                                                            class="checkbox checkbox-sm"
+                                                            name="financial_groups"
+                                                            value="{{ financial_group.pk }}"
+                                                            {% if financial_group.pk in selected_financial_group_ids %}checked{% endif %}
+                                                        />
+                                                        <span class="text-sm text-base-content">{{ financial_group.dre_hierarchy_label }}</span>
+                                                    </label>
+                                                {% empty %}
+                                                    <p class="text-sm text-base-content/60">Nenhum grupo financeiro cadastrado.</p>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
+                                        <button type="button" class="btn-form-cancel" @click="$refs.filterModal.close()">Cancelar</button>
+                                        <button type="submit" class="btn btn-primary">Filtrar</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </dialog>
+                    </div>
                 </div>
 
                 {% if financial_movement_report_rows %}
