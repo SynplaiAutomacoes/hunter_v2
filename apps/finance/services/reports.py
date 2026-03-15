@@ -25,31 +25,63 @@ class FinancialOverview:
 
 def build_financial_overview(*, workshop, start_date: date, end_date: date) -> FinancialOverview:
     total_credits = _ZERO_DECIMAL
+    paid_credits = _ZERO_DECIMAL
     total_debits = _ZERO_DECIMAL
+    paid_debits = _ZERO_DECIMAL
 
     movements = FinancialMovement.objects.filter(
         workshop=workshop,
         due_date__gte=start_date,
         due_date__lte=end_date,
-    ).only("direction", "amount", "amount_currency")
+    ).only("direction", "amount", "amount_currency", "is_paid", "workorder", "movement_kind")
+
+    paid_credit_movements = (
+        FinancialMovement.objects.filter(
+            workshop=workshop,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            workorder__isnull=False,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+        )
+        .select_related("workorder")
+        .prefetch_related("workorder__payments")
+        .only("workorder")
+    )
 
     for movement in movements:
         amount = Decimal(getattr(getattr(movement, "amount", None), "amount", _ZERO_DECIMAL) or _ZERO_DECIMAL)
         if movement.direction == FinancialMovement.MovementDirection.CREDIT:
             total_credits += amount
+            if movement.is_paid and movement.movement_kind != FinancialMovement.MovementKind.WORKORDER_PARENT:
+                paid_credits += amount
             continue
         if movement.direction == FinancialMovement.MovementDirection.DEBIT:
             total_debits += amount
+            if movement.is_paid and movement.movement_kind != FinancialMovement.MovementKind.WORKORDER_PARENT:
+                paid_debits += amount
+
+    counted_workorders: set[int] = set()
+    for movement in paid_credit_movements:
+        workorder_id = movement.workorder_id
+        if workorder_id is None or workorder_id in counted_workorders:
+            continue
+
+        counted_workorders.add(workorder_id)
+        for payment in movement.workorder.payments.all():
+            if payment.due_date is None or payment.due_date < start_date or payment.due_date > end_date:
+                continue
+            payment_amount = Decimal(getattr(getattr(payment, "total_paid", None), "amount", _ZERO_DECIMAL) or _ZERO_DECIMAL)
+            paid_credits += payment_amount
 
     total_result = total_credits - total_debits
+    confirmed_result = paid_credits - paid_debits
 
     return FinancialOverview(
         total_credits=Money(total_credits, _CURRENCY),
-        paid_credits=Money(_ZERO_DECIMAL, _CURRENCY),
+        paid_credits=Money(paid_credits, _CURRENCY),
         total_debits=Money(total_debits, _CURRENCY),
-        paid_debits=Money(_ZERO_DECIMAL, _CURRENCY),
+        paid_debits=Money(paid_debits, _CURRENCY),
         total_result=Money(total_result, _CURRENCY),
-        confirmed_result=Money(_ZERO_DECIMAL, _CURRENCY),
+        confirmed_result=Money(confirmed_result, _CURRENCY),
     )
 
 

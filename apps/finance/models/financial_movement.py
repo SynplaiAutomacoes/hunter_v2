@@ -1,5 +1,3 @@
-from decimal import Decimal
-
 from django.db import models
 
 from apps.core.models import TimeStampedModel
@@ -7,6 +5,7 @@ from djmoney.models.fields import MoneyField
 
 from django.conf import settings
 
+from apps.finance.forms.emission_ui import format_money
 from apps.finance.models import PaymentMethod, FinancialGroup
 from apps.finance.models.bank_account import BankAccount
 
@@ -16,9 +15,17 @@ class FinancialMovement(TimeStampedModel):
         CREDIT = "CREDIT", "Crédito"
         DEBIT = "DEBIT", "Débito"
 
+    class MovementKind(models.TextChoices):
+        DEFAULT = "DEFAULT", "Padrão"
+        WORKORDER_PARENT = "WORKORDER_PARENT", "OS Pai"
+        WORKORDER_CARD_FEE = "WORKORDER_CARD_FEE", "Taxa da Maquininha"
+
     workshop = models.ForeignKey(to="workshops.Workshop", on_delete=models.CASCADE)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
     current_step = models.PositiveSmallIntegerField(default=1)
+    movement_kind = models.CharField(max_length=30, choices=MovementKind.choices, default=MovementKind.DEFAULT)
+    workorder = models.ForeignKey("workorder.WorkOrder", on_delete=models.SET_NULL, null=True, blank=True, related_name="financial_movements")
+    workorder_payment = models.ForeignKey("workorder.WorkOrderPaymentMethod", on_delete=models.CASCADE, null=True, blank=True, related_name="financial_movements")
 
     # Origem
     source = models.ForeignKey(to="sources.Source", verbose_name="Origem", on_delete=models.PROTECT)
@@ -33,6 +40,7 @@ class FinancialMovement(TimeStampedModel):
     nf_number = models.CharField(max_length=50, verbose_name="Número da NF", blank=True, null=True)
     amount = MoneyField(verbose_name="Valor", max_digits=14, decimal_places=2, default=0, null=True)
     due_date = models.DateField(verbose_name="Data de Vencimento", blank=True, null=True)
+    is_paid = models.BooleanField(verbose_name="Pago", default=False)
     budget_plan = models.ForeignKey(FinancialGroup, on_delete=models.PROTECT, verbose_name="Plano Orçamentário", blank=True, null=True)
     bank_account = models.ForeignKey(BankAccount, on_delete=models.PROTECT, verbose_name="Conta Bancária", blank=True, null=True)
     attachment = models.FileField(upload_to="financial/attachments/", null=True, blank=True, verbose_name="Anexo")
@@ -40,14 +48,15 @@ class FinancialMovement(TimeStampedModel):
 
     @staticmethod
     def _format_report_money(value: object) -> str:
-        amount = Decimal(str(getattr(value, "amount", value) or 0)).quantize(Decimal("0.01"))
-        integer_part, decimal_part = f"{amount:.2f}".split(".")
-        grouped_integer = f"{int(integer_part):,}".replace(",", ".")
-        return f"R$ {grouped_integer},{decimal_part}"
+        return format_money(value)
 
     @property
     def report_paid_indicator(self) -> str | dict[str, str]:
-        return "-"
+        return {
+            "icon": "check_circle" if self.is_paid else "cancel",
+            "class": "text-success" if self.is_paid else "text-error",
+            "label": "Sim" if self.is_paid else "Não",
+        }
 
     @property
     def report_direction_badge(self) -> dict[str, str]:
