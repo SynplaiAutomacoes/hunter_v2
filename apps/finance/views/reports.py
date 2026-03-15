@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 from django.utils import timezone
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import TemplateView
@@ -17,19 +19,28 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
     template_name = "finance/reports/reports_home.html"
     workshop_permission_codename = "view_financialmovement"
 
+    @staticmethod
+    def _resolve_result_tone(value: object) -> str:
+        amount = Decimal(str(getattr(value, "amount", value) or 0))
+        if amount > 0:
+            return "credit"
+        if amount < 0:
+            return "debit"
+        return "neutral"
+
     def _build_summary_card(self, *, title: str, overview: FinancialOverview) -> dict[str, object]:
         return {
             "title": title,
             "is_placeholder": False,
             "rows": [
-                {"label": "Créditos Totais", "value": format_money(overview.total_credits), "small": False},
-                {"label": "Créditos Pagos", "value": format_money(overview.paid_credits), "small": True},
-                {"label": "Débitos Totais", "value": format_money(overview.total_debits), "small": False},
-                {"label": "Débitos Pagos", "value": format_money(overview.paid_debits), "small": True},
+                {"label": "Créditos Totais", "value": format_money(overview.total_credits), "small": False, "tone": "credit"},
+                {"label": "Créditos Pagos", "value": format_money(overview.paid_credits), "small": True, "tone": "credit"},
+                {"label": "Débitos Totais", "value": format_money(overview.total_debits), "small": False, "tone": "debit"},
+                {"label": "Débitos Pagos", "value": format_money(overview.paid_debits), "small": True, "tone": "debit"},
             ],
             "results": [
-                {"label": "Resultado Total", "value": format_money(overview.total_result), "accent": True},
-                {"label": "Resultado Confirmado", "value": format_money(overview.confirmed_result), "accent": False},
+                {"label": "Resultado Total", "value": format_money(overview.total_result), "accent": True, "tone": self._resolve_result_tone(overview.total_result)},
+                {"label": "Resultado Confirmado", "value": format_money(overview.confirmed_result), "accent": False, "tone": self._resolve_result_tone(overview.confirmed_result)},
             ],
         }
 

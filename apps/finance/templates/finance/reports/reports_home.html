@@ -27,8 +27,8 @@
                                     <div class="space-y-4">
                                         {% for row in card.rows %}
                                             <div class="flex items-end justify-between gap-4">
-                                                <p class="{% if row.small %}text-sm text-base-content/65{% else %}text-base font-semibold text-base-content{% endif %}">{{ row.label }}</p>
-                                                <p class="{% if row.small %}text-sm font-medium text-base-content/75{% else %}text-xl font-black text-base-content md:text-2xl{% endif %}">{{ row.value }}</p>
+                                                <p class="{% if row.small %}text-sm{% else %}text-base font-semibold{% endif %} {% if row.tone == 'neutral' %}text-base-content{% endif %}"{% if row.tone == 'credit' %} style="color: #166534;"{% elif row.tone == 'debit' %} style="color: #991b1b;"{% endif %}>{{ row.label }}</p>
+                                                <p class="{% if row.small %}text-sm font-medium{% else %}text-xl font-black md:text-2xl{% endif %} {% if row.tone == 'neutral' %}text-base-content{% endif %}"{% if row.tone == 'credit' %} style="color: #166534;"{% elif row.tone == 'debit' %} style="color: #991b1b;"{% endif %}>{{ row.value }}</p>
                                             </div>
                                         {% endfor %}
                                     </div>
@@ -36,8 +36,8 @@
                                     <div class="space-y-3 border-t border-base-300 pt-5">
                                         {% for result in card.results %}
                                             <div class="flex items-end justify-between gap-4">
-                                                <p class="text-sm font-medium text-base-content/70">{{ result.label }}</p>
-                                                <p class="{% if result.accent %}text-xl font-black text-emerald-700 md:text-2xl{% else %}text-lg font-semibold text-base-content{% endif %}">{{ result.value }}</p>
+                                                <p class="text-sm font-medium {% if result.tone == 'neutral' %}text-base-content/70{% endif %}"{% if result.tone == 'credit' %} style="color: #166534;"{% elif result.tone == 'debit' %} style="color: #991b1b;"{% endif %}>{{ result.label }}</p>
+                                                <p class="{% if result.accent %}text-xl font-black md:text-2xl{% else %}text-lg font-semibold{% endif %} {% if result.tone == 'neutral' %}text-base-content{% endif %}"{% if result.tone == 'credit' %} style="color: #166534;"{% elif result.tone == 'debit' %} style="color: #991b1b;"{% endif %}>{{ result.value }}</p>
                                             </div>
                                         {% endfor %}
                                     </div>

@@ -5,13 +5,13 @@
             items: [
                 { label: 'Cliente', href: '{% url "customer:customer_list" %}' },
                 { label: 'Colaborador', href: '{% url "collaborators:collaborator_list" %}' },
-                { label: 'Checklist', href: '{% url "checklist:checklist_list" %}' },
                 { label: 'Fornecedor', href: '{% url "suppliers:supplier_list" %}' },
-                { label: 'Origem', href: '{% url "sources:source_list" %}' },
-                { label: 'Grupo', href: '{% url "catalog:group_list" %}' },
                 { label: 'Produto', href: '{% url "catalog:product_list" %}' },
                 { label: 'Serviço', href: '{% url "catalog:services_list" %}' },
-                { label: 'Kit', href: '{% url "catalog:kits_list" %}' }
+                { label: 'Kit', href: '{% url "catalog:kits_list" %}' },
+                { label: 'Grupo', href: '{% url "catalog:group_list" %}' },
+                { label: 'Checklist', href: '{% url "checklist:checklist_list" %}' },
+                { label: 'Origem', href: '{% url "sources:source_list" %}' }
             ]
         },
         {
@@ -38,13 +38,13 @@
                 { label: 'Emitir nota', href: '{% url "finance:emission_create" %}?reset=1' },
                 { label: 'NF-e Emitidas', href: '{% url "finance:nfe_emit" %}' },
                 { label: 'NFS-e Emitidas', href: '{% url "finance:nfse_list" %}' },
+                { label: 'Movimentação Financeira', href: '{% url "finance:financial_movement_list" %}' },
+                { label: 'Conta Bancária', href: '{% url "finance:bank_account_list" %}' },
+                { label: 'Formas de Pagamento', href: '{% url "finance:payment_methods_list" %}' },
+                { label: 'Grupos Financeiros', href: '{% url "finance:financial_groups_list" %}' },
                 { label: 'Classe de Imposto', href: '{% url "finance:tax_class_list" %}' },
                 { label: 'Presets Fiscais', href: '{% url "finance:tax_class_preset_list" %}' },
-                { label: 'Grupos Financeiros', href: '{% url "finance:financial_groups_list" %}' },
-                { label: 'Formas de Pagamento', href: '{% url "finance:payment_methods_list" %}' },
-                { label: 'Relatórios', href: '{% url "finance:reports_home" %}' },
-                { label: 'Movimentação Financeira', href: '{% url "finance:financial_movement_list" %}' },
-                { label: 'Conta Bancária', href: '{% url "finance:bank_account_list" %}' }
+                { label: 'Relatórios', href: '{% url "finance:reports_home" %}' }
             ]
         },
         {
@@ -57,10 +57,10 @@
             label: 'Gestão',
             items: [
                 { label: 'Gerenciar Oficinas', href: '{% url "workshops:list" %}' },
+                { label: 'Gerenciar Permissões', href: '{% url "iam:role_list" %}' },
                 {% if active_workshop_is_director %}
                     { label: 'Histórico de Emissões', href: '{% url "workshops:emission_history" %}' },
                 {% endif %}
-                { label: 'Gerenciar Permissões', href: '{% url "iam:role_list" %}' },
                 { label: 'Custos Mensais', href: '{% url "workshops:cost_list" %}' },
                 { label: 'Custo Mensal da Oficina', href: '{% url "workshops:workshop_cost_list" %}' },
                 { label: 'Perguntas Investigativas', href: '{% url "quote:investigative_question_list" %}' }

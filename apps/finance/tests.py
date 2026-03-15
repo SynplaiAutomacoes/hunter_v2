@@ -3680,6 +3680,7 @@ class FinancialReportsHomeViewTests(TestCase):
         )
 
         response = self.client.get(reverse("finance:reports_home"))
+        monthly_card = response.context["top_summary_cards"][0]
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Créditos e Débitos deste Mês")
@@ -3687,7 +3688,12 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertContains(response, "R$ 400,00")
         self.assertContains(response, "R$ 1100,00")
         self.assertContains(response, "R$ 0,00", count=9)
-        self.assertNotContains(response, "R$ 999,00")
+        self.assertEqual(monthly_card["rows"][0]["tone"], "credit")
+        self.assertEqual(monthly_card["rows"][2]["tone"], "debit")
+        self.assertEqual(monthly_card["results"][0]["tone"], "credit")
+        self.assertEqual(monthly_card["results"][1]["tone"], "neutral")
+        self.assertContains(response, 'style="color: #166534;"')
+        self.assertContains(response, 'style="color: #991b1b;"')
 
     def test_reports_home_view_displays_current_year_totals_in_second_card(self) -> None:
         today = timezone.localdate()
@@ -3736,6 +3742,7 @@ class FinancialReportsHomeViewTests(TestCase):
         )
 
         response = self.client.get(reverse("finance:reports_home"))
+        yearly_card = response.context["top_summary_cards"][1]
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, f"Balanço Geral {today.year}")
@@ -3743,7 +3750,8 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertContains(response, "R$ 500,00")
         self.assertContains(response, "R$ 1250,00")
         self.assertContains(response, "R$ 0,00", count=9)
-        self.assertNotContains(response, "R$ 999,00")
+        self.assertEqual(yearly_card["results"][0]["tone"], "credit")
+        self.assertEqual(yearly_card["results"][1]["tone"], "neutral")
 
     def test_reports_home_view_displays_financial_movements_table_with_expected_columns(self) -> None:
         response = self.client.get(reverse("finance:reports_home"))
