@@ -57,7 +57,7 @@ def build_budget_pdf_context(*, budget, observacao: str, request=None) -> dict:
         "pages": _build_pdf_pages(produtos, servicos),
         "total_produtos": budget.get_total_products_by_slider,
         "total_servicos": budget.get_total_services_by_slider,
-        "desconto": budget.discount_value,
+        "desconto": budget.resolved_discount_value,
         "total_geral": budget.total_budget_value,
         "observacao": observacao,
         "total_profit_product_value": sum((line.profit_value for line in snapshot.product_lines), Money(0, "BRL")),

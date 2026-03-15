@@ -6,7 +6,9 @@ from urllib.parse import urlparse
 from unittest.mock import patch
 
 from apps.accounts.models import Account, User
-from django.http import Http404, HttpResponse
+from django.db import connection
+from django.http import Http404, HttpResponse, QueryDict
+from django.template import Context, Template
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -22,7 +24,8 @@ from apps.collaborators.models import WorkshopMember
 from apps.core.documents.contract import DocumentPayload, SignatureDeliveryResult
 from apps.core.documents.services import SignatureDeliveryServiceError
 from apps.core.documents.signature import normalize_signature_phone_number, parse_document_signature_token
-from apps.customer.models import Customer
+from apps.core.query_filters import apply_query_param_filters
+from apps.customer.models import Customer, Vehicle
 from apps.finance.models.payment_method import PaymentMethod
 from apps.iam.utils import get_or_create_director_role
 from apps.stock.models import StockMovement, StockProduct
@@ -38,8 +41,11 @@ from apps.workorder.service import (
     build_signature_preview_url,
     send_workorder_for_signature,
 )
-from apps.workorder.views import signature_file, signature_preview, visualizar_pdf_workorder
+from apps.workorder.views import WORKORDER_LIST_FILTERS, signature_file, signature_preview, visualizar_pdf_workorder
 from apps.workshops.models.workshops import Workshop
+
+
+WORKORDER_TEST_DEFAULTS_PREPARED = False
 
 
 def create_workshop(*, suffix: int = 1) -> Workshop:
@@ -72,6 +78,13 @@ def create_director_user_with_workshop(*, suffix: int = 1) -> tuple[User, Worksh
 
 
 def create_budget(*, workshop: Workshop) -> Budget:
+    global WORKORDER_TEST_DEFAULTS_PREPARED
+
+    if not WORKORDER_TEST_DEFAULTS_PREPARED:
+        with connection.cursor() as cursor:
+            cursor.execute("ALTER TABLE budget_budget ALTER COLUMN discount_percentage SET DEFAULT 0")
+        WORKORDER_TEST_DEFAULTS_PREPARED = True
+
     budget = Budget(workshop=workshop, entry_date=timezone.now().date())
     budget.save()
     return budget
@@ -87,6 +100,19 @@ def create_customer(*, workshop: Workshop, suffix: int = 1, phone: str = "+55119
     )
 
 
+def create_vehicle(*, workshop: Workshop, customer: Customer, suffix: int = 1, plate: str | None = None) -> Vehicle:
+    return Vehicle.objects.create(
+        workshop=workshop,
+        customer=customer,
+        plate=plate or f"OSP123{suffix}",
+        brand=f"Marca OS {suffix}",
+        model=f"Modelo OS {suffix}",
+        year_fabrication="2024",
+        year_model="2024",
+        color="Branco",
+    )
+
+
 def extract_token_from_url(url: str) -> str:
     return urlparse(url).path.rstrip("/").split("/")[-1]
 
@@ -99,6 +125,58 @@ def create_service(*, workshop: Workshop, suffix: int = 1) -> Service:
         suggested_cost=Money("5.00", "BRL"),
         selling_price=Money("20.00", "BRL"),
     )
+
+
+class WorkOrderListFiltersTests(TestCase):
+    def test_workorder_list_filters_support_client_vehicle_and_status(self) -> None:
+        workshop = create_workshop(suffix=70)
+
+        matching_customer = create_customer(workshop=workshop, suffix=70)
+        matching_vehicle = create_vehicle(workshop=workshop, customer=matching_customer, suffix=70, plate="OSA1234")
+        matching_budget = create_budget(workshop=workshop)
+        matching_budget.customer = matching_customer
+        matching_budget.vehicle = matching_vehicle
+        matching_budget.save(update_fields=["customer", "vehicle"])
+        matching_workorder = WorkOrder.objects.create(workshop=workshop, budget=matching_budget, status=WorkOrderStatus.APPROVED)
+
+        other_customer = create_customer(workshop=workshop, suffix=71)
+        other_vehicle = create_vehicle(workshop=workshop, customer=other_customer, suffix=71, plate="OSB9876")
+        other_budget = create_budget(workshop=workshop)
+        other_budget.customer = other_customer
+        other_budget.vehicle = other_vehicle
+        other_budget.save(update_fields=["customer", "vehicle"])
+        other_workorder = WorkOrder.objects.create(workshop=workshop, budget=other_budget, status=WorkOrderStatus.CANCELLED)
+
+        params = QueryDict("client=Cliente+OS+70&vehicle=OSA1234&status=approved")
+
+        filtered = apply_query_param_filters(
+            WorkOrder.objects.filter(workshop=workshop),
+            params=params,
+            filter_configs=WORKORDER_LIST_FILTERS,
+        )
+
+        self.assertQuerySetEqual(filtered.order_by("pk"), [matching_workorder], transform=lambda obj: obj)
+        self.assertNotIn(other_workorder, filtered)
+
+    def test_workorder_filter_fields_template_renders_new_inputs(self) -> None:
+        request = RequestFactory().get("/workorder/", {"client": "Ana", "vehicle": "OSA1234", "status": WorkOrderStatus.APPROVED})
+        template = Template("{% include 'workorder/partials/workorder_filters_fields.html' %}")
+
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "table_id": "workorder-table",
+                    "status_choices": WorkOrderStatus.choices,
+                }
+            )
+        )
+
+        self.assertIn('name="client"', html)
+        self.assertIn('name="vehicle"', html)
+        self.assertIn('name="status"', html)
+        self.assertIn('value="Ana"', html)
+        self.assertIn('value="OSA1234"', html)
 
 
 def create_product(*, workshop: Workshop, suffix: int = 1, selling_price: str = "100.00") -> Product:
@@ -191,6 +269,64 @@ class WorkOrderTotalsConsistencyTests(TestCase):
 
         self.assertEqual(workorder.total_base_value, Money("15.00", "BRL"))
         self.assertEqual(workorder.total_budget_value, Money("10.00", "BRL"))
+
+    def test_sync_from_budget_uses_resolved_discount_value_from_percentage(self) -> None:
+        workshop = create_workshop(suffix=83)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+
+        group = CatalogGroup.objects.create(workshop=workshop, name="Grupo Percentual")
+        product = Product.objects.create(
+            workshop=workshop,
+            code="P-003",
+            unit=Product.Unit.UND,
+            name="Produto Percentual",
+            group=group,
+            cost_price=Money("20.00", "BRL"),
+            selling_price=Money("100.00", "BRL"),
+        )
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            product=product,
+            quantity=1,
+        )
+
+        budget.discount_percentage = Decimal("0.10")
+        budget.discount_value = Money("0.00", "BRL")
+        budget.save(update_fields=["discount_percentage", "discount_value"])
+
+        workorder.sync_from_budget()
+        workorder.refresh_from_db()
+
+        self.assertEqual(workorder.discount_value, Money("10.00", "BRL"))
+
+    def test_discount_percentage_display_uses_current_totals(self) -> None:
+        workshop = create_workshop(suffix=84)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+
+        group = CatalogGroup.objects.create(workshop=workshop, name="Grupo Display")
+        product = Product.objects.create(
+            workshop=workshop,
+            code="P-004",
+            unit=Product.Unit.UND,
+            name="Produto Display",
+            group=group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("200.00", "BRL"),
+        )
+        WorkOrderItem.objects.create(
+            workshop=workshop,
+            workorder=workorder,
+            product=product,
+            quantity=1,
+        )
+
+        workorder.discount_value = Money("30.00", "BRL")
+        workorder.save(update_fields=["discount_value"])
+
+        self.assertEqual(workorder.discount_percentage_display, "15,00%")
 
 
 class WorkOrderSignatureTokenModelTests(TestCase):

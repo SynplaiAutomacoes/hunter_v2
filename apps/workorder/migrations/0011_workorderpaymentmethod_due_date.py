@@ -5,15 +5,14 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('workorder', '0010_workorder_signature_document_id'),
+        ("workorder", "0010_workorder_signature_document_id"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='workorderpaymentmethod',
-            name='due_date',
-            field=models.DateField(default=django.utils.timezone.localdate, verbose_name='Vencimento'),
+            model_name="workorderpaymentmethod",
+            name="due_date",
+            field=models.DateField(default=django.utils.timezone.localdate, verbose_name="Vencimento"),
         ),
     ]

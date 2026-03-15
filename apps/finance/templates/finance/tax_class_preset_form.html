@@ -1,0 +1,322 @@
+{% extends 'crud/form_page.html' %}
+
+{% block crud_title %}{% if is_update and preset %}Preset {{ preset.name }}{% elif is_update %}Atualizar preset fiscal{% else %}Novo preset fiscal{% endif %}{% endblock %}
+{% block crud_subtitle %}Salve modelos reutilizáveis para preencher novas classes de imposto da oficina com menos retrabalho.{% endblock %}
+{% block crud_back_url %}{% url 'finance:tax_class_preset_list' %}?tab={{ active_tab }}{% endblock %}
+
+{% block crud_form %}
+    {% if is_update and preset %}
+        <div class="mb-6 rounded-lg border border-base-300 bg-base-200/50 px-4 py-3">
+            <p class="text-sm text-base-content/70">Preset em edição</p>
+            <h2 class="text-xl font-semibold">{{ preset.name }}</h2>
+        </div>
+    {% else %}
+        <div class="tabs tabs-lift mb-6">
+            <a href="{% url 'finance:tax_class_preset_create' %}?tab=nfe" class="tab {% if active_tab == 'nfe' %}tab-active{% endif %}">NF-e</a>
+            <a href="{% url 'finance:tax_class_preset_create' %}?tab=nfse" class="tab {% if active_tab == 'nfse' %}tab-active{% endif %}">NFS-e</a>
+        </div>
+    {% endif %}
+
+    <form method="post" class="space-y-6">
+        {% csrf_token %}
+        <input type="hidden" name="tab" value="{{ active_tab }}">
+
+        <section class="border border-base-300 rounded-xl p-4 space-y-4">
+            <div>
+                <h2 class="text-xl font-bold">Dados do preset</h2>
+                <p class="text-sm text-base-content/70">Defina como este modelo aparece para a oficina na hora de criar uma nova classe fiscal.</p>
+            </div>
+
+            {{ meta_form.non_field_errors }}
+
+            <div class="grid grid-cols-12 gap-4">
+                <div class="col-span-12 lg:col-span-6">
+                    <label class="label" for="{{ meta_form.name.id_for_label }}"><span class="label-text font-semibold">{{ meta_form.name.label }}</span></label>
+                    {{ meta_form.name }}
+                    {{ meta_form.name.errors }}
+                </div>
+                <div class="col-span-12 lg:col-span-6">
+                    <label class="label" for="{{ meta_form.description.id_for_label }}"><span class="label-text font-semibold">{{ meta_form.description.label }}</span></label>
+                    {{ meta_form.description }}
+                    {{ meta_form.description.errors }}
+                </div>
+                <div class="col-span-12">
+                    <label class="label cursor-pointer justify-start gap-3">
+                        {{ meta_form.is_active }}
+                        <span class="label-text font-semibold">{{ meta_form.is_active.label }}</span>
+                    </label>
+                    {{ meta_form.is_active.errors }}
+                </div>
+            </div>
+        </section>
+
+        {% if active_tab == 'nfe' %}
+            {{ nfe_form.base_payload_json }}
+            {{ nfe_form.non_field_errors }}
+
+            <section class="border border-base-300 rounded-xl p-4 space-y-4">
+                <div>
+                    <h2 class="text-xl font-bold">Dados da classe NF-e</h2>
+                    <p class="text-sm text-base-content/70">Estes campos serao usados para preencher a classe quando o preset for aplicado.</p>
+                </div>
+
+                <div class="grid grid-cols-12 gap-4">
+                    <div class="col-span-12">
+                        <label class="label" for="{{ nfe_form.descricao.id_for_label }}"><span class="label-text font-semibold">{{ nfe_form.descricao.label }}</span></label>
+                        {{ nfe_form.descricao }}
+                        {{ nfe_form.descricao.errors }}
+                    </div>
+                    <div class="col-span-12 lg:col-span-6">
+                        <label class="label" for="{{ nfe_form.informacoes_fisco.id_for_label }}"><span class="label-text font-semibold">{{ nfe_form.informacoes_fisco.label }}</span></label>
+                        {{ nfe_form.informacoes_fisco }}
+                        {{ nfe_form.informacoes_fisco.errors }}
+                    </div>
+                    <div class="col-span-12 lg:col-span-6">
+                        <label class="label" for="{{ nfe_form.informacoes_complementares.id_for_label }}"><span class="label-text font-semibold">{{ nfe_form.informacoes_complementares.label }}</span></label>
+                        {{ nfe_form.informacoes_complementares }}
+                        {{ nfe_form.informacoes_complementares.errors }}
+                    </div>
+                </div>
+            </section>
+
+            {% for section in nfe_formset_sections %}
+                <section class="border border-base-300 rounded-xl p-4">
+                    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                        <div>
+                            <h3 class="font-semibold">{{ section.title }}</h3>
+                            <p class="text-sm text-base-content/70">{{ section.description }}</p>
+                        </div>
+                        <button
+                            type="button"
+                            class="btn btn-outline btn-sm add-scenario-row"
+                            data-prefix="{{ section.formset.prefix }}"
+                            data-container="{{ section.key }}-rows"
+                            data-template-id="{{ section.key }}-empty-row"
+                        >
+                            Adicionar cenario
+                        </button>
+                    </div>
+
+                    {{ section.formset.management_form }}
+
+                    <div class="overflow-x-auto">
+                        <table class="table table-zebra w-full table-fixed">
+                            <thead>
+                                <tr>
+                                    {% for field in section.formset.empty_form.visible_fields %}
+                                        {% if field.name != 'DELETE' %}
+                                            <th class="align-top">
+                                                {{ field.label }}
+                                                {% if field.name in section.required_fields %}
+                                                    <span class="text-error">*</span>
+                                                {% endif %}
+                                            </th>
+                                        {% endif %}
+                                    {% endfor %}
+                                    <th class="text-center align-top w-20">Remover</th>
+                                </tr>
+                            </thead>
+                            <tbody id="{{ section.key }}-rows">
+                                {% for row_form in section.formset.forms %}
+                                    <tr>
+                                        {% for field in row_form.visible_fields %}
+                                            {% if field.name != 'DELETE' %}
+                                                <td class="align-top min-w-44">
+                                                    {{ field }}
+                                                    {{ field.errors }}
+                                                </td>
+                                            {% endif %}
+                                        {% endfor %}
+                                        <td class="text-center align-top">
+                                            {{ row_form.DELETE }}
+                                            {% for hidden_field in row_form.hidden_fields %}
+                                                {{ hidden_field }}
+                                            {% endfor %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <template id="{{ section.key }}-empty-row">
+                        <tr>
+                            {% for field in section.formset.empty_form.visible_fields %}
+                                {% if field.name != 'DELETE' %}
+                                    <td class="align-top min-w-44">{{ field }}</td>
+                                {% endif %}
+                            {% endfor %}
+                            <td class="text-center align-top">
+                                {{ section.formset.empty_form.DELETE }}
+                                {% for hidden_field in section.formset.empty_form.hidden_fields %}
+                                    {{ hidden_field }}
+                                {% endfor %}
+                            </td>
+                        </tr>
+                    </template>
+                </section>
+            {% endfor %}
+        {% else %}
+            {{ nfse_form.base_payload_json }}
+            {{ nfse_form.non_field_errors }}
+
+            <section class="border border-base-300 rounded-xl p-4 space-y-4">
+                <div>
+                    <h2 class="text-xl font-bold">Dados da classe NFS-e</h2>
+                    <p class="text-sm text-base-content/70">Configure os mesmos campos que serao preenchidos ao aplicar este preset na criacao da classe.</p>
+                </div>
+
+                <div class="grid grid-cols-12 gap-4">
+                    <div class="col-span-12">
+                        <label class="label" for="{{ nfse_form.descricao.id_for_label }}"><span class="label-text font-semibold">{{ nfse_form.descricao.label }}</span></label>
+                        {{ nfse_form.descricao }}
+                        {{ nfse_form.descricao.errors }}
+                    </div>
+                    <div class="col-span-12 lg:col-span-3">
+                        <label class="label" for="{{ nfse_form.tipo_emissao.id_for_label }}"><span class="label-text font-semibold">{{ nfse_form.tipo_emissao.label }}</span></label>
+                        {{ nfse_form.tipo_emissao }}
+                        {{ nfse_form.tipo_emissao.errors }}
+                    </div>
+                    <div class="col-span-12 lg:col-span-3">
+                        <label class="label" for="{{ nfse_form.codigo_servico.id_for_label }}"><span class="label-text font-semibold">{{ nfse_form.codigo_servico.label }}</span></label>
+                        {{ nfse_form.codigo_servico }}
+                        {{ nfse_form.codigo_servico.errors }}
+                    </div>
+                    <div class="col-span-12 lg:col-span-3">
+                        <label class="label" for="{{ nfse_form.codigo_tributacao_municipio.id_for_label }}"><span class="label-text font-semibold">{{ nfse_form.codigo_tributacao_municipio.label }}</span></label>
+                        {{ nfse_form.codigo_tributacao_municipio }}
+                        {{ nfse_form.codigo_tributacao_municipio.errors }}
+                    </div>
+                    <div class="col-span-12 lg:col-span-3">
+                        <label class="label" for="{{ nfse_form.tributacao_iss.id_for_label }}"><span class="label-text font-semibold">{{ nfse_form.tributacao_iss.label }}</span></label>
+                        {{ nfse_form.tributacao_iss }}
+                        {{ nfse_form.tributacao_iss.errors }}
+                    </div>
+
+                    <div class="col-span-12 lg:col-span-4">
+                        <label class="label" for="{{ nfse_form.tipo_imunidade.id_for_label }}"><span class="label-text font-semibold">{{ nfse_form.tipo_imunidade.label }}</span></label>
+                        {{ nfse_form.tipo_imunidade }}
+                        {{ nfse_form.tipo_imunidade.errors }}
+                    </div>
+                    <div class="col-span-12 lg:col-span-4">
+                        <label class="label" for="{{ nfse_form.retencao_iss.id_for_label }}"><span class="label-text font-semibold">{{ nfse_form.retencao_iss.label }}</span></label>
+                        {{ nfse_form.retencao_iss }}
+                        {{ nfse_form.retencao_iss.errors }}
+                    </div>
+                    <div class="col-span-12 lg:col-span-4">
+                        <label class="label" for="{{ nfse_form.cst_pis_cofins.id_for_label }}"><span class="label-text font-semibold">{{ nfse_form.cst_pis_cofins.label }}</span></label>
+                        {{ nfse_form.cst_pis_cofins }}
+                        {{ nfse_form.cst_pis_cofins.errors }}
+                    </div>
+
+                    <div class="col-span-12">
+                        <label class="label" for="{{ nfse_form.retencao_pis_cofins.id_for_label }}"><span class="label-text font-semibold">{{ nfse_form.retencao_pis_cofins.label }}</span></label>
+                        {{ nfse_form.retencao_pis_cofins }}
+                        {{ nfse_form.retencao_pis_cofins.errors }}
+                    </div>
+                </div>
+            </section>
+
+            <section class="border border-base-300 rounded-xl p-4 space-y-4">
+                <div>
+                    <h3 class="font-semibold">Campos específicos de provedor</h3>
+                    <p class="text-sm text-base-content/70">Preencha apenas o que fizer sentido para o provedor da oficina.</p>
+                </div>
+
+                <div class="grid grid-cols-12 gap-4">
+                    <div class="col-span-12 lg:col-span-3">
+                        <label class="label" for="{{ nfse_form.natureza_operacao.id_for_label }}"><span class="label-text font-semibold">{{ nfse_form.natureza_operacao.label }}</span></label>
+                        {{ nfse_form.natureza_operacao }}
+                        {{ nfse_form.natureza_operacao.errors }}
+                    </div>
+                    <div class="col-span-12 lg:col-span-3">
+                        <label class="label" for="{{ nfse_form.exigibilidade_iss.id_for_label }}"><span class="label-text font-semibold">{{ nfse_form.exigibilidade_iss.label }}</span></label>
+                        {{ nfse_form.exigibilidade_iss }}
+                        {{ nfse_form.exigibilidade_iss.errors }}
+                    </div>
+                    <div class="col-span-12 lg:col-span-3">
+                        <label class="label" for="{{ nfse_form.iss_retido.id_for_label }}"><span class="label-text font-semibold">{{ nfse_form.iss_retido.label }}</span></label>
+                        {{ nfse_form.iss_retido }}
+                        {{ nfse_form.iss_retido.errors }}
+                    </div>
+                    <div class="col-span-12 lg:col-span-3">
+                        <label class="label" for="{{ nfse_form.responsavel_retencao.id_for_label }}"><span class="label-text font-semibold">{{ nfse_form.responsavel_retencao.label }}</span></label>
+                        {{ nfse_form.responsavel_retencao }}
+                        {{ nfse_form.responsavel_retencao.errors }}
+                    </div>
+                    <div class="col-span-12 lg:col-span-4">
+                        <label class="label" for="{{ nfse_form.codigo_cnae.id_for_label }}"><span class="label-text font-semibold">{{ nfse_form.codigo_cnae.label }}</span></label>
+                        {{ nfse_form.codigo_cnae }}
+                        {{ nfse_form.codigo_cnae.errors }}
+                    </div>
+                </div>
+            </section>
+
+            <section class="border border-base-300 rounded-xl p-4 space-y-4">
+                <h3 class="font-semibold">Aliquotas</h3>
+                <div class="grid grid-cols-12 gap-4">
+                    <div class="col-span-12 sm:col-span-6 lg:col-span-2">{{ nfse_form.iss.label_tag }}{{ nfse_form.iss }}{{ nfse_form.iss.errors }}</div>
+                    <div class="col-span-12 sm:col-span-6 lg:col-span-2">{{ nfse_form.pis.label_tag }}{{ nfse_form.pis }}{{ nfse_form.pis.errors }}</div>
+                    <div class="col-span-12 sm:col-span-6 lg:col-span-2">{{ nfse_form.cofins.label_tag }}{{ nfse_form.cofins }}{{ nfse_form.cofins.errors }}</div>
+                    <div class="col-span-12 sm:col-span-6 lg:col-span-2">{{ nfse_form.inss.label_tag }}{{ nfse_form.inss }}{{ nfse_form.inss.errors }}</div>
+                    <div class="col-span-12 sm:col-span-6 lg:col-span-2">{{ nfse_form.ir.label_tag }}{{ nfse_form.ir }}{{ nfse_form.ir.errors }}</div>
+                    <div class="col-span-12 sm:col-span-6 lg:col-span-2">{{ nfse_form.csll.label_tag }}{{ nfse_form.csll }}{{ nfse_form.csll.errors }}</div>
+                </div>
+            </section>
+
+            <section class="border border-base-300 rounded-xl p-4 space-y-4">
+                <h3 class="font-semibold">IBS/CBS</h3>
+                <div class="grid grid-cols-12 gap-4">
+                    <div class="col-span-12 lg:col-span-3">{{ nfse_form.ibs_situacao_tributaria.label_tag }}{{ nfse_form.ibs_situacao_tributaria }}{{ nfse_form.ibs_situacao_tributaria.errors }}</div>
+                    <div class="col-span-12 lg:col-span-3">{{ nfse_form.ibs_classificacao_tributaria.label_tag }}{{ nfse_form.ibs_classificacao_tributaria }}{{ nfse_form.ibs_classificacao_tributaria.errors }}</div>
+                    <div class="col-span-12 lg:col-span-3">{{ nfse_form.ibs_situacao_tributaria_regular.label_tag }}{{ nfse_form.ibs_situacao_tributaria_regular }}{{ nfse_form.ibs_situacao_tributaria_regular.errors }}</div>
+                    <div class="col-span-12 lg:col-span-3">{{ nfse_form.ibs_classificacao_tributaria_regular.label_tag }}{{ nfse_form.ibs_classificacao_tributaria_regular }}{{ nfse_form.ibs_classificacao_tributaria_regular.errors }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ nfse_form.ibs_credito_presumido.label_tag }}{{ nfse_form.ibs_credito_presumido }}{{ nfse_form.ibs_credito_presumido.errors }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ nfse_form.ibs_aliquota_diferimento_estadual.label_tag }}{{ nfse_form.ibs_aliquota_diferimento_estadual }}{{ nfse_form.ibs_aliquota_diferimento_estadual.errors }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ nfse_form.ibs_aliquota_diferimento_municipal.label_tag }}{{ nfse_form.ibs_aliquota_diferimento_municipal }}{{ nfse_form.ibs_aliquota_diferimento_municipal.errors }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ nfse_form.cbs_aliquota_diferimento.label_tag }}{{ nfse_form.cbs_aliquota_diferimento }}{{ nfse_form.cbs_aliquota_diferimento.errors }}</div>
+                </div>
+            </section>
+
+            <section class="border border-base-300 rounded-xl p-4 space-y-4">
+                <h3 class="font-semibold">Informacoes adicionais</h3>
+                <div class="grid grid-cols-12 gap-4">
+                    <div class="col-span-12 lg:col-span-6">{{ nfse_form.informacoes_fisco.label_tag }}{{ nfse_form.informacoes_fisco }}{{ nfse_form.informacoes_fisco.errors }}</div>
+                    <div class="col-span-12 lg:col-span-6">{{ nfse_form.informacoes_complementares.label_tag }}{{ nfse_form.informacoes_complementares }}{{ nfse_form.informacoes_complementares.errors }}</div>
+                </div>
+            </section>
+        {% endif %}
+
+        <div class="flex flex-wrap justify-end gap-2">
+            <a href="{% url 'finance:tax_class_preset_list' %}?tab={{ active_tab }}" class="btn btn-ghost">Cancelar</a>
+            <button type="submit" class="btn btn-primary">{% if is_update %}Atualizar preset{% else %}Salvar preset{% endif %}</button>
+        </div>
+    </form>
+
+    <script>
+    document.addEventListener("click", function (event) {
+        const button = event.target.closest(".add-scenario-row");
+        if (!button) {
+            return;
+        }
+
+        const prefix = button.dataset.prefix;
+        const containerId = button.dataset.container;
+        const templateId = button.dataset.templateId;
+
+        const totalFormsInput = document.getElementById(`id_${prefix}-TOTAL_FORMS`);
+        const container = document.getElementById(containerId);
+        const template = document.getElementById(templateId);
+
+        if (!totalFormsInput || !container || !template) {
+            return;
+        }
+
+        const nextIndex = Number.parseInt(totalFormsInput.value, 10);
+        const rowHtml = template.innerHTML.replaceAll("__prefix__", String(nextIndex));
+
+        container.insertAdjacentHTML("beforeend", rowHtml);
+        totalFormsInput.value = String(nextIndex + 1);
+    });
+    </script>
+{% endblock %}

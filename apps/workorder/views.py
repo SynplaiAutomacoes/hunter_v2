@@ -25,6 +25,7 @@ from apps.core.documents.http import build_pdf_http_response
 from apps.core.documents.services import SignatureDeliveryServiceError, download_signed_document_content
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxTemplateResponseMixin
+from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
 from apps.workorder.approval import WorkOrderApprovalError, approve_workorder_with_stock
 from apps.workorder.documents.provider import render_workorder_pdf_document, build_workorder_pdf_render_request
 from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderItemEditForm, WorkOrderKitProductEditRowForm, WorkOrderKitServiceEditRowForm, WorkOrderPaymentForm
@@ -55,6 +56,16 @@ THOUSAND_SEPARATED_INT_PATTERN = re.compile(r"^\d{1,3}(?:[\s.,]\d{3})+$")
 
 
 WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
+    QueryParamFilter(
+        param_name="client",
+        lookup="budget__customer__name",
+        kind="icontains",
+    ),
+    QueryParamFilter(
+        param_name="vehicle",
+        lookup="budget__vehicle__plate",
+        kind="icontains",
+    ),
     QueryParamFilter(
         param_name="status",
         lookup="status",
@@ -507,6 +518,7 @@ class AddPaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
             payment = form.save(commit=False)
             payment.workorder = workorder
             payment.save()
+            sync_workorder_financial_movement(workorder=workorder)
             payment_form = WorkOrderPaymentForm(workorder=workorder)
         else:
             payment_form = form
@@ -527,6 +539,7 @@ class DeletePaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
         workorder = payment.workorder
 
         payment.delete()
+        sync_workorder_financial_movement(workorder=workorder)
 
         context = {"workorder": workorder, "payment_form": WorkOrderPaymentForm(workorder=workorder)}
 

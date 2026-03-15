@@ -1,11 +1,32 @@
 import logging
 
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from apps.core.models import TimeStampedModel
+from apps.finance.services.webmania_status import normalize_nfe_request_status, normalize_nfse_request_status
 
 
 logger = logging.getLogger(__name__)
+
+
+def _default_pricing_slider_from_workorder(*, workorder_id: int | None, workorder: object | None) -> int | None:
+    if workorder is None and workorder_id is None:
+        return None
+
+    resolved_workorder = workorder
+    if resolved_workorder is None:
+        from apps.workorder.models import WorkOrder
+
+        resolved_workorder = WorkOrder.objects.select_related("budget").filter(pk=workorder_id).first()
+        if resolved_workorder is None:
+            return None
+
+    budget = getattr(resolved_workorder, "budget", None)
+    if budget is None:
+        return None
+
+    return int(getattr(budget, "slider", 0) or 0)
 
 
 class BatchStatus(models.TextChoices):
@@ -216,6 +237,33 @@ class TaxClassSyncState(TimeStampedModel):
         return f"TaxClassSyncState[{state}] ({workshop_id})"
 
 
+class TaxClassPresetKind(models.TextChoices):
+    NFE = "nfe", "NF-e"
+    NFSE = "nfse", "NFS-e"
+
+
+class TaxClassPreset(TimeStampedModel):
+    workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="tax_class_presets")
+    kind = models.CharField(verbose_name="Tipo", max_length=10, choices=TaxClassPresetKind.choices)
+    name = models.CharField(verbose_name="Nome do preset", max_length=120)
+    description = models.CharField(verbose_name="Descrição do preset", max_length=255, blank=True, default="")
+    is_active = models.BooleanField(verbose_name="Ativo", default=True)
+    payload = models.JSONField(verbose_name="Payload", blank=True, default=dict)
+
+    class Meta(TimeStampedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["workshop", "kind", "name"], name="unique_tax_class_preset_per_workshop_kind_name"),
+        ]
+        indexes = [
+            models.Index(fields=["workshop", "kind", "is_active"]),
+        ]
+        ordering = ["kind", "name", "id"]
+
+    def __str__(self) -> str:
+        workshop_id = getattr(self, "workshop_id", "-")
+        return f"Preset {self.get_kind_display()} {self.name} ({workshop_id})"
+
+
 class WebmaniaCompanyTaxType(models.TextChoices):
     SIMPLES_NACIONAL = "simples_nacional", "Simples Nacional"
     LUCRO_NORMAL = "lucro_normal", "Lucro Normal"
@@ -323,8 +371,25 @@ class NfseRequest(TimeStampedModel):
     workorder = models.ForeignKey("workorder.WorkOrder", verbose_name="Ordem de Serviço", on_delete=models.CASCADE)
     current_step = models.PositiveIntegerField(default=1)
     status = models.CharField(max_length=20, choices=NfseRequestStatus.choices, default=NfseRequestStatus.WAITING_WO)
+    pricing_slider = models.SmallIntegerField(
+        verbose_name="Slider de precificacao",
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(-100), MaxValueValidator(100)],
+        help_text="Copia o slider do orcamento na criacao e permanece independente para a emissao.",
+    )
     service_description = models.TextField(verbose_name="Discriminação do Serviço", blank=True, default="")
     tax_class = models.CharField(verbose_name="Classe de Imposto", max_length=30, default="REF000000")
+    reserved_rps_number = models.PositiveIntegerField(verbose_name="RPS reservado", null=True, blank=True)
+    reserved_rps_series = models.CharField(verbose_name="Série RPS reservada", max_length=20, blank=True, default="")
+
+    def save(self, *args, **kwargs):
+        if self.pk is None and self.pricing_slider is None:
+            default_slider = _default_pricing_slider_from_workorder(workorder_id=self.workorder_id, workorder=getattr(self, "workorder", None))
+            if default_slider is not None:
+                self.pricing_slider = default_slider
+
+        super().save(*args, **kwargs)
 
     def set_status(self, status: NfseRequestStatus):
         self.status = status
@@ -360,15 +425,14 @@ class NfseRequest(TimeStampedModel):
         if not request_status:
             return False
 
-        normalized_status = str(request_status).strip().lower()
+        normalized_status = normalize_nfse_request_status(request_status)
         status_mapping = {
-            "processando": NfseRequestStatus.PROCESSING,
-            "processado": NfseRequestStatus.APPROVED,
-            "aprovado": NfseRequestStatus.APPROVED,
-            "reprovado": NfseRequestStatus.REPROVED,
-            "agendado": NfseRequestStatus.SCHEDULED,
-            "cancelado": NfseRequestStatus.CANCELED,
-            "contingencia": NfseRequestStatus.CONTINGENCY,
+            "processing": NfseRequestStatus.PROCESSING,
+            "approved": NfseRequestStatus.APPROVED,
+            "reproved": NfseRequestStatus.REPROVED,
+            "scheduled": NfseRequestStatus.SCHEDULED,
+            "canceled": NfseRequestStatus.CANCELED,
+            "contingency": NfseRequestStatus.CONTINGENCY,
         }
         mapped_status = status_mapping.get(normalized_status)
         if not mapped_status:
@@ -382,13 +446,41 @@ class NfseRequest(TimeStampedModel):
         workorder_pk = getattr(self, "workorder_id", None) or "-"
         return f"NFS-e Request #{self.pk} - OS #{workorder_pk}"
 
+    @property
+    def rps_number_display(self) -> str:
+        if self.reserved_rps_number is not None:
+            return str(self.reserved_rps_number)
+
+        first_item = self.items.order_by("id").first()
+        if first_item is None:
+            return "-"
+
+        return str(first_item.rps_number or first_item.number or "-")
+
 
 class NfeRequest(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE)
     workorder = models.ForeignKey("workorder.WorkOrder", verbose_name="Ordem de Serviço", on_delete=models.CASCADE)
     current_step = models.PositiveIntegerField(default=1)
     status = models.CharField(max_length=20, choices=NfeRequestStatus.choices, default=NfeRequestStatus.WAITING_WO)
+    pricing_slider = models.SmallIntegerField(
+        verbose_name="Slider de precificacao",
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(-100), MaxValueValidator(100)],
+        help_text="Copia o slider do orcamento na criacao e permanece independente para a emissao.",
+    )
     tax_class = models.CharField(verbose_name="Classe de Imposto", max_length=30, default="REF000000")
+    reserved_number = models.PositiveIntegerField(verbose_name="Número reservado", null=True, blank=True)
+    reserved_series = models.PositiveIntegerField(verbose_name="Série reservada", null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        if self.pk is None and self.pricing_slider is None:
+            default_slider = _default_pricing_slider_from_workorder(workorder_id=self.workorder_id, workorder=getattr(self, "workorder", None))
+            if default_slider is not None:
+                self.pricing_slider = default_slider
+
+        super().save(*args, **kwargs)
 
     def set_status(self, status: NfeRequestStatus):
         self.status = status
@@ -424,14 +516,14 @@ class NfeRequest(TimeStampedModel):
         if not request_status:
             return False
 
-        normalized_status = str(request_status).strip().lower()
+        normalized_status = normalize_nfe_request_status(request_status)
         status_mapping = {
-            "processando": NfeRequestStatus.PROCESSING,
-            "aprovado": NfeRequestStatus.APPROVED,
-            "reprovado": NfeRequestStatus.REPROVED,
-            "cancelado": NfeRequestStatus.CANCELED,
-            "denegado": NfeRequestStatus.DENIED,
-            "contingencia": NfeRequestStatus.CONTINGENCY,
+            "processing": NfeRequestStatus.PROCESSING,
+            "approved": NfeRequestStatus.APPROVED,
+            "reproved": NfeRequestStatus.REPROVED,
+            "canceled": NfeRequestStatus.CANCELED,
+            "denied": NfeRequestStatus.DENIED,
+            "contingency": NfeRequestStatus.CONTINGENCY,
         }
         mapped_status = status_mapping.get(normalized_status)
         if not mapped_status:
@@ -444,6 +536,17 @@ class NfeRequest(TimeStampedModel):
     def __str__(self):
         workorder_pk = getattr(self, "workorder_id", None) or "-"
         return f"NF-e Request #{self.pk} - OS #{workorder_pk}"
+
+    @property
+    def number_display(self) -> str:
+        if self.reserved_number is not None:
+            return str(self.reserved_number)
+
+        first_item = self.items.order_by("id").first()
+        if first_item is None:
+            return "-"
+
+        return str(first_item.number or "-")
 
 
 class NfseBatch(models.Model):
@@ -460,6 +563,8 @@ class NfseBatch(models.Model):
     protocol = models.CharField(max_length=60, blank=True, default="")
     log_payload = models.JSONField(blank=True, default=dict)
     raw_payload = models.JSONField(blank=True, default=dict)
+    last_webhook_at = models.DateTimeField(null=True, blank=True)
+    last_sync_error = models.TextField(blank=True, default="")
 
     class Meta:
         constraints = [
@@ -490,6 +595,9 @@ class NfseItem(models.Model):
     pdf_rps_url = models.URLField(blank=True, default="")
     log_payload = models.JSONField(blank=True, default=dict)
     raw_payload = models.JSONField(blank=True, default=dict)
+    last_webhook_at = models.DateTimeField(null=True, blank=True)
+    last_reconciled_at = models.DateTimeField(null=True, blank=True)
+    last_sync_error = models.TextField(blank=True, default="")
 
     class Meta:
         constraints = [
@@ -519,6 +627,9 @@ class NfeItem(models.Model):
     danfe_label_url = models.URLField(blank=True, default="")
     log_payload = models.JSONField(blank=True, default=dict)
     raw_payload = models.JSONField(blank=True, default=dict)
+    last_webhook_at = models.DateTimeField(null=True, blank=True)
+    last_reconciled_at = models.DateTimeField(null=True, blank=True)
+    last_sync_error = models.TextField(blank=True, default="")
 
     class Meta:
         constraints = [
@@ -528,3 +639,20 @@ class NfeItem(models.Model):
         indexes = [
             models.Index(fields=["workshop", "status"]),
         ]
+
+
+class WebmaniaWebhookEvent(TimeStampedModel):
+    model = models.CharField(max_length=32, db_index=True)
+    event_uuid = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    payload = models.JSONField(blank=True, default=dict)
+    processed_at = models.DateTimeField(null=True, blank=True)
+    processing_error = models.TextField(blank=True, default="")
+
+    class Meta(TimeStampedModel.Meta):
+        indexes = [
+            models.Index(fields=["model", "event_uuid"]),
+            models.Index(fields=["processed_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"Webhook[{self.model}:{self.event_uuid or '-'}]"

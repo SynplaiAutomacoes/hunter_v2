@@ -1,0 +1,12 @@
+<div id="source-details-content">
+    {% if source_obj %}
+        <div class="bg-base-200 p-4 rounded-lg space-y-2 animate-in fade-in duration-300">
+            <p><strong>Razão Social:</strong> {{ source_obj.name|default:"----" }}</p>
+            <p><strong>CNPJ:</strong> {{ source_obj.cnpj|default:"---" }}</p>
+            <p><strong>Telefone:</strong> {{ source_obj.phone|default:"---" }}</p>
+            <p><strong>E-mail:</strong> {{ source_obj.email|default:"---" }}</p>
+        </div>
+    {% else %}
+        <p class='italic opacity-50 text-center py-8'>Selecione uma origem para ver os detalhes.</p>
+    {% endif %}
+</div>
