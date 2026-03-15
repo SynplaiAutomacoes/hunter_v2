@@ -3578,6 +3578,17 @@ class FinancialGroupFormTests(TestCase):
 
         self.assertTrue(form.fields["parent"].disabled)
 
+    def test_form_renders_parent_options_with_hierarchy_label(self) -> None:
+        workshop = create_workshop(suffix=74)
+        root = FinancialGroup.objects.create(workshop=workshop, name="Receitas")
+        child = FinancialGroup.objects.create(workshop=workshop, parent=root, name="Receitas de Serviços")
+
+        form = FinancialGroupForm(workshop=workshop)
+        content = str(form["parent"])
+
+        self.assertIn(root.dre_hierarchy_label, content)
+        self.assertIn(child.dre_hierarchy_label, content)
+
 
 class FinancialGroupViewsTests(TestCase):
     def setUp(self) -> None:
@@ -3597,6 +3608,20 @@ class FinancialGroupViewsTests(TestCase):
         self.assertContains(response, "Grupos Financeiros")
         self.assertContains(response, group.code)
         self.assertContains(response, group.name)
+
+    def test_list_view_renders_hierarchical_group_labels(self) -> None:
+        root = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        child = FinancialGroup.objects.create(workshop=self.workshop, parent=root, name="Receitas de Serviços")
+        grandchild = FinancialGroup.objects.create(workshop=self.workshop, parent=child, name="Receitas de Serviços Diretos")
+
+        response = self.client.get(reverse("finance:financial_groups_list"))
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+
+        self.assertIn(root.dre_hierarchy_label, content)
+        self.assertIn(child.dre_hierarchy_label, content)
+        self.assertIn(grandchild.dre_hierarchy_label, content)
 
     def test_create_view_creates_child_group_with_expected_code(self) -> None:
         parent = FinancialGroup.objects.create(workshop=self.workshop, name="Contas fixas")
