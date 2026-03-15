@@ -4,9 +4,6 @@ set -e
 echo "Syncronizing webhook"
 uv run python manage.py webhook
 
-echo "Creating migrations"
-uv run python manage.py makemigrations --noinput
-
 echo "Running migrations..."
 uv run python manage.py migrate --noinput
 
