@@ -1,0 +1,63 @@
+{% extends 'crud/page.html' %}
+{% load table_tags %}
+
+{% block crud_content %}
+    <div class="space-y-6">
+        <div class="flex flex-col gap-2">
+            <h1 class="text-3xl font-bold text-base-content">Relatorios Financeiros</h1>
+            <p class="text-base-content/70">Acompanhe os principais indicadores financeiros da oficina a partir deste painel.</p>
+        </div>
+
+        <div class="grid items-start gap-4 lg:grid-cols-3">
+            {% for card in top_summary_cards %}
+                <div class="card self-start border border-base-300 bg-base-100 shadow-xl">
+                    <details x-data="{ open: false }" @toggle="open = $el.open" class="group">
+                        <summary class="flex cursor-pointer list-none items-center justify-between gap-4 p-6 md:p-8">
+                            <h2 class="text-lg font-semibold text-base-content md:text-xl">{{ card.title }}</h2>
+                            <span class="material-icons text-base-content/55 transition-transform duration-200" :class="open ? 'rotate-180' : ''">expand_more</span>
+                        </summary>
+
+                        <div class="border-t border-base-300 px-6 pb-6 pt-5 md:px-8 md:pb-8">
+                            {% if card.is_placeholder %}
+                                <div class="flex min-h-[220px] items-center justify-center text-center">
+                                    <p class="max-w-xs text-sm text-base-content/60">{{ card.description }}</p>
+                                </div>
+                            {% else %}
+                                <div class="flex min-h-[260px] flex-col justify-between gap-6">
+                                    <div class="space-y-4">
+                                        {% for row in card.rows %}
+                                            <div class="flex items-end justify-between gap-4">
+                                                <p class="{% if row.small %}text-sm text-base-content/65{% else %}text-base font-semibold text-base-content{% endif %}">{{ row.label }}</p>
+                                                <p class="{% if row.small %}text-sm font-medium text-base-content/75{% else %}text-xl font-black text-base-content md:text-2xl{% endif %}">{{ row.value }}</p>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+
+                                    <div class="space-y-3 border-t border-base-300 pt-5">
+                                        {% for result in card.results %}
+                                            <div class="flex items-end justify-between gap-4">
+                                                <p class="text-sm font-medium text-base-content/70">{{ result.label }}</p>
+                                                <p class="{% if result.accent %}text-xl font-black text-emerald-700 md:text-2xl{% else %}text-lg font-semibold text-base-content{% endif %}">{{ result.value }}</p>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            {% endif %}
+                        </div>
+                    </details>
+                </div>
+            {% endfor %}
+        </div>
+
+        <div class="card border border-base-300 bg-base-100 shadow-xl">
+            <div class="card-body gap-6 p-5 md:p-6">
+                <div class="flex flex-col gap-2">
+                    <h2 class="text-xl font-semibold text-base-content">Movimentações Financeiras</h2>
+                    <p class="text-sm text-base-content/70">Lista inicial das movimentações com os dados já disponíveis no financeiro.</p>
+                </div>
+
+                {% render_table financial_movements financial_movements_table_fields table_id="financial-reports-movements-table" selectable=False actions=financial_movements_table_actions empty_text="Nenhuma movimentação financeira encontrada." %}
+            </div>
+        </div>
+    </div>
+{% endblock %}

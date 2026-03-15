@@ -35,3 +35,43 @@ class FinancialMovement(TimeStampedModel):
     bank_account = models.ForeignKey(BankAccount, on_delete=models.PROTECT, verbose_name="Conta Bancária", blank=True, null=True)
     attachment = models.FileField(upload_to="financial/attachments/", null=True, blank=True, verbose_name="Anexo")
     financial_observation = models.TextField(verbose_name="Observação Financeira", blank=True, null=True)
+
+    @property
+    def report_paid_display(self) -> str:
+        return "-"
+
+    @property
+    def report_agent_display(self) -> str:
+        source = getattr(self, "source", None)
+        if source is not None:
+            return source.name
+        return "-"
+
+    @property
+    def report_origin_display(self) -> str:
+        return str(self.nf_number or "-")
+
+    @property
+    def report_description_display(self) -> str:
+        return str(self.description or "-")
+
+    @property
+    def report_budget_plan_display(self) -> str:
+        budget_plan = getattr(self, "budget_plan", None)
+        if budget_plan is not None:
+            return str(budget_plan)
+        return "-"
+
+    @property
+    def report_bank_account_display(self) -> str:
+        bank_account = getattr(self, "bank_account", None)
+        if bank_account is not None:
+            return str(bank_account)
+        return "-"
+
+    @property
+    def report_payment_method_display(self) -> str:
+        payment_method = getattr(self, "payment_method", None)
+        if payment_method is not None:
+            return str(payment_method)
+        return "-"

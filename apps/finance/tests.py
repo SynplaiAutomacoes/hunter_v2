@@ -35,7 +35,9 @@ from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm
 from apps.finance.forms.emission_ui import build_step5_pricing_panel_data
 from apps.finance.forms.financial_group import FinancialGroupForm
 from apps.finance.forms.payment_method import PaymentMethodForm
+from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.finance import NfeItem, NfeRequest, NfeRequestStatus, NfseItem, NfseRequest, NfseRequestStatus, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
+from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.services.emission import NfseEmissionError, _build_taker_payload, _default_service_description, _service_total_value, build_nfse_payload, build_webmania_webhook_token, emit_nfse_request, sync_emission_response
@@ -59,6 +61,7 @@ from apps.finance.services.webmania_errors import extract_webmania_error_message
 from apps.finance.services.webmania_secrets import decrypt_secret, encrypt_secret, is_encrypted_secret
 from apps.finance.views.nfse import NfseRequestCreateView
 from apps.iam.utils import get_or_create_director_role
+from apps.sources.models import Source
 from apps.workorder.models import WorkOrder
 from apps.workorder.models import WorkOrderItem
 from apps.workorder.models import WorkOrderPaymentMethod
@@ -3626,6 +3629,200 @@ class FinancialGroupViewsTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertTrue(FinancialGroup.objects.filter(pk=parent.pk).exists())
+
+
+class FinancialReportsHomeViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=89)
+        self.client.force_login(self.user)
+        self.source = Source.objects.create(workshop=self.workshop, name="Fornecedor Base")
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_reports_home_view_displays_page(self) -> None:
+        response = self.client.get(reverse("finance:reports_home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Relatorios Financeiros")
+        self.assertContains(response, "Créditos e Débitos deste Mês")
+        self.assertContains(response, f"Balanço Geral {timezone.localdate().year}")
+        self.assertContains(response, "Créditos e Débitos de Seleção")
+
+    def test_reports_home_view_displays_current_month_credit_and_debit_totals(self) -> None:
+        today = timezone.localdate()
+        previous_month_date = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
+
+        credit_movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("1500.00", "BRL"),
+            due_date=today,
+        )
+        credit_movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("400.00", "BRL"),
+            due_date=today,
+        )
+        credit_movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("999.00", "BRL"),
+            due_date=previous_month_date,
+        )
+
+        response = self.client.get(reverse("finance:reports_home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Créditos e Débitos deste Mês")
+        self.assertContains(response, "R$ 1500,00")
+        self.assertContains(response, "R$ 400,00")
+        self.assertContains(response, "R$ 1100,00")
+        self.assertContains(response, "R$ 0,00", count=9)
+        self.assertNotContains(response, "R$ 999,00")
+
+    def test_reports_home_view_displays_current_year_totals_in_second_card(self) -> None:
+        today = timezone.localdate()
+        same_year_other_month = today.replace(month=1, day=15) if today.month != 1 else today.replace(month=2, day=15)
+        previous_year_date = today.replace(year=today.year - 1, month=12, day=15)
+
+        credit_movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("1500.00", "BRL"),
+            due_date=today,
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("250.00", "BRL"),
+            due_date=same_year_other_month,
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("400.00", "BRL"),
+            due_date=today,
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("100.00", "BRL"),
+            due_date=same_year_other_month,
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("999.00", "BRL"),
+            due_date=previous_year_date,
+        )
+
+        response = self.client.get(reverse("finance:reports_home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f"Balanço Geral {today.year}")
+        self.assertContains(response, "R$ 1750,00")
+        self.assertContains(response, "R$ 500,00")
+        self.assertContains(response, "R$ 1250,00")
+        self.assertContains(response, "R$ 0,00", count=9)
+        self.assertNotContains(response, "R$ 999,00")
+
+    def test_reports_home_view_displays_financial_movements_table_with_expected_columns(self) -> None:
+        response = self.client.get(reverse("finance:reports_home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Movimentações Financeiras")
+        self.assertContains(response, 'id="financial-reports-movements-table"')
+        self.assertContains(response, "Pago")
+        self.assertContains(response, "Tipo")
+        self.assertContains(response, "Vencimento")
+        self.assertContains(response, "Agente")
+        self.assertContains(response, "Origem")
+        self.assertContains(response, "Descrição")
+        self.assertContains(response, "Plano Orçamentário")
+        self.assertContains(response, "Conta")
+        self.assertContains(response, "Tipo Pagamento")
+        self.assertContains(response, "Total")
+
+    def test_reports_home_view_displays_financial_movement_row_values_with_fallbacks(self) -> None:
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix")
+        budget_plan = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas Operacionais")
+        bank_account = BankAccount.objects.create(
+            workshop=self.workshop,
+            bank_code="001",
+            bank_name="Banco do Brasil",
+            agency="1234",
+            account_number="99999-0",
+        )
+
+        credit_movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            payment_method=payment_method,
+            amount=Money("850.00", "BRL"),
+            due_date=date(2026, 3, 10),
+            nf_number="NF-2026-15",
+            description="Recebimento da OS em aberto",
+            budget_plan=budget_plan,
+            bank_account=bank_account,
+        )
+
+        debit_movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("100.00", "BRL"),
+            due_date=date(2026, 3, 12),
+        )
+
+        response = self.client.get(reverse("finance:reports_home"))
+        movements = list(response.context["financial_movements"])
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(movements[0], debit_movement)
+        self.assertEqual(movements[0].report_paid_display, "-")
+        self.assertEqual(movements[0].report_origin_display, "-")
+        self.assertEqual(movements[0].report_description_display, "-")
+        self.assertEqual(movements[0].report_budget_plan_display, "-")
+        self.assertEqual(movements[0].report_bank_account_display, "-")
+        self.assertEqual(movements[0].report_payment_method_display, "-")
+        self.assertEqual(movements[1], credit_movement)
+        self.assertEqual(movements[1].report_paid_display, "-")
+        self.assertContains(response, "Crédito")
+        self.assertContains(response, "Débito")
+        self.assertContains(response, "10/03/2026")
+        self.assertContains(response, "12/03/2026")
+        self.assertContains(response, self.source.name)
+        self.assertContains(response, "NF-2026-15")
+        self.assertContains(response, "Recebimento da OS em aberto")
+        self.assertContains(response, str(budget_plan))
+        self.assertContains(response, str(bank_account))
+        self.assertContains(response, str(payment_method))
+        self.assertContains(response, "R$ 850,00")
+        self.assertContains(response, "R$ 100,00")
+        self.assertContains(response, reverse("finance:financial_movement_update", args=[credit_movement.pk]))
+        self.assertContains(response, reverse("finance:financial_movement_update", args=[debit_movement.pk]))
 
 
 class DreReportViewTests(TestCase):

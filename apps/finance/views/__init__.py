@@ -6,6 +6,7 @@ from .common import DirectorWorkshopAccessMixin
 from .emission import EmissionPreviewView, EmissionRequestCreateView, EmissionWorkOrderItemUpdateView, EmissionWorkOrderKitComponentUpdateView, NfeCreateRedirectView, NfseCreateRedirectView
 from .nfe import NfeDocumentDownloadView, NfeRequestCreateView, NfeRequestDetailView, NfeRequestListView, NfeRequestReconcileView, NfeRequestUpdateView
 from .nfse import NfseDocumentDownloadView, NfseRequestCreateView, NfseRequestDetailView, NfseRequestListView, NfseRequestUpdateView
+from .reports import FinancialReportsHomeView
 from .tax_class import TaxClassCreateView, TaxClassListView, TaxClassManagerView, TaxClassPresetCreateView, TaxClassPresetListView, TaxClassPresetUpdateView, TaxClassUpdateView
 from .webhook import WebhookView
 from .webmania import (
@@ -27,6 +28,7 @@ __all__ = [
     "FinancialGroupCreateView",
     "FinancialGroupDeleteView",
     "FinancialGroupListView",
+    "FinancialReportsHomeView",
     "FinancialGroupUpdateView",
     "NfeCreateRedirectView",
     "NfeDocumentDownloadView",
