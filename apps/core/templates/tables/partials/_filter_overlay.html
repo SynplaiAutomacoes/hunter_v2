@@ -1,17 +1,14 @@
 <div
-    class="relative z-50 flex w-full items-center gap-2 sm:w-auto"
-    style="overflow: visible;"
-    x-data="{ open: false, controlsFormId: '{{ table_id }}-controls-form' }"
-    @keydown.escape.window="open = false"
-    @click.outside="open = false"
-    @htmx:before-request.window="if ($event.detail && $event.detail.elt && $event.detail.elt.id === controlsFormId) open = false"
+    class="flex w-full items-center gap-2 sm:w-auto"
+    x-data="{ controlsFormId: '{{ table_id }}-controls-form' }"
+    @htmx:before-request.window="if ($event.detail && $event.detail.elt && $event.detail.elt.id === controlsFormId && $refs.filterModal?.open) $refs.filterModal.close()"
 >
     <button
         type="button"
         class="btn btn-primary flex-1 sm:w-auto sm:flex-none"
-        :aria-expanded="open.toString()"
-        aria-controls="{{ table_id }}-filter-panel"
-        @click="open = !open"
+        aria-controls="{{ table_id }}-filter-modal"
+        aria-haspopup="dialog"
+        @click="$refs.filterModal.showModal()"
     >
         <span class="material-icons text-[18px]" aria-hidden="true">filter_list</span>
         {{ filter_button_label }}
@@ -33,22 +30,21 @@
         </button>
     {% endif %}
 
-    <div
-        id="{{ table_id }}-filter-panel"
-        x-bind:hidden="!open"
-        hidden
-        x-cloak
-        class="filter-panel"
+    <dialog
+        id="{{ table_id }}-filter-modal"
+        class="modal"
+        x-ref="filterModal"
+        @click="if ($event.target === $el) $el.close()"
     >
-        <div class="flex h-full min-h-0 flex-col p-4 sm:p-5">
+        <div class="modal-box w-11/12 max-w-2xl border border-base-300 bg-base-100 shadow-2xl">
             <h3 class="text-base font-semibold text-base-content">{{ filter_panel_title }}</h3>
 
-            <div class="mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+            <div class="mt-4 max-h-[65vh] space-y-4 overflow-y-auto pr-1">
                 {% include filter_fields_template %}
             </div>
 
-            <div class="mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
-                <button type="button" class="btn-form-cancel" @click="open = false">Cancelar</button>
+            <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
+                <button type="button" class="btn-form-cancel" @click="$refs.filterModal.close()">Cancelar</button>
                 <button
                     type="submit"
                     class="btn btn-primary"
@@ -57,5 +53,5 @@
                 </button>
             </div>
         </div>
-    </div>
+    </dialog>
 </div>

@@ -57,6 +57,16 @@ THOUSAND_SEPARATED_INT_PATTERN = re.compile(r"^\d{1,3}(?:[\s.,]\d{3})+$")
 
 WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
     QueryParamFilter(
+        param_name="client",
+        lookup="budget__customer__name",
+        kind="icontains",
+    ),
+    QueryParamFilter(
+        param_name="vehicle",
+        lookup="budget__vehicle__plate",
+        kind="icontains",
+    ),
+    QueryParamFilter(
         param_name="status",
         lookup="status",
         kind="choice",

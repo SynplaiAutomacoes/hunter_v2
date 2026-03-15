@@ -418,7 +418,7 @@ class TestRenderTableTag(TestCase):
         self.assertIn("btn btn-error", html)
         self.assertIn('hx-params="none"', html)
 
-    def test_filter_overlay_uses_native_submit_flow(self):
+    def test_filter_modal_uses_native_submit_flow(self):
         request = self.factory.get("/workshops/?q=Oficina")
         template = Template(
             """
@@ -441,16 +441,16 @@ class TestRenderTableTag(TestCase):
         self.assertIn('id="t-content" hx-disinherit="hx-vals"', html)
         self.assertIn('@htmx:after-swap.window="all = false"', html)
         self.assertNotIn("@htmx:afterSwap.window", html)
-        self.assertIn('@htmx:before-request.window="if ($event.detail && $event.detail.elt && $event.detail.elt.id === controlsFormId) open = false"', html)
+        self.assertIn('@htmx:before-request.window="if ($event.detail && $event.detail.elt && $event.detail.elt.id === controlsFormId && $refs.filterModal?.open) $refs.filterModal.close()"', html)
         self.assertNotIn("@htmx:beforeRequest.window", html)
-        self.assertIn('x-bind:hidden="!open"', html)
-        self.assertIn("z-50", html)
-        self.assertIn("sm:w-fit", html)
-        self.assertIn("max-h-[70vh]", html)
-        self.assertNotIn("sm:w-[64rem]", html)
-        self.assertNotIn("lg:w-[76rem]", html)
-        self.assertNotIn("xl:w-[88rem]", html)
-        self.assertNotIn('x-show="open"', html)
+        self.assertIn('id="t-filter-modal"', html)
+        self.assertIn('class="modal"', html)
+        self.assertIn('aria-controls="t-filter-modal"', html)
+        self.assertIn('aria-haspopup="dialog"', html)
+        self.assertIn('@click="$refs.filterModal.showModal()"', html)
+        self.assertIn('x-ref="filterModal"', html)
+        self.assertIn("modal-box w-11/12 max-w-2xl", html)
+        self.assertIn("max-h-[65vh]", html)
         self.assertNotIn("@submit.window", html)
         self.assertNotIn("requestSubmit()", html)
 
