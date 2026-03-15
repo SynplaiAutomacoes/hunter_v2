@@ -3667,6 +3667,18 @@ class FinancialReportsHomeViewTests(TestCase):
         session["active_workshop_id"] = self.workshop.pk
         session.save()
 
+    def _create_bank_account(self, *, suffix: str) -> BankAccount:
+        return BankAccount.objects.create(
+            workshop=self.workshop,
+            bank_code=f"00{suffix}",
+            bank_name=f"Banco {suffix}",
+            account_number=f"12345-{suffix}",
+            agency="0001",
+        )
+
+    def _create_financial_group(self, *, name: str, parent: FinancialGroup | None = None) -> FinancialGroup:
+        return FinancialGroup.objects.create(workshop=self.workshop, parent=parent, name=name)
+
     def _create_report_workorder(
         self,
         *,
@@ -4280,6 +4292,167 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertContains(response, "text-warning")
         self.assertContains(response, "text-success")
         self.assertContains(response, reverse("finance:financial_movement_update", args=[movement.pk]))
+
+    def test_reports_home_view_renders_filter_controls(self) -> None:
+        revenue_group = self._create_financial_group(name="Receitas")
+        bank_account = self._create_bank_account(suffix="1")
+
+        response = self.client.get(reverse("finance:reports_home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Filtrar relatórios")
+        self.assertContains(response, 'name="data_inicial"', html=False)
+        self.assertContains(response, 'name="data_final"', html=False)
+        self.assertContains(response, 'name="direction"', html=False)
+        self.assertContains(response, 'name="bank_account"', html=False)
+        self.assertContains(response, 'name="financial_groups"', html=False)
+        self.assertContains(response, revenue_group.name)
+        self.assertContains(response, str(bank_account))
+
+    def test_reports_home_view_filters_table_and_selection_card_by_date_range_including_future_dates(self) -> None:
+        future_date = timezone.localdate() + timedelta(days=45)
+        earlier_date = future_date - timedelta(days=10)
+        later_date = future_date + timedelta(days=10)
+
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("500.00", "BRL"),
+            due_date=future_date,
+            is_paid=True,
+            description="Movimento futuro selecionado",
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("200.00", "BRL"),
+            due_date=timezone.localdate(),
+            is_paid=True,
+            description="Movimento atual fora do filtro",
+        )
+
+        response = self.client.get(
+            reverse("finance:reports_home"),
+            data={"data_inicial": earlier_date.isoformat(), "data_final": later_date.isoformat()},
+        )
+
+        selection_card = response.context["top_summary_cards"][2]
+        rows = response.context["financial_movement_report_rows"]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["description"], "Movimento futuro selecionado")
+        self.assertEqual(selection_card["rows"][0]["value"], "R$ 500,00")
+        self.assertEqual(selection_card["rows"][1]["value"], "R$ 500,00")
+        self.assertEqual(selection_card["rows"][2]["value"], "R$ 0,00")
+        self.assertEqual(selection_card["results"][0]["value"], "R$ 500,00")
+        self.assertEqual(selection_card["results"][1]["value"], "R$ 500,00")
+        self.assertContains(response, "Movimento futuro selecionado")
+        self.assertNotContains(response, "Movimento atual fora do filtro")
+
+    def test_reports_home_view_filters_table_and_selection_card_by_financial_group_and_direction(self) -> None:
+        root_group = self._create_financial_group(name="Receitas")
+        child_group = self._create_financial_group(name="Servicos", parent=root_group)
+        other_group = self._create_financial_group(name="Despesas")
+
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("300.00", "BRL"),
+            due_date=timezone.localdate(),
+            is_paid=True,
+            description="Receita filtrada",
+            budget_plan=child_group,
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("80.00", "BRL"),
+            due_date=timezone.localdate(),
+            is_paid=True,
+            description="Despesa fora do tipo",
+            budget_plan=child_group,
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("150.00", "BRL"),
+            due_date=timezone.localdate(),
+            is_paid=True,
+            description="Receita fora do grupo",
+            budget_plan=other_group,
+        )
+
+        response = self.client.get(
+            reverse("finance:reports_home"),
+            data={"financial_groups": [str(child_group.pk)], "direction": FinancialMovement.MovementDirection.CREDIT},
+        )
+
+        selection_card = response.context["top_summary_cards"][2]
+        rows = response.context["financial_movement_report_rows"]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["description"], "Receita filtrada")
+        self.assertEqual(selection_card["rows"][0]["value"], "R$ 300,00")
+        self.assertEqual(selection_card["rows"][1]["value"], "R$ 300,00")
+        self.assertEqual(selection_card["rows"][2]["value"], "R$ 0,00")
+        self.assertContains(response, "Receita filtrada")
+        self.assertNotContains(response, "Despesa fora do tipo")
+        self.assertNotContains(response, "Receita fora do grupo")
+
+    def test_reports_home_view_filters_table_and_selection_card_by_bank_account(self) -> None:
+        selected_account = self._create_bank_account(suffix="1")
+        other_account = self._create_bank_account(suffix="2")
+
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("120.00", "BRL"),
+            due_date=timezone.localdate(),
+            is_paid=True,
+            description="Despesa conta selecionada",
+            bank_account=selected_account,
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("90.00", "BRL"),
+            due_date=timezone.localdate(),
+            is_paid=True,
+            description="Despesa outra conta",
+            bank_account=other_account,
+        )
+
+        response = self.client.get(reverse("finance:reports_home"), data={"bank_account": str(selected_account.pk)})
+
+        selection_card = response.context["top_summary_cards"][2]
+        rows = response.context["financial_movement_report_rows"]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["description"], "Despesa conta selecionada")
+        self.assertEqual(selection_card["rows"][0]["value"], "R$ 0,00")
+        self.assertEqual(selection_card["rows"][2]["value"], "R$ 120,00")
+        self.assertEqual(selection_card["rows"][3]["value"], "R$ 120,00")
+        self.assertEqual(selection_card["results"][0]["value"], "R$ -120,00")
+        self.assertEqual(selection_card["results"][1]["value"], "R$ -120,00")
+        self.assertContains(response, "Despesa conta selecionada")
+        self.assertNotContains(response, "Despesa outra conta")
 
 
 class DreReportViewTests(TestCase):

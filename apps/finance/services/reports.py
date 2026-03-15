@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+from typing import Iterable
 
 from djmoney.money import Money
 
@@ -23,29 +24,50 @@ class FinancialOverview:
     confirmed_result: Money
 
 
-def build_financial_overview(*, workshop, start_date: date, end_date: date) -> FinancialOverview:
+def build_financial_overview(
+    *,
+    workshop,
+    start_date: date | None,
+    end_date: date | None,
+    direction: str | None = None,
+    budget_plan_ids: Iterable[int] | None = None,
+    bank_account_id: int | None = None,
+) -> FinancialOverview:
     total_credits = _ZERO_DECIMAL
     paid_credits = _ZERO_DECIMAL
     total_debits = _ZERO_DECIMAL
     paid_debits = _ZERO_DECIMAL
 
-    movements = FinancialMovement.objects.filter(
-        workshop=workshop,
-        due_date__gte=start_date,
-        due_date__lte=end_date,
-    ).only("direction", "amount", "amount_currency", "is_paid", "workorder", "movement_kind")
+    normalized_budget_plan_ids = [int(value) for value in budget_plan_ids or []]
 
-    paid_credit_movements = (
-        FinancialMovement.objects.filter(
+    movements = FinancialMovement.objects.filter(workshop=workshop)
+    if start_date is not None:
+        movements = movements.filter(due_date__gte=start_date)
+    if end_date is not None:
+        movements = movements.filter(due_date__lte=end_date)
+    if direction:
+        movements = movements.filter(direction=direction)
+    if normalized_budget_plan_ids:
+        movements = movements.filter(budget_plan_id__in=normalized_budget_plan_ids)
+    if bank_account_id is not None:
+        movements = movements.filter(bank_account_id=bank_account_id)
+
+    movements = movements.only("direction", "amount", "amount_currency", "is_paid", "workorder", "movement_kind")
+
+    paid_credit_movements = FinancialMovement.objects.none()
+    if direction in {None, "", FinancialMovement.MovementDirection.CREDIT}:
+        paid_credit_movements = FinancialMovement.objects.filter(
             workshop=workshop,
             direction=FinancialMovement.MovementDirection.CREDIT,
             workorder__isnull=False,
             movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
         )
-        .select_related("workorder")
-        .prefetch_related("workorder__payments")
-        .only("workorder")
-    )
+        if normalized_budget_plan_ids:
+            paid_credit_movements = paid_credit_movements.filter(budget_plan_id__in=normalized_budget_plan_ids)
+        if bank_account_id is not None:
+            paid_credit_movements = paid_credit_movements.filter(bank_account_id=bank_account_id)
+
+        paid_credit_movements = paid_credit_movements.select_related("workorder").prefetch_related("workorder__payments").only("workorder")
 
     for movement in movements:
         amount = Decimal(getattr(getattr(movement, "amount", None), "amount", _ZERO_DECIMAL) or _ZERO_DECIMAL)
@@ -61,13 +83,17 @@ def build_financial_overview(*, workshop, start_date: date, end_date: date) -> F
 
     counted_workorders: set[int] = set()
     for movement in paid_credit_movements:
-        workorder_id = movement.workorder_id
+        workorder_id = getattr(movement, "workorder_id", None)
         if workorder_id is None or workorder_id in counted_workorders:
             continue
 
         counted_workorders.add(workorder_id)
         for payment in movement.workorder.payments.all():
-            if payment.due_date is None or payment.due_date < start_date or payment.due_date > end_date:
+            if payment.due_date is None:
+                continue
+            if start_date is not None and payment.due_date < start_date:
+                continue
+            if end_date is not None and payment.due_date > end_date:
                 continue
             payment_amount = Decimal(getattr(getattr(payment, "total_paid", None), "amount", _ZERO_DECIMAL) or _ZERO_DECIMAL)
             paid_credits += payment_amount
