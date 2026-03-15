@@ -1,0 +1,14 @@
+{% extends 'crud/page.html' %}
+{% block crud_content %}
+<div class="mb-6">
+    <h1 class="text-3xl font-bold">Movimentação Financeira</h1>
+    <p class="text-base-content/70">Custos indiretos e entradas financeiras não produtivas.</p>
+</div>
+
+<div class="card bg-base-100 shadow-xl">
+    <div class="card-body" id="step-container">
+        {% include 'finance/partials/financial_movement/import_step_content.html' %}
+    </div>
+</div>
+<div id="modal-container"></div>
+{% endblock %}

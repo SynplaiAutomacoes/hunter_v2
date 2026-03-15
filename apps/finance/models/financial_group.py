@@ -69,6 +69,14 @@ class FinancialGroup(TimeStampedModel):
         return f"{label}".strip()
 
     @property
+    def dre_hierarchy_label(self) -> str:
+        formatted_label = f"{self.code}. {self.name}".strip() if self.code else self.name
+        if self.level <= 1:
+            return formatted_label
+        indentation = "\u00a0" * (4 * max(self.level - 1, 0))
+        return f"{indentation}└ {formatted_label}"
+
+    @property
     def parent_display(self) -> str:
         if not getattr(self, "parent_id", None):
             return "-"

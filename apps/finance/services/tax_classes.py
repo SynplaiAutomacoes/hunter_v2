@@ -30,6 +30,32 @@ from apps.workshops.models.workshops import Workshop
 
 logger = logging.getLogger(__name__)
 
+_SUCCESS_MESSAGE_KEYWORDS = (
+    "sucesso",
+    "atualizada com sucesso",
+    "atualizado com sucesso",
+    "classe de imposto atualizada",
+    "classe de imposto atualizado",
+    "criada com sucesso",
+    "criado com sucesso",
+    "classe de imposto criada",
+    "classe de imposto criado",
+    "salva com sucesso",
+    "salvo com sucesso",
+    "classe de imposto salva",
+    "classe de imposto salvo",
+)
+
+_ERROR_MESSAGE_KEYWORDS = (
+    "erro",
+    "falha",
+    "invál",
+    "invalid",
+    "obrigat",
+    "não",
+    "nao",
+)
+
 
 class TaxClassServiceError(Exception):
     pass
@@ -80,6 +106,27 @@ def _build_endpoint_url() -> str:
 
 def _extract_error_message(payload: Any) -> str:
     return extract_webmania_error_message(payload, scope="tax_class")
+
+
+def _is_success_message(message: object) -> bool:
+    normalized_message = str(message or "").strip().lower()
+    if not normalized_message:
+        return False
+    if any(keyword in normalized_message for keyword in _ERROR_MESSAGE_KEYWORDS):
+        return False
+    return any(keyword in normalized_message for keyword in _SUCCESS_MESSAGE_KEYWORDS)
+
+
+def _extract_tax_class_save_error_message(payload: dict[str, Any]) -> str:
+    explicit_error = _extract_error_message(payload.get("error"))
+    if explicit_error:
+        return explicit_error
+
+    message = _extract_error_message(payload.get("message") or payload.get("msg"))
+    if message and not _is_success_message(message):
+        return message
+
+    return ""
 
 
 def _parse_json_response(response: requests.Response) -> Any:
@@ -673,7 +720,7 @@ def save_tax_class(*, workshop: Workshop, payload: dict[str, Any]) -> dict[str, 
     if not isinstance(data, dict):
         raise TaxClassServiceError("Resposta inválida da API ao salvar classe de imposto.")
 
-    error_message = _extract_error_message(data.get("error") or data.get("message") or data.get("msg"))
+    error_message = _extract_tax_class_save_error_message(data)
     if error_message:
         raise TaxClassServiceError(error_message)
 

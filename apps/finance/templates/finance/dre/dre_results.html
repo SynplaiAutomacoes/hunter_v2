@@ -1,0 +1,243 @@
+{% extends 'crud/page.html' %}
+
+{% load static %}
+{% load format_tags %}
+
+{% block crud_content %}
+    {% url 'finance:dre_report' as dre_report_url %}
+    {% url 'finance:dre_pdf_preview' as dre_pdf_preview_url %}
+    {% url 'finance:dre_pdf' as dre_pdf_url %}
+    {% url 'finance:dre_excel' as dre_excel_url %}
+    <div class="space-y-6">
+        <div class="flex items-center justify-between gap-4">
+            <a href="{{ dre_report_url }}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="hidden md:flex btn btn-ghost gap-2 text-base-content/70">
+                <span class="material-icons text-sm">arrow_back</span>
+                Voltar
+            </a>
+            <div class="flex items-center gap-2">
+                <a href="{{ dre_excel_url }}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-primary gap-2">
+                    <span class="material-icons text-sm">table_view</span>
+                    Exportar Excel
+                </a>
+                <button type="button"
+                        class="btn btn-outline gap-2"
+                        onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { url: '{{ dre_pdf_preview_url }}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}', downloadUrl: '{{ dre_pdf_url }}?download=1{% if request.GET %}&{{ request.GET.urlencode }}{% endif %}' } }))">
+                    <span class="material-icons text-sm">picture_as_pdf</span>
+                    Gerar PDF
+                </button>
+            </div>
+        </div>
+
+        <div class="card overflow-hidden border border-base-300 bg-base-100 shadow-xl">
+            <div class="card-body gap-0 p-0">
+                <div class="border-b border-base-300 bg-gradient-to-r from-base-200 via-base-100 to-base-200 px-6 py-8 lg:px-8">
+                    <div class="grid gap-4 lg:grid-cols-3">
+                        <div class="flex min-h-[210px] items-center justify-center rounded-3xl border border-base-300 bg-base-100/90 p-6 text-center shadow-sm">
+                            <div class="flex h-24 w-full max-w-[180px] items-center justify-center">
+                                <img src="{% static 'image/logo.svg' %}" alt="Hunter" class="h-auto max-h-12 w-full max-w-[140px] object-contain">
+                            </div>
+                        </div>
+
+                        <div class="flex min-h-[210px] items-center justify-center rounded-3xl border border-base-300 bg-base-100/90 p-6 text-center shadow-sm">
+                            <div class="space-y-4">
+                                <div class="space-y-2">
+                                    <h1 class="text-2xl font-black uppercase leading-tight text-base-content md:text-3xl">Demonstração de Resultado de Exercício</h1>
+                                    <p class="text-base font-semibold uppercase tracking-[0.16em] text-base-content/75">{{ selected_workshop_label }}</p>
+                                </div>
+
+                                <div class="rounded-2xl border border-base-300 bg-base-100 px-4 py-3 text-sm shadow-sm">
+                                    <p class="text-xs font-semibold uppercase tracking-[0.2em] text-base-content/50">Período</p>
+                                    <p class="mt-1 text-base font-bold text-base-content">{{ data_inicial_label }} até {{ data_final_label }}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex min-h-[210px] items-center justify-center rounded-3xl border border-base-300 bg-base-100/90 p-6 text-center shadow-sm lg:justify-end lg:text-right">
+                            {% if selected_workshop %}
+                                <div class="space-y-2 text-sm leading-relaxed text-base-content/75 lg:w-full lg:max-w-[280px]">
+                                    <p class="text-lg font-bold text-base-content">{{ selected_workshop.name }}</p>
+                                    <p><span class="font-semibold">CNPJ:</span> {{ selected_workshop.cnpj|cnpj_br|default:"-" }}</p>
+                                    <p><span class="font-semibold">Endereço:</span> {{ selected_workshop.address|default:"-" }}</p>
+                                    <p><span class="font-semibold">Telefone:</span> {{ selected_workshop.phone|phone_br|default:"-" }}</p>
+                                    <p><span class="font-semibold">UF:</span> {{ selected_workshop.uf|default:"-" }}</p>
+                                </div>
+                            {% elif is_consolidated_workshops %}
+                                <div class="space-y-2 text-sm leading-relaxed text-base-content/70 lg:w-full lg:max-w-[280px]">
+                                    <p class="text-lg font-semibold text-base-content">Consolidado de {{ selected_workshops|length }} filiais</p>
+                                    <p>Os valores somam os dados de todas as filiais selecionadas no cliente.</p>
+                                </div>
+                            {% else %}
+                                <div class="space-y-2 text-sm leading-relaxed text-base-content/70 lg:w-full lg:max-w-[280px]">
+                                    <p class="text-lg font-semibold text-base-content">Nenhuma filial selecionada</p>
+                                    <p>Os valores consideram os filtros informados na etapa anterior.</p>
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid gap-8 md:grid-cols-2 md:gap-16">
+            {% for card in dre_summary_cards %}
+                <div class="card min-h-[180px] border border-base-300 bg-base-100 shadow-lg">
+                    <div class="card-body justify-center gap-4 p-8 md:p-10">
+                        <p class="text-sm font-semibold uppercase tracking-[0.2em] text-base-content/50">{{ card.label }}</p>
+                        <p class="text-4xl font-black md:text-5xl {{ card.accent }}">{{ card.amount }}</p>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+
+        <div class="card border border-base-300 bg-base-100 shadow-xl">
+            <div class="card-body p-6 md:p-8">
+                <div class="flex flex-col gap-2 border-b border-base-300 pb-4 md:flex-row md:items-end md:justify-between">
+                    <div>
+                        <h2 class="text-2xl font-bold text-base-content">Resumo DRE</h2>
+                        <p class="text-sm text-base-content/65">Estrutura alinhada com o modelo operacional validado pelo cliente.</p>
+                    </div>
+                </div>
+
+                <div class="mt-6 overflow-hidden rounded-2xl border border-base-300" x-data="{ openRow: null }">
+                    <table class="table">
+                        <thead class="bg-base-200 text-xs uppercase tracking-[0.18em] text-base-content/60">
+                            <tr>
+                                <th class="w-[70%]">Descrição</th>
+                                <th class="text-right">Valor</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in dre_rows %}
+                                <tr class="{% if row.tone == 'highlight' or row.tone == 'result' %}bg-base-200{% else %}bg-base-100{% endif %}">
+                                    <td
+                                        class="{% if row.is_expandable %}cursor-pointer transition hover:bg-base-200/70{% endif %}"
+                                        {% if row.is_expandable %}@click="openRow = openRow === '{{ row.component }}' ? null : '{{ row.component }}'"{% endif %}
+                                    >
+                                        <div class="flex items-start justify-between gap-3">
+                                            <div class="space-y-1">
+                                                <div class="flex items-start gap-2">
+                                                    {% if row.is_expandable %}
+                                                        <span class="material-icons text-base leading-none text-base-content/55" x-text="openRow === '{{ row.component }}' ? 'expand_more' : 'chevron_right'"></span>
+                                                    {% endif %}
+                                                    <span class="{% if row.tone == 'result' %}font-black uppercase text-base-content{% elif row.tone == 'highlight' %}font-bold text-base-content{% else %}font-medium text-base-content/80{% endif %}">{{ row.label }}</span>
+                                                </div>
+                                                {% if row.formula %}
+                                                    <p class="text-xs italic text-base-content/55 {% if row.details %}pl-8{% endif %}">{{ row.formula }}</p>
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td
+                                        class="text-right font-semibold {% if row.is_expandable %}cursor-pointer transition hover:bg-base-200/70{% endif %} {% if row.tone == 'negative' %}text-error{% elif row.tone == 'positive' %}text-success{% elif row.tone == 'result' %}text-warning-content{% else %}text-base-content{% endif %}"
+                                        {% if row.is_expandable %}@click="openRow = openRow === '{{ row.component }}' ? null : '{{ row.component }}'"{% endif %}
+                                    >{{ row.amount }}</td>
+                                </tr>
+                                {% if row.is_expandable %}
+                                    <tr class="bg-base-200/40" x-cloak x-show="openRow === '{{ row.component }}'">
+                                        <td colspan="2" class="p-0">
+                                            <div class="border-t border-base-300 px-4 py-4 md:px-6">
+                                                <div class="overflow-hidden rounded-xl border border-base-300 bg-base-100">
+                                                    <table class="table table-sm">
+                                                        <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
+                                                            <tr>
+                                                                {% if row.detail_kind == 'components' %}
+                                                                    <th>Composição da linha</th>
+                                                                    <th class="text-right">Valor</th>
+                                                                {% elif row.detail_kind == 'financial_entries' %}
+                                                                    <th>Itens incluídos</th>
+                                                                    <th>Referência</th>
+                                                                    <th class="text-right">Valor</th>
+                                                                {% else %}
+                                                                    <th>O.S. incluídas</th>
+                                                                    <th class="text-right">Valor total</th>
+                                                                {% endif %}
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {% if row.details %}
+                                                                {% for detail in row.details %}
+                                                                    <tr>
+                                                                        {% if row.detail_kind == 'components' %}
+                                                                            <td class="{% if detail.is_total %}font-bold text-base-content{% else %}font-semibold text-base-content{% endif %}">{{ detail.summary }}</td>
+                                                                            <td class="text-right {% if detail.is_total %}font-bold text-base-content{% else %}font-semibold text-base-content{% endif %}">{{ detail.amount }}</td>
+                                                                        {% elif row.detail_kind == 'financial_entries' %}
+                                                                            <td class="font-semibold text-base-content">{{ detail.summary }}</td>
+                                                                            <td class="text-base-content/65">{{ detail.reference }}</td>
+                                                                            <td class="text-right font-semibold text-base-content">{{ detail.amount }}</td>
+                                                                        {% else %}
+                                                                            <td>
+                                                                                <div class="space-y-1">
+                                                                                    <p>
+                                                                                        <a href="{% url 'workorder:workorder_detail' detail.workorder_id %}" class="font-semibold text-primary transition hover:underline">
+                                                                                            {{ detail.summary }}
+                                                                                        </a>
+                                                                                    </p>
+                                                                                    <p class="text-xs text-base-content/65">Data Entrada: {{ detail.entry_date|date:"d/m/Y"|default:"-" }} | Data Saída: {{ detail.payment_date|date:"d/m/Y"|default:"-" }}</p>
+                                                                                </div>
+                                                                            </td>
+                                                                            <td class="text-right font-semibold text-base-content">{{ detail.amount }}</td>
+                                                                        {% endif %}
+                                                                    </tr>
+                                                                {% endfor %}
+                                                            {% else %}
+                                                                <tr>
+                                                                    <td colspan="{% if row.detail_kind == 'financial_entries' %}3{% else %}2{% endif %}" class="py-4 text-center text-base-content/60">Não há dados neste período.</td>
+                                                                </tr>
+                                                            {% endif %}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                {% endif %}
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <dialog id="pdfModal"
+                class="modal"
+                x-data="{ pdfUrl: '', pdfDownloadUrl: '' }"
+                @open-pdf-modal.window="pdfUrl = $event.detail.url; pdfDownloadUrl = $event.detail.downloadUrl || ''; $el.showModal()">
+
+            <div class="modal-box flex h-[90vh] w-full max-w-5xl flex-col p-0">
+                <div class="flex items-center justify-between border-b bg-base-200 px-6 py-4">
+                    <h3 class="flex items-center gap-2 text-xl font-bold">
+                        <span class="material-icons">description</span>
+                        Visualização do PDF
+                    </h3>
+
+                    <div class="flex gap-2">
+                        <button type="button"
+                                class="btn btn-sm btn-success"
+                                onclick="const frame = document.querySelector('#pdfModal iframe'); const downloadUrl = frame ? frame.dataset.downloadUrl : ''; if (downloadUrl) { window.open(downloadUrl, '_blank'); }">
+                            Baixar PDF
+                        </button>
+
+                        <button type="button"
+                                class="btn btn-sm"
+                                onclick="document.getElementById('pdfModal').close()">
+                            Fechar
+                        </button>
+                    </div>
+                </div>
+
+                <div class="flex-1 bg-gray-100">
+                    <template x-if="pdfUrl">
+                        <iframe :src="pdfUrl"
+                                :data-download-url="pdfDownloadUrl"
+                                class="h-full w-full"
+                                frameborder="0"></iframe>
+                    </template>
+                </div>
+            </div>
+
+            <form method="dialog" class="modal-backdrop">
+                <button>close</button>
+            </form>
+        </dialog>
+    </div>
+{% endblock %}

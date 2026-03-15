@@ -22,8 +22,10 @@ from apps.finance.forms import (
     NfseTaxClassForm,
     PisScenarioForm,
     PisScenarioFormSet,
+    TaxClassPresetMetaForm,
 )
-from apps.finance.models.finance import NfseRequest
+from apps.finance.models.finance import NfseRequest, TaxClassPreset, TaxClassPresetKind
+from apps.finance.services.tax_class_presets import normalize_tax_class_preset_payload
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
 from apps.workshops.mixin import WorkshopScopedMixin
 
@@ -66,76 +68,6 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
         },
     }
 
-    NFE_PRESETS: dict[str, dict[str, object]] = {
-        "simples_nacional_revenda": {
-            "label": "Simples Nacional - Revenda padrão",
-            "description": "Saída dentro/fora do estado para pessoa física e jurídica com CST 102.",
-            "payload": {
-                "descricao": "Classe de impostos para Saída de produtos de revenda",
-                "icms": [
-                    {"tipo_tributacao": "simples_nacional", "cenario": "saida_dentro_estado", "tipo_pessoa": "fisica", "codigo_cfop": "5102", "situacao_tributaria": "102"},
-                    {"tipo_tributacao": "simples_nacional", "cenario": "saida_fora_estado", "tipo_pessoa": "fisica", "codigo_cfop": "6102", "situacao_tributaria": "102"},
-                    {"tipo_tributacao": "simples_nacional", "cenario": "saida_dentro_estado", "tipo_pessoa": "juridica", "codigo_cfop": "5102", "situacao_tributaria": "102"},
-                    {"tipo_tributacao": "simples_nacional", "cenario": "saida_fora_estado", "tipo_pessoa": "juridica", "codigo_cfop": "6102", "situacao_tributaria": "102"},
-                ],
-                "ipi": [
-                    {"cenario": "padrao", "tipo_pessoa": "fisica", "situacao_tributaria": "99", "codigo_enquadramento": "999", "aliquota": "0.00"},
-                    {"cenario": "padrao", "tipo_pessoa": "juridica", "situacao_tributaria": "99", "codigo_enquadramento": "999", "aliquota": "0.00"},
-                ],
-                "pis": [
-                    {"cenario": "padrao", "tipo_pessoa": "fisica", "situacao_tributaria": "99", "aliquota": "0.00"},
-                    {"cenario": "padrao", "tipo_pessoa": "juridica", "situacao_tributaria": "99", "aliquota": "0.00"},
-                ],
-                "cofins": [
-                    {"cenario": "padrao", "tipo_pessoa": "fisica", "situacao_tributaria": "99", "aliquota": "0.00"},
-                    {"cenario": "padrao", "tipo_pessoa": "juridica", "situacao_tributaria": "99", "aliquota": "0.00"},
-                ],
-            },
-        },
-        "simples_nacional_credito": {
-            "label": "Simples Nacional - Com crédito",
-            "description": "Configuração com CST 101 e alíquota de crédito para destinatário jurídico.",
-            "payload": {
-                "descricao": "Classe de impostos SN com crédito de ICMS",
-                "icms": [
-                    {"tipo_tributacao": "simples_nacional", "cenario": "saida_dentro_estado", "tipo_pessoa": "juridica", "codigo_cfop": "5102", "situacao_tributaria": "101", "aliquota_credito": "2.00"},
-                    {"tipo_tributacao": "simples_nacional", "cenario": "saida_fora_estado", "tipo_pessoa": "juridica", "codigo_cfop": "6102", "situacao_tributaria": "101", "aliquota_credito": "2.00"},
-                ],
-                "ipi": [{"cenario": "padrao", "tipo_pessoa": "juridica", "situacao_tributaria": "99", "codigo_enquadramento": "999", "aliquota": "0.00"}],
-                "pis": [{"cenario": "padrao", "tipo_pessoa": "juridica", "situacao_tributaria": "99", "aliquota": "0.00"}],
-                "cofins": [{"cenario": "padrao", "tipo_pessoa": "juridica", "situacao_tributaria": "99", "aliquota": "0.00"}],
-            },
-        },
-    }
-
-    NFSE_PRESETS: dict[str, dict[str, object]] = {
-        "nfse_abrasf_basico": {
-            "label": "NFS-e ABRASF - Serviço padrão",
-            "description": "Preset básico com código de serviço no formato XX.XX.",
-            "payload": {
-                "descricao": "Classe de impostos para prestação de serviço",
-                "tipo": "nfse",
-                "codigo_servico": "01.05",
-                "natureza_operacao": "1",
-                "exigibilidade_iss": "1",
-                "iss_retido": "2",
-            },
-        },
-        "nfse_abrasf_retido": {
-            "label": "NFS-e ABRASF - ISS retido",
-            "description": "Preset com retenção de ISS pelo tomador.",
-            "payload": {
-                "descricao": "Classe de impostos para serviço com ISS retido",
-                "tipo": "nfse",
-                "codigo_servico": "01.05",
-                "natureza_operacao": "1",
-                "exigibilidade_iss": "1",
-                "iss_retido": "1",
-                "responsavel_retencao": "1",
-            },
-        },
-    }
-
     @classmethod
     def _normalize_tab(cls, value: str | None) -> str:
         normalized = (value or "").strip().lower()
@@ -152,31 +84,39 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
         return self.TAB_NFSE if self._is_nfse_tax_class(tax_class) else self.TAB_NFE
 
     @classmethod
-    def _preset_registry(cls, tab: str) -> dict[str, dict[str, object]]:
+    def _preset_kind_from_tab(cls, tab: str) -> str:
         if tab == cls.TAB_NFSE:
-            return cls.NFSE_PRESETS
-        return cls.NFE_PRESETS
+            return TaxClassPresetKind.NFSE
+        return TaxClassPresetKind.NFE
 
-    @classmethod
-    def _preset_options(cls, tab: str) -> list[dict[str, str]]:
+    def _preset_queryset(self, *, tab: str, active_only: bool = True):
+        queryset = TaxClassPreset.objects.filter(workshop=self.workshop, kind=self._preset_kind_from_tab(tab)).order_by("name", "id")
+        if active_only:
+            queryset = queryset.filter(is_active=True)
+        return queryset
+
+    def _preset_options(self, tab: str) -> list[dict[str, str]]:
         options: list[dict[str, str]] = []
-        for key, preset in cls._preset_registry(tab).items():
+        for preset in self._preset_queryset(tab=tab, active_only=True):
             options.append(
                 {
-                    "key": key,
-                    "label": str(preset.get("label") or key),
-                    "description": str(preset.get("description") or ""),
+                    "key": str(preset.pk),
+                    "label": str(preset.name or preset.pk),
+                    "description": str(preset.description or ""),
                 }
             )
         return options
 
-    @classmethod
-    def _get_preset_payload(cls, *, tab: str, preset_key: str) -> dict[str, object] | None:
-        preset = cls._preset_registry(tab).get(preset_key)
-        if not isinstance(preset, dict):
+    def _get_preset_payload(self, *, tab: str, preset_key: str) -> dict[str, object] | None:
+        normalized_key = str(preset_key or "").strip()
+        if not normalized_key.isdigit():
             return None
 
-        payload = preset.get("payload")
+        preset = self._preset_queryset(tab=tab, active_only=True).filter(pk=int(normalized_key)).first()
+        if preset is None:
+            return None
+
+        payload = preset.payload
         if not isinstance(payload, dict):
             return None
 
@@ -723,7 +663,7 @@ class TaxClassFormBaseView(TaxClassManagerView):
         if form_action == "apply_preset":
             preset_payload = self._get_preset_payload(tab=active_tab, preset_key=selected_preset_key)
             if preset_payload is None:
-                messages.error(request, "Selecione um preset valido para aplicar.")
+                messages.error(request, "Selecione um preset válido para aplicar.")
                 return self.render_to_response(
                     super().get_context_data(
                         active_tab=active_tab,
@@ -860,4 +800,203 @@ class TaxClassCreateView(TaxClassFormBaseView):
 
 
 class TaxClassUpdateView(TaxClassFormBaseView):
+    is_update = True
+
+
+class TaxClassPresetListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
+    template_name = "finance/tax_class_preset_list.html"
+    model = NfseRequest
+    workshop_permission_codename = "view_nfserequest"
+
+    def _get_queryset_by_tab(self, *, tab: str):
+        return TaxClassPreset.objects.filter(workshop=self.workshop, kind=TaxClassManagerView._preset_kind_from_tab(tab)).order_by("name", "id")
+
+    def get_context_data(self, **kwargs: object) -> dict[str, object]:
+        context = super().get_context_data(**kwargs)
+        active_tab = TaxClassManagerView._normalize_tab(self.request.GET.get("tab"))
+        context.update(
+            {
+                "active_tab": active_tab,
+                "nfe_presets": self._get_queryset_by_tab(tab=TaxClassManagerView.TAB_NFE),
+                "nfse_presets": self._get_queryset_by_tab(tab=TaxClassManagerView.TAB_NFSE),
+            }
+        )
+        return context
+
+    def post(self, request: HttpRequest, *args: object, **kwargs: object) -> HttpResponse:
+        form_action = str(request.POST.get("form_action") or "").strip().lower()
+        active_tab = TaxClassManagerView._normalize_tab(request.POST.get("tab") or request.GET.get("tab"))
+        if form_action != "delete":
+            messages.error(request, "Acao invalida para a listagem de presets fiscais.")
+            return redirect(f"{reverse('finance:tax_class_preset_list')}?tab={active_tab}")
+
+        preset_id = str(request.POST.get("preset_id") or "").strip()
+        if not preset_id.isdigit():
+            messages.error(request, "Informe um preset valido para excluir.")
+            return redirect(f"{reverse('finance:tax_class_preset_list')}?tab={active_tab}")
+
+        preset = TaxClassPreset.objects.filter(workshop=self.workshop, pk=int(preset_id)).first()
+        if preset is None:
+            messages.error(request, "Preset fiscal nao encontrado.")
+            return redirect(f"{reverse('finance:tax_class_preset_list')}?tab={active_tab}")
+
+        active_tab = TaxClassManagerView._normalize_tab(preset.kind)
+        preset_name = preset.name
+        preset.delete()
+        messages.success(request, f"Preset fiscal {preset_name} excluido com sucesso.")
+        return redirect(f"{reverse('finance:tax_class_preset_list')}?tab={active_tab}")
+
+
+class TaxClassPresetFormBaseView(TaxClassManagerView):
+    template_name = "finance/tax_class_preset_form.html"
+    is_update = False
+
+    def _resolve_preset(self) -> TaxClassPreset | None:
+        if not self.is_update:
+            return None
+
+        preset_pk = self.kwargs.get("pk")
+        if preset_pk is None:
+            return None
+
+        return TaxClassPreset.objects.filter(workshop=self.workshop, pk=preset_pk).first()
+
+    @staticmethod
+    def _payload_from_preset(preset: TaxClassPreset | None) -> dict[str, object] | None:
+        if preset is None or not isinstance(preset.payload, dict):
+            return None
+        return deepcopy(preset.payload)
+
+    @staticmethod
+    def _build_preset_meta_form(*, data: Any | None, preset: TaxClassPreset | None) -> TaxClassPresetMetaForm:
+        if data is not None:
+            return TaxClassPresetMetaForm(data, instance=preset)
+        return TaxClassPresetMetaForm(instance=preset)
+
+    def _build_preset_form_context(
+        self,
+        *,
+        active_tab: str,
+        preset: TaxClassPreset | None,
+        meta_form: TaxClassPresetMetaForm | None = None,
+        nfe_form: NfeTaxClassForm | None = None,
+        nfe_formsets: dict[str, Any] | None = None,
+        nfse_form: NfseTaxClassForm | None = None,
+    ) -> dict[str, object]:
+        payload = self._payload_from_preset(preset)
+
+        if meta_form is None:
+            meta_form = self._build_preset_meta_form(data=None, preset=preset)
+
+        if active_tab == self.TAB_NFE:
+            if nfe_form is None:
+                nfe_form = self._build_nfe_form(data=None, editing_tax_class=payload)
+            if nfe_formsets is None:
+                nfe_formsets = self._build_nfe_formsets(data=None, editing_tax_class=payload)
+            if nfse_form is None:
+                nfse_form = self._build_nfse_form(data=None, editing_tax_class=None)
+        else:
+            if nfse_form is None:
+                nfse_form = self._build_nfse_form(data=None, editing_tax_class=payload)
+            if nfe_form is None:
+                nfe_form = self._build_nfe_form(data=None, editing_tax_class=None)
+            if nfe_formsets is None:
+                nfe_formsets = self._build_nfe_formsets(data=None, editing_tax_class=None)
+
+        nfe_formset_sections = [
+            {
+                "key": section_key,
+                "title": section["title"],
+                "description": section["description"],
+                "formset": nfe_formsets[section_key],
+                "required_fields": section["form_class"].required_fields,
+            }
+            for section_key, section in self.NFE_FORMSET_CONFIG.items()
+        ]
+
+        return {
+            "active_tab": active_tab,
+            "is_update": self.is_update,
+            "meta_form": meta_form,
+            "preset": preset,
+            "nfe_form": nfe_form,
+            "nfse_form": nfse_form,
+            "nfe_formset_sections": nfe_formset_sections,
+        }
+
+    def _validate_meta_form_name(self, *, meta_form: TaxClassPresetMetaForm, active_tab: str, preset: TaxClassPreset | None) -> bool:
+        if not meta_form.is_valid():
+            return False
+
+        name = str(meta_form.cleaned_data.get("name") or "").strip()
+        queryset = TaxClassPreset.objects.filter(workshop=self.workshop, kind=self._preset_kind_from_tab(active_tab), name__iexact=name)
+        if preset is not None:
+            queryset = queryset.exclude(pk=preset.pk)
+
+        if queryset.exists():
+            meta_form.add_error("name", "Ja existe um preset com este nome para este tipo de nota nesta oficina.")
+            return False
+
+        return True
+
+    def _save_preset(self, *, meta_form: TaxClassPresetMetaForm, active_tab: str, payload: dict[str, object]) -> TaxClassPreset:
+        preset = meta_form.save(commit=False)
+        preset.workshop = self.workshop
+        preset.kind = self._preset_kind_from_tab(active_tab)
+        preset.payload = normalize_tax_class_preset_payload(payload=payload, kind=active_tab)
+        preset.save()
+        return preset
+
+    def get(self, request: HttpRequest, *args: object, **kwargs: object) -> HttpResponse:
+        preset = self._resolve_preset()
+        if self.is_update and preset is None:
+            messages.error(request, "Preset fiscal nao encontrado para edicao.")
+            return redirect(f"{reverse('finance:tax_class_preset_list')}?tab={self._normalize_tab(request.GET.get('tab'))}")
+
+        active_tab = self._normalize_tab(request.GET.get("tab") or getattr(preset, "kind", self.TAB_NFE))
+        if preset is not None:
+            active_tab = self._normalize_tab(preset.kind)
+
+        return self.render_to_response(self._build_preset_form_context(active_tab=active_tab, preset=preset))
+
+    def post(self, request: HttpRequest, *args: object, **kwargs: object) -> HttpResponse:
+        preset = self._resolve_preset()
+        active_tab = self._normalize_tab(request.POST.get("tab") or getattr(preset, "kind", self.TAB_NFE))
+        if self.is_update and preset is None:
+            messages.error(request, "Preset fiscal nao encontrado para edicao.")
+            return redirect(f"{reverse('finance:tax_class_preset_list')}?tab={active_tab}")
+
+        if preset is not None:
+            active_tab = self._normalize_tab(preset.kind)
+
+        meta_form = self._build_preset_meta_form(data=request.POST, preset=preset)
+        editing_payload = self._payload_from_preset(preset)
+
+        if active_tab == self.TAB_NFE:
+            nfe_form = self._build_nfe_form(data=request.POST, editing_tax_class=editing_payload)
+            nfe_formsets = self._build_nfe_formsets(data=request.POST, editing_tax_class=editing_payload)
+
+            if self._validate_meta_form_name(meta_form=meta_form, active_tab=active_tab, preset=preset) and nfe_form.is_valid() and self._formsets_are_valid(nfe_formsets):
+                saved_preset = self._save_preset(meta_form=meta_form, active_tab=active_tab, payload=self._build_nfe_payload(form=nfe_form, formsets=nfe_formsets))
+                action_label = "atualizado" if preset is not None else "criado"
+                messages.success(request, f"Preset fiscal {saved_preset.name} {action_label} com sucesso.")
+                return redirect(f"{reverse('finance:tax_class_preset_list')}?tab={active_tab}")
+
+            return self.render_to_response(self._build_preset_form_context(active_tab=active_tab, preset=preset, meta_form=meta_form, nfe_form=nfe_form, nfe_formsets=nfe_formsets))
+
+        nfse_form = self._build_nfse_form(data=request.POST, editing_tax_class=editing_payload)
+        if self._validate_meta_form_name(meta_form=meta_form, active_tab=active_tab, preset=preset) and nfse_form.is_valid():
+            saved_preset = self._save_preset(meta_form=meta_form, active_tab=active_tab, payload=nfse_form.build_payload())
+            action_label = "atualizado" if preset is not None else "criado"
+            messages.success(request, f"Preset fiscal {saved_preset.name} {action_label} com sucesso.")
+            return redirect(f"{reverse('finance:tax_class_preset_list')}?tab={active_tab}")
+
+        return self.render_to_response(self._build_preset_form_context(active_tab=active_tab, preset=preset, meta_form=meta_form, nfse_form=nfse_form))
+
+
+class TaxClassPresetCreateView(TaxClassPresetFormBaseView):
+    is_update = False
+
+
+class TaxClassPresetUpdateView(TaxClassPresetFormBaseView):
     is_update = True

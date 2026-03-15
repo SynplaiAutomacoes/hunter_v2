@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from itertools import cycle
+from typing import Any, cast
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
@@ -20,7 +21,13 @@ from apps.catalog.models.services import Service
 from apps.checklist.models import Checklist, ChecklistItem
 from apps.collaborators.models import WorkshopCollaborator
 from apps.customer.models import Customer
+from apps.finance.models import FinancialGroup, PaymentMethod
+from apps.finance.models.bank_account import BankAccount
+from apps.finance.models.finance import TaxClassNfe, TaxClassNfeCofinsScenario, TaxClassNfeIcmsScenario, TaxClassNfeIpiScenario, TaxClassNfePisScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState
+from apps.finance.models.financial_movement import FinancialMovement
+from apps.finance.services.tax_class_presets import get_default_tax_class_presets
 from apps.quote.models.investigative_questions import InvestigativeQuestion
+from apps.sources.models import Source
 from apps.stock.models import StockProduct
 from apps.suppliers.models import Supplier
 from apps.workshops.models.monthly_costs import MonthlyCost
@@ -187,10 +194,120 @@ ADMINISTRATIVE_POSITIONS: tuple[str, ...] = (
 
 
 @dataclass(frozen=True)
+class SourceSpec:
+    name: str
+    email: str
+
+
+@dataclass(frozen=True)
+class BankAccountSpec:
+    bank_code: str
+    bank_name: str
+    account_type: str
+    agency: str
+    account_number: str
+
+
+@dataclass(frozen=True)
+class FinancialMovementSpec:
+    description: str
+    direction: str
+    amount: Decimal
+    due_in_days: int
+    source_name: str
+    payment_method: str
+    budget_group: str
+    bank_account: str | None = None
+    nf_number: str | None = None
+    items_observation: str = ""
+    financial_observation: str = ""
+
+
+@dataclass(frozen=True)
+class TaxClassSeedSpec:
+    reference: str
+    description: str
+    payload: dict[str, object]
+
+
+FINANCIAL_GROUP_SPECS: tuple[tuple[str, str | None], ...] = (
+    ("Receitas", None),
+    ("Receitas de Serviços", "Receitas"),
+    ("Receitas de Peças", "Receitas"),
+    ("Receitas Outras", "Receitas"),
+    ("Despesas", None),
+    ("Despesas Operacionais", "Despesas"),
+    ("Despesas com Pessoal", "Despesas"),
+    ("Despesas Financeiras", "Despesas"),
+    ("Despesas Administrativas", "Despesas"),
+    ("Custos", None),
+    ("Custos de Peças", "Custos"),
+    ("Custos de Serviços", "Custos"),
+)
+
+PAYMENT_METHOD_SPECS: tuple[tuple[str, int, Decimal | None, Decimal | None], ...] = (
+    ("Dinheiro", 1, None, None),
+    ("Débito em Conta", 1, None, None),
+    ("Débito em Cartão", 1, Decimal("0.99"), None),
+    ("Crédito 1x", 1, Decimal("1.49"), None),
+    ("Crédito 2x", 2, Decimal("2.99"), None),
+    ("Crédito 3x", 3, Decimal("3.99"), None),
+    ("Crédito 4x", 4, Decimal("4.99"), None),
+    ("Crédito 5x", 5, Decimal("5.49"), None),
+    ("Crédito 6x", 6, Decimal("5.99"), None),
+    ("Crédito 12x", 12, Decimal("8.99"), None),
+    ("PIX", 1, None, None),
+    ("Cheque", 1, None, None),
+    ("Boleto", 1, Decimal("1.99"), None),
+)
+
+SOURCE_SPECS: tuple[SourceSpec, ...] = (
+    SourceSpec("Distribuidora Via Pistao", "financeiro@viapistao.com.br"),
+    SourceSpec("Nova Torque Autopecas", "contas@novatorque.com.br"),
+    SourceSpec("Prime Lub Auto Supply", "boletos@primelub.com.br"),
+    SourceSpec("Frente Sul Componentes", "nf@frentesul.com.br"),
+    SourceSpec("Casa do Radiador Paulista", "pagamentos@radiadorpaulista.com.br"),
+    SourceSpec("Despachante Leste Servicos", "faturamento@despachanteleste.com.br"),
+)
+
+BANK_ACCOUNT_SPECS: tuple[BankAccountSpec, ...] = (
+    BankAccountSpec("001", "Banco do Brasil", BankAccount.AccountType.CORRENTE, "1234-5", "100245-9"),
+    BankAccountSpec("237", "Bradesco", BankAccount.AccountType.CORRENTE, "2487", "55421-0"),
+    BankAccountSpec("341", "Itaú", BankAccount.AccountType.PAGAMENTO, "7788", "99231-4"),
+)
+
+FINANCIAL_MOVEMENT_SPECS: tuple[FinancialMovementSpec, ...] = (
+    FinancialMovementSpec("Recebimento de servicos de manutencao preventiva", FinancialMovement.MovementDirection.CREDIT, Decimal("3480.00"), -5, "Despachante Leste Servicos", "PIX", "Receitas de Serviços", "Banco do Brasil"),
+    FinancialMovementSpec("Recebimento de pecas para revisao premium", FinancialMovement.MovementDirection.CREDIT, Decimal("2190.00"), -12, "Distribuidora Via Pistao", "Crédito 3x", "Receitas de Peças", "Itaú", "55120"),
+    FinancialMovementSpec("Receita de higienizacao e servicos agregados", FinancialMovement.MovementDirection.CREDIT, Decimal("1280.00"), -18, "Nova Torque Autopecas", "Débito em Cartão", "Receitas Outras", "Bradesco"),
+    FinancialMovementSpec("Compra de filtros e lubrificantes", FinancialMovement.MovementDirection.DEBIT, Decimal("1840.00"), -7, "Prime Lub Auto Supply", "Boleto", "Custos de Peças", "Banco do Brasil", "90211", "Reposicao de estoque para revisoes da semana.", "Pagamento programado junto ao fornecedor principal."),
+    FinancialMovementSpec("Servico terceirizado de retifica", FinancialMovement.MovementDirection.DEBIT, Decimal("960.00"), -14, "Casa do Radiador Paulista", "PIX", "Custos de Serviços", "Itaú", None, "Servico externo para motor com entrega em 48h."),
+    FinancialMovementSpec("Tarifas bancarias e servicos de cobranca", FinancialMovement.MovementDirection.DEBIT, Decimal("315.00"), -2, "Despachante Leste Servicos", "Débito em Conta", "Despesas Financeiras", "Bradesco"),
+    FinancialMovementSpec("Adiantamento de marketing local e panfletagem", FinancialMovement.MovementDirection.DEBIT, Decimal("540.00"), 4, "Nova Torque Autopecas", "Crédito 1x", "Despesas Administrativas", "Itaú"),
+    FinancialMovementSpec("Recebimento de revisao de frota empresarial", FinancialMovement.MovementDirection.CREDIT, Decimal("6120.00"), 9, "Frente Sul Componentes", "Boleto", "Receitas de Serviços", "Banco do Brasil", "55183"),
+    FinancialMovementSpec("Compra emergencial de pastilhas e discos", FinancialMovement.MovementDirection.DEBIT, Decimal("2435.00"), 12, "Distribuidora Via Pistao", "Crédito 2x", "Custos de Peças", "Banco do Brasil", "90302"),
+    FinancialMovementSpec("Consultoria contabil e fechamento mensal", FinancialMovement.MovementDirection.DEBIT, Decimal("690.00"), 16, "Despachante Leste Servicos", "PIX", "Despesas Administrativas", "Bradesco"),
+)
+
+DEFAULT_TAX_CLASS_PRESETS = get_default_tax_class_presets()
+
+NFE_TAX_CLASS_SPECS: tuple[TaxClassSeedSpec, ...] = (
+    TaxClassSeedSpec("REFNFE100", "Revenda padrao para saidas de produtos.", cast(dict[str, object], DEFAULT_TAX_CLASS_PRESETS["nfe"][0]["payload"])),
+    TaxClassSeedSpec("REFNFE200", "Revenda com credito de ICMS para PJ.", cast(dict[str, object], DEFAULT_TAX_CLASS_PRESETS["nfe"][1]["payload"])),
+)
+
+NFSE_TAX_CLASS_SPECS: tuple[TaxClassSeedSpec, ...] = (
+    TaxClassSeedSpec("REFNFSE100", "Prestacao de servico padrao em oficina.", cast(dict[str, object], DEFAULT_TAX_CLASS_PRESETS["nfse"][0]["payload"])),
+    TaxClassSeedSpec("REFNFSE200", "Prestacao de servico com ISS retido.", cast(dict[str, object], DEFAULT_TAX_CLASS_PRESETS["nfse"][1]["payload"])),
+)
+
+
+@dataclass(frozen=True)
 class ProductSpec:
     code: str
     group_name: str
     name: str
+    ncm: str
     description: str
     unit: str
     brand: str
@@ -246,6 +363,50 @@ class QuestionSpec:
     options: tuple[str, ...] = ()
 
 
+PRODUCT_NCM_BY_NAME: dict[str, str] = {
+    "Oleo sintetico 5W30 1L": "27101932",
+    "Oleo semissintetico 10W40 1L": "27101932",
+    "Fluido de freio DOT4 500ml": "38190000",
+    "Aditivo para radiador organico 1L": "38200000",
+    "Filtro de oleo blindado": "84212300",
+    "Filtro de ar do motor": "84213100",
+    "Filtro de cabine com carvao": "84213990",
+    "Filtro de combustivel flex": "84212300",
+    "Pastilha de freio dianteira ceramica": "87083090",
+    "Pastilha de freio traseira premium": "87083090",
+    "Disco de freio ventilado dianteiro": "87083090",
+    "Sapata de freio traseira": "87083090",
+    "Amortecedor dianteiro pressurizado": "87088000",
+    "Amortecedor traseiro pressurizado": "87088000",
+    "Bieleta da barra estabilizadora": "87088000",
+    "Bandeja dianteira completa": "87088000",
+    "Valvula termostatica": "84818099",
+    "Bomba dagua com junta": "84133090",
+    "Reservatorio de expansao": "39269090",
+    "Sensor de temperatura do motor": "90251990",
+    "Vela de ignicao iridium": "85111000",
+    "Jogo de cabos de vela silicone": "85443000",
+    "Bobina de ignicao compacta": "85113020",
+    "Bateria 60Ah selada": "85071000",
+    "Kit de embreagem completo": "87089300",
+    "Coxim de cambio dianteiro": "87089990",
+    "Oleo ATF sintetico 1L": "27101932",
+    "Oleo cambio manual 75W80 1L": "27101932",
+    "Lampada H7 12V 55W": "85392190",
+    "Fusivel mini 15A": "85361000",
+    "Sensor ABS dianteiro": "90318099",
+    "Rele auxiliar universal": "85364100",
+    "Palheta silicone 24 pol": "85124010",
+    "Limpa contato eletrico 300ml": "38140090",
+    "Limpa bicos concentrado 500ml": "38119090",
+    "Higienizador de ar interno 200ml": "38089429",
+    "Aditivo de combustivel flex": "38119090",
+    "Trava de roda antifurto": "83014000",
+    "Tapete de borracha universal": "40169990",
+    "Capa de volante couro sintetico": "42050000",
+}
+
+
 def _decimal(value: Decimal | str | int | float) -> Decimal:
     if isinstance(value, Decimal):
         return value
@@ -261,6 +422,38 @@ def _margin(cost_price: Decimal, selling_price: Decimal) -> Decimal:
     if cost_price <= 0:
         return Decimal("0.000000")
     return ((selling_price - cost_price) / cost_price).quantize(MARGIN_QUANTIZER, rounding=ROUND_HALF_UP)
+
+
+def _normalize_ncm(value: str) -> str:
+    return "".join(character for character in str(value or "") if character.isdigit())
+
+
+def _is_blank_seed_value(value: object) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    if isinstance(value, (list, tuple, dict, set)):
+        return len(value) == 0
+    return False
+
+
+def _merge_missing_seed_fields(instance: object, *, defaults: dict[str, object], overwrite: bool = False) -> list[str]:
+    update_fields: list[str] = []
+    for field_name, new_value in defaults.items():
+        if _is_blank_seed_value(new_value):
+            continue
+
+        current_value = getattr(instance, field_name)
+        if not overwrite and not _is_blank_seed_value(current_value):
+            continue
+        if current_value == new_value:
+            continue
+
+        setattr(instance, field_name, new_value)
+        update_fields.append(field_name)
+
+    return update_fields
 
 
 def _normalize_text(value: str) -> str:
@@ -469,6 +662,7 @@ def _build_product_specs() -> list[ProductSpec]:
                     code=f"PRD-{next_code}",
                     group_name=group_name,
                     name=name,
+                    ncm=PRODUCT_NCM_BY_NAME[name],
                     description=description,
                     unit=unit,
                     brand=brand,
@@ -577,7 +771,7 @@ def _build_kit_specs() -> list[KitSpec]:
         ),
         KitSpec(
             name="Kit Revisao 20.000 km Compacto",
-            description="Combo para manutencao completa de fluidos, filtros e ignicao.",
+            description="Combo para manutencao completa de fluidos, filtros e ignacao.",
             products=(
                 KitProductSpec("PRD-1001", 4),
                 KitProductSpec("PRD-1003"),
@@ -992,7 +1186,7 @@ QUESTION_SPECS = _build_question_specs()
 class Command(BaseCommand):
     help = "Popula a oficina 1 com dados de demonstracao realistas e deterministas."
 
-    def add_arguments(self, parser) -> None:
+    def add_arguments(self, parser: Any) -> None:
         parser.add_argument(
             "--seed",
             type=int,
@@ -1000,8 +1194,18 @@ class Command(BaseCommand):
             help="Seed deterministica para datas, enderecos e pequenas variacoes.",
         )
 
-    def handle(self, *args, **options) -> None:
-        seed = int(options["seed"])
+    def _get_or_create_and_fill_missing(self, *, model: Any, lookup: dict[str, object], defaults: dict[str, object]) -> tuple[Any, bool]:
+        instance, created = model.objects.get_or_create(defaults=defaults, **lookup)
+        if created:
+            return instance, created
+
+        update_fields = _merge_missing_seed_fields(instance, defaults=defaults)
+        if update_fields:
+            instance.save(update_fields=update_fields)
+        return instance, created
+
+    def handle(self, *args: object, **options: object) -> None:
+        seed = int(cast(Any, options["seed"]))
         workshop = Workshop.objects.filter(pk=WORKSHOP_ID).first()
         if workshop is None:
             raise CommandError(f"A oficina fixa de ID {WORKSHOP_ID} nao foi encontrada.")
@@ -1019,21 +1223,37 @@ class Command(BaseCommand):
             collaborators = self._seed_collaborators(workshop=workshop)
             self._seed_checklists(workshop=workshop)
             self._seed_questions(workshop=workshop)
+            financial_groups = self._seed_financial_groups(workshop=workshop)
+            payment_methods = self._seed_payment_methods(workshop=workshop)
+            sources = self._seed_sources(workshop=workshop)
+            bank_accounts = self._seed_bank_accounts(workshop=workshop)
+            self._seed_tax_class_presets(workshop=workshop)
+            self._seed_tax_class_sync_state(workshop=workshop)
+            self._seed_tax_classes(workshop=workshop)
+            self._seed_financial_movements(workshop=workshop, financial_groups=financial_groups, payment_methods=payment_methods, sources=sources, bank_accounts=bank_accounts)
             self._seed_workshop_costs(workshop=workshop, monthly_costs=monthly_costs, collaborators=collaborators, rng=rng)
 
         self.stdout.write(self.style.SUCCESS(f"Seed concluido para a oficina {WORKSHOP_ID} com seed {seed}."))
         self.stdout.write(
             " | ".join(
                 (
-                    f"produtos: {workshop.products.count()}",
-                    f"servicos: {workshop.services.count()}",
-                    f"kits: {workshop.kits.count()}",
-                    f"clientes: {workshop.customers.count()}",
-                    f"fornecedores: {workshop.suppliers.count()}",
-                    f"checklists: {workshop.checklists.count()}",
-                    f"colaboradores: {workshop.collaborators.count()}",
-                    f"perguntas: {workshop.investigative_questions.count()}",
-                    f"custos: {workshop.workshop_costs.count()}",
+                    f"produtos: {Product.objects.filter(workshop=workshop).count()}",
+                    f"servicos: {Service.objects.filter(workshop=workshop).count()}",
+                    f"kits: {Kit.objects.filter(workshop=workshop).count()}",
+                    f"clientes: {Customer.objects.filter(workshop=workshop).count()}",
+                    f"fornecedores: {Supplier.objects.filter(workshop=workshop).count()}",
+                    f"checklists: {Checklist.objects.filter(workshop=workshop).count()}",
+                    f"colaboradores: {WorkshopCollaborator.objects.filter(workshop=workshop).count()}",
+                    f"perguntas: {cast(Any, InvestigativeQuestion).objects.filter(workshop=workshop).count()}",
+                    f"grupos financeiros: {FinancialGroup.objects.filter(workshop=workshop).count()}",
+                    f"formas de pagamento: {PaymentMethod.objects.filter(workshop=workshop).count()}",
+                    f"origens: {Source.objects.filter(workshop=workshop).count()}",
+                    f"contas: {BankAccount.objects.filter(workshop=workshop).count()}",
+                    f"movimentacoes: {FinancialMovement.objects.filter(workshop=workshop).count()}",
+                    f"presets fiscais: {TaxClassPreset.objects.filter(workshop=workshop).count()}",
+                    f"classes NFe: {TaxClassNfe.objects.filter(workshop=workshop).count()}",
+                    f"classes NFSe: {TaxClassNfse.objects.filter(workshop=workshop).count()}",
+                    f"custos: {WorkshopCost.objects.filter(workshop=workshop).count()}",
                 )
             )
         )
@@ -1041,9 +1261,9 @@ class Command(BaseCommand):
     def _ensure_monthly_costs(self, *, workshop: Workshop) -> dict[str, MonthlyCost]:
         costs: dict[str, MonthlyCost] = {}
         for name in DEFAULT_MONTHLY_COSTS:
-            monthly_cost, _ = MonthlyCost.objects.get_or_create(
-                workshop=workshop,
-                name=name,
+            monthly_cost, _ = self._get_or_create_and_fill_missing(
+                model=MonthlyCost,
+                lookup={"workshop": workshop, "name": name},
                 defaults={"is_active": True, "is_editable": False},
             )
             costs[name] = monthly_cost
@@ -1069,51 +1289,73 @@ class Command(BaseCommand):
                 "is_active": True,
                 **_address(index + 20),
             }
-            supplier, _ = Supplier.objects.update_or_create(workshop=workshop, cnpj=_generate_cnpj(500 + index), defaults=defaults)
+            supplier, _ = self._get_or_create_and_fill_missing(
+                model=Supplier,
+                lookup={"workshop": workshop, "cnpj": _generate_cnpj(500 + index)},
+                defaults=defaults,
+            )
             suppliers.append(supplier)
         return suppliers
 
     def _seed_products(self, *, workshop: Workshop, groups: dict[str, CatalogGroup], suppliers: Sequence[Supplier]) -> dict[str, Product]:
         products: dict[str, Product] = {}
         for index, spec in enumerate(PRODUCT_SPECS, start=1):
-            product, _ = Product.objects.update_or_create(
-                workshop=workshop,
-                code=spec.code,
-                defaults={
-                    "name": spec.name,
-                    "description": spec.description,
-                    "unit": spec.unit,
-                    "group": groups[spec.group_name],
-                    "brand": spec.brand,
-                    "model": spec.model,
-                    "sku": f"SKU-{spec.code}",
-                    "barcode": "",
-                    "location": spec.location,
-                    "cost_price": _money(spec.cost_price),
-                    "selling_price": _money(spec.selling_price),
-                    "profit_margin": _margin(spec.cost_price, spec.selling_price),
-                    "ncm": "",
-                    "cest": "",
-                    "application": spec.application,
-                    "is_active": True,
-                },
+            normalized_ncm = _normalize_ncm(spec.ncm)
+            if len(normalized_ncm) != 8:
+                raise CommandError(f"NCM invalido no seed do produto {spec.code}: {spec.ncm!r}")
+
+            product_defaults = {
+                "name": spec.name,
+                "description": spec.description,
+                "unit": spec.unit,
+                "group": groups[spec.group_name],
+                "brand": spec.brand,
+                "model": spec.model,
+                "sku": f"SKU-{spec.code}",
+                "barcode": "",
+                "location": spec.location,
+                "cost_price": _money(spec.cost_price),
+                "selling_price": _money(spec.selling_price),
+                "profit_margin": _margin(spec.cost_price, spec.selling_price),
+                "ncm": normalized_ncm,
+                "cest": "",
+                "application": spec.application,
+                "is_active": True,
+            }
+            product, product_created = self._get_or_create_and_fill_missing(
+                model=Product,
+                lookup={"workshop": workshop, "code": spec.code},
+                defaults=product_defaults,
             )
-            stock_product, _ = StockProduct.objects.get_or_create(workshop=workshop, product=product)
-            stock_product.supplier = suppliers[(index - 1) % len(suppliers)]
-            stock_product.current_quantity = 6 + ((index * 3) % 28)
-            stock_product.minimum_quantity = 2 + (index % 4)
-            stock_product.restock_quantity = 4 + (index % 6)
-            stock_product.last_nf = f"NF-{202500 + index:06d}"
-            stock_product.save(update_fields=["supplier", "current_quantity", "minimum_quantity", "restock_quantity", "last_nf"])
+            stock_defaults: dict[str, object] = {
+                "supplier": suppliers[(index - 1) % len(suppliers)],
+                "current_quantity": 6 + ((index * 3) % 28),
+                "minimum_quantity": 2 + (index % 4),
+                "restock_quantity": 4 + (index % 6),
+                "last_nf": f"NF-{202500 + index:06d}",
+            }
+            stock_product, stock_created = StockProduct.objects.get_or_create(
+                workshop=workshop,
+                product=product,
+                defaults=stock_defaults,
+            )
+            if not stock_created:
+                update_fields = _merge_missing_seed_fields(
+                    stock_product,
+                    defaults=stock_defaults,
+                    overwrite=product_created,
+                )
+                if update_fields:
+                    stock_product.save(update_fields=update_fields)
             products[spec.code] = product
         return products
 
     def _seed_services(self, *, workshop: Workshop) -> dict[str, Service]:
         services: dict[str, Service] = {}
         for spec in SERVICE_SPECS:
-            service, _ = Service.objects.update_or_create(
-                workshop=workshop,
-                name=spec.name,
+            service, _ = self._get_or_create_and_fill_missing(
+                model=Service,
+                lookup={"workshop": workshop, "name": spec.name},
                 defaults={
                     "description": spec.description,
                     "duration": spec.duration,
@@ -1128,38 +1370,44 @@ class Command(BaseCommand):
 
     def _seed_kits(self, *, workshop: Workshop, products: dict[str, Product], services: dict[str, Service]) -> None:
         for spec in KIT_SPECS:
-            kit, _ = Kit.objects.update_or_create(
-                workshop=workshop,
-                name=spec.name,
-                defaults={"description": spec.description, "is_active": True},
-            )
-
-            KitProduct.objects.filter(kit=kit).delete()
-            KitService.objects.filter(kit=kit).delete()
-
             total_price = Decimal("0.00")
             total_duration = timedelta()
+            for product_item in spec.products:
+                product = products[product_item.code]
+                total_price += product.selling_price.amount * product_item.quantity
 
-            kit_products: list[KitProduct] = []
-            for item in spec.products:
-                product = products[item.code]
-                kit_products.append(KitProduct(kit=kit, product=product, quantity=item.quantity))
-                total_price += product.selling_price.amount * item.quantity
+            for service_item in spec.services:
+                service = services[service_item.name]
+                row_duration = service_item.duration if service_item.duration is not None else service.duration
+                total_price += service.selling_price.amount * service_item.quantity
+                total_duration += row_duration * service_item.quantity
 
-            kit_services: list[KitService] = []
-            for item in spec.services:
-                service = services[item.name]
-                row_duration = item.duration if item.duration is not None else service.duration
-                kit_services.append(KitService(kit=kit, service=service, quantity=item.quantity, duration=row_duration))
-                total_price += service.selling_price.amount * item.quantity
-                total_duration += row_duration * item.quantity
+            kit, _ = self._get_or_create_and_fill_missing(
+                model=Kit,
+                lookup={"workshop": workshop, "name": spec.name},
+                defaults={
+                    "description": spec.description,
+                    "is_active": True,
+                    "total_price": _money(total_price),
+                    "total_duration": total_duration,
+                },
+            )
 
-            KitProduct.objects.bulk_create(kit_products)
-            KitService.objects.bulk_create(kit_services)
+            for product_item in spec.products:
+                KitProduct.objects.get_or_create(
+                    kit=kit,
+                    product=products[product_item.code],
+                    defaults={"quantity": product_item.quantity},
+                )
 
-            kit.total_price = _money(total_price)
-            kit.total_duration = total_duration
-            kit.save(update_fields=["description", "is_active", "total_price", "total_duration"])
+            for service_item in spec.services:
+                service = services[service_item.name]
+                row_duration = service_item.duration if service_item.duration is not None else service.duration
+                KitService.objects.get_or_create(
+                    kit=kit,
+                    service=service,
+                    defaults={"quantity": service_item.quantity, "duration": row_duration},
+                )
 
     def _seed_customers(self, *, workshop: Workshop) -> None:
         for index, (name, sex) in enumerate(PF_CUSTOMERS, start=1):
@@ -1178,7 +1426,11 @@ class Command(BaseCommand):
                 "foundation_date": None,
                 **_address(index + 40),
             }
-            Customer.objects.update_or_create(workshop=workshop, cpf_or_cnpj=_generate_cpf(index), defaults=defaults)
+            self._get_or_create_and_fill_missing(
+                model=Customer,
+                lookup={"workshop": workshop, "cpf_or_cnpj": _generate_cpf(index)},
+                defaults=defaults,
+            )
 
         for index, (name, fantasy_name) in enumerate(PJ_CUSTOMERS, start=1):
             defaults = {
@@ -1196,7 +1448,11 @@ class Command(BaseCommand):
                 "foundation_date": date(2008 + (index % 10), ((index * 3) % 12) + 1, ((index * 2) % 28) + 1),
                 **_address(index + 60),
             }
-            Customer.objects.update_or_create(workshop=workshop, cpf_or_cnpj=_generate_cnpj(800 + index), defaults=defaults)
+            self._get_or_create_and_fill_missing(
+                model=Customer,
+                lookup={"workshop": workshop, "cpf_or_cnpj": _generate_cnpj(800 + index)},
+                defaults=defaults,
+            )
 
     def _seed_collaborators(self, *, workshop: Workshop) -> list[WorkshopCollaborator]:
         collaborators: list[WorkshopCollaborator] = []
@@ -1230,33 +1486,37 @@ class Command(BaseCommand):
                 "commission_percentage": commission_percentage,
                 "is_active": True,
             }
-            collaborator, _ = WorkshopCollaborator.objects.update_or_create(workshop=workshop, cpf=_generate_cpf(2000 + index), defaults=defaults)
+            collaborator, _ = self._get_or_create_and_fill_missing(
+                model=WorkshopCollaborator,
+                lookup={"workshop": workshop, "cpf": _generate_cpf(2000 + index)},
+                defaults=defaults,
+            )
             collaborators.append(collaborator)
         return collaborators
 
     def _seed_checklists(self, *, workshop: Workshop) -> None:
         for index, blueprint in enumerate(CHECKLIST_BLUEPRINTS):
-            checklist = Checklist.objects.filter(workshop=workshop, name=blueprint.name).order_by("pk").first()
-            if checklist is None:
-                checklist = Checklist.objects.create(workshop=workshop, name=blueprint.name)
-            elif checklist.name != blueprint.name:
-                checklist.name = blueprint.name
-                checklist.save(update_fields=["name"])
-
-            checklist.items.all().delete()
+            checklist, _ = Checklist.objects.get_or_create(workshop=workshop, name=blueprint.name)
             items = self._build_checklist_items(blueprint=blueprint, seed_index=index)
-            ChecklistItem.objects.bulk_create(
-                [
-                    ChecklistItem(
+            existing_items = {(item.group, item.description): item for item in ChecklistItem.objects.filter(checklist=checklist)}
+            for order, (group, description, response_type) in enumerate(items):
+                existing_item = existing_items.get((group, description))
+                if existing_item is None:
+                    ChecklistItem.objects.create(
                         checklist=checklist,
                         group=group,
                         description=description,
                         response_type=response_type,
                         order=order,
                     )
-                    for order, (group, description, response_type) in enumerate(items)
-                ]
-            )
+                    continue
+
+                update_fields = _merge_missing_seed_fields(
+                    existing_item,
+                    defaults={"response_type": response_type, "order": order},
+                )
+                if update_fields:
+                    existing_item.save(update_fields=update_fields)
 
     def _build_checklist_items(self, *, blueprint: ChecklistBlueprint, seed_index: int) -> list[tuple[str, str, str]]:
         grouped_positions = {group: seed_index % len(CHECKLIST_ITEM_BANK[group]) for group in blueprint.groups}
@@ -1288,23 +1548,236 @@ class Command(BaseCommand):
 
     def _seed_questions(self, *, workshop: Workshop) -> None:
         for order, spec in enumerate(QUESTION_SPECS):
-            question = InvestigativeQuestion.objects.filter(workshop=workshop, text=spec.text).order_by("pk").first()
-            if question is None:
-                question = InvestigativeQuestion.objects.create(
+            self._get_or_create_and_fill_missing(
+                model=InvestigativeQuestion,
+                lookup={"workshop": workshop, "text": spec.text},
+                defaults={
+                    "response_type": spec.response_type,
+                    "options": list(spec.options),
+                    "order": order,
+                    "is_active": True,
+                },
+            )
+
+    def _seed_financial_groups(self, *, workshop: Workshop) -> dict[str, FinancialGroup]:
+        financial_groups: dict[str, FinancialGroup] = {}
+
+        for spec_name, parent_name in FINANCIAL_GROUP_SPECS:
+            parent = financial_groups.get(parent_name) if parent_name else None
+
+            group, _ = FinancialGroup.objects.update_or_create(
+                workshop=workshop,
+                name=spec_name,
+                parent=parent,
+                defaults={
+                    "is_active": True,
+                },
+            )
+            financial_groups[spec_name] = group
+
+        return financial_groups
+
+    def _seed_payment_methods(self, *, workshop: Workshop) -> dict[str, PaymentMethod]:
+        payment_methods: dict[str, PaymentMethod] = {}
+        for description, installments_count, tax_percentage, tax_value_amount in PAYMENT_METHOD_SPECS:
+            defaults: dict[str, object] = {
+                "installments_count": installments_count,
+                "is_active": True,
+            }
+
+            if tax_percentage is not None:
+                defaults["tax_percentage"] = tax_percentage
+
+            if tax_value_amount is not None:
+                defaults["tax_value"] = _money(tax_value_amount)
+
+            payment_method, _ = PaymentMethod.objects.update_or_create(
+                workshop=workshop,
+                description=description,
+                defaults=defaults,
+            )
+            payment_methods[description] = payment_method
+
+        return payment_methods
+
+    def _seed_sources(self, *, workshop: Workshop) -> dict[str, Source]:
+        sources: dict[str, Source] = {}
+
+        for index, spec in enumerate(SOURCE_SPECS, start=1):
+            source, _ = Source.objects.update_or_create(
+                workshop=workshop,
+                name=spec.name,
+                defaults={
+                    "cnpj": _generate_cnpj(700 + index),
+                    "phone": _landline_phone(200 + index),
+                    "email": spec.email,
+                },
+            )
+            sources[spec.name] = source
+
+        return sources
+
+    def _seed_bank_accounts(self, *, workshop: Workshop) -> dict[str, BankAccount]:
+        bank_accounts: dict[str, BankAccount] = {}
+
+        for spec in BANK_ACCOUNT_SPECS:
+            bank_account, _ = BankAccount.objects.update_or_create(
+                workshop=workshop,
+                bank_code=spec.bank_code,
+                account_number=spec.account_number,
+                defaults={
+                    "bank_name": spec.bank_name,
+                    "account_type": spec.account_type,
+                    "agency": spec.agency,
+                    "is_active": True,
+                },
+            )
+            bank_accounts[spec.bank_name] = bank_account
+
+        return bank_accounts
+
+    def _seed_tax_class_presets(self, *, workshop: Workshop) -> None:
+        for kind, preset_items in DEFAULT_TAX_CLASS_PRESETS.items():
+            for preset_item in preset_items:
+                TaxClassPreset.objects.update_or_create(
                     workshop=workshop,
-                    text=spec.text,
-                    response_type=spec.response_type,
-                    options=list(spec.options),
-                    order=order,
-                    is_active=True,
+                    kind=kind,
+                    name=str(preset_item["name"]),
+                    defaults={
+                        "description": str(preset_item.get("description") or ""),
+                        "is_active": True,
+                        "payload": cast(dict[str, object], preset_item.get("payload") or {}),
+                    },
                 )
+
+    def _seed_tax_class_sync_state(self, *, workshop: Workshop) -> None:
+        TaxClassSyncState.objects.update_or_create(
+            workshop=workshop,
+            defaults={"synced_once": True},
+        )
+
+    def _seed_tax_classes(self, *, workshop: Workshop) -> None:
+        for spec in NFE_TAX_CLASS_SPECS:
+            tax_class, _ = TaxClassNfe.objects.update_or_create(
+                workshop=workshop,
+                reference=spec.reference,
+                defaults={
+                    "description": spec.description,
+                    "status": "active",
+                    "informacoes_fisco": "Classe seeded para demonstracao offline.",
+                    "informacoes_complementares": "Usada para simular fluxos de configuracao fiscal.",
+                },
+            )
+            self._sync_nfe_scenarios(tax_class=tax_class, payload=spec.payload)
+
+        for spec in NFSE_TAX_CLASS_SPECS:
+            payload = spec.payload
+            tax_class, _ = TaxClassNfse.objects.update_or_create(
+                workshop=workshop,
+                reference=spec.reference,
+                defaults={
+                    "description": spec.description,
+                    "status": "active",
+                    "informacoes_fisco": "Classe seeded para demonstracao offline.",
+                    "informacoes_complementares": "Configuracao basica para emissao de servicos.",
+                    "tipo_emissao": str(payload.get("tipo") or "nfse"),
+                    "codigo_servico": str(payload.get("codigo_servico") or ""),
+                    "natureza_operacao": str(payload.get("natureza_operacao") or ""),
+                    "exigibilidade_iss": str(payload.get("exigibilidade_iss") or ""),
+                    "iss_retido": str(payload.get("iss_retido") or ""),
+                    "responsavel_retencao": str(payload.get("responsavel_retencao") or ""),
+                },
+            )
+
+            update_fields = _merge_missing_seed_fields(
+                tax_class,
+                defaults={
+                    "tipo_emissao": str(payload.get("tipo") or "nfse"),
+                    "codigo_servico": str(payload.get("codigo_servico") or ""),
+                    "natureza_operacao": str(payload.get("natureza_operacao") or ""),
+                    "exigibilidade_iss": str(payload.get("exigibilidade_iss") or ""),
+                    "iss_retido": str(payload.get("iss_retido") or ""),
+                    "responsavel_retencao": str(payload.get("responsavel_retencao") or ""),
+                },
+            )
+            if update_fields:
+                tax_class.save(update_fields=update_fields)
+
+    def _sync_nfe_scenarios(self, *, tax_class: TaxClassNfe, payload: dict[str, object]) -> None:
+        self._sync_scenario_rows(
+            model=TaxClassNfeIcmsScenario,
+            parent_field_name="tax_class",
+            parent=tax_class,
+            rows=cast(list[dict[str, object]], payload.get("icms") or []),
+        )
+        self._sync_scenario_rows(
+            model=TaxClassNfeIpiScenario,
+            parent_field_name="tax_class",
+            parent=tax_class,
+            rows=cast(list[dict[str, object]], payload.get("ipi") or []),
+        )
+        self._sync_scenario_rows(
+            model=TaxClassNfePisScenario,
+            parent_field_name="tax_class",
+            parent=tax_class,
+            rows=cast(list[dict[str, object]], payload.get("pis") or []),
+        )
+        self._sync_scenario_rows(
+            model=TaxClassNfeCofinsScenario,
+            parent_field_name="tax_class",
+            parent=tax_class,
+            rows=cast(list[dict[str, object]], payload.get("cofins") or []),
+        )
+
+    def _sync_scenario_rows(self, *, model: Any, parent_field_name: str, parent: object, rows: list[dict[str, object]]) -> None:
+        for position, raw_row in enumerate(rows):
+            defaults = {field_name: (_decimal(cast(Decimal | str | int | float, field_value)) if field_name.startswith("aliquota") and field_value not in (None, "") else field_value) for field_name, field_value in raw_row.items()}
+            instance = model.objects.filter(**{parent_field_name: parent, "position": position}).order_by("pk").first()
+            if instance is None:
+                model.objects.create(**{parent_field_name: parent, "position": position, **defaults})
                 continue
 
-            question.response_type = spec.response_type
-            question.options = list(spec.options)
-            question.order = order
-            question.is_active = True
-            question.save(update_fields=["response_type", "options", "order", "is_active"])
+            update_fields = _merge_missing_seed_fields(instance, defaults=defaults)
+            if update_fields:
+                instance.save(update_fields=update_fields)
+
+    def _seed_financial_movements(
+        self,
+        *,
+        workshop: Workshop,
+        financial_groups: dict[str, FinancialGroup],
+        payment_methods: dict[str, PaymentMethod],
+        sources: dict[str, Source],
+        bank_accounts: dict[str, BankAccount],
+    ) -> None:
+        base_date = timezone.localdate()
+
+        for spec in FINANCIAL_MOVEMENT_SPECS:
+            due_date = base_date + timedelta(days=spec.due_in_days)
+            defaults: dict[str, object] = {
+                "current_step": 4,
+                "description": spec.description,
+                "items_observation": spec.items_observation,
+                "direction": spec.direction,
+                "payment_method": payment_methods[spec.payment_method],
+                "nf_number": spec.nf_number,
+                "amount": _money(spec.amount),
+                "due_date": due_date,
+                "budget_plan": financial_groups[spec.budget_group],
+                "bank_account": bank_accounts.get(spec.bank_account or ""),
+                "financial_observation": spec.financial_observation,
+            }
+            self._get_or_create_and_fill_missing(
+                model=FinancialMovement,
+                lookup={
+                    "workshop": workshop,
+                    "source": sources[spec.source_name],
+                    "description": spec.description,
+                    "due_date": due_date,
+                    "direction": spec.direction,
+                },
+                defaults=defaults,
+            )
 
     def _seed_workshop_costs(self, *, workshop: Workshop, monthly_costs: dict[str, MonthlyCost], collaborators: Sequence[WorkshopCollaborator], rng: random.Random) -> None:
         active_productive = [collaborator for collaborator in collaborators if collaborator.is_active and collaborator.collaborator_type == WorkshopCollaborator.CollaboratorType.PRODUCTIVE]
@@ -1314,14 +1787,23 @@ class Command(BaseCommand):
         administrative_salary_total = sum((collaborator.salary.amount for collaborator in active_administrative), Decimal("0.00"))
 
         reference_date = timezone.localdate()
+        calculated_fields = (
+            "total_value",
+            "total_monthly_costs",
+            "profit_target",
+            "gross_revenue_target",
+            "profitability_multiplier",
+            "working_hours_per_month",
+            "minimum_hourly_cost",
+            "hourly_cost_value",
+        )
         for offset in range(6):
             month, year = _reference_month(reference_date, offset)
             factor = Decimal("0.97") + Decimal(5 - offset) * Decimal("0.01") + Decimal(rng.randint(0, 2)) * Decimal("0.005")
 
-            workshop_cost, _ = WorkshopCost.objects.update_or_create(
-                workshop=workshop,
-                month=month,
-                year=year,
+            workshop_cost, workshop_cost_created = self._get_or_create_and_fill_missing(
+                model=WorkshopCost,
+                lookup={"workshop": workshop, "month": month, "year": year},
                 defaults={
                     "mechanic_quantity": len(active_productive),
                     "work_hours_per_day": timedelta(hours=8),
@@ -1345,14 +1827,26 @@ class Command(BaseCommand):
                     administrative_salary_total=administrative_salary_total,
                     factor=factor,
                 )
-                WorkshopCostItem.objects.update_or_create(
-                    workshop_cost=workshop_cost,
-                    monthly_cost=monthly_cost,
+                self._get_or_create_and_fill_missing(
+                    model=WorkshopCostItem,
+                    lookup={"workshop_cost": workshop_cost, "monthly_cost": monthly_cost},
                     defaults={"amount": amount},
                 )
 
+            if workshop_cost_created:
+                workshop_cost.calculate_all()
+                workshop_cost.save()
+                continue
+
+            original_values = {field_name: getattr(workshop_cost, field_name) for field_name in calculated_fields}
             workshop_cost.calculate_all()
-            workshop_cost.save()
+            calculated_values = {field_name: getattr(workshop_cost, field_name) for field_name in calculated_fields}
+            for field_name, original_value in original_values.items():
+                setattr(workshop_cost, field_name, original_value)
+
+            update_fields = _merge_missing_seed_fields(workshop_cost, defaults=calculated_values)
+            if update_fields:
+                workshop_cost.save(update_fields=update_fields)
 
     def _monthly_cost_amount(self, *, name: str, productive_salary_total: Decimal, administrative_salary_total: Decimal, factor: Decimal) -> Money:
         normalized_name = _normalize_text(name)

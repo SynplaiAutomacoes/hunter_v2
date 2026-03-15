@@ -28,6 +28,7 @@ urlpatterns = [
     path("collaborators/", include("apps.collaborators.urls")),
     path("catalog/", include("apps.catalog.urls")),
     path("suppliers/", include("apps.suppliers.urls")),
+    path("sources/", include("apps.sources.urls")),
     path("quote/", include("apps.quote.urls")),
     path("checklist/", include("apps.checklist.urls")),
     path("core/", include("apps.core.urls")),

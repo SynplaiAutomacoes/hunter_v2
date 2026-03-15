@@ -10,6 +10,7 @@ from django import forms
 from django.forms import formset_factory
 
 from apps.core.widgets import CheckboxInput, DecimalInput, SelectInput, TextInput, TextareaInput
+from apps.finance.models import TaxClassPreset
 
 
 NFE_SCENARIO_CHOICES = (
@@ -105,6 +106,10 @@ def _is_service_code_xx_xx(value: str) -> bool:
     return len(value) == 5 and value[2] == "." and value.replace(".", "").isdigit()
 
 
+def _is_service_code_xxxxx(value: str) -> bool:
+    return len(value) == 5 and value.isdigit()
+
+
 class TaxClassFormBase(forms.Form):
     referencia = forms.CharField(label="Referência", required=False, max_length=30, widget=TextInput())
     descricao = forms.CharField(label="Descrição", required=True, max_length=255, widget=TextInput())
@@ -135,6 +140,17 @@ class TaxClassFormBase(forms.Form):
             "informacoes_fisco": str(payload.get("informacoes_fisco") or ""),
             "informacoes_complementares": str(payload.get("informacoes_complementares") or ""),
             "base_payload_json": json.dumps(payload, ensure_ascii=False),
+        }
+
+
+class TaxClassPresetMetaForm(forms.ModelForm):
+    class Meta:
+        model = TaxClassPreset
+        fields = ["name", "description", "is_active"]
+        widgets = {
+            "name": TextInput(attrs={"placeholder": "Ex: Revenda padrão oficina"}),
+            "description": TextareaInput(rows=3, attrs={"placeholder": "Explique quando este preset deve ser usado."}),
+            "is_active": CheckboxInput(),
         }
 
 
@@ -334,8 +350,8 @@ class NfseTaxClassForm(TaxClassFormBase):
         cleaned_data = super().clean() or {}
 
         codigo_servico = _format_service_code_for_api(cleaned_data.get("codigo_servico"))
-        if codigo_servico and not _is_service_code_xx_xx(codigo_servico):
-            self.add_error("codigo_servico", "Informe o código do serviço no formato XX.XX.")
+        if codigo_servico and not (_is_service_code_xx_xx(codigo_servico) or _is_service_code_xxxxx(codigo_servico)):
+            self.add_error("codigo_servico", "Informe o código do serviço no formato XX.XX ou XXXXX.")
         elif codigo_servico:
             cleaned_data["codigo_servico"] = codigo_servico
 

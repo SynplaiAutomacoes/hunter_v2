@@ -10,6 +10,7 @@ from django.urls import reverse
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 
+from apps.core.webmania.util import is_webmania_homolog_environment
 from apps.core.widgets import (
     CEPInput,
     CheckboxInput,
@@ -23,6 +24,7 @@ from apps.core.widgets import (
     PasswordInput,
 )
 from apps.finance.forms.webmania import (
+    WEBMANIA_HOMOLOG_ONLY_FIELDS,
     WEBMANIA_ENABLED_FLAG_CHOICES,
     WEBMANIA_ORIENTACAO_DANFE_CHOICES,
     WEBMANIA_REGIME_TRIBUTARIO_CHOICES,
@@ -95,6 +97,10 @@ class BaseWebmaniaCompanySectionForm(forms.ModelForm):
     def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
         self.workshop = workshop
         super().__init__(*args, **kwargs)
+        self.show_homolog_fields = is_webmania_homolog_environment()
+        if not self.show_homolog_fields:
+            for field_name in WEBMANIA_HOMOLOG_ONLY_FIELDS:
+                self.fields.pop(field_name, None)
 
         field_names = tuple(getattr(self.Meta, "fields", ()))
         self._initial_model_values = {field_name: getattr(self.instance, field_name, "") for field_name in field_names}

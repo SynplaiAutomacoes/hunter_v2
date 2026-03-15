@@ -117,12 +117,14 @@ def reset_steps_after_step_4(budget):
     - current_step: volta para 4
     - slider: volta para 0
     - discount_value: volta para 0.00
+    - discount_percentage: volta para 0%
     - step5_calculation_viewed: volta para False
     """
     if budget.current_step > 4:
         budget.current_step = 4
         budget.slider = 0
         budget.discount_value = Money(0, "BRL")
+        budget.discount_percentage = Decimal("0")
         budget.step5_calculation_viewed = False
         budget.status = BudgetStatus.WAITING_PRICING
-        budget.save(update_fields=["current_step", "slider", "discount_value", "step5_calculation_viewed", "status"])
+        budget.save(update_fields=["current_step", "slider", "discount_value", "discount_percentage", "step5_calculation_viewed", "status"])

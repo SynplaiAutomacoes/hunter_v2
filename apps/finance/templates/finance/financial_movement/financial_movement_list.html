@@ -1,0 +1,11 @@
+{% extends 'crud/list_page.html' %}
+{% block crud_title %}Movimentação Financeira{% endblock %}
+{% block crud_header_actions %}
+    <a href="{% url 'finance:financial_movement_create' %}" class="btn btn-primary">Nova Movimentação Financeira</a>
+{% endblock %}
+{% block crud_table_wrapper_id %}financial_movement-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'finance:financial_movement_list' %}{% endblock %}
+{% block crud_table_hx_trigger %}financial_movement-table-refresh from:body{% endblock %}
+{% block crud_table %}
+    {% include 'finance/partials/financial_movement/financial_movement_table.html' %}
+{% endblock %}

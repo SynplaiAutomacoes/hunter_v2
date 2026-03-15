@@ -13,10 +13,11 @@ from django.utils import timezone
 from djmoney.money import Money
 
 from apps.budget.models import Budget, BudgetImage, BudgetImageType, Defect
+from apps.budget.pricing import resolve_discount_fields
 from apps.checklist.models import Checklist
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.utils import alert_confirm_layout
-from apps.core.widgets import CalendarDateInput, MoneyInput, NumberInput, SelectInput, TextInput, TextareaInput, SearchableSelectInput
+from apps.core.widgets import CalendarDateInput, MoneyInput, NumberInput, PercentageInput, SearchableSelectInput, SelectInput, TextInput, TextareaInput
 from apps.customer.models import Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
 
@@ -1909,8 +1910,9 @@ class BudgetStep5Form(forms.ModelForm):
 
     class Meta:
         model = Budget
-        fields = ["discount_value", "slider"]
+        fields = ["discount_percentage", "discount_value", "slider"]
         widgets = {
+            "discount_percentage": PercentageInput(decimal_places=2, behavior="digit_stream"),
             "discount_value": MoneyInput(),
         }
 
@@ -1921,6 +1923,7 @@ class BudgetStep5Form(forms.ModelForm):
 
         self.fields["slider"].label = ""
         self.fields["slider"].help_text = ""
+        self.fields["discount_percentage"].required = False
         self.fields["discount_value"].required = False
         self.fields["slider"].widget.attrs.update({"hx-post": reverse("budget:update_slider", args=[self.instance.pk]), "hx-trigger": "change", "hx-swap": "none"})
 
@@ -1976,8 +1979,10 @@ class BudgetStep5Form(forms.ModelForm):
             rentabilidade_class = "rentabilidade-medio"
             rentabilidade_bg = "bg-rentabilidade-medio"
 
-        discount_amount = budget.discount_value.amount if budget.discount_value else Decimal("0")
-        discount_display = budget.discount_value if discount_amount != Decimal("0") else Money(0, "BRL")
+        discount_amount = budget.resolved_discount_value.amount if budget.resolved_discount_value else Decimal("0")
+        discount_display = budget.resolved_discount_value if discount_amount != Decimal("0") else Money(0, "BRL")
+        self.initial["discount_percentage"] = budget.resolved_discount_percentage
+        self.initial["discount_value"] = budget.resolved_discount_value
         step5_calculation_done = bool(budget.pk and (budget.step5_calculation_viewed or budget.current_step > 5))
         step5_loading_hidden_class = "hidden" if step5_calculation_done else ""
         step5_method_hidden_class = "" if step5_calculation_done else "hidden"
@@ -2095,45 +2100,145 @@ class BudgetStep5Form(forms.ModelForm):
                         console.log("Método de Precificação:", "{metodo_precificacao}");
                         let timeout = null;
 
-                        const performUpdate = (value) => {{
-                            htmx.ajax('POST', '{{% url "budget:update_budget_discount" {self.instance.pk} %}}', {{
-                                values: {{ "discount_value_0": value }},
-                                swap: 'none'
-                            }});
-                        }};
+                        function parseDotDecimal(value) {{
+                            const normalized = String(value ?? '').trim().replace(',', '.');
+                            if (!normalized) return 0;
+                            const parsed = Number.parseFloat(normalized);
+                            return Number.isFinite(parsed) ? parsed : 0;
+                        }}
 
-                        const initDiscountObserver = () => {{
-                            const hiddenInput = document.getElementById('id_discount_value_0');
-                            if (!hiddenInput) return;
+                        function clamp(value, min, max) {{
+                            return Math.min(Math.max(value, min), max);
+                        }}
 
-                            let lastValue = hiddenInput.value;
+                        function roundCurrency(value) {{
+                            return Math.round((value + Number.EPSILON) * 100) / 100;
+                        }}
 
-                            const handleChange = (newValue) => {{
-                                if (newValue === lastValue) return;
-                                lastValue = newValue;
+                        function formatMoney(value) {{
+                            return value.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
+                        }}
 
-                                clearTimeout(timeout);
-                                timeout = setTimeout(() => {{
-                                    performUpdate(newValue);
-                                }}, 800);
+                        function formatFraction(fraction) {{
+                            return fraction.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
+                        }}
+
+                        function formatPercentageDisplay(fraction) {{
+                            return (fraction * 100).toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
+                        }}
+
+                        function getDiscountElements() {{
+                            const displayMoney = document.getElementById('id_discount_value_0_display');
+                            const hiddenMoney = document.getElementById('id_discount_value_0');
+                            const displayPercentage = document.getElementById('id_discount_percentage_display');
+                            const hiddenPercentage = document.getElementById('id_discount_percentage');
+                            const subtotalDisplay = document.getElementById('step5-subtotal-display');
+                            const discountDisplay = document.getElementById('step5-discount-display');
+                            const totalDisplay = document.getElementById('valor-final-display');
+
+                            if (!displayMoney || !hiddenMoney || !displayPercentage || !hiddenPercentage || !subtotalDisplay || !discountDisplay || !totalDisplay) {{
+                                return null;
+                            }}
+
+                            return {{
+                                displayMoney,
+                                hiddenMoney,
+                                displayPercentage,
+                                hiddenPercentage,
+                                subtotalDisplay,
+                                discountDisplay,
+                                totalDisplay,
                             }};
+                        }}
 
-                            const observer = new MutationObserver((mutations) => {{
-                                mutations.forEach((mutation) => {{
-                                    if (mutation.attributeName === 'value') {{
-                                        handleChange(hiddenInput.value);
-                                    }}
+                        function getBaseTotal(elements) {{
+                            return parseDotDecimal(elements.subtotalDisplay.dataset.baseTotal);
+                        }}
+
+                        function updateSummary(elements, discountAmount) {{
+                            const baseTotal = getBaseTotal(elements);
+                            const resolvedDiscount = clamp(roundCurrency(discountAmount), 0, baseTotal);
+                            const totalValue = roundCurrency(baseTotal - resolvedDiscount);
+
+                            elements.discountDisplay.textContent = `R$ ${{formatMoney(resolvedDiscount)}}`;
+                            elements.totalDisplay.textContent = `R$ ${{formatMoney(totalValue)}}`;
+                        }}
+
+                        function syncFromPercentage(elements) {{
+                            const baseTotal = getBaseTotal(elements);
+                            const fraction = clamp(parseDotDecimal(elements.hiddenPercentage.value), 0, 1);
+                            const amount = baseTotal > 0 ? clamp(roundCurrency(baseTotal * fraction), 0, baseTotal) : 0;
+
+                            elements.hiddenMoney.value = amount.toFixed(2);
+                            elements.displayMoney.value = formatMoney(amount);
+                            elements.hiddenPercentage.value = formatFraction(fraction);
+                            updateSummary(elements, amount);
+                        }}
+
+                        function syncFromValue(elements, updateSourceDisplay = true) {{
+                            const baseTotal = getBaseTotal(elements);
+                            const amount = clamp(roundCurrency(parseDotDecimal(elements.hiddenMoney.value)), 0, baseTotal);
+                            const fraction = baseTotal > 0 ? clamp(amount / baseTotal, 0, 1) : 0;
+
+                            elements.hiddenMoney.value = amount.toFixed(2);
+                            if (updateSourceDisplay) {{
+                                elements.displayMoney.value = formatMoney(amount);
+                            }}
+                            elements.hiddenPercentage.value = formatFraction(fraction);
+                            elements.displayPercentage.value = formatPercentageDisplay(fraction);
+                            updateSummary(elements, amount);
+                        }}
+
+                        function persistDiscount(elements) {{
+                            clearTimeout(timeout);
+                            timeout = setTimeout(() => {{
+                                htmx.ajax('POST', '{{% url "budget:update_budget_discount" {self.instance.pk} %}}', {{
+                                    values: {{
+                                        "discount_value_0": elements.hiddenMoney.value,
+                                        "discount_percentage": elements.hiddenPercentage.value,
+                                    }},
+                                    swap: 'none',
                                 }});
-                            }});
+                            }}, 800);
+                        }}
 
-                            observer.observe(hiddenInput, {{ attributes: true }});
+                        function bindDiscountSync() {{
+                            const elements = getDiscountElements();
+                            if (!elements) return;
 
-                            hiddenInput.addEventListener('input', (e) => handleChange(e.target.value));
-                            hiddenInput.addEventListener('change', (e) => handleChange(e.target.value));
-                        }};
+                            if (elements.displayMoney.dataset.discountSyncBound !== 'true') {{
+                                const handleMoneyInput = () => {{
+                                    window.setTimeout(() => {{
+                                        syncFromValue(elements, false);
+                                        persistDiscount(elements);
+                                    }}, 0);
+                                }};
+                                elements.displayMoney.addEventListener('input', handleMoneyInput);
+                                elements.displayMoney.addEventListener('blur', handleMoneyInput);
+                                elements.displayMoney.dataset.discountSyncBound = 'true';
+                            }}
 
-                        document.addEventListener('DOMContentLoaded', initDiscountObserver);
-                        document.body.addEventListener('htmx:afterSettle', initDiscountObserver);
+                            if (elements.hiddenPercentage.dataset.discountSyncBound !== 'true') {{
+                                const handlePercentageInput = () => {{
+                                    window.setTimeout(() => {{
+                                        syncFromPercentage(elements);
+                                        persistDiscount(elements);
+                                    }}, 0);
+                                }};
+                                elements.hiddenPercentage.addEventListener('widget:formatted-change', handlePercentageInput);
+                                elements.hiddenPercentage.dataset.discountSyncBound = 'true';
+                            }}
+
+                            if (parseDotDecimal(elements.hiddenPercentage.value) > 0) {{
+                                syncFromPercentage(elements);
+                                return;
+                            }}
+
+                            syncFromValue(elements);
+                        }}
+
+                        document.addEventListener('DOMContentLoaded', bindDiscountSync);
+                        document.body.addEventListener('htmx:afterSettle', bindDiscountSync);
                     }})();
 
                     (function () {{
@@ -2418,7 +2523,15 @@ class BudgetStep5Form(forms.ModelForm):
                             css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
                         ),
                         # Desconto
-                        Div(HTML('<h4 class="font-bold text-lg mb-2">Desconto</h4>'), Field("discount_value", wrapper_class="col-span-12 lg:col-span-4"), css_class="mb-8 p-4 bg-base-200/50 rounded-lg"),
+                        Div(
+                            HTML('<h4 class="font-bold text-lg mb-2">Desconto</h4>'),
+                            Div(
+                                Field("discount_percentage", wrapper_class="col-span-12 lg:col-span-6"),
+                                Field("discount_value", wrapper_class="col-span-12 lg:col-span-6"),
+                                css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
+                            ),
+                            css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
+                        ),
                         # Valor Final
                         Div(
                             HTML('<h4 class="font-bold text-lg mb-2 text-center border-b-1 border-gray-300">Valor Final</h4>'),
@@ -2426,11 +2539,11 @@ class BudgetStep5Form(forms.ModelForm):
                             HTML(f"""<div class="space-y-3">
                                         <div class="flex justify-between text-xl font-semibold">
                                             <span>Subtotal:</span>
-                                            <span>{budget.total_base_value}</span>
+                                            <span id="step5-subtotal-display" data-base-total="{budget.total_base_value.amount}">{budget.total_base_value}</span>
                                         </div>
                                         <div class="flex justify-between text-xl font-semibold">
                                             <span>Desconto:</span>
-                                            <span>{discount_display}</span>
+                                            <span id="step5-discount-display">{discount_display}</span>
                                         </div>
                                         <div class="flex justify-between text-xl font-black">
                                             <span>Valor Final:</span>
@@ -2454,11 +2567,33 @@ class BudgetStep5Form(forms.ModelForm):
             return Money(0, "BRL")
         return discount_value
 
+    def clean_discount_percentage(self):
+        discount_percentage = self.cleaned_data.get("discount_percentage")
+        if discount_percentage is None:
+            return Decimal("0")
+        return discount_percentage
+
     def clean_slider(self):
         slider = self.cleaned_data.get("slider")
         if slider is None:
             return 0
         return slider
+
+    def save(self, commit=True):
+        budget = super().save(commit=False)
+        budget.invalidate_pricing_snapshot_cache()
+        resolved_discount_value, resolved_discount_percentage = resolve_discount_fields(
+            total_base_value=budget.total_base_value,
+            discount_value=budget.discount_value,
+            discount_percentage=budget.discount_percentage,
+        )
+        budget.discount_value = resolved_discount_value
+        budget.discount_percentage = resolved_discount_percentage
+        budget.invalidate_pricing_snapshot_cache()
+
+        if commit:
+            budget.save()
+        return budget
 
 
 class BudgetStep6Form(forms.ModelForm):

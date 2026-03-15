@@ -502,6 +502,31 @@ class TestRenderTableTag(TestCase):
         self.assertNotIn("city=", clear_filter_url)
         self.assertNotIn("state=", clear_filter_url)
 
+    def test_render_table_defaults_hierarchical_selection_to_false(self):
+        request = self.factory.get("/workshops/")
+
+        rendered = render_table(
+            context={"request": request},
+            queryset=Workshop.objects.none(),
+            fields=[TableColumn(label="Nome", attr="name")],
+            table_id="t",
+        )
+
+        self.assertFalse(rendered["hierarchical_selection"])
+
+    def test_render_table_can_enable_hierarchical_selection(self):
+        request = self.factory.get("/workshops/")
+
+        rendered = render_table(
+            context={"request": request},
+            queryset=Workshop.objects.none(),
+            fields=[TableColumn(label="Nome", attr="name")],
+            table_id="t",
+            hierarchical_selection=True,
+        )
+
+        self.assertTrue(rendered["hierarchical_selection"])
+
     def test_renders_mobile_cards_container(self):
         create_workshop(name="Oficina 01", is_active=True)
 

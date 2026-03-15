@@ -173,7 +173,10 @@
                 <div class="space-y-1">
                     <p class="flex justify-between"><span>Total de Produtos:</span> <span>{{workorder.get_total_products_by_slider}}</span></p>
                     <p class="flex justify-between"><span>Total de Serviços:</span> <span>{{workorder.get_total_services_by_slider}}</span></p>
-                    <p class="flex justify-between font-medium"><span>Desconto:</span> <span class="text-red-600">- {{workorder.discount_value}}</span></p>
+                    <p class="flex justify-between font-medium">
+                        <span>Desconto ({{ workorder.discount_percentage_display }}):</span>
+                        <span class="text-red-600">- {{ workorder.discount_value }}</span>
+                    </p>
                     <p class="flex justify-between font-bold text-lg mt-2 pt-2 border-t border-gray-300">
                         <span>TOTAL GERAL:</span>
                         <span>{{workorder.total_budget_value}}</span>
