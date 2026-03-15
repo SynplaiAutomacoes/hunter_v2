@@ -93,37 +93,6 @@
         @apply btn btn-sm btn-success text-white disabled:opacity-50 disabled:cursor-not-allowed;
     }
 
-    /* Filter panel overlay — plain CSS avoids Tailwind arbitrary-value purging in Docker */
-    .filter-panel {
-        position: absolute;
-        right: 0;
-        top: 100%;
-        z-index: 120;
-        margin-top: 0.5rem;
-        width: calc(100vw - 2rem);
-        max-height: 70vh;
-        display: flex;
-        flex-direction: column;
-        @apply rounded-xl border border-base-300 bg-base-100 shadow-2xl;
-    }
-
-    @media (min-width: 640px) {
-        .filter-panel {
-            width: 28rem;
-        }
-    }
-
-    @media (min-width: 768px) {
-        .filter-panel {
-            width: 34rem;
-        }
-    }
-
-    @media (min-width: 1024px) {
-        .filter-panel {
-            width: 40rem;
-        }
-    }
 }
 
 @layer base {

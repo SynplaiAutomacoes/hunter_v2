@@ -53,10 +53,25 @@ def trigger_signature_send_if_needed(*, request, budget: Budget) -> tuple[str, s
 
 BUDGET_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
     QueryParamFilter(
+        param_name="client",
+        lookup="customer__name",
+        kind="icontains",
+    ),
+    QueryParamFilter(
+        param_name="vehicle",
+        lookup="vehicle__plate",
+        kind="icontains",
+    ),
+    QueryParamFilter(
+        param_name="collaborator",
+        lookup="collaborator__name",
+        kind="icontains",
+    ),
+    QueryParamFilter(
         param_name="status",
         lookup="status",
         kind="choice",
-        allowed_values=frozenset(str(status_value) for status_value, _ in Budget.status.field.choices),
+        allowed_values=frozenset(str(status_value) for status_value, _ in (Budget.status.field.choices or ())),
     ),
 )
 

@@ -6,14 +6,17 @@ from urllib.parse import urlparse
 from unittest.mock import PropertyMock, patch
 
 import requests
+from django.http import QueryDict
+from django.template import Context, Template
 from django.http import Http404, HttpResponse
+from django.db import connection
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from djmoney.money import Money
 
 from apps.budget.forms.shared import _render_budget_items_rows
-from apps.budget.models import Budget, BudgetItem, SignatureStatus
+from apps.budget.models import Budget, BudgetItem, BudgetStatus, SignatureStatus
 from apps.budget.pdf_context import build_budget_pdf_context
 from apps.budget.service import (
     BUDGET_SIGNATURE_DOCUMENT_ID_KEY,
@@ -31,10 +34,15 @@ from apps.catalog.models.services import Service
 from apps.core.documents.contract import DocumentPayload, SignatureDeliveryResult
 from apps.core.documents.signature import normalize_signature_phone_number, parse_document_signature_token
 from apps.core.documents.services import SignatureDeliveryServiceError, get_signed_document_url
-from apps.customer.models import Customer
 from apps.budget.views.pdf_views import signature_file, signature_preview, visualizar_pdf_assinatura
-from apps.budget.views.workflow_views import trigger_signature_send_if_needed
+from apps.budget.views.workflow_views import BUDGET_LIST_FILTERS, trigger_signature_send_if_needed
+from apps.collaborators.models import WorkshopCollaborator
+from apps.core.query_filters import apply_query_param_filters
+from apps.customer.models import Customer, Vehicle
 from apps.workshops.models.workshops import Workshop
+
+
+BUDGET_TEST_DEFAULTS_PREPARED = False
 
 
 def create_workshop(*, suffix: int = 1) -> Workshop:
@@ -47,6 +55,13 @@ def create_workshop(*, suffix: int = 1) -> Workshop:
 
 
 def create_budget(*, workshop: Workshop) -> Budget:
+    global BUDGET_TEST_DEFAULTS_PREPARED
+
+    if not BUDGET_TEST_DEFAULTS_PREPARED:
+        with connection.cursor() as cursor:
+            cursor.execute("ALTER TABLE budget_budget ALTER COLUMN discount_percentage SET DEFAULT 0")
+        BUDGET_TEST_DEFAULTS_PREPARED = True
+
     budget = Budget(workshop=workshop, entry_date=timezone.now().date())
     budget.save()
     return budget
@@ -59,6 +74,31 @@ def create_customer(*, workshop: Workshop, suffix: int = 1, phone: str = "+55119
         cpf_or_cnpj=f"123.456.789-{suffix:02d}",
         email=f"cliente{suffix}@example.com",
         phone=phone,
+    )
+
+
+def create_vehicle(*, workshop: Workshop, customer: Customer, suffix: int = 1, plate: str | None = None) -> Vehicle:
+    return Vehicle.objects.create(
+        workshop=workshop,
+        customer=customer,
+        plate=plate or f"ABC1D{suffix:02d}",
+        brand=f"Marca {suffix}",
+        model=f"Modelo {suffix}",
+        year_fabrication="2024",
+        year_model="2024",
+        color="Prata",
+    )
+
+
+def create_collaborator(*, workshop: Workshop, suffix: int = 1, name: str | None = None) -> WorkshopCollaborator:
+    return WorkshopCollaborator.objects.create(
+        workshop=workshop,
+        name=name or f"Colaborador {suffix}",
+        cpf=f"123456789{suffix:02d}",
+        birth_date=timezone.now().date(),
+        salary=Money("0.00", "BRL"),
+        admission_date=timezone.now().date(),
+        collaborator_type=WorkshopCollaborator.CollaboratorType.PRODUCTIVE,
     )
 
 
@@ -96,6 +136,64 @@ def create_kit(*, workshop: Workshop, suffix: int, products: list[tuple[Product,
 
 def extract_token_from_url(url: str) -> str:
     return urlparse(url).path.rstrip("/").split("/")[-1]
+
+
+class BudgetListFiltersTests(TestCase):
+    def test_budget_list_filters_support_client_vehicle_collaborator_and_status(self) -> None:
+        workshop = create_workshop(suffix=70)
+
+        matching_customer = create_customer(workshop=workshop, suffix=70)
+        matching_vehicle = create_vehicle(workshop=workshop, customer=matching_customer, suffix=70, plate="ABC1234")
+        matching_collaborator = create_collaborator(workshop=workshop, suffix=70, name="Joao Silva")
+        matching_budget = create_budget(workshop=workshop)
+        matching_budget.customer = matching_customer
+        matching_budget.vehicle = matching_vehicle
+        matching_budget.collaborator = matching_collaborator
+        matching_budget.status = BudgetStatus.APPROVED
+        matching_budget.save(update_fields=["customer", "vehicle", "collaborator", "status"])
+
+        other_customer = create_customer(workshop=workshop, suffix=71)
+        other_vehicle = create_vehicle(workshop=workshop, customer=other_customer, suffix=71, plate="XYZ9876")
+        other_collaborator = create_collaborator(workshop=workshop, suffix=71, name="Maria Souza")
+        other_budget = create_budget(workshop=workshop)
+        other_budget.customer = other_customer
+        other_budget.vehicle = other_vehicle
+        other_budget.collaborator = other_collaborator
+        other_budget.status = BudgetStatus.CANCELLED
+        other_budget.save(update_fields=["customer", "vehicle", "collaborator", "status"])
+
+        params = QueryDict("client=Cliente+70&vehicle=ABC1234&collaborator=Joao&status=approved")
+
+        filtered = apply_query_param_filters(
+            Budget.objects.filter(workshop=workshop),
+            params=params,
+            filter_configs=BUDGET_LIST_FILTERS,
+        )
+
+        self.assertQuerySetEqual(filtered.order_by("pk"), [matching_budget], transform=lambda obj: obj)
+        self.assertNotIn(other_budget, filtered)
+
+    def test_budget_filter_fields_template_renders_new_inputs(self) -> None:
+        request = RequestFactory().get("/budget/", {"client": "Ana", "vehicle": "ABC1234", "collaborator": "Joao", "status": BudgetStatus.APPROVED})
+        template = Template("{% include 'budget/partials/budget_filters_fields.html' %}")
+
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "table_id": "budget-table",
+                    "status_choices": Budget.status.field.choices,
+                }
+            )
+        )
+
+        self.assertIn('name="client"', html)
+        self.assertIn('name="vehicle"', html)
+        self.assertIn('name="collaborator"', html)
+        self.assertIn('name="status"', html)
+        self.assertIn('value="Ana"', html)
+        self.assertIn('value="ABC1234"', html)
+        self.assertIn('value="Joao"', html)
 
 
 class BudgetTotalsConsistencyTests(TestCase):
