@@ -49,8 +49,8 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         ]
         context["financial_movements"] = self._get_financial_movements_queryset()
         context["financial_movements_table_fields"] = [
-            TableColumn(label="Pago", attr="report_paid_display", sortable=False),
-            TableColumn(label="Tipo", attr="get_direction_display", sortable=False),
+            TableColumn(label="Pago", attr="report_paid_indicator", sortable=False, format="status_icon"),
+            TableColumn(label="Tipo", attr="report_direction_badge", sortable=False, format="status_badge"),
             TableColumn(label="Vencimento", attr="due_date", sortable=True, searchable=False),
             TableColumn(label="Agente", attr="report_agent_display", sortable=False),
             TableColumn(label="Origem", attr="report_origin_display", sortable=False),
@@ -58,7 +58,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             TableColumn(label="Plano Orçamentário", attr="report_budget_plan_display", sortable=False),
             TableColumn(label="Conta", attr="report_bank_account_display", sortable=False),
             TableColumn(label="Tipo Pagamento", attr="report_payment_method_display", sortable=False),
-            TableColumn(label="Total", attr="amount", sortable=True, searchable=False),
+            TableColumn(label="Total", attr="report_total_display", sortable=True, searchable=False, format="styled_text", sort_by="amount"),
         ]
         context["financial_movements_table_actions"] = [TableActionDefaults.edit("finance:financial_movement_update")]
         return context

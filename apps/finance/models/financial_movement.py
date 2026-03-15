@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.db import models
 
 from apps.core.models import TimeStampedModel
@@ -36,9 +38,45 @@ class FinancialMovement(TimeStampedModel):
     attachment = models.FileField(upload_to="financial/attachments/", null=True, blank=True, verbose_name="Anexo")
     financial_observation = models.TextField(verbose_name="Observação Financeira", blank=True, null=True)
 
+    @staticmethod
+    def _format_report_money(value: object) -> str:
+        amount = Decimal(str(getattr(value, "amount", value) or 0)).quantize(Decimal("0.01"))
+        integer_part, decimal_part = f"{amount:.2f}".split(".")
+        grouped_integer = f"{int(integer_part):,}".replace(",", ".")
+        return f"R$ {grouped_integer},{decimal_part}"
+
     @property
-    def report_paid_display(self) -> str:
+    def report_paid_indicator(self) -> str | dict[str, str]:
         return "-"
+
+    @property
+    def report_direction_badge(self) -> dict[str, str]:
+        badge_class = "badge-success"
+        if self.direction == self.MovementDirection.DEBIT:
+            badge_class = "badge-error"
+
+        direction_text = {
+            self.MovementDirection.CREDIT: "Crédito",
+            self.MovementDirection.DEBIT: "Débito",
+        }.get(self.direction, "-")
+
+        return {
+            "text": direction_text,
+            "class": badge_class,
+        }
+
+    @property
+    def report_total_display(self) -> dict[str, str]:
+        sign = "+"
+        text_class = "text-success"
+        if self.direction == self.MovementDirection.DEBIT:
+            sign = "-"
+            text_class = "text-error"
+
+        return {
+            "text": f"{sign} {self._format_report_money(self.amount)}",
+            "class": f"{text_class} font-semibold whitespace-nowrap",
+        }
 
     @property
     def report_agent_display(self) -> str:
