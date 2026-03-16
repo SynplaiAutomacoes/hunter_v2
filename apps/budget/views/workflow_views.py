@@ -22,6 +22,7 @@ from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
+from apps.workorder.discount_sync import sync_budget_discount_to_workorder
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.util.workshops import get_active_workshop_or_404
@@ -395,6 +396,7 @@ class UpdateBudgetDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):
             budget.discount_value = Money(Decimal(raw_discount_value), "BRL")
             budget.discount_percentage = Decimal(raw_discount_percentage)
             budget.save(update_fields=["discount_value", "discount_percentage"])
+            sync_budget_discount_to_workorder(budget=budget)
         except (ValueError, TypeError, InvalidOperation):
             logger.warning(
                 "Valor de desconto invalido recebido",

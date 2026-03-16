@@ -817,3 +817,48 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertEqual(payment.remaining_installments_amount, Money("0.00", "BRL"))
         self.assertEqual(payment.total_paid, Money("40.00", "BRL"))
         self.assertEqual(payment.due_date, date(2026, 3, 24))
+
+    def test_update_discount_syncs_budget_and_rerenders_payment_section(self) -> None:
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            product=self.workorder.items.first().product,
+            quantity=1,
+        )
+
+        response = self.client.post(
+            reverse("workorder:update_discount", args=[self.workorder.pk]),
+            data={"discount_percentage": "0.10", "discount_value_0": "0.00"},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+        self.budget.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Desconto da O.S.")
+        self.assertEqual(self.workorder.discount_value, Money("10.00", "BRL"))
+        self.assertEqual(self.budget.discount_value, Money("10.00", "BRL"))
+        self.assertEqual(self.budget.discount_percentage, Decimal("0.100000"))
+
+    def test_payment_form_uses_pending_balance_after_discount(self) -> None:
+        self.workorder.discount_value = Money("10.00", "BRL")
+        self.workorder.discount_percentage = Decimal("0.10")
+        self.workorder.save(update_fields=["discount_value", "discount_percentage"])
+
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix", installments_count=1)
+        form = WorkOrderPaymentForm(
+            data={
+                "payment_method": str(payment_method.pk),
+                "first_installment_amount_0": "95.00",
+                "first_installment_amount_1": "BRL",
+                "due_date": "2026-03-24",
+                "discount_value_0": "10.00",
+                "discount_value_1": "BRL",
+                "discount_percentage": "0.10",
+            },
+            workorder=self.workorder,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("saldo pendente da O.S.", str(form.errors["first_installment_amount"][0]))

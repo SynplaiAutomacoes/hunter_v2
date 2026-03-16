@@ -35,12 +35,12 @@ from apps.catalog.models.services import Service
 from apps.core.documents.contract import DocumentPayload, SignatureDeliveryResult
 from apps.core.documents.signature import normalize_signature_phone_number, parse_document_signature_token
 from apps.core.documents.services import SignatureDeliveryServiceError, get_signed_document_url
+from apps.workorder.models import WorkOrder
 from apps.budget.views.pdf_views import signature_file, signature_preview, visualizar_pdf_assinatura
 from apps.budget.views.workflow_views import BUDGET_LIST_FILTERS, trigger_signature_send_if_needed
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.query_filters import apply_query_param_filters
 from apps.customer.models import Customer, Vehicle
-from apps.budget.views.workflow_views import trigger_signature_send_if_needed
 from apps.collaborators.models import WorkshopMember
 from apps.iam.utils import get_or_create_director_role
 from apps.workshops.models.workshops import Workshop
@@ -365,6 +365,32 @@ class BudgetDiscountUpdateViewTests(TestCase):
         self.assertEqual(response.status_code, 204)
         self.assertEqual(budget.discount_value, Money("40.00", "BRL"))
         self.assertEqual(budget.discount_percentage, Decimal("0.100000"))
+
+    def test_update_budget_discount_syncs_workorder_when_budget_is_approved(self) -> None:
+        budget = create_budget(workshop=self.workshop)
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            is_local=True,
+            description="Servico com os",
+            quantity=1,
+            service_selling_price=Money("500.00", "BRL"),
+        )
+        budget.status = BudgetStatus.APPROVED
+        budget.save(update_fields=["status"])
+
+        workorder = WorkOrder.objects.get(budget=budget)
+        response = self.client.post(
+            reverse("budget:update_budget_discount", kwargs={"budget_id": budget.pk}),
+            data={"discount_percentage": "0.10", "discount_value_0": "0.00"},
+        )
+
+        budget.refresh_from_db()
+        workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(budget.discount_value, Money("50.00", "BRL"))
+        self.assertEqual(workorder.discount_value, Money("50.00", "BRL"))
 
 
 class BudgetSignaturePersistenceTests(TestCase):

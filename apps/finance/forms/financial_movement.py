@@ -2,7 +2,7 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
 from django.template.loader import render_to_string
-from django.urls import reverse_lazy  # noqa: F401 kept for commented HTMX block above
+from django.urls import reverse_lazy
 
 from apps.core.widgets import SearchableSelectInput, TextInput, TextareaInput, CalendarDateInput, SelectInput, MoneyInput, NumberInput
 from apps.finance.models import PaymentMethod, FinancialGroup
@@ -83,19 +83,7 @@ class MovementStep1Form(FinancialMovementBaseForm):
             Div(
                 Div(
                     HTML('<h2 class="text-xl font-bold mb-4">Origem da Movimentação</h2>'),
-                    HTML('<div class="flex items-end gap-2">'),
-                    Div(Field("source"), css_class="flex-1 min-w-0"),
-                    HTML("""
-                        <button type="button"
-                                class="flex-shrink-0 flex items-center justify-center w-10 h-10 rounded-full bg-primary hover:bg-primary-focus transition-colors cursor-pointer mb-3"
-                                hx-get="{% url 'sources:source_quick_create' %}"
-                                hx-target="#modal-container"
-                                hx-swap="innerHTML"
-                                title="Cadastrar nova origem">
-                            <span class="material-icons text-white text-xl">add</span>
-                        </button>
-                    """),
-                    HTML("</div>"),
+                    Field("source"),
                     css_class="col-span-12 lg:col-span-6",
                 ),
                 Div(

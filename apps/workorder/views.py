@@ -4,7 +4,7 @@ import json
 import logging
 import re
 from datetime import timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
@@ -26,6 +26,7 @@ from apps.core.documents.services import SignatureDeliveryServiceError, download
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxTemplateResponseMixin
 from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
+from apps.workorder.discount_sync import sync_workorder_discount_to_budget
 from apps.workorder.approval import WorkOrderApprovalError, approve_workorder_with_stock
 from apps.workorder.documents.provider import render_workorder_pdf_document, build_workorder_pdf_render_request
 from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderItemEditForm, WorkOrderKitProductEditRowForm, WorkOrderKitServiceEditRowForm, WorkOrderPaymentForm
@@ -188,6 +189,39 @@ class WorkOrderPaymentSectionView(LoginRequiredMixin, WorkshopScopedMixin, View)
 
     def get(self, request, pk):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        context = {
+            "workorder": workorder,
+            "payment_form": WorkOrderPaymentForm(workorder=workorder),
+        }
+        return render(request, "workorder/partials/payment_section.html", context)
+
+
+class UpdateWorkOrderDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkOrder
+    workshop_permission_codename = "change_workorder"
+
+    def post(self, request, pk):
+        workorder = _get_workorder_for_workshop(self.workshop, pk)
+
+        try:
+            raw_discount_value = request.POST.get("discount_value_0", "0").replace(",", ".") or "0"
+            raw_discount_percentage = request.POST.get("discount_percentage", "0").replace(",", ".") or "0"
+
+            sync_workorder_discount_to_budget(
+                workorder=workorder,
+                discount_value=Money(Decimal(raw_discount_value), "BRL"),
+                discount_percentage=Decimal(raw_discount_percentage),
+            )
+        except (ValueError, TypeError, InvalidOperation):
+            logger.warning(
+                "Valor de desconto invalido recebido para ordem de servico",
+                extra={
+                    "workorder_id": pk,
+                    "raw_discount": request.POST.get("discount_value_0"),
+                    "raw_discount_percentage": request.POST.get("discount_percentage"),
+                },
+            )
+
         context = {
             "workorder": workorder,
             "payment_form": WorkOrderPaymentForm(workorder=workorder),
