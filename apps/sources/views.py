@@ -103,7 +103,7 @@ class SourceQuickCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView)
         form.instance.workshop = self.workshop
         source = form.save()
         trigger_payload = json.dumps({"sourceCreated": {"id": source.pk, "name": source.name}})
-        response = HttpResponse(status=204)
+        response = HttpResponse("")
         response["HX-Trigger"] = trigger_payload
         return response
 

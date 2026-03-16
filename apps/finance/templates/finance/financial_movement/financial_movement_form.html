@@ -11,4 +11,33 @@
     </div>
 </div>
 <div id="modal-container"></div>
+
+<script>
+    document.body.addEventListener('sourceCreated', function (evt) {
+        const newSource = evt.detail;
+        if (!newSource || !newSource.id) return;
+
+        const hiddenInput = document.querySelector('input[name="source"]');
+        if (!hiddenInput) return;
+
+        const alpineContainer = hiddenInput.closest('[x-data]');
+        if (!alpineContainer) return;
+
+        const optionsList = alpineContainer.querySelector('ul[role="listbox"]');
+        if (!optionsList) return;
+
+        // Cria ou reutiliza o li com os datasets necessários para o Alpine
+        let li = optionsList.querySelector(`[data-value="${newSource.id}"]`);
+        if (!li) {
+            li = document.createElement('li');
+            li.dataset.value = newSource.id;
+            li.dataset.label = newSource.name;
+            li.innerHTML = `<span class="block truncate">${newSource.name}</span>`;
+            optionsList.appendChild(li);
+        }
+
+        // Chama o método nativo do Alpine — seta value, label, search e fecha o dropdown
+        Alpine.$data(alpineContainer).select(li);
+    });
+</script>
 {% endblock %}
