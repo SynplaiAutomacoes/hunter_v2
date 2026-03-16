@@ -836,15 +836,14 @@ class AddPaymentMethodViewTests(TestCase):
         self.budget.refresh_from_db()
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Desconto da O.S.")
+        self.assertContains(response, "Condição comercial da O.S.")
         self.assertEqual(self.workorder.discount_value, Money("10.00", "BRL"))
         self.assertEqual(self.budget.discount_value, Money("10.00", "BRL"))
         self.assertEqual(self.budget.discount_percentage, Decimal("0.100000"))
 
     def test_payment_form_uses_pending_balance_after_discount(self) -> None:
         self.workorder.discount_value = Money("10.00", "BRL")
-        self.workorder.discount_percentage = Decimal("0.10")
-        self.workorder.save(update_fields=["discount_value", "discount_percentage"])
+        self.workorder.save(update_fields=["discount_value"])
 
         payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix", installments_count=1)
         form = WorkOrderPaymentForm(

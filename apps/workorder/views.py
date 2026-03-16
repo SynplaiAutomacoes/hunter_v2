@@ -212,6 +212,7 @@ class UpdateWorkOrderDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View)
                 discount_value=Money(Decimal(raw_discount_value), "BRL"),
                 discount_percentage=Decimal(raw_discount_percentage),
             )
+            workorder.refresh_from_db()
         except (ValueError, TypeError, InvalidOperation):
             logger.warning(
                 "Valor de desconto invalido recebido para ordem de servico",

@@ -5,7 +5,6 @@ from django import forms
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 from django.core.exceptions import ValidationError
-from django.forms.fields import Field as DjangoField
 from django.urls import reverse
 from django.utils import timezone
 from djmoney.forms import MoneyField
@@ -28,17 +27,13 @@ def _format_brl_amount(value: Decimal) -> str:
     return f"{value:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
 
 
-def _money_or_zero(value: Money | None) -> Money:
-    return value if value is not None else Money(MONEY_ZERO, "BRL")
-
-
 class WorkOrderPaymentForm(forms.ModelForm):
     total_value = forms.CharField(label="Valor Total", required=False, widget=MoneyInput)
     paid_value = forms.CharField(label="Valor Pago", required=False, widget=MoneyInput)
     pending_value = forms.CharField(label="Valor Pendente", required=False, widget=MoneyInput)
-    discount_value = MoneyField(label="Aplicar Desconto (R$)", required=False, widget=MoneyInput)
+    discount_value = MoneyField(label="Desconto em R$", required=False, widget=MoneyInput)
     discount_percentage = forms.DecimalField(
-        label="Aplicar Desconto (%)",
+        label="Desconto em %",
         required=False,
         min_value=Decimal("0"),
         max_value=Decimal("1"),
@@ -64,7 +59,7 @@ class WorkOrderPaymentForm(forms.ModelForm):
         if self.workorder:
             payment_methods = PaymentMethod.objects.filter(workshop=self.workorder.workshop, is_active=True).order_by("description")
 
-        payment_method_field = self.fields["payment_method"]
+        payment_method_field = cast(Any, self.fields["payment_method"])
         payment_method_field.queryset = payment_methods
         payment_method_field.required = True
         payment_method_field.label_from_instance = lambda obj: obj.description
@@ -75,6 +70,7 @@ class WorkOrderPaymentForm(forms.ModelForm):
         paid_amount = self._get_paid_amount() if self.workorder else MONEY_ZERO
         pending_amount = total_os - paid_amount
         pending_amount_display = pending_amount if pending_amount > MONEY_ZERO else MONEY_ZERO
+        base_total = self.workorder.total_base_value if self.workorder else Money(MONEY_ZERO, "BRL")
         discount_value = Money(MONEY_ZERO, "BRL")
         discount_percentage = Decimal("0.00")
 
@@ -82,6 +78,7 @@ class WorkOrderPaymentForm(forms.ModelForm):
             discount_value, discount_percentage = resolve_discount_fields(
                 total_base_value=self.workorder.total_base_value,
                 discount_value=self.workorder.discount_value,
+                discount_percentage=self.workorder.discount_percentage,
             )
 
         resume_values = {
@@ -103,9 +100,10 @@ class WorkOrderPaymentForm(forms.ModelForm):
             self.data = bound_data
 
         for field in ["total_value", "paid_value", "pending_value"]:
-            display_field = cast(DjangoField, self.fields[field])
-            display_field.widget.attrs.update({"readonly": True, "class": "cursor-not-allowed opacity-75"})
+            self.fields[field].widget.attrs.update({"readonly": True, "class": "cursor-not-allowed opacity-75"})
 
+        self.fields["discount_value"].widget.attrs.update({"class": "font-semibold text-lg"})
+        self.fields["discount_percentage"].widget.attrs.update({"class": "font-semibold text-lg"})
         self.initial["discount_value"] = discount_value
         self.initial["discount_percentage"] = discount_percentage
 
@@ -133,47 +131,53 @@ class WorkOrderPaymentForm(forms.ModelForm):
                 </div>
             """),
             Div(
+                HTML(
+                    """
+                    <div class="grid grid-cols-1 gap-3 mb-5 xl:grid-cols-2">
+                    """
+                ),
                 Div(
                     HTML(
                         """
-                        <div class="rounded-2xl border border-base-300 bg-base-200/40 p-5 space-y-4">
-                            <div class="flex items-start justify-between gap-3">
+                        <div class="h-full rounded-[1.5rem] border border-base-300 bg-base-100/90 p-4 shadow-sm">
+                            <div class="mb-3 flex items-center justify-between gap-3">
                                 <div>
-                                    <h4 class="text-lg font-semibold">Desconto da O.S.</h4>
-                                    <p class="text-sm text-base-content/70">Os valores alterados aqui tambem atualizam o orçamento aprovado vinculado.</p>
+                                    <p class="text-sm font-bold text-base-content">Desconto em valor</p>
+                                    <p class="text-xs text-base-content/60">Use quando a negociação foi fechada em valor exato.</p>
                                 </div>
-                                <div class="badge badge-outline">Sincronizado</div>
+                                <span class="material-icons text-base-content/40">payments</span>
                             </div>
-                            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 items-end">
                         """
                     ),
-                    Field("discount_value", wrapper_class="col-span-1"),
-                    Field("discount_percentage", wrapper_class="col-span-1"),
-                    HTML(
-                        f"""
-                            <div class="rounded-xl border border-base-300 bg-base-100 p-4 space-y-2">
-                                <div class="flex items-center justify-between text-sm">
-                                    <span class="text-base-content/70">Subtotal</span>
-                                    <strong id="workorder-discount-subtotal-display" data-base-total="{self.workorder.total_base_value.amount if self.workorder else MONEY_ZERO}">{self.workorder.total_base_value if self.workorder else Money(MONEY_ZERO, "BRL")}</strong>
-                                </div>
-                                <div class="flex items-center justify-between text-sm">
-                                    <span class="text-base-content/70">Desconto</span>
-                                    <strong id="workorder-discount-display">{discount_value}</strong>
-                                </div>
-                                <div class="border-t border-base-300 pt-2 flex items-center justify-between">
-                                    <span class="font-semibold">Valor Final</span>
-                                    <strong id="workorder-total-final-display" class="text-lg">{self.workorder.total_budget_value if self.workorder else Money(MONEY_ZERO, "BRL")}</strong>
-                                </div>
-                            </div>
-                        </div>
-                        </div>
-                        """
-                    ),
-                    css_class="grid grid-cols-1 lg:grid-cols-3 gap-4 items-end",
+                    Field("discount_value", wrapper_class="mb-0"),
+                    HTML('<p class="mt-2 text-xs text-base-content/55">O percentual acompanha automaticamente.</p></div>'),
+                    css_class="h-full",
                 ),
-                css_class="mb-2 pb-4 border-b-2 border-base-50",
+                Div(
+                    HTML(
+                        """
+                        <div class="h-full rounded-[1.5rem] border border-base-300 bg-base-100/90 p-4 shadow-sm">
+                            <div class="mb-3 flex items-center justify-between gap-3">
+                                <div>
+                                    <p class="text-sm font-bold text-base-content">Desconto em percentual</p>
+                                    <p class="text-xs text-base-content/60">Ideal para manter a mesma política comercial em diferentes totais.</p>
+                                </div>
+                                <span class="material-icons text-base-content/40">percent</span>
+                            </div>
+                        """
+                    ),
+                    Field("discount_percentage", wrapper_class="mb-0"),
+                    HTML('<p class="mt-2 text-xs text-base-content/55">O valor em reais acompanha instantaneamente.</p></div>'),
+                    css_class="h-full",
+                ),
+                HTML("</div>"),
             ),
-            Div(Field("total_value", wrapper_class="col-span-12 lg:col-span-4"), Field("paid_value", wrapper_class="col-span-12 lg:col-span-4"), Field("pending_value", wrapper_class="col-span-12 lg:col-span-4"), css_class="grid grid-cols-12 gap-4 mb-2 pb-4 border-b-2 border-base-50"),
+            Div(
+                Field("total_value", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("paid_value", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("pending_value", wrapper_class="col-span-12 lg:col-span-4"),
+                css_class="grid grid-cols-12 gap-4 mb-2 pb-4 border-b-2 border-base-50",
+            ),
             Div(
                 Field("payment_method", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("first_installment_amount", wrapper_class="col-span-12 lg:col-span-4"),
@@ -204,9 +208,9 @@ class WorkOrderPaymentForm(forms.ModelForm):
                         const discountMoneyHidden = document.getElementById('id_discount_value_0');
                         const discountPercentageDisplay = document.getElementById('id_discount_percentage_display');
                         const discountPercentageHidden = document.getElementById('id_discount_percentage');
-                        const discountSubtotal = document.getElementById('workorder-discount-subtotal-display');
-                        const discountTotal = document.getElementById('workorder-total-final-display');
                         const discountDisplay = document.getElementById('workorder-discount-display');
+                        const totalDisplay = document.getElementById('workorder-total-final-display');
+                        const percentageChip = document.getElementById('workorder-discount-percentage-display');
                         let discountTimeout = null;
 
                         if (!paymentMethodInput || !firstAmountInput || !btnSave) {{
@@ -233,23 +237,25 @@ class WorkOrderPaymentForm(forms.ModelForm):
                             const parsed = Number.parseFloat(normalized);
                             return Number.isFinite(parsed) ? parsed : 0;
                         }};
+                        const baseTotalValue = parseDotDecimal('{base_total.amount}');
                         const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
                         const roundCurrency = (value) => Math.round((value + Number.EPSILON) * 100) / 100;
                         const formatMoney = (value) => value.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
                         const formatFraction = (fraction) => fraction.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
                         const formatPercentageDisplay = (fraction) => (fraction * 100).toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
-                        const getBaseTotal = () => parseDotDecimal(discountSubtotal ? discountSubtotal.dataset.baseTotal : '0');
-                        const updateDiscountSummary = (discountAmount) => {{
-                            if (!discountDisplay || !discountTotal) {{
+                        const getBaseTotal = () => baseTotalValue;
+                        const updateDiscountSummary = (discountAmount, fraction) => {{
+                            if (!discountDisplay || !totalDisplay || !percentageChip) {{
                                 return;
                             }}
                             const baseTotal = getBaseTotal();
                             const resolvedDiscount = clamp(roundCurrency(discountAmount), 0, baseTotal);
                             const totalValue = roundCurrency(baseTotal - resolvedDiscount);
                             discountDisplay.textContent = `R$ ${{formatMoney(resolvedDiscount)}}`;
-                            discountTotal.textContent = `R$ ${{formatMoney(totalValue)}}`;
+                            totalDisplay.textContent = `R$ ${{formatMoney(totalValue)}}`;
+                            percentageChip.textContent = `${{formatPercentageDisplay(fraction)}}%`;
                         }};
-                        const syncDiscountFromPercentage = () => {{
+                        const syncFromPercentage = () => {{
                             if (!discountMoneyDisplay || !discountMoneyHidden || !discountPercentageHidden) {{
                                 return;
                             }}
@@ -259,9 +265,9 @@ class WorkOrderPaymentForm(forms.ModelForm):
                             discountMoneyHidden.value = amount.toFixed(2);
                             discountMoneyDisplay.value = formatMoney(amount);
                             discountPercentageHidden.value = formatFraction(fraction);
-                            updateDiscountSummary(amount);
+                            updateDiscountSummary(amount, fraction);
                         }};
-                        const syncDiscountFromValue = (updateSourceDisplay = true) => {{
+                        const syncFromValue = (updateSourceDisplay = true) => {{
                             if (!discountMoneyHidden || !discountPercentageHidden || !discountPercentageDisplay) {{
                                 return;
                             }}
@@ -274,7 +280,7 @@ class WorkOrderPaymentForm(forms.ModelForm):
                             }}
                             discountPercentageHidden.value = formatFraction(fraction);
                             discountPercentageDisplay.value = formatPercentageDisplay(fraction);
-                            updateDiscountSummary(amount);
+                            updateDiscountSummary(amount, fraction);
                         }};
                         const persistDiscount = () => {{
                             if (!discountMoneyHidden || !discountPercentageHidden) {{
@@ -290,7 +296,7 @@ class WorkOrderPaymentForm(forms.ModelForm):
                                         discount_percentage: discountPercentageHidden.value,
                                     }},
                                 }});
-                            }}, 800);
+                            }}, 700);
                         }};
                         const updatePaymentPlan = () => {{
                             const firstAmount = parseFloat(firstAmountInput.value) || 0;
@@ -335,7 +341,7 @@ class WorkOrderPaymentForm(forms.ModelForm):
                         if (discountMoneyDisplay && discountMoneyDisplay.dataset.discountSyncBound !== 'true') {{
                             const handleMoneyInput = () => {{
                                 window.setTimeout(() => {{
-                                    syncDiscountFromValue(false);
+                                    syncFromValue(false);
                                     persistDiscount();
                                 }}, 0);
                             }};
@@ -347,7 +353,7 @@ class WorkOrderPaymentForm(forms.ModelForm):
                         if (discountPercentageHidden && discountPercentageHidden.dataset.discountSyncBound !== 'true') {{
                             const handlePercentageInput = () => {{
                                 window.setTimeout(() => {{
-                                    syncDiscountFromPercentage();
+                                    syncFromPercentage();
                                     persistDiscount();
                                 }}, 0);
                             }};
@@ -356,9 +362,9 @@ class WorkOrderPaymentForm(forms.ModelForm):
                         }}
 
                         if (discountPercentageHidden && parseDotDecimal(discountPercentageHidden.value) > 0) {{
-                            syncDiscountFromPercentage();
+                            syncFromPercentage();
                         }} else {{
-                            syncDiscountFromValue();
+                            syncFromValue();
                         }}
 
                         updateDueDate(false);
