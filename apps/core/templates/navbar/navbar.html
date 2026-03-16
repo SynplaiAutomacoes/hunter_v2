@@ -59,7 +59,7 @@
             items: [
                 { label: 'Gerenciar Oficinas', href: '{% url "workshops:list" %}' },
                 { label: 'Gerenciar Permissões', href: '{% url "iam:role_list" %}' },
-                {% if active_workshop_is_director %}
+                {% if active_workshop_is_director or active_workshop_is_manager %}
                     { label: 'Histórico de Emissões', href: '{% url "workshops:emission_history" %}' },
                 {% endif %}
                 { label: 'Custos Mensais', href: '{% url "workshops:cost_list" %}' },

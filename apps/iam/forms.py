@@ -11,6 +11,8 @@ from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 from apps.core.widgets import TextInput
 from apps.iam.models import WorkshopRole
 
+RESERVED_ROLE_NAMES = {"diretor", "gerente"}
+
 
 class WorkshopRoleForm(forms.ModelForm):
     permissions = forms.ModelMultipleChoiceField(
@@ -24,6 +26,12 @@ class WorkshopRoleForm(forms.ModelForm):
         widgets = {
             "name": TextInput(attrs={"placeholder": "Ex: Mecânico"}),
         }
+
+    def clean_name(self) -> str:
+        name = self.cleaned_data.get("name", "")
+        if str(name).strip().lower() in RESERVED_ROLE_NAMES:
+            raise forms.ValidationError("Este nome de cargo é reservado pelo sistema e não pode ser usado.")
+        return name
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

@@ -45,7 +45,7 @@ from apps.workshops.forms.workshops import (
 )
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.monthly_costs import create_default_monthly_costs
-from apps.workshops.util.workshops import has_workshop_perm, is_workshop_director
+from apps.workshops.util.workshops import has_workshop_perm, is_workshop_director, is_workshop_manager
 
 
 logger = logging.getLogger(__name__)
@@ -177,17 +177,26 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
         return super().dispatch(request, *args, **kwargs)
 
     def _get_workshop_queryset(self):
-        return (
-            Workshop.objects.filter(
-                members__user=self.request.user,
-                members__is_active=True,
-                members__role__permissions__content_type__app_label="workshops",
-                members__role__permissions__content_type__model="workshop",
-                members__role__permissions__codename="change_workshop",
-            )
-            .select_related("webmania_company")
-            .distinct()
-        )
+        user = cast(Any, self.request.user)
+        account_id = getattr(user, "account_id", None)
+        base_qs = Workshop.objects.select_related("webmania_company").filter(account_id=account_id)
+
+        active_workshop_id = self.request.session.get("active_workshop_id")
+        active_workshop = base_qs.filter(pk=active_workshop_id, is_active=True, members__user=user, members__is_active=True).distinct().first() if active_workshop_id else None
+
+        if active_workshop is not None and is_workshop_director(user=user, workshop=active_workshop, request=self.request):
+            return base_qs.filter(members__user=user, members__is_active=True).distinct()
+
+        if active_workshop is not None and is_workshop_manager(user=user, workshop=active_workshop, request=self.request):
+            return base_qs.filter(pk=active_workshop.pk)
+
+        return base_qs.filter(
+            members__user=user,
+            members__is_active=True,
+            members__role__permissions__content_type__app_label="workshops",
+            members__role__permissions__content_type__model="workshop",
+            members__role__permissions__codename="change_workshop",
+        ).distinct()
 
     def _get_workshop(self) -> Workshop:
         return get_object_or_404(self._get_workshop_queryset(), pk=self.kwargs.get("pk"))
@@ -349,7 +358,6 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             update_fields.append("last_sync_at")
 
         self.company.save(update_fields=update_fields)
-
 
     def _save_company_tab_form(
         self,
@@ -591,18 +599,23 @@ class WorkshopDeleteView(LoginRequiredMixin, HtmxDeleteResponseMixin, DeleteView
     htmx_trigger = "workshops-table-refresh"
 
     def get_queryset(self):
-        return (
-            super()
-            .get_queryset()
-            .filter(
-                members__user=self.request.user,
-                members__is_active=True,
-                members__role__permissions__content_type__app_label="workshops",
-                members__role__permissions__content_type__model="workshop",
-                members__role__permissions__codename="delete_workshop",
-            )
-            .distinct()
-        )
+        user = cast(Any, self.request.user)
+        account_id = getattr(user, "account_id", None)
+        base_qs = super().get_queryset().filter(account_id=account_id)
+
+        active_workshop_id = self.request.session.get("active_workshop_id")
+        active_workshop = base_qs.filter(pk=active_workshop_id, is_active=True, members__user=user, members__is_active=True).distinct().first() if active_workshop_id else None
+
+        if active_workshop is not None and is_workshop_director(user=user, workshop=active_workshop, request=self.request):
+            return base_qs.filter(members__user=user, members__is_active=True).distinct()
+
+        return base_qs.filter(
+            members__user=user,
+            members__is_active=True,
+            members__role__permissions__content_type__app_label="workshops",
+            members__role__permissions__content_type__model="workshop",
+            members__role__permissions__codename="delete_workshop",
+        ).distinct()
 
     def form_valid(self, form):
         workshop_pk = self.object.pk
@@ -647,20 +660,26 @@ class WorkshopListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):
     htmx_template_name = "workshops/partials/workshop_table.html"
 
     def get_queryset(self):
-        return (
-            super()
-            .get_queryset()
-            .filter(
-                members__user=self.request.user,
-                members__is_active=True,
-                members__role__permissions__content_type__app_label="workshops",
-                members__role__permissions__content_type__model="workshop",
-                members__role__permissions__codename="view_workshop",
-            )
-            .select_related("webmania_company")
-            .distinct()
-            .order_by("-criado_em")
-        )
+        user = cast(Any, self.request.user)
+        account_id = getattr(user, "account_id", None)
+        base_qs = Workshop.objects.filter(account_id=account_id).select_related("webmania_company").order_by("-criado_em")
+
+        active_workshop_id = self.request.session.get("active_workshop_id")
+        active_workshop = base_qs.filter(pk=active_workshop_id, is_active=True, members__user=user, members__is_active=True).distinct().first() if active_workshop_id else None
+
+        if active_workshop is not None and is_workshop_director(user=user, workshop=active_workshop, request=self.request):
+            return base_qs.filter(members__user=user, members__is_active=True).distinct()
+
+        if active_workshop is not None and is_workshop_manager(user=user, workshop=active_workshop, request=self.request):
+            return base_qs.filter(pk=active_workshop.pk)
+
+        return base_qs.filter(
+            members__user=user,
+            members__is_active=True,
+            members__role__permissions__content_type__app_label="workshops",
+            members__role__permissions__content_type__model="workshop",
+            members__role__permissions__codename="view_workshop",
+        ).distinct()
 
     def _reference_workshop_for_permission(self):
         user_account_id = getattr(self.request.user, "account_id", None)
@@ -710,10 +729,15 @@ class WorkshopListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):
             request=self.request,
         )
 
-        context.update({"webmania_company_count": len(account_companies), "webmania_last_sync_at": latest_sync_at,
+        context.update(
+            {
+                "webmania_company_count": len(account_companies),
+                "webmania_last_sync_at": latest_sync_at,
                 "webmania_last_sync_error": to_public_integration_message(latest_sync_error(account_companies)) if latest_sync_error(account_companies) else "",
                 "can_sync_webmania_companies": can_sync_webmania_companies and is_webmania_homolog_environment(),
-                "is_webmania_homolog_environment": is_webmania_homolog_environment()})
+                "is_webmania_homolog_environment": is_webmania_homolog_environment(),
+            }
+        )
 
         return context
 
