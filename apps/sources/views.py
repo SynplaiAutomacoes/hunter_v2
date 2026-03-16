@@ -1,12 +1,15 @@
+import json
+
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
+from django.http import HttpResponse
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
-from apps.sources.forms import SourceForm
+from apps.sources.forms import SourceForm, SourceQuickCreateForm
 from apps.sources.models import Source
 from apps.workshops.mixin import WorkshopScopedMixin
 
@@ -79,3 +82,31 @@ class SourceDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteRespon
 
     htmx_template_name = "sources/partials/source_delete_modal.html"
     htmx_trigger = "sources-table-refresh"
+
+
+class SourceQuickCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
+    model = Source
+    form_class = SourceQuickCreateForm
+    template_name = "sources/partials/source_quick_create_modal.html"
+
+    def get_form_kwargs(self) -> dict:
+        kwargs = super().get_form_kwargs()
+        kwargs["workshop"] = self.workshop
+        return kwargs
+
+    def get(self, request, *args, **kwargs) -> HttpResponse:
+        self.object = None
+        form = self.get_form_class()(workshop=self.workshop)
+        return self.render_to_response(self.get_context_data(form=form))
+
+    def form_valid(self, form: SourceQuickCreateForm) -> HttpResponse:
+        form.instance.workshop = self.workshop
+        source = form.save()
+        trigger_payload = json.dumps({"sourceCreated": {"id": source.pk, "name": source.name}})
+        response = HttpResponse(status=204)
+        response["HX-Trigger"] = trigger_payload
+        return response
+
+    def form_invalid(self, form: SourceQuickCreateForm) -> HttpResponse:
+        self.object = None
+        return self.render_to_response(self.get_context_data(form=form))

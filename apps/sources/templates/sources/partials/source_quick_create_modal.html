@@ -1,0 +1,66 @@
+{% load crispy_forms_tags %}
+
+<div class="modal modal-open">
+    <div class="modal-box w-11/12 max-w-2xl">
+        <h3 class="font-bold text-lg mb-6 uppercase">Cadastro Rápido de Origem</h3>
+
+        <form hx-post="{% url 'sources:source_quick_create' %}"
+              hx-target="#modal-container"
+              hx-swap="innerHTML">
+            {% csrf_token %}
+            {% crispy form %}
+
+            <div class="modal-action mt-6">
+                <button type="button" class="btn btn-ghost"
+                        onclick="document.getElementById('modal-container').innerHTML=''">
+                    Cancelar
+                </button>
+                <button type="submit" class="btn btn-primary">
+                    <span class="material-icons text-sm">add</span>
+                    Salvar Origem
+                </button>
+            </div>
+        </form>
+    </div>
+    <div class="modal-backdrop" onclick="document.getElementById('modal-container').innerHTML=''"></div>
+</div>
+
+<script>
+    document.body.addEventListener('sourceCreated', function (evt) {
+        const newSource = evt.detail;
+        if (!newSource || !newSource.id) return;
+
+        // Localiza o SearchableSelectInput do campo 'source'
+        const hiddenInput = document.querySelector('input[name="source"]');
+        if (!hiddenInput) return;
+
+        const alpineContainer = hiddenInput.closest('[x-data]');
+        if (!alpineContainer) return;
+
+        // Adiciona a nova opção na lista do dropdown (se ainda não existir)
+        const optionsList = alpineContainer.querySelector('ul[role="listbox"]');
+        if (optionsList) {
+            const exists = optionsList.querySelector(`[data-value="${newSource.id}"]`);
+            if (!exists) {
+                const li = document.createElement('li');
+                li.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white group transition-colors';
+                li.setAttribute('@click', 'select($el)');
+                li.dataset.value = newSource.id;
+                li.dataset.label = newSource.name;
+                li.innerHTML = `<span class="block truncate">${newSource.name}</span>`;
+                optionsList.appendChild(li);
+            }
+        }
+
+        // Seleciona automaticamente a nova origem via Alpine
+        const data = Alpine.$data(alpineContainer);
+        data.value = String(newSource.id);
+        data.label = newSource.name;
+
+        // Dispara o evento de change para atualizar o painel de detalhes da origem
+        hiddenInput.dispatchEvent(new Event('change'));
+
+        // Fecha o modal
+        document.getElementById('modal-container').innerHTML = '';
+    });
+</script>

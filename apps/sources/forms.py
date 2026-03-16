@@ -69,3 +69,46 @@ class SourceForm(forms.ModelForm):
                 self.add_error("cnpj", "Já existe uma origem cadastrada com este CNPJ nesta oficina.")
 
         return cleaned_data
+
+
+class SourceQuickCreateForm(forms.ModelForm):
+    """Formulário de cadastro rápido de Origem — usado no modal inline da movimentação financeira."""
+
+    class Meta:
+        model = Source
+        fields = ["name", "cnpj", "phone", "email"]
+        widgets = {
+            "cnpj": CPForCNPJInput(mode="cnpj"),
+            "name": TextInput(),
+            "phone": PhoneInput(),
+            "email": EmailInput(),
+        }
+
+    def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.workshop = workshop
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+
+        self.helper.layout = Layout(
+            Div(
+                Field("name", wrapper_class="col-span-12"),
+                Field("cnpj", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("phone", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("email", wrapper_class="col-span-12 lg:col-span-4"),
+                css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
+            ),
+        )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        cnpj = cleaned_data.get("cnpj")
+
+        if cnpj and self.workshop:
+            queryset = Source.objects.filter(workshop=self.workshop, cnpj=cnpj)
+            if self.instance.pk:
+                queryset = queryset.exclude(pk=self.instance.pk)
+            if queryset.exists():
+                self.add_error("cnpj", "Já existe uma origem cadastrada com este CNPJ nesta oficina.")
+
+        return cleaned_data
