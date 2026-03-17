@@ -5,7 +5,7 @@ from .financial_group import FinancialGroupCreateView, FinancialGroupDeleteView,
 from .common import DirectorWorkshopAccessMixin
 from .emission import EmissionPreviewView, EmissionRequestCreateView, EmissionWorkOrderItemUpdateView, EmissionWorkOrderKitComponentUpdateView, NfeCreateRedirectView, NfseCreateRedirectView
 from .nfe import NfeDocumentDownloadView, NfeRequestCancelView, NfeRequestCreateView, NfeRequestDetailView, NfeRequestListView, NfeRequestReconcileView, NfeRequestUpdateView
-from .nfse import NfseDocumentDownloadView, NfseRequestCreateView, NfseRequestDetailView, NfseRequestListView, NfseRequestUpdateView
+from .nfse import NfseDocumentDownloadView, NfseRequestCancelView, NfseRequestCreateView, NfseRequestDetailView, NfseRequestListView, NfseRequestUpdateView
 from .reports import FinancialReportsHomeView
 from .tax_class import TaxClassCreateView, TaxClassListView, TaxClassManagerView, TaxClassPresetCreateView, TaxClassPresetListView, TaxClassPresetUpdateView, TaxClassUpdateView
 from .webhook import WebhookView
@@ -39,6 +39,7 @@ __all__ = [
     "NfeRequestReconcileView",
     "NfeRequestUpdateView",
     "NfseCreateRedirectView",
+    "NfseRequestCancelView",
     "NfseDocumentDownloadView",
     "NfseRequestCreateView",
     "NfseRequestDetailView",

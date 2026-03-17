@@ -19,6 +19,7 @@ from apps.finance.views import (
     NfeRequestReconcileView,
     NfeRequestUpdateView,
     NfseCreateRedirectView,
+    NfseRequestCancelView,
     NfseDocumentDownloadView,
     NfseRequestDetailView,
     NfseRequestListView,
@@ -93,6 +94,7 @@ urlpatterns = [
     path("nfse/", NfseRequestListView.as_view(), name="nfse_list"),
     path("nfse/create/", NfseCreateRedirectView.as_view(), name="nfse_create"),
     path("nfse/<int:pk>/", NfseRequestDetailView.as_view(), name="nfse_detail"),
+    path("nfse/<int:pk>/cancelar/", NfseRequestCancelView.as_view(), name="nfse_cancel"),
     path("nfse/<int:pk>/documentos/<str:document>/", NfseDocumentDownloadView.as_view(), name="nfse_document_download"),
     path("nfse/<int:pk>/edit/", NfseRequestUpdateView.as_view(), name="nfse_update"),
     # WebMania

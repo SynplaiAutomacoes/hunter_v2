@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import logging
 
+from django import forms
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import Http404, HttpResponse
-from django.shortcuts import get_object_or_404
+from django.shortcuts import get_object_or_404, redirect
 from django.views import View
 from django.views.generic import DetailView, ListView
 
@@ -14,13 +15,30 @@ from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxTemplateResponseMixin
 from apps.finance.forms import NfseRequestStep1Form, NfseRequestStep2Form, NfseRequestStep3Form
 from apps.finance.models.finance import NfseItem, NfseRequest, NfseRequestStatus
-from apps.finance.services.emission import NfseEmissionError, emit_nfse_request, sync_emission_response
+from apps.finance.services.emission import NfseEmissionError, cancel_nfse_document, emit_nfse_request, sync_emission_response
 from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.finance.views.request_workflow import SharedEmissionRequestCreateBaseView, SharedEmissionRequestUpdateBaseView
 from apps.workshops.mixin import WorkshopScopedMixin
 
 
 logger = logging.getLogger(__name__)
+
+
+class NfseCancelForm(forms.Form):
+    REASON_CHOICES = [
+        ("", "Selecione o motivo"),
+        ("1", "Erro na emissao"),
+        ("2", "Servico nao prestado"),
+        ("4", "Duplicidade da nota"),
+    ]
+
+    reason_code = forms.ChoiceField(choices=REASON_CHOICES, required=True)
+
+    def clean_reason_code(self) -> int:
+        value = str(self.cleaned_data.get("reason_code") or "").strip()
+        if value not in {"1", "2", "4"}:
+            raise forms.ValidationError("Selecione um motivo para cancelar a NFS-e.")
+        return int(value)
 
 
 class NfseRequestListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
@@ -84,10 +102,12 @@ class NfseRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView)
         context = super().get_context_data(**kwargs)
         latest_item = self.object.items.order_by("-id").first()
         latest_batch = self.object.batches.order_by("-id").first()
+        can_cancel = bool(latest_item and str(getattr(latest_item, "status", "")).strip().lower() in {"aprovado", "agendado", "contingencia"})
         context.update(
             {
                 "latest_item": latest_item,
                 "latest_batch": latest_batch,
+                "can_cancel": can_cancel,
                 "request_fields": [
                     _build_field("ID da requisição", self.object.pk),
                     _build_field("Ordem de serviço", self.object.workorder),
@@ -103,6 +123,54 @@ class NfseRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView)
             }
         )
         return context
+
+
+class NfseRequestCancelView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "change_nfserequest"
+
+    def post(self, request, *args, **kwargs):
+        nfse_request = get_object_or_404(NfseRequest, pk=kwargs.get("pk"), workshop=self.workshop)
+        latest_item = nfse_request.items.order_by("-id").first()
+        if latest_item is None:
+            messages.error(request, "A NFS-e ainda nao possui item sincronizado para cancelamento.")
+            return redirect("finance:nfse_detail", pk=nfse_request.pk)
+
+        status = str(getattr(latest_item, "status", "")).strip().lower()
+        if status not in {"aprovado", "agendado", "contingencia"}:
+            messages.error(request, "Somente NFS-e aprovada, agendada ou em contingencia pode ser cancelada.")
+            return redirect("finance:nfse_detail", pk=nfse_request.pk)
+
+        form = NfseCancelForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, "Selecione um motivo para cancelar a NFS-e.")
+            return redirect("finance:nfse_detail", pk=nfse_request.pk)
+
+        reason_code = int(form.cleaned_data["reason_code"])
+        reason_label = dict(NfseCancelForm.REASON_CHOICES).get(str(reason_code), "Cancelamento solicitado")
+
+        try:
+            response_payload = cancel_nfse_document(
+                workshop=self.workshop,
+                event_uuid=str(latest_item.uuid),
+                reason_code=reason_code,
+            )
+        except NfseEmissionError as exc:
+            messages.error(request, str(exc))
+            return redirect("finance:nfse_detail", pk=nfse_request.pk)
+
+        latest_item.status = "cancelado"
+        latest_item.reason = str(response_payload.get("motivo") or reason_label)
+        latest_item.raw_payload = response_payload
+        xml_url = str(response_payload.get("xml") or "").strip()
+        if xml_url:
+            latest_item.xml_url = xml_url
+        latest_item.save(update_fields=["status", "reason", "raw_payload", "xml_url"])
+
+        nfse_request.set_status(NfseRequestStatus.CANCELED)
+        messages.success(request, "NFS-e cancelada com sucesso.")
+        return redirect("finance:nfse_detail", pk=nfse_request.pk)
 
 
 class NfseDocumentDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
