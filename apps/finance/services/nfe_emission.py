@@ -67,6 +67,15 @@ def _build_emit_url() -> str:
     return f"{base_url}/1/nfe/emissao/"
 
 
+def _build_cancel_url() -> str:
+    custom_endpoint = sanitize_webmania_setting(getattr(settings, "WEBMANIA_NFE_CANCEL_ENDPOINT", ""))
+    if custom_endpoint:
+        return f"{custom_endpoint.rstrip('/')}/"
+
+    base_url = sanitize_webmania_setting(getattr(settings, "WEBMANIA_TAX_CLASS_BASE_URL", "https://webmania.com.br/api")).rstrip("/")
+    return f"{base_url}/1/nfe/cancelar/"
+
+
 def _build_tax_class_url() -> str:
     custom_endpoint = sanitize_webmania_setting(getattr(settings, "WEBMANIA_TAX_CLASS_ENDPOINT", ""))
     if custom_endpoint:
@@ -374,6 +383,43 @@ def emit_nfe_request(*, nfe_request: NfeRequest, request: HttpRequest | None = N
     if not data.get("uuid") and str(data.get("modelo") or "").lower() != "nfe":
         message = extract_webmania_error_message(data, scope="nfe")
         raise NfeEmissionError(message or "Resposta da API sem dados de identificacao da NF-e.")
+
+    return data
+
+
+def cancel_nfe_document(*, workshop, access_key: str, event_uuid: str, reason: str) -> dict[str, Any]:
+    headers = _build_headers(workshop=workshop)
+    cancel_url = _build_cancel_url()
+
+    payload: dict[str, str] = {"motivo": str(reason or "").strip()}
+    access_key_value = str(access_key or "").strip()
+    event_uuid_value = str(event_uuid or "").strip()
+
+    if access_key_value:
+        payload["chave"] = access_key_value
+    elif event_uuid_value:
+        payload["uuid"] = event_uuid_value
+    else:
+        raise NfeEmissionError("Nao foi possivel identificar a NF-e para cancelamento.")
+
+    try:
+        response = requests.put(cancel_url, json=payload, headers=headers, timeout=30)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        message = build_webmania_request_exception_message(exc, default="Falha ao cancelar NF-e", scope="nfe")
+        raise NfeEmissionError(message) from exc
+
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise NfeEmissionError("Resposta invalida da API de cancelamento de NF-e.") from exc
+
+    if not isinstance(data, dict):
+        raise NfeEmissionError("Resposta invalida da API de cancelamento de NF-e.")
+
+    error_message = extract_webmania_error_message(data.get("error") or data.get("msg") or data.get("message"), scope="nfe")
+    if error_message:
+        raise NfeEmissionError(error_message)
 
     return data
 
