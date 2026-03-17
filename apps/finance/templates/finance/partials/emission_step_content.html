@@ -19,8 +19,9 @@
             <a href="{{ action.url }}" class="btn btn-outline">{{ action.label }}</a>
         {% endfor %}
         <a href="{{ close_emission_url }}" class="btn btn-ghost">Fechar emissao</a>
-        <button type="submit" form="emission-form" class="btn btn-primary">
-            {{ submit_button_label }}
+        <button type="submit" form="emission-form" class="btn btn-primary" id="emission-submit-btn">
+            <span class="loading loading-spinner loading-sm hidden" id="emission-submit-spinner"></span>
+            <span id="emission-submit-label">{{ submit_button_label }}</span>
         </button>
     </div>
 </div>
@@ -33,8 +34,50 @@
     <form id="emission-form"
           hx-post="{{ request.path }}?step={{ current_step }}"
           hx-target="#step-container"
+          hx-indicator="#emission-submit-spinner"
           hx-swap="innerHTML">
         {% csrf_token %}
         {% crispy form %}
     </form>
 </div>
+
+<script>
+    (function () {
+        const form = document.getElementById('emission-form');
+        if (!form || form.dataset.submitLoadingBound === '1') {
+            return;
+        }
+
+        form.dataset.submitLoadingBound = '1';
+
+        const submitBtn = document.getElementById('emission-submit-btn');
+        const submitLabel = document.getElementById('emission-submit-label');
+        const submitSpinner = document.getElementById('emission-submit-spinner');
+        if (!submitBtn || !submitLabel) {
+            return;
+        }
+
+        const defaultLabel = submitLabel.textContent;
+        const loadingLabel = 'Enviando...';
+
+        const startLoading = function () {
+            submitBtn.disabled = true;
+            submitLabel.textContent = loadingLabel;
+            if (submitSpinner) {
+                submitSpinner.classList.remove('hidden');
+            }
+        };
+
+        const stopLoading = function () {
+            submitBtn.disabled = false;
+            submitLabel.textContent = defaultLabel;
+            if (submitSpinner) {
+                submitSpinner.classList.add('hidden');
+            }
+        };
+
+        form.addEventListener('htmx:beforeRequest', startLoading);
+        form.addEventListener('htmx:afterRequest', stopLoading);
+        form.addEventListener('htmx:responseError', stopLoading);
+    })();
+</script>

@@ -11,6 +11,8 @@ from djmoney.forms import MoneyField
 from djmoney.money import Money
 
 from apps.budget.pricing import resolve_discount_fields
+from apps.budget.forms.widgets import MultipleFileInput
+from apps.core.utils import alert_confirm_layout
 from apps.core.widgets import CalendarDateInput, DurationInput, MoneyInput, NumberInput, PercentageInput, SelectInput, TextInput
 from apps.finance.models.payment_method import PaymentMethod
 from apps.workorder.models import WorkOrderAttachment, WorkOrderItem, WorkOrderPaymentMethod
@@ -459,15 +461,13 @@ class WorkOrderPaymentForm(forms.ModelForm):
 class WorkOrderAttachmentForm(forms.ModelForm):
     file_upload = forms.FileField(
         required=False,
-        widget=forms.FileInput(
+        widget=MultipleFileInput(
             attrs={
-                "class": "hidden",
                 "id": "file-upload-input",
-                "hx-post": "",
-                "hx-trigger": "change",
-                "hx-target": "#customer-approvement-section",
-                "hx-swap": "innerHTML",
-                "hx-encoding": "multipart/form-data",
+                "accept": "*/*",
+                "data-max-file-size-bytes": str(200 * 1024 * 1024),
+                "data-max-files": "1000",
+                "data-auto-upload": "true",
             }
         ),
     )
@@ -482,53 +482,52 @@ class WorkOrderAttachmentForm(forms.ModelForm):
 
         self.fields["file_upload"].label = None
 
-        if self.workorder:
-            self.fields["file_upload"].widget.attrs["hx-post"] = reverse("workorder:upload_attachment", args=[self.workorder.pk])
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout(Field("file_upload"))
+
+
+class WorkOrderCustomerApprovalForm(forms.Form):
+    km_initial = forms.IntegerField(label="KM inicial", required=False, widget=NumberInput(attrs={"readonly": "readonly"}))
+    km_final = forms.IntegerField(label="KM final", required=True, min_value=0, widget=NumberInput())
+
+    def __init__(self, *args, **kwargs):
+        self.workorder = kwargs.pop("workorder", None)
+        super().__init__(*args, **kwargs)
+
+        km_initial_value = 0
+        if self.workorder and self.workorder.budget_id:
+            km_initial_value = int(getattr(self.workorder.budget, "current_km", 0) or 0)
+
+        self.fields["km_initial"].initial = km_initial_value
+        self.fields["km_initial"].disabled = True
+
+        self.fields["km_final"].error_messages["required"] = "Preencha o KM final para aprovar a ordem de serviço."
+
+        if self.workorder and self.workorder.km_final is not None and not self.is_bound:
+            self.fields["km_final"].initial = self.workorder.km_final
 
         self.helper = FormHelper()
         self.helper.form_tag = False
-
-        layout_elements = []
-
-        if self.instance and self.instance.pk:
-            layout_elements.append(
-                Div(
-                    Div(
-                        #
-                        HTML('<div class="mr-4"><i class="material-icons text-3xl">description</i></div>'),
-                        #
-                        Div(HTML(f'<p class="font-boldleading-tight">{self.instance.content_name}</p>'), HTML(f'<p class="text-xs">{self.instance.criado_em.strftime("%d/%m/%Y %H:%M")}</p>'), css_class="flex-grow"),
-                        #
-                        Div(
-                            HTML(f'<a href="{reverse("workorder:view_attachment", args=[self.instance.pk])}" target="_blank" class="btn btn-outline flex items-center mr-4 font-medium"><i class="material-icons text-base mr-1">visibility</i> Abrir</a>'),
-                            HTML(
-                                f'<button hx-delete="{reverse("workorder:delete_attachment", args=[self.instance.pk])}" hx-swap="innerHTML" hx-target="#customer-approvement-section" hx-confirm="Tem certeza que deseja remover este anexo?" class="flex items-center btn btn-outline text-red-600 hover:text-red-800 font-medium"><i class="material-icons text-base mr-1">delete</i> Excluir</button>'
-                            ),
-                            css_class="flex items-center",
-                        ),
-                        css_class="flex items-center p-4 border rounded-lg shadow-sm mb-4",
-                    ),
-                    css_class="col-span-12",
-                )
-            )
-
-        layout_elements.append(
+        self.helper.layout = Layout(
+            alert_confirm_layout(),
             Div(
-                HTML("""
-                        <label for="file-upload-input" class="flex flex-col items-center justify-center w-full h-48 border-2 border-gray-500 border-dashed rounded-lg cursor-pointer bg-transparent">
-                            <div class="flex flex-col items-center justify-center pt-5 pb-6">
-                                <i class="fas fa-cloud-upload-alt text-4xl text-gray-500 mb-3"></i>
-                                <p class="mb-2 text-sm text-gray-700 font-semibold">Clique para enviar ou arraste e solte</p>
-                                <p class="text-xs text-gray-500 uppercase font-medium">PDF, PNG, JPG (MÁX. 10MB)</p>
-                            </div>
-                        </label>
-                    """),
-                Field("file_upload"),
-                css_class="col-span-12",
-            )
+                Field("km_initial", wrapper_class="col-span-12 lg:col-span-6"),
+                Field("km_final", wrapper_class="col-span-12 lg:col-span-6"),
+                css_class="grid grid-cols-12 gap-4",
+            ),
         )
 
-        self.helper.layout = Layout(*layout_elements)
+    def clean_km_final(self) -> int:
+        km_final = self.cleaned_data.get("km_final")
+        if km_final is None:
+            return 0
+
+        km_initial = int(getattr(self.workorder.budget, "current_km", 0) or 0) if self.workorder else 0
+        if km_final < km_initial:
+            raise ValidationError(f"O KM final não pode ser menor que o KM inicial ({km_initial:,}).".replace(",", "."))
+
+        return km_final
 
 
 class WorkOrderItemEditForm(forms.ModelForm):

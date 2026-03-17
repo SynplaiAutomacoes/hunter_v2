@@ -54,6 +54,7 @@ class WorkOrder(TimeStampedModel):
     signature_external_id = models.CharField(max_length=255, blank=True, null=True)
     signature_document_id = models.CharField(max_length=255, blank=True, null=True)
     signature_sent_at = models.DateTimeField(blank=True, null=True)
+    km_final = models.PositiveIntegerField(verbose_name="KM Final", null=True, blank=True)
 
     @property
     def workorder_status_badge(self):

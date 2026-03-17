@@ -15,7 +15,7 @@ from apps.budget.fields import DurationField
 from apps.core.documents.contract import DocumentPayload
 from apps.core.documents.http import build_pdf_http_response
 from apps.core.documents.signature import SignatureTokenError, parse_document_signature_token
-from apps.workorder.forms import WorkOrderAttachmentForm
+from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderCustomerApprovalForm
 from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderItem, WorkOrderSignatureStatus
 from apps.workorder.service import (
     WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
@@ -186,6 +186,8 @@ def _build_customer_approvement_context(workorder: WorkOrder, attachment: WorkOr
     return {
         "workorder": workorder,
         "attachment_form": WorkOrderAttachmentForm(workorder=workorder, instance=latest_attachment),
+        "approval_form": WorkOrderCustomerApprovalForm(workorder=workorder),
+        "attachments": workorder.attachments.order_by("-criado_em"),
     }
 
 
