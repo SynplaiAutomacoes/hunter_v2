@@ -2828,6 +2828,55 @@ class UnifiedEmissionWizardTests(TestCase):
         self.assertContains(response, "Editar cliente")
         self.assertContains(response, "Editar veiculo")
 
+    def test_unified_step_redirect_returns_hx_redirect_for_htmx_request(self) -> None:
+        response = self.client.post(
+            self._wizard_url(step=1),
+            {"workorder": self.workorder.pk},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("HX-Redirect"), self._wizard_url(step=2))
+
+    def test_unified_wizard_duplicate_htmx_submit_does_not_emit_same_nfse_twice(self) -> None:
+        tax_classes = [{"referencia": "REFNFSE999", "tipo": "nfse", "status": "ativo", "descricao": "Classe NFS-e", "codigo_servico": "01.05"}]
+
+        with patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes):
+            self._advance_to_step_5(tipo="nfse", pricing_slider="25")
+            self.client.post(self._wizard_url(step=5), {"note_mode": "nfse"})
+
+        lock_key = f"finance:emission-lock:{self.workshop.pk}:workorder:{self.workorder.pk}:note:nfse"
+        with (
+            patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.emission.emit_nfse_request", return_value={"status": "processando"}) as emit_mock,
+            patch("apps.finance.views.emission.sync_emission_response"),
+            patch("apps.finance.views.emission.cache.add", side_effect=[True, False]),
+            patch("apps.finance.views.emission.cache.delete") as cache_delete_mock,
+        ):
+            first_response = self.client.post(
+                self._wizard_url(step=6),
+                {
+                    "tax_class": "REFNFSE999",
+                    "service_description": "Servico executado na OS unificada",
+                },
+                HTTP_HX_REQUEST="true",
+            )
+            second_response = self.client.post(
+                self._wizard_url(step=6),
+                {
+                    "tax_class": "REFNFSE999",
+                    "service_description": "Servico executado na OS unificada",
+                },
+                HTTP_HX_REQUEST="true",
+            )
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(first_response.headers.get("HX-Redirect"), reverse("finance:nfse_list"))
+        self.assertEqual(second_response.status_code, 200)
+        self.assertIsNone(second_response.headers.get("HX-Redirect"))
+        emit_mock.assert_called_once()
+        cache_delete_mock.assert_called_once_with(lock_key)
+
     def test_unified_items_step_exposes_item_edit_actions_and_updates_workorder_item(self) -> None:
         self.client.post(self._wizard_url(step=1), {"workorder": self.workorder.pk})
         self.client.post(self._wizard_url(step=2), {})
