@@ -13,6 +13,7 @@ from apps.finance.views import (
     FinancialGroupUpdateView,
     NfeCreateRedirectView,
     NfeDocumentDownloadView,
+    NfeRequestCancelView,
     NfeRequestDetailView,
     NfeRequestListView,
     NfeRequestReconcileView,
@@ -67,6 +68,7 @@ urlpatterns = [
     path("nfe/create/", NfeCreateRedirectView.as_view(), name="nfe_create"),
     path("nfe/<int:pk>/", NfeRequestDetailView.as_view(), name="nfe_detail"),
     path("nfe/<int:pk>/reconciliar/", NfeRequestReconcileView.as_view(), name="nfe_reconcile"),
+    path("nfe/<int:pk>/cancelar/", NfeRequestCancelView.as_view(), name="nfe_cancel"),
     path("nfe/<int:pk>/documentos/<str:document>/", NfeDocumentDownloadView.as_view(), name="nfe_document_download"),
     path("nfe/<int:pk>/edit/", NfeRequestUpdateView.as_view(), name="nfe_update"),
     # Classe Imposto

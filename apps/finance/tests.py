@@ -42,7 +42,7 @@ from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
 from apps.finance.services.emission import NfseEmissionError, _build_taker_payload, _default_service_description, _service_total_value, build_nfse_payload, build_webmania_webhook_token, emit_nfse_request, sync_emission_response
-from apps.finance.services.nfe_emission import NfeEmissionError, _build_nfe_products_payload, _extract_product_lines, build_nfe_payload, sync_nfe_emission_response
+from apps.finance.services.nfe_emission import NfeEmissionError, _build_nfe_products_payload, _extract_product_lines, build_nfe_payload, cancel_nfe_document, sync_nfe_emission_response
 from apps.finance.services.numbering import reserve_nfe_request_number, reserve_nfse_request_rps_number
 from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder, compute_slider_allocation, distribute_total_proportionally
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
@@ -3495,6 +3495,84 @@ class FiscalDocumentDetailFlowTests(TestCase):
         self.assertEqual(response["Content-Type"], "application/pdf")
         self.assertIn("nfe-danfe-12345.pdf", response["Content-Disposition"])
         self.assertEqual(response.content, b"pdf-content")
+
+    def test_nfe_cancel_view_cancels_document_and_updates_status(self) -> None:
+        nfe_request = NfeRequest.objects.create(workshop=self.workshop, workorder=self.workorder, tax_class="REFNFE122")
+        item = NfeItem.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            request=nfe_request,
+            uuid="6b6d7f28-8089-4dc1-bfac-8f5c11324873",
+            status="aprovado",
+            access_key="12345678901234567890123456789012345678901234",
+        )
+
+        with patch(
+            "apps.finance.views.nfe.cancel_nfe_document",
+            return_value={"status": "cancelado", "motivo": "Cancelamento por erro operacional validado.", "xml": "https://files.test/nfe-cancel.xml"},
+        ) as cancel_mock:
+            response = self.client.post(
+                reverse("finance:nfe_cancel", kwargs={"pk": nfe_request.pk}),
+                data={"reason": "Cancelamento por erro operacional validado."},
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("finance:nfe_detail", kwargs={"pk": nfe_request.pk}))
+        cancel_mock.assert_called_once()
+
+        item.refresh_from_db()
+        nfe_request.refresh_from_db()
+        self.assertEqual(item.status, "cancelado")
+        self.assertEqual(item.reason, "Cancelamento por erro operacional validado.")
+        self.assertEqual(item.xml_url, "https://files.test/nfe-cancel.xml")
+        self.assertEqual(nfe_request.status, NfeRequestStatus.CANCELED)
+
+    def test_nfe_cancel_view_rejects_short_reason(self) -> None:
+        nfe_request = NfeRequest.objects.create(workshop=self.workshop, workorder=self.workorder, tax_class="REFNFE123")
+        NfeItem.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            request=nfe_request,
+            uuid="246c78fa-dfd0-48a8-bf2b-f35317f5e180",
+            status="aprovado",
+            access_key="12345678901234567890123456789012345678901234",
+        )
+
+        with patch("apps.finance.views.nfe.cancel_nfe_document") as cancel_mock:
+            response = self.client.post(
+                reverse("finance:nfe_cancel", kwargs={"pk": nfe_request.pk}),
+                data={"reason": "curto"},
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("finance:nfe_detail", kwargs={"pk": nfe_request.pk}))
+        cancel_mock.assert_not_called()
+
+
+class NfeCancelServiceTests(TestCase):
+    def test_cancel_nfe_document_uses_put_endpoint_with_access_key(self) -> None:
+        workshop = create_workshop(suffix=91)
+        response_payload = {"status": "cancelado", "motivo": "Cancelamento por solicitação administrativa."}
+
+        with (
+            patch("apps.finance.services.nfe_emission._build_headers", return_value={"X-Test": "ok"}),
+            patch("apps.finance.services.nfe_emission._build_cancel_url", return_value="https://webmania.com.br/api/1/nfe/cancelar/"),
+            patch("apps.finance.services.nfe_emission.requests.put", return_value=_mock_response(response_payload)) as put_mock,
+        ):
+            payload = cancel_nfe_document(
+                workshop=workshop,
+                access_key="12345678901234567890123456789012345678901234",
+                event_uuid="",
+                reason="Cancelamento por solicitação administrativa.",
+            )
+
+        self.assertEqual(payload["status"], "cancelado")
+        put_mock.assert_called_once_with(
+            "https://webmania.com.br/api/1/nfe/cancelar/",
+            json={"motivo": "Cancelamento por solicitação administrativa.", "chave": "12345678901234567890123456789012345678901234"},
+            headers={"X-Test": "ok"},
+            timeout=30,
+        )
 
     def test_nfse_document_download_view_returns_file(self) -> None:
         nfse_request = NfseRequest.objects.create(
