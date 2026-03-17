@@ -12,6 +12,7 @@ from djmoney.money import Money
 
 from apps.budget.pricing import resolve_discount_fields
 from apps.budget.forms.widgets import MultipleFileInput
+from apps.core.utils import alert_confirm_layout
 from apps.core.widgets import CalendarDateInput, DurationInput, MoneyInput, NumberInput, PercentageInput, SelectInput, TextInput
 from apps.finance.models.payment_method import PaymentMethod
 from apps.workorder.models import WorkOrderAttachment, WorkOrderItem, WorkOrderPaymentMethod
@@ -509,11 +510,12 @@ class WorkOrderCustomerApprovalForm(forms.Form):
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
+            alert_confirm_layout(),
             Div(
                 Field("km_initial", wrapper_class="col-span-12 lg:col-span-6"),
                 Field("km_final", wrapper_class="col-span-12 lg:col-span-6"),
                 css_class="grid grid-cols-12 gap-4",
-            )
+            ),
         )
 
     def clean_km_final(self) -> int:

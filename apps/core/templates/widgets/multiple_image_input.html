@@ -103,7 +103,8 @@ function hydrateMultipleImageInput(widgetId) {
     const input = document.getElementById(widgetId);
     if (!input) return;
 
-    window.selectedUploadFiles[widgetId] = input.files ? Array.from(input.files) : [];
+    window.selectedUploadFiles[widgetId] = [];
+    input.value = '';
 
     renderSelectedFiles(widgetId);
 }
@@ -150,6 +151,9 @@ function handleMultipleFiles(event, widgetId) {
             } else {
                 form.requestSubmit();
             }
+            window.selectedUploadFiles[widgetId] = [];
+            updateFileInput(widgetId);
+            renderSelectedFiles(widgetId);
             window.setTimeout(() => {
                 delete form.dataset.autoUploading;
             }, 500);
