@@ -22,7 +22,7 @@ x-on:vehicle-list:changed.window="totalForms = document.querySelectorAll('.vehic
         document.addEventListener('change', async (e) => {
             // Verifica se o alvo é um input de placa
             if (e.target.name && e.target.name.includes('-plate')) {
-                const plate = e.target.value.replace('-', '').trim();
+                const plate = e.target.value.replace(/[^a-zA-Z0-9]/g, '').trim();
                 if (plate.length < 7) return;
 
                 const row = e.target.closest('.vehicle-item'); // ou o seletor da sua linha
@@ -43,6 +43,19 @@ x-on:vehicle-list:changed.window="totalForms = document.querySelectorAll('.vehic
                     fillField(row, '-chassi', data.chassi);
                     fillField(row, '-engine', data.engine);
                     fillField(row, '-type', data.type);
+
+                    const missingFields = [];
+                    if (!data.engine) missingFields.push('Motor');
+                    if (!data.fuel) missingFields.push('Combustível');
+
+                    if (missingFields.length > 0) {
+                        document.body.dispatchEvent(new CustomEvent('showToast', {
+                            detail: {
+                                message: `Campos não disponíveis: ${missingFields.join(', ')}`,
+                                type: 'warning'
+                            }
+                        }));
+                    }
 
                 } catch (err) {
                     console.error("Erro ao buscar placa:", err);

@@ -67,8 +67,8 @@
         }
 
         .client-vehicle-section {
-            min-height: 120px;
-            max-height: 150px;
+            min-height: 155px;
+            max-height: 190px;
             overflow: hidden;
         }
 
@@ -162,6 +162,9 @@
                     <p class="field-row"><span class="field-label">Placa:</span> <span class="field-value">{{ budget.vehicle.plate }}</span></p>
                     <p class="field-row"><span class="field-label">Mod/Fab:</span> <span class="field-value">{{ budget.vehicle.year_model|default:"-" }} / {{ budget.vehicle.year_fabrication|default:"-" }}</span></p>
                     <p class="field-row"><span class="field-label">Marca:</span> <span class="field-value">{{ budget.vehicle.brand }}</span></p>
+                    <p class="field-row"><span class="field-label">Modelo:</span> <span class="field-value">{{ budget.vehicle.model|default:"-" }}</span></p>
+                    <p class="field-row"><span class="field-label">Motor:</span> <span class="field-value">{{ budget.vehicle.engine|default:"-" }}</span></p>
+                    <p class="field-row"><span class="field-label">Combustível:</span> <span class="field-value">{{ budget.vehicle.fuel|default:"-" }}</span></p>
                     <p class="field-row"><span class="field-label">Cor:</span> <span class="field-value">{{ budget.vehicle.color|default:"-" }}</span></p>
                 </div>
             </div>
