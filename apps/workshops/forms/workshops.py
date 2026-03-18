@@ -16,6 +16,7 @@ from apps.core.widgets import (
     CheckboxInput,
     CPForCNPJInput,
     EmailInput,
+    ImageInput,
     NumberInput,
     SelectInput,
     PhoneInput,
@@ -279,6 +280,14 @@ class WorkshopCompanySectionForm(BaseWebmaniaCompanySectionForm):
                 self.workshop.save(update_fields=["is_active"])
 
         return instance
+
+
+class WorkshopLogoForm(forms.ModelForm):
+    logo = forms.FileField(required=False, label="Logo da oficina", widget=ImageInput())
+
+    class Meta:
+        model = Workshop
+        fields = ["logo"]
 
 
 class WorkshopAddressSectionForm(BaseWebmaniaCompanySectionForm):
