@@ -34,6 +34,8 @@
 
     <div id="form-container">
         <form id="import-form"
+              method="post"
+              action="{{ request.path }}?step={{ current_step }}{% if object.pk %}&pk={{ object.pk }}{% endif %}"
               hx-post="{{ request.path }}?step={{ current_step }}{% if object.pk %}&pk={{ object.pk }}{% endif %}"
               hx-target="#step-container"
               hx-encoding="multipart/form-data"
