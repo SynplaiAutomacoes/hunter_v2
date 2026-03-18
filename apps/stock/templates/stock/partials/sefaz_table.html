@@ -1,4 +1,4 @@
-<div class="mt-4">
+<div class="mt-4" id="sefaz-container">
     <div class="flex justify-between items-center mb-4">
         <div class="form-control w-full max-w-xs">
             <input type="text" placeholder="Filtrar notas..." class="input input-bordered input-sm"
@@ -14,21 +14,26 @@
         {% endif %}
     </div>
 
-    <div class="text-xs opacity-70 mb-3">
-        {% if form.workshop.last_sefaz_search_date %}
-            Ultima sincronizacao: {{ form.workshop.last_sefaz_search_date|date:"d/m/Y H:i" }}
-        {% else %}
-            Nenhuma sincronizacao executada ainda.
-        {% endif %}
-        {% if not form.workshop.can_search_sefaz %}
-            <span class="ml-2">(aguarde para nova consulta)</span>
-        {% endif %}
+    <div class="text-xs opacity-70 mb-3 flex justify-between items-center">
+        <div>
+            {% if form.workshop.last_sefaz_search_date %}
+                Última sincronização: <strong>{{ form.workshop.last_sefaz_search_date|date:"d/m/Y H:i" }}</strong>
+            {% else %}
+                Nenhuma sincronização executada ainda.
+            {% endif %}
+            {% if not form.workshop.can_search_sefaz %}
+                <span class="ml-2 text-warning">(Aguarde para nova consulta)</span>
+            {% endif %}
+        </div>
+        <div>
+            Exibindo <strong>{{ form.notas.object_list|length }}</strong> notas nesta página
+        </div>
     </div>
 
     <div class="overflow-x-auto border rounded-lg">
         <table class="table table-zebra w-full" id="sefaz-table">
             <thead>
-                <tr>
+                <tr class="bg-base-200">
                     <th>Data Emissão</th>
                     <th>Fornecedor</th>
                     <th>CNPJ</th>
@@ -39,52 +44,92 @@
             </thead>
             <tbody>
                 {% for nota in form.notas %}
-                <tr class="hover">
-                    <td>{{ nota.issue_date|date:"d/m/Y" }}</td>
-                    <td>{{ nota.issuer_name }}</td>
-                    <td>{{ nota.issuer_cnpj }}</td>
-                    <td>R$ {{ nota.total_value }}</td>
+                <tr class="hover transition-colors">
+                    <td class="font-medium">{{ nota.issue_date|date:"d/m/Y H:i" }}</td>
+                    <td class="max-w-xs truncate" title="{{ nota.issuer_name }}">{{ nota.issuer_name }}</td>
+                    <td class="font-mono text-xs">{{ nota.issuer_cnpj }}</td>
+                    <td class="font-semibold">R$ {{ nota.total_value|floatformat:2 }}</td>
                     <td>
                         {% if nota.is_imported %}
-                            <div class="badge badge-success">IMPORTADA</div>
+                            <div class="badge badge-success badge-outline gap-1">
+                                <span class="material-icons text-[10px]">check_circle</span> IMPORTADA
+                            </div>
                         {% else %}
-                            <div class="badge badge-warning">PENDENTE</div>
+                            <div class="badge badge-warning badge-outline gap-1">
+                                <span class="material-icons text-[10px]">schedule</span> PENDENTE
+                            </div>
                         {% endif %}
                     </td>
                     <td class="text-center">
                         {% if not nota.is_imported %}
                         <button type="button"
-                                class="btn btn-primary btn-xs"
+                                class="btn btn-primary btn-xs px-4"
                                 onclick="selectNFe('{{ nota.key }}')">
                             Selecionar
                         </button>
                         {% else %}
-                        <button class="btn btn-disabled btn-xs">Vincular</button>
+                        <button class="btn btn-disabled btn-xs px-4" title="Esta nota já foi importada no estoque">Vincular</button>
                         {% endif %}
                     </td>
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="6" class="text-center py-8 opacity-50">Nenhuma nota encontrada na SEFAZ.</td>
+                    <td colspan="6" class="text-center py-12">
+                        <div class="flex flex-col items-center opacity-40">
+                            <span class="material-icons text-4xl mb-2">inventory_2</span>
+                            <p>Nenhuma nota encontrada na SEFAZ para esta oficina.</p>
+                        </div>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
+
+    {% if form.notas.has_other_pages %}
+    <div class="flex justify-center mt-6">
+        <div class="join border">
+            {% if form.notas.has_previous %}
+                <a href="?page=1" class="join-item btn btn-sm btn-ghost">««</a>
+                <a href="?page={{ form.notas.previous_page_number }}" class="join-item btn btn-sm btn-ghost">Anterior</a>
+            {% endif %}
+
+            <button class="join-item btn btn-sm btn-active pointer-events-none">
+                Página {{ form.notas.number }} de {{ form.notas.paginator.num_pages }}
+            </button>
+
+            {% if form.notas.has_next %}
+                <a href="?page={{ form.notas.next_page_number }}" class="join-item btn btn-sm btn-ghost">Próxima</a>
+                <a href="?page={{ form.notas.paginator.num_pages }}" class="join-item btn btn-sm btn-ghost">»»</a>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
 </div>
 
 <script>
 function selectNFe(chave) {
-    document.getElementById('id_selected_key').value = chave;
-    // Submete o formulário principal do MultiStepView
-    document.getElementById('import-form').requestSubmit();
+    const input = document.getElementById('id_selected_key');
+    if (input) {
+        input.value = chave;
+        const form = document.getElementById('import-form');
+        if (form) {
+            form.requestSubmit();
+        } else {
+            console.error("Formulário 'import-form' não encontrado.");
+        }
+    }
 }
 
 function filterTable(event) {
     const term = event.target.value.toLowerCase();
     const rows = document.querySelectorAll('#sefaz-table tbody tr');
+
     rows.forEach(row => {
-        row.style.display = row.innerText.toLowerCase().includes(term) ? '' : 'none';
+        if (row.cells.length > 1) {
+            const text = row.innerText.toLowerCase();
+            row.style.display = text.includes(term) ? '' : 'none';
+        }
     });
 }
 </script>

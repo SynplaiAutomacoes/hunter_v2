@@ -8,6 +8,7 @@ from django import forms
 from django.conf import settings
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, HTML
+from django.core.paginator import Paginator
 from django.db import transaction
 import gzip
 import base64
@@ -745,11 +746,18 @@ class ImportSefazListForm(forms.ModelForm):
         self.import_payments = kwargs.pop("import_payments", [])
         super().__init__(*args, **kwargs)
 
-        imported_keys = StockImport.objects.filter(workshop=self.workshop).values_list("nf_key", flat=True)
-        self.notas = SefazZipCache.objects.filter(workshop=self.workshop)
+        queryset = SefazZipCache.objects.filter(workshop=self.workshop).order_by('-issue_date', '-created_at')
 
-        for nota in self.notas:
+        page_number = self.request.GET.get('page', 1) if self.request else 1
+        paginator = Paginator(queryset, 10)
+        self.page_obj = paginator.get_page(page_number)
+
+        imported_keys = StockImport.objects.filter(workshop=self.workshop).values_list("nf_key", flat=True)
+
+        for nota in self.page_obj:
             nota.is_imported = nota.key in imported_keys
+
+        self.notas = self.page_obj
 
         self.helper = FormHelper()
         self.helper.form_tag = False
