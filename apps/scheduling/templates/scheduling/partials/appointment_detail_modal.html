@@ -1,0 +1,57 @@
+<div class="modal-box w-11/12 max-w-2xl bg-base-100">
+    <div class="mb-4 flex items-center justify-between gap-2">
+        <h3 class="text-2xl font-bold">Detalhes do Agendamento</h3>
+        <button type="button" class="btn btn-sm btn-circle btn-ghost" onclick="document.getElementById('appointment_modal').close()">✕</button>
+    </div>
+
+    <div class="space-y-3 text-sm md:text-base">
+        <p><span class="font-semibold">Titulo:</span> {{ appointment.title }}</p>
+        <p><span class="font-semibold">Cliente:</span> {{ appointment.customer.name }}</p>
+        <p><span class="font-semibold">Veiculo:</span> {{ appointment.vehicle }}</p>
+        <p><span class="font-semibold">Entrada:</span> {{ appointment.starts_at|date:'d/m/Y H:i' }}</p>
+        <p><span class="font-semibold">Saida:</span> {{ appointment.ends_at|date:'d/m/Y H:i' }}</p>
+        <p><span class="font-semibold">Status:</span> {{ appointment.get_status_display }}</p>
+        <p>
+            <span class="font-semibold">Cor:</span>
+            <span class="inline-flex h-4 w-10 rounded border border-base-300 align-middle" style="background: {{ appointment.block_color }};"></span>
+        </p>
+        {% if appointment.notes %}
+            <p><span class="font-semibold">Observacoes:</span> {{ appointment.notes }}</p>
+        {% endif %}
+    </div>
+
+    <div class="divider my-4"></div>
+
+    <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <button
+            type="button"
+            class="btn btn-primary"
+            hx-get="{{ edit_url }}"
+            hx-target="#appointment-modal-container"
+            hx-swap="innerHTML"
+        >
+            Editar Agendamento
+        </button>
+
+        <a href="{{ create_budget_url }}" class="btn btn-outline">Criar Orcamento</a>
+
+        {% if budget_url %}
+            <a href="{{ budget_url }}" class="btn btn-outline">Abrir Orcamento Vinculado</a>
+        {% endif %}
+
+        {% if workorder_url %}
+            <a href="{{ workorder_url }}" class="btn btn-outline">Abrir O.S. Vinculada</a>
+        {% endif %}
+
+        <button
+            type="button"
+            class="btn btn-error text-white"
+            hx-post="{{ delete_url }}"
+            hx-target="#appointment-modal-container"
+            hx-swap="innerHTML"
+            hx-confirm="Tem certeza que deseja excluir este agendamento?"
+        >
+            Excluir
+        </button>
+    </div>
+</div>

@@ -1,0 +1,252 @@
+{% extends 'crud/page.html' %}
+
+{% block crud_content %}
+    <div class="space-y-6">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+                <h1 class="text-3xl font-bold text-base-content">Agendamentos</h1>
+                <p class="text-base-content/70 mt-1">Calendario de entrada e saida de veiculos.</p>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+                <button
+                    type="button"
+                    class="btn btn-primary"
+                    onclick="window.openAppointmentCreateModal()"
+                >
+                    Novo Agendamento
+                </button>
+            </div>
+        </div>
+
+        <div class="card bg-base-100 shadow-xl">
+            <div class="card-body gap-4 p-4 md:p-6">
+                <div class="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-6">
+                    <div>
+                        <label for="appointment-filter-date-from">Data Início</label>
+                        <input id="appointment-filter-date-from" type="date" class="input-theme" />
+                    </div>
+
+                    <div>
+                        <label for="appointment-filter-date-to">Data Fim</label>
+                        <input id="appointment-filter-date-to" type="date" class="input-theme" />
+                    </div>
+
+                    <div>
+                        <label for="appointment-filter-customer">Cliente</label>
+                        <input id="appointment-filter-customer" type="text" class="input-theme" placeholder="Nome do cliente" />
+                    </div>
+
+                    <div>
+                        <label for="appointment-filter-vehicle">Veiculo</label>
+                        <input id="appointment-filter-vehicle" type="text" class="input-theme" placeholder="Placa ou modelo" />
+                    </div>
+
+                    <div>
+                        <label for="appointment-filter-status">Status</label>
+                        <select id="appointment-filter-status" class="select select-bordered w-full">
+                            <option value="">Todos</option>
+                            <option value="scheduled">Agendado</option>
+                            <option value="completed">Concluido</option>
+                            <option value="cancelled">Cancelado</option>
+                        </select>
+                    </div>
+
+                    <div class="flex items-end gap-2">
+                        <button type="button" class="btn btn-primary flex-1" onclick="window.refetchAppointments()">Filtrar</button>
+                        <button type="button" class="btn btn-error text-white" onclick="window.clearAppointmentFilters()">Limpar</button>
+                    </div>
+                </div>
+
+                <div id="appointments-calendar"></div>
+            </div>
+        </div>
+    </div>
+
+    <dialog id="appointment_modal" class="modal">
+        <div id="appointment-modal-container"></div>
+    </dialog>
+
+    <dialog id="quick_form_modal" class="modal">
+        <div id="modal-container"></div>
+    </dialog>
+
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/locales-all.global.min.js"></script>
+    <script>
+        (function () {
+            const calendarEl = document.getElementById('appointments-calendar');
+            if (!calendarEl) {
+                return;
+            }
+
+            const appointmentModal = document.getElementById('appointment_modal');
+            const quickFormModal = document.getElementById('quick_form_modal');
+
+            const dateFromInput = document.getElementById('appointment-filter-date-from');
+            const dateToInput = document.getElementById('appointment-filter-date-to');
+            const customerInput = document.getElementById('appointment-filter-customer');
+            const vehicleInput = document.getElementById('appointment-filter-vehicle');
+            const statusInput = document.getElementById('appointment-filter-status');
+
+            function getFilters() {
+                return {
+                    date_from: dateFromInput.value,
+                    date_to: dateToInput.value,
+                    customer: customerInput.value,
+                    vehicle: vehicleInput.value,
+                    status: statusInput.value,
+                };
+            }
+
+            function toInputDateTime(rawDate) {
+                const date = new Date(rawDate);
+                const tzOffset = date.getTimezoneOffset() * 60000;
+                return new Date(date.getTime() - tzOffset).toISOString().slice(0, 16);
+            }
+
+            function openModalFromUrl(url) {
+                htmx.ajax('GET', url, { target: '#appointment-modal-container', swap: 'innerHTML' });
+                appointmentModal.showModal();
+            }
+
+            const calendar = new FullCalendar.Calendar(calendarEl, {
+                locale: 'pt-br',
+                timeZone: 'America/Sao_Paulo',
+                initialView: 'dayGridMonth',
+                selectable: true,
+                editable: true,
+                eventDurationEditable: true,
+                firstDay: 1,
+                allDaySlot: false,
+                navLinks: true,
+                height: 'auto',
+                headerToolbar: {
+                    left: 'prev,next today',
+                    center: 'title',
+                    right: 'timeGridDay,timeGridWeek,dayGridMonth,listYear',
+                },
+                buttonText: {
+                    today: 'Hoje',
+                    day: 'Dia',
+                    week: 'Semana',
+                    month: 'Mes',
+                    list: 'Ano',
+                },
+                events: {
+                    url: '{{ calendar_events_url }}',
+                    method: 'GET',
+                    extraParams: function () {
+                        return getFilters();
+                    },
+                    failure: function () {
+                        document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'Nao foi possivel carregar os agendamentos.', type: 'error' } }));
+                    },
+                },
+                select: function (selectionInfo) {
+                    const start = toInputDateTime(selectionInfo.start);
+                    const end = toInputDateTime(selectionInfo.end);
+                    openModalFromUrl(`{{ create_url }}?starts_at=${encodeURIComponent(start)}&ends_at=${encodeURIComponent(end)}`);
+                    calendar.unselect();
+                },
+                dateClick: function (info) {
+                    if (calendar.view.type.startsWith('dayGrid')) {
+                        const startDate = new Date(info.date);
+                        const endDate = new Date(startDate.getTime() + (60 * 60 * 1000));
+                        const start = toInputDateTime(startDate);
+                        const end = toInputDateTime(endDate);
+                        openModalFromUrl(`{{ create_url }}?starts_at=${encodeURIComponent(start)}&ends_at=${encodeURIComponent(end)}`);
+                    }
+                },
+                eventClick: function (info) {
+                    openModalFromUrl(`/scheduling/${info.event.id}/detail/`);
+                },
+                eventDrop: function (info) {
+                    persistMove(info);
+                },
+                eventResize: function (info) {
+                    persistMove(info);
+                },
+            });
+
+            function persistMove(info) {
+                const formData = new FormData();
+                formData.append('starts_at', info.event.start.toISOString());
+                if (info.event.end) {
+                    formData.append('ends_at', info.event.end.toISOString());
+                } else {
+                    const plusOneHour = new Date(info.event.start.getTime() + (60 * 60 * 1000));
+                    formData.append('ends_at', plusOneHour.toISOString());
+                }
+
+                fetch(`/scheduling/${info.event.id}/move/`, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': '{{ csrf_token }}',
+                    },
+                    body: formData,
+                })
+                .then(async (response) => {
+                    if (!response.ok) {
+                        let message = 'Nao foi possivel atualizar o horario do agendamento.';
+                        try {
+                            const payload = await response.json();
+                            if (payload.message) {
+                                message = payload.message;
+                            }
+                        } catch (e) {
+                            // no-op
+                        }
+                        info.revert();
+                        document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: message, type: 'error' } }));
+                        return;
+                    }
+                    document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'Agendamento atualizado com sucesso.', type: 'success' } }));
+                })
+                .catch(function () {
+                    info.revert();
+                    document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'Erro ao salvar alteracao do agendamento.', type: 'error' } }));
+                });
+            }
+
+            window.refetchAppointments = function () {
+                calendar.refetchEvents();
+            };
+
+            window.clearAppointmentFilters = function () {
+                dateFromInput.value = '';
+                dateToInput.value = '';
+                customerInput.value = '';
+                vehicleInput.value = '';
+                statusInput.value = '';
+                calendar.refetchEvents();
+            };
+
+            window.openAppointmentCreateModal = function () {
+                openModalFromUrl('{{ create_url }}');
+            };
+
+            document.body.addEventListener('appointmentsCalendarRefresh', function () {
+                if (appointmentModal.open) {
+                    appointmentModal.close();
+                }
+                if (quickFormModal.open) {
+                    quickFormModal.close();
+                }
+                calendar.refetchEvents();
+            });
+
+            document.body.addEventListener('htmx:afterSwap', function (event) {
+                if (!event.detail || !event.detail.target) {
+                    return;
+                }
+
+                if (event.detail.target.id === 'modal-container' && !quickFormModal.open) {
+                    quickFormModal.showModal();
+                }
+            });
+
+            calendar.render();
+        })();
+    </script>
+{% endblock %}

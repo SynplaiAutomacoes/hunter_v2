@@ -104,6 +104,7 @@ INSTALLED_APPS = [
     "apps.budget",
     "apps.customer",
     "apps.workorder",
+    "apps.scheduling",
     "apps.stock",
     "apps.finance",
 ]
