@@ -27,8 +27,8 @@ class AppointmentForm(forms.ModelForm):
         fields = ["title", "customer", "vehicle", "starts_at", "ends_at", "block_color", "alert_customer", "status", "budget", "workorder", "notes"]
         widgets = {
             "title": TextInput(),
-            "starts_at": forms.DateTimeInput(attrs={"type": "datetime-local", "class": "input-theme h-12"}),
-            "ends_at": forms.DateTimeInput(attrs={"type": "datetime-local", "class": "input-theme h-12"}),
+            "starts_at": forms.DateTimeInput(format="%Y-%m-%dT%H:%M", attrs={"type": "datetime-local", "class": "input-theme h-12"}),
+            "ends_at": forms.DateTimeInput(format="%Y-%m-%dT%H:%M", attrs={"type": "datetime-local", "class": "input-theme h-12"}),
             "block_color": forms.HiddenInput(),
             "alert_customer": CheckboxInput(),
             "status": SelectInput(attrs={"class": "h-12"}),
@@ -47,6 +47,24 @@ class AppointmentForm(forms.ModelForm):
         vehicle_field = self.fields["vehicle"]
         budget_field = self.fields["budget"]
         workorder_field = self.fields["workorder"]
+        starts_at_field = self.fields["starts_at"]
+        ends_at_field = self.fields["ends_at"]
+
+        if not isinstance(starts_at_field, forms.DateTimeField) or not isinstance(ends_at_field, forms.DateTimeField):
+            raise TypeError("Campos de data/hora invalidos no AppointmentForm")
+
+        starts_at_field.input_formats = [
+            "%Y-%m-%dT%H:%M",
+            "%Y-%m-%dT%H:%M:%S",
+            "%Y-%m-%d %H:%M",
+            "%Y-%m-%d %H:%M:%S",
+        ]
+        ends_at_field.input_formats = [
+            "%Y-%m-%dT%H:%M",
+            "%Y-%m-%dT%H:%M:%S",
+            "%Y-%m-%d %H:%M",
+            "%Y-%m-%d %H:%M:%S",
+        ]
 
         if not isinstance(customer_field, forms.ModelChoiceField) or not isinstance(vehicle_field, forms.ModelChoiceField):
             raise TypeError("Campos de cliente/veiculo invalidos no AppointmentForm")
