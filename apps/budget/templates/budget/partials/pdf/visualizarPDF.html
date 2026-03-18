@@ -66,6 +66,25 @@
             overflow: hidden;
         }
 
+        .workshop-logo-box {
+            width: 250px;
+            max-width: 250px;
+            height: 72px;
+            max-height: 72px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        .workshop-logo-image {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            object-position: left center;
+        }
+
         .client-vehicle-section {
             min-height: 155px;
             max-height: 190px;
@@ -133,12 +152,19 @@
         <div class="pdf-main">
 
         {% if forloop.first %}
-        <div class="header-section flex justify-between items-start p-4 border-b border-gray-200">
-            <div class="flex-1 min-w-0 pr-4">
-                <h3 class="text-[18px] font-bold uppercase m-0 field-value fit-important">{{ budget.workshop.name }}</h3>
-                <p class="field-row"><span class="field-label">CNPJ:</span> <span class="field-value fit-important">{{ budget.workshop.cnpj|cnpj_br|default:"-" }}</span></p>
-                <p class="field-row multiline"><span class="field-value field-value-multiline fit-important-multiline">{{ budget.workshop.address|default:"-" }}</span></p>
-                <p class="field-row"><span class="field-label">Fone:</span> <span class="field-value fit-important">{{ budget.workshop.phone|phone_br|default:"-" }}</span></p>
+        <div class="header-section flex justify-between items-start p-4 border-b border-gray-200 gap-3">
+            <div class="flex-1 min-w-0 pr-4 flex items-start gap-3">
+                {% if workshop_logo_data_uri %}
+                <div class="workshop-logo-box">
+                    <img src="{{ workshop_logo_data_uri }}" alt="Logo da oficina" class="workshop-logo-image" />
+                </div>
+                {% endif %}
+                <div class="flex-1 min-w-0">
+                    <h3 class="text-[18px] font-bold uppercase m-0 field-value fit-important">{{ budget.workshop.name }}</h3>
+                    <p class="field-row"><span class="field-label">CNPJ:</span> <span class="field-value fit-important">{{ budget.workshop.cnpj|cnpj_br|default:"-" }}</span></p>
+                    <p class="field-row multiline"><span class="field-value field-value-multiline fit-important-multiline">{{ budget.workshop.address|default:"-" }}</span></p>
+                    <p class="field-row"><span class="field-label">Fone:</span> <span class="field-value fit-important">{{ budget.workshop.phone|phone_br|default:"-" }}</span></p>
+                </div>
             </div>
             <div class="text-right w-[180px] flex-shrink-0">
                 <h4 class="font-bold">ORDEM DE SERVIÇO</h4>

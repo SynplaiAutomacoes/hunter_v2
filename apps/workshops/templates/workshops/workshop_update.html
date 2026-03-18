@@ -79,6 +79,29 @@
                 </div>
             </form>
 
+            <form
+                method="post"
+                enctype="multipart/form-data"
+                x-show="activeTab === 'empresa'"
+                x-cloak
+                data-logo-autoupload-form
+                class="rounded-xl border border-base-300 p-4"
+            >
+                {% csrf_token %}
+                <input type="hidden" name="tab" value="logo_autoupload">
+
+                <div class="mb-3">
+                    <h3 class="text-base font-semibold">Logo da oficina</h3>
+                    <p class="text-xs text-base-content/70">Upload automatico ao selecionar ou remover a imagem. Nao sincroniza com a Webmania.</p>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                    <div class="col-span-12 lg:col-span-6">{{ logo_form.logo|as_crispy_field }}</div>
+                </div>
+
+                <p class="text-xs text-base-content/60 mt-2" data-logo-autoupload-status></p>
+            </form>
+
             <form method="post" enctype="multipart/form-data" x-show="activeTab === 'endereco'" x-cloak>
                 {% csrf_token %}
                 <input type="hidden" name="tab" value="endereco">
@@ -324,4 +347,92 @@
             </div>
         </div>
     </div>
+
+    <script>
+        (() => {
+            const form = document.querySelector('[data-logo-autoupload-form]');
+            if (!form) return;
+
+            const fileInput = form.querySelector('input[type="file"][name="logo"]');
+            const clearInput = form.querySelector('input[type="checkbox"][name="logo-clear"]');
+            const removeButtonSelector = 'button[title="Remover imagem"]';
+            const statusEl = form.querySelector('[data-logo-autoupload-status]');
+            let uploading = false;
+
+            const setStatus = (message, isError = false) => {
+                if (!statusEl) return;
+                statusEl.textContent = message;
+                statusEl.classList.toggle('text-error', Boolean(isError));
+                statusEl.classList.toggle('text-base-content/60', !isError);
+            };
+
+            const showToast = (message, type = 'success') => {
+                document.body.dispatchEvent(new CustomEvent('showToast', {
+                    detail: { message, type }
+                }));
+            };
+
+            const submitAutoUpload = async () => {
+                if (uploading) return;
+                uploading = true;
+                setStatus('Salvando logo...');
+
+                try {
+                    const response = await fetch(window.location.pathname + window.location.search, {
+                        method: 'POST',
+                        body: new FormData(form),
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest'
+                        }
+                    });
+
+                    let payload = {};
+                    try {
+                        payload = await response.json();
+                    } catch (_err) {
+                        payload = {};
+                    }
+
+                    if (!response.ok) {
+                        const errorMessage = payload.message || 'Erro ao salvar logo da oficina.';
+                        setStatus(errorMessage, true);
+                        showToast(errorMessage, 'error');
+                        return;
+                    }
+
+                    const successMessage = payload.message || 'Logo da oficina atualizada.';
+                    setStatus(successMessage);
+                    showToast(successMessage, 'success');
+                } catch (_err) {
+                    const errorMessage = 'Erro de conexao ao salvar logo da oficina.';
+                    setStatus(errorMessage, true);
+                    showToast(errorMessage, 'error');
+                } finally {
+                    uploading = false;
+                }
+            };
+
+            if (fileInput) {
+                fileInput.addEventListener('change', () => {
+                    submitAutoUpload();
+                });
+            }
+
+            if (clearInput) {
+                clearInput.addEventListener('change', () => {
+                    submitAutoUpload();
+                });
+            }
+
+            form.addEventListener('click', (event) => {
+                const target = event.target;
+                if (!(target instanceof Element)) return;
+                if (!target.closest(removeButtonSelector)) return;
+
+                window.setTimeout(() => {
+                    submitAutoUpload();
+                }, 0);
+            });
+        })();
+    </script>
 {% endblock %}
