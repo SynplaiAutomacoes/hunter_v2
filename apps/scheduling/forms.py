@@ -9,7 +9,7 @@ from django import forms
 from django.urls import reverse
 
 from apps.budget.models import Budget
-from apps.core.widgets import CheckboxInput, SearchableSelectInput, TextInput, TextareaInput
+from apps.core.widgets import CheckboxInput, SearchableSelectInput, SelectInput, TextInput, TextareaInput
 from apps.customer.models import Customer, Vehicle
 from apps.scheduling.models import Appointment, AppointmentStatus
 from apps.workorder.models import WorkOrder
@@ -29,9 +29,9 @@ class AppointmentForm(forms.ModelForm):
             "title": TextInput(),
             "starts_at": forms.DateTimeInput(attrs={"type": "datetime-local", "class": "input-theme h-12"}),
             "ends_at": forms.DateTimeInput(attrs={"type": "datetime-local", "class": "input-theme h-12"}),
-            "block_color": forms.TextInput(attrs={"type": "color", "class": "h-12 w-full rounded border border-base-300 bg-base-100"}),
+            "block_color": forms.HiddenInput(),
             "alert_customer": CheckboxInput(),
-            "status": forms.Select(attrs={"class": "select select-bordered w-full h-12"}),
+            "status": SelectInput(attrs={"class": "h-12"}),
             "notes": TextareaInput(rows=3),
         }
 
@@ -256,7 +256,6 @@ class AppointmentForm(forms.ModelForm):
                 HTML('<div class="col-span-12 mb-1 mt-2 text-sm font-semibold uppercase tracking-wide text-base-content/70">Horario e Status</div>'),
                 Field("starts_at", wrapper_class="col-span-12 lg:col-span-6"),
                 Field("ends_at", wrapper_class="col-span-12 lg:col-span-6"),
-                Field("block_color", wrapper_class="col-span-12 lg:col-span-6"),
                 Field("alert_customer", wrapper_class="col-span-12 lg:col-span-6"),
                 Field("status", wrapper_class="col-span-12 lg:col-span-6"),
                 HTML('<div class="col-span-12 mb-1 mt-2 text-sm font-semibold uppercase tracking-wide text-base-content/70">Vinculos</div>'),
