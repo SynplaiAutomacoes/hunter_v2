@@ -14,7 +14,7 @@ from django.db.models import F, ExpressionWrapper, IntegerField, Q
 from djmoney.money import Money
 
 from .forms import ImportStep1Form, ImportStepSupplierForm, ImportStepItemsForm, ImportStepPaymentForm, QuickProductForm, ImportStepSummaryForm, ImportSefazListForm, CatalogGroupQuickForm, ImportStepSupplierManualForm, QuickSupplierForm, ImportManualItemsForm
-from .models import StockProduct, StockMovement, StockPaymentMethod, StockImport
+from .models import StockProduct, StockMovement, StockImport
 from ..catalog.models.groups import CatalogGroup
 from ..catalog.models.products import Product
 from ..core.forms import MultiStepFormMixin
@@ -706,6 +706,7 @@ class SupplierQuickCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateVie
 
         return super().form_valid(form)
 
+
 class SupplierQuickUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
     model = Supplier
     form_class = QuickSupplierForm
@@ -744,7 +745,11 @@ class UpdateManualItemDataView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if item_idx is None:
             return HttpResponse(status=400)
 
-        idx = int(item_idx)
+        try:
+            idx = int(item_idx)
+        except (TypeError, ValueError):
+            return HttpResponse(status=400)
+
         items = list(obj.items_data)
 
         if 0 <= idx < len(items):
@@ -765,7 +770,6 @@ class UpdateManualItemDataView(LoginRequiredMixin, WorkshopScopedMixin, View):
             obj.items_data = items
             obj.save(update_fields=["items_data"])
 
-
-        response = HttpResponse("")
+        response = HttpResponse(status=204)
         response["HX-Trigger"] = "productCreated"
         return response
