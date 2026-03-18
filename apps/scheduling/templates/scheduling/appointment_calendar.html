@@ -73,6 +73,40 @@
 
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/locales-all.global.min.js"></script>
+    <style>
+        #appointments-calendar .fc .fc-toolbar-title {
+            color: hsl(var(--bc));
+            font-weight: 700;
+        }
+
+        #appointments-calendar .fc .fc-button {
+            border-color: hsl(var(--b3));
+            background: hsl(var(--b2));
+            color: hsl(var(--bc));
+            box-shadow: none;
+        }
+
+        #appointments-calendar .fc .fc-button:hover,
+        #appointments-calendar .fc .fc-button:focus {
+            background: hsl(var(--b3));
+            border-color: hsl(var(--b3));
+            color: hsl(var(--bc));
+        }
+
+        #appointments-calendar .fc .fc-button-primary:not(:disabled).fc-button-active,
+        #appointments-calendar .fc .fc-button-primary:not(:disabled):active {
+            background: hsl(var(--p));
+            border-color: hsl(var(--p));
+            color: hsl(var(--pc));
+        }
+
+        #appointments-calendar .fc .fc-col-header-cell-cushion,
+        #appointments-calendar .fc .fc-daygrid-day-number,
+        #appointments-calendar .fc .fc-list-day-text,
+        #appointments-calendar .fc .fc-list-day-side-text {
+            color: hsl(var(--bc));
+        }
+    </style>
     <script>
         (function () {
             const calendarEl = document.getElementById('appointments-calendar');
@@ -243,6 +277,18 @@
 
                 if (event.detail.target.id === 'modal-container' && !quickFormModal.open) {
                     quickFormModal.showModal();
+                }
+            });
+
+            document.body.addEventListener('customerSaved', function () {
+                if (quickFormModal.open) {
+                    quickFormModal.close();
+                }
+            });
+
+            document.body.addEventListener('vehicleSaved', function () {
+                if (quickFormModal.open) {
+                    quickFormModal.close();
                 }
             });
 

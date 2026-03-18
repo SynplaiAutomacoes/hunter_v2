@@ -135,8 +135,25 @@ class AppointmentCreateView(AppointmentBaseFormMixin, CreateView):
         response["HX-Trigger"] = json.dumps({"appointmentsCalendarRefresh": True, "showToast": {"message": "Agendamento salvo com sucesso.", "type": "success"}})
         return response
 
+    def _htmx_redirect_response(self, *, url: str):
+        response = HttpResponse(status=204)
+        response["HX-Redirect"] = url
+        return response
+
     def form_valid(self, form):
-        self.object = form.save()
+        object_appointment = form.save()
+        self.object = object_appointment
+        action = (self.request.POST.get("action") or "").strip()
+
+        if action == "save_and_create_budget":
+            customer = object_appointment.customer
+            vehicle = object_appointment.vehicle
+            redirect_url = build_budget_create_url(customer_id=customer.pk, vehicle_id=vehicle.pk)
+            if bool(getattr(self.request, "htmx", False)):
+                return self._htmx_redirect_response(url=redirect_url)
+
+            return HttpResponse(status=302, headers={"Location": redirect_url})
+
         if bool(getattr(self.request, "htmx", False)):
             return self._htmx_success_response()
         return CreateView.form_valid(self, form)
@@ -194,8 +211,25 @@ class AppointmentUpdateView(AppointmentBaseFormMixin, UpdateView):
         response["HX-Trigger"] = json.dumps({"appointmentsCalendarRefresh": True, "showToast": {"message": "Agendamento salvo com sucesso.", "type": "success"}})
         return response
 
+    def _htmx_redirect_response(self, *, url: str):
+        response = HttpResponse(status=204)
+        response["HX-Redirect"] = url
+        return response
+
     def form_valid(self, form):
-        self.object = form.save()
+        object_appointment = form.save()
+        self.object = object_appointment
+        action = (self.request.POST.get("action") or "").strip()
+
+        if action == "save_and_create_budget":
+            customer = object_appointment.customer
+            vehicle = object_appointment.vehicle
+            redirect_url = build_budget_create_url(customer_id=customer.pk, vehicle_id=vehicle.pk)
+            if bool(getattr(self.request, "htmx", False)):
+                return self._htmx_redirect_response(url=redirect_url)
+
+            return HttpResponse(status=302, headers={"Location": redirect_url})
+
         if bool(getattr(self.request, "htmx", False)):
             return self._htmx_success_response()
         return UpdateView.form_valid(self, form)

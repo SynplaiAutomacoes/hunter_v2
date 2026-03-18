@@ -65,24 +65,16 @@ class AppointmentForm(forms.ModelForm):
             selected_customer_id = str(self.instance.customer_id)
             selected_vehicle_id = str(self.instance.vehicle_id)
 
+        if not selected_customer_id and self.initial.get("customer"):
+            selected_customer_id = str(self.initial.get("customer"))
+
+        if not selected_vehicle_id and self.initial.get("vehicle"):
+            selected_vehicle_id = str(self.initial.get("vehicle"))
+
         if selected_customer_id and self.workshop:
             vehicle_field.queryset = Vehicle.objects.filter(workshop=self.workshop, customer_id=selected_customer_id).order_by("plate")
         else:
             vehicle_field.queryset = Vehicle.objects.none()
-
-        self.fields["customer"].widget.attrs.update(
-            {
-                "x-model": "customerId",
-                "@change": "customerId = $el.value; vehicleId = ''; updateVehicleList($el.value);",
-            }
-        )
-        self.fields["vehicle"].widget.attrs.update(
-            {
-                "x-model": "vehicleId",
-                ":disabled": "!customerId",
-                ":class": "{ 'cursor-not-allowed': !customerId }",
-            }
-        )
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -112,7 +104,7 @@ class AppointmentForm(forms.ModelForm):
                         }
 
                         try {
-                            const response = await fetch(`/scheduling/get-vehicles/?customer=${customerId}`);
+                            const response = await fetch(`/scheduling/get-vehicles/?customer=${encodeURIComponent(customerId)}`);
                             if (!response.ok) {
                                 return;
                             }
@@ -168,6 +160,11 @@ class AppointmentForm(forms.ModelForm):
                     if (!window.__appointmentCustomerSavedBound) {
                         window.__appointmentCustomerSavedBound = true;
                         document.body.addEventListener('customerSaved', function (evt) {
+                            const quickFormModal = document.getElementById('quick_form_modal');
+                            if (quickFormModal && quickFormModal.open) {
+                                quickFormModal.close();
+                            }
+
                             const customer = evt && evt.detail ? evt.detail : null;
                             selectCustomerFromQuickForm(customer);
                         });
@@ -176,6 +173,11 @@ class AppointmentForm(forms.ModelForm):
                     if (!window.__appointmentVehicleSavedBound) {
                         window.__appointmentVehicleSavedBound = true;
                         document.body.addEventListener('vehicleSaved', function (evt) {
+                            const quickFormModal = document.getElementById('quick_form_modal');
+                            if (quickFormModal && quickFormModal.open) {
+                                quickFormModal.close();
+                            }
+
                             const vehicle = evt && evt.detail ? evt.detail : null;
                             if (!vehicle || !vehicle.id) return;
 
@@ -233,6 +235,17 @@ class AppointmentForm(forms.ModelForm):
                 Field("workorder", wrapper_class="col-span-12 lg:col-span-6"),
                 Field("notes", wrapper_class="col-span-12"),
                 x_data=customer_vehicle_x_data,
+                **{
+                    "@change": """
+                        if ($event.target && $event.target.name === 'customer') {
+                            customerId = $event.target.value || '';
+                            vehicleId = '';
+                            updateVehicleList(customerId);
+                        } else if ($event.target && $event.target.name === 'vehicle') {
+                            vehicleId = $event.target.value || '';
+                        }
+                    """,
+                },
                 css_class="grid grid-cols-12 gap-4",
             ),
         )

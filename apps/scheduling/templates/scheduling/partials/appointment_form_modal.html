@@ -1,6 +1,6 @@
 {% load crispy_forms_tags %}
 
-<div class="modal-box w-11/12 max-w-4xl bg-base-100">
+<div class="modal-box w-11/12 max-w-5xl border border-base-300 bg-base-100 shadow-2xl">
     <div class="mb-4 flex items-center justify-between gap-2">
         <h3 class="text-2xl font-bold">{% if is_update %}Editar Agendamento{% else %}Novo Agendamento{% endif %}</h3>
         <button type="button" class="btn btn-sm btn-circle btn-ghost" onclick="document.getElementById('appointment_modal').close()">✕</button>
@@ -13,6 +13,26 @@
         class="space-y-4"
     >
         {% csrf_token %}
+
+        <div class="grid grid-cols-1 gap-3 rounded-xl border border-base-300 bg-base-200/30 p-4 md:grid-cols-3">
+            <div class="space-y-2 md:col-span-2">
+                <p class="text-sm font-semibold">Cor do bloco</p>
+                <div class="flex flex-wrap gap-2">
+                    <button type="button" class="h-8 w-8 rounded-full border-2 border-white ring-1 ring-base-300" style="background:#0ea5e9" onclick="window.setAppointmentColor && window.setAppointmentColor('#0ea5e9')" aria-label="Azul"></button>
+                    <button type="button" class="h-8 w-8 rounded-full border-2 border-white ring-1 ring-base-300" style="background:#22c55e" onclick="window.setAppointmentColor && window.setAppointmentColor('#22c55e')" aria-label="Verde"></button>
+                    <button type="button" class="h-8 w-8 rounded-full border-2 border-white ring-1 ring-base-300" style="background:#f59e0b" onclick="window.setAppointmentColor && window.setAppointmentColor('#f59e0b')" aria-label="Amarelo"></button>
+                    <button type="button" class="h-8 w-8 rounded-full border-2 border-white ring-1 ring-base-300" style="background:#ef4444" onclick="window.setAppointmentColor && window.setAppointmentColor('#ef4444')" aria-label="Vermelho"></button>
+                    <button type="button" class="h-8 w-8 rounded-full border-2 border-white ring-1 ring-base-300" style="background:#8b5cf6" onclick="window.setAppointmentColor && window.setAppointmentColor('#8b5cf6')" aria-label="Violeta"></button>
+                    <button type="button" class="h-8 w-8 rounded-full border-2 border-white ring-1 ring-base-300" style="background:#14b8a6" onclick="window.setAppointmentColor && window.setAppointmentColor('#14b8a6')" aria-label="Turquesa"></button>
+                </div>
+            </div>
+
+            <div class="rounded-lg border border-base-300 bg-base-100 p-3">
+                <p class="mb-2 text-xs uppercase tracking-wide text-base-content/70">Preview</p>
+                <div id="appointment-color-preview" class="h-8 rounded-md bg-sky-500"></div>
+            </div>
+        </div>
+
         {% crispy form %}
 
         <div class="modal-action mt-4">
@@ -29,8 +49,38 @@
                 </button>
             {% endif %}
 
+            <button type="submit" name="action" value="save_and_create_budget" class="btn btn-secondary mr-auto">
+                Salvar e Cadastrar no Orçamento
+            </button>
+
             <button type="button" class="btn btn-ghost" onclick="document.getElementById('appointment_modal').close()">Cancelar</button>
             <button type="submit" class="btn btn-primary">Salvar</button>
         </div>
     </form>
 </div>
+
+<script>
+    (function () {
+        const colorInput = document.getElementById('id_block_color');
+        const preview = document.getElementById('appointment-color-preview');
+        if (!colorInput || !preview) {
+            return;
+        }
+
+        function syncColorPreview(value) {
+            preview.style.background = value || '#0ea5e9';
+        }
+
+        syncColorPreview(colorInput.value);
+
+        colorInput.addEventListener('input', function () {
+            syncColorPreview(colorInput.value);
+        });
+
+        window.setAppointmentColor = function (value) {
+            colorInput.value = value;
+            colorInput.dispatchEvent(new Event('input', { bubbles: true }));
+            syncColorPreview(value);
+        };
+    })();
+</script>
