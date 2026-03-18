@@ -18,6 +18,18 @@
         {% csrf_token %}
         {{ form.block_color }}
 
+        {% if form.non_field_errors %}
+            <div class="alert alert-error">
+                <span>{{ form.non_field_errors|join:' ' }}</span>
+            </div>
+        {% endif %}
+
+        {% if form.budget.errors or form.workorder.errors %}
+            <div class="alert alert-warning">
+                <span>O orçamento e a O.S. precisam estar coerentes entre si para salvar o agendamento.</span>
+            </div>
+        {% endif %}
+
         <div class="grid grid-cols-1 gap-3 rounded-xl border border-base-300 bg-base-200/30 p-4 md:grid-cols-3">
             <div class="space-y-2 md:col-span-2">
                 <p class="text-sm font-semibold">Cor do bloco</p>
@@ -71,22 +83,39 @@
         const colorInput = document.getElementById('id_block_color');
         const preview = document.getElementById('appointment-color-preview');
 
-        if (modalForm && !modalForm.dataset.hxSubmitBound) {
-            modalForm.dataset.hxSubmitBound = '1';
-            modalForm.addEventListener('submit', function (event) {
-                event.preventDefault();
-                const formData = new FormData(modalForm);
-                const submitter = event.submitter;
-                if (submitter && submitter.name) {
-                    formData.append(submitter.name, submitter.value || '');
+        if (modalForm && !window.__appointmentModalHtmxDebugBound) {
+            window.__appointmentModalHtmxDebugBound = true;
+            document.body.addEventListener('htmx:beforeRequest', function (event) {
+                if (event.detail && event.detail.elt && event.detail.elt.closest && event.detail.elt.closest('#appointment-modal-container')) {
+                    console.debug('[SCHED_DEBUG] htmx:beforeRequest', {
+                        path: event.detail.pathInfo ? event.detail.pathInfo.requestPath : null,
+                        verb: event.detail.requestConfig ? event.detail.requestConfig.verb : null,
+                    });
                 }
+            });
 
-                htmx.ajax('POST', modalForm.action, {
-                    source: modalForm,
-                    target: '#appointment-modal-container',
-                    swap: 'innerHTML',
-                    values: Object.fromEntries(formData.entries()),
-                });
+            document.body.addEventListener('htmx:afterRequest', function (event) {
+                if (event.detail && event.detail.elt && event.detail.elt.closest && event.detail.elt.closest('#appointment-modal-container')) {
+                    console.debug('[SCHED_DEBUG] htmx:afterRequest', {
+                        status: event.detail.xhr ? event.detail.xhr.status : null,
+                        successful: !!(event.detail.successful),
+                    });
+                }
+            });
+
+            document.body.addEventListener('htmx:responseError', function (event) {
+                if (event.detail && event.detail.elt && event.detail.elt.closest && event.detail.elt.closest('#appointment-modal-container')) {
+                    console.error('[SCHED_DEBUG] htmx:responseError', {
+                        status: event.detail.xhr ? event.detail.xhr.status : null,
+                        responseText: event.detail.xhr ? event.detail.xhr.responseText : null,
+                    });
+                }
+            });
+
+            document.body.addEventListener('htmx:sendError', function (event) {
+                if (event.detail && event.detail.elt && event.detail.elt.closest && event.detail.elt.closest('#appointment-modal-container')) {
+                    console.error('[SCHED_DEBUG] htmx:sendError', event.detail.error);
+                }
             });
         }
 

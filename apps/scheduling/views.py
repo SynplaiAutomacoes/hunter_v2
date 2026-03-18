@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, date, datetime, time
 
 from django.contrib import messages
@@ -23,6 +24,23 @@ from apps.workorder.models import WorkOrder
 from apps.workshops.mixin import WorkshopScopedMixin
 
 
+logger = logging.getLogger(__name__)
+
+
+def _log_request_context(request, scope: str, **extra) -> None:
+    logger.warning(
+        "[SCHED_DEBUG] %s method=%s path=%s htmx=%s HX-Request=%s HX-Target=%s HX-Current-URL=%s extra=%s",
+        scope,
+        request.method,
+        request.path,
+        bool(getattr(request, "htmx", False)),
+        request.headers.get("HX-Request", ""),
+        request.headers.get("HX-Target", ""),
+        request.headers.get("HX-Current-URL", ""),
+        extra,
+    )
+
+
 def _parse_request_datetime(raw_value: str | None) -> datetime | None:
     value = (raw_value or "").strip()
     if not value:
@@ -33,8 +51,13 @@ def _parse_request_datetime(raw_value: str | None) -> datetime | None:
         return None
 
     if timezone.is_naive(dt):
-        dt = timezone.make_aware(dt, timezone.get_current_timezone())
-    return timezone.localtime(dt)
+        aware = timezone.make_aware(dt, timezone.get_current_timezone())
+        logger.warning("[SCHED_DEBUG] parse_datetime naive raw=%s -> aware_local=%s", value, aware.isoformat())
+        return aware
+
+    localized = timezone.localtime(dt)
+    logger.warning("[SCHED_DEBUG] parse_datetime aware raw=%s -> local=%s", value, localized.isoformat())
+    return localized
 
 
 def _parse_wall_datetime(raw_value: str | None) -> datetime | None:
@@ -47,7 +70,9 @@ def _parse_wall_datetime(raw_value: str | None) -> datetime | None:
         normalized = normalized[:16]
 
     try:
-        return datetime.strptime(normalized, "%Y-%m-%dT%H:%M")
+        parsed = datetime.strptime(normalized, "%Y-%m-%dT%H:%M")
+        logger.warning("[SCHED_DEBUG] parse_wall raw=%s -> parsed=%s", value, parsed.isoformat())
+        return parsed
     except ValueError:
         return None
 
@@ -63,7 +88,9 @@ def _parse_request_timestamp(raw_value: str | None) -> datetime | None:
         return None
 
     utc_dt = datetime.fromtimestamp(milliseconds / 1000, tz=UTC)
-    return timezone.localtime(utc_dt)
+    localized = timezone.localtime(utc_dt)
+    logger.warning("[SCHED_DEBUG] parse_ts raw=%s -> utc=%s local=%s", value, utc_dt.isoformat(), localized.isoformat())
+    return localized
 
 
 def _parse_request_date(raw_value: str | None) -> date | None:
@@ -161,6 +188,7 @@ class AppointmentCreateView(AppointmentBaseFormMixin, CreateView):
     success_url = reverse_lazy("scheduling:appointment_calendar")
 
     def get(self, request, *args, **kwargs):
+        _log_request_context(request, "create.get")
         if not bool(getattr(request, "htmx", False)):
             return HttpResponse(status=302, headers={"Location": reverse("scheduling:appointment_calendar")})
         return super().get(request, *args, **kwargs)
@@ -182,6 +210,13 @@ class AppointmentCreateView(AppointmentBaseFormMixin, CreateView):
         return response
 
     def form_valid(self, form):
+        _log_request_context(
+            self.request,
+            "create.form_valid",
+            action=(self.request.POST.get("action") or ""),
+            starts_at=str(form.cleaned_data.get("starts_at")),
+            ends_at=str(form.cleaned_data.get("ends_at")),
+        )
         object_appointment = form.save()
         self.object = object_appointment
         action = (self.request.POST.get("action") or "").strip()
@@ -200,6 +235,13 @@ class AppointmentCreateView(AppointmentBaseFormMixin, CreateView):
         return CreateView.form_valid(self, form)
 
     def form_invalid(self, form):
+        _log_request_context(
+            self.request,
+            "create.form_invalid",
+            errors=form.errors.get_json_data(),
+            posted_starts_at=(self.request.POST.get("starts_at") or ""),
+            posted_ends_at=(self.request.POST.get("ends_at") or ""),
+        )
         if bool(getattr(self.request, "htmx", False)):
             return render(
                 self.request,
@@ -208,7 +250,7 @@ class AppointmentCreateView(AppointmentBaseFormMixin, CreateView):
                     "form": form,
                     "is_update": False,
                 },
-                status=400,
+                status=200,
             )
         messages.error(self.request, "Nao foi possivel salvar o agendamento. Revise os campos informados.")
         return HttpResponse(status=302, headers={"Location": reverse("scheduling:appointment_calendar")})
@@ -231,6 +273,17 @@ class AppointmentCreateView(AppointmentBaseFormMixin, CreateView):
         if vehicle_id:
             initial["vehicle"] = vehicle_id
 
+        _log_request_context(
+            self.request,
+            "create.get_initial",
+            query_starts_at=(self.request.GET.get("starts_at") or ""),
+            query_ends_at=(self.request.GET.get("ends_at") or ""),
+            query_start_ts=(self.request.GET.get("start_ts") or ""),
+            query_end_ts=(self.request.GET.get("end_ts") or ""),
+            initial_starts_at=str(initial.get("starts_at") or ""),
+            initial_ends_at=str(initial.get("ends_at") or ""),
+        )
+
         return initial
 
     def get_context_data(self, **kwargs):
@@ -243,6 +296,7 @@ class AppointmentUpdateView(AppointmentBaseFormMixin, UpdateView):
     success_url = reverse_lazy("scheduling:appointment_calendar")
 
     def get(self, request, *args, **kwargs):
+        _log_request_context(request, "update.get", pk=kwargs.get("pk"))
         if not bool(getattr(request, "htmx", False)):
             return HttpResponse(status=302, headers={"Location": reverse("scheduling:appointment_calendar")})
         return super().get(request, *args, **kwargs)
@@ -264,6 +318,14 @@ class AppointmentUpdateView(AppointmentBaseFormMixin, UpdateView):
         return response
 
     def form_valid(self, form):
+        _log_request_context(
+            self.request,
+            "update.form_valid",
+            pk=self.kwargs.get("pk"),
+            action=(self.request.POST.get("action") or ""),
+            starts_at=str(form.cleaned_data.get("starts_at")),
+            ends_at=str(form.cleaned_data.get("ends_at")),
+        )
         object_appointment = form.save()
         self.object = object_appointment
         action = (self.request.POST.get("action") or "").strip()
@@ -282,6 +344,14 @@ class AppointmentUpdateView(AppointmentBaseFormMixin, UpdateView):
         return UpdateView.form_valid(self, form)
 
     def form_invalid(self, form):
+        _log_request_context(
+            self.request,
+            "update.form_invalid",
+            pk=self.kwargs.get("pk"),
+            errors=form.errors.get_json_data(),
+            posted_starts_at=(self.request.POST.get("starts_at") or ""),
+            posted_ends_at=(self.request.POST.get("ends_at") or ""),
+        )
         if bool(getattr(self.request, "htmx", False)):
             object_appointment = self.get_object()
             return render(
@@ -292,7 +362,7 @@ class AppointmentUpdateView(AppointmentBaseFormMixin, UpdateView):
                     "is_update": True,
                     "delete_url": reverse("scheduling:appointment_delete", kwargs={"pk": object_appointment.pk}),
                 },
-                status=400,
+                status=200,
             )
         messages.error(self.request, "Nao foi possivel salvar o agendamento. Revise os campos informados.")
         return HttpResponse(status=302, headers={"Location": reverse("scheduling:appointment_calendar")})

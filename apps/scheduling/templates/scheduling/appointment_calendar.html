@@ -77,7 +77,7 @@
     </dialog>
 
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/locales-all.global.min.js"></script>
+    <script src="https://unpkg.com/fullcalendar@6.1.19/locales-all.global.min.js"></script>
     <style>
         #appointments-calendar .fc .fc-toolbar-title {
             color: hsl(var(--bc));
@@ -322,6 +322,12 @@
                         const startDate = new Date(info.date);
                         const endDate = new Date(startDate.getTime() + (60 * 60 * 1000));
                         openCreateFromRange(startDate.toISOString(), endDate.toISOString());
+                    } else if (calendar.view.type.startsWith('timeGrid')) {
+                        const start = info.dateStr;
+                        const startDate = new Date(info.date);
+                        const endDate = new Date(startDate.getTime() + (60 * 60 * 1000));
+                        const end = endDate.toISOString();
+                        openCreateFromRange(start, end);
                     }
                 },
                 eventClick: function (info) {
