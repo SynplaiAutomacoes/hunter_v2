@@ -41,47 +41,53 @@ class Appointment(TimeStampedModel):
     def clean(self) -> None:
         errors: dict[str, list[str]] = {}
 
+        workshop_id = self.__dict__.get("workshop_id")
+        customer_id = self.__dict__.get("customer_id")
+        vehicle_id = self.__dict__.get("vehicle_id")
+        budget_id = self.__dict__.get("budget_id")
+        workorder_id = self.__dict__.get("workorder_id")
+
         if self.ends_at and self.starts_at and self.ends_at <= self.starts_at:
             errors.setdefault("ends_at", []).append("A data de saida deve ser maior que a data de entrada.")
 
-        if self.customer and self.vehicle and self.vehicle.customer != self.customer:
+        if customer_id and vehicle_id and self.vehicle.customer_id != customer_id:
             errors.setdefault("vehicle", []).append("O veiculo deve pertencer ao cliente selecionado.")
 
-        if self.workshop and self.customer and self.customer.workshop != self.workshop:
+        if workshop_id and customer_id and self.customer.workshop_id != workshop_id:
             errors.setdefault("customer", []).append("Cliente invalido para a oficina ativa.")
 
-        if self.workshop and self.vehicle and self.vehicle.workshop != self.workshop:
+        if workshop_id and vehicle_id and self.vehicle.workshop_id != workshop_id:
             errors.setdefault("vehicle", []).append("Veiculo invalido para a oficina ativa.")
 
-        if self.budget:
-            if self.workshop and self.budget.workshop != self.workshop:
+        if budget_id:
+            if workshop_id and self.budget.workshop_id != workshop_id:
                 errors.setdefault("budget", []).append("Orcamento invalido para a oficina ativa.")
 
-            if self.customer and self.budget.customer and self.budget.customer != self.customer:
+            if customer_id and self.budget.customer_id and self.budget.customer_id != customer_id:
                 errors.setdefault("budget", []).append("O orcamento deve pertencer ao cliente selecionado.")
 
-            if self.vehicle and self.budget.vehicle and self.budget.vehicle != self.vehicle:
+            if vehicle_id and self.budget.vehicle_id and self.budget.vehicle_id != vehicle_id:
                 errors.setdefault("budget", []).append("O orcamento deve pertencer ao veiculo selecionado.")
 
-        if self.workorder:
-            if self.workshop and self.workorder.workshop != self.workshop:
+        if workorder_id:
+            if workshop_id and self.workorder.workshop_id != workshop_id:
                 errors.setdefault("workorder", []).append("Ordem de servico invalida para a oficina ativa.")
 
             workorder_budget = getattr(self.workorder, "budget", None)
             if self.budget and workorder_budget and workorder_budget.pk != self.budget.pk:
                 errors.setdefault("workorder", []).append("A ordem de servico deve ser do mesmo orcamento vinculado.")
 
-            if self.customer and workorder_budget and workorder_budget.customer and workorder_budget.customer != self.customer:
+            if customer_id and workorder_budget and workorder_budget.customer_id and workorder_budget.customer_id != customer_id:
                 errors.setdefault("workorder", []).append("A ordem de servico deve pertencer ao cliente selecionado.")
 
-            if self.vehicle and workorder_budget and workorder_budget.vehicle and workorder_budget.vehicle != self.vehicle:
+            if vehicle_id and workorder_budget and workorder_budget.vehicle_id and workorder_budget.vehicle_id != vehicle_id:
                 errors.setdefault("workorder", []).append("A ordem de servico deve pertencer ao veiculo selecionado.")
 
-        if self.workshop and self.vehicle and self.starts_at and self.ends_at and self.status == AppointmentStatus.SCHEDULED:
+        if workshop_id and vehicle_id and self.starts_at and self.ends_at and self.status == AppointmentStatus.SCHEDULED:
             overlapping = (
                 Appointment.objects.filter(
-                    workshop=self.workshop,
-                    vehicle=self.vehicle,
+                    workshop_id=workshop_id,
+                    vehicle_id=vehicle_id,
                     status=AppointmentStatus.SCHEDULED,
                     starts_at__lt=self.ends_at,
                     ends_at__gt=self.starts_at,

@@ -1,4 +1,5 @@
 {% extends 'crud/page.html' %}
+{% load crispy_forms_tags %}
 
 {% block crud_content %}
     <div class="space-y-6">
@@ -21,35 +22,39 @@
 
         <div class="card bg-base-100 shadow-xl">
             <div class="card-body gap-4 p-4 md:p-6">
-                <div class="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-6">
+                <div id="appointment-filters-shell" class="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-6" x-data="{customerId: '', vehicleId: ''}" @change="
+                    if ($event.target && $event.target.name === 'customer') {
+                        customerId = $event.target.value || '';
+                        vehicleId = '';
+                        window.reloadCalendarVehicleFilterOptions(customerId);
+                    }
+                    if ($event.target && $event.target.name === 'vehicle') {
+                        vehicleId = $event.target.value || '';
+                    }
+                ">
                     <div>
-                        <label for="appointment-filter-date-from">Data Início</label>
-                        <input id="appointment-filter-date-from" type="date" class="input-theme" />
+                        <label for="{{ filters_form.date_from.id_for_label }}">{{ filters_form.date_from.label }}</label>
+                        {{ filters_form.date_from }}
                     </div>
 
                     <div>
-                        <label for="appointment-filter-date-to">Data Fim</label>
-                        <input id="appointment-filter-date-to" type="date" class="input-theme" />
+                        <label for="{{ filters_form.date_to.id_for_label }}">{{ filters_form.date_to.label }}</label>
+                        {{ filters_form.date_to }}
                     </div>
 
                     <div>
-                        <label for="appointment-filter-customer">Cliente</label>
-                        <input id="appointment-filter-customer" type="text" class="input-theme" placeholder="Nome do cliente" />
+                        <label for="{{ filters_form.customer.id_for_label }}">{{ filters_form.customer.label }}</label>
+                        {{ filters_form.customer }}
                     </div>
 
                     <div>
-                        <label for="appointment-filter-vehicle">Veiculo</label>
-                        <input id="appointment-filter-vehicle" type="text" class="input-theme" placeholder="Placa ou modelo" />
+                        <label for="{{ filters_form.vehicle.id_for_label }}">{{ filters_form.vehicle.label }}</label>
+                        {{ filters_form.vehicle }}
                     </div>
 
                     <div>
-                        <label for="appointment-filter-status">Status</label>
-                        <select id="appointment-filter-status" class="select select-bordered w-full">
-                            <option value="">Todos</option>
-                            <option value="scheduled">Agendado</option>
-                            <option value="completed">Concluido</option>
-                            <option value="cancelled">Cancelado</option>
-                        </select>
+                        <label for="{{ filters_form.status.id_for_label }}">{{ filters_form.status.label }}</label>
+                        {{ filters_form.status }}
                     </div>
 
                     <div class="flex items-end gap-2">
@@ -106,6 +111,56 @@
         #appointments-calendar .fc .fc-list-day-side-text {
             color: hsl(var(--bc));
         }
+
+        #appointments-calendar .fc-theme-standard td,
+        #appointments-calendar .fc-theme-standard th {
+            border-color: hsl(var(--b3));
+        }
+
+        #appointments-calendar .fc .fc-scrollgrid,
+        #appointments-calendar .fc .fc-daygrid-body,
+        #appointments-calendar .fc .fc-timegrid-slot,
+        #appointments-calendar .fc .fc-timegrid-col,
+        #appointments-calendar .fc .fc-list,
+        #appointments-calendar .fc .fc-list-table {
+            background: hsl(var(--b1));
+            color: hsl(var(--bc));
+        }
+
+        #appointments-calendar .fc .fc-col-header-cell,
+        #appointments-calendar .fc .fc-timegrid-axis,
+        #appointments-calendar .fc .fc-timegrid-slot-label,
+        #appointments-calendar .fc .fc-timegrid-slot-lane,
+        #appointments-calendar .fc .fc-daygrid-day-frame {
+            background: hsl(var(--b1));
+            color: hsl(var(--bc));
+        }
+
+        #appointments-calendar .fc .fc-daygrid-day.fc-day-today,
+        #appointments-calendar .fc .fc-timegrid-col.fc-day-today {
+            background: hsl(var(--b2));
+        }
+
+        #appointments-calendar .fc .fc-list-day-cushion {
+            background: hsl(var(--b2));
+            color: hsl(var(--bc));
+        }
+
+        #appointments-calendar .fc .fc-daygrid-day-top {
+            background: hsl(var(--b1));
+        }
+
+        #appointments-calendar .fc .fc-col-header {
+            background: hsl(var(--b2));
+        }
+
+        #appointment-filters-shell .relative .absolute.z-50 {
+            z-index: 70;
+        }
+
+        #appointment-filters-shell .input-theme {
+            min-height: 2.8rem;
+        }
     </style>
     <script>
         (function () {
@@ -122,14 +177,88 @@
             const customerInput = document.getElementById('appointment-filter-customer');
             const vehicleInput = document.getElementById('appointment-filter-vehicle');
             const statusInput = document.getElementById('appointment-filter-status');
+            const filtersShell = document.getElementById('appointment-filters-shell');
+
+            function getFilterValue(input) {
+                if (!input) return '';
+                if (input.value) return input.value;
+
+                const hidden = input.querySelector('input[type="hidden"]');
+                return hidden && hidden.value ? hidden.value : '';
+            }
+
+            function getSearchableContainerByHiddenId(hiddenId) {
+                const hiddenInput = document.getElementById(hiddenId);
+                return hiddenInput ? hiddenInput.closest('[x-data]') : null;
+            }
+
+            function clearSearchableSelect(hiddenId) {
+                const container = getSearchableContainerByHiddenId(hiddenId);
+                if (!container || !container.__x) return;
+
+                const data = Alpine.$data(container);
+                if (data && data.clear) {
+                    data.clear();
+                }
+            }
+
+            function appendOptionToSearchable(container, option) {
+                if (!container || !container.__x) return;
+                const data = Alpine.$data(container);
+                const optionsUl = container.querySelector('ul[role="listbox"]');
+                if (!data || !optionsUl) return;
+
+                const li = document.createElement('li');
+                li.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white transition-colors group';
+                li.setAttribute('data-value', String(option.id));
+                li.setAttribute('data-label', option.label);
+                li.setAttribute('x-show', `!search || '${String(option.label).replace(/'/g, "\\'")}'.toLowerCase().includes(search.toLowerCase())`);
+                li.innerHTML = `<span class="block truncate">${option.label}</span>`;
+                li.addEventListener('click', () => data.select(li));
+                optionsUl.appendChild(li);
+            }
+
+            window.reloadCalendarVehicleFilterOptions = async function (customerId) {
+                const vehicleContainer = getSearchableContainerByHiddenId('appointment-filter-vehicle');
+                if (!vehicleContainer || !vehicleContainer.__x) {
+                    return;
+                }
+
+                const data = Alpine.$data(vehicleContainer);
+                const optionsUl = vehicleContainer.querySelector('ul[role="listbox"]');
+                if (!data || !optionsUl) {
+                    return;
+                }
+
+                data.clear();
+                optionsUl.querySelectorAll('li[data-value]').forEach(li => li.remove());
+
+                if (!customerId) {
+                    return;
+                }
+
+                try {
+                    const response = await fetch(`/scheduling/get-vehicles/?customer=${encodeURIComponent(customerId)}`);
+                    if (!response.ok) {
+                        return;
+                    }
+                    const vehicles = await response.json();
+                    vehicles.forEach(vehicle => appendOptionToSearchable(vehicleContainer, vehicle));
+                    if (window.Alpine && Alpine.initTree) {
+                        Alpine.initTree(optionsUl);
+                    }
+                } catch (error) {
+                    console.error('Erro ao carregar veiculos do filtro:', error);
+                }
+            }
 
             function getFilters() {
                 return {
-                    date_from: dateFromInput.value,
-                    date_to: dateToInput.value,
-                    customer: customerInput.value,
-                    vehicle: vehicleInput.value,
-                    status: statusInput.value,
+                    date_from: dateFromInput ? dateFromInput.value : '',
+                    date_to: dateToInput ? dateToInput.value : '',
+                    customer: getFilterValue(customerInput),
+                    vehicle: getFilterValue(vehicleInput),
+                    status: statusInput ? statusInput.value : '',
                 };
             }
 
@@ -248,11 +377,11 @@
             };
 
             window.clearAppointmentFilters = function () {
-                dateFromInput.value = '';
-                dateToInput.value = '';
-                customerInput.value = '';
-                vehicleInput.value = '';
-                statusInput.value = '';
+                if (dateFromInput) dateFromInput.value = '';
+                if (dateToInput) dateToInput.value = '';
+                clearSearchableSelect('appointment-filter-customer');
+                clearSearchableSelect('appointment-filter-vehicle');
+                if (statusInput) statusInput.value = '';
                 calendar.refetchEvents();
             };
 
@@ -293,6 +422,13 @@
             });
 
             calendar.render();
+
+            if (filtersShell) {
+                const selectedCustomer = getFilterValue(customerInput);
+                if (selectedCustomer) {
+                    window.reloadCalendarVehicleFilterOptions(selectedCustomer);
+                }
+            }
         })();
     </script>
 {% endblock %}

@@ -1,6 +1,6 @@
 {% load crispy_forms_tags %}
 
-<div class="modal-box w-11/12 max-w-5xl border border-base-300 bg-base-100 shadow-2xl">
+<div class="modal-box w-[95vw] max-w-6xl overflow-visible border border-base-300 bg-base-100 shadow-2xl">
     <div class="mb-4 flex items-center justify-between gap-2">
         <h3 class="text-2xl font-bold">{% if is_update %}Editar Agendamento{% else %}Novo Agendamento{% endif %}</h3>
         <button type="button" class="btn btn-sm btn-circle btn-ghost" onclick="document.getElementById('appointment_modal').close()">✕</button>
@@ -10,7 +10,7 @@
         hx-post="{{ request.path }}{% if request.META.QUERY_STRING %}?{{ request.META.QUERY_STRING }}{% endif %}"
         hx-target="#appointment-modal-container"
         hx-swap="innerHTML"
-        class="space-y-4"
+        class="space-y-5"
     >
         {% csrf_token %}
 
@@ -33,7 +33,9 @@
             </div>
         </div>
 
-        {% crispy form %}
+        <div class="rounded-xl border border-base-300 bg-base-100 p-4 md:p-5">
+            {% crispy form %}
+        </div>
 
         <div class="modal-action mt-4">
             {% if is_update and delete_url %}
@@ -84,3 +86,29 @@
         };
     })();
 </script>
+
+<style>
+    #appointment_modal .modal-box {
+        overflow: visible;
+    }
+
+    #appointment_modal .input-theme,
+    #appointment_modal .select,
+    #appointment_modal textarea,
+    #appointment_modal input[type="datetime-local"],
+    #appointment_modal input[type="text"] {
+        min-height: 2.8rem;
+    }
+
+    #appointment_modal textarea {
+        min-height: 7rem;
+    }
+
+    #appointment_modal ul[role="listbox"] {
+        max-height: 16rem;
+    }
+
+    #appointment_modal .relative .absolute.z-50 {
+        z-index: 80;
+    }
+</style>

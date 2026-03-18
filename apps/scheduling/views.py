@@ -17,7 +17,7 @@ from django.views.generic import CreateView, DeleteView, TemplateView, UpdateVie
 
 from apps.budget.models import Budget
 from apps.customer.models import Vehicle
-from apps.scheduling.forms import AppointmentForm, AppointmentMoveForm, build_budget_create_url
+from apps.scheduling.forms import AppointmentCalendarFilterForm, AppointmentForm, AppointmentMoveForm, build_budget_create_url
 from apps.scheduling.models import Appointment
 from apps.workorder.models import WorkOrder
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -53,6 +53,7 @@ class AppointmentCalendarView(LoginRequiredMixin, WorkshopScopedMixin, TemplateV
         context = super().get_context_data(**kwargs)
         context["calendar_events_url"] = reverse("scheduling:appointment_events")
         context["create_url"] = reverse("scheduling:appointment_create")
+        context["filters_form"] = AppointmentCalendarFilterForm(workshop=self.workshop)
         return context
 
 
@@ -82,11 +83,17 @@ class AppointmentEventsView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         customer_filter = (request.GET.get("customer") or "").strip()
         if customer_filter:
-            queryset = queryset.filter(customer__name__icontains=customer_filter)
+            if customer_filter.isdigit():
+                queryset = queryset.filter(customer_id=customer_filter)
+            else:
+                queryset = queryset.filter(customer__name__icontains=customer_filter)
 
         vehicle_filter = (request.GET.get("vehicle") or "").strip()
         if vehicle_filter:
-            queryset = queryset.filter(Q(vehicle__plate__icontains=vehicle_filter) | Q(vehicle__model__icontains=vehicle_filter))
+            if vehicle_filter.isdigit():
+                queryset = queryset.filter(vehicle_id=vehicle_filter)
+            else:
+                queryset = queryset.filter(Q(vehicle__plate__icontains=vehicle_filter) | Q(vehicle__model__icontains=vehicle_filter))
 
         status_filter = (request.GET.get("status") or "").strip()
         if status_filter:

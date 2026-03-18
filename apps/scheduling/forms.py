@@ -11,7 +11,7 @@ from django.urls import reverse
 from apps.budget.models import Budget
 from apps.core.widgets import CheckboxInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.customer.models import Customer, Vehicle
-from apps.scheduling.models import Appointment
+from apps.scheduling.models import Appointment, AppointmentStatus
 from apps.workorder.models import WorkOrder
 from apps.workshops.models.workshops import Workshop
 
@@ -27,11 +27,11 @@ class AppointmentForm(forms.ModelForm):
         fields = ["title", "customer", "vehicle", "starts_at", "ends_at", "block_color", "alert_customer", "status", "budget", "workorder", "notes"]
         widgets = {
             "title": TextInput(),
-            "starts_at": forms.DateTimeInput(attrs={"type": "datetime-local"}),
-            "ends_at": forms.DateTimeInput(attrs={"type": "datetime-local"}),
+            "starts_at": forms.DateTimeInput(attrs={"type": "datetime-local", "class": "input-theme h-12"}),
+            "ends_at": forms.DateTimeInput(attrs={"type": "datetime-local", "class": "input-theme h-12"}),
             "block_color": forms.TextInput(attrs={"type": "color", "class": "h-12 w-full rounded border border-base-300 bg-base-100"}),
             "alert_customer": CheckboxInput(),
-            "status": forms.Select(attrs={"class": "select select-bordered w-full"}),
+            "status": forms.Select(attrs={"class": "select select-bordered w-full h-12"}),
             "notes": TextareaInput(rows=3),
         }
 
@@ -39,6 +39,9 @@ class AppointmentForm(forms.ModelForm):
         self.workshop = workshop
         self.request = request
         super().__init__(*args, **kwargs)
+
+        if self.workshop is not None:
+            self.instance.workshop = self.workshop
 
         customer_field = self.fields["customer"]
         vehicle_field = self.fields["vehicle"]
@@ -85,6 +88,22 @@ class AppointmentForm(forms.ModelForm):
             HTML(
                 r"""
                 <script>
+                    function syncAppointmentContextFromInput(name, value) {
+                        const shell = document.querySelector('[data-appointment-form-shell]');
+                        if (!shell || !shell.__x) return;
+                        const data = Alpine.$data(shell);
+                        if (!data) return;
+
+                        if (name === 'customer') {
+                            data.customerId = value || '';
+                            data.vehicleId = '';
+                        }
+
+                        if (name === 'vehicle') {
+                            data.vehicleId = value || '';
+                        }
+                    }
+
                     async function updateVehicleList(customerId, selectedVehicleId = null) {
                         const vehicleInput = document.querySelector('#id_vehicle');
                         if (!vehicleInput) return;
@@ -122,8 +141,13 @@ class AppointmentForm(forms.ModelForm):
 
                                 if (selectedVehicleId && String(v.id) === String(selectedVehicleId)) {
                                     vehicleData.select(li);
+                                    syncAppointmentContextFromInput('vehicle', String(v.id));
                                 }
                             });
+
+                            if (window.Alpine && Alpine.initTree) {
+                                Alpine.initTree(optionsUl);
+                            }
                         } catch (error) {
                             console.error('Erro ao carregar veiculos:', error);
                         }
@@ -154,6 +178,7 @@ class AppointmentForm(forms.ModelForm):
                         }
 
                         customerData.select(option);
+                        syncAppointmentContextFromInput('customer', customerId);
                         updateVehicleList(customer.id);
                     }
 
@@ -185,6 +210,7 @@ class AppointmentForm(forms.ModelForm):
                             const customerId = customerInput && customerInput.value ? customerInput.value : (vehicle.customer_id || '');
                             if (!customerId) return;
 
+                            syncAppointmentContextFromInput('customer', customerId);
                             updateVehicleList(customerId, vehicle.id);
                         });
                     }
@@ -192,6 +218,7 @@ class AppointmentForm(forms.ModelForm):
                 """
             ),
             Div(
+                HTML('<div class="col-span-12 mb-1 mt-1 text-sm font-semibold uppercase tracking-wide text-base-content/70">Cliente e Veiculo</div>'),
                 Field("title", wrapper_class="col-span-12"),
                 Div(
                     Field("customer", wrapper_class="flex-1 mb-0"),
@@ -226,15 +253,19 @@ class AppointmentForm(forms.ModelForm):
                     ),
                     css_class="col-span-12 flex items-end gap-2",
                 ),
+                HTML('<div class="col-span-12 mb-1 mt-2 text-sm font-semibold uppercase tracking-wide text-base-content/70">Horario e Status</div>'),
                 Field("starts_at", wrapper_class="col-span-12 lg:col-span-6"),
                 Field("ends_at", wrapper_class="col-span-12 lg:col-span-6"),
                 Field("block_color", wrapper_class="col-span-12 lg:col-span-6"),
                 Field("alert_customer", wrapper_class="col-span-12 lg:col-span-6"),
                 Field("status", wrapper_class="col-span-12 lg:col-span-6"),
+                HTML('<div class="col-span-12 mb-1 mt-2 text-sm font-semibold uppercase tracking-wide text-base-content/70">Vinculos</div>'),
                 Field("budget", wrapper_class="col-span-12 lg:col-span-6"),
                 Field("workorder", wrapper_class="col-span-12 lg:col-span-6"),
+                HTML('<div class="col-span-12 mb-1 mt-2 text-sm font-semibold uppercase tracking-wide text-base-content/70">Observacoes</div>'),
                 Field("notes", wrapper_class="col-span-12"),
                 x_data=customer_vehicle_x_data,
+                data_appointment_form_shell="1",
                 **{
                     "@change": """
                         if ($event.target && $event.target.name === 'customer') {
@@ -265,6 +296,61 @@ class AppointmentForm(forms.ModelForm):
     def save(self, commit: bool = True):
         self.instance.workshop = self.workshop
         return super().save(commit=commit)
+
+
+class AppointmentCalendarFilterForm(forms.Form):
+    date_from = forms.DateField(
+        required=False,
+        label="Data Início",
+        widget=forms.DateInput(attrs={"type": "date", "class": "input-theme", "id": "appointment-filter-date-from"}),
+    )
+    date_to = forms.DateField(
+        required=False,
+        label="Data Fim",
+        widget=forms.DateInput(attrs={"type": "date", "class": "input-theme", "id": "appointment-filter-date-to"}),
+    )
+    customer = forms.ModelChoiceField(
+        required=False,
+        label="Cliente",
+        queryset=Customer.objects.none(),
+        widget=SearchableSelectInput(attrs={"id": "appointment-filter-customer"}),
+    )
+    vehicle = forms.ModelChoiceField(
+        required=False,
+        label="Veiculo",
+        queryset=Vehicle.objects.none(),
+        widget=SearchableSelectInput(attrs={"id": "appointment-filter-vehicle"}),
+    )
+    status = forms.ChoiceField(
+        required=False,
+        label="Status",
+        choices=[("", "Todos"), *AppointmentStatus.choices],
+        widget=forms.Select(attrs={"class": "select select-bordered w-full", "id": "appointment-filter-status"}),
+    )
+
+    def __init__(self, *args: Any, workshop: Workshop | None = None, **kwargs: Any):
+        self.workshop = workshop
+        super().__init__(*args, **kwargs)
+
+        customer_field = self.fields["customer"]
+        vehicle_field = self.fields["vehicle"]
+
+        if not isinstance(customer_field, forms.ModelChoiceField) or not isinstance(vehicle_field, forms.ModelChoiceField):
+            raise TypeError("Campos de cliente/veiculo invalidos no AppointmentCalendarFilterForm")
+
+        if self.workshop:
+            customer_field.queryset = Customer.objects.filter(workshop=self.workshop, is_active=True).order_by("name")
+
+        selected_customer_id = ""
+        if self.is_bound:
+            selected_customer_id = (self.data.get("customer") or "").strip()
+        elif self.initial.get("customer"):
+            selected_customer_id = str(self.initial.get("customer"))
+
+        if selected_customer_id and self.workshop:
+            vehicle_field.queryset = Vehicle.objects.filter(workshop=self.workshop, customer_id=selected_customer_id).order_by("plate")
+        else:
+            vehicle_field.queryset = Vehicle.objects.none()
 
 
 class AppointmentMoveForm(forms.Form):
