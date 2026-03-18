@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, time
+from datetime import UTC, date, datetime, time
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -35,6 +35,35 @@ def _parse_request_datetime(raw_value: str | None) -> datetime | None:
     if timezone.is_naive(dt):
         dt = timezone.make_aware(dt, timezone.get_current_timezone())
     return timezone.localtime(dt)
+
+
+def _parse_wall_datetime(raw_value: str | None) -> datetime | None:
+    value = (raw_value or "").strip()
+    if not value:
+        return None
+
+    normalized = value.replace(" ", "T")
+    if len(normalized) >= 16:
+        normalized = normalized[:16]
+
+    try:
+        return datetime.strptime(normalized, "%Y-%m-%dT%H:%M")
+    except ValueError:
+        return None
+
+
+def _parse_request_timestamp(raw_value: str | None) -> datetime | None:
+    value = (raw_value or "").strip()
+    if not value:
+        return None
+
+    try:
+        milliseconds = int(value)
+    except ValueError:
+        return None
+
+    utc_dt = datetime.fromtimestamp(milliseconds / 1000, tz=UTC)
+    return timezone.localtime(utc_dt)
 
 
 def _parse_request_date(raw_value: str | None) -> date | None:
@@ -131,6 +160,11 @@ class AppointmentBaseFormMixin(LoginRequiredMixin, WorkshopScopedMixin):
 class AppointmentCreateView(AppointmentBaseFormMixin, CreateView):
     success_url = reverse_lazy("scheduling:appointment_calendar")
 
+    def get(self, request, *args, **kwargs):
+        if not bool(getattr(request, "htmx", False)):
+            return HttpResponse(status=302, headers={"Location": reverse("scheduling:appointment_calendar")})
+        return super().get(request, *args, **kwargs)
+
     def get_form_kwargs(self):
         kwargs = CreateView.get_form_kwargs(self)
         kwargs["workshop"] = self.workshop
@@ -176,13 +210,14 @@ class AppointmentCreateView(AppointmentBaseFormMixin, CreateView):
                 },
                 status=400,
             )
-        return CreateView.form_invalid(self, form)
+        messages.error(self.request, "Nao foi possivel salvar o agendamento. Revise os campos informados.")
+        return HttpResponse(status=302, headers={"Location": reverse("scheduling:appointment_calendar")})
 
     def get_initial(self):
         initial = super().get_initial()
 
-        starts_at = _parse_request_datetime(self.request.GET.get("starts_at"))
-        ends_at = _parse_request_datetime(self.request.GET.get("ends_at"))
+        starts_at = _parse_wall_datetime(self.request.GET.get("starts_at")) or _parse_request_timestamp(self.request.GET.get("start_ts")) or _parse_request_datetime(self.request.GET.get("starts_at"))
+        ends_at = _parse_wall_datetime(self.request.GET.get("ends_at")) or _parse_request_timestamp(self.request.GET.get("end_ts")) or _parse_request_datetime(self.request.GET.get("ends_at"))
 
         if starts_at:
             initial["starts_at"] = starts_at.strftime("%Y-%m-%dT%H:%M")
@@ -206,6 +241,11 @@ class AppointmentCreateView(AppointmentBaseFormMixin, CreateView):
 
 class AppointmentUpdateView(AppointmentBaseFormMixin, UpdateView):
     success_url = reverse_lazy("scheduling:appointment_calendar")
+
+    def get(self, request, *args, **kwargs):
+        if not bool(getattr(request, "htmx", False)):
+            return HttpResponse(status=302, headers={"Location": reverse("scheduling:appointment_calendar")})
+        return super().get(request, *args, **kwargs)
 
     def get_form_kwargs(self):
         kwargs = UpdateView.get_form_kwargs(self)
@@ -243,17 +283,19 @@ class AppointmentUpdateView(AppointmentBaseFormMixin, UpdateView):
 
     def form_invalid(self, form):
         if bool(getattr(self.request, "htmx", False)):
+            object_appointment = self.get_object()
             return render(
                 self.request,
                 "scheduling/partials/appointment_form_modal.html",
                 {
                     "form": form,
                     "is_update": True,
-                    "delete_url": reverse("scheduling:appointment_delete", kwargs={"pk": self.object.pk}),
+                    "delete_url": reverse("scheduling:appointment_delete", kwargs={"pk": object_appointment.pk}),
                 },
                 status=400,
             )
-        return UpdateView.form_invalid(self, form)
+        messages.error(self.request, "Nao foi possivel salvar o agendamento. Revise os campos informados.")
+        return HttpResponse(status=302, headers={"Location": reverse("scheduling:appointment_calendar")})
 
     def get_queryset(self):
         return super().get_queryset().filter(workshop=self.workshop)

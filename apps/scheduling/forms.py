@@ -7,6 +7,7 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import HTML, Div, Field, Layout
 from django import forms
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.budget.models import Budget
 from apps.core.widgets import CheckboxInput, SearchableSelectInput, SelectInput, TextInput, TextareaInput
@@ -96,6 +97,12 @@ class AppointmentForm(forms.ModelForm):
             vehicle_field.queryset = Vehicle.objects.filter(workshop=self.workshop, customer_id=selected_customer_id).order_by("plate")
         else:
             vehicle_field.queryset = Vehicle.objects.none()
+
+        if self.instance and self.instance.pk:
+            if self.instance.starts_at:
+                self.initial["starts_at"] = timezone.localtime(self.instance.starts_at).strftime("%Y-%m-%dT%H:%M")
+            if self.instance.ends_at:
+                self.initial["ends_at"] = timezone.localtime(self.instance.ends_at).strftime("%Y-%m-%dT%H:%M")
 
         self.helper = FormHelper()
         self.helper.form_tag = False

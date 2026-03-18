@@ -116,3 +116,6 @@ static/css/tailwind.css
 
 # Node
 node_modules/
+
+# Local scratch images
+img.png

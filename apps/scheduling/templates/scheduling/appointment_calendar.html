@@ -267,6 +267,19 @@
                 appointmentModal.showModal();
             }
 
+            function openCreateFromRange(startValue, endValue) {
+                if (!startValue) {
+                    openModalFromUrl('{{ create_url }}');
+                    return;
+                }
+                const params = new URLSearchParams();
+                params.set('starts_at', startValue);
+                if (endValue) {
+                    params.set('ends_at', endValue);
+                }
+                openModalFromUrl(`{{ create_url }}?${params.toString()}`);
+            }
+
             const calendar = new FullCalendar.Calendar(calendarEl, {
                 locale: 'pt-br',
                 timeZone: 'America/Sao_Paulo',
@@ -301,18 +314,14 @@
                     },
                 },
                 select: function (selectionInfo) {
-                    const start = selectionInfo.start.toISOString();
-                    const end = selectionInfo.end.toISOString();
-                    openModalFromUrl(`{{ create_url }}?starts_at=${encodeURIComponent(start)}&ends_at=${encodeURIComponent(end)}`);
+                    openCreateFromRange(selectionInfo.startStr, selectionInfo.endStr);
                     calendar.unselect();
                 },
                 dateClick: function (info) {
                     if (calendar.view.type.startsWith('dayGrid')) {
                         const startDate = new Date(info.date);
                         const endDate = new Date(startDate.getTime() + (60 * 60 * 1000));
-                        const start = startDate.toISOString();
-                        const end = endDate.toISOString();
-                        openModalFromUrl(`{{ create_url }}?starts_at=${encodeURIComponent(start)}&ends_at=${encodeURIComponent(end)}`);
+                        openCreateFromRange(startDate.toISOString(), endDate.toISOString());
                     }
                 },
                 eventClick: function (info) {
@@ -328,9 +337,9 @@
 
             function persistMove(info) {
                 const formData = new FormData();
-                formData.append('starts_at', info.event.start.toISOString());
-                if (info.event.end) {
-                    formData.append('ends_at', info.event.end.toISOString());
+                formData.append('starts_at', info.event.startStr || '');
+                if (info.event.endStr) {
+                    formData.append('ends_at', info.event.endStr);
                 } else {
                     const plusOneHour = new Date(info.event.start.getTime() + (60 * 60 * 1000));
                     formData.append('ends_at', plusOneHour.toISOString());

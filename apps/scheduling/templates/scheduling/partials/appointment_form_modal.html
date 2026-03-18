@@ -7,6 +7,9 @@
     </div>
 
     <form
+        data-appointment-form="1"
+        method="post"
+        action="{{ request.path }}{% if request.META.QUERY_STRING %}?{{ request.META.QUERY_STRING }}{% endif %}"
         hx-post="{{ request.path }}{% if request.META.QUERY_STRING %}?{{ request.META.QUERY_STRING }}{% endif %}"
         hx-target="#appointment-modal-container"
         hx-swap="innerHTML"
@@ -64,8 +67,29 @@
 
 <script>
     (function () {
+        const modalForm = document.querySelector('#appointment-modal-container form[data-appointment-form="1"]');
         const colorInput = document.getElementById('id_block_color');
         const preview = document.getElementById('appointment-color-preview');
+
+        if (modalForm && !modalForm.dataset.hxSubmitBound) {
+            modalForm.dataset.hxSubmitBound = '1';
+            modalForm.addEventListener('submit', function (event) {
+                event.preventDefault();
+                const formData = new FormData(modalForm);
+                const submitter = event.submitter;
+                if (submitter && submitter.name) {
+                    formData.append(submitter.name, submitter.value || '');
+                }
+
+                htmx.ajax('POST', modalForm.action, {
+                    source: modalForm,
+                    target: '#appointment-modal-container',
+                    swap: 'innerHTML',
+                    values: Object.fromEntries(formData.entries()),
+                });
+            });
+        }
+
         if (!colorInput || !preview) {
             return;
         }
