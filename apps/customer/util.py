@@ -1,12 +1,13 @@
 import json
-import requests
 import os
+
+import requests
 
 from apps.customer.models import Vehicle, Customer
 
 
 def fetch_vehicle_data(plate):
-    token = os.getenv('token_vehicle_api')
+    token = os.getenv("token_vehicle_api")
     url = f"https://wdapi2.com.br/consulta/{plate}/{token}"
 
     try:
@@ -16,12 +17,15 @@ def fetch_vehicle_data(plate):
 
         # Mapeamento básico
         vehicle_info = {
-            "brand": data.get("MARCA"),
-            "model": data.get("MODELO"),
+            "brand": data.get("MARCA") or data.get("marca"),
+            "model": data.get("MODELO") or data.get("modelo"),
             "year_model": data.get("anoModelo"),
             "year_fabrication": data.get("ano"),
             "color": data.get("cor"),
             "chassi": data.get("chassi"),
+            "fuel": None,
+            "engine": None,
+            "type": None,
         }
 
         # Verificação segura do campo 'extra'
@@ -37,12 +41,12 @@ def fetch_vehicle_data(plate):
             )
 
         return vehicle_info
-    except Exception:
+    except (requests.RequestException, ValueError):
         return None
 
 
 def build_vehicle_saved_trigger(vehicle: Vehicle) -> str:
-    return json.dumps({"vehicleSaved": {"id": str(vehicle.pk), "label": str(vehicle), "customer_id": str(vehicle.customer_id)}})
+    return json.dumps({"vehicleSaved": {"id": str(vehicle.pk), "label": str(vehicle), "customer_id": str(vehicle.customer.pk)}})
 
 
 def build_customer_saved_trigger(customer: Customer) -> str:

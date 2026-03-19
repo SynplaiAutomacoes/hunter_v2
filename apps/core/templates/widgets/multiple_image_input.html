@@ -14,6 +14,11 @@
             onchange="handleMultipleFiles(event, '{{ widget.attrs.id }}')"
             class="file-input file-input-bordered w-full"
             {% if widget.attrs.accept %}accept="{{ widget.attrs.accept }}"{% endif %}
+            {% for name, value in widget.attrs.items %}
+                {% if name != "id" and name != "name" and name != "accept" and name != "disabled" and name != "class" %}
+                    {% if value is True %}{{ name }}{% elif value is False or value is None %}{% else %}{{ name }}="{{ value|escape }}"{% endif %}
+                {% endif %}
+            {% endfor %}
             multiple
             {% if widget.attrs.disabled %}disabled{% endif %}
         >
@@ -98,7 +103,8 @@ function hydrateMultipleImageInput(widgetId) {
     const input = document.getElementById(widgetId);
     if (!input) return;
 
-    window.selectedUploadFiles[widgetId] = input.files ? Array.from(input.files) : [];
+    window.selectedUploadFiles[widgetId] = [];
+    input.value = '';
 
     renderSelectedFiles(widgetId);
 }
@@ -114,12 +120,13 @@ function handleMultipleFiles(event, widgetId) {
         window.selectedUploadFiles[widgetId] = [];
     }
 
-    const maxFileSize = 10 * 1024 * 1024;
-    const maxFiles = 10;
+    const maxFileSize = Number(event.target.dataset.maxFileSizeBytes) || (10 * 1024 * 1024);
+    const maxFiles = Number(event.target.dataset.maxFiles) || 10;
+    const maxFileSizeMb = Math.round((maxFileSize / 1024 / 1024) * 100) / 100;
 
     Array.from(files).forEach((file) => {
         if (file.size > maxFileSize) {
-            alert(`Arquivo "${file.name}" excede o tamanho máximo de 10MB (${(file.size / 1024 / 1024).toFixed(2)}MB).`);
+            alert(`Arquivo "${file.name}" excede o tamanho máximo de ${maxFileSizeMb}MB (${(file.size / 1024 / 1024).toFixed(2)}MB).`);
             return;
         }
 
@@ -133,6 +140,25 @@ function handleMultipleFiles(event, widgetId) {
 
     renderSelectedFiles(widgetId);
     updateFileInput(widgetId);
+
+    const autoUploadEnabled = event.target.dataset.autoUpload === 'true';
+    if (autoUploadEnabled) {
+        const form = event.target.closest('form');
+        if (form && !form.dataset.autoUploading) {
+            form.dataset.autoUploading = 'true';
+            if (window.htmx && typeof window.htmx.trigger === 'function') {
+                window.htmx.trigger(form, 'submit');
+            } else {
+                form.requestSubmit();
+            }
+            window.selectedUploadFiles[widgetId] = [];
+            updateFileInput(widgetId);
+            renderSelectedFiles(widgetId);
+            window.setTimeout(() => {
+                delete form.dataset.autoUploading;
+            }, 500);
+        }
+    }
 }
 
 function removeSelectedFile(widgetId, index) {

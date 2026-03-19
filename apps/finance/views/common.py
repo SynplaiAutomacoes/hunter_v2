@@ -6,7 +6,7 @@ from django.core.exceptions import PermissionDenied
 from django.views import View
 
 from apps.finance.models.finance import WebmaniaCompany, WebmaniaCompanyTaxType
-from apps.workshops.util.workshops import get_active_workshop_or_404, has_workshop_perm, is_workshop_director
+from apps.workshops.util.workshops import get_active_workshop_or_404, has_workshop_perm, is_workshop_director, is_workshop_manager
 
 
 def _only_digits(value: object) -> str:
@@ -67,7 +67,7 @@ class DirectorWorkshopAccessMixin(View):
         if not request.user.is_authenticated:
             raise PermissionDenied
         user = cast(Any, request.user)
-        if not is_workshop_director(user=user, workshop=self.workshop, request=request):
+        if not (is_workshop_director(user=user, workshop=self.workshop, request=request) or is_workshop_manager(user=user, workshop=self.workshop, request=request)):
             raise PermissionDenied
         if not self._has_required_webmania_permission(request):
             raise PermissionDenied

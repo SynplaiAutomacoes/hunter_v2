@@ -1,6 +1,7 @@
 <div
     id="{{ table_id }}"
     class="w-full"
+    hx-disinherit="hx-vals"
     x-data="{
         all: false,
         hierarchicalSelection: {{ hierarchical_selection|yesno:'true,false' }},
@@ -92,7 +93,7 @@
     x-init="syncMasterCheckbox()"
     @htmx:after-swap.window="syncMasterCheckbox()"
 >
-    <div id="{{ table_id }}-content" hx-disinherit="hx-vals">
+    <div id="{{ table_id }}-content">
         {% if show_controls|default:True %}
             {% include "tables/partials/_table_controls.html" %}
         {% endif %}

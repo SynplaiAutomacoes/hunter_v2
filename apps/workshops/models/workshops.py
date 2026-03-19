@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 from django.core.exceptions import ObjectDoesNotExist
+from django.core.validators import FileExtensionValidator
 from django.db import models
 from django.db.models import CharField, BooleanField
 from django.utils import timezone
@@ -26,6 +27,13 @@ class Workshop(TimeStampedModel):
     address = CharField(verbose_name="Endereço", max_length=255, null=False, blank=False)
     uf = models.CharField(verbose_name="UF", max_length=2, null=False, blank=False, default="SP")
     pdf_observation = CharField(verbose_name="Observação", max_length=250, null=False, blank=False, default="")
+    logo = models.FileField(
+        verbose_name="Logo da oficina",
+        upload_to="workshops/logos/",
+        null=True,
+        blank=True,
+        validators=[FileExtensionValidator(allowed_extensions=["png", "jpg", "jpeg", "gif", "webp", "svg"])],
+    )
     is_active = BooleanField(verbose_name="Ativa", default=True)
     # Sefaz
     pfx_certificate = models.FileField(verbose_name="Certificado PFX", upload_to="certificados/", null=True, blank=True)

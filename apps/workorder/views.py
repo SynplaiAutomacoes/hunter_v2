@@ -4,9 +4,11 @@ import json
 import logging
 import re
 from datetime import timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
+from pathlib import Path
 
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Prefetch
 from django.http import HttpResponse, JsonResponse
@@ -26,9 +28,16 @@ from apps.core.documents.services import SignatureDeliveryServiceError, download
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxTemplateResponseMixin
 from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
+from apps.workorder.discount_sync import sync_workorder_discount_to_budget
 from apps.workorder.approval import WorkOrderApprovalError, approve_workorder_with_stock
 from apps.workorder.documents.provider import render_workorder_pdf_document, build_workorder_pdf_render_request
-from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderItemEditForm, WorkOrderKitProductEditRowForm, WorkOrderKitServiceEditRowForm, WorkOrderPaymentForm
+from apps.workorder.forms import (
+    WorkOrderCustomerApprovalForm,
+    WorkOrderItemEditForm,
+    WorkOrderKitProductEditRowForm,
+    WorkOrderKitServiceEditRowForm,
+    WorkOrderPaymentForm,
+)
 from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
 
 from apps.workorder.util import (
@@ -53,6 +62,7 @@ from apps.workshops.util.workshops import get_active_workshop_or_404
 
 logger = logging.getLogger(__name__)
 THOUSAND_SEPARATED_INT_PATTERN = re.compile(r"^\d{1,3}(?:[\s.,]\d{3})+$")
+MAX_WORKORDER_ATTACHMENT_SIZE_BYTES = 200 * 1024 * 1024
 
 
 WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
@@ -164,7 +174,7 @@ class WorkOrderDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["payment_form"] = WorkOrderPaymentForm(workorder=self.object)
-        context["attachment_form"] = WorkOrderAttachmentForm(instance=self.object.attachments.last(), workorder=self.object)
+        context.update(_build_customer_approvement_context(self.object))
         items_context = _build_edit_items_context(self.object)
         context["product_items"] = items_context["product_items"]
         context["service_items"] = items_context["service_items"]
@@ -188,6 +198,40 @@ class WorkOrderPaymentSectionView(LoginRequiredMixin, WorkshopScopedMixin, View)
 
     def get(self, request, pk):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        context = {
+            "workorder": workorder,
+            "payment_form": WorkOrderPaymentForm(workorder=workorder),
+        }
+        return render(request, "workorder/partials/payment_section.html", context)
+
+
+class UpdateWorkOrderDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkOrder
+    workshop_permission_codename = "change_workorder"
+
+    def post(self, request, pk):
+        workorder = _get_workorder_for_workshop(self.workshop, pk)
+
+        try:
+            raw_discount_value = request.POST.get("discount_value_0", "0").replace(",", ".") or "0"
+            raw_discount_percentage = request.POST.get("discount_percentage", "0").replace(",", ".") or "0"
+
+            sync_workorder_discount_to_budget(
+                workorder=workorder,
+                discount_value=Money(Decimal(raw_discount_value), "BRL"),
+                discount_percentage=Decimal(raw_discount_percentage),
+            )
+            workorder.refresh_from_db()
+        except (ValueError, TypeError, InvalidOperation):
+            logger.warning(
+                "Valor de desconto invalido recebido para ordem de servico",
+                extra={
+                    "workorder_id": pk,
+                    "raw_discount": request.POST.get("discount_value_0"),
+                    "raw_discount_percentage": request.POST.get("discount_percentage"),
+                },
+            )
+
         context = {
             "workorder": workorder,
             "payment_form": WorkOrderPaymentForm(workorder=workorder),
@@ -552,15 +596,49 @@ class UploadAttachmentView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk):
         workorder = get_object_or_404(WorkOrder, pk=pk, workshop=self.workshop)
-        file = request.FILES.get("file_upload")
+        uploaded_files = request.FILES.getlist("file_upload")
 
         attachment = None
-        if file:
-            with transaction.atomic():
-                attachment = WorkOrderAttachment.objects.create(workorder=workorder, content=file.read(), content_name=file.name, content_type=file.content_type)
-        context = _build_customer_approvement_context(workorder, attachment)
+        if not uploaded_files:
+            response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder))
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": "Selecione pelo menos um arquivo para enviar.", "type": "error"}})
+            return response
 
-        return render(request, "workorder/partials/customer_approvement_section.html", context)
+        try:
+            for uploaded_file in uploaded_files:
+                if int(getattr(uploaded_file, "size", 0) or 0) > MAX_WORKORDER_ATTACHMENT_SIZE_BYTES:
+                    raise ValidationError(f"Arquivo '{uploaded_file.name}' excede o tamanho máximo de 200MB.")
+        except ValidationError as exc:
+            response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder))
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": str(exc), "type": "error"}})
+            return response
+
+        try:
+            with transaction.atomic():
+                for uploaded_file in uploaded_files:
+                    original_name = uploaded_file.name or "arquivo"
+                    suffix = Path(original_name).suffix
+                    base_name = Path(original_name).stem or "arquivo"
+                    allowed_base_len = max(1, 100 - len(suffix))
+                    safe_name = f"{base_name[:allowed_base_len]}{suffix}"
+
+                    attachment = WorkOrderAttachment.objects.create(
+                        workorder=workorder,
+                        content=uploaded_file.read(),
+                        content_name=safe_name,
+                        content_type=getattr(uploaded_file, "content_type", None),
+                    )
+        except Exception:
+            logger.exception("Falha ao salvar anexos da ordem de servico", extra={"workorder_id": workorder.pk})
+            response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder))
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": "Não foi possível salvar os anexos. Tente novamente.", "type": "error"}})
+            return response
+
+        context = _build_customer_approvement_context(workorder, attachment)
+        context_response = render(request, "workorder/partials/customer_approvement_section.html", context)
+        context_response["HX-Trigger"] = json.dumps({"showToast": {"message": f"{len(uploaded_files)} arquivo(s) salvo(s) com sucesso.", "type": "success"}})
+
+        return context_response
 
 
 class ViewAttachmentView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -604,8 +682,23 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return HttpResponse(status=400)
 
         if next_status == WorkOrderStatus.APPROVED:
+            approval_form = WorkOrderCustomerApprovalForm(request.POST, workorder=workorder)
+            if not approval_form.is_valid():
+                context = _build_customer_approvement_context(workorder)
+                context["approval_form"] = approval_form
+                return render(request, "workorder/partials/customer_approvement_section.html", context)
+
             try:
+                km_final = approval_form.cleaned_data["km_final"]
+                workorder.km_final = km_final
+                workorder.save(update_fields=["km_final"])
+
                 approve_workorder_with_stock(workorder=workorder, user=request.user)
+
+                vehicle = getattr(workorder.budget, "vehicle", None)
+                if vehicle and (vehicle.km is None or km_final > vehicle.km):
+                    vehicle.km = km_final
+                    vehicle.save(update_fields=["km"])
             except WorkOrderApprovalError as exc:
                 response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder))
                 response["HX-Trigger"] = json.dumps({"showToast": {"message": str(exc), "type": "error"}})

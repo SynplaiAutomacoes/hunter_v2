@@ -1,0 +1,28 @@
+{% load crispy_forms_tags %}
+
+<div class="modal modal-open">
+    <div class="modal-box w-11/12 max-w-2xl">
+        <h3 class="font-bold text-lg mb-6 uppercase">Cadastro Rápido de Origem</h3>
+
+        <form hx-post="{% url 'sources:source_quick_create' %}"
+              hx-target="#modal-container"
+              hx-swap="innerHTML"
+              hx-disabled-elt="find button[type='submit']"
+              hx-indicator="find .htmx-indicator">
+            {% csrf_token %}
+            {% crispy form %}
+
+            <div class="modal-action mt-6">
+                <button type="button" class="btn btn-ghost"
+                        onclick="document.getElementById('modal-container').innerHTML=''">
+                    Cancelar
+                </button>
+                <button type="submit" class="btn btn-primary">
+                    <span class="loading loading-spinner loading-sm htmx-indicator" style="display:none;"></span>
+                    Salvar Origem
+                </button>
+            </div>
+        </form>
+    </div>
+    <div class="modal-backdrop" onclick="document.getElementById('modal-container').innerHTML=''"></div>
+</div>

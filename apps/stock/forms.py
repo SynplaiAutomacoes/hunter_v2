@@ -366,10 +366,7 @@ class ImportStepPaymentForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
 
         if self.workshop:
-            self.fields['payment_method'].queryset = PaymentMethod.objects.filter(
-                workshop=self.workshop,
-                is_active=True
-            ).order_by('description')
+            self.fields["payment_method"].queryset = PaymentMethod.objects.filter(workshop=self.workshop, is_active=True).order_by("description")
 
         # Cálculos Financeiros
         valor_total = sum(Decimal(str(item.get("valor", 0))) * Decimal(str(item.get("qtd", 0))) for item in self.import_items)
@@ -395,9 +392,9 @@ class ImportStepPaymentForm(forms.ModelForm):
             self.fields[field_name].widget.attrs.update({"readonly": True, "class": "cursor-not-allowed opacity-75"})
 
         self.fields["payment_method"].label = mark_safe('Forma de Pagamento <span class="text-error">*</span>')
-        self.fields['installments_count'].label = mark_safe('Número de Parcelas <span class="text-error">*</span>')
-        self.fields['first_amount'].label = mark_safe('Valor Pago <span class="text-error">*</span>')
-        self.fields['payment_date'].label = mark_safe('Data de Vencimento <span class="text-error">*</span>')
+        self.fields["installments_count"].label = mark_safe('Número de Parcelas <span class="text-error">*</span>')
+        self.fields["first_amount"].label = mark_safe('Valor Pago <span class="text-error">*</span>')
+        self.fields["payment_date"].label = mark_safe('Data de Vencimento <span class="text-error">*</span>')
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -409,7 +406,7 @@ class ImportStepPaymentForm(forms.ModelForm):
                         const firstAmountHidden = document.getElementById('id_first_amount_0');
                         const installmentsInput = document.getElementById('id_installments_count');
                         
-                        const pendingValue = parseFloat("{str(valor_pendente).replace(',', '.')}") || 0;
+                        const pendingValue = parseFloat("{str(valor_pendente).replace(",", ".")}") || 0;
 
                         const btnAdd = document.querySelector('button[hx-post*="add_payment_session"]');
                         const warningDiv = document.getElementById('payment-warning-js');
@@ -499,7 +496,7 @@ class ImportStepPaymentForm(forms.ModelForm):
                 HTML("</div>"),
                 id="import-step-container",
                 css_class="card-body",
-            )
+            ),
         )
 
     def _generate_payments_table_html(self):
@@ -882,11 +879,7 @@ class ImportStepSupplierManualForm(forms.ModelForm):
 
         self.fields["supplier_select"].widget = SelectInput(choices=choices, attrs={"hx-get": reverse("stock:supplier_details"), "hx-target": "#supplier-info-container", "hx-trigger": "change, load", "class": "w-full", "x-model": "supplierId", "@change": "supplierId = $el.value"})
 
-        initial_alpine = {
-            "supName": self.instance.supplier_name or '',
-            "supCnpj": self.instance.supplier_cnpj or '',
-            "supplierId": str(current_supplier.id) if current_supplier else ''
-        }
+        initial_alpine = {"supName": self.instance.supplier_name or "", "supCnpj": self.instance.supplier_cnpj or "", "supplierId": str(current_supplier.id) if current_supplier else ""}
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -1027,7 +1020,17 @@ class ImportManualItemsForm(forms.ModelForm):
                     estoque_atual = product.stock_products.current_quantity
 
                 num_html = NumberInput(mode="positive").render(
-                    name=f"items_qty_{idx}", value=str(quantidade), attrs={"class": "text-center", "hx-post": reverse("stock:update_manual_item_data", kwargs={"pk": self.instance.pk}), "hx-trigger": "change delay:500ms", "hx-vals": f"js:{{item_idx: {idx}}}", "hx-target": "#step-container"})
+                    name=f"items_qty_{idx}",
+                    value=str(quantidade),
+                    attrs={
+                        "class": "text-center",
+                        "hx-post": reverse("stock:update_manual_item_data", kwargs={"pk": self.instance.pk}),
+                        "hx-trigger": "change delay:500ms",
+                        "hx-vals": f"js:{{item_idx: {idx}}}",
+                        "hx-target": "this",
+                        "hx-swap": "none",
+                    },
+                )
 
                 money_html = MoneyInput().render(
                     name=f"items_price_{idx}",
@@ -1036,9 +1039,11 @@ class ImportManualItemsForm(forms.ModelForm):
                         "class": "text-right",
                         "hx-post": reverse("stock:update_manual_item_data", kwargs={"pk": self.instance.pk}),
                         "hx-trigger": "change delay:500ms",
-                        "hx-vals": f'js:{{item_idx: {idx}}}',
-                        "hx-target": "#step-container"
-                    })
+                        "hx-vals": f"js:{{item_idx: {idx}}}",
+                        "hx-target": "this",
+                        "hx-swap": "none",
+                    },
+                )
 
                 rows += f"""
                 <tr class="h-16 border-b border-base-300">

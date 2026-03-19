@@ -4,6 +4,7 @@ import logging
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django import forms
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.views import View
@@ -15,13 +16,17 @@ from apps.core.views import HtmxTemplateResponseMixin
 from apps.finance.forms import NfeRequestStep1Form, NfeRequestStep2Form, NfeRequestStep3Form
 from apps.finance.models.finance import NfeItem, NfeRequest, NfeRequestStatus
 from apps.finance.services.nfe_consulta import NfeConsultaError, reconcile_nfe_item
-from apps.finance.services.nfe_emission import NfeEmissionError, emit_nfe_request, sync_nfe_emission_response
+from apps.finance.services.nfe_emission import NfeEmissionError, cancel_nfe_document, emit_nfe_request, sync_nfe_emission_response
 from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.finance.views.request_workflow import SharedEmissionRequestCreateBaseView, SharedEmissionRequestUpdateBaseView
 from apps.workshops.mixin import WorkshopScopedMixin
 
 
 logger = logging.getLogger(__name__)
+
+
+class NfeCancelForm(forms.Form):
+    reason = forms.CharField(min_length=15, max_length=255)
 
 
 class NfeRequestListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
@@ -82,9 +87,11 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         latest_item = self.object.items.order_by("-id").first()
+        can_cancel = bool(latest_item and str(getattr(latest_item, "status", "")).strip().lower() in {"aprovado", "contingencia"})
         context.update(
             {
                 "latest_item": latest_item,
+                "can_cancel": can_cancel,
                 "request_fields": [
                     _build_field("ID da requisição", self.object.pk),
                     _build_field("Ordem de serviço", self.object.workorder),
@@ -99,6 +106,54 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
             }
         )
         return context
+
+
+class NfeRequestCancelView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "change_nfserequest"
+
+    def post(self, request, *args, **kwargs):
+        nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
+        latest_item = nfe_request.items.order_by("-id").first()
+        if latest_item is None:
+            messages.error(request, "A NF-e ainda nao possui item sincronizado para cancelamento.")
+            return redirect("finance:nfe_detail", pk=nfe_request.pk)
+
+        status = str(getattr(latest_item, "status", "")).strip().lower()
+        if status not in {"aprovado", "contingencia"}:
+            messages.error(request, "Somente NF-e aprovada ou em contingencia pode ser cancelada.")
+            return redirect("finance:nfe_detail", pk=nfe_request.pk)
+
+        form = NfeCancelForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, "Informe um motivo de cancelamento entre 15 e 255 caracteres.")
+            return redirect("finance:nfe_detail", pk=nfe_request.pk)
+
+        reason = str(form.cleaned_data["reason"]).strip()
+
+        try:
+            response_payload = cancel_nfe_document(
+                workshop=self.workshop,
+                access_key=str(latest_item.access_key or ""),
+                event_uuid=str(latest_item.uuid),
+                reason=reason,
+            )
+        except NfeEmissionError as exc:
+            messages.error(request, str(exc))
+            return redirect("finance:nfe_detail", pk=nfe_request.pk)
+
+        latest_item.status = "cancelado"
+        latest_item.reason = str(response_payload.get("motivo") or reason)
+        latest_item.raw_payload = response_payload
+        xml_url = str(response_payload.get("xml") or "").strip()
+        if xml_url:
+            latest_item.xml_url = xml_url
+        latest_item.save(update_fields=["status", "reason", "raw_payload", "xml_url"])
+
+        nfe_request.set_status(NfeRequestStatus.CANCELED)
+        messages.success(request, "NF-e cancelada com sucesso.")
+        return redirect("finance:nfe_detail", pk=nfe_request.pk)
 
 
 class NfeRequestReconcileView(LoginRequiredMixin, WorkshopScopedMixin, View):

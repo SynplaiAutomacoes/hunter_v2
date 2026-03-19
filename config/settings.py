@@ -104,6 +104,7 @@ INSTALLED_APPS = [
     "apps.budget",
     "apps.customer",
     "apps.workorder",
+    "apps.scheduling",
     "apps.stock",
     "apps.finance",
 ]
@@ -209,6 +210,8 @@ STATIC_URL = "static/"
 STATICFILES_DIRS = [os.path.join(BASE_DIR, "static")]
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
+MEDIA_URL = "/media/"
+MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
 # Tailwind
 # TODO: Optimize for production https://github.com/django-commons/django-tailwind-cli?tab=readme-ov-file#production-settings
@@ -233,8 +236,8 @@ CURRENCY_DECIMAL_PLACES = 2
 PHONENUMBER_DEFAULT_REGION = "BR"
 PHONENUMBER_DEFAULT_FORMAT = "NATIONAL"
 
-DJANGO_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "INFO" if not DEBUG else "DEBUG").upper()
-DJANGO_ROOT_LOG_LEVEL = os.getenv("DJANGO_ROOT_LOG_LEVEL", "WARNING").upper()
+DJANGO_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "DEBUG").upper()
+DJANGO_ROOT_LOG_LEVEL = os.getenv("DJANGO_ROOT_LOG_LEVEL", "DEBUG").upper()
 
 LOGGING = {
     "version": 1,
