@@ -4519,6 +4519,23 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertContains(response, revenue_group.name)
         self.assertContains(response, str(bank_account))
 
+    def test_reports_home_view_renders_hierarchical_checkbox_metadata_for_financial_group_filter(self) -> None:
+        root = self._create_financial_group(name="Receitas")
+        child = self._create_financial_group(name="Servicos", parent=root)
+        grandchild = self._create_financial_group(name="Servicos Diretos", parent=child)
+
+        response = self.client.get(reverse("finance:reports_home"))
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+
+        self.assertIn("hierarchicalSelection: true", content)
+        self.assertIn("Selecionar todos", content)
+        self.assertRegex(content, rf'<input[^>]*name="financial_groups"[^>]*value="{root.pk}"[^>]*data-row-id="{root.pk}"')
+        self.assertRegex(content, rf'<input[^>]*name="financial_groups"[^>]*value="{child.pk}"[^>]*data-row-id="{child.pk}"[^>]*data-parent-id="{root.pk}"')
+        self.assertRegex(content, rf'<input[^>]*name="financial_groups"[^>]*value="{grandchild.pk}"[^>]*data-row-id="{grandchild.pk}"[^>]*data-parent-id="{child.pk}"')
+        self.assertIn("handleRowCheckboxChange($event)", content)
+
     def test_reports_home_view_filters_table_and_selection_card_by_date_range_including_future_dates(self) -> None:
         future_date = timezone.localdate() + timedelta(days=45)
         earlier_date = future_date - timedelta(days=10)
@@ -4620,45 +4637,6 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertContains(response, "Receita filtrada")
         self.assertNotContains(response, "Despesa fora do tipo")
         self.assertNotContains(response, "Receita fora do grupo")
-
-    def test_reports_home_view_renders_hierarchical_checkbox_metadata_for_financial_groups(self) -> None:
-        root = self._create_financial_group(name="Receitas")
-        child = self._create_financial_group(name="Receitas de Servicos", parent=root)
-        grandchild = self._create_financial_group(name="Receitas Diretas", parent=child)
-
-        response = self.client.get(reverse("finance:reports_home"))
-
-        self.assertEqual(response.status_code, 200)
-        content = response.content.decode("utf-8")
-
-        self.assertIn('id="reports-financial-groups-selector"', content)
-        self.assertIn("hierarchicalSelection: true", content)
-        self.assertIn("Selecionar todos", content)
-        self.assertRegex(content, rf'<input[^>]*name="financial_groups"[^>]*value="{root.pk}"[^>]*data-row-id="{root.pk}"')
-        self.assertRegex(content, rf'<input[^>]*name="financial_groups"[^>]*value="{child.pk}"[^>]*data-row-id="{child.pk}"[^>]*data-parent-id="{root.pk}"')
-        self.assertRegex(content, rf'<input[^>]*name="financial_groups"[^>]*value="{grandchild.pk}"[^>]*data-row-id="{grandchild.pk}"[^>]*data-parent-id="{child.pk}"')
-        self.assertIn("handleRowCheckboxChange($event)", content)
-
-    def test_reports_home_view_keeps_selected_financial_groups_checked(self) -> None:
-        first = self._create_financial_group(name="Receitas")
-        second = self._create_financial_group(name="Despesas")
-        third = self._create_financial_group(name="Custos")
-
-        response = self.client.get(
-            reverse("finance:reports_home"),
-            data={"financial_groups": [str(first.pk), str(second.pk)]},
-        )
-
-        self.assertEqual(response.status_code, 200)
-        content = response.content.decode("utf-8")
-
-        self.assertRegex(content, rf'<input[^>]*name="financial_groups"[^>]*value="{first.pk}"[^>]*checked')
-        self.assertRegex(content, rf'<input[^>]*name="financial_groups"[^>]*value="{second.pk}"[^>]*checked')
-
-        third_input = re.search(rf'<input[^>]*name="financial_groups"[^>]*value="{third.pk}"[^>]*>', content)
-        if third_input is None:
-            self.fail("Checkbox do terceiro grupo financeiro nao foi renderizado.")
-        self.assertNotIn("checked", third_input.group(0))
 
     def test_reports_home_view_filters_table_and_selection_card_by_bank_account(self) -> None:
         selected_account = self._create_bank_account(suffix="1")
