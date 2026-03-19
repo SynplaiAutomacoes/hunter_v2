@@ -174,7 +174,19 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         return queryset
 
     def _get_financial_groups_queryset(self):
-        return FinancialGroup.objects.filter(workshop=self.workshop).order_by("sort_key", "id")
+        return FinancialGroup.objects.filter(workshop=self.workshop).select_related("parent").order_by("sort_key", "id")
+
+    def _build_financial_group_filters(self) -> list[dict[str, object]]:
+        selected_group_ids = set(self._get_selected_financial_group_ids())
+        return [
+            {
+                "pk": financial_group.pk,
+                "parent_pk": getattr(financial_group, "parent_id", None),
+                "label": financial_group.dre_hierarchy_label,
+                "is_selected": financial_group.pk in selected_group_ids,
+            }
+            for financial_group in self._get_financial_groups_queryset()
+        ]
 
     def _get_bank_accounts_queryset(self):
         return BankAccount.objects.filter(workshop=self.workshop).order_by("bank_name", "account_number", "id")
@@ -269,10 +281,9 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             self._build_selection_summary_card(),
         ]
         context["financial_movement_report_rows"] = self._get_financial_movement_report_rows()
-        context["financial_group_filters"] = self._get_financial_groups_queryset()
+        context["financial_group_filters"] = self._build_financial_group_filters()
         context["bank_account_filters"] = self._get_bank_accounts_queryset()
         context["direction_filter_choices"] = self.FILTER_DIRECTION_CHOICES
-        context["selected_financial_group_ids"] = set(filter_params["budget_plan_ids"])
         context["selected_bank_account_id"] = filter_params["bank_account_id"]
         context["selected_direction"] = filter_params["direction"]
         context["has_active_filters"] = self._has_active_filters()

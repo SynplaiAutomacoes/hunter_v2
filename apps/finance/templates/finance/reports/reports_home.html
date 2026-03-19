@@ -130,22 +130,7 @@
                                                 <p class="text-xs text-base-content/60">Selecione um ou mais grupos para filtrar as movimentações.</p>
                                             </div>
 
-                                            <div class="max-h-64 space-y-2 overflow-y-auto pr-1">
-                                                {% for financial_group in financial_group_filters %}
-                                                    <label class="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition hover:bg-base-100/70">
-                                                        <input
-                                                            type="checkbox"
-                                                            class="checkbox checkbox-sm"
-                                                            name="financial_groups"
-                                                            value="{{ financial_group.pk }}"
-                                                            {% if financial_group.pk in selected_financial_group_ids %}checked{% endif %}
-                                                        />
-                                                        <span class="text-sm text-base-content">{{ financial_group.dre_hierarchy_label }}</span>
-                                                    </label>
-                                                {% empty %}
-                                                    <p class="text-sm text-base-content/60">Nenhum grupo financeiro cadastrado.</p>
-                                                {% endfor %}
-                                            </div>
+                                            {% include 'finance/reports/partials/financial_groups_selector.html' %}
                                         </div>
                                     </div>
 
