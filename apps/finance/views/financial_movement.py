@@ -1,19 +1,16 @@
 from __future__ import annotations
 
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import HttpResponse
 from django.shortcuts import redirect, get_object_or_404, render
-from django.template.loader import render_to_string
-from django.urls import reverse
+from django.urls import reverse, reverse_lazy
 from django.views import View
-from django.views.generic import CreateView, ListView
+from django.views.generic import CreateView, DeleteView, ListView
 
 from apps.core.forms import MultiStepFormMixin
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxTemplateResponseMixin
-from apps.finance.forms.financial_movement import MovementStep1Form, MovementStep2Form, MovementStep3Form, \
-    MovementStep4Form
+from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
+from apps.finance.forms.financial_movement import MovementStep1Form, MovementStep2Form, MovementStep3Form, MovementStep4Form
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.sources.models import Source
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -41,6 +38,7 @@ class FinancialMovementListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTem
         ]
         context["actions"] = [
             TableActionDefaults.edit("finance:financial_movement_update"),
+            TableActionDefaults.delete("finance:financial_movement_delete"),
         ]
         return context
 
@@ -167,6 +165,15 @@ class FinancialMovementUpdateView(FinancialMovementCreateView):
             return response
 
         return redirect(success_url)
+
+
+class FinancialMovementDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResponseMixin, DeleteView):
+    model = FinancialMovement
+    success_url = reverse_lazy("finance:financial_movement_list")
+    workshop_permission_codename = "delete_financialmovement"
+
+    htmx_template_name = "finance/partials/financial_movement/financial_movement_delete_modal.html"
+    htmx_trigger = "financial_movement-table-refresh"
 
 
 class SourceDetailView(View):
