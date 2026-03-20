@@ -746,7 +746,7 @@ class ImportSefazListForm(forms.ModelForm):
         self.import_payments = kwargs.pop("import_payments", [])
         super().__init__(*args, **kwargs)
 
-        queryset = SefazZipCache.objects.filter(workshop=self.workshop).order_by('-issue_date', '-created_at')
+        queryset = SefazZipCache.objects.filter(workshop=self.workshop).order_by('-issue_date', '-criado_em')
 
         page_number = self.request.GET.get('page', 1) if self.request else 1
         paginator = Paginator(queryset, 10)

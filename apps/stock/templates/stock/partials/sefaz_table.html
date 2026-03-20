@@ -90,8 +90,19 @@
     <div class="flex justify-center mt-6">
         <div class="join border">
             {% if form.notas.has_previous %}
-                <a href="?page=1" class="join-item btn btn-sm btn-ghost">««</a>
-                <a href="?page={{ form.notas.previous_page_number }}" class="join-item btn btn-sm btn-ghost">Anterior</a>
+                <button class="join-item btn btn-sm btn-ghost"
+                        hx-get="?step={{ current_step }}&page=1{% if object.pk %}&pk={{ object.pk }}{% endif %}"
+                        hx-target="#step-container"
+                        hx-push-url="true">
+                    ««
+                </button>
+
+                <button class="join-item btn btn-sm btn-ghost"
+                        hx-get="?step={{ current_step }}&page={{ form.notas.previous_page_number }}{% if object.pk %}&pk={{ object.pk }}{% endif %}"
+                        hx-target="#step-container"
+                        hx-push-url="true">
+                    Anterior
+                </button>
             {% endif %}
 
             <button class="join-item btn btn-sm btn-active pointer-events-none">
@@ -99,8 +110,19 @@
             </button>
 
             {% if form.notas.has_next %}
-                <a href="?page={{ form.notas.next_page_number }}" class="join-item btn btn-sm btn-ghost">Próxima</a>
-                <a href="?page={{ form.notas.paginator.num_pages }}" class="join-item btn btn-sm btn-ghost">»»</a>
+                <button class="join-item btn btn-sm btn-ghost"
+                        hx-get="?step={{ current_step }}&page={{ form.notas.next_page_number }}{% if object.pk %}&pk={{ object.pk }}{% endif %}"
+                        hx-target="#step-container"
+                        hx-push-url="true">
+                    Próxima
+                </button>
+
+                <button class="join-item btn btn-sm btn-ghost"
+                        hx-get="?step={{ current_step }}&page={{ form.notas.paginator.num_pages }}{% if object.pk %}&pk={{ object.pk }}{% endif %}"
+                        hx-target="#step-container"
+                        hx-push-url="true">
+                    »»
+                </button>
             {% endif %}
         </div>
     </div>
