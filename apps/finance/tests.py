@@ -3867,6 +3867,73 @@ class FinancialGroupViewsTests(TestCase):
         self.assertTrue(FinancialGroup.objects.filter(pk=parent.pk).exists())
 
 
+class FinancialMovementViewsTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=88)
+        self.client.force_login(self.user)
+        self.source = Source.objects.create(workshop=self.workshop, name="Fornecedor Movimento")
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def _create_movement(self, *, description: str = "Compra de insumos") -> FinancialMovement:
+        return FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("150.00", "BRL"),
+            due_date=date(2026, 3, 10),
+            description=description,
+        )
+
+    def test_list_view_renders_delete_action_in_actions_column(self) -> None:
+        movement = self._create_movement()
+        update_url = reverse("finance:financial_movement_update", kwargs={"pk": movement.pk})
+        delete_url = reverse("finance:financial_movement_delete", kwargs={"pk": movement.pk})
+
+        response = self.client.get(reverse("finance:financial_movement_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, update_url)
+        self.assertContains(response, delete_url)
+        self.assertContains(response, f'hx-get="{delete_url}"', html=False)
+
+    def test_delete_view_htmx_get_renders_modal(self) -> None:
+        movement = self._create_movement(description="Troca de oleo")
+
+        response = self.client.get(
+            reverse("finance:financial_movement_delete", kwargs={"pk": movement.pk}),
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Excluir Movimentacao Financeira")
+        self.assertContains(response, "Troca de oleo")
+
+    def test_delete_view_htmx_post_deletes_movement_and_triggers_refresh(self) -> None:
+        movement = self._create_movement()
+
+        response = self.client.post(
+            reverse("finance:financial_movement_delete", kwargs={"pk": movement.pk}),
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("HX-Trigger"), "financial_movement-table-refresh")
+        self.assertFalse(FinancialMovement.objects.filter(pk=movement.pk).exists())
+
+    def test_delete_view_redirects_after_standard_post(self) -> None:
+        movement = self._create_movement()
+
+        response = self.client.post(reverse("finance:financial_movement_delete", kwargs={"pk": movement.pk}))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("finance:financial_movement_list"))
+        self.assertFalse(FinancialMovement.objects.filter(pk=movement.pk).exists())
+
+
 class FinancialReportsHomeViewTests(TestCase):
     def setUp(self) -> None:
         self.user, self.workshop = create_director_user_with_workshop(suffix=89)
@@ -4518,6 +4585,23 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertContains(response, 'name="financial_groups"', html=False)
         self.assertContains(response, revenue_group.name)
         self.assertContains(response, str(bank_account))
+
+    def test_reports_home_view_renders_hierarchical_checkbox_metadata_for_financial_group_filter(self) -> None:
+        root = self._create_financial_group(name="Receitas")
+        child = self._create_financial_group(name="Servicos", parent=root)
+        grandchild = self._create_financial_group(name="Servicos Diretos", parent=child)
+
+        response = self.client.get(reverse("finance:reports_home"))
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+
+        self.assertIn("hierarchicalSelection: true", content)
+        self.assertIn("Selecionar todos", content)
+        self.assertRegex(content, rf'<input[^>]*name="financial_groups"[^>]*value="{root.pk}"[^>]*data-row-id="{root.pk}"')
+        self.assertRegex(content, rf'<input[^>]*name="financial_groups"[^>]*value="{child.pk}"[^>]*data-row-id="{child.pk}"[^>]*data-parent-id="{root.pk}"')
+        self.assertRegex(content, rf'<input[^>]*name="financial_groups"[^>]*value="{grandchild.pk}"[^>]*data-row-id="{grandchild.pk}"[^>]*data-parent-id="{child.pk}"')
+        self.assertIn("handleRowCheckboxChange($event)", content)
 
     def test_reports_home_view_filters_table_and_selection_card_by_date_range_including_future_dates(self) -> None:
         future_date = timezone.localdate() + timedelta(days=45)

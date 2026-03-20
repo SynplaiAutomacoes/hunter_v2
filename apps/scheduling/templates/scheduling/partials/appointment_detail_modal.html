@@ -1,0 +1,122 @@
+<div class="modal-box appointment-detail-shell w-[94vw] max-w-5xl overflow-visible border border-base-300 bg-base-100 p-0 shadow-2xl">
+    <div class="appointment-detail-header sticky top-0 z-20 flex items-center justify-between border-b border-base-300 bg-base-100 px-5 py-4 md:px-6">
+        <div>
+            <h3 class="text-2xl font-bold leading-tight">Detalhes do Agendamento</h3>
+            <p class="mt-1 text-sm text-base-content/70">Informacoes do agendamento e acoes rapidas.</p>
+        </div>
+        <button type="button" class="btn btn-sm btn-circle btn-ghost" onclick="document.getElementById('appointment_modal').close()">✕</button>
+    </div>
+
+    <div class="max-h-[72vh] space-y-4 overflow-y-auto px-5 py-4 md:px-6 md:py-5">
+        <section class="rounded-xl border border-base-300 bg-base-200/30 p-4">
+            <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div class="md:col-span-2">
+                    <p class="text-xs font-semibold uppercase tracking-wide text-base-content/70">Titulo</p>
+                    <p class="mt-1 break-words text-xl font-semibold leading-snug">{{ appointment.title }}</p>
+                </div>
+
+                <div class="space-y-3 md:text-right">
+                    <div>
+                        <p class="text-xs font-semibold uppercase tracking-wide text-base-content/70">Status</p>
+                        {% if appointment.status == 'scheduled' %}
+                            <span class="badge badge-info badge-lg mt-1">{{ appointment.get_status_display }}</span>
+                        {% elif appointment.status == 'completed' %}
+                            <span class="badge badge-success badge-lg mt-1">{{ appointment.get_status_display }}</span>
+                        {% else %}
+                            <span class="badge badge-error badge-lg mt-1">{{ appointment.get_status_display }}</span>
+                        {% endif %}
+                    </div>
+
+                    <div>
+                        <p class="text-xs font-semibold uppercase tracking-wide text-base-content/70">Cor do bloco</p>
+                        <div class="mt-1 inline-flex items-center gap-2">
+                            <span class="h-5 w-14 rounded border border-base-300" style="background: {{ appointment.block_color }};"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div class="rounded-xl border border-base-300 bg-base-100 p-4">
+                <p class="text-xs font-semibold uppercase tracking-wide text-base-content/70">Cliente</p>
+                <p class="mt-1 break-words text-base font-semibold">{{ appointment.customer.name }}</p>
+            </div>
+
+            <div class="rounded-xl border border-base-300 bg-base-100 p-4">
+                <p class="text-xs font-semibold uppercase tracking-wide text-base-content/70">Veiculo</p>
+                <p class="mt-1 break-words text-base font-semibold">{{ appointment.vehicle|default:'Nao vinculado' }}</p>
+            </div>
+        </section>
+
+        <section class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div class="rounded-xl border border-base-300 bg-base-100 p-4">
+                <p class="text-xs font-semibold uppercase tracking-wide text-base-content/70">Entrada</p>
+                <p class="mt-1 text-lg font-semibold">{{ appointment.starts_at|date:'d/m/Y H:i' }}</p>
+            </div>
+
+            <div class="rounded-xl border border-base-300 bg-base-100 p-4">
+                <p class="text-xs font-semibold uppercase tracking-wide text-base-content/70">Saida</p>
+                <p class="mt-1 text-lg font-semibold">{{ appointment.ends_at|date:'d/m/Y H:i' }}</p>
+            </div>
+        </section>
+
+        {% if appointment.notes %}
+            <section class="rounded-xl border border-base-300 bg-base-100 p-4">
+                <p class="text-xs font-semibold uppercase tracking-wide text-base-content/70">Observacoes</p>
+                <p class="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed md:text-base">{{ appointment.notes }}</p>
+            </section>
+        {% endif %}
+
+        <section class="rounded-xl border border-base-300 bg-base-100 p-4">
+            <p class="text-xs font-semibold uppercase tracking-wide text-base-content/70">Vinculos</p>
+            <div class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <a href="{{ create_budget_url }}" class="btn btn-outline">Criar Orcamento</a>
+                {% if budget_url %}
+                    <a href="{{ budget_url }}" class="btn btn-outline">Abrir Orcamento Vinculado</a>
+                {% else %}
+                    <button type="button" class="btn btn-outline btn-disabled">Nenhum Orcamento Vinculado</button>
+                {% endif %}
+
+                {% if workorder_url %}
+                    <a href="{{ workorder_url }}" class="btn btn-outline sm:col-span-2">Abrir O.S. Vinculada</a>
+                {% else %}
+                    <button type="button" class="btn btn-outline btn-disabled sm:col-span-2">Nenhuma O.S. Vinculada</button>
+                {% endif %}
+            </div>
+        </section>
+    </div>
+
+    <div class="appointment-detail-actions sticky bottom-0 z-20 flex flex-wrap items-center gap-2 border-t border-base-300 bg-base-100/95 px-5 py-3 backdrop-blur-sm md:px-6">
+        <button
+            type="button"
+            class="btn btn-primary flex-1 min-w-[12rem]"
+            hx-get="{{ edit_url }}"
+            hx-target="#appointment-modal-container"
+            hx-swap="innerHTML"
+        >
+            Editar Agendamento
+        </button>
+
+        <button
+            type="button"
+            class="btn btn-error text-white"
+            hx-post="{{ delete_url }}"
+            hx-target="#appointment-modal-container"
+            hx-swap="innerHTML"
+            hx-confirm="Tem certeza que deseja excluir este agendamento?"
+        >
+            Excluir
+        </button>
+    </div>
+</div>
+
+<style>
+    #appointment_modal .appointment-detail-shell {
+        max-height: 90vh;
+    }
+
+    #appointment_modal .appointment-detail-shell .badge {
+        letter-spacing: 0.01em;
+    }
+</style>

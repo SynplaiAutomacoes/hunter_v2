@@ -15,7 +15,7 @@ import base64
 
 from django.shortcuts import get_object_or_404
 from django.utils.safestring import mark_safe
-from lxml import etree
+from lxml.etree import fromstring
 from django.urls import reverse
 from django.utils import timezone
 from djmoney.forms import MoneyField
@@ -30,7 +30,7 @@ from apps.finance.models.payment_method import PaymentMethod
 
 from apps.stock.models import StockPaymentMethod, StockImport, StockProduct, StockMovement, SefazZipCache
 
-from apps.stock.utils import NFParser
+from apps.stock.utils import NFParser, extract_nf_number_from_access_key, parse_sefaz_distribution_doc_metadata
 from apps.suppliers.models import Supplier
 from apps.workshops.models.workshops import Workshop
 
@@ -93,7 +93,7 @@ class ImportStep1Form(forms.ModelForm):
         if self.parsed_nf_data:
             data = self.parsed_nf_data
             obj.workshop = self.workshop
-            obj.nf_number = data.get("nf_number")
+            obj.nf_number = data.get("nf_number") or extract_nf_number_from_access_key(data.get("nf_key"))
             obj.nf_key = data.get("nf_key", "")
             obj.supplier_cnpj = data.get("supplier_cnpj")
             obj.supplier_name = data.get("supplier_name")
@@ -160,10 +160,14 @@ class ImportStep1Form(forms.ModelForm):
             if not nf_data.get("nf_key"):
                 nf_data["nf_key"] = cleaned_data.get("access_key") or self.data.get("access_key")
 
+            nf_number = nf_data.get("nf_number") or extract_nf_number_from_access_key(nf_data.get("nf_key"))
+            if nf_number:
+                nf_data["nf_number"] = nf_number
+
             if StockImport.objects.filter(workshop=self.workshop, nf_key=nf_data["nf_key"]).exclude(pk=self.instance.pk).exists():
                 self.add_error("method", f"A NF com chave {nf_data['nf_key']} já existe.")
 
-            elif StockImport.objects.filter(workshop=self.workshop, nf_number=nf_data["nf_number"], supplier_cnpj=nf_data["supplier_cnpj"]).exclude(pk=self.instance.pk).exists():
+            elif nf_data.get("nf_number") and StockImport.objects.filter(workshop=self.workshop, nf_number=nf_data["nf_number"], supplier_cnpj=nf_data["supplier_cnpj"]).exclude(pk=self.instance.pk).exists():
                 self.add_error("method", f"A NF número {nf_data['nf_number']} deste fornecedor já foi importada.")
 
             self.parsed_nf_data = nf_data
@@ -186,7 +190,7 @@ class ImportStepSupplierForm(forms.ModelForm):
 
         nome = self.instance.supplier_name or "Não informado"
         cnpj = self.instance.supplier_cnpj or "Não informado"
-        nNF = self.instance.nf_number or "---"
+        nNF = self.instance.nf_number_display
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -367,10 +371,7 @@ class ImportStepPaymentForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
 
         if self.workshop:
-            self.fields['payment_method'].queryset = PaymentMethod.objects.filter(
-                workshop=self.workshop,
-                is_active=True
-            ).order_by('description')
+            self.fields["payment_method"].queryset = PaymentMethod.objects.filter(workshop=self.workshop, is_active=True).order_by("description")
 
         # Cálculos Financeiros
         valor_total = sum(Decimal(str(item.get("valor", 0))) * Decimal(str(item.get("qtd", 0))) for item in self.import_items)
@@ -396,9 +397,9 @@ class ImportStepPaymentForm(forms.ModelForm):
             self.fields[field_name].widget.attrs.update({"readonly": True, "class": "cursor-not-allowed opacity-75"})
 
         self.fields["payment_method"].label = mark_safe('Forma de Pagamento <span class="text-error">*</span>')
-        self.fields['installments_count'].label = mark_safe('Número de Parcelas <span class="text-error">*</span>')
-        self.fields['first_amount'].label = mark_safe('Valor Pago <span class="text-error">*</span>')
-        self.fields['payment_date'].label = mark_safe('Data de Vencimento <span class="text-error">*</span>')
+        self.fields["installments_count"].label = mark_safe('Número de Parcelas <span class="text-error">*</span>')
+        self.fields["first_amount"].label = mark_safe('Valor Pago <span class="text-error">*</span>')
+        self.fields["payment_date"].label = mark_safe('Data de Vencimento <span class="text-error">*</span>')
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -410,7 +411,7 @@ class ImportStepPaymentForm(forms.ModelForm):
                         const firstAmountHidden = document.getElementById('id_first_amount_0');
                         const installmentsInput = document.getElementById('id_installments_count');
                         
-                        const pendingValue = parseFloat("{str(valor_pendente).replace(',', '.')}") || 0;
+                        const pendingValue = parseFloat("{str(valor_pendente).replace(",", ".")}") || 0;
 
                         const btnAdd = document.querySelector('button[hx-post*="add_payment_session"]');
                         const warningDiv = document.getElementById('payment-warning-js');
@@ -500,7 +501,7 @@ class ImportStepPaymentForm(forms.ModelForm):
                 HTML("</div>"),
                 id="import-step-container",
                 css_class="card-body",
-            )
+            ),
         )
 
     def _generate_payments_table_html(self):
@@ -610,7 +611,7 @@ class ImportStepSummaryForm(forms.ModelForm):
 
         supplier_name = self.instance.supplier_name or "Não informado"
         supplier_cnpj = self.instance.supplier_cnpj or "Não informado"
-        nf_number = self.instance.nf_number or "---"
+        nf_number = self.instance.nf_number_display
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -783,7 +784,7 @@ class ImportSefazListForm(forms.ModelForm):
             xml_resp = comunicacao.consulta_distribuicao(cnpj=cnpj, nsu=nsu)
 
             # Parsing do retorno da SEFAZ (simplificado do seu exemplo)
-            tree = etree.fromstring(xml_resp.content)
+            tree = fromstring(xml_resp.content)
             ns = {"ns": "http://www.portalfiscal.inf.br/nfe"}
             cached_count = 0
 
@@ -793,23 +794,20 @@ class ImportSefazListForm(forms.ModelForm):
                 docs = tree.xpath("//ns:docZip", namespaces=ns)
                 for doc in docs:
                     content = gzip.decompress(base64.b64decode(doc.text))
-                    nfe_tree = etree.fromstring(content)
-                    tag = etree.QName(nfe_tree).localname
-
-                    dados = {}
-                    if tag == "resNFe":
-                        dados = {"key": nfe_tree.get("chNFe"), "nome": nfe_tree.get("xNome"), "cnpj": nfe_tree.get("CNPJ") or nfe_tree.get("CPF"), "valor": nfe_tree.get("vNF"), "data": nfe_tree.get("dhEmi")}
-                    elif tag == "nfeProc":
-                        dados = {
-                            "key": nfe_tree.xpath("//ns:infNFe/@Id", namespaces=ns)[0].replace("NFe", ""),
-                            "nome": nfe_tree.xpath("//ns:emit/ns:xNome/text()", namespaces=ns)[0],
-                            "cnpj": nfe_tree.xpath("//ns:emit/ns:CNPJ/text()", namespaces=ns)[0],
-                            "valor": nfe_tree.xpath("//ns:vNF/text()", namespaces=ns)[0],
-                            "data": nfe_tree.xpath("//ns:dhEmi/text()", namespaces=ns)[0],
-                        }
+                    dados = parse_sefaz_distribution_doc_metadata(content) or {}
 
                     if dados.get("key"):
-                        SefazZipCache.objects.update_or_create(key=dados["key"], workshop=self.workshop, defaults={"issuer_name": dados["nome"], "issuer_cnpj": dados["cnpj"], "total_value": dados["valor"], "issue_date": dados["data"]})
+                        SefazZipCache.objects.update_or_create(
+                            key=dados["key"],
+                            workshop=self.workshop,
+                            defaults={
+                                "nf_number": dados.get("nf_number"),
+                                "issuer_name": dados.get("nome"),
+                                "issuer_cnpj": dados.get("cnpj"),
+                                "total_value": dados.get("valor"),
+                                "issue_date": dados.get("data"),
+                            },
+                        )
                         cached_count += 1
 
             self.workshop.last_sefaz_search_date = timezone.now()
@@ -838,13 +836,20 @@ class ImportSefazListForm(forms.ModelForm):
                 nf_data = NFParser.parse_nfe_xml_to_dict(self.workshop, xml_completo.content)
 
                 if nf_data:
-                    instance.nf_number = nf_data["nf_number"]
+                    resolved_nf_number = nf_data.get("nf_number") or extract_nf_number_from_access_key(nf_data.get("nf_key"))
+                    instance.nf_number = resolved_nf_number
                     instance.nf_key = nf_data["nf_key"]
                     instance.supplier_cnpj = nf_data["supplier_cnpj"]
                     instance.supplier_name = nf_data["supplier_name"]
                     instance.items_data = nf_data["items"]
                     instance.payments_data = nf_data["payments"]
                     instance.method = "SEFAZ"
+
+                    SefazZipCache.objects.filter(workshop=self.workshop, key=instance.nf_key).update(
+                        nf_number=resolved_nf_number or None,
+                        issuer_name=instance.supplier_name,
+                        issuer_cnpj=instance.supplier_cnpj,
+                    )
             except Exception as e:
                 raise forms.ValidationError(f"Erro ao baixar nota completa: {e}")
 
@@ -890,11 +895,7 @@ class ImportStepSupplierManualForm(forms.ModelForm):
 
         self.fields["supplier_select"].widget = SelectInput(choices=choices, attrs={"hx-get": reverse("stock:supplier_details"), "hx-target": "#supplier-info-container", "hx-trigger": "change, load", "class": "w-full", "x-model": "supplierId", "@change": "supplierId = $el.value"})
 
-        initial_alpine = {
-            "supName": self.instance.supplier_name or '',
-            "supCnpj": self.instance.supplier_cnpj or '',
-            "supplierId": str(current_supplier.id) if current_supplier else ''
-        }
+        initial_alpine = {"supName": self.instance.supplier_name or "", "supCnpj": self.instance.supplier_cnpj or "", "supplierId": str(current_supplier.id) if current_supplier else ""}
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -1035,7 +1036,17 @@ class ImportManualItemsForm(forms.ModelForm):
                     estoque_atual = product.stock_products.current_quantity
 
                 num_html = NumberInput(mode="positive").render(
-                    name=f"items_qty_{idx}", value=str(quantidade), attrs={"class": "text-center", "hx-post": reverse("stock:update_manual_item_data", kwargs={"pk": self.instance.pk}), "hx-trigger": "change delay:500ms", "hx-vals": f"js:{{item_idx: {idx}}}", "hx-target": "#step-container"})
+                    name=f"items_qty_{idx}",
+                    value=str(quantidade),
+                    attrs={
+                        "class": "text-center",
+                        "hx-post": reverse("stock:update_manual_item_data", kwargs={"pk": self.instance.pk}),
+                        "hx-trigger": "change delay:500ms",
+                        "hx-vals": f"js:{{item_idx: {idx}}}",
+                        "hx-target": "this",
+                        "hx-swap": "none",
+                    },
+                )
 
                 money_html = MoneyInput().render(
                     name=f"items_price_{idx}",
@@ -1044,9 +1055,11 @@ class ImportManualItemsForm(forms.ModelForm):
                         "class": "text-right",
                         "hx-post": reverse("stock:update_manual_item_data", kwargs={"pk": self.instance.pk}),
                         "hx-trigger": "change delay:500ms",
-                        "hx-vals": f'js:{{item_idx: {idx}}}',
-                        "hx-target": "#step-container"
-                    })
+                        "hx-vals": f"js:{{item_idx: {idx}}}",
+                        "hx-target": "this",
+                        "hx-swap": "none",
+                    },
+                )
 
                 rows += f"""
                 <tr class="h-16 border-b border-base-300">

@@ -23,6 +23,10 @@
             href: '{% url "workorder:workorder_list" %}'
         },
         {
+            label: 'Agendamentos',
+            href: '{% url "scheduling:appointment_calendar" %}'
+        },
+        {
             label: 'Estoque',
             items: [
                 { label: 'Importar Itens', href: '{% url "stock:stock_list" %}' },

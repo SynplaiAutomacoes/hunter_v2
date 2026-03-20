@@ -68,6 +68,53 @@ class SignatureHelpersTests(SimpleTestCase):
         self.assertEqual(build_absolute_app_url(path="/destino/"), "http://localhost:8000/destino/")
 
 
+class CrudWrapperTemplateTests(SimpleTestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def test_list_page_wrapper_only_syncs_query_params_for_its_own_requests(self):
+        request = self.factory.get("/workshops/?q=Oficina&page=2")
+        template = Template(
+            """
+            {% extends 'crud/list_page.html' %}
+            {% block crud_title %}Oficinas{% endblock %}
+            {% block crud_subtitle %}Subtitulo{% endblock %}
+            {% block crud_table %}<div>Conteudo</div>{% endblock %}
+            """
+        )
+
+        html = template.render(Context({"request": request, "active_workshops": [], "active_workshop_is_director": False}))
+
+        self.assertNotIn('hx-vals="js:{', html)
+        self.assertIn("document.currentScript.previousElementSibling", html)
+        self.assertIn("wrapper.addEventListener('htmx:configRequest'", html)
+        self.assertIn("if (!event.detail || event.detail.elt !== wrapper) return;", html)
+        self.assertIn("new URLSearchParams(window.location.search)", html)
+        self.assertIn("event.detail.parameters = parameters;", html)
+
+    def test_detail_wrapper_only_syncs_query_params_for_its_own_requests(self):
+        request = self.factory.get("/workshops/1/?q=Oficina&page=2")
+        template = Template(
+            """
+            {% extends 'crud/detail.html' %}
+            {% block crud_title %}Oficina{% endblock %}
+            {% block crud_subtitle %}Detalhes{% endblock %}
+            {% block crud_back_url %}/workshops/{% endblock %}
+            {% block crud_card_title %}Tabela{% endblock %}
+            {% block crud_table %}<div>Conteudo</div>{% endblock %}
+            """
+        )
+
+        html = template.render(Context({"request": request, "active_workshops": [], "active_workshop_is_director": False}))
+
+        self.assertNotIn('hx-vals="js:{', html)
+        self.assertIn("document.currentScript.previousElementSibling", html)
+        self.assertIn("wrapper.addEventListener('htmx:configRequest'", html)
+        self.assertIn("if (!event.detail || event.detail.elt !== wrapper) return;", html)
+        self.assertIn("new URLSearchParams(window.location.search)", html)
+        self.assertIn("event.detail.parameters = parameters;", html)
+
+
 class TestRenderTableTag(TestCase):
     def setUp(self):
         self.factory = RequestFactory()
@@ -336,6 +383,18 @@ class TestRenderTableTag(TestCase):
         self.assertIn('name="q"', html)
         self.assertIn('id="t-search"', html)
         self.assertIn('value="Alp"', html)
+        self.assertIn('type="submit"', html)
+        self.assertIn("Buscar", html)
+        self.assertIn('action="/workshops/"', html)
+        self.assertIn('method="get"', html)
+        self.assertIn('hx-trigger="submit, change from:#t-sort-ui"', html)
+        self.assertIn('hx-disinherit="hx-vals"', html)
+        self.assertIn('hx-vals="{}"', html)
+        self.assertNotIn("keyup changed delay:500ms", html)
+        self.assertIn("input.addEventListener('input'", html)
+        self.assertIn("let hadSearchValue = input.value.trim() !== ''", html)
+        self.assertIn("form.requestSubmit()", html)
+        self.assertNotIn("window.htmx.trigger(form, 'submit')", html)
 
     def test_search_query_is_kept_in_pagination_links(self):
         for i in range(1, 26):

@@ -184,7 +184,8 @@ class CustomerForm(AddressFormMixin, forms.ModelForm):
                 # CPF/CNPJ | Nome | Nome Fantasia (PJ)
                 # ─────────────────────────────
                 Field("cpf_or_cnpj", wrapper_class="col-span-12 lg:col-span-4"),
-                Div(Field("name", wrapper_class="col-span-12"),
+                Div(
+                    Field("name", wrapper_class="col-span-12"),
                     x_init="""
                                 $watch('tipo', value => {
                                     let label = $el.querySelector('label');
@@ -489,58 +490,61 @@ class QuickVehicleForm(forms.ModelForm):
         self.helper.form_tag = False
         self.helper.layout = Layout(
             HTML("""<script>
-            // Usamos 'input' ou 'change' no document para delegar o evento (funciona com HTMX)
             document.addEventListener('change', async (e) => {
                 const el = e.target;
-                
-                // Verifica se é um campo de placa (pelo nome ou pelo ID)
                 const isPlateField = el.name && (el.name.endsWith('plate') || el.name === 'plate');
-                
-                if (isPlateField) {
-                    const plate = el.value.replace(/[^a-zA-Z0-9]/g, '').trim();
-                    if (plate.length < 7) return;
-            
-                    // Tenta encontrar um container de linha (formset) ou o formulário pai (quickform)
-                    const container = el.closest('.vehicle-item') || el.closest('form');
-                    if (!container) return;
-            
-                    try {
-                        // Adicione um feedback visual simples
-                        el.classList.add('loading-api'); 
-            
-                        const response = await fetch(`/customer/check-plate/${plate}/`);
-                        if (!response.ok) throw new Error('Placa não encontrada');
-            
-                        const data = await response.json();
-            
-                        // Mapeamento de campos (Sufixo no Django -> Chave no JSON)
-                        const map = {
-                            'brand': data.brand,
-                            'model': data.model,
-                            'year_fabrication': data.year_fabrication,
-                            'year_model': data.year_model,
-                            'color': data.color,
-                            'fuel': data.fuel,
-                            'chassi': data.chassi,
-                            'engine': data.engine,
-                            'type': data.type
-                        };
-            
-                        Object.keys(map).forEach(key => {
-                            // Busca tanto 'vehicles-0-brand' quanto apenas 'brand'
-                            const input = container.querySelector(`[name$="${key}"]`);
-                            if (input && map[key]) {
-                                input.value = map[key];
-                                // Dispara evento de input para o Alpine.js (se houver) reconhecer a mudança
-                                input.dispatchEvent(new Event('input', { bubbles: true }));
+
+                if (!isPlateField) return;
+
+                const plate = el.value.replace(/[^a-zA-Z0-9]/g, '').trim();
+                if (plate.length < 7) return;
+
+                const container = el.closest('.vehicle-item') || el.closest('form');
+                if (!container) return;
+
+                try {
+                    el.classList.add('loading-api');
+
+                    const response = await fetch(`/customer/check-plate/${plate}/`);
+                    if (!response.ok) throw new Error('Placa não encontrada');
+
+                    const data = await response.json();
+                    const fieldsMap = {
+                        brand: data.brand,
+                        model: data.model,
+                        year_fabrication: data.year_fabrication,
+                        year_model: data.year_model,
+                        color: data.color,
+                        fuel: data.fuel,
+                        chassi: data.chassi,
+                        engine: data.engine,
+                        type: data.type
+                    };
+
+                    Object.keys(fieldsMap).forEach((key) => {
+                        const input = container.querySelector(`[name$="${key}"]`);
+                        if (input && fieldsMap[key]) {
+                            input.value = fieldsMap[key];
+                            input.dispatchEvent(new Event('input', { bubbles: true }));
+                        }
+                    });
+
+                    const missingFields = [];
+                    if (!data.engine) missingFields.push('Motor');
+                    if (!data.fuel) missingFields.push('Combustível');
+
+                    if (missingFields.length > 0) {
+                        document.body.dispatchEvent(new CustomEvent('showToast', {
+                            detail: {
+                                message: `Campos não disponíveis: ${missingFields.join(', ')}`,
+                                type: 'warning'
                             }
-                        });
-            
-                    } catch (err) {
-                        console.warn("Erro ao buscar placa:", err);
-                    } finally {
-                        el.classList.remove('loading-api');
+                        }));
                     }
+                } catch (err) {
+                    console.warn('Erro ao buscar placa:', err);
+                } finally {
+                    el.classList.remove('loading-api');
                 }
             });
             </script>"""),
@@ -552,7 +556,7 @@ class QuickVehicleForm(forms.ModelForm):
                 Field("year_model", wrapper_class="col-span-12 lg:col-span-3"),
                 Field("color", wrapper_class="col-span-12 lg:col-span-6"),
                 css_class="grid grid-cols-12 gap-2",
-            )
+            ),
         )
 
     def clean_plate(self):

@@ -14,7 +14,7 @@ from django.db.models import F, ExpressionWrapper, IntegerField, Q
 from djmoney.money import Money
 
 from .forms import ImportStep1Form, ImportStepSupplierForm, ImportStepItemsForm, ImportStepPaymentForm, QuickProductForm, ImportStepSummaryForm, ImportSefazListForm, CatalogGroupQuickForm, ImportStepSupplierManualForm, QuickSupplierForm, ImportManualItemsForm
-from .models import StockProduct, StockMovement, StockPaymentMethod, StockImport
+from .models import StockProduct, StockMovement, StockImport
 from ..catalog.models.groups import CatalogGroup
 from ..catalog.models.products import Product
 from ..core.forms import MultiStepFormMixin
@@ -357,24 +357,43 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = StockImport
     workshop_permission_codename = "change_stockimport"
 
+    @staticmethod
+    def _htmx_payment_response(message: str, *, level: str = "info", refresh_step: bool = False, status: int = 204) -> HttpResponse:
+        trigger: dict[str, object] = {
+            "showToast": {
+                "type": level,
+                "message": message,
+            }
+        }
+        if refresh_step:
+            trigger["productCreated"] = {}
+
+        response = HttpResponse(status=status)
+        response["HX-Trigger"] = json.dumps(trigger)
+        return response
+
     def post(self, request, *args, **kwargs):
         pk = request.GET.get("pk")
         obj = get_object_or_404(StockImport, id=pk, workshop=self.workshop)
 
-        method_code = request.POST.get("payment_method")
-        payment_date = request.POST.get("payment_date")
-        first_amount_str = request.POST.get("first_amount_0", "0")
-        installments_str = request.POST.get("installments_count", "1")
+        method_code = (request.POST.get("payment_method") or "").strip()
+        payment_date = (request.POST.get("payment_date") or "").strip()
+        first_amount_str = (request.POST.get("first_amount_0") or "").strip()
+        installments_str = (request.POST.get("installments_count") or "").strip()
 
-        method_obj = get_object_or_404(PaymentMethod, id=method_code, workshop=self.workshop)
-
-        if not all([method_code, payment_date, installments_str]) or Decimal(first_amount_str or 0) <= 0:
-            messages.error(request, "Preencha todos os campos do pagamento antes de incluir.")
-            return HttpResponse(headers={"HX-Refresh": "true"})
+        if not all([method_code, payment_date, installments_str, first_amount_str]):
+            return self._htmx_payment_response("Preencha todos os campos do pagamento antes de incluir.", level="warning")
 
         try:
-            first_amount = Decimal(first_amount_str)
-            installments = Decimal(installments_str)
+            first_amount = Decimal(first_amount_str.replace(",", "."))
+            installments = int(installments_str)
+            if first_amount <= 0 or installments <= 0:
+                return self._htmx_payment_response("Informe valores válidos para o pagamento.", level="warning")
+
+            method_obj = PaymentMethod.objects.filter(id=method_code, workshop=self.workshop, is_active=True).first()
+            if not method_obj:
+                return self._htmx_payment_response("A forma de pagamento selecionada é inválida.", level="warning")
+
             total_paid = first_amount * installments
 
             valor_total_nf = sum(Decimal(str(item.get("valor", 0))) * Decimal(str(item.get("qtd", 0))) for item in obj.items_data)
@@ -382,10 +401,9 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
             valor_disponivel = valor_total_nf - valor_ja_pago
 
             if total_paid > valor_disponivel:
-                messages.error(request, f"O valor informado (R$ {total_paid}) excede o saldo pendente (R$ {valor_disponivel}).")
-                return HttpResponse(headers={"HX-Refresh": "true"})
+                return self._htmx_payment_response(f"O valor informado (R$ {total_paid}) excede o saldo pendente (R$ {valor_disponivel}).", level="warning")
 
-            payments = obj.payments_data
+            payments = list(obj.payments_data or [])
             new_payment = {
                 "id": len(payments) + 1,
                 "method": method_obj.id,
@@ -400,10 +418,11 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
             obj.payments_data = payments
             obj.save(update_fields=["payments_data"])
 
-            return HttpResponse(headers={"HX-Refresh": "true"})
+            return self._htmx_payment_response("Pagamento incluído com sucesso.", level="success", refresh_step=True)
+        except (InvalidOperation, ValueError):
+            return self._htmx_payment_response("Informe valores válidos para o pagamento.", level="warning")
         except Exception:
-            messages.error(request, "Erro ao processar valores do pagamento.")
-            return HttpResponse(headers={"HX-Refresh": "true"})
+            return self._htmx_payment_response("Erro ao processar valores do pagamento.", level="error")
 
 
 class RemovePaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -417,8 +436,9 @@ class RemovePaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         obj.payments_data = payments
         obj.save(update_fields=["payments_data"])
-
-        return HttpResponse(headers={"HX-Refresh": "true"})
+        response = HttpResponse(status=204)
+        response["HX-Trigger"] = json.dumps({"productCreated": {}})
+        return response
 
 
 class LinkProductManualView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -624,7 +644,7 @@ class SupplierDetailsView(LoginRequiredMixin, WorkshopScopedMixin, View):
             history_html += f"""<tr class="text-sm">
                     <td>#{imp.id or "---"}</td>
                     <td class="py-2">{imp.criado_em.strftime("%d/%m/%Y")}</td>
-                    <td>{imp.nf_number or "---"}</td>
+                    <td>{imp.nf_number_display}</td>
                     <td>
                         <a href="{reverse("stock:stock_update", kwargs={"pk": imp.id})}" title="Acessar Importação" class="btn btn-ghost btn-sm btn-circle">
                             <span class="material-icons !text-sm">visibility</span>
@@ -706,6 +726,7 @@ class SupplierQuickCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateVie
 
         return super().form_valid(form)
 
+
 class SupplierQuickUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
     model = Supplier
     form_class = QuickSupplierForm
@@ -744,7 +765,11 @@ class UpdateManualItemDataView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if item_idx is None:
             return HttpResponse(status=400)
 
-        idx = int(item_idx)
+        try:
+            idx = int(item_idx)
+        except (TypeError, ValueError):
+            return HttpResponse(status=400)
+
         items = list(obj.items_data)
 
         if 0 <= idx < len(items):
@@ -765,7 +790,6 @@ class UpdateManualItemDataView(LoginRequiredMixin, WorkshopScopedMixin, View):
             obj.items_data = items
             obj.save(update_fields=["items_data"])
 
-
-        response = HttpResponse("")
+        response = HttpResponse(status=204)
         response["HX-Trigger"] = "productCreated"
         return response

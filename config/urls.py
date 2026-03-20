@@ -16,6 +16,8 @@ Including another URLconf
 """
 
 from django.contrib import admin
+from django.conf import settings
+from django.conf.urls.static import static
 from django.urls import path, include
 from django.views.generic import RedirectView
 
@@ -35,6 +37,10 @@ urlpatterns = [
     path("customer/", include("apps.customer.urls")),
     path("budget/", include("apps.budget.urls")),
     path("workorder/", include("apps.workorder.urls")),
+    path("scheduling/", include("apps.scheduling.urls")),
     path("stock/", include("apps.stock.urls")),
     path("finance/", include("apps.finance.urls")),
 ]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

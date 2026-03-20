@@ -11,6 +11,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.http import HttpResponse
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.template.response import TemplateResponse
 from django.urls import reverse, reverse_lazy
@@ -41,6 +42,7 @@ from apps.workshops.forms.workshops import (
     WorkshopCompanySectionForm,
     WorkshopFiscalSectionForm,
     WorkshopForm,
+    WorkshopLogoForm,
     WorkshopOptionalsSectionForm,
 )
 from apps.workshops.models.workshops import Workshop
@@ -153,6 +155,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
     TAB_CERTIFICADO = "certificado"
     TAB_OPCIONAIS = "opcionais"
     TAB_CREDENCIAIS = "credenciais"
+    TAB_LOGO_AUTOUPLOAD = "logo_autoupload"
     TABS = {
         TAB_EMPRESA,
         TAB_ENDERECO,
@@ -343,6 +346,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             "credential_preview_fields": self._credential_preview_fields(),
             "certificate_status": self._certificate_status(),
             "can_change_webmania_company": can_change_webmania_company,
+            "logo_form": WorkshopLogoForm(instance=self.object),
         }
 
     def _build_update_url(self, *, tab: str, nf_subtab: str) -> str:
@@ -541,6 +545,22 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
         return TemplateResponse(request, self.template_name, context)
 
     def post(self, request, *args, **kwargs):
+        if request.POST.get("tab") == self.TAB_LOGO_AUTOUPLOAD:
+            logo_form = WorkshopLogoForm(data=request.POST, files=request.FILES, instance=self.object)
+            if not logo_form.is_valid():
+                first_error = "Erro ao salvar logo da oficina."
+                if logo_form.errors:
+                    first_key = next(iter(logo_form.errors), None)
+                    if first_key and logo_form.errors.get(first_key):
+                        first_error = str(logo_form.errors[first_key][0])
+                return JsonResponse({"ok": False, "message": first_error}, status=400)
+
+            if logo_form.changed_data:
+                logo_form.save()
+                return JsonResponse({"ok": True, "message": "Logo da oficina atualizada."})
+
+            return JsonResponse({"ok": True, "message": "Nenhuma alteracao na logo."})
+
         active_tab = self._normalize_tab(request.POST.get("tab"))
         active_nf_subtab = self._normalize_nf_subtab(request.POST.get("nf_tab"))
 

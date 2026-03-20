@@ -1,0 +1,531 @@
+{% extends 'crud/page.html' %}
+{% load crispy_forms_tags %}
+
+{% block crud_content %}
+    <div class="space-y-6">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+                <h1 class="text-3xl font-bold text-base-content">Agendamentos</h1>
+                <p class="text-base-content/70 mt-1">Calendario de entrada e saida de veiculos.</p>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+                <button
+                    type="button"
+                    class="btn btn-primary"
+                    onclick="window.openAppointmentCreateModal()"
+                >
+                    Novo Agendamento
+                </button>
+            </div>
+        </div>
+
+        <div class="card bg-base-100 shadow-xl">
+            <div class="card-body gap-4 p-4 md:p-6">
+                <div id="appointment-filters-shell" class="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-6" x-data="{customerId: '', vehicleId: ''}" @change="
+                    if ($event.target && $event.target.name === 'customer') {
+                        customerId = $event.target.value || '';
+                        vehicleId = '';
+                        window.reloadCalendarVehicleFilterOptions(customerId);
+                    }
+                    if ($event.target && $event.target.name === 'vehicle') {
+                        vehicleId = $event.target.value || '';
+                    }
+                ">
+                    <div>
+                        <label for="{{ filters_form.date_from.id_for_label }}">{{ filters_form.date_from.label }}</label>
+                        {{ filters_form.date_from }}
+                    </div>
+
+                    <div>
+                        <label for="{{ filters_form.date_to.id_for_label }}">{{ filters_form.date_to.label }}</label>
+                        {{ filters_form.date_to }}
+                    </div>
+
+                    <div>
+                        <label for="{{ filters_form.customer.id_for_label }}">{{ filters_form.customer.label }}</label>
+                        {{ filters_form.customer }}
+                    </div>
+
+                    <div>
+                        <label for="{{ filters_form.vehicle.id_for_label }}">{{ filters_form.vehicle.label }}</label>
+                        {{ filters_form.vehicle }}
+                    </div>
+
+                    <div>
+                        <label for="{{ filters_form.status.id_for_label }}">{{ filters_form.status.label }}</label>
+                        {{ filters_form.status }}
+                    </div>
+
+                    <div class="flex items-end gap-2">
+                        <button type="button" class="btn btn-primary flex-1" onclick="window.refetchAppointments()">Filtrar</button>
+                        <button type="button" class="btn btn-error text-white" onclick="window.clearAppointmentFilters()">Limpar</button>
+                    </div>
+                </div>
+
+                <div id="appointments-calendar"></div>
+            </div>
+        </div>
+    </div>
+
+    <dialog id="appointment_modal" class="modal">
+        <div id="appointment-modal-container"></div>
+    </dialog>
+
+    <dialog id="quick_form_modal" class="modal">
+        <div id="modal-container"></div>
+    </dialog>
+
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
+    <script src="https://unpkg.com/fullcalendar@6.1.19/locales-all.global.min.js"></script>
+    <style>
+        #appointments-calendar .fc .fc-toolbar-title {
+            color: hsl(var(--bc));
+            font-weight: 700;
+        }
+
+        #appointments-calendar .fc .fc-button {
+            border-color: hsl(var(--b3));
+            background: hsl(var(--b2));
+            color: hsl(var(--bc));
+            box-shadow: none;
+        }
+
+        #appointments-calendar .fc .fc-button:hover,
+        #appointments-calendar .fc .fc-button:focus {
+            background: hsl(var(--b3));
+            border-color: hsl(var(--b3));
+            color: hsl(var(--bc));
+        }
+
+        #appointments-calendar .fc .fc-button-primary:not(:disabled).fc-button-active,
+        #appointments-calendar .fc .fc-button-primary:not(:disabled):active {
+            background: hsl(var(--p));
+            border-color: hsl(var(--p));
+            color: hsl(var(--pc));
+        }
+
+        #appointments-calendar .fc .fc-col-header-cell-cushion,
+        #appointments-calendar .fc .fc-daygrid-day-number,
+        #appointments-calendar .fc .fc-list-day-text,
+        #appointments-calendar .fc .fc-list-day-side-text {
+            color: hsl(var(--bc));
+        }
+
+        #appointments-calendar .fc-theme-standard td,
+        #appointments-calendar .fc-theme-standard th {
+            border-color: hsl(var(--b3));
+        }
+
+        #appointments-calendar .fc .fc-scrollgrid,
+        #appointments-calendar .fc .fc-daygrid-body,
+        #appointments-calendar .fc .fc-timegrid-slot,
+        #appointments-calendar .fc .fc-timegrid-col,
+        #appointments-calendar .fc .fc-list,
+        #appointments-calendar .fc .fc-list-table {
+            background: hsl(var(--b1));
+            color: hsl(var(--bc));
+        }
+
+        #appointments-calendar .fc .fc-col-header-cell,
+        #appointments-calendar .fc .fc-timegrid-axis,
+        #appointments-calendar .fc .fc-timegrid-slot-label,
+        #appointments-calendar .fc .fc-timegrid-slot-lane,
+        #appointments-calendar .fc .fc-daygrid-day-frame {
+            background: hsl(var(--b1));
+            color: hsl(var(--bc));
+        }
+
+        #appointments-calendar .fc .fc-daygrid-day.fc-day-today,
+        #appointments-calendar .fc .fc-timegrid-col.fc-day-today {
+            background: hsl(var(--b2));
+        }
+
+        #appointments-calendar .fc .fc-list-day-cushion {
+            background: hsl(var(--b2));
+            color: hsl(var(--bc));
+        }
+
+        #appointments-calendar .fc .fc-daygrid-day-top {
+            background: hsl(var(--b1));
+        }
+
+        #appointments-calendar .fc .fc-col-header {
+            background: hsl(var(--b2));
+        }
+
+        #appointment-filters-shell .relative .absolute.z-50 {
+            z-index: 70;
+        }
+
+        #appointment-filters-shell .input-theme {
+            min-height: 2.8rem;
+        }
+    </style>
+    <script>
+        (function () {
+            const calendarEl = document.getElementById('appointments-calendar');
+            if (!calendarEl) {
+                return;
+            }
+
+            const appointmentModal = document.getElementById('appointment_modal');
+            const quickFormModal = document.getElementById('quick_form_modal');
+
+            const dateFromInput = document.getElementById('appointment-filter-date-from');
+            const dateToInput = document.getElementById('appointment-filter-date-to');
+            const customerInput = document.getElementById('appointment-filter-customer');
+            const vehicleInput = document.getElementById('appointment-filter-vehicle');
+            const statusInput = document.getElementById('appointment-filter-status');
+            const filtersShell = document.getElementById('appointment-filters-shell');
+
+            function getFilterValue(input) {
+                if (!input) return '';
+                if (input.value) return input.value;
+
+                const hidden = input.querySelector('input[type="hidden"]');
+                return hidden && hidden.value ? hidden.value : '';
+            }
+
+            function getSearchableContainerByHiddenId(hiddenId) {
+                const hiddenInput = document.getElementById(hiddenId);
+                return hiddenInput ? hiddenInput.closest('[x-data]') : null;
+            }
+
+            function clearSearchableSelect(hiddenId) {
+                const container = getSearchableContainerByHiddenId(hiddenId);
+                if (!container || !window.Alpine) return;
+
+                const data = Alpine.$data(container);
+                if (data && data.clear) {
+                    data.clear();
+                }
+            }
+
+            function setSearchableSelectDisabled(hiddenId, disabled) {
+                const container = getSearchableContainerByHiddenId(hiddenId);
+                const hiddenInput = document.getElementById(hiddenId);
+                const visibleInput = container ? container.querySelector('input[type="text"]') : null;
+
+                if (hiddenInput) {
+                    hiddenInput.disabled = !!disabled;
+                }
+
+                if (visibleInput) {
+                    visibleInput.disabled = !!disabled;
+                }
+            }
+
+            function appendOptionToSearchable(container, option) {
+                if (!container || !window.Alpine) return;
+                const data = Alpine.$data(container);
+                const optionsUl = container.querySelector('ul[role="listbox"]');
+                if (!data || !optionsUl) return;
+
+                const li = document.createElement('li');
+                li.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white transition-colors group';
+                li.setAttribute('data-value', String(option.id));
+                li.setAttribute('data-label', option.label);
+                li.setAttribute('x-show', `!search || '${String(option.label).replace(/'/g, "\\'")}'.toLowerCase().includes(search.toLowerCase())`);
+                li.innerHTML = `<span class="block truncate">${option.label}</span>`;
+                li.addEventListener('click', () => data.select(li));
+                optionsUl.appendChild(li);
+            }
+
+            window.reloadCalendarVehicleFilterOptions = async function (customerId, selectedVehicleId = '') {
+                const vehicleContainer = getSearchableContainerByHiddenId('appointment-filter-vehicle');
+                if (!vehicleContainer || !window.Alpine) {
+                    return;
+                }
+
+                const data = Alpine.$data(vehicleContainer);
+                const optionsUl = vehicleContainer.querySelector('ul[role="listbox"]');
+                if (!data || !optionsUl) {
+                    return;
+                }
+
+                setSearchableSelectDisabled('appointment-filter-vehicle', !customerId);
+                data.clear();
+                optionsUl.querySelectorAll('li[data-value]').forEach(li => li.remove());
+
+                if (!customerId) {
+                    return;
+                }
+
+                try {
+                    const response = await fetch(`/scheduling/get-vehicles/?customer=${encodeURIComponent(customerId)}`);
+                    if (!response.ok) {
+                        return;
+                    }
+                    const vehicles = await response.json();
+                    vehicles.forEach(vehicle => {
+                        appendOptionToSearchable(vehicleContainer, vehicle);
+                    });
+                    if (window.Alpine && Alpine.initTree) {
+                        Alpine.initTree(optionsUl);
+                    }
+
+                    if (selectedVehicleId) {
+                        const selectedOption = optionsUl.querySelector(`li[data-value='${String(selectedVehicleId)}']`);
+                        if (selectedOption) {
+                            data.select(selectedOption);
+                        }
+                    }
+                } catch (error) {
+                    console.error('Erro ao carregar veiculos do filtro:', error);
+                }
+            }
+
+            function getFilters() {
+                return {
+                    date_from: dateFromInput ? dateFromInput.value : '',
+                    date_to: dateToInput ? dateToInput.value : '',
+                    customer: getFilterValue(customerInput),
+                    vehicle: getFilterValue(vehicleInput),
+                    status: statusInput ? statusInput.value : '',
+                };
+            }
+
+            function openModalFromUrl(url) {
+                htmx.ajax('GET', url, { target: '#appointment-modal-container', swap: 'innerHTML' });
+                appointmentModal.showModal();
+            }
+
+            function buildWallDateTime(dateValue, hour) {
+                if (!dateValue) {
+                    return '';
+                }
+
+                return `${dateValue}T${String(hour).padStart(2, '0')}:00:00`;
+            }
+
+            function parseTimezoneOffsetMinutes(value) {
+                if (!value || value.endsWith('Z')) {
+                    return 0;
+                }
+
+                const match = value.match(/([+-])(\d{2}):(\d{2})$/);
+                if (!match) {
+                    return 0;
+                }
+
+                const sign = match[1] === '+' ? 1 : -1;
+                return sign * ((parseInt(match[2], 10) * 60) + parseInt(match[3], 10));
+            }
+
+            function formatDateWithOffset(date, offsetMinutes) {
+                const localDate = new Date(date.getTime() + (offsetMinutes * 60 * 1000));
+                const year = localDate.getUTCFullYear();
+                const month = String(localDate.getUTCMonth() + 1).padStart(2, '0');
+                const day = String(localDate.getUTCDate()).padStart(2, '0');
+                const hour = String(localDate.getUTCHours()).padStart(2, '0');
+                const minute = String(localDate.getUTCMinutes()).padStart(2, '0');
+                const second = String(localDate.getUTCSeconds()).padStart(2, '0');
+
+                const sign = offsetMinutes >= 0 ? '+' : '-';
+                const absoluteOffset = Math.abs(offsetMinutes);
+                const offsetHour = String(Math.floor(absoluteOffset / 60)).padStart(2, '0');
+                const offsetMinute = String(absoluteOffset % 60).padStart(2, '0');
+
+                return `${year}-${month}-${day}T${hour}:${minute}:${second}${sign}${offsetHour}:${offsetMinute}`;
+            }
+
+            function addHoursToCalendarDateTime(value, hours) {
+                if (!value) {
+                    return '';
+                }
+
+                if (!value.includes('T')) {
+                    const baseHour = Math.max(0, Math.min(23, hours));
+                    return buildWallDateTime(value, baseHour);
+                }
+
+                if (!/[+-]\d{2}:\d{2}$|Z$/.test(value)) {
+                    const parsedDate = new Date(value);
+                    parsedDate.setHours(parsedDate.getHours() + hours);
+                    const year = parsedDate.getFullYear();
+                    const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
+                    const day = String(parsedDate.getDate()).padStart(2, '0');
+                    const hour = String(parsedDate.getHours()).padStart(2, '0');
+                    const minute = String(parsedDate.getMinutes()).padStart(2, '0');
+                    const second = String(parsedDate.getSeconds()).padStart(2, '0');
+                    return `${year}-${month}-${day}T${hour}:${minute}:${second}`;
+                }
+
+                const offsetMinutes = parseTimezoneOffsetMinutes(value);
+                const parsedDate = new Date(value);
+                return formatDateWithOffset(new Date(parsedDate.getTime() + (hours * 60 * 60 * 1000)), offsetMinutes);
+            }
+
+            function openCreateFromRange(startValue, endValue) {
+                if (!startValue) {
+                    openModalFromUrl('{{ create_url }}');
+                    return;
+                }
+                const params = new URLSearchParams();
+                params.set('starts_at', startValue);
+                if (endValue) {
+                    params.set('ends_at', endValue);
+                }
+                openModalFromUrl(`{{ create_url }}?${params.toString()}`);
+            }
+
+            const calendar = new FullCalendar.Calendar(calendarEl, {
+                locale: 'pt-br',
+                timeZone: 'America/Sao_Paulo',
+                initialView: 'dayGridMonth',
+                selectable: true,
+                editable: true,
+                eventDurationEditable: true,
+                firstDay: 1,
+                allDaySlot: false,
+                navLinks: true,
+                height: 'auto',
+                headerToolbar: {
+                    left: 'prev,next today',
+                    center: 'title',
+                    right: 'timeGridDay,timeGridWeek,dayGridMonth,listYear',
+                },
+                buttonText: {
+                    today: 'Hoje',
+                    day: 'Dia',
+                    week: 'Semana',
+                    month: 'Mes',
+                    list: 'Ano',
+                },
+                events: {
+                    url: '{{ calendar_events_url }}',
+                    method: 'GET',
+                    extraParams: function () {
+                        return getFilters();
+                    },
+                    failure: function () {
+                        document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'Nao foi possivel carregar os agendamentos.', type: 'error' } }));
+                    },
+                },
+                select: function (selectionInfo) {
+                    const startsAt = selectionInfo.allDay ? buildWallDateTime(selectionInfo.startStr, 0) : selectionInfo.startStr;
+                    const endsAt = selectionInfo.allDay ? buildWallDateTime(selectionInfo.startStr, 1) : selectionInfo.endStr;
+                    openCreateFromRange(startsAt, endsAt);
+                    calendar.unselect();
+                },
+                dateClick: function (info) {
+                    if (calendar.view.type.startsWith('dayGrid')) {
+                        openCreateFromRange(buildWallDateTime(info.dateStr, 0), buildWallDateTime(info.dateStr, 1));
+                    } else if (calendar.view.type.startsWith('timeGrid')) {
+                        openCreateFromRange(info.dateStr, addHoursToCalendarDateTime(info.dateStr, 1));
+                    }
+                },
+                eventClick: function (info) {
+                    openModalFromUrl(`/scheduling/${info.event.id}/detail/`);
+                },
+                eventDrop: function (info) {
+                    persistMove(info);
+                },
+                eventResize: function (info) {
+                    persistMove(info);
+                },
+            });
+
+            function persistMove(info) {
+                const formData = new FormData();
+                formData.append('starts_at', info.event.startStr || '');
+                if (info.event.endStr) {
+                    formData.append('ends_at', info.event.endStr);
+                } else {
+                    formData.append('ends_at', addHoursToCalendarDateTime(info.event.startStr || '', 1));
+                }
+
+                fetch(`/scheduling/${info.event.id}/move/`, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': '{{ csrf_token }}',
+                    },
+                    body: formData,
+                })
+                .then(async (response) => {
+                    if (!response.ok) {
+                        let message = 'Nao foi possivel atualizar o horario do agendamento.';
+                        try {
+                            const payload = await response.json();
+                            if (payload.message) {
+                                message = payload.message;
+                            }
+                        } catch (e) {
+                            // no-op
+                        }
+                        info.revert();
+                        document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: message, type: 'error' } }));
+                        return;
+                    }
+                    document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'Agendamento atualizado com sucesso.', type: 'success' } }));
+                })
+                .catch(function () {
+                    info.revert();
+                    document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'Erro ao salvar alteracao do agendamento.', type: 'error' } }));
+                });
+            }
+
+            window.refetchAppointments = function () {
+                calendar.refetchEvents();
+            };
+
+            window.clearAppointmentFilters = function () {
+                if (dateFromInput) dateFromInput.value = '';
+                if (dateToInput) dateToInput.value = '';
+                clearSearchableSelect('appointment-filter-customer');
+                window.reloadCalendarVehicleFilterOptions('');
+                if (statusInput) statusInput.value = '';
+                calendar.refetchEvents();
+            };
+
+            window.openAppointmentCreateModal = function () {
+                openModalFromUrl('{{ create_url }}');
+            };
+
+            document.body.addEventListener('appointmentsCalendarRefresh', function () {
+                if (appointmentModal.open) {
+                    appointmentModal.close();
+                }
+                if (quickFormModal.open) {
+                    quickFormModal.close();
+                }
+                calendar.refetchEvents();
+            });
+
+            document.body.addEventListener('htmx:afterSwap', function (event) {
+                if (!event.detail || !event.detail.target) {
+                    return;
+                }
+
+                if (event.detail.target.id === 'modal-container' && !quickFormModal.open) {
+                    quickFormModal.showModal();
+                }
+            });
+
+            document.body.addEventListener('customerSaved', function () {
+                if (quickFormModal.open) {
+                    quickFormModal.close();
+                }
+            });
+
+            document.body.addEventListener('vehicleSaved', function () {
+                if (quickFormModal.open) {
+                    quickFormModal.close();
+                }
+            });
+
+            calendar.render();
+
+            if (filtersShell) {
+                const selectedCustomer = getFilterValue(customerInput);
+                const selectedVehicle = getFilterValue(vehicleInput);
+                if (selectedCustomer) {
+                    window.reloadCalendarVehicleFilterOptions(selectedCustomer, selectedVehicle);
+                } else {
+                    setSearchableSelectDisabled('appointment-filter-vehicle', true);
+                }
+            }
+        })();
+    </script>
+{% endblock %}
