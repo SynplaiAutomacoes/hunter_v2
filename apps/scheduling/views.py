@@ -158,12 +158,14 @@ class AppointmentEventsView(LoginRequiredMixin, WorkshopScopedMixin, View):
         events = []
         for appointment in queryset:
             title = f"{appointment.title} - {appointment.customer.name}"
+            start_local = timezone.localtime(appointment.starts_at)
+            end_local = timezone.localtime(appointment.ends_at)
             events.append(
                 {
                     "id": str(appointment.pk),
                     "title": title,
-                    "start": appointment.starts_at.isoformat(),
-                    "end": appointment.ends_at.isoformat(),
+                    "start": start_local.isoformat(),
+                    "end": end_local.isoformat(),
                     "color": appointment.block_color,
                     "extendedProps": {
                         "customer_name": appointment.customer.name,
@@ -258,8 +260,8 @@ class AppointmentCreateView(AppointmentBaseFormMixin, CreateView):
     def get_initial(self):
         initial = super().get_initial()
 
-        starts_at = _parse_wall_datetime(self.request.GET.get("starts_at")) or _parse_request_timestamp(self.request.GET.get("start_ts")) or _parse_request_datetime(self.request.GET.get("starts_at"))
-        ends_at = _parse_wall_datetime(self.request.GET.get("ends_at")) or _parse_request_timestamp(self.request.GET.get("end_ts")) or _parse_request_datetime(self.request.GET.get("ends_at"))
+        starts_at = _parse_request_datetime(self.request.GET.get("starts_at")) or _parse_wall_datetime(self.request.GET.get("starts_at")) or _parse_request_timestamp(self.request.GET.get("start_ts"))
+        ends_at = _parse_request_datetime(self.request.GET.get("ends_at")) or _parse_wall_datetime(self.request.GET.get("ends_at")) or _parse_request_timestamp(self.request.GET.get("end_ts"))
 
         if starts_at:
             initial["starts_at"] = starts_at.strftime("%Y-%m-%dT%H:%M")

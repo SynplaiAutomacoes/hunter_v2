@@ -371,6 +371,11 @@ class AppointmentCalendarFilterForm(forms.Form):
         elif self.initial.get("customer"):
             selected_customer_id = str(self.initial.get("customer"))
 
+        if not selected_customer_id:
+            vehicle_field.widget.attrs["disabled"] = True
+        else:
+            vehicle_field.widget.attrs.pop("disabled", None)
+
         if selected_customer_id and self.workshop:
             vehicle_field.queryset = Vehicle.objects.filter(workshop=self.workshop, customer_id=selected_customer_id).order_by("plate")
         else:
