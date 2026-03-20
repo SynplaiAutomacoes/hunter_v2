@@ -2637,9 +2637,7 @@ class BudgetStep6Form(forms.ModelForm):
         status_label = status_data["text"]
         status_class = status_data["class"]
 
-        saved_observation = ""
-        if self.workshop:
-            saved_observation = self.workshop.pdf_observation or ""
+        saved_observation = budget.pdf_observation or ""
 
         # Render das linhas (mantido)
         rows = _render_budget_items_rows(budget, step6=True)
@@ -2668,14 +2666,13 @@ class BudgetStep6Form(forms.ModelForm):
                 function saveObservation(budgetId) {
                     const observation = document.getElementById('budget-observation').value;
 
-                    fetch('/budget/save-observation/', {
+                    fetch('{reverse("budget:save_observation", args=[budget.pk])}', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                             'X-CSRFToken': '{{ csrf_token }}'
                         },
                         body: JSON.stringify({
-                            budget_id: budgetId,
                             observation: observation,
                         })
                     });
