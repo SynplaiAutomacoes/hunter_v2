@@ -47,6 +47,7 @@
                 {% for nota in form.notas %}
                 <tr class="hover transition-colors">
                     <td class="font-medium">{{ nota.issue_date|date:"d/m/Y H:i" }}</td>
+                    <td>{{ nota.nf_number_display }}</td>
                     <td class="max-w-xs truncate" title="{{ nota.issuer_name }}">{{ nota.issuer_name }}</td>
                     <td class="font-mono text-xs">{{ nota.issuer_cnpj }}</td>
                     <td class="font-semibold">R$ {{ nota.total_value|floatformat:2 }}</td>
