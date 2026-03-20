@@ -64,6 +64,12 @@
         name="{{ widget.name }}"
         id="{{ widget.attrs.id }}"
         :value="value"
+        {% if widget.attrs.disabled %}disabled{% endif %}
+        {% for name, value in widget.attrs.items %}
+            {% if name != "id" and name != "name" and name != "placeholder" and name != "required" and name != "disabled" and name != "readonly" and name != "class" %}
+                {% if value is True %}{{ name }}{% elif value is False or value is None %}{% else %}{{ name }}="{{ value|escape }}"{% endif %}
+            {% endif %}
+        {% endfor %}
     >
 
     <div class="relative flex items-center">
