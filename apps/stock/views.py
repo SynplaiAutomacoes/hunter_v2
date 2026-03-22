@@ -2,6 +2,7 @@ import json
 from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.http import HttpResponse
 from django.urls import reverse, reverse_lazy
@@ -10,11 +11,27 @@ from django.views.generic import ListView, CreateView, DeleteView, UpdateView
 from django.shortcuts import get_object_or_404, redirect, render
 from django.contrib import messages
 from django.db import transaction
+from django.db import models
 from django.db.models import F, ExpressionWrapper, IntegerField, Q
 from djmoney.money import Money
 
-from .forms import ImportStep1Form, ImportStepSupplierForm, ImportStepItemsForm, ImportStepPaymentForm, QuickProductForm, ImportStepSummaryForm, ImportSefazListForm, CatalogGroupQuickForm, ImportStepSupplierManualForm, QuickSupplierForm, ImportManualItemsForm
-from .models import StockProduct, StockMovement, StockImport
+from .forms import (
+    ImportManualItemsForm,
+    ImportSefazListForm,
+    ImportStep1Form,
+    ImportStepItemsForm,
+    ImportStepPaymentForm,
+    ImportStepSummaryForm,
+    ImportStepSupplierForm,
+    ImportStepSupplierManualForm,
+    QuickProductForm,
+    QuickSupplierForm,
+    CatalogGroupQuickForm,
+    TransferItemsForm,
+    TransferStepWorkshopsForm,
+    TransferSummaryForm,
+)
+from .models import StockImport, StockMovement, StockProduct, StockTransfer
 from ..catalog.models.groups import CatalogGroup
 from ..catalog.models.products import Product
 from ..core.forms import MultiStepFormMixin
@@ -25,7 +42,8 @@ from ..core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin
 from ..finance.models.payment_method import PaymentMethod
 from ..suppliers.models import Supplier
 from ..workshops.mixin import WorkshopScopedMixin
-from ..workshops.util.workshops import get_active_workshop_or_404
+from ..workshops.models.workshops import Workshop
+from ..workshops.util.workshops import get_active_workshop_or_404, has_workshop_perm
 
 
 class StockAlertsListView(LoginRequiredMixin, WorkshopScopedMixin, ListView):
@@ -789,6 +807,375 @@ class UpdateManualItemDataView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
             obj.items_data = items
             obj.save(update_fields=["items_data"])
+
+        response = HttpResponse(status=204)
+        response["HX-Trigger"] = "productCreated"
+        return response
+
+
+def _get_user_transfer_workshops(request) -> models.QuerySet[Workshop]:
+    return Workshop.objects.filter(account_id=request.user.account_id, is_active=True, members__user=request.user, members__is_active=True).distinct().order_by("name")
+
+
+class StockTransferAccessMixin(LoginRequiredMixin):
+    active_workshop: Workshop
+
+    def dispatch(self, request, *args, **kwargs):
+        self.active_workshop = get_active_workshop_or_404(request)
+        if not has_workshop_perm(
+            user=request.user,
+            workshop=self.active_workshop,
+            app_label="stock",
+            model="stockmovement",
+            codename="change_stockmovement",
+            request=request,
+        ):
+            raise PermissionDenied
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_allowed_workshops(self):
+        return _get_user_transfer_workshops(self.request)
+
+    def get_allowed_workshop(self, workshop_id):
+        if not workshop_id:
+            return None
+        try:
+            workshop_id = int(workshop_id)
+        except (TypeError, ValueError):
+            return None
+        return self.get_allowed_workshops().filter(pk=workshop_id).first()
+
+
+class StockTransferCreateView(StockTransferAccessMixin, MultiStepFormMixin, CreateView):
+    model = StockTransfer
+    template_name = "stock/transfer_form.html"
+
+    def get_template_names(self):
+        if getattr(self.request, "htmx", False):
+            return ["stock/partials/transfer_step_content.html"]
+        return [self.template_name]
+
+    def get_object(self, queryset=None):
+        pk = self.request.GET.get("pk") or self.kwargs.get("pk")
+        if pk:
+            return get_object_or_404(StockTransfer, id=pk)
+        return None
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        obj = self.get_object()
+        kwargs.update({"request": self.request, "instance": obj})
+        if self.get_form_class() is TransferStepWorkshopsForm:
+            kwargs["allowed_workshops"] = self.get_allowed_workshops()
+        return kwargs
+
+    def get_steps_definition(self):
+        base_steps = [{"title": "Origem e Destino", "form_class": TransferStepWorkshopsForm}]
+        if self.get_object():
+            base_steps.extend(
+                [
+                    {"title": "Itens da Transferência", "form_class": TransferItemsForm},
+                    {"title": "Revisão e Confirmação", "form_class": TransferSummaryForm},
+                ]
+            )
+        return base_steps
+
+    def get_success_url(self):
+        return reverse("stock:stock_list")
+
+    def form_valid(self, form):
+        self.object = form.save(commit=False)
+        self.object.user = self.request.user
+        self.object.save()
+
+        current_step = self.get_current_step()
+        total_steps = len(self.get_steps_config())
+
+        next_step_value = current_step + 1
+        if self.object.current_step < next_step_value:
+            self.object.current_step = next_step_value
+            self.object.save(update_fields=["current_step"])
+
+        if current_step < total_steps:
+            success_url = f"{self.request.path}?step={current_step + 1}&pk={self.object.pk}"
+        else:
+            success_url = self.get_success_url()
+
+        if getattr(self.request, "htmx", False):
+            response = redirect(success_url)
+            response["HX-Push-Url"] = success_url
+            return response
+
+        return redirect(success_url)
+
+
+class StockTransferUpdateView(StockTransferCreateView):
+    def get(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        step_na_url = int(request.GET.get("step", 0))
+
+        if not step_na_url:
+            target_step = self.object.current_step
+            return redirect(f"{reverse('stock:transfer_update', kwargs={'pk': self.object.pk})}?step={target_step}")
+
+        return super().get(request, *args, **kwargs)
+
+    def get_object(self, queryset=None):
+        pk = self.kwargs.get("pk") or self.request.GET.get("pk")
+        if pk:
+            return get_object_or_404(StockTransfer, pk=pk)
+        return None
+
+    def form_valid(self, form):
+        self.object = form.save(commit=False)
+        self.object.user = self.request.user
+        self.object.save()
+
+        current_step = self.get_current_step()
+        total_steps = len(self.get_steps_config())
+
+        next_step_value = current_step + 1
+        if self.object.current_step < next_step_value:
+            self.object.current_step = next_step_value
+            self.object.save(update_fields=["current_step"])
+
+        if current_step < total_steps:
+            success_url = f"{reverse('stock:transfer_update', kwargs={'pk': self.object.pk})}?step={current_step + 1}"
+        else:
+            success_url = self.get_success_url()
+
+        if getattr(self.request, "htmx", False):
+            response = redirect(success_url)
+            response["HX-Push-Url"] = success_url
+            return response
+
+        return redirect(success_url)
+
+
+class TransferSourceProductPickerView(StockTransferAccessMixin, View):
+    def get(self, request):
+        pk = clean_id(request.GET.get("pk"))
+        transfer = get_object_or_404(StockTransfer, pk=pk)
+        context = {"pk": transfer.pk, "source_workshop": transfer.source_workshop}
+        return render(request, "stock/partials/modal/transfer_source_picker_modal.html", context)
+
+
+class TransferSourceProductSearchView(StockTransferAccessMixin, View):
+    def get(self, request, *args, **kwargs):
+        query = request.GET.get("product_search", "").strip()
+        page = request.GET.get("page", "1")
+        source_workshop = self.get_allowed_workshop(request.GET.get("source_workshop"))
+        if source_workshop is None:
+            return HttpResponse("<tr><td colspan='4' class='text-center py-4 opacity-50'>Selecione uma oficina de origem válida.</td></tr>")
+
+        qs = Product.objects.filter(workshop=source_workshop, is_active=True, stock_products__current_quantity__gt=0)
+        if query:
+            qs = qs.filter(Q(code__icontains=query) | Q(name__icontains=query) | Q(brand__icontains=query))
+
+        qs = qs.select_related("stock_products").order_by("name").only("id", "code", "name", "brand", "cost_price", "cost_price_currency", "stock_products__current_quantity")
+        paginator = Paginator(qs, 10)
+        page_obj = paginator.get_page(page)
+        return render(request, "stock/partials/transfer_source_search_results.html", {"products": page_obj.object_list, "page_obj": page_obj, "query": query, "source_workshop": source_workshop.pk})
+
+
+class AddTransferSourceItemView(StockTransferAccessMixin, View):
+    @transaction.atomic
+    def post(self, request):
+        product_id = clean_id(request.POST.get("product_id"))
+        pk = clean_id(request.POST.get("pk"))
+        transfer = get_object_or_404(StockTransfer, pk=pk)
+        source_product = get_object_or_404(Product, id=product_id, workshop=transfer.source_workshop)
+        items = list(transfer.items_data)
+
+        for item in items:
+            if str(item.get("source_product_id")) == str(source_product.id):
+                response = HttpResponse("")
+                response["HX-Trigger"] = "productCreated"
+                return response
+
+        items.append(
+            {
+                "source_product_id": str(source_product.id),
+                "destination_product_id": None,
+                "qtd": 1,
+                "valor": str(source_product.cost_price.amount),
+            }
+        )
+        transfer.items_data = items
+        transfer.save(update_fields=["items_data"])
+
+        response = HttpResponse("")
+        response["HX-Trigger"] = "productCreated"
+        return response
+
+
+class TransferDestinationLinkView(StockTransferAccessMixin, View):
+    def get(self, request):
+        item_idx = clean_id(request.GET.get("item_idx"))
+        pk = clean_id(request.GET.get("pk"))
+        transfer = get_object_or_404(StockTransfer, pk=pk)
+        context = {"item_idx": item_idx, "pk": transfer.pk, "destination_workshop": transfer.destination_workshop}
+        return render(request, "stock/partials/modal/transfer_destination_link_modal.html", context)
+
+    @transaction.atomic
+    def post(self, request):
+        item_idx = clean_id(request.POST.get("item_idx"))
+        product_id = clean_id(request.POST.get("product_id"))
+        pk = clean_id(request.POST.get("pk"))
+
+        transfer = get_object_or_404(StockTransfer, pk=pk)
+        destination_product = get_object_or_404(Product, id=product_id, workshop=transfer.destination_workshop)
+        items = list(transfer.items_data)
+
+        try:
+            idx = int(item_idx)
+            if 0 <= idx < len(items):
+                items[idx]["destination_product_id"] = str(destination_product.id)
+        except (TypeError, ValueError):
+            return HttpResponse("Índice inválido.", status=400)
+
+        transfer.items_data = items
+        transfer.save(update_fields=["items_data"])
+        response = HttpResponse("")
+        response["HX-Trigger"] = "productCreated"
+        return response
+
+
+class TransferDestinationProductSearchView(StockTransferAccessMixin, View):
+    def get(self, request, *args, **kwargs):
+        query = request.GET.get("product_search", "").strip()
+        page = request.GET.get("page", "1")
+        destination_workshop = self.get_allowed_workshop(request.GET.get("destination_workshop"))
+        if destination_workshop is None:
+            return HttpResponse("<tr><td colspan='3' class='text-center py-4 opacity-50'>Selecione uma oficina de destino válida.</td></tr>")
+
+        qs = Product.objects.filter(workshop=destination_workshop, is_active=True)
+        if query:
+            qs = qs.filter(Q(code__icontains=query) | Q(name__icontains=query) | Q(brand__icontains=query))
+
+        qs = qs.order_by("name").only("id", "code", "name", "brand", "cost_price", "cost_price_currency", "selling_price", "selling_price_currency")
+        paginator = Paginator(qs, 10)
+        page_obj = paginator.get_page(page)
+        return render(request, "stock/partials/transfer_destination_search_results.html", {"products": page_obj.object_list, "page_obj": page_obj, "query": query, "destination_workshop": destination_workshop.pk})
+
+
+class CreateTransferDestinationProductView(StockTransferAccessMixin, View):
+    @transaction.atomic
+    def post(self, request):
+        item_idx = clean_id(request.POST.get("item_idx") or request.GET.get("item_idx"))
+        pk = clean_id(request.POST.get("pk") or request.GET.get("pk"))
+        transfer = get_object_or_404(StockTransfer, pk=pk)
+        items = list(transfer.items_data)
+
+        try:
+            idx = int(item_idx)
+            item = items[idx]
+        except (TypeError, ValueError, IndexError):
+            return HttpResponse("Índice inválido.", status=400)
+
+        source_product = get_object_or_404(Product, id=item.get("source_product_id"), workshop=transfer.source_workshop)
+        destination_group, _ = CatalogGroup.objects.get_or_create(workshop=transfer.destination_workshop, name=source_product.group.name)
+        destination_product = Product.objects.filter(workshop=transfer.destination_workshop, code=source_product.code).first()
+        if destination_product is None:
+            destination_product = Product.objects.create(
+                workshop=transfer.destination_workshop,
+                code=source_product.code,
+                name=source_product.name,
+                description=source_product.description,
+                unit=source_product.unit,
+                group=destination_group,
+                brand=source_product.brand,
+                model=source_product.model,
+                sku=source_product.sku,
+                barcode=source_product.barcode,
+                location=source_product.location,
+                cost_price=source_product.cost_price,
+                selling_price=source_product.selling_price,
+                profit_margin=source_product.profit_margin,
+                ncm=source_product.ncm,
+                cest=source_product.cest,
+                origin_cst=source_product.origin_cst,
+                purpose=source_product.purpose,
+                application=source_product.application,
+                is_active=source_product.is_active,
+            )
+
+        items[idx]["destination_product_id"] = str(destination_product.id)
+        transfer.items_data = items
+        transfer.save(update_fields=["items_data"])
+
+        response = HttpResponse(status=204)
+        response["HX-Trigger"] = "productCreated"
+        return response
+
+
+class TransferUnlinkDestinationView(StockTransferAccessMixin, View):
+    @transaction.atomic
+    def post(self, request):
+        item_idx = clean_id(request.POST.get("item_idx") or request.GET.get("item_idx"))
+        pk = clean_id(request.POST.get("pk") or request.GET.get("pk"))
+        transfer = get_object_or_404(StockTransfer, pk=pk)
+        items = list(transfer.items_data)
+
+        try:
+            idx = int(item_idx)
+            items[idx]["destination_product_id"] = None
+        except (TypeError, ValueError, IndexError):
+            return HttpResponse("Índice inválido.", status=400)
+
+        transfer.items_data = items
+        transfer.save(update_fields=["items_data"])
+
+        response = HttpResponse(status=204)
+        response["HX-Trigger"] = "productCreated"
+        return response
+
+
+class RemoveTransferItemView(StockTransferAccessMixin, View):
+    @transaction.atomic
+    def post(self, request):
+        item_idx = clean_id(request.POST.get("item_idx") or request.GET.get("item_idx"))
+        pk = clean_id(request.POST.get("pk") or request.GET.get("pk"))
+        transfer = get_object_or_404(StockTransfer, pk=pk)
+        items = list(transfer.items_data)
+
+        try:
+            idx = int(item_idx)
+            items.pop(idx)
+        except (TypeError, ValueError, IndexError):
+            return HttpResponse("Índice inválido.", status=400)
+
+        transfer.items_data = items
+        transfer.save(update_fields=["items_data"])
+        response = HttpResponse(status=204)
+        response["HX-Trigger"] = "productCreated"
+        return response
+
+
+class UpdateTransferItemDataView(StockTransferAccessMixin, View):
+    @transaction.atomic
+    def post(self, request, pk):
+        transfer = get_object_or_404(StockTransfer, id=pk)
+        item_idx = request.POST.get("item_idx")
+        if item_idx is None:
+            return HttpResponse(status=400)
+
+        try:
+            idx = int(item_idx)
+        except (TypeError, ValueError):
+            return HttpResponse(status=400)
+
+        items = list(transfer.items_data)
+        if 0 <= idx < len(items):
+            new_qty = request.POST.get(f"items_qty_{idx}")
+            if new_qty is not None:
+                try:
+                    items[idx]["qtd"] = max(1, int(Decimal(new_qty.replace(",", "."))))
+                except (InvalidOperation, ValueError):
+                    pass
+
+            transfer.items_data = items
+            transfer.save(update_fields=["items_data"])
 
         response = HttpResponse(status=204)
         response["HX-Trigger"] = "productCreated"

@@ -36,6 +36,7 @@ class StockMovement(TimeStampedModel):
         REJECTED = "REJEITADO", "Rejeitado"
 
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="movements")
+    stock_transfer = models.ForeignKey("stock.StockTransfer", on_delete=models.SET_NULL, null=True, blank=True, related_name="movements")
     stock_product = models.ForeignKey(StockProduct, on_delete=models.CASCADE, verbose_name="Peça", related_name="movements")
     type = models.CharField(max_length=10, choices=MovementType.choices, verbose_name="Tipo")
     supplier = models.ForeignKey(Supplier, on_delete=models.SET_NULL, verbose_name="Fornecedor", null=True, blank=True, related_name="movements")
@@ -160,6 +161,35 @@ class StockImport(TimeStampedModel):
         status_color = {
             StockImport.ImportStatus.DRAFT: "badge-soft badge-ghost",
             StockImport.ImportStatus.COMPLETED: "badge-success",
+        }
+
+        return {"text": self.get_status_display(), "class": status_color.get(self.status, "badge-ghost")}
+
+
+class StockTransfer(TimeStampedModel):
+    class TransferStatus(models.TextChoices):
+        DRAFT = "RASCUNHO", "Rascunho"
+        COMPLETED = "CONCLUIDO", "Concluído"
+
+    source_workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="stock_transfers_sent")
+    destination_workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="stock_transfers_received")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, verbose_name="Aberto por", on_delete=models.SET_NULL, null=True)
+    current_step = models.PositiveIntegerField(default=1)
+    items_data = models.JSONField(default=list)
+    status = models.CharField(max_length=20, choices=TransferStatus.choices, default=TransferStatus.DRAFT)
+
+    class Meta:
+        verbose_name = "Transferência de Estoque"
+        verbose_name_plural = "Transferências de Estoque"
+
+    def __str__(self) -> str:
+        return f"Transferência {self.pk or '---'} - {self.source_workshop} -> {self.destination_workshop}"
+
+    @property
+    def stocktransfer_status_badge(self):
+        status_color = {
+            StockTransfer.TransferStatus.DRAFT: "badge-soft badge-ghost",
+            StockTransfer.TransferStatus.COMPLETED: "badge-success",
         }
 
         return {"text": self.get_status_display(), "class": status_color.get(self.status, "badge-ghost")}
