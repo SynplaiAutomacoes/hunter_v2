@@ -24,6 +24,7 @@ class StockProduct(TimeStampedModel):
     def __str__(self):
         return f"{self.product.name} - {self.current_quantity} unidades"
 
+
 class StockMovement(TimeStampedModel):
     class MovementType(models.TextChoices):
         ENTRY = "ENTRADA", "Entrada"
@@ -35,7 +36,7 @@ class StockMovement(TimeStampedModel):
         REJECTED = "REJEITADO", "Rejeitado"
 
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="movements")
-    stock_product = models.ForeignKey(StockProduct, on_delete=models.CASCADE, verbose_name="Peça",related_name="movements")
+    stock_product = models.ForeignKey(StockProduct, on_delete=models.CASCADE, verbose_name="Peça", related_name="movements")
     type = models.CharField(max_length=10, choices=MovementType.choices, verbose_name="Tipo")
     supplier = models.ForeignKey(Supplier, on_delete=models.SET_NULL, verbose_name="Fornecedor", null=True, blank=True, related_name="movements")
     transcation_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, related_name="movements", null=True)
@@ -105,9 +106,13 @@ class SefazZipCache(TimeStampedModel):
     class Meta:
         verbose_name = "Cache do Sefaz (zip)"
         verbose_name_plural = "Cache do Sefaz (zip)"
-
-    class Meta:
         unique_together = ("workshop", "key")
+
+    @property
+    def nf_number_display(self) -> str:
+        from apps.stock.utils import extract_nf_number_from_access_key
+
+        return str(self.nf_number or extract_nf_number_from_access_key(self.key) or "---")
 
 
 class StockImport(TimeStampedModel):
@@ -116,16 +121,16 @@ class StockImport(TimeStampedModel):
         COMPLETED = "CONCLUIDO", "Concluído"
 
     class ImportMethods(models.TextChoices):
-        SEFAZ = 'SEFAZ', 'SEFAZ'
-        XML = 'XML', 'Arquivo XML'
-        KEY = 'KEY', 'Chave de Acesso'
-        MANUAL = 'MANUAL', 'Importar Manualmente'
+        SEFAZ = "SEFAZ", "SEFAZ"
+        XML = "XML", "Arquivo XML"
+        KEY = "KEY", "Chave de Acesso"
+        MANUAL = "MANUAL", "Importar Manualmente"
 
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE)
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, verbose_name="Aberto por",on_delete=models.SET_NULL, null=True)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, verbose_name="Aberto por", on_delete=models.SET_NULL, null=True)
 
     # Dados da NF
-    nf_number = models.CharField(verbose_name="NF",max_length=50, blank=True, null=True)
+    nf_number = models.CharField(verbose_name="NF", max_length=50, blank=True, null=True)
     nf_key = models.CharField(max_length=44, verbose_name="Chave de Acesso", blank=False, null=False)
     supplier_name = models.CharField(verbose_name="Fornecedor", max_length=255, blank=True, null=True)
     supplier_cnpj = models.CharField(max_length=20, blank=True, null=True)
@@ -134,7 +139,7 @@ class StockImport(TimeStampedModel):
     current_step = models.PositiveIntegerField(default=1)
     items_data = models.JSONField(default=list)
     payments_data = models.JSONField(default=list)
-    method = models.CharField(verbose_name="Selecione o método de Importação de Itens",max_length=30, choices=ImportMethods.choices, default=ImportMethods.XML)
+    method = models.CharField(verbose_name="Selecione o método de Importação de Itens", max_length=30, choices=ImportMethods.choices, default=ImportMethods.XML)
     status = models.CharField(max_length=20, choices=ImportStatus.choices, default=ImportStatus.DRAFT)
 
     class Meta:
@@ -143,6 +148,12 @@ class StockImport(TimeStampedModel):
 
     def __str__(self):
         return f"Importação {self.nf_number} - {self.workshop}"
+
+    @property
+    def nf_number_display(self) -> str:
+        from apps.stock.utils import extract_nf_number_from_access_key
+
+        return str(self.nf_number or extract_nf_number_from_access_key(self.nf_key) or "---")
 
     @property
     def stockimport_status_badge(self):

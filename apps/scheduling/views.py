@@ -158,16 +158,18 @@ class AppointmentEventsView(LoginRequiredMixin, WorkshopScopedMixin, View):
         events = []
         for appointment in queryset:
             title = f"{appointment.title} - {appointment.customer.name}"
+            start_local = timezone.localtime(appointment.starts_at)
+            end_local = timezone.localtime(appointment.ends_at)
             events.append(
                 {
                     "id": str(appointment.pk),
                     "title": title,
-                    "start": appointment.starts_at.isoformat(),
-                    "end": appointment.ends_at.isoformat(),
+                    "start": start_local.isoformat(),
+                    "end": end_local.isoformat(),
                     "color": appointment.block_color,
                     "extendedProps": {
                         "customer_name": appointment.customer.name,
-                        "vehicle_label": str(appointment.vehicle),
+                        "vehicle_label": str(appointment.vehicle) if appointment.vehicle else "",
                         "budget_id": appointment.budget.pk if appointment.budget else None,
                         "workorder_id": appointment.workorder.pk if appointment.workorder else None,
                         "status": appointment.status,
@@ -224,7 +226,7 @@ class AppointmentCreateView(AppointmentBaseFormMixin, CreateView):
         if action == "save_and_create_budget":
             customer = object_appointment.customer
             vehicle = object_appointment.vehicle
-            redirect_url = build_budget_create_url(customer_id=customer.pk, vehicle_id=vehicle.pk)
+            redirect_url = build_budget_create_url(customer_id=customer.pk, vehicle_id=vehicle.pk if vehicle else None)
             if bool(getattr(self.request, "htmx", False)):
                 return self._htmx_redirect_response(url=redirect_url)
 
@@ -258,8 +260,8 @@ class AppointmentCreateView(AppointmentBaseFormMixin, CreateView):
     def get_initial(self):
         initial = super().get_initial()
 
-        starts_at = _parse_wall_datetime(self.request.GET.get("starts_at")) or _parse_request_timestamp(self.request.GET.get("start_ts")) or _parse_request_datetime(self.request.GET.get("starts_at"))
-        ends_at = _parse_wall_datetime(self.request.GET.get("ends_at")) or _parse_request_timestamp(self.request.GET.get("end_ts")) or _parse_request_datetime(self.request.GET.get("ends_at"))
+        starts_at = _parse_request_datetime(self.request.GET.get("starts_at")) or _parse_wall_datetime(self.request.GET.get("starts_at")) or _parse_request_timestamp(self.request.GET.get("start_ts"))
+        ends_at = _parse_request_datetime(self.request.GET.get("ends_at")) or _parse_wall_datetime(self.request.GET.get("ends_at")) or _parse_request_timestamp(self.request.GET.get("end_ts"))
 
         if starts_at:
             initial["starts_at"] = starts_at.strftime("%Y-%m-%dT%H:%M")
@@ -333,7 +335,7 @@ class AppointmentUpdateView(AppointmentBaseFormMixin, UpdateView):
         if action == "save_and_create_budget":
             customer = object_appointment.customer
             vehicle = object_appointment.vehicle
-            redirect_url = build_budget_create_url(customer_id=customer.pk, vehicle_id=vehicle.pk)
+            redirect_url = build_budget_create_url(customer_id=customer.pk, vehicle_id=vehicle.pk if vehicle else None)
             if bool(getattr(self.request, "htmx", False)):
                 return self._htmx_redirect_response(url=redirect_url)
 
@@ -393,7 +395,7 @@ class AppointmentDetailView(LoginRequiredMixin, WorkshopScopedMixin, TemplateVie
         context["appointment"] = appointment
         context["edit_url"] = reverse("scheduling:appointment_update", kwargs={"pk": appointment.pk})
         context["delete_url"] = reverse("scheduling:appointment_delete", kwargs={"pk": appointment.pk})
-        context["create_budget_url"] = build_budget_create_url(customer_id=appointment.customer.pk, vehicle_id=appointment.vehicle.pk)
+        context["create_budget_url"] = build_budget_create_url(customer_id=appointment.customer.pk, vehicle_id=appointment.vehicle.pk if appointment.vehicle else None)
         context["budget_url"] = reverse("budget:budget_update", kwargs={"pk": appointment.budget.pk}) if appointment.budget else ""
         context["workorder_url"] = reverse("workorder:workorder_detail", kwargs={"pk": appointment.workorder.pk}) if appointment.workorder else ""
         return context

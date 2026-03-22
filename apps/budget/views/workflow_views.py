@@ -511,12 +511,13 @@ class SaveObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = Budget
     workshop_permission_codename = "add_budget"
 
-    def post(self, request):
+    def post(self, request, budget_id):
         try:
+            budget = _get_budget_for_workshop(self.workshop, budget_id)
             data = json.loads(request.body)
             observation = data.get("observation", "").strip()
-            self.workshop.pdf_observation = observation
-            self.workshop.save()
+            budget.pdf_observation = observation
+            budget.save(update_fields=["pdf_observation"])
             return JsonResponse({"success": True})
         except (json.JSONDecodeError, AttributeError):
             return JsonResponse({"success": False}, status=400)
