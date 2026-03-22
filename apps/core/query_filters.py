@@ -62,3 +62,21 @@ def apply_query_param_filters(
         filtered_queryset = filtered_queryset.filter(**{f"{filter_config.lookup}__iexact": raw_value})
 
     return filtered_queryset
+
+
+def apply_is_active_filter(
+    queryset: QuerySet[Any],
+    *,
+    params: QueryDict,
+    param_name: str = "is_active",
+    lookup: str = "is_active",
+) -> QuerySet[Any]:
+    raw_value = str(params.get(param_name) or "").strip().lower()
+
+    if raw_value == "all":
+        return queryset
+
+    if raw_value == "0":
+        return queryset.filter(**{lookup: False})
+
+    return queryset.filter(**{lookup: True})

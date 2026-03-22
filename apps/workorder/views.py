@@ -117,6 +117,10 @@ class WorkOrderListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRes
             )
         )
 
+        selected_status = str(self.request.GET.get("status") or "").strip()
+        if selected_status != WorkOrderStatus.CANCELLED:
+            queryset = queryset.exclude(status=WorkOrderStatus.CANCELLED)
+
         queryset = apply_query_param_filters(
             queryset,
             params=self.request.GET,

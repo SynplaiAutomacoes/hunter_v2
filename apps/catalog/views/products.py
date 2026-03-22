@@ -13,7 +13,7 @@ from apps.budget.models import BudgetItem
 from apps.catalog.forms.products import ProductForm
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
-from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
+from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
@@ -48,6 +48,8 @@ class ProductListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespo
 
         if search_query:
             queryset = queryset.filter(Q(name__icontains=search_query) | Q(code__icontains=search_query) | Q(brand__icontains=search_query))
+
+        queryset = apply_is_active_filter(queryset, params=self.request.GET)
 
         group_ids = frozenset(str(group_id) for group_id in CatalogGroup.objects.filter(workshop=self.workshop).values_list("id", flat=True))
         product_list_filters: tuple[QueryParamFilter, ...] = (
