@@ -23,7 +23,15 @@ class FinancialGroupListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempla
     htmx_template_name = "finance/partials/financial_groups/financial_groups_table.html"
 
     def get_queryset(self) -> Any:
-        return super().get_queryset().select_related("parent").order_by("sort_key", "id")
+        queryset = super().get_queryset().select_related("parent")
+        is_active_filter = str(self.request.GET.get("is_active") or "").strip()
+
+        if not is_active_filter:
+            queryset = queryset.filter(is_active=True)
+        elif is_active_filter in {"0", "1"}:
+            queryset = queryset.filter(is_active=is_active_filter == "1")
+
+        return queryset.order_by("sort_key", "id")
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)

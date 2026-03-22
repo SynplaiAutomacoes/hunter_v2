@@ -6,7 +6,7 @@ from decimal import Decimal, ROUND_HALF_UP
 import unicodedata
 from typing import Any, Sequence
 
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q, QuerySet
 from djmoney.money import Money
 
 from apps.finance.models import FinancialGroup
@@ -48,6 +48,10 @@ _ROW_COMPONENT_RECEITA_BRUTA_DE_VENDAS = "receita_bruta_de_vendas"
 _ROW_COMPONENT_RECEITAS_FINANCEIRAS = "receitas_financeiras"
 _ROW_COMPONENT_DESPESAS_FINANCEIRAS = "despesas_financeiras"
 _ROW_COMPONENT_RESULTADO_OPERACIONAL = "resultado_operacional"
+_TIPO_DATA_PAGAMENTO = "PG"
+_TIPO_DATA_ENTRADA = "NPG"
+_TIPO_DATA_AMBOS = "A"
+_VALID_TIPO_DATA = {_TIPO_DATA_PAGAMENTO, _TIPO_DATA_ENTRADA, _TIPO_DATA_AMBOS}
 
 
 def build_dre_calculation(
@@ -55,12 +59,13 @@ def build_dre_calculation(
     workshops: Sequence[Workshop],
     start_date: date | None,
     end_date: date | None,
+    tipo_data: str = _TIPO_DATA_AMBOS,
     selected_financial_groups: list[FinancialGroup] | None = None,
 ) -> DreCalculationResult:
     if not workshops or start_date is None or end_date is None or start_date > end_date:
         return DreCalculationResult(rows=_build_rows(), summary_cards=_build_summary_cards())
 
-    workorders = _get_workorders(workshops=workshops, start_date=start_date, end_date=end_date)
+    workorders = _get_workorders(workshops=workshops, start_date=start_date, end_date=end_date, tipo_data=tipo_data)
     workshop_costs = _get_workshop_costs(workshops=workshops, start_date=start_date, end_date=end_date)
     receita_bruta_vendas_e_servicos = _ZERO_MONEY
     custos_mercadorias_vendidas = _ZERO_MONEY
@@ -117,13 +122,9 @@ def build_dre_calculation(
     )
 
 
-def _get_workorders(*, workshops: Sequence[Workshop], start_date: date, end_date: date) -> list[WorkOrder]:
-    return list(
-        WorkOrder.objects.filter(
-            workshop__in=workshops,
-            criado_em__date__gte=start_date,
-            criado_em__date__lte=end_date,
-        )
+def _get_workorders(*, workshops: Sequence[Workshop], start_date: date, end_date: date, tipo_data: str) -> list[WorkOrder]:
+    queryset = (
+        WorkOrder.objects.filter(workshop__in=workshops)
         .exclude(status__in=[WorkOrderStatus.REJECTED, WorkOrderStatus.CANCELLED])
         .select_related("budget", "budget__customer")
         .prefetch_related(
@@ -136,8 +137,27 @@ def _get_workorders(*, workshops: Sequence[Workshop], start_date: date, end_date
             "items__kit__kit_products__product",
             "items__kit__kit_services__service",
         )
-        .order_by("criado_em", "pk")
     )
+    return list(_filter_workorders_by_tipo_data(queryset=queryset, start_date=start_date, end_date=end_date, tipo_data=tipo_data).order_by("criado_em", "pk"))
+
+
+def _filter_workorders_by_tipo_data(*, queryset: QuerySet[WorkOrder], start_date: date, end_date: date, tipo_data: str) -> QuerySet[WorkOrder]:
+    entry_date_filter = Q(budget__entry_date__range=(start_date, end_date))
+    payment_date_filter = Q(payments__due_date__range=(start_date, end_date))
+    normalized_tipo_data = _normalize_tipo_data(tipo_data)
+
+    if normalized_tipo_data == _TIPO_DATA_PAGAMENTO:
+        return queryset.filter(payment_date_filter).distinct()
+    if normalized_tipo_data == _TIPO_DATA_ENTRADA:
+        return queryset.filter(entry_date_filter)
+    return queryset.filter(entry_date_filter | payment_date_filter).distinct()
+
+
+def _normalize_tipo_data(tipo_data: str) -> str:
+    normalized_tipo_data = str(tipo_data or "").strip().upper()
+    if normalized_tipo_data in _VALID_TIPO_DATA:
+        return normalized_tipo_data
+    return _TIPO_DATA_AMBOS
 
 
 def _get_workshop_costs(*, workshops: Sequence[Workshop], start_date: date, end_date: date) -> list[WorkshopCost]:

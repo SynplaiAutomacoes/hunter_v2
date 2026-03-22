@@ -103,6 +103,10 @@ class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespon
             )
         )
 
+        status_filter = str(self.request.GET.get("status") or "").strip()
+        if not status_filter:
+            queryset = queryset.exclude(status=BudgetStatus.CANCELLED)
+
         queryset = apply_query_param_filters(
             queryset,
             params=self.request.GET,

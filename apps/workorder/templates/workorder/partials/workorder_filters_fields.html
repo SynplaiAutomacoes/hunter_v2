@@ -26,7 +26,8 @@
     <div class="sm:col-span-2">
         <label for="{{ table_id }}-filter-status">Status</label>
         <select name="status" id="{{ table_id }}-filter-status" class="select select-bordered w-full">
-            <option value="">Todos</option>
+            <option value="">Nao cancelados</option>
+            <option value="all" {% if request.GET.status == 'all' %}selected{% endif %}>Todos</option>
             {% for value, label in status_choices %}
                 <option value="{{ value }}" {% if request.GET.status == value %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
