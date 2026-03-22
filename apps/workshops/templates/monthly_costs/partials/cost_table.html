@@ -1,1 +1,1 @@
-{% include 'crud/partials/table.html' with queryset=monthly_costs fields=fields actions=actions table_id='costs-table' %}
+{% include 'crud/partials/table.html' with queryset=monthly_costs fields=fields actions=actions table_id='costs-table' filter_fields_template='tables/partials/is_active_filters_fields.html' filter_button_label='Filtro' filter_panel_title='Filtrar custos mensais' filter_param_names='is_active' %}

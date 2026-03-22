@@ -5,6 +5,7 @@ from django.core.exceptions import PermissionDenied
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
+from apps.core.query_filters import apply_is_active_filter
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
@@ -20,7 +21,9 @@ class MonthlyCostListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
     htmx_template_name = "monthly_costs/partials/cost_table.html"
 
     def get_queryset(self):
-        return super().get_queryset().order_by("-criado_em")
+        queryset = super().get_queryset()
+        queryset = apply_is_active_filter(queryset, params=self.request.GET)
+        return queryset.order_by("-criado_em")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

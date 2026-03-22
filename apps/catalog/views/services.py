@@ -13,7 +13,7 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 from apps.budget.views.shared import _parse_duration_from_string
 from apps.catalog.forms.services import ServiceForm
 from apps.catalog.models.services import Service
-from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
+from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
 from apps.catalog.util import get_current_workshop_cost, calculate_catalog_service_prices
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
@@ -35,6 +35,7 @@ class ServiceListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespo
 
     def get_queryset(self):
         queryset = super().get_queryset()
+        queryset = apply_is_active_filter(queryset, params=self.request.GET)
         queryset = apply_query_param_filters(
             queryset,
             params=self.request.GET,

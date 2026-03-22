@@ -2,12 +2,14 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, ListView, UpdateView
 
+from apps.core.query_filters import apply_is_active_filter
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxTemplateResponseMixin
 from apps.finance.forms.bank_account import BankAccountForm
 from apps.finance.models.bank_account import BankAccount
 from apps.workshops.mixin import WorkshopScopedMixin
+
 
 class BankAccountListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = BankAccount
@@ -17,7 +19,9 @@ class BankAccountListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
     workshop_permission_codename = "view_bankaccount"
 
     def get_queryset(self):
-        return super().get_queryset().order_by("bank_name")
+        queryset = super().get_queryset()
+        queryset = apply_is_active_filter(queryset, params=self.request.GET)
+        return queryset.order_by("bank_name")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -30,6 +34,7 @@ class BankAccountListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
         ]
         context["actions"] = [TableActionDefaults.edit("finance:bank_account_update")]
         return context
+
 
 class BankAccountCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
     model = BankAccount
@@ -46,6 +51,7 @@ class BankAccountCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView)
     def form_valid(self, form):
         form.instance.workshop = self.workshop
         return super().form_valid(form)
+
 
 class BankAccountUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
     model = BankAccount

@@ -17,7 +17,7 @@ from apps.catalog.forms.kits import KitForm, QuickProductEditForm, QuickServiceE
 from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
-from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
+from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.utils import clean_id
@@ -38,6 +38,7 @@ class KitListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseM
 
     def get_queryset(self):
         queryset = super().get_queryset()
+        queryset = apply_is_active_filter(queryset, params=self.request.GET)
         queryset = apply_query_param_filters(
             queryset,
             params=self.request.GET,

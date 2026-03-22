@@ -1,1 +1,1 @@
-{% include 'crud/partials/table.html' with queryset=workshops fields=fields actions=actions table_id='workshops-table' %}
+{% include 'crud/partials/table.html' with queryset=workshops fields=fields actions=actions table_id='workshops-table' filter_fields_template='tables/partials/is_active_filters_fields.html' filter_button_label='Filtro' filter_panel_title='Filtrar oficinas' filter_param_names='is_active' %}

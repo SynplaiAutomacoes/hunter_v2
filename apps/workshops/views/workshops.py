@@ -20,6 +20,7 @@ from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView
 
 from apps.collaborators.models import WorkshopMember
+from apps.core.query_filters import apply_is_active_filter
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
@@ -688,18 +689,19 @@ class WorkshopListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):
         active_workshop = base_qs.filter(pk=active_workshop_id, is_active=True, members__user=user, members__is_active=True).distinct().first() if active_workshop_id else None
 
         if active_workshop is not None and is_workshop_director(user=user, workshop=active_workshop, request=self.request):
-            return base_qs.filter(members__user=user, members__is_active=True).distinct()
+            queryset = base_qs.filter(members__user=user, members__is_active=True).distinct()
+        elif active_workshop is not None and is_workshop_manager(user=user, workshop=active_workshop, request=self.request):
+            queryset = base_qs.filter(pk=active_workshop.pk)
+        else:
+            queryset = base_qs.filter(
+                members__user=user,
+                members__is_active=True,
+                members__role__permissions__content_type__app_label="workshops",
+                members__role__permissions__content_type__model="workshop",
+                members__role__permissions__codename="view_workshop",
+            ).distinct()
 
-        if active_workshop is not None and is_workshop_manager(user=user, workshop=active_workshop, request=self.request):
-            return base_qs.filter(pk=active_workshop.pk)
-
-        return base_qs.filter(
-            members__user=user,
-            members__is_active=True,
-            members__role__permissions__content_type__app_label="workshops",
-            members__role__permissions__content_type__model="workshop",
-            members__role__permissions__codename="view_workshop",
-        ).distinct()
+        return apply_is_active_filter(queryset, params=self.request.GET)
 
     def _reference_workshop_for_permission(self):
         user_account_id = getattr(self.request.user, "account_id", None)
