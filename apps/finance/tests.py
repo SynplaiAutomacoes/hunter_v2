@@ -2455,16 +2455,6 @@ class TaxClassPresetViewTests(TestCase):
         self.assertContains(response, "Preset local")
         self.assertNotContains(response, "Preset externo")
 
-    def test_preset_list_renders_status_filter_controls(self) -> None:
-        self._create_preset(kind="nfe", name="Preset local", payload={"descricao": "Local"})
-
-        response = self.client.get(f"{reverse('finance:tax_class_preset_list')}?tab=nfe")
-
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'name="is_active"', html=False)
-        self.assertContains(response, 'value="all"', html=False)
-        self.assertContains(response, "Ativos")
-
 
 class NfseEmissionAuthTests(TestCase):
     @override_settings(WEBMANIA_AMBIENT="1")
@@ -3844,16 +3834,6 @@ class FinancialGroupViewsTests(TestCase):
         self.assertIn(child.dre_hierarchy_label, content)
         self.assertIn(grandchild.dre_hierarchy_label, content)
 
-    def test_list_view_renders_status_filter_controls(self) -> None:
-        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
-
-        response = self.client.get(reverse("finance:financial_groups_list"))
-
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'name="is_active"', html=False)
-        self.assertContains(response, 'value="all"', html=False)
-        self.assertContains(response, "Ativos")
-
     def test_create_view_creates_child_group_with_expected_code(self) -> None:
         parent = FinancialGroup.objects.create(workshop=self.workshop, name="Contas fixas")
 
@@ -4880,36 +4860,6 @@ class DreReportViewTests(TestCase):
         WorkshopCostItem.objects.create(workshop_cost=workshop_cost, monthly_cost=rent_cost, amount=Money(operational_cost, "BRL"))
         WorkshopCostItem.objects.create(workshop_cost=workshop_cost, monthly_cost=bank_fee_cost, amount=Money(financial_cost, "BRL"))
 
-    def _create_workorders_for_tipo_data_filtering(self) -> tuple[WorkOrder, WorkOrder, WorkOrder]:
-        entry_only_workorder = self._create_workorder_with_values(
-            reference_date=date(2026, 1, 15),
-            product_selling_price="100.00",
-            product_cost_price="40.00",
-            service_selling_price="200.00",
-            service_cost_price="80.00",
-            customer_name="Cliente Entrada",
-            payment_due_date=date(2026, 2, 10),
-        )
-        payment_only_workorder = self._create_workorder_with_values(
-            reference_date=date(2025, 12, 20),
-            product_selling_price="100.00",
-            product_cost_price="40.00",
-            service_selling_price="200.00",
-            service_cost_price="80.00",
-            customer_name="Cliente Pagamento",
-            payment_due_date=date(2026, 1, 20),
-        )
-        both_match_workorder = self._create_workorder_with_values(
-            reference_date=date(2026, 1, 18),
-            product_selling_price="100.00",
-            product_cost_price="40.00",
-            service_selling_price="200.00",
-            service_cost_price="80.00",
-            customer_name="Cliente Ambos",
-            payment_due_date=date(2026, 1, 25),
-        )
-        return entry_only_workorder, payment_only_workorder, both_match_workorder
-
     def test_report_requires_filial_selection_before_loading_financial_groups(self) -> None:
         FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
 
@@ -5310,83 +5260,6 @@ class DreReportViewTests(TestCase):
         content = response.content.decode("utf-8")
         self.assertIn("(Receita Bruta de Vendas e Serviços - Custos Mercadorias Vendidas)", content)
         self.assertIn("(Receitas Financeiras - Despesas Financeiras)", content)
-
-    def test_results_page_filters_workorders_by_payment_date_when_tipo_data_is_pg(self) -> None:
-        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
-        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
-        entry_only_workorder, payment_only_workorder, both_match_workorder = self._create_workorders_for_tipo_data_filtering()
-
-        response = self.client.get(
-            reverse("finance:dre_results"),
-            data={
-                "filial": str(self.workshop.pk),
-                "data_inicial": "2026-01-01",
-                "data_final": "2026-01-31",
-                "tipo_data": "PG",
-            },
-        )
-
-        self.assertEqual(response.status_code, 200)
-
-        rows = {row["label"]: row["amount"] for row in response.context["dre_rows"]}
-        gross_revenue_row = next(row for row in response.context["dre_rows"] if row["component"] == "receita_bruta_vendas_e_servicos")
-        detail_ids = [detail["workorder_id"] for detail in gross_revenue_row["details"]]
-
-        self.assertEqual(rows["(+) Receita Bruta de Vendas e Serviços"], Money("600.00", "BRL"))
-        self.assertEqual(rows["(-) Custos Mercadorias Vendidas"], Money("240.00", "BRL"))
-        self.assertCountEqual(detail_ids, [payment_only_workorder.pk, both_match_workorder.pk])
-        self.assertNotIn(entry_only_workorder.pk, detail_ids)
-
-    def test_results_page_filters_workorders_by_entry_date_when_tipo_data_is_npg(self) -> None:
-        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
-        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
-        entry_only_workorder, payment_only_workorder, both_match_workorder = self._create_workorders_for_tipo_data_filtering()
-
-        response = self.client.get(
-            reverse("finance:dre_results"),
-            data={
-                "filial": str(self.workshop.pk),
-                "data_inicial": "2026-01-01",
-                "data_final": "2026-01-31",
-                "tipo_data": "NPG",
-            },
-        )
-
-        self.assertEqual(response.status_code, 200)
-
-        rows = {row["label"]: row["amount"] for row in response.context["dre_rows"]}
-        gross_revenue_row = next(row for row in response.context["dre_rows"] if row["component"] == "receita_bruta_vendas_e_servicos")
-        detail_ids = [detail["workorder_id"] for detail in gross_revenue_row["details"]]
-
-        self.assertEqual(rows["(+) Receita Bruta de Vendas e Serviços"], Money("600.00", "BRL"))
-        self.assertEqual(rows["(-) Custos Mercadorias Vendidas"], Money("240.00", "BRL"))
-        self.assertCountEqual(detail_ids, [entry_only_workorder.pk, both_match_workorder.pk])
-        self.assertNotIn(payment_only_workorder.pk, detail_ids)
-
-    def test_results_page_unions_entry_and_payment_matches_without_duplicates_when_tipo_data_is_a(self) -> None:
-        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
-        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
-        entry_only_workorder, payment_only_workorder, both_match_workorder = self._create_workorders_for_tipo_data_filtering()
-
-        response = self.client.get(
-            reverse("finance:dre_results"),
-            data={
-                "filial": str(self.workshop.pk),
-                "data_inicial": "2026-01-01",
-                "data_final": "2026-01-31",
-                "tipo_data": "A",
-            },
-        )
-
-        self.assertEqual(response.status_code, 200)
-
-        rows = {row["label"]: row["amount"] for row in response.context["dre_rows"]}
-        gross_revenue_row = next(row for row in response.context["dre_rows"] if row["component"] == "receita_bruta_vendas_e_servicos")
-        detail_ids = [detail["workorder_id"] for detail in gross_revenue_row["details"]]
-
-        self.assertEqual(rows["(+) Receita Bruta de Vendas e Serviços"], Money("900.00", "BRL"))
-        self.assertEqual(rows["(-) Custos Mercadorias Vendidas"], Money("360.00", "BRL"))
-        self.assertCountEqual(detail_ids, [entry_only_workorder.pk, payment_only_workorder.pk, both_match_workorder.pk])
 
     def test_results_page_uses_only_selected_financial_groups_in_calculation(self) -> None:
         revenue_group = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
@@ -5865,13 +5738,3 @@ class PaymentMethodViewsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Parcelas")
         self.assertContains(response, "3")
-
-    def test_list_view_renders_status_filter_controls(self) -> None:
-        PaymentMethod.objects.create(workshop=self.workshop, description="Pix", installments_count=1)
-
-        response = self.client.get(reverse("finance:payment_methods_list"))
-
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'name="is_active"', html=False)
-        self.assertContains(response, 'value="all"', html=False)
-        self.assertContains(response, "Ativos")

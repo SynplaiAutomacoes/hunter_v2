@@ -38,11 +38,6 @@ class KitListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseM
 
     def get_queryset(self):
         queryset = super().get_queryset()
-
-        is_active_filter = str(self.request.GET.get("is_active") or "").strip()
-        if not is_active_filter:
-            queryset = queryset.filter(is_active=True)
-
         queryset = apply_query_param_filters(
             queryset,
             params=self.request.GET,

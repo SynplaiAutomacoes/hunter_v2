@@ -15,7 +15,7 @@ class AppointmentStatus(models.TextChoices):
 class Appointment(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="appointments")
     customer = models.ForeignKey("customer.Customer", verbose_name="Cliente", on_delete=models.PROTECT, related_name="appointments")
-    vehicle = models.ForeignKey("customer.Vehicle", verbose_name="Veiculo", on_delete=models.PROTECT, related_name="appointments", null=True, blank=True)
+    vehicle = models.ForeignKey("customer.Vehicle", verbose_name="Veiculo", on_delete=models.PROTECT, related_name="appointments")
     title = models.CharField(verbose_name="Titulo", max_length=120)
     starts_at = models.DateTimeField(verbose_name="Data e hora de entrada")
     ends_at = models.DateTimeField(verbose_name="Data e hora de saida")
@@ -36,9 +36,7 @@ class Appointment(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        if self.vehicle:
-            return f"{self.title} - {self.vehicle}"
-        return f"{self.title} - Sem veiculo"
+        return f"{self.title} - {self.vehicle}"
 
     def clean(self) -> None:
         errors: dict[str, list[str]] = {}

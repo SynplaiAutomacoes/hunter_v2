@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 def visualizar_pdf(request, pk):
     workshop = get_active_workshop_or_404(request)
     budget = get_object_or_404(Budget, pk=pk, workshop=workshop)
-    context = build_budget_pdf_context(budget=budget, observacao=budget.pdf_observation, request=request)
+    context = build_budget_pdf_context(budget=budget, observacao=workshop.pdf_observation, request=request)
 
     return render(request, "budget/partials/pdf/visualizarPDF.html", context)
 
@@ -33,7 +33,7 @@ def visualizar_pdf(request, pk):
 def visualizar_pdf_gestor(request, pk):
     workshop = get_active_workshop_or_404(request)
     budget = get_object_or_404(Budget, pk=pk, workshop=workshop)
-    context = build_budget_pdf_context(budget=budget, observacao=budget.pdf_observation, request=request)
+    context = build_budget_pdf_context(budget=budget, observacao=workshop.pdf_observation, request=request)
 
     return render(request, "budget/partials/pdf/visualizarPDFGestor.html", context)
 
@@ -42,7 +42,7 @@ def visualizar_pdf_gestor(request, pk):
 def visualizar_pdf_mecanico(request, pk):
     workshop = get_active_workshop_or_404(request)
     budget = get_object_or_404(Budget, pk=pk, workshop=workshop)
-    context = build_budget_pdf_context(budget=budget, observacao=budget.pdf_observation, request=request)
+    context = build_budget_pdf_context(budget=budget, observacao=workshop.pdf_observation, request=request)
 
     return render(request, "budget/partials/pdf/visualizarPDFMecanico.html", context)
 
@@ -142,7 +142,7 @@ def _get_budget_from_signature_token(token):
 
 def signature_preview(request, token):
     budget = _get_budget_from_signature_token(token)
-    context = build_budget_pdf_context(budget=budget, observacao=budget.pdf_observation, request=request)
+    context = build_budget_pdf_context(budget=budget, observacao=budget.workshop.pdf_observation, request=request)
 
     return render(request, "budget/partials/pdf/visualizarPDF.html", context)
 

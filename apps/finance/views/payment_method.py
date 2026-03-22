@@ -18,15 +18,7 @@ class PaymentMethodListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplat
     workshop_permission_codename = "view_paymentmethod"
 
     def get_queryset(self):
-        queryset = super().get_queryset()
-        is_active_filter = str(self.request.GET.get("is_active") or "").strip()
-
-        if not is_active_filter:
-            queryset = queryset.filter(is_active=True)
-        elif is_active_filter in {"0", "1"}:
-            queryset = queryset.filter(is_active=is_active_filter == "1")
-
-        return queryset.order_by("description")
+        return super().get_queryset().order_by("description")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
