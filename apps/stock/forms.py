@@ -13,6 +13,8 @@ from django.db import transaction
 import gzip
 import base64
 
+from django.core.paginator import Paginator
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils.safestring import mark_safe
 from lxml import etree
@@ -1189,118 +1191,185 @@ class TransferItemsForm(forms.ModelForm):
 
         self.helper = FormHelper()
         self.helper.form_tag = False
-        self.helper.layout = Layout(
-            Div(
-                Div(
-                    HTML('<h2 class="text-2xl font-bold text-base-content">Itens da Transferência</h2>'),
-                    Div(
-                        HTML(
-                            f"""<button type="button" class="btn btn-outline btn-primary btn-sm"
-                                    hx-get="{reverse("stock:transfer_source_item_picker")}?pk={self.instance.pk}" hx-target="#modal-container">
-                                    <span class="flex items-center gap-1">
-                                        <span class="material-icons text-sm">inventory_2</span> Adicionar Item da Origem
-                                    </span>
-                            </button>"""
-                        ),
-                        css_class="flex gap-2",
-                    ),
-                    css_class="flex justify-between items-center mb-6",
-                ),
-                HTML(self._generate_table_html()),
-                css_class="mt-4",
-            )
-        )
+        self.helper.layout = Layout(HTML(self._build_transfer_items_html()))
 
-    def _generate_table_html(self) -> str:
-        items = self.instance.items_data or []
+    def _build_transfer_items_html(self) -> str:
+        return f"""
+        <div class="space-y-6">
+            <div>
+                <h2 class="text-2xl font-bold text-base-content">Pareamento de Produtos</h2>
+                <p class="text-sm text-base-content/70 mt-1">Escolha na esquerda os itens da oficina de origem e vincule ou crie o produto correspondente na oficina de destino.</p>
+            </div>
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+                {self._render_source_column()}
+                {self._render_destination_column()}
+            </div>
+        </div>"""
+
+    def _selected_items_map(self) -> dict[str, dict[str, Any]]:
+        return {str(item.get("source_product_id")): item for item in (self.instance.items_data or []) if item.get("source_product_id")}
+
+    def _source_products(self):
+        search_query = self.request.GET.get("source_search", "").strip() if self.request is not None else ""
+        queryset = Product.objects.filter(workshop=self.instance.source_workshop, is_active=True, stock_products__current_quantity__gt=0).select_related("group", "stock_products").order_by("name")
+        if search_query:
+            queryset = queryset.filter(Q(code__icontains=search_query) | Q(name__icontains=search_query) | Q(brand__icontains=search_query))
+        return queryset, search_query
+
+    def _render_source_column(self) -> str:
+        queryset, search_query = self._source_products()
+        selected_map = self._selected_items_map()
         rows = ""
-        total_geral = Decimal("0.00")
 
-        for idx, item in enumerate(items):
-            source_product_id = item.get("source_product_id")
-            destination_product_id = item.get("destination_product_id")
-            source_product = Product.objects.filter(id=source_product_id, workshop=self.instance.source_workshop).select_related("group").first() if source_product_id else None
-            destination_product = Product.objects.filter(id=destination_product_id, workshop=self.instance.destination_workshop).first() if destination_product_id else None
-            if source_product is None:
-                continue
-
-            stock_entry = StockProduct.objects.filter(workshop=self.instance.source_workshop, product=source_product).first()
-            estoque_origem = stock_entry.current_quantity if stock_entry else 0
-
-            try:
-                quantidade = int(str(item.get("qtd", "1") or "1"))
-            except (TypeError, ValueError):
-                quantidade = 1
-
-            try:
-                valor = Decimal(str(item.get("valor", "0")).replace(",", "."))
-            except (InvalidOperation, TypeError, ValueError):
-                valor = Decimal("0")
-
-            subtotal = Decimal(quantidade) * valor
-            total_geral += subtotal
-
-            qty_html = NumberInput(mode="positive").render(
-                name=f"items_qty_{idx}",
-                value=str(quantidade),
-                attrs={
-                    "class": "text-center",
-                    "hx-post": reverse("stock:update_transfer_item_data", kwargs={"pk": self.instance.pk}),
-                    "hx-trigger": "change delay:500ms",
-                    "hx-vals": f"js:{{item_idx: {idx}}}",
-                    "hx-target": "this",
-                    "hx-swap": "none",
-                    "min": "1",
-                },
-            )
+        for product in queryset:
+            selected_item = selected_map.get(str(product.id))
+            stock_entry = StockProduct.objects.filter(workshop=self.instance.source_workshop, product=product).first()
+            available_quantity = stock_entry.current_quantity if stock_entry else 0
+            selected = selected_item is not None
+            quantity_value = selected_item.get("qtd", 1) if selected_item else 1
+            row_class = "bg-primary/5 border-primary/20" if selected else ""
 
             rows += f"""
-            <tr class="h-16 border-b border-base-300">
+            <tr class="border-b border-base-300 {row_class}">
                 <td>
-                    <div class="font-medium">{source_product.name}</div>
-                    <div class="text-xs opacity-50">{source_product.code}</div>
+                    <div class="font-semibold">{product.name}</div>
+                    <div class="text-xs opacity-60">{product.code or "Sem codigo"}</div>
                 </td>
-                <td class="text-center">
-                    <span class="badge badge-ghost font-mono">{estoque_origem}</span>
+                <td class="text-center"><span class="badge badge-ghost font-mono">{available_quantity}</span></td>
+                <td class="text-center w-28">
+                    {self._render_source_quantity_input(product_id=product.id, quantity_value=quantity_value, selected=selected)}
                 </td>
-                <td>{qty_html}</td>
-                <td class="text-right font-mono">{Money(valor, "BRL")}</td>
-                <td>{self._render_destination_cell(idx=idx, destination_product=destination_product)}</td>
-                <td class="text-right font-bold">{Money(subtotal, "BRL")}</td>
-                <td class="text-center">
-                    <button type="button" class="btn btn-ghost btn-circle btn-sm text-error" title="Remover Item"
-                            hx-post="{reverse("stock:remove_transfer_item")}?item_idx={idx}&pk={self.instance.pk}"
-                            hx-target="#step-container">
-                        <span class="material-icons text-sm">delete</span>
-                    </button>
+                <td class="text-right">
+                    {self._render_source_action_button(product_id=product.id, selected=selected, quantity_value=quantity_value)}
                 </td>
             </tr>"""
 
+        search_url = f"{reverse('stock:transfer_update', kwargs={'pk': self.instance.pk})}?step=2"
         return f"""
-        <div class="overflow-x-auto rounded-xl border border-base-300">
-            <table class="table w-full">
-                <thead>
-                    <tr class="bg-base-300">
-                        <th>Produto de Origem</th>
-                        <th class="text-center">Saldo Atual</th>
-                        <th class="text-center">Quantidade</th>
-                        <th class="text-right">Custo Unitário</th>
-                        <th>Produto no Destino</th>
-                        <th class="text-right">Subtotal</th>
-                        <th class="text-center">Ações</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {rows if rows else '<tr><td colspan="7" class="text-center italic py-8">Nenhum item adicionado.</td></tr>'}
-                </tbody>
-                <tfoot>
-                    <tr class="bg-base-300 font-bold">
-                        <td colspan="5" class="text-right">Valor Total</td>
-                        <td class="text-right">{Money(total_geral, "BRL")}</td>
-                        <td></td>
-                    </tr>
-                </tfoot>
-            </table>
+        <div class="card bg-base-100 border border-base-300 shadow-sm">
+            <div class="card-body p-4 space-y-4">
+                <div>
+                    <div class="flex items-center justify-between gap-3 mb-1">
+                        <h3 class="text-base font-bold uppercase">Origem</h3>
+                        <span class="badge badge-outline">{self.instance.source_workshop.name}</span>
+                    </div>
+                    <p class="text-sm text-base-content/70">Selecione os itens que vao sair do estoque.</p>
+                </div>
+                <label class="form-control w-full">
+                    <input type="text" name="source_search" value="{search_query}" class="input input-bordered w-full"
+                           placeholder="Buscar por codigo, nome ou marca"
+                           hx-get="{search_url}"
+                           hx-include="this"
+                           hx-vals='{{"pk": "{self.instance.pk}"}}'
+                           hx-trigger="keyup changed delay:300ms"
+                           hx-target="#step-container"
+                           hx-push-url="true">
+                </label>
+                <div class="overflow-x-auto rounded-xl border border-base-300 max-h-[34rem]">
+                    <table class="table table-sm w-full">
+                        <thead class="bg-base-200 sticky top-0 z-10">
+                            <tr>
+                                <th>Produto</th>
+                                <th class="text-center">Saldo</th>
+                                <th class="text-center">Qtd</th>
+                                <th class="text-right">Acao</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {rows or '<tr><td colspan="4" class="text-center italic py-8">Nenhum produto com saldo encontrado.</td></tr>'}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>"""
+
+    def _render_source_quantity_input(self, *, product_id: int, quantity_value: Any, selected: bool) -> str:
+        attrs = {
+            "class": "text-center input input-bordered input-sm w-20",
+            "min": "1",
+            "hx-post": reverse("stock:update_transfer_item_data", kwargs={"pk": self.instance.pk}),
+            "hx-trigger": "change delay:300ms",
+            "hx-vals": f"js:{{source_product_id: {product_id}}}",
+            "hx-target": "#step-container",
+            "hx-swap": "innerHTML",
+        }
+        if not selected:
+            attrs["disabled"] = "disabled"
+        return NumberInput(mode="positive").render(
+            name=f"source_qty_{product_id}",
+            value=str(quantity_value),
+            attrs=attrs,
+        )
+
+    def _render_source_action_button(self, *, product_id: int, selected: bool, quantity_value: Any) -> str:
+        if selected:
+            return f"""
+            <button type="button" class="btn btn-error btn-xs"
+                    hx-post="{reverse("stock:remove_transfer_item")}?pk={self.instance.pk}&source_product_id={product_id}"
+                    hx-target="#step-container">
+                Remover
+            </button>"""
+        return f"""
+        <button type="button" class="btn btn-primary btn-xs"
+                hx-post="{reverse("stock:add_transfer_source_item")}"
+                hx-vals='{{"pk": "{self.instance.pk}", "product_id": "{product_id}", "quantity": "{quantity_value}"}}'
+                hx-target="#step-container">
+            Selecionar
+        </button>"""
+
+    def _render_destination_column(self) -> str:
+        items = self.instance.items_data or []
+        cards = ""
+        total_geral = Decimal("0.00")
+
+        for idx, item in enumerate(items):
+            source_product = Product.objects.filter(id=item.get("source_product_id"), workshop=self.instance.source_workshop).first()
+            destination_product = Product.objects.filter(id=item.get("destination_product_id"), workshop=self.instance.destination_workshop).first()
+            if source_product is None:
+                continue
+
+            quantity = int(str(item.get("qtd", 1) or 1))
+            value = Decimal(str(item.get("valor", "0")).replace(",", "."))
+            subtotal = Decimal(quantity) * value
+            total_geral += subtotal
+
+            cards += f"""
+            <div class="rounded-xl border border-base-300 bg-base-100 p-4 space-y-4">
+                <div class="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                        <p class="text-xs uppercase tracking-wide opacity-60">Saindo da origem</p>
+                        <div class="font-semibold">{source_product.name}</div>
+                        <div class="text-xs opacity-60">{source_product.code or "Sem codigo"} | Qtd: {quantity}</div>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-xs uppercase tracking-wide opacity-60">Subtotal</p>
+                        <div class="font-bold">{Money(subtotal, "BRL")}</div>
+                    </div>
+                </div>
+                <div class="rounded-lg bg-base-200 p-4 space-y-3">
+                    <p class="text-xs uppercase tracking-wide opacity-60">Entrada no destino</p>
+                    {self._render_destination_cell(idx=idx, destination_product=destination_product)}
+                </div>
+            </div>"""
+
+        return f"""
+        <div class="card bg-base-100 border border-base-300 shadow-sm">
+            <div class="card-body p-4 space-y-4">
+                <div class="flex items-center justify-between gap-3">
+                    <div>
+                        <h3 class="text-base font-bold uppercase">Destino</h3>
+                        <p class="text-sm text-base-content/70">Associe cada item selecionado a um produto da oficina de destino.</p>
+                    </div>
+                    <span class="badge badge-outline">{self.instance.destination_workshop.name}</span>
+                </div>
+                <div class="space-y-4 max-h-[34rem] overflow-y-auto pr-1">
+                    {cards or '<div class="rounded-xl border border-dashed border-base-300 p-8 text-center italic text-base-content/60">Selecione itens na coluna da esquerda para montar a transferencia.</div>'}
+                </div>
+                <div class="pt-2 border-t border-base-300 flex items-center justify-between font-semibold">
+                    <span>Total selecionado</span>
+                    <span>{Money(total_geral, "BRL")}</span>
+                </div>
+            </div>
         </div>"""
 
     def _render_destination_cell(self, *, idx: int, destination_product: Product | None) -> str:
@@ -1333,7 +1402,7 @@ class TransferItemsForm(forms.ModelForm):
     def clean(self) -> dict[str, Any]:
         cleaned_data = super().clean()
         if not self.instance.items_data:
-            self.add_error(None, "Adicione ao menos um item para transferir.")
+            self.add_error(None, "Selecione ao menos um item na oficina de origem para transferir.")
             return cleaned_data
 
         for item in self.instance.items_data:

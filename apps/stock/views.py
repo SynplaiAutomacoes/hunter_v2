@@ -983,12 +983,19 @@ class AddTransferSourceItemView(StockTransferAccessMixin, View):
     def post(self, request):
         product_id = clean_id(request.POST.get("product_id"))
         pk = clean_id(request.POST.get("pk"))
+        raw_quantity = request.POST.get("quantity") or "1"
         transfer = get_object_or_404(StockTransfer, pk=pk)
         source_product = get_object_or_404(Product, id=product_id, workshop=transfer.source_workshop)
         items = list(transfer.items_data)
 
+        try:
+            quantity = max(1, int(Decimal(str(raw_quantity).replace(",", "."))))
+        except (InvalidOperation, ValueError):
+            quantity = 1
+
         for item in items:
             if str(item.get("source_product_id")) == str(source_product.id):
+                item["qtd"] = quantity
                 response = HttpResponse("")
                 response["HX-Trigger"] = "productCreated"
                 return response
@@ -997,7 +1004,7 @@ class AddTransferSourceItemView(StockTransferAccessMixin, View):
             {
                 "source_product_id": str(source_product.id),
                 "destination_product_id": None,
-                "qtd": 1,
+                "qtd": quantity,
                 "valor": str(source_product.cost_price.amount),
             }
         )
@@ -1135,15 +1142,19 @@ class RemoveTransferItemView(StockTransferAccessMixin, View):
     @transaction.atomic
     def post(self, request):
         item_idx = clean_id(request.POST.get("item_idx") or request.GET.get("item_idx"))
+        source_product_id = clean_id(request.POST.get("source_product_id") or request.GET.get("source_product_id"))
         pk = clean_id(request.POST.get("pk") or request.GET.get("pk"))
         transfer = get_object_or_404(StockTransfer, pk=pk)
         items = list(transfer.items_data)
 
-        try:
-            idx = int(item_idx)
-            items.pop(idx)
-        except (TypeError, ValueError, IndexError):
-            return HttpResponse("Índice inválido.", status=400)
+        if source_product_id is not None:
+            items = [item for item in items if str(item.get("source_product_id")) != str(source_product_id)]
+        else:
+            try:
+                idx = int(item_idx)
+                items.pop(idx)
+            except (TypeError, ValueError, IndexError):
+                return HttpResponse("Índice inválido.", status=400)
 
         transfer.items_data = items
         transfer.save(update_fields=["items_data"])
@@ -1157,20 +1168,31 @@ class UpdateTransferItemDataView(StockTransferAccessMixin, View):
     def post(self, request, pk):
         transfer = get_object_or_404(StockTransfer, id=pk)
         item_idx = request.POST.get("item_idx")
-        if item_idx is None:
-            return HttpResponse(status=400)
-
-        try:
-            idx = int(item_idx)
-        except (TypeError, ValueError):
+        source_product_id = request.POST.get("source_product_id")
+        if item_idx is None and source_product_id is None:
             return HttpResponse(status=400)
 
         items = list(transfer.items_data)
-        if 0 <= idx < len(items):
-            new_qty = request.POST.get(f"items_qty_{idx}")
+        target_item = None
+        field_name = None
+
+        if source_product_id is not None:
+            field_name = f"source_qty_{source_product_id}"
+            target_item = next((item for item in items if str(item.get("source_product_id")) == str(source_product_id)), None)
+        else:
+            try:
+                idx = int(item_idx)
+            except (TypeError, ValueError):
+                return HttpResponse(status=400)
+            if 0 <= idx < len(items):
+                target_item = items[idx]
+                field_name = f"items_qty_{idx}"
+
+        if target_item is not None and field_name is not None:
+            new_qty = request.POST.get(field_name)
             if new_qty is not None:
                 try:
-                    items[idx]["qtd"] = max(1, int(Decimal(new_qty.replace(",", "."))))
+                    target_item["qtd"] = max(1, int(Decimal(new_qty.replace(",", "."))))
                 except (InvalidOperation, ValueError):
                     pass
 
