@@ -1135,8 +1135,8 @@ class TransferStepWorkshopsForm(forms.ModelForm):
         self.helper.form_tag = False
         self.helper.layout = Layout(
             Div(
+                HTML('<h2 class="text-2xl font-bold mb-6 text-base-content">Origem e Destino</h2>'),
                 Div(
-                    HTML('<h2 class="text-2xl font-bold mb-6 text-base-content">Origem e Destino</h2>'),
                     Field("source_workshop", wrapper_class="col-span-12 lg:col-span-6"),
                     Field("destination_workshop", wrapper_class="col-span-12 lg:col-span-6"),
                     css_class="grid grid-cols-12 gap-4",
