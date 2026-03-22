@@ -64,24 +64,17 @@
         name="{{ widget.name }}"
         id="{{ widget.attrs.id }}"
         :value="value"
-        {% if widget.attrs.disabled %}disabled{% endif %}
-        {% for name, value in widget.attrs.items %}
-            {% if name != "id" and name != "name" and name != "placeholder" and name != "required" and name != "disabled" and name != "readonly" and name != "class" %}
-                {% if value is True %}{{ name }}{% elif value is False or value is None %}{% else %}{{ name }}="{{ value|escape }}"{% endif %}
-            {% endif %}
-        {% endfor %}
     >
 
-    <div class="relative flex items-center" :class="{ 'opacity-60': $refs.hiddenInput.disabled }">
+    <div class="relative flex items-center">
         <input
-            x-ref="visibleInput"
             type="text"
             x-model="search"
-            @focus="if (!$refs.hiddenInput.disabled) open = true"
-            @input="if (!$refs.hiddenInput.disabled) open = true"
+            @focus="open = true"
+            @input="open = true"
             placeholder="Digite para buscar..."
             class="input-theme {{ widget.attrs.class }} w-full pr-10"
-            :class="{'ring-2 ring-primary border-primary': open, 'cursor-not-allowed bg-base-200/60': $refs.hiddenInput.disabled}"
+            :class="{'ring-2 ring-primary border-primary': open}"
             {% if widget.attrs.disabled or widget.attrs.readonly %}disabled{% endif %}>
 
         <div class="absolute inset-y-0 right-0 flex items-center pr-2 gap-1">

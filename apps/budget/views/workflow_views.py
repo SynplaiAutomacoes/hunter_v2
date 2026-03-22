@@ -103,10 +103,6 @@ class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespon
             )
         )
 
-        status_filter = str(self.request.GET.get("status") or "").strip()
-        if not status_filter:
-            queryset = queryset.exclude(status=BudgetStatus.CANCELLED)
-
         queryset = apply_query_param_filters(
             queryset,
             params=self.request.GET,
@@ -511,13 +507,12 @@ class SaveObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = Budget
     workshop_permission_codename = "add_budget"
 
-    def post(self, request, budget_id):
+    def post(self, request):
         try:
-            budget = _get_budget_for_workshop(self.workshop, budget_id)
             data = json.loads(request.body)
             observation = data.get("observation", "").strip()
-            budget.pdf_observation = observation
-            budget.save(update_fields=["pdf_observation"])
+            self.workshop.pdf_observation = observation
+            self.workshop.save()
             return JsonResponse({"success": True})
         except (json.JSONDecodeError, AttributeError):
             return JsonResponse({"success": False}, status=400)

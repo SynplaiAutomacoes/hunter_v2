@@ -9,7 +9,6 @@ from apps.finance.forms.bank_account import BankAccountForm
 from apps.finance.models.bank_account import BankAccount
 from apps.workshops.mixin import WorkshopScopedMixin
 
-
 class BankAccountListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = BankAccount
     template_name = "finance/bank_account/bank_account_list.html"
@@ -18,15 +17,7 @@ class BankAccountListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
     workshop_permission_codename = "view_bankaccount"
 
     def get_queryset(self):
-        queryset = super().get_queryset()
-        is_active_filter = str(self.request.GET.get("is_active") or "").strip()
-
-        if not is_active_filter:
-            queryset = queryset.filter(is_active=True)
-        elif is_active_filter in {"0", "1"}:
-            queryset = queryset.filter(is_active=is_active_filter == "1")
-
-        return queryset.order_by("bank_name")
+        return super().get_queryset().order_by("bank_name")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -39,7 +30,6 @@ class BankAccountListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
         ]
         context["actions"] = [TableActionDefaults.edit("finance:bank_account_update")]
         return context
-
 
 class BankAccountCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
     model = BankAccount
@@ -56,7 +46,6 @@ class BankAccountCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView)
     def form_valid(self, form):
         form.instance.workshop = self.workshop
         return super().form_valid(form)
-
 
 class BankAccountUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
     model = BankAccount

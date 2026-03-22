@@ -194,7 +194,7 @@
 
             function clearSearchableSelect(hiddenId) {
                 const container = getSearchableContainerByHiddenId(hiddenId);
-                if (!container || !window.Alpine) return;
+                if (!container || !container.__x) return;
 
                 const data = Alpine.$data(container);
                 if (data && data.clear) {
@@ -202,22 +202,8 @@
                 }
             }
 
-            function setSearchableSelectDisabled(hiddenId, disabled) {
-                const container = getSearchableContainerByHiddenId(hiddenId);
-                const hiddenInput = document.getElementById(hiddenId);
-                const visibleInput = container ? container.querySelector('input[type="text"]') : null;
-
-                if (hiddenInput) {
-                    hiddenInput.disabled = !!disabled;
-                }
-
-                if (visibleInput) {
-                    visibleInput.disabled = !!disabled;
-                }
-            }
-
             function appendOptionToSearchable(container, option) {
-                if (!container || !window.Alpine) return;
+                if (!container || !container.__x) return;
                 const data = Alpine.$data(container);
                 const optionsUl = container.querySelector('ul[role="listbox"]');
                 if (!data || !optionsUl) return;
@@ -232,9 +218,9 @@
                 optionsUl.appendChild(li);
             }
 
-            window.reloadCalendarVehicleFilterOptions = async function (customerId, selectedVehicleId = '') {
+            window.reloadCalendarVehicleFilterOptions = async function (customerId) {
                 const vehicleContainer = getSearchableContainerByHiddenId('appointment-filter-vehicle');
-                if (!vehicleContainer || !window.Alpine) {
+                if (!vehicleContainer || !vehicleContainer.__x) {
                     return;
                 }
 
@@ -244,7 +230,6 @@
                     return;
                 }
 
-                setSearchableSelectDisabled('appointment-filter-vehicle', !customerId);
                 data.clear();
                 optionsUl.querySelectorAll('li[data-value]').forEach(li => li.remove());
 
@@ -258,18 +243,9 @@
                         return;
                     }
                     const vehicles = await response.json();
-                    vehicles.forEach(vehicle => {
-                        appendOptionToSearchable(vehicleContainer, vehicle);
-                    });
+                    vehicles.forEach(vehicle => appendOptionToSearchable(vehicleContainer, vehicle));
                     if (window.Alpine && Alpine.initTree) {
                         Alpine.initTree(optionsUl);
-                    }
-
-                    if (selectedVehicleId) {
-                        const selectedOption = optionsUl.querySelector(`li[data-value='${String(selectedVehicleId)}']`);
-                        if (selectedOption) {
-                            data.select(selectedOption);
-                        }
                     }
                 } catch (error) {
                     console.error('Erro ao carregar veiculos do filtro:', error);
@@ -289,72 +265,6 @@
             function openModalFromUrl(url) {
                 htmx.ajax('GET', url, { target: '#appointment-modal-container', swap: 'innerHTML' });
                 appointmentModal.showModal();
-            }
-
-            function buildWallDateTime(dateValue, hour) {
-                if (!dateValue) {
-                    return '';
-                }
-
-                return `${dateValue}T${String(hour).padStart(2, '0')}:00:00`;
-            }
-
-            function parseTimezoneOffsetMinutes(value) {
-                if (!value || value.endsWith('Z')) {
-                    return 0;
-                }
-
-                const match = value.match(/([+-])(\d{2}):(\d{2})$/);
-                if (!match) {
-                    return 0;
-                }
-
-                const sign = match[1] === '+' ? 1 : -1;
-                return sign * ((parseInt(match[2], 10) * 60) + parseInt(match[3], 10));
-            }
-
-            function formatDateWithOffset(date, offsetMinutes) {
-                const localDate = new Date(date.getTime() + (offsetMinutes * 60 * 1000));
-                const year = localDate.getUTCFullYear();
-                const month = String(localDate.getUTCMonth() + 1).padStart(2, '0');
-                const day = String(localDate.getUTCDate()).padStart(2, '0');
-                const hour = String(localDate.getUTCHours()).padStart(2, '0');
-                const minute = String(localDate.getUTCMinutes()).padStart(2, '0');
-                const second = String(localDate.getUTCSeconds()).padStart(2, '0');
-
-                const sign = offsetMinutes >= 0 ? '+' : '-';
-                const absoluteOffset = Math.abs(offsetMinutes);
-                const offsetHour = String(Math.floor(absoluteOffset / 60)).padStart(2, '0');
-                const offsetMinute = String(absoluteOffset % 60).padStart(2, '0');
-
-                return `${year}-${month}-${day}T${hour}:${minute}:${second}${sign}${offsetHour}:${offsetMinute}`;
-            }
-
-            function addHoursToCalendarDateTime(value, hours) {
-                if (!value) {
-                    return '';
-                }
-
-                if (!value.includes('T')) {
-                    const baseHour = Math.max(0, Math.min(23, hours));
-                    return buildWallDateTime(value, baseHour);
-                }
-
-                if (!/[+-]\d{2}:\d{2}$|Z$/.test(value)) {
-                    const parsedDate = new Date(value);
-                    parsedDate.setHours(parsedDate.getHours() + hours);
-                    const year = parsedDate.getFullYear();
-                    const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
-                    const day = String(parsedDate.getDate()).padStart(2, '0');
-                    const hour = String(parsedDate.getHours()).padStart(2, '0');
-                    const minute = String(parsedDate.getMinutes()).padStart(2, '0');
-                    const second = String(parsedDate.getSeconds()).padStart(2, '0');
-                    return `${year}-${month}-${day}T${hour}:${minute}:${second}`;
-                }
-
-                const offsetMinutes = parseTimezoneOffsetMinutes(value);
-                const parsedDate = new Date(value);
-                return formatDateWithOffset(new Date(parsedDate.getTime() + (hours * 60 * 60 * 1000)), offsetMinutes);
             }
 
             function openCreateFromRange(startValue, endValue) {
@@ -404,16 +314,20 @@
                     },
                 },
                 select: function (selectionInfo) {
-                    const startsAt = selectionInfo.allDay ? buildWallDateTime(selectionInfo.startStr, 0) : selectionInfo.startStr;
-                    const endsAt = selectionInfo.allDay ? buildWallDateTime(selectionInfo.startStr, 1) : selectionInfo.endStr;
-                    openCreateFromRange(startsAt, endsAt);
+                    openCreateFromRange(selectionInfo.startStr, selectionInfo.endStr);
                     calendar.unselect();
                 },
                 dateClick: function (info) {
                     if (calendar.view.type.startsWith('dayGrid')) {
-                        openCreateFromRange(buildWallDateTime(info.dateStr, 0), buildWallDateTime(info.dateStr, 1));
+                        const startDate = new Date(info.date);
+                        const endDate = new Date(startDate.getTime() + (60 * 60 * 1000));
+                        openCreateFromRange(startDate.toISOString(), endDate.toISOString());
                     } else if (calendar.view.type.startsWith('timeGrid')) {
-                        openCreateFromRange(info.dateStr, addHoursToCalendarDateTime(info.dateStr, 1));
+                        const start = info.dateStr;
+                        const startDate = new Date(info.date);
+                        const endDate = new Date(startDate.getTime() + (60 * 60 * 1000));
+                        const end = endDate.toISOString();
+                        openCreateFromRange(start, end);
                     }
                 },
                 eventClick: function (info) {
@@ -433,7 +347,8 @@
                 if (info.event.endStr) {
                     formData.append('ends_at', info.event.endStr);
                 } else {
-                    formData.append('ends_at', addHoursToCalendarDateTime(info.event.startStr || '', 1));
+                    const plusOneHour = new Date(info.event.start.getTime() + (60 * 60 * 1000));
+                    formData.append('ends_at', plusOneHour.toISOString());
                 }
 
                 fetch(`/scheduling/${info.event.id}/move/`, {
@@ -474,7 +389,7 @@
                 if (dateFromInput) dateFromInput.value = '';
                 if (dateToInput) dateToInput.value = '';
                 clearSearchableSelect('appointment-filter-customer');
-                window.reloadCalendarVehicleFilterOptions('');
+                clearSearchableSelect('appointment-filter-vehicle');
                 if (statusInput) statusInput.value = '';
                 calendar.refetchEvents();
             };
@@ -519,11 +434,8 @@
 
             if (filtersShell) {
                 const selectedCustomer = getFilterValue(customerInput);
-                const selectedVehicle = getFilterValue(vehicleInput);
                 if (selectedCustomer) {
-                    window.reloadCalendarVehicleFilterOptions(selectedCustomer, selectedVehicle);
-                } else {
-                    setSearchableSelectDisabled('appointment-filter-vehicle', true);
+                    window.reloadCalendarVehicleFilterOptions(selectedCustomer);
                 }
             }
         })();

@@ -12,25 +12,9 @@
 
 {% block crud_table %}
     <div class="tabs tabs-lift mb-6">
-        <a href="{% url 'finance:tax_class_preset_list' %}?tab=nfe{% if request.GET.is_active %}&is_active={{ request.GET.is_active }}{% endif %}" class="tab {% if active_tab == 'nfe' %}tab-active{% endif %}">NF-e</a>
-        <a href="{% url 'finance:tax_class_preset_list' %}?tab=nfse{% if request.GET.is_active %}&is_active={{ request.GET.is_active }}{% endif %}" class="tab {% if active_tab == 'nfse' %}tab-active{% endif %}">NFS-e</a>
+        <a href="{% url 'finance:tax_class_preset_list' %}?tab=nfe" class="tab {% if active_tab == 'nfe' %}tab-active{% endif %}">NF-e</a>
+        <a href="{% url 'finance:tax_class_preset_list' %}?tab=nfse" class="tab {% if active_tab == 'nfse' %}tab-active{% endif %}">NFS-e</a>
     </div>
-
-    <form method="get" class="mb-6 flex flex-wrap items-end gap-3 rounded-box border border-base-300 bg-base-100 p-4">
-        <input type="hidden" name="tab" value="{{ active_tab }}">
-        <div class="min-w-[220px] flex-1">
-            <label for="preset-filter-status" class="label-text">Status</label>
-            <select name="is_active" id="preset-filter-status" class="select select-bordered w-full">
-                <option value="">Ativos</option>
-                <option value="all" {% if request.GET.is_active == 'all' %}selected{% endif %}>Todos</option>
-                <option value="0" {% if request.GET.is_active == '0' %}selected{% endif %}>Inativos</option>
-            </select>
-        </div>
-        <button type="submit" class="btn btn-primary">Filtrar</button>
-        {% if request.GET.is_active %}
-            <a href="{% url 'finance:tax_class_preset_list' %}?tab={{ active_tab }}" class="btn btn-error text-white">Limpar filtro</a>
-        {% endif %}
-    </form>
 
     <div class="overflow-x-auto">
         <table class="table table-zebra w-full">
