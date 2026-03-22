@@ -41,7 +41,7 @@ from apps.workorder.service import (
     build_signature_preview_url,
     send_workorder_for_signature,
 )
-from apps.workorder.views import WORKORDER_LIST_FILTERS, signature_file, signature_preview, visualizar_pdf_workorder
+from apps.workorder.views import WORKORDER_LIST_FILTERS, WorkOrderListView, signature_file, signature_preview, visualizar_pdf_workorder
 from apps.workshops.models.workshops import Workshop
 
 
@@ -128,6 +128,39 @@ def create_service(*, workshop: Workshop, suffix: int = 1) -> Service:
 
 
 class WorkOrderListFiltersTests(TestCase):
+    def test_workorder_list_hides_cancelled_by_default_but_allows_explicit_filters(self) -> None:
+        workshop = create_workshop(suffix=69)
+
+        active_budget = create_budget(workshop=workshop)
+        active_workorder = WorkOrder.objects.create(workshop=workshop, budget=active_budget, status=WorkOrderStatus.APPROVED)
+
+        cancelled_budget = create_budget(workshop=workshop)
+        cancelled_workorder = WorkOrder.objects.create(workshop=workshop, budget=cancelled_budget, status=WorkOrderStatus.CANCELLED)
+
+        factory = RequestFactory()
+
+        default_view = WorkOrderListView()
+        default_view.request = factory.get("/workorder/")
+        default_view.workshop = workshop
+        default_queryset = default_view.get_queryset()
+
+        all_view = WorkOrderListView()
+        all_view.request = factory.get("/workorder/", {"status": "all"})
+        all_view.workshop = workshop
+        all_queryset = all_view.get_queryset()
+
+        cancelled_view = WorkOrderListView()
+        cancelled_view.request = factory.get("/workorder/", {"status": WorkOrderStatus.CANCELLED})
+        cancelled_view.workshop = workshop
+        cancelled_queryset = cancelled_view.get_queryset()
+
+        self.assertIn(active_workorder, default_queryset)
+        self.assertNotIn(cancelled_workorder, default_queryset)
+        self.assertIn(active_workorder, all_queryset)
+        self.assertIn(cancelled_workorder, all_queryset)
+        self.assertNotIn(active_workorder, cancelled_queryset)
+        self.assertIn(cancelled_workorder, cancelled_queryset)
+
     def test_workorder_list_filters_support_client_vehicle_and_status(self) -> None:
         workshop = create_workshop(suffix=70)
 
@@ -175,6 +208,8 @@ class WorkOrderListFiltersTests(TestCase):
         self.assertIn('name="client"', html)
         self.assertIn('name="vehicle"', html)
         self.assertIn('name="status"', html)
+        self.assertIn('value="all"', html)
+        self.assertIn("Nao cancelados", html)
         self.assertIn('value="Ana"', html)
         self.assertIn('value="OSA1234"', html)
 

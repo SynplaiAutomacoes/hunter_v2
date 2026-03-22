@@ -37,7 +37,7 @@ from apps.core.documents.signature import normalize_signature_phone_number, pars
 from apps.core.documents.services import SignatureDeliveryServiceError, get_signed_document_url
 from apps.workorder.models import WorkOrder
 from apps.budget.views.pdf_views import signature_file, signature_preview, visualizar_pdf_assinatura
-from apps.budget.views.workflow_views import BUDGET_LIST_FILTERS, trigger_signature_send_if_needed
+from apps.budget.views.workflow_views import BUDGET_LIST_FILTERS, BudgetListView, trigger_signature_send_if_needed
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.query_filters import apply_query_param_filters
 from apps.customer.models import Customer, Vehicle
@@ -163,6 +163,38 @@ def extract_token_from_url(url: str) -> str:
 
 
 class BudgetListFiltersTests(TestCase):
+    def test_budget_list_hides_cancelled_by_default_but_allows_explicit_filters(self) -> None:
+        workshop = create_workshop(suffix=69)
+
+        active_budget = create_budget(workshop=workshop)
+        cancelled_budget = create_budget(workshop=workshop)
+        cancelled_budget.status = BudgetStatus.CANCELLED
+        cancelled_budget.save(update_fields=["status"])
+
+        factory = RequestFactory()
+
+        default_view = BudgetListView()
+        default_view.request = factory.get("/budget/")
+        default_view.workshop = workshop
+        default_queryset = default_view.get_queryset()
+
+        all_view = BudgetListView()
+        all_view.request = factory.get("/budget/", {"status": "all"})
+        all_view.workshop = workshop
+        all_queryset = all_view.get_queryset()
+
+        cancelled_view = BudgetListView()
+        cancelled_view.request = factory.get("/budget/", {"status": BudgetStatus.CANCELLED})
+        cancelled_view.workshop = workshop
+        cancelled_queryset = cancelled_view.get_queryset()
+
+        self.assertIn(active_budget, default_queryset)
+        self.assertNotIn(cancelled_budget, default_queryset)
+        self.assertIn(active_budget, all_queryset)
+        self.assertIn(cancelled_budget, all_queryset)
+        self.assertNotIn(active_budget, cancelled_queryset)
+        self.assertIn(cancelled_budget, cancelled_queryset)
+
     def test_budget_list_filters_support_client_vehicle_collaborator_and_status(self) -> None:
         workshop = create_workshop(suffix=70)
 
@@ -215,6 +247,8 @@ class BudgetListFiltersTests(TestCase):
         self.assertIn('name="vehicle"', html)
         self.assertIn('name="collaborator"', html)
         self.assertIn('name="status"', html)
+        self.assertIn('value="all"', html)
+        self.assertIn("Nao cancelados", html)
         self.assertIn('value="Ana"', html)
         self.assertIn('value="ABC1234"', html)
         self.assertIn('value="Joao"', html)

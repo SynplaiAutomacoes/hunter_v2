@@ -140,6 +140,7 @@ class DreBaseView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             workshops=selected_workshops,
             start_date=self._parse_date_param(self.request.GET.get("data_inicial")),
             end_date=self._parse_date_param(self.request.GET.get("data_final")),
+            tipo_data=tipo_data,
             selected_financial_groups=selected_financial_groups,
         )
 

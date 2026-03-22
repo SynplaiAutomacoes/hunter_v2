@@ -809,7 +809,15 @@ class TaxClassPresetListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateVi
     workshop_permission_codename = "view_nfserequest"
 
     def _get_queryset_by_tab(self, *, tab: str):
-        return TaxClassPreset.objects.filter(workshop=self.workshop, kind=TaxClassManagerView._preset_kind_from_tab(tab)).order_by("name", "id")
+        queryset = TaxClassPreset.objects.filter(workshop=self.workshop, kind=TaxClassManagerView._preset_kind_from_tab(tab))
+        is_active_filter = str(self.request.GET.get("is_active") or "").strip()
+
+        if not is_active_filter:
+            queryset = queryset.filter(is_active=True)
+        elif is_active_filter in {"0", "1"}:
+            queryset = queryset.filter(is_active=is_active_filter == "1")
+
+        return queryset.order_by("name", "id")
 
     def get_context_data(self, **kwargs: object) -> dict[str, object]:
         context = super().get_context_data(**kwargs)

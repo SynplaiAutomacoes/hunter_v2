@@ -40,6 +40,10 @@ class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
     def get_queryset(self):
         queryset = super().get_queryset()
 
+        is_active_filter = str(self.request.GET.get("is_active") or "").strip()
+        if not is_active_filter:
+            queryset = queryset.filter(is_active=True)
+
         search_query = self.request.GET.get("q", "").strip()
 
         if search_query:
