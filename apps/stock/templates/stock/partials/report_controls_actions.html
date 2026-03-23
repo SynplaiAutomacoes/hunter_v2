@@ -1,0 +1,14 @@
+{% url 'stock:report_excel' as stock_report_excel_url %}
+{% url 'stock:report_pdf_preview' as stock_report_pdf_preview_url %}
+{% url 'stock:report_pdf' as stock_report_pdf_url %}
+
+<a href="{{ stock_report_excel_url }}{% if stock_report_querystring %}?{{ stock_report_querystring }}{% endif %}" class="btn btn-primary gap-2">
+    <span class="material-icons text-sm">table_view</span>
+    Exportar Excel
+</a>
+<button type="button"
+        class="btn btn-outline gap-2"
+        onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: '{{ stock_report_pdf_title }}', url: '{{ stock_report_pdf_preview_url }}{% if stock_report_querystring %}?{{ stock_report_querystring }}{% endif %}', downloadUrl: '{{ stock_report_pdf_url }}?download=1{% if stock_report_querystring %}&{{ stock_report_querystring }}{% endif %}' } }))">
+    <span class="material-icons text-sm">picture_as_pdf</span>
+    Gerar PDF
+</button>

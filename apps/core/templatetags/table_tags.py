@@ -603,6 +603,7 @@ def render_table(
     filter_panel_title: str = "Filtrar resultados",
     filter_param_names: str | Sequence[str] = (),
     summary_template: str = "",
+    controls_actions_template: str = "",
     footer_template: str = "",
     show_controls: bool = True,
     preserve_selection: bool = False,
@@ -635,6 +636,8 @@ def render_table(
             Pode ser string separada por vírgula (ex.: "city,state") ou sequência.
         summary_template: Caminho opcional de template para renderizar um resumo
             acima dos controles e da tabela.
+        controls_actions_template: Caminho opcional de template para renderizar
+            ações extras à direita da linha de controles.
         footer_template: Caminho opcional de template para renderizar conteúdo
             abaixo da tabela e da paginação.
         show_controls: Se False, oculta os controles superiores (busca/ordenação/filtros).
@@ -735,6 +738,7 @@ def render_table(
         "filter_button_label": filter_button_label,
         "filter_panel_title": filter_panel_title,
         "summary_template": (summary_template or "").strip(),
+        "controls_actions_template": (controls_actions_template or "").strip(),
         "footer_template": (footer_template or "").strip(),
         "has_active_filters": has_active_filters,
         "clear_filter_url": clear_filter_url,

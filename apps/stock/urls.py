@@ -5,6 +5,10 @@ app_name = "stock"
 
 urlpatterns = [
     path("", views.StockImportListView.as_view(), name="stock_list"),
+    path("report/", views.StockReportListView.as_view(), name="report"),
+    path("report/pdf/preview/", views.StockReportPdfPreviewView.as_view(), name="report_pdf_preview"),
+    path("report/pdf/", views.StockReportPdfView.as_view(), name="report_pdf"),
+    path("report/excel/", views.StockReportExcelView.as_view(), name="report_excel"),
     path("history/<str:record_type>/<int:pk>/edit/", views.StockHistoryEditRedirectView.as_view(), name="history_edit"),
     path("alerts/", views.StockAlertsListView.as_view(), name="alerts"),
     path("movements/", views.StockMovementListView.as_view(), name="movements"),

@@ -1,0 +1,113 @@
+{% load format_tags %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <title>{{ stock_report_pdf_title }}</title>
+    <style>
+        @page { size: A4; margin: 6mm; }
+
+        body {
+            margin: 0;
+            padding: 0;
+        }
+
+        .pdf-shell {
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .report-table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+
+        .report-table th,
+        .report-table td {
+            word-break: break-word;
+        }
+
+        @media print {
+            body { background: white !important; }
+            .pdf-shell { border: none !important; box-shadow: none !important; }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans text-[11px] leading-tight text-gray-900">
+    <div class="pdf-shell rounded-lg border border-gray-200 bg-white p-3 shadow-sm">
+        <div class="overflow-hidden rounded-lg border border-gray-200">
+            <div class="flex items-start justify-between gap-4 border-b border-gray-200 px-4 py-4">
+                <div class="min-w-0 flex-1 pr-4">
+                    <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500">Relatorio gerencial</p>
+                    <h1 class="mt-1 text-[20px] font-bold uppercase">{{ stock_report_pdf_title }}</h1>
+                    <p class="mt-2 text-[12px] font-semibold">{{ workshop.name|default:"-" }}</p>
+                    <p class="mt-1 text-[11px] text-gray-600">CNPJ: {{ workshop.cnpj|cnpj_br|default:"-" }}</p>
+                    <p class="text-[11px] text-gray-600">Telefone: {{ workshop.phone|phone_br|default:"-" }}</p>
+                    <p class="text-[11px] text-gray-600">{{ workshop.address|default:"-" }}</p>
+                    {% if stock_report_filter_descriptions %}
+                        <p class="mt-3 text-[10px] text-gray-500">{{ stock_report_filter_descriptions|join:", " }}</p>
+                    {% endif %}
+                </div>
+
+                <div class="w-[240px] rounded-md bg-gray-50 p-4 text-right text-[11px]">
+                    <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500">Quantidade total</p>
+                    <p class="mt-1 text-[18px] font-bold leading-none">{{ stock_report_totals.total_quantity_display }}</p>
+                    <p class="mt-4 text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500">Custo total</p>
+                    <p class="mt-1 text-[18px] font-bold leading-none text-green-700">{{ stock_report_totals.stock_total_cost_display }}</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-4 overflow-hidden rounded-lg border border-gray-200">
+            <div class="border-b border-gray-200 bg-gray-50 px-4 py-3">
+                <h2 class="text-[13px] font-bold uppercase">Itens do estoque</h2>
+                <p class="mt-1 text-[10px] text-gray-500">A listagem considera a posicao atual do estoque da oficina ativa com os filtros escolhidos.</p>
+            </div>
+
+            <table class="report-table text-[11px]">
+                <thead class="bg-gray-100 text-left uppercase text-[10px] tracking-[0.16em] text-gray-600">
+                    <tr>
+                        {% for column in selected_columns %}
+                            <th class="px-3 py-2 {% if column.pdf_align == 'right' %}text-right{% endif %}">{{ column.label }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in stock_report_rows %}
+                        <tr class="border-t border-gray-200 align-top">
+                            {% for cell in row.cells %}
+                                <td class="px-3 py-3 {% if cell.align == 'right' %}text-right{% endif %}">{{ cell.text }}</td>
+                            {% endfor %}
+                        </tr>
+                    {% empty %}
+                        <tr class="border-t border-gray-200">
+                            <td colspan="{{ selected_columns|length }}" class="px-4 py-6 text-center text-gray-500">Nenhum item encontrado para os filtros informados.</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="mt-4 border-t border-gray-200 px-1 pt-3 text-[10px] text-gray-500">
+            <p>Emitido em {{ generated_at_label }}.</p>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            const autoPrint = "{{ auto_print|yesno:'1,0' }}" === "1";
+            if (!autoPrint) {
+                return;
+            }
+
+            window.addEventListener("load", function () {
+                window.setTimeout(function () {
+                    window.print();
+                }, 80);
+            });
+        })();
+    </script>
+</body>
+</html>

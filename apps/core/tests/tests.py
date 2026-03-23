@@ -609,6 +609,39 @@ class TestRenderTableTag(TestCase):
         self.assertEqual(html.count(pagination_marker), 2)
         self.assertGreater(html.rfind(pagination_marker), html.find(pagination_marker))
 
+    def test_render_table_can_render_controls_actions_template_inside_controls_row(self):
+        for i in range(1, 13):
+            create_workshop(name=f"Oficina Acoes {i:02d}", cnpj=f"33.444.555/0001-{i:02d}")
+
+        request = self.factory.get("/workshops/")
+        template = Template(
+            """
+            {% load table_tags %}
+            {% render_table workshops fields table_id='t' per_page=10 filter_fields_template='budget/partials/budget_filters_fields.html' filter_button_label='Filtros' filter_param_names='status' controls_actions_template='tables/partials/_pagination.html' %}
+            """
+        )
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "workshops": Workshop.objects.all(),
+                    "fields": [TableColumn(label="Nome", attr="name")],
+                    "status_choices": [
+                        ("draft", "Em Aberto"),
+                        ("approved", "Aprovado"),
+                    ],
+                }
+            )
+        )
+
+        pagination_marker = 'class="flex items-center justify-between gap-3 pt-4"'
+        first_pagination_index = html.find(pagination_marker)
+
+        self.assertEqual(html.count(pagination_marker), 2)
+        self.assertIn('aria-controls="t-filter-modal"', html)
+        self.assertLess(html.find('aria-controls="t-filter-modal"'), first_pagination_index)
+        self.assertLess(first_pagination_index, html.find("</form>"))
+
     def test_render_table_clear_filter_url_removes_only_filter_params(self):
         request = self.factory.get("/workshops/?q=Oficina&sort=name&page=3&city=Campinas&state=SP")
 
