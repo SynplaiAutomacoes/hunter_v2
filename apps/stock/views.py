@@ -2,6 +2,7 @@ import json
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 
+from django import forms
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
@@ -298,7 +299,11 @@ class StockImportCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFo
         form.instance.workshop = self.workshop
         form.instance.user = self.request.user
 
-        self.object = form.save()
+        try:
+            self.object = form.save()
+        except forms.ValidationError as exc:
+            form.add_error(None, exc)
+            return self.form_invalid(form)
 
         current_step = self.get_current_step()
         steps_config = self.get_steps_config()
@@ -356,7 +361,11 @@ class StockImportUpdateView(StockImportCreateView):
         form.instance.workshop = self.workshop
         form.instance.user = self.request.user
 
-        self.object = form.save()
+        try:
+            self.object = form.save()
+        except forms.ValidationError as exc:
+            form.add_error(None, exc)
+            return self.form_invalid(form)
 
         current_step = self.get_current_step()
         steps_config = self.get_steps_config()

@@ -4,6 +4,8 @@ import base64
 
 from djmoney.money import Money
 
+from apps.workshops.services.files import WorkshopFileStorageError, get_workshop_logo_file
+
 
 def _build_pdf_pages(produtos: list[dict], servicos: list[dict]) -> list[dict]:
     return [
@@ -53,30 +55,14 @@ def build_budget_pdf_context(*, budget, observacao: str, request=None) -> dict:
     ]
 
     workshop_logo_data_uri = ""
-    workshop_logo = getattr(budget.workshop, "logo", None)
-    if workshop_logo:
-        try:
-            workshop_logo.open("rb")
-            try:
-                logo_bytes = workshop_logo.read()
-            finally:
-                workshop_logo.close()
+    try:
+        stored_logo = get_workshop_logo_file(budget.workshop)
+    except WorkshopFileStorageError:
+        stored_logo = None
 
-            if logo_bytes:
-                extension = str(getattr(workshop_logo, "name", "")).lower().split(".")[-1]
-                content_type_map = {
-                    "png": "image/png",
-                    "jpg": "image/jpeg",
-                    "jpeg": "image/jpeg",
-                    "webp": "image/webp",
-                    "gif": "image/gif",
-                    "svg": "image/svg+xml",
-                }
-                content_type = content_type_map.get(extension, "image/png")
-                encoded_logo = base64.b64encode(logo_bytes).decode("ascii")
-                workshop_logo_data_uri = f"data:{content_type};base64,{encoded_logo}"
-        except OSError:
-            workshop_logo_data_uri = ""
+    if stored_logo is not None and stored_logo.content:
+        encoded_logo = base64.b64encode(stored_logo.content).decode("ascii")
+        workshop_logo_data_uri = f"data:{stored_logo.content_type};base64,{encoded_logo}"
 
     return {
         "budget": budget,

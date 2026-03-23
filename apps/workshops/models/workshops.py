@@ -34,9 +34,17 @@ class Workshop(TimeStampedModel):
         blank=True,
         validators=[FileExtensionValidator(allowed_extensions=["png", "jpg", "jpeg", "gif", "webp", "svg"])],
     )
+    logo_mongo_file_id = models.CharField(max_length=64, blank=True, default="")
+    logo_file_name = models.CharField(max_length=255, blank=True, default="")
+    logo_content_type = models.CharField(max_length=100, blank=True, default="")
+    logo_uploaded_at = models.DateTimeField(null=True, blank=True)
     is_active = BooleanField(verbose_name="Ativa", default=True)
     # Sefaz
     pfx_certificate = models.FileField(verbose_name="Certificado PFX", upload_to="certificados/", null=True, blank=True)
+    certificate_mongo_file_id = models.CharField(max_length=64, blank=True, default="")
+    certificate_file_name = models.CharField(max_length=255, blank=True, default="")
+    certificate_content_type = models.CharField(max_length=100, blank=True, default="")
+    certificate_uploaded_at = models.DateTimeField(null=True, blank=True)
     certificate_password = models.CharField(verbose_name="Senha do Certificado", max_length=255, null=True, blank=True)
     last_nsu_sefaz = models.CharField(null=True, blank=True, default="0")
     last_sefaz_search_date = models.DateTimeField(null=True, blank=True)
@@ -50,6 +58,33 @@ class Workshop(TimeStampedModel):
         if not self.last_sefaz_search_date:
             return True
         return timezone.now() > self.last_sefaz_search_date + timedelta(hours=1)
+
+    @staticmethod
+    def _extract_file_name(raw_name: object) -> str:
+        normalized_name = str(raw_name or "").replace("\\", "/")
+        if not normalized_name:
+            return ""
+        return normalized_name.split("/")[-1]
+
+    @property
+    def has_logo_file(self) -> bool:
+        return bool(self.logo_mongo_file_id or self.logo)
+
+    @property
+    def current_logo_file_name(self) -> str:
+        if self.logo_file_name:
+            return self.logo_file_name
+        return self._extract_file_name(getattr(self.logo, "name", ""))
+
+    @property
+    def has_certificate_file(self) -> bool:
+        return bool(self.certificate_mongo_file_id or self.pfx_certificate)
+
+    @property
+    def current_certificate_file_name(self) -> str:
+        if self.certificate_file_name:
+            return self.certificate_file_name
+        return self._extract_file_name(getattr(self.pfx_certificate, "name", ""))
 
     def _get_webmania_company(self):
         cache_attr = "_cached_webmania_company"
