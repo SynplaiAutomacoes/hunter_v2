@@ -86,6 +86,7 @@
                 <div class="w-[220px] rounded-md bg-gray-50 p-4 text-right text-[11px]">
                     <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500">Status selecionado</p>
                     <p class="mt-2 text-[16px] font-bold uppercase">{{ selected_status_report.label }}</p>
+                    <p class="mt-3 text-[10px] text-gray-500">Periodo: {{ status_report_period_label }}</p>
                     <p class="mt-4 text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500">Total de O.S.</p>
                     <p class="mt-1 text-[28px] font-black leading-none">{{ selected_status_report.count }}</p>
                 </div>
@@ -95,7 +96,7 @@
         <div class="mt-4 overflow-hidden rounded-lg border border-gray-200">
             <div class="border-b border-gray-200 bg-gray-50 px-4 py-3">
                 <h2 class="text-[13px] font-bold uppercase">Ordens de servico com status {{ selected_status_report.label }}</h2>
-                <p class="mt-1 text-[10px] text-gray-500">A listagem considera todas as O.S. da oficina ativa com este status.</p>
+                <p class="mt-1 text-[10px] text-gray-500">A listagem considera todas as O.S. da oficina ativa com este status no periodo {{ status_report_period_label }}.</p>
             </div>
 
             <table class="report-table text-[11px]">

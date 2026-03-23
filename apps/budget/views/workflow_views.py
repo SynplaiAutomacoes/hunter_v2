@@ -1,5 +1,7 @@
 import json
+from datetime import date
 from decimal import Decimal, InvalidOperation
+from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -81,6 +83,29 @@ BUDGET_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
         kind="choice",
         allowed_values=frozenset(str(status_value) for status_value, _ in (Budget.status.field.choices or ())),
     ),
+    QueryParamFilter(
+        param_name="data_inicial",
+        lookup="criado_em__date",
+        kind="date_gte",
+    ),
+    QueryParamFilter(
+        param_name="data_final",
+        lookup="criado_em__date",
+        kind="date_lte",
+    ),
+)
+
+BUDGET_STATUS_REPORT_FILTERS: tuple[QueryParamFilter, ...] = (
+    QueryParamFilter(
+        param_name="data_inicial",
+        lookup="criado_em__date",
+        kind="date_gte",
+    ),
+    QueryParamFilter(
+        param_name="data_final",
+        lookup="criado_em__date",
+        kind="date_lte",
+    ),
 )
 
 BUDGET_STATUS_CHOICES = tuple((status.value, str(status.label)) for status in BudgetStatus)
@@ -98,6 +123,27 @@ BUDGET_STATUS_BADGE_CLASSES = {
 BUDGET_STATUS_REPORT_PDF_TITLE = "Relatorio de Orcamentos por Status"
 
 
+def _parse_report_date_param(raw_value: str | None) -> date | None:
+    value = str(raw_value or "").strip()
+    if not value:
+        return None
+
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _build_period_label(*, start_date: date | None, end_date: date | None) -> str:
+    if start_date and end_date:
+        return f"{start_date.strftime('%d/%m/%Y')} a {end_date.strftime('%d/%m/%Y')}"
+    if start_date:
+        return f"A partir de {start_date.strftime('%d/%m/%Y')}"
+    if end_date:
+        return f"Ate {end_date.strftime('%d/%m/%Y')}"
+    return "Todo o periodo"
+
+
 class BudgetStatusReportDataMixin:
     status_report_pdf_title = BUDGET_STATUS_REPORT_PDF_TITLE
     request: HttpRequest
@@ -111,6 +157,31 @@ class BudgetStatusReportDataMixin:
             return BudgetStatus(self._get_selected_status())
         except ValueError:
             return None
+
+    def _get_report_start_date(self) -> date | None:
+        return _parse_report_date_param(self.request.GET.get("data_inicial"))
+
+    def _get_report_end_date(self) -> date | None:
+        return _parse_report_date_param(self.request.GET.get("data_final"))
+
+    def _get_status_report_period_label(self) -> str:
+        return _build_period_label(start_date=self._get_report_start_date(), end_date=self._get_report_end_date())
+
+    def _get_status_report_querystring(self) -> str:
+        selected_status_choice = self._get_selected_status_choice()
+        if selected_status_choice is None:
+            return ""
+
+        query_params = {"status": str(selected_status_choice)}
+
+        raw_start_date = str(self.request.GET.get("data_inicial") or "").strip()
+        raw_end_date = str(self.request.GET.get("data_final") or "").strip()
+        if raw_start_date:
+            query_params["data_inicial"] = raw_start_date
+        if raw_end_date:
+            query_params["data_final"] = raw_end_date
+
+        return urlencode(query_params)
 
     def _get_budget_base_queryset(self):
         return (
@@ -145,7 +216,11 @@ class BudgetStatusReportDataMixin:
         selected_status_choice = self._get_selected_status_choice()
         if selected_status_choice is None:
             return self._get_budget_base_queryset().none()
-        return self._get_budget_base_queryset().filter(status=selected_status_choice).order_by("-criado_em")
+        return apply_query_param_filters(
+            self._get_budget_base_queryset().filter(status=selected_status_choice),
+            params=self.request.GET,
+            filter_configs=BUDGET_STATUS_REPORT_FILTERS,
+        ).order_by("-criado_em")
 
     def _get_selected_status_report(self) -> dict[str, object] | None:
         selected_status_choice = self._get_selected_status_choice()
@@ -169,6 +244,7 @@ class BudgetStatusReportDataMixin:
             "report_budgets": list(self._get_selected_status_report_queryset()),
             "selected_status_report": selected_status_report,
             "status_report_pdf_title": self.status_report_pdf_title,
+            "status_report_period_label": self._get_status_report_period_label(),
             "workshop_logo_data_uri": build_workshop_logo_data_uri(workshop=self.workshop),
             "auto_print": self.request.GET.get("autoprint") == "1",
         }
@@ -203,6 +279,8 @@ class BudgetListView(LoginRequiredMixin, BudgetStatusReportDataMixin, WorkshopSc
         ]
         context["status_choices"] = BUDGET_STATUS_CHOICES
         context["selected_status_report"] = self._get_selected_status_report()
+        context["status_report_period_label"] = self._get_status_report_period_label()
+        context["status_report_querystring"] = self._get_status_report_querystring()
         context["status_report_pdf_title"] = self.status_report_pdf_title
         context["budget_events_enabled"] = getattr(settings, "BUDGET_EVENTS_ENABLED", False)
         context["budget_poll_interval_seconds"] = getattr(settings, "BUDGET_POLL_INTERVAL_SECONDS", 20)
