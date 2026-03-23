@@ -48,6 +48,10 @@ class StockProduct(TimeStampedModel):
     def item_total_cost(self) -> Money:
         return self.unit_cost * self.current_quantity
 
+    @property
+    def last_nf_display(self) -> str:
+        return str(self.last_nf or "Nenhuma NF relacionada")
+
 
 class StockMovement(TimeStampedModel):
     class MovementType(models.TextChoices):

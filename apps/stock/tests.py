@@ -426,6 +426,17 @@ class StockReportViewTests(TestCase):
         self.assertContains(response, "columns=quantity")
         self.assertContains(response, "columns=item_total_cost")
 
+    def test_report_last_nf_column_shows_friendly_empty_state_text(self) -> None:
+        response = self.client.get(
+            reverse("stock:report"),
+            data={"columns": ["code", "last_nf"]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "NF-001")
+        self.assertContains(response, "NF-002")
+        self.assertContains(response, "Nenhuma NF relacionada")
+
     def test_pdf_preview_view_renders_html_for_iframe(self) -> None:
         response = self.client.get(
             reverse("stock:report_pdf_preview"),
@@ -437,6 +448,17 @@ class StockReportViewTests(TestCase):
         self.assertContains(response, "Relatorio de Estoque")
         self.assertContains(response, "Custo total do item")
         self.assertIsNone(response.headers.get("X-Frame-Options"))
+
+    def test_pdf_preview_last_nf_column_shows_friendly_empty_state_text(self) -> None:
+        response = self.client.get(
+            reverse("stock:report_pdf_preview"),
+            data={"columns": ["code", "last_nf"]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "NF-001")
+        self.assertContains(response, "NF-002")
+        self.assertContains(response, "Nenhuma NF relacionada")
 
     @patch("apps.stock.views.render_stock_report_pdf_document")
     def test_pdf_view_returns_downloadable_document_with_filtered_context(self, render_document_mock) -> None:
@@ -485,3 +507,19 @@ class StockReportViewTests(TestCase):
         self.assertEqual(sheet["B11"].value, 5)
         self.assertEqual(sheet["C11"].value, 10)
         self.assertEqual(sheet["D12"].value, 60)
+
+    def test_excel_view_last_nf_column_shows_friendly_empty_state_text(self) -> None:
+        response = self.client.get(
+            reverse("stock:report_excel"),
+            data={"columns": ["code", "last_nf"]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        workbook = load_workbook(filename=BytesIO(response.content))
+        sheet = workbook["Relatorio"]
+        values_by_code = {str(code): value for code, value in sheet.iter_rows(min_row=11, max_col=2, values_only=True) if code is not None}
+
+        self.assertEqual(values_by_code["CAB-003"], "Nenhuma NF relacionada")
+        self.assertEqual(values_by_code["FLT-001"], "NF-001")
+        self.assertEqual(values_by_code["OLE-002"], "NF-002")
