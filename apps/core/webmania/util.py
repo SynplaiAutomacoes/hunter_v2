@@ -1,8 +1,10 @@
-from django.conf import settings
-import base64
-from django.utils import timezone
 from typing import Any, cast
+
+from django.conf import settings
+from django.utils import timezone
+
 from apps.finance.models import WebmaniaCompany
+from apps.workshops.services.files import WorkshopFileStorageError, encode_workshop_certificate as encode_workshop_certificate_from_store
 from ...workshops.util.workshops import has_workshop_perm
 
 
@@ -27,7 +29,10 @@ def latest_sync_error(companies: list[WebmaniaCompany]) -> str:
     if not candidates:
         return ""
 
-    latest = max(candidates, key=lambda company: company.last_sync_at or company.atualizado_em or company.criado_em,)
+    latest = max(
+        candidates,
+        key=lambda company: company.last_sync_at or company.atualizado_em or company.criado_em,
+    )
     return str(latest.last_sync_error or "").strip()
 
 
@@ -81,13 +86,9 @@ def save_company_sync_metadata(company: WebmaniaCompany, error: str = "") -> Non
 
 def encode_workshop_certificate(workshop) -> str:
     """Extrai e codifica o certificado PFX da oficina para Base64."""
-    if not workshop.pfx_certificate:
-        return ""
     try:
-        with workshop.pfx_certificate.open("rb") as f:
-            raw_bytes = f.read()
-        return base64.b64encode(raw_bytes).decode() if raw_bytes else ""
-    except (OSError, ValueError):
+        return encode_workshop_certificate_from_store(workshop)
+    except WorkshopFileStorageError:
         return ""
 
 

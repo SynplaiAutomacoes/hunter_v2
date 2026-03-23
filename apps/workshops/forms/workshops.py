@@ -5,6 +5,7 @@ from typing import Any
 
 from django import forms
 from django.contrib.auth import get_user_model
+from django.core.validators import FileExtensionValidator
 from django.urls import reverse
 
 from crispy_forms.helper import FormHelper
@@ -46,7 +47,7 @@ def _format_decimal(value: Decimal, *, places: int = 2) -> str:
 class WorkshopForm(forms.ModelForm):
     class Meta:
         model = Workshop
-        fields = ["name", "cnpj", "phone", "address", "uf", "is_active", "pfx_certificate", "certificate_password"]
+        fields = ["name", "cnpj", "phone", "address", "uf", "is_active"]
         widgets = {
             "name": TextInput(attrs={"placeholder": "Oficina Hunter"}),
             "cnpj": CPForCNPJInput(mode="cnpj"),
@@ -54,7 +55,6 @@ class WorkshopForm(forms.ModelForm):
             "address": TextInput(attrs={"placeholder": "Rua das Oficinas, 123"}),
             "uf": TextInput(attrs={"placeholder": "SP"}),
             "is_active": CheckboxInput(),
-            "certificate_password": PasswordInput(render_value=True),
         }
 
     def __init__(self, *args, **kwargs):
@@ -76,12 +76,6 @@ class WorkshopForm(forms.ModelForm):
                 Field("is_active", wrapper_class="col-span-12 lg:col-span-6"),
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
             ),
-            HTML('<div class="divider text-sm opacity-50">Integração SEFAZ</div>'),
-            Div(
-                Field("pfx_certificate", wrapper_class="w-full file-input-primary"),
-                Field("certificate_password", wrapper_class="w-full"),
-                css_class="grid grid-cols-1 lg:grid-cols-2 gap-4",
-            ),
             HTML('<div class="divider"></div>'),
             Div(
                 HTML(f'<a href="{cancel_url}" class="btn-form-cancel">Cancelar</a>'),
@@ -89,6 +83,11 @@ class WorkshopForm(forms.ModelForm):
                 css_class="flex items-center justify-end gap-2",
             ),
         )
+
+
+class _PreviewableFileValue:
+    def __init__(self, url: str) -> None:
+        self.url = url
 
 
 class BaseWebmaniaCompanySectionForm(forms.ModelForm):
@@ -282,12 +281,27 @@ class WorkshopCompanySectionForm(BaseWebmaniaCompanySectionForm):
         return instance
 
 
-class WorkshopLogoForm(forms.ModelForm):
-    logo = forms.FileField(required=False, label="Logo da oficina", widget=ImageInput())
+class WorkshopLogoForm(forms.Form):
+    logo = forms.FileField(
+        required=False,
+        label="Logo da oficina",
+        validators=[FileExtensionValidator(allowed_extensions=["png", "jpg", "jpeg", "gif", "webp", "svg"])],
+        widget=ImageInput(),
+    )
 
-    class Meta:
-        model = Workshop
-        fields = ["logo"]
+    def __init__(self, *args, instance: Workshop, preview_url: str = "", **kwargs):
+        self.instance = instance
+        super().__init__(*args, **kwargs)
+
+        if preview_url:
+            self.initial["logo"] = _PreviewableFileValue(preview_url)
+
+    def has_new_upload(self) -> bool:
+        uploaded_file = self.cleaned_data.get("logo")
+        return uploaded_file not in (None, False)
+
+    def should_clear(self) -> bool:
+        return self.cleaned_data.get("logo") is False
 
 
 class WorkshopAddressSectionForm(BaseWebmaniaCompanySectionForm):
@@ -423,17 +437,18 @@ class WorkshopOptionalsSectionForm(BaseWebmaniaCompanySectionForm):
         }
 
 
-class WorkshopCertificateSectionForm(forms.ModelForm):
-    class Meta:
-        model = Workshop
-        fields = ["pfx_certificate", "certificate_password"]
-        widgets = {
-            "pfx_certificate": forms.FileInput(attrs={"accept": ".pfx,.p12,application/x-pkcs12"}),
-            "certificate_password": PasswordInput(render_value=True),
-        }
+class WorkshopCertificateSectionForm(forms.Form):
+    pfx_certificate = forms.FileField(
+        required=False,
+        validators=[FileExtensionValidator(allowed_extensions=["pfx", "p12"])],
+        widget=forms.FileInput(attrs={"accept": ".pfx,.p12,application/x-pkcs12"}),
+    )
+    certificate_password = forms.CharField(required=False, widget=PasswordInput(render_value=True))
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, instance: Workshop, **kwargs):
+        self.instance = instance
         super().__init__(*args, **kwargs)
+        self.initial["certificate_password"] = str(instance.certificate_password or "")
 
         certificate_field = self.fields.get("pfx_certificate")
         if certificate_field is not None:
@@ -443,3 +458,22 @@ class WorkshopCertificateSectionForm(forms.ModelForm):
         password_field = self.fields.get("certificate_password")
         if password_field is not None:
             password_field.help_text = "Informe a senha do certificado para concluir a configuracao."
+
+    def clean(self) -> dict[str, Any]:
+        cleaned_data = dict(super().clean() or {})
+        uploaded_certificate = cleaned_data.get("pfx_certificate")
+        certificate_password = str(cleaned_data.get("certificate_password") or "").strip()
+        current_password = str(self.instance.certificate_password or "").strip()
+        has_existing_certificate = bool(self.instance.has_certificate_file)
+        resolved_password = certificate_password or current_password
+
+        if uploaded_certificate is not None and not resolved_password:
+            self.add_error("certificate_password", "Informe a senha do certificado para concluir a configuracao.")
+
+        if has_existing_certificate and "certificate_password" in self.changed_data and not certificate_password:
+            self.add_error("certificate_password", "A senha nao pode ficar vazia enquanto existir um certificado ativo.")
+
+        return cleaned_data
+
+    def has_new_upload(self) -> bool:
+        return self.cleaned_data.get("pfx_certificate") is not None
