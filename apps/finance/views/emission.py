@@ -5,6 +5,7 @@ from typing import Any
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.cache import cache
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -378,10 +379,20 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
     def _redirect_to_step(self, step: int):
         target_url = self._step_url(step)
         if getattr(self.request, "htmx", False):
-            response = redirect(target_url)
-            response["HX-Push-Url"] = target_url
+            response = HttpResponse()
+            response["HX-Redirect"] = target_url
             return response
         return redirect(target_url)
+
+    def _submission_lock_key(self, *, state: dict[str, Any], note_key: str) -> str:
+        workorder_id = state.get("workorder_id") or "-"
+        return f"finance:emission-lock:{getattr(self.workshop, 'pk', '-')}:workorder:{workorder_id}:note:{note_key}"
+
+    def _acquire_submission_lock(self, *, state: dict[str, Any], note_key: str) -> bool:
+        return bool(cache.add(self._submission_lock_key(state=state, note_key=note_key), "1", timeout=120))
+
+    def _release_submission_lock(self, *, state: dict[str, Any], note_key: str) -> None:
+        cache.delete(self._submission_lock_key(state=state, note_key=note_key))
 
     def _redirect_to_success(self, *, note_mode: str):
         if note_mode == "both":
@@ -461,6 +472,12 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         return nfse_request
 
     def _emit_nfe(self, *, state: dict[str, Any], workorder: WorkOrder) -> tuple[bool, str | None]:
+        if not self._acquire_submission_lock(state=state, note_key="nfe"):
+            existing_request_id = state.get("nfe_request_id")
+            if existing_request_id:
+                return False, "Ja existe um envio de NF-e em andamento para esta emissao. Aguarde a conclusao antes de tentar novamente."
+            return False, "A emissao da NF-e ja esta sendo processada. Aguarde alguns instantes e tente novamente."
+
         nfe_request = self._get_or_create_nfe_request(state=state, workorder=workorder)
         try:
             response_payload = emit_nfe_request(nfe_request=nfe_request, request=self.request)
@@ -479,8 +496,16 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             state["nfe_request_id"] = nfe_request.pk
             self._write_state(state)
             return False, str(exc)
+        finally:
+            self._release_submission_lock(state=state, note_key="nfe")
 
     def _emit_nfse(self, *, state: dict[str, Any], workorder: WorkOrder) -> tuple[bool, str | None]:
+        if not self._acquire_submission_lock(state=state, note_key="nfse"):
+            existing_request_id = state.get("nfse_request_id")
+            if existing_request_id:
+                return False, "Ja existe um envio de NFS-e em andamento para esta emissao. Aguarde a conclusao antes de tentar novamente."
+            return False, "A emissao da NFS-e ja esta sendo processada. Aguarde alguns instantes e tente novamente."
+
         nfse_request = self._get_or_create_nfse_request(state=state, workorder=workorder)
         try:
             response_payload = emit_nfse_request(nfse_request=nfse_request, request=self.request)
@@ -499,6 +524,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             state["nfse_request_id"] = nfse_request.pk
             self._write_state(state)
             return False, str(exc)
+        finally:
+            self._release_submission_lock(state=state, note_key="nfse")
 
     @staticmethod
     def _note_label(*, note_key: str) -> str:

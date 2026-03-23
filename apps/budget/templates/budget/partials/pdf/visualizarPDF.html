@@ -61,14 +61,46 @@
         }
 
         .header-section {
-            min-height: 90px;
-            max-height: 90px;
+            min-height: 120px;
+            max-height: 120px;
             overflow: hidden;
         }
 
+        .workshop-logo-box {
+            width: 100px;
+            max-width: 100px;
+            height: 100px;
+            max-height: 100px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: flex-start;
+            justify-content: flex-start;
+            align-self: flex-start;
+            overflow: hidden;
+        }
+
+        .workshop-header-main {
+            display: grid;
+            grid-template-columns: 100px minmax(0, 1fr);
+            column-gap: 12px;
+            align-items: start;
+        }
+
+        .workshop-header-main.no-logo {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .workshop-logo-image {
+            display: block;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            object-position: left top;
+        }
+
         .client-vehicle-section {
-            min-height: 120px;
-            max-height: 150px;
+            min-height: 155px;
+            max-height: 190px;
             overflow: hidden;
         }
 
@@ -133,12 +165,19 @@
         <div class="pdf-main">
 
         {% if forloop.first %}
-        <div class="header-section flex justify-between items-start p-4 border-b border-gray-200">
-            <div class="flex-1 min-w-0 pr-4">
-                <h3 class="text-[18px] font-bold uppercase m-0 field-value fit-important">{{ budget.workshop.name }}</h3>
-                <p class="field-row"><span class="field-label">CNPJ:</span> <span class="field-value fit-important">{{ budget.workshop.cnpj|cnpj_br|default:"-" }}</span></p>
-                <p class="field-row multiline"><span class="field-value field-value-multiline fit-important-multiline">{{ budget.workshop.address|default:"-" }}</span></p>
-                <p class="field-row"><span class="field-label">Fone:</span> <span class="field-value fit-important">{{ budget.workshop.phone|phone_br|default:"-" }}</span></p>
+        <div class="header-section flex justify-between items-start p-4 border-b border-gray-200 gap-3">
+            <div class="flex-1 min-w-0 pr-4 workshop-header-main{% if not workshop_logo_data_uri %} no-logo{% endif %}">
+                {% if workshop_logo_data_uri %}
+                <div class="workshop-logo-box">
+                    <img src="{{ workshop_logo_data_uri }}" alt="Logo da oficina" class="workshop-logo-image" />
+                </div>
+                {% endif %}
+                <div class="min-w-0">
+                    <h3 class="text-[18px] font-bold uppercase m-0 field-value fit-important">{{ budget.workshop.name }}</h3>
+                    <p class="field-row"><span class="field-label">CNPJ:</span> <span class="field-value fit-important">{{ budget.workshop.cnpj|cnpj_br|default:"-" }}</span></p>
+                    <p class="field-row multiline"><span class="field-value field-value-multiline fit-important-multiline">{{ budget.workshop.address|default:"-" }}</span></p>
+                    <p class="field-row"><span class="field-label">Fone:</span> <span class="field-value fit-important">{{ budget.workshop.phone|phone_br|default:"-" }}</span></p>
+                </div>
             </div>
             <div class="text-right w-[180px] flex-shrink-0">
                 <h4 class="font-bold">ORDEM DE SERVIÇO</h4>
@@ -162,6 +201,9 @@
                     <p class="field-row"><span class="field-label">Placa:</span> <span class="field-value">{{ budget.vehicle.plate }}</span></p>
                     <p class="field-row"><span class="field-label">Mod/Fab:</span> <span class="field-value">{{ budget.vehicle.year_model|default:"-" }} / {{ budget.vehicle.year_fabrication|default:"-" }}</span></p>
                     <p class="field-row"><span class="field-label">Marca:</span> <span class="field-value">{{ budget.vehicle.brand }}</span></p>
+                    <p class="field-row"><span class="field-label">Modelo:</span> <span class="field-value">{{ budget.vehicle.model|default:"-" }}</span></p>
+                    <p class="field-row"><span class="field-label">Motor:</span> <span class="field-value">{{ budget.vehicle.engine|default:"-" }}</span></p>
+                    <p class="field-row"><span class="field-label">Combustível:</span> <span class="field-value">{{ budget.vehicle.fuel|default:"-" }}</span></p>
                     <p class="field-row"><span class="field-label">Cor:</span> <span class="field-value">{{ budget.vehicle.color|default:"-" }}</span></p>
                 </div>
             </div>

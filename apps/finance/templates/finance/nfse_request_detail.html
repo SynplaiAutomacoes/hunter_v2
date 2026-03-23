@@ -9,6 +9,12 @@
         <span class="material-icons text-sm">edit</span>
         Editar
     </a>
+    {% if can_cancel %}
+        <button type="button" class="btn btn-sm btn-error gap-2" onclick="cancel_nfse_modal.showModal()">
+            <span class="material-icons text-sm">cancel</span>
+            Cancelar NFS-e
+        </button>
+    {% endif %}
 {% endblock %}
 
 {% block crud_detail_content %}
@@ -137,4 +143,33 @@
             {% endif %}
         </div>
     </div>
+
+    {% if can_cancel %}
+        <dialog id="cancel_nfse_modal" class="modal" onclick="if (event.target === this) this.close()">
+            <div class="modal-box w-11/12 max-w-xl border border-base-300 bg-base-100 shadow-2xl">
+                <form method="post" action="{% url 'finance:nfse_cancel' pk=nfse_request.pk %}">
+                    {% csrf_token %}
+                    <h3 class="text-base font-semibold text-base-content">Cancelar NFS-e</h3>
+                    <p class="text-sm text-base-content/70 mt-2">Selecione o motivo do cancelamento.</p>
+
+                    <div class="mt-4">
+                        <label for="nfse-cancel-reason" class="label">
+                            <span class="label-text">Motivo do cancelamento</span>
+                        </label>
+                        <select id="nfse-cancel-reason" name="reason_code" class="select select-bordered w-full" required>
+                            <option value="" selected>Selecione o motivo</option>
+                            <option value="1">Erro na emissao</option>
+                            <option value="2">Servico nao prestado</option>
+                            <option value="4">Duplicidade da nota</option>
+                        </select>
+                    </div>
+
+                    <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
+                        <button type="button" class="btn-form-cancel" onclick="cancel_nfse_modal.close()">Cancelar</button>
+                        <button type="submit" class="btn btn-error">Confirmar cancelamento</button>
+                    </div>
+                </form>
+            </div>
+        </dialog>
+    {% endif %}
 {% endblock %}

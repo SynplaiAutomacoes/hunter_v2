@@ -10,7 +10,6 @@ from django.utils import timezone
 from django.views import View
 from django.views.generic import TemplateView, UpdateView
 
-from apps.collaborators.models import WorkshopMember
 from apps.core.webmania.util import is_webmania_homolog_environment
 from apps.finance.forms import WebmaniaCompanyUpdateForm
 from apps.finance.models.finance import WebmaniaCompany
@@ -105,16 +104,6 @@ class WebmaniaCompanyListView(LoginRequiredMixin, DirectorWorkshopAccessMixin, T
 
 class WebmaniaCompanySyncView(LoginRequiredMixin, DirectorWorkshopAccessMixin, View):
     required_webmania_permission_codename = "change_webmaniacompany"
-
-    def _has_required_webmania_permission(self, request) -> bool:
-        return WorkshopMember.objects.filter(
-            user=request.user,
-            workshop=self.workshop,
-            is_active=True,
-            role__permissions__content_type__app_label=WebmaniaCompany._meta.app_label,
-            role__permissions__content_type__model=WebmaniaCompany._meta.model_name,
-            role__permissions__codename=self.required_webmania_permission_codename,
-        ).exists()
 
     def post(self, request, *args, **kwargs):
         if not _is_webmania_homolog_environment():

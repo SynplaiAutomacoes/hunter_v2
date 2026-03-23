@@ -8,6 +8,7 @@ from django.http import HttpResponse, HttpResponseBadRequest
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
+from apps.core.query_filters import apply_is_active_filter
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
@@ -23,7 +24,9 @@ class FinancialGroupListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempla
     htmx_template_name = "finance/partials/financial_groups/financial_groups_table.html"
 
     def get_queryset(self) -> Any:
-        return super().get_queryset().select_related("parent").order_by("sort_key", "id")
+        queryset = super().get_queryset().select_related("parent")
+        queryset = apply_is_active_filter(queryset, params=self.request.GET)
+        return queryset.order_by("sort_key", "id")
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)

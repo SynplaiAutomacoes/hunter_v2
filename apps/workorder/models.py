@@ -4,7 +4,7 @@ from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Iterable
 
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 from django.db.models import PositiveIntegerField
 from django.utils import timezone
@@ -41,12 +41,20 @@ class WorkOrder(TimeStampedModel):
     budget = models.ForeignKey("budget.Budget", on_delete=models.CASCADE, related_name="workorders", help_text="Orçamento Aprovado vinculado à esta O.S.")
     status = models.CharField(verbose_name="Status", max_length=20, choices=WorkOrderStatus.choices, default=WorkOrderStatus.DRAFT)
     discount_value = MoneyField(verbose_name="Desconto da O.S. (R$)", max_digits=14, decimal_places=2, default=0.00)
+    discount_percentage = models.DecimalField(
+        verbose_name="Desconto da O.S. (%)",
+        max_digits=7,
+        decimal_places=6,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(0), MaxValueValidator(1)],
+    )
     signature_token_version = models.PositiveIntegerField(verbose_name="ID do PDF da Ordem de Serviço", default=1)
     signature_token_active = models.BooleanField(verbose_name="Token de Assinatura Ativo", default=True)
     signature_request_status = models.CharField(max_length=30, choices=WorkOrderSignatureStatus.choices, default=WorkOrderSignatureStatus.NOT_SENT)
     signature_external_id = models.CharField(max_length=255, blank=True, null=True)
     signature_document_id = models.CharField(max_length=255, blank=True, null=True)
     signature_sent_at = models.DateTimeField(blank=True, null=True)
+    km_final = models.PositiveIntegerField(verbose_name="KM Final", null=True, blank=True)
 
     @property
     def workorder_status_badge(self):
@@ -146,6 +154,10 @@ class WorkOrder(TimeStampedModel):
             setattr(self, "_pricing_snapshot_cache", cached_snapshot)
         return cached_snapshot
 
+    def invalidate_pricing_snapshot_cache(self) -> None:
+        if hasattr(self, "_pricing_snapshot_cache"):
+            delattr(self, "_pricing_snapshot_cache")
+
     def mark_signature_sending(self) -> None:
         self.signature_request_status = WorkOrderSignatureStatus.SENDING
         self.save(update_fields=["signature_request_status"])
@@ -181,14 +193,7 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def resolved_discount_percentage(self) -> Decimal:
-        base_amount = Decimal(getattr(self.total_base_value, "amount", Decimal("0.00")) or Decimal("0.00"))
-        discount_amount = Decimal(getattr(self.discount_value, "amount", Decimal("0.00")) or Decimal("0.00"))
-
-        if base_amount <= Decimal("0.00") or discount_amount <= Decimal("0.00"):
-            return Decimal("0.00")
-
-        percentage = (discount_amount / base_amount) * Decimal("100")
-        return min(percentage, Decimal("100.00")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        return (Decimal(self.discount_percentage or 0) * Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     @property
     def discount_percentage_display(self) -> str:
@@ -450,10 +455,10 @@ class WorkOrder(TimeStampedModel):
                 WorkOrderKitItemOverride.objects.bulk_create(overrides_to_create)
 
             self.discount_value = self.budget.resolved_discount_value
-            self.save(update_fields=["discount_value"])
+            self.discount_percentage = self.budget.resolved_discount_percentage
+            self.save(update_fields=["discount_value", "discount_percentage"])
 
-            if hasattr(self, "_pricing_snapshot_cache"):
-                delattr(self, "_pricing_snapshot_cache")
+            self.invalidate_pricing_snapshot_cache()
 
             sync_workorder_financial_movement(workorder=self)
 

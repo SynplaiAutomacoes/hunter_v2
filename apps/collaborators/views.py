@@ -11,7 +11,7 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from apps.collaborators.forms import WorkshopCollaboratorCreateForm, WorkshopCollaboratorModalForm, WorkshopCollaboratorUpdateForm
 from apps.collaborators.models import WorkshopCollaborator, WorkshopMember
-from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
+from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
@@ -45,6 +45,7 @@ class WorkshopCollaboratorListView(LoginRequiredMixin, WorkshopScopedMixin, Htmx
 
     def get_queryset(self):
         queryset = super().get_queryset().order_by("-criado_em")
+        queryset = apply_is_active_filter(queryset, params=self.request.GET)
         return apply_query_param_filters(
             queryset,
             params=self.request.GET,
