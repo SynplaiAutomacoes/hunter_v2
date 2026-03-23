@@ -77,7 +77,7 @@ def _resolve_restock_quantity(item: StockProduct) -> str:
 
 
 def _resolve_last_nf(item: StockProduct) -> str:
-    return str(item.last_nf or "-")
+    return item.last_nf_display
 
 
 def _as_excel_money(value: object) -> float:
@@ -187,10 +187,10 @@ STOCK_REPORT_COLUMN_DEFINITIONS: tuple[StockReportColumnDefinition, ...] = (
     StockReportColumnDefinition(
         key="last_nf",
         label="Ultima NF",
-        table_column=TableColumn("Ultima NF", attr="last_nf", searchable=False),
+        table_column=TableColumn("Ultima NF", attr="last_nf_display", sort_by="last_nf", searchable=False),
         pdf_value_resolver=_resolve_last_nf,
-        excel_value_resolver=lambda item: item.last_nf or "-",
-        excel_width=18,
+        excel_value_resolver=lambda item: item.last_nf_display,
+        excel_width=26,
     ),
 )
 

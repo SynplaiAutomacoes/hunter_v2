@@ -683,7 +683,7 @@ class ImportStepSummaryForm(forms.ModelForm):
         for item in instance.items_data:
             product_id = item.get("linked_product_id")
             product = Product.objects.get(id=product_id, workshop=workshop)
-            stock_product, created = StockProduct.objects.get_or_create(workshop=workshop, product=product, defaults={"supplier": supplier, "last_nf": instance.nf_number})
+            stock_product, _created = StockProduct.objects.get_or_create(workshop=workshop, product=product, defaults={"supplier": supplier, "last_nf": instance.nf_number})
 
             quantity = Decimal(str(item.get("qtd", 0)))
             StockMovement.objects.create(
@@ -698,7 +698,11 @@ class ImportStepSummaryForm(forms.ModelForm):
 
             stock_product.current_quantity += quantity
             stock_product.last_nf = instance.nf_number
-            stock_product.save()
+            update_fields = ["current_quantity", "last_nf"]
+            if supplier is not None:
+                stock_product.supplier = supplier
+                update_fields.append("supplier")
+            stock_product.save(update_fields=update_fields)
 
         for pay in instance.payments_data:
             payment_due_date = pay.get("payment_date")
