@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import re
@@ -11,8 +12,9 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Prefetch
-from django.http import HttpResponse, JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
+from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.generic import DetailView, ListView, TemplateView
@@ -30,7 +32,12 @@ from apps.core.views import HtmxTemplateResponseMixin
 from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
 from apps.workorder.discount_sync import sync_workorder_discount_to_budget
 from apps.workorder.approval import WorkOrderApprovalError, approve_workorder_with_stock
-from apps.workorder.documents.provider import render_workorder_pdf_document, build_workorder_pdf_render_request
+from apps.workorder.documents.provider import (
+    build_workorder_pdf_render_request,
+    build_workorder_status_report_pdf_render_request,
+    render_workorder_pdf_document,
+    render_workorder_status_report_pdf_document,
+)
 from apps.workorder.forms import (
     WorkOrderCustomerApprovalForm,
     WorkOrderItemEditForm,
@@ -98,35 +105,72 @@ WORKORDER_STATUS_BADGE_CLASSES = {
     WorkOrderStatus.REJECTED: "badge-error min-w-sm",
     WorkOrderStatus.CANCELLED: "badge-warning min-w-sm",
 }
+WORKORDER_STATUS_REPORT_PDF_TITLE = "Relatorio de Ordens de Servico por Status"
 
 
-class WorkOrderListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
-    model = WorkOrder
-    template_name = "workorder/workorder_list.html"
-    context_object_name = "workorder"
-    htmx_template_name = "workorder/partials/workorder_table.html"
+def _build_workshop_logo_data_uri(*, workshop) -> str:
+    workshop_logo = getattr(workshop, "logo", None)
+    if not workshop_logo:
+        return ""
+
+    try:
+        workshop_logo.open("rb")
+        try:
+            logo_bytes = workshop_logo.read()
+        finally:
+            workshop_logo.close()
+
+        if not logo_bytes:
+            return ""
+
+        extension = str(getattr(workshop_logo, "name", "")).lower().split(".")[-1]
+        content_type_map = {
+            "png": "image/png",
+            "jpg": "image/jpeg",
+            "jpeg": "image/jpeg",
+            "webp": "image/webp",
+            "gif": "image/gif",
+            "svg": "image/svg+xml",
+        }
+        content_type = content_type_map.get(extension, "image/png")
+        encoded_logo = base64.b64encode(logo_bytes).decode("ascii")
+        return f"data:{content_type};base64,{encoded_logo}"
+    except OSError:
+        return ""
+
+
+class WorkOrderStatusReportDataMixin:
+    status_report_pdf_title = WORKORDER_STATUS_REPORT_PDF_TITLE
 
     def _get_selected_status(self) -> str:
         return str(self.request.GET.get("status") or "").strip()
 
-    def _get_selected_status_report(self) -> dict[str, object] | None:
-        selected_status = self._get_selected_status()
+    def _get_selected_status_choice(self) -> WorkOrderStatus | None:
+        cached = getattr(self, "_selected_status_choice_cache", None)
+        if cached is not None:
+            return cached
+
         try:
-            status_choice = WorkOrderStatus(selected_status)
+            selected_status_choice = WorkOrderStatus(self._get_selected_status())
         except ValueError:
-            return None
+            selected_status_choice = None
 
-        return {
-            "value": selected_status,
-            "label": str(status_choice.label),
-            "count": WorkOrder.objects.filter(workshop=self.workshop, status=selected_status).count(),
-            "badge_class": WORKORDER_STATUS_BADGE_CLASSES.get(status_choice, "badge-ghost"),
-        }
+        self._selected_status_choice_cache = selected_status_choice
+        return selected_status_choice
 
-    def get_queryset(self):
-        queryset = (
-            super()
-            .get_queryset()
+    def _get_workorder_table_fields(self) -> list[TableColumn]:
+        return [
+            TableColumn("ID", attr="id"),
+            TableColumn("Cliente", attr="budget.customer"),
+            TableColumn("Criado em", attr="criado_em"),
+            TableColumn("Veículo", attr="budget.vehicle"),
+            TableColumn("Valor Total", attr="total_budget_value"),
+            TableColumn("Status", attr="workorder_status_badge", format="status_badge"),
+        ]
+
+    def _get_workorder_base_queryset(self):
+        return (
+            WorkOrder.objects.filter(workshop=self.workshop)
             .select_related("budget", "budget__customer", "budget__vehicle")
             .prefetch_related(
                 Prefetch(
@@ -142,6 +186,56 @@ class WorkOrderListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRes
             )
         )
 
+    def _get_selected_status_report_queryset(self):
+        cached = getattr(self, "_selected_status_report_queryset_cache", None)
+        if cached is not None:
+            return cached
+
+        selected_status_choice = self._get_selected_status_choice()
+        if selected_status_choice is None:
+            queryset = self._get_workorder_base_queryset().none()
+        else:
+            queryset = self._get_workorder_base_queryset().filter(status=selected_status_choice).order_by("-criado_em")
+
+        self._selected_status_report_queryset_cache = queryset
+        return queryset
+
+    def _get_selected_status_report(self) -> dict[str, object] | None:
+        selected_status_choice = self._get_selected_status_choice()
+        if selected_status_choice is None:
+            return None
+
+        return {
+            "value": selected_status_choice,
+            "label": str(selected_status_choice.label),
+            "count": self._get_selected_status_report_queryset().count(),
+            "badge_class": WORKORDER_STATUS_BADGE_CLASSES.get(selected_status_choice, "badge-ghost"),
+        }
+
+    def _build_status_report_pdf_context(self) -> dict[str, object]:
+        selected_status_report = self._get_selected_status_report()
+        if selected_status_report is None:
+            raise Http404("Status de ordem de servico invalido")
+
+        return {
+            "workshop": self.workshop,
+            "report_workorders": list(self._get_selected_status_report_queryset()),
+            "selected_status_report": selected_status_report,
+            "status_report_pdf_title": self.status_report_pdf_title,
+            "workshop_logo_data_uri": _build_workshop_logo_data_uri(workshop=self.workshop),
+            "auto_print": self.request.GET.get("autoprint") == "1",
+        }
+
+
+class WorkOrderListView(LoginRequiredMixin, WorkOrderStatusReportDataMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
+    model = WorkOrder
+    template_name = "workorder/workorder_list.html"
+    context_object_name = "workorder"
+    htmx_template_name = "workorder/partials/workorder_table.html"
+
+    def get_queryset(self):
+        queryset = self._get_workorder_base_queryset()
+
         selected_status = self._get_selected_status()
         if selected_status != WorkOrderStatus.CANCELLED:
             queryset = queryset.exclude(status=WorkOrderStatus.CANCELLED)
@@ -156,23 +250,40 @@ class WorkOrderListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRes
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        created_at_field = WorkOrder._meta.get_field("criado_em")
-
-        context["fields"] = [
-            TableColumn("ID", attr="id"),
-            TableColumn("Cliente", attr="budget.customer"),
-            TableColumn(str(created_at_field.verbose_name), attr=created_at_field.name),
-            TableColumn("Veículo", attr="budget.vehicle"),
-            TableColumn("Valor Total", attr="total_budget_value"),
-            TableColumn("Status", attr="workorder_status_badge", format="status_badge"),
-        ]
+        context["fields"] = self._get_workorder_table_fields()
 
         context["actions"] = [
             TableActionDefaults.edit("workorder:workorder_detail"),
         ]
         context["status_choices"] = WORKORDER_STATUS_CHOICES
         context["selected_status_report"] = self._get_selected_status_report()
+        context["status_report_pdf_title"] = self.status_report_pdf_title
         return context
+
+
+@method_decorator(xframe_options_exempt, name="dispatch")
+class WorkOrderStatusReportPdfPreviewView(LoginRequiredMixin, WorkOrderStatusReportDataMixin, WorkshopScopedMixin, TemplateView):
+    model = WorkOrder
+    workshop_permission_codename = "view_workorder"
+
+    def get(self, request, *args, **kwargs):
+        render_request = build_workorder_status_report_pdf_render_request(
+            context=self._build_status_report_pdf_context(),
+            request=request,
+        )
+        return render(request, render_request.template_name, render_request.context)
+
+
+class WorkOrderStatusReportPdfView(LoginRequiredMixin, WorkOrderStatusReportDataMixin, WorkshopScopedMixin, View):
+    model = WorkOrder
+    workshop_permission_codename = "view_workorder"
+
+    def get(self, request, *args, **kwargs):
+        document = render_workorder_status_report_pdf_document(
+            context=self._build_status_report_pdf_context(),
+            request=request,
+        )
+        return build_pdf_http_response(document=document, download=request.GET.get("download") == "1")
 
 
 class WorkOrderDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):

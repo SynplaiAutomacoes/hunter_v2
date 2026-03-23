@@ -105,5 +105,9 @@
         {% include "tables/partials/_table_cards_mobile.html" %}
         {% include "tables/partials/_table_desktop.html" %}
         {% include "tables/partials/_pagination.html" %}
+
+        {% if footer_template %}
+            {% include footer_template %}
+        {% endif %}
     </div>
 </div>

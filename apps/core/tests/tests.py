@@ -584,6 +584,31 @@ class TestRenderTableTag(TestCase):
         self.assertEqual(html.count(pagination_marker), 2)
         self.assertLess(html.find(pagination_marker), html.find('id="t-controls-form"'))
 
+    def test_render_table_can_render_footer_template_inside_table_content(self):
+        for i in range(1, 13):
+            create_workshop(name=f"Oficina Rodape {i:02d}", cnpj=f"22.333.444/0001-{i:02d}")
+
+        request = self.factory.get("/workshops/")
+        template = Template(
+            """
+            {% load table_tags %}
+            {% render_table workshops fields table_id='t' per_page=10 footer_template='tables/partials/_pagination.html' %}
+            """
+        )
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "workshops": Workshop.objects.all(),
+                    "fields": [TableColumn(label="Nome", attr="name")],
+                }
+            )
+        )
+
+        pagination_marker = 'class="flex items-center justify-between gap-3 pt-4"'
+        self.assertEqual(html.count(pagination_marker), 2)
+        self.assertGreater(html.rfind(pagination_marker), html.find(pagination_marker))
+
     def test_render_table_clear_filter_url_removes_only_filter_params(self):
         request = self.factory.get("/workshops/?q=Oficina&sort=name&page=3&city=Campinas&state=SP")
 

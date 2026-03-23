@@ -233,6 +233,9 @@ class WorkOrderListFiltersTests(TestCase):
         self.assertContains(response, "Relatorio do status")
         self.assertContains(response, "Aprovado")
         self.assertContains(response, "O.S. com este status")
+        self.assertContains(response, "Imprimir relatorio em PDF")
+        self.assertContains(response, f"url: '{reverse('workorder:status_report_pdf_preview')}?status={WorkOrderStatus.APPROVED}'")
+        self.assertContains(response, f"downloadUrl: '{reverse('workorder:status_report_pdf')}?download=1&status={WorkOrderStatus.APPROVED}'")
 
     def test_workorder_status_report_counts_only_selected_status(self) -> None:
         workshop = self._login_with_active_workshop(suffix=76)
@@ -271,6 +274,7 @@ class WorkOrderListFiltersTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(response.context["selected_status_report"])
         self.assertNotContains(response, "Relatorio do status")
+        self.assertNotContains(response, "Imprimir relatorio em PDF")
 
     def test_workorder_list_htmx_partial_keeps_status_report_in_table_content(self) -> None:
         workshop = self._login_with_active_workshop(suffix=79)
@@ -283,6 +287,91 @@ class WorkOrderListFiltersTests(TestCase):
         self.assertContains(response, 'id="workorder-table-content"')
         self.assertContains(response, "Relatorio do status")
         self.assertContains(response, "Aprovado")
+        self.assertContains(response, "Imprimir relatorio em PDF")
+
+
+class WorkOrderStatusReportPdfTests(TestCase):
+    def _login_with_active_workshop(self, *, suffix: int) -> Workshop:
+        user, workshop = create_director_user_with_workshop(suffix=suffix)
+        self.client.force_login(user)
+
+        session = self.client.session
+        session["active_workshop_id"] = workshop.pk
+        session.save()
+        return workshop
+
+    def test_status_report_pdf_preview_renders_html_for_iframe(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=91)
+
+        customer = create_customer(workshop=workshop, suffix=91)
+        vehicle = create_vehicle(workshop=workshop, customer=customer, suffix=91, plate="OSP9191")
+        budget = create_budget(workshop=workshop)
+        budget.customer = customer
+        budget.vehicle = vehicle
+        budget.save(update_fields=["customer", "vehicle"])
+
+        approved_workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        WorkOrder.objects.create(workshop=workshop, budget=create_budget(workshop=workshop), status=WorkOrderStatus.DRAFT)
+
+        response = self.client.get(reverse("workorder:status_report_pdf_preview"), {"status": WorkOrderStatus.APPROVED})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "<!DOCTYPE html>", html=False)
+        self.assertContains(response, "Relat&oacute;rio de Ordens de Servi&ccedil;o por Status", html=False)
+        self.assertContains(response, workshop.name)
+        self.assertContains(response, "Aprovado")
+        self.assertContains(response, f"#{approved_workorder.pk}")
+        self.assertContains(response, customer.name)
+        self.assertContains(response, vehicle.plate)
+        self.assertIsNone(response.headers.get("X-Frame-Options"))
+
+    @patch("apps.workorder.views.render_workorder_status_report_pdf_document")
+    def test_status_report_pdf_view_returns_attachment_and_ignores_other_filters(self, render_document_mock) -> None:
+        workshop = self._login_with_active_workshop(suffix=92)
+
+        matching_customer = create_customer(workshop=workshop, suffix=92)
+        matching_vehicle = create_vehicle(workshop=workshop, customer=matching_customer, suffix=92, plate="OSP9292")
+        matching_budget = create_budget(workshop=workshop)
+        matching_budget.customer = matching_customer
+        matching_budget.vehicle = matching_vehicle
+        matching_budget.save(update_fields=["customer", "vehicle"])
+
+        other_customer = create_customer(workshop=workshop, suffix=93)
+        other_vehicle = create_vehicle(workshop=workshop, customer=other_customer, suffix=93, plate="OSP9393")
+        other_budget = create_budget(workshop=workshop)
+        other_budget.customer = other_customer
+        other_budget.vehicle = other_vehicle
+        other_budget.save(update_fields=["customer", "vehicle"])
+
+        matching_workorder = WorkOrder.objects.create(workshop=workshop, budget=matching_budget, status=WorkOrderStatus.APPROVED)
+        other_workorder = WorkOrder.objects.create(workshop=workshop, budget=other_budget, status=WorkOrderStatus.APPROVED)
+        WorkOrder.objects.create(workshop=workshop, budget=create_budget(workshop=workshop), status=WorkOrderStatus.DRAFT)
+
+        render_document_mock.return_value = DocumentPayload(content=b"%PDF-status-report", filename="relatorio_ordens_servico_por_status_approved.pdf")
+
+        response = self.client.get(
+            reverse("workorder:status_report_pdf"),
+            {"status": WorkOrderStatus.APPROVED, "client": matching_customer.name, "download": "1"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"%PDF-status-report")
+        self.assertIn('attachment; filename="relatorio_ordens_servico_por_status_approved.pdf"', response["Content-Disposition"])
+
+        context = render_document_mock.call_args.kwargs["context"]
+        self.assertEqual(context["selected_status_report"]["count"], 2)
+        self.assertCountEqual(context["report_workorders"], [matching_workorder, other_workorder])
+        self.assertEqual(context["status_report_pdf_title"], "Relatorio de Ordens de Servico por Status")
+
+    def test_status_report_pdf_views_return_404_without_valid_status(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=94)
+        WorkOrder.objects.create(workshop=workshop, budget=create_budget(workshop=workshop), status=WorkOrderStatus.APPROVED)
+
+        preview_response = self.client.get(reverse("workorder:status_report_pdf_preview"))
+        pdf_response = self.client.get(reverse("workorder:status_report_pdf"), {"status": "invalid-status"})
+
+        self.assertEqual(preview_response.status_code, 404)
+        self.assertEqual(pdf_response.status_code, 404)
 
 
 def create_product(*, workshop: Workshop, suffix: int = 1, selling_price: str = "100.00") -> Product:
