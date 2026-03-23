@@ -1,4 +1,5 @@
 import json
+from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -44,6 +45,22 @@ from ..suppliers.models import Supplier
 from ..workshops.mixin import WorkshopScopedMixin
 from ..workshops.models.workshops import Workshop
 from ..workshops.util.workshops import get_active_workshop_or_404, has_workshop_perm
+
+
+@dataclass(frozen=True)
+class StockHistoryRow:
+    pk: int
+    record_type: str
+    id: int
+    nf_number: str
+    supplier_name: str
+    user: object
+    criado_em: object
+    history_status_badge: dict[str, str]
+
+    @property
+    def record_edit_url(self) -> str:
+        return reverse("stock:history_edit", kwargs={"record_type": self.record_type, "pk": self.pk})
 
 
 class StockAlertsListView(LoginRequiredMixin, WorkshopScopedMixin, ListView):
@@ -146,19 +163,51 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
     def get_queryset(self):
         return super().get_queryset().order_by("-criado_em")
 
+    def _build_history_rows(self) -> list[StockHistoryRow]:
+        imports = [
+            StockHistoryRow(
+                pk=stock_import.pk,
+                record_type="import",
+                id=stock_import.pk,
+                nf_number=stock_import.nf_number or stock_import.nf_number_display or "---",
+                supplier_name=stock_import.supplier_name or "---",
+                user=stock_import.user,
+                criado_em=stock_import.criado_em,
+                history_status_badge=stock_import.stockimport_status_badge,
+            )
+            for stock_import in self.get_queryset().select_related("user")
+        ]
+
+        transfers_queryset = StockTransfer.objects.filter(Q(source_workshop=self.workshop) | Q(destination_workshop=self.workshop)).select_related("user", "source_workshop", "destination_workshop").order_by("-criado_em")
+        transfers = [
+            StockHistoryRow(
+                pk=transfer.pk,
+                record_type="transfer",
+                id=transfer.pk,
+                nf_number="TRANSFERENCIA",
+                supplier_name=f"{transfer.source_workshop.name} -> {transfer.destination_workshop.name}",
+                user=transfer.user,
+                criado_em=transfer.criado_em,
+                history_status_badge=transfer.stocktransfer_status_badge,
+            )
+            for transfer in transfers_queryset
+        ]
+
+        return sorted([*imports, *transfers], key=lambda row: row.criado_em, reverse=True)
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        context["stock"] = self._build_history_rows()
         context["fields"] = [
             TableColumn("ID", attr="id"),
-            TableColumn(StockImport.nf_number.field.verbose_name, attr=StockImport.nf_number.field.name),
-            TableColumn(StockImport.supplier_name.field.verbose_name, attr=StockImport.supplier_name.field.name),
-            TableColumn(StockImport.user.field.verbose_name, attr=StockImport.user.field.name),
-            TableColumn(StockImport.criado_em.field.verbose_name, attr=StockImport.criado_em.field.name),
-            TableColumn(StockImport.status.field.verbose_name, attr="stockimport_status_badge", format="status_badge"),
+            TableColumn(StockImport.nf_number.field.verbose_name, attr="nf_number"),
+            TableColumn(StockImport.supplier_name.field.verbose_name, attr="supplier_name"),
+            TableColumn(StockImport.user.field.verbose_name, attr="user"),
+            TableColumn(StockImport.criado_em.field.verbose_name, attr="criado_em"),
+            TableColumn(StockImport.status.field.verbose_name, attr="history_status_badge", format="status_badge"),
         ]
         context["actions"] = [
-            TableActionDefaults.edit("stock:stock_update"),
-            TableActionDefaults.delete("stock:stock_delete"),
+            TableActionDefaults.edit(url_name="stock:history_edit", args=(), kwargs={"record_type": "record_type", "pk": "pk"}),
         ]
         return context
 
@@ -369,6 +418,22 @@ class StockImportDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteR
 
     htmx_template_name = "stock/partials/stock_delete_modal.html"
     htmx_trigger = "stock-table-refresh"
+
+
+class StockHistoryEditRedirectView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = StockImport
+    workshop_permission_codename = "view_stockimport"
+
+    def get(self, request, record_type, pk):
+        if record_type == "import":
+            get_object_or_404(StockImport, pk=pk, workshop=self.workshop)
+            return redirect("stock:stock_update", pk=pk)
+
+        if record_type == "transfer":
+            get_object_or_404(StockTransfer, Q(source_workshop=self.workshop) | Q(destination_workshop=self.workshop), pk=pk)
+            return redirect("stock:transfer_update", pk=pk)
+
+        raise PermissionDenied
 
 
 class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -849,6 +914,7 @@ class StockTransferAccessMixin(LoginRequiredMixin):
 class StockTransferCreateView(StockTransferAccessMixin, MultiStepFormMixin, CreateView):
     model = StockTransfer
     template_name = "stock/transfer_form.html"
+    step_template_name = "stock/partials/transfer_step_content.html"
 
     def get_template_names(self):
         if getattr(self.request, "htmx", False):
@@ -870,8 +936,9 @@ class StockTransferCreateView(StockTransferAccessMixin, MultiStepFormMixin, Crea
         return kwargs
 
     def get_steps_definition(self):
+        transfer_object = getattr(self, "object", None) or self.get_object()
         base_steps = [{"title": "Origem e Destino", "form_class": TransferStepWorkshopsForm}]
-        if self.get_object():
+        if transfer_object:
             base_steps.extend(
                 [
                     {"title": "Itens da Transferência", "form_class": TransferItemsForm},
@@ -897,7 +964,7 @@ class StockTransferCreateView(StockTransferAccessMixin, MultiStepFormMixin, Crea
             self.object.save(update_fields=["current_step"])
 
         if current_step < total_steps:
-            success_url = f"{self.request.path}?step={current_step + 1}&pk={self.object.pk}"
+            success_url = f"{reverse('stock:transfer_update', kwargs={'pk': self.object.pk})}?step={current_step + 1}"
         else:
             success_url = self.get_success_url()
 

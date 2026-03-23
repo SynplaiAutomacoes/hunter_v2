@@ -5,6 +5,7 @@ app_name = "stock"
 
 urlpatterns = [
     path("", views.StockImportListView.as_view(), name="stock_list"),
+    path("history/<str:record_type>/<int:pk>/edit/", views.StockHistoryEditRedirectView.as_view(), name="history_edit"),
     path("alerts/", views.StockAlertsListView.as_view(), name="alerts"),
     path("movements/", views.StockMovementListView.as_view(), name="movements"),
     path("replenishment/", views.ReplenishmentListView.as_view(), name="replenishment"),

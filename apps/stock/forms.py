@@ -1226,7 +1226,6 @@ class TransferItemsForm(forms.ModelForm):
             stock_entry = StockProduct.objects.filter(workshop=self.instance.source_workshop, product=product).first()
             available_quantity = stock_entry.current_quantity if stock_entry else 0
             selected = selected_item is not None
-            quantity_value = selected_item.get("qtd", 1) if selected_item else 1
             row_class = "bg-primary/5 border-primary/20" if selected else ""
 
             rows += f"""
@@ -1236,11 +1235,8 @@ class TransferItemsForm(forms.ModelForm):
                     <div class="text-xs opacity-60">{product.code or "Sem codigo"}</div>
                 </td>
                 <td class="text-center"><span class="badge badge-ghost font-mono">{available_quantity}</span></td>
-                <td class="text-center w-28">
-                    {self._render_source_quantity_input(product_id=product.id, quantity_value=quantity_value, selected=selected)}
-                </td>
                 <td class="text-right">
-                    {self._render_source_action_button(product_id=product.id, selected=selected, quantity_value=quantity_value)}
+                    {self._render_source_action_button(product_id=product.id, selected=selected)}
                 </td>
             </tr>"""
 
@@ -1270,38 +1266,19 @@ class TransferItemsForm(forms.ModelForm):
                         <thead class="bg-base-200 sticky top-0 z-10">
                             <tr>
                                 <th>Produto</th>
-                                <th class="text-center">Saldo</th>
-                                <th class="text-center">Qtd</th>
+                                <th class="text-center">Estoque</th>
                                 <th class="text-right">Acao</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {rows or '<tr><td colspan="4" class="text-center italic py-8">Nenhum produto com saldo encontrado.</td></tr>'}
+                            {rows or '<tr><td colspan="3" class="text-center italic py-8">Nenhum produto com estoque encontrado.</td></tr>'}
                         </tbody>
                     </table>
                 </div>
             </div>
         </div>"""
 
-    def _render_source_quantity_input(self, *, product_id: int, quantity_value: Any, selected: bool) -> str:
-        attrs = {
-            "class": "text-center input input-bordered input-sm w-20",
-            "min": "1",
-            "hx-post": reverse("stock:update_transfer_item_data", kwargs={"pk": self.instance.pk}),
-            "hx-trigger": "change delay:300ms",
-            "hx-vals": f"js:{{source_product_id: {product_id}}}",
-            "hx-target": "#step-container",
-            "hx-swap": "innerHTML",
-        }
-        if not selected:
-            attrs["disabled"] = "disabled"
-        return NumberInput(mode="positive").render(
-            name=f"source_qty_{product_id}",
-            value=str(quantity_value),
-            attrs=attrs,
-        )
-
-    def _render_source_action_button(self, *, product_id: int, selected: bool, quantity_value: Any) -> str:
+    def _render_source_action_button(self, *, product_id: int, selected: bool) -> str:
         if selected:
             return f"""
             <button type="button" class="btn btn-error btn-xs"
@@ -1312,14 +1289,14 @@ class TransferItemsForm(forms.ModelForm):
         return f"""
         <button type="button" class="btn btn-primary btn-xs"
                 hx-post="{reverse("stock:add_transfer_source_item")}"
-                hx-vals='{{"pk": "{self.instance.pk}", "product_id": "{product_id}", "quantity": "{quantity_value}"}}'
+                hx-vals='{{"pk": "{self.instance.pk}", "product_id": "{product_id}", "quantity": "1"}}'
                 hx-target="#step-container">
             Selecionar
         </button>"""
 
     def _render_destination_column(self) -> str:
         items = self.instance.items_data or []
-        cards = ""
+        rows = ""
         total_geral = Decimal("0.00")
 
         for idx, item in enumerate(items):
@@ -1328,29 +1305,47 @@ class TransferItemsForm(forms.ModelForm):
             if source_product is None:
                 continue
 
+            stock_entry = StockProduct.objects.filter(workshop=self.instance.source_workshop, product=source_product).first()
+            available_quantity = stock_entry.current_quantity if stock_entry else 0
             quantity = int(str(item.get("qtd", 1) or 1))
             value = Decimal(str(item.get("valor", "0")).replace(",", "."))
             subtotal = Decimal(quantity) * value
             total_geral += subtotal
 
-            cards += f"""
-            <div class="rounded-xl border border-base-300 bg-base-100 p-4 space-y-4">
-                <div class="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
-                    <div>
-                        <p class="text-xs uppercase tracking-wide opacity-60">Saindo da origem</p>
-                        <div class="font-semibold">{source_product.name}</div>
-                        <div class="text-xs opacity-60">{source_product.code or "Sem codigo"} | Qtd: {quantity}</div>
-                    </div>
-                    <div class="text-right">
-                        <p class="text-xs uppercase tracking-wide opacity-60">Subtotal</p>
-                        <div class="font-bold">{Money(subtotal, "BRL")}</div>
-                    </div>
-                </div>
-                <div class="rounded-lg bg-base-200 p-4 space-y-3">
-                    <p class="text-xs uppercase tracking-wide opacity-60">Entrada no destino</p>
-                    {self._render_destination_cell(idx=idx, destination_product=destination_product)}
-                </div>
-            </div>"""
+            quantity_input = NumberInput(mode="positive").render(
+                name=f"items_qty_{idx}",
+                value=str(quantity),
+                attrs={
+                    "class": "text-center input input-bordered input-sm w-20",
+                    "min": "1",
+                    "hx-post": reverse("stock:update_transfer_item_data", kwargs={"pk": self.instance.pk}),
+                    "hx-trigger": "change delay:300ms",
+                    "hx-vals": f"js:{{item_idx: {idx}}}",
+                    "hx-target": "#step-container",
+                    "hx-swap": "innerHTML",
+                },
+            )
+
+            rows += f"""
+            <tr class="border-b border-base-300 align-top">
+                <td>
+                    <div class="font-semibold">{source_product.name}</div>
+                    <div class="text-xs opacity-60">{source_product.code or "Sem codigo"}</div>
+                </td>
+                <td class="text-center">
+                    <span class="badge badge-ghost font-mono">{available_quantity}</span>
+                </td>
+                <td class="text-center">{quantity_input}</td>
+                <td>{self._render_destination_cell(idx=idx, destination_product=destination_product)}</td>
+                <td class="text-right font-semibold">{Money(subtotal, "BRL")}</td>
+                <td class="text-right">
+                    <button type="button" class="btn btn-ghost btn-xs text-error"
+                            hx-post="{reverse("stock:remove_transfer_item")}?pk={self.instance.pk}&item_idx={idx}"
+                            hx-target="#step-container">
+                        Remover
+                    </button>
+                </td>
+            </tr>"""
 
         return f"""
         <div class="card bg-base-100 border border-base-300 shadow-sm">
@@ -1362,8 +1357,22 @@ class TransferItemsForm(forms.ModelForm):
                     </div>
                     <span class="badge badge-outline">{self.instance.destination_workshop.name}</span>
                 </div>
-                <div class="space-y-4 max-h-[34rem] overflow-y-auto pr-1">
-                    {cards or '<div class="rounded-xl border border-dashed border-base-300 p-8 text-center italic text-base-content/60">Selecione itens na coluna da esquerda para montar a transferencia.</div>'}
+                <div class="overflow-x-auto rounded-xl border border-base-300 max-h-[34rem]">
+                    <table class="table table-sm w-full">
+                        <thead class="bg-base-200 sticky top-0 z-10">
+                            <tr>
+                                <th>Produto de Origem</th>
+                                <th class="text-center">Estoque</th>
+                                <th class="text-center">Quantidade</th>
+                                <th>Produto no Destino</th>
+                                <th class="text-right">Subtotal</th>
+                                <th class="text-right">Acao</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {rows or '<tr><td colspan="6" class="text-center italic py-8">Selecione itens na coluna da esquerda para montar a transferencia.</td></tr>'}
+                        </tbody>
+                    </table>
                 </div>
                 <div class="pt-2 border-t border-base-300 flex items-center justify-between font-semibold">
                     <span>Total selecionado</span>
@@ -1377,26 +1386,27 @@ class TransferItemsForm(forms.ModelForm):
             return f"""
             <div class="space-y-2">
                 <div>
+                    <div class="text-[11px] uppercase tracking-wide text-success font-semibold">Produto vinculado</div>
                     <div class="font-medium">{destination_product.name}</div>
                     <div class="text-xs opacity-50">{destination_product.code}</div>
                 </div>
                 <div class="flex gap-2">
                     <button type="button" class="btn btn-outline btn-xs" hx-target="#modal-container"
-                            hx-get="{reverse("stock:transfer_destination_link")}?pk={self.instance.pk}&item_idx={idx}">Trocar</button>
+                            hx-get="{reverse("stock:transfer_destination_link")}?pk={self.instance.pk}&item_idx={idx}">Vincular Outro</button>
                     <button type="button" class="btn btn-ghost btn-xs text-error"
                             hx-post="{reverse("stock:transfer_unlink_destination")}?pk={self.instance.pk}&item_idx={idx}"
-                            hx-target="#step-container">Desvincular</button>
+                            hx-target="#step-container">Desvincular Item</button>
                 </div>
             </div>"""
 
         return f"""
         <div class="flex flex-wrap gap-2 items-center">
-            <span class="italic text-warning text-xs">Pendente de vínculo</span>
+            <span class="italic text-warning text-xs">Nenhum produto vinculado</span>
             <button type="button" class="btn btn-primary btn-xs" hx-target="#modal-container"
-                    hx-get="{reverse("stock:transfer_destination_link")}?pk={self.instance.pk}&item_idx={idx}">Vincular</button>
+                    hx-get="{reverse("stock:transfer_destination_link")}?pk={self.instance.pk}&item_idx={idx}">Vincular Produto</button>
             <button type="button" class="btn btn-success btn-xs"
                     hx-post="{reverse("stock:create_transfer_destination_product")}?pk={self.instance.pk}&item_idx={idx}"
-                    hx-target="#step-container">Criar no destino</button>
+                    hx-target="#step-container">Cadastrar Produto</button>
         </div>"""
 
     def clean(self) -> dict[str, Any]:

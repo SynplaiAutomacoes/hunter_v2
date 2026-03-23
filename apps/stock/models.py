@@ -8,6 +8,15 @@ from apps.suppliers.models import Supplier
 from djmoney.models.fields import MoneyField
 
 
+def _extract_nf_number_from_access_key(access_key: str | None) -> str:
+    if not access_key:
+        return ""
+    normalized_key = str(access_key).strip()
+    if len(normalized_key) >= 34:
+        return normalized_key[25:34].lstrip("0") or "0"
+    return ""
+
+
 class StockProduct(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="stock_products")
     product = models.OneToOneField("catalog.Product", on_delete=models.CASCADE, related_name="stock_products")
@@ -110,6 +119,10 @@ class SefazZipCache(TimeStampedModel):
         verbose_name_plural = "Cache do Sefaz (zip)"
         unique_together = ("workshop", "key")
 
+    @property
+    def nf_number_display(self) -> str:
+        return self.nf_number or _extract_nf_number_from_access_key(self.key)
+
 
 class StockImport(TimeStampedModel):
     class ImportStatus(models.TextChoices):
@@ -144,6 +157,10 @@ class StockImport(TimeStampedModel):
 
     def __str__(self):
         return f"Importação {self.nf_number} - {self.workshop}"
+
+    @property
+    def nf_number_display(self) -> str:
+        return self.nf_number or _extract_nf_number_from_access_key(self.nf_key)
 
     @property
     def stockimport_status_badge(self):

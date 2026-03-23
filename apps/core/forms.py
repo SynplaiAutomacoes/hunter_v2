@@ -63,6 +63,9 @@ class MultiStepFormMixin:
     steps_definition = []
     step_template_name = None
 
+    def get_step_template_name(self):
+        return self.step_template_name or "stock/partials/import_step_content.html"
+
     @property
     def model_instance(self):
         if not hasattr(self, "_model_instance"):
@@ -162,7 +165,7 @@ class MultiStepFormMixin:
 
             context = self.get_context_data(form=next_form)
             context["current_step"] = next_step
-            return render(self.request, "stock/partials/import_step_content.html", context)
+            return render(self.request, self.get_step_template_name(), context)
 
         return redirect(next_url)
 

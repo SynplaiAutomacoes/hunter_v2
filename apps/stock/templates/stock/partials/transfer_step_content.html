@@ -28,7 +28,7 @@
         {% endif %}
 
         <button type="submit" form="transfer-form" class="btn btn-primary">
-            {% if current_step == steps_config|length %} Finalizar Transferência {% else %} Próxima Etapa {% endif %}
+            {% if not object.pk or current_step < steps_config|length %} Continuar {% else %} Finalizar Transferência {% endif %}
         </button>
     </div>
 

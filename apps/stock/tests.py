@@ -258,3 +258,40 @@ class StockTransferFlowTests(TestCase):
         self.assertEqual(created_product.workshop, self.destination_workshop)
         self.assertEqual(created_product.code, self.source_product.code)
         self.assertEqual(created_product.group.name, self.source_group.name)
+
+    def test_stock_history_lists_imports_and_transfers(self) -> None:
+        stock_import = StockImport.objects.create(
+            workshop=self.destination_workshop,
+            user=self.user,
+            nf_key="0" * 44,
+            nf_number="1234",
+            supplier_name="Fornecedor XPTO",
+            status=StockImport.ImportStatus.COMPLETED,
+        )
+        transfer = StockTransfer.objects.create(
+            source_workshop=self.source_workshop,
+            destination_workshop=self.destination_workshop,
+            user=self.user,
+            status=StockTransfer.TransferStatus.COMPLETED,
+        )
+
+        response = self.client.get(reverse("stock:stock_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "1234")
+        self.assertContains(response, "Fornecedor XPTO")
+        self.assertContains(response, "TRANSFERENCIA")
+        self.assertContains(response, f"{self.source_workshop.name} -&gt; {self.destination_workshop.name}")
+        self.assertContains(response, reverse("stock:history_edit", kwargs={"record_type": "import", "pk": stock_import.pk}))
+        self.assertContains(response, reverse("stock:history_edit", kwargs={"record_type": "transfer", "pk": transfer.pk}))
+
+    def test_history_edit_redirect_routes_transfer_to_transfer_update(self) -> None:
+        transfer = StockTransfer.objects.create(
+            source_workshop=self.source_workshop,
+            destination_workshop=self.destination_workshop,
+            user=self.user,
+        )
+
+        response = self.client.get(reverse("stock:history_edit", kwargs={"record_type": "transfer", "pk": transfer.pk}))
+
+        self.assertRedirects(response, reverse("stock:transfer_update", kwargs={"pk": transfer.pk}), fetch_redirect_response=False)
