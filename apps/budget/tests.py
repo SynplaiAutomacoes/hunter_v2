@@ -273,6 +273,191 @@ class BudgetListFiltersTests(TestCase):
         self.assertQuerySetEqual(response.context["budget"].order_by("pk"), [approved_budget], transform=lambda obj: obj)
         self.assertNotIn(cancelled_budget, response.context["budget"])
 
+    def test_budget_list_shows_status_report_for_selected_status(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=75)
+        approved_budget = create_budget(workshop=workshop)
+        approved_budget.status = BudgetStatus.APPROVED
+        approved_budget.save(update_fields=["status"])
+        second_approved_budget = create_budget(workshop=workshop)
+        second_approved_budget.status = BudgetStatus.APPROVED
+        second_approved_budget.save(update_fields=["status"])
+        draft_budget = create_budget(workshop=workshop)
+        draft_budget.status = BudgetStatus.DRAFT
+        draft_budget.save(update_fields=["status"])
+
+        response = self.client.get(reverse("budget:budget_list"), {"status": BudgetStatus.APPROVED})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["selected_status_report"], {"value": BudgetStatus.APPROVED, "label": "Aprovado", "count": 2, "badge_class": "badge-success min-w-sm"})
+        self.assertContains(response, "Relatorio do status")
+        self.assertContains(response, "Aprovado")
+        self.assertContains(response, "Orcamentos com este status")
+        self.assertContains(response, "Imprimir relatorio em PDF")
+        self.assertContains(response, f"{reverse('budget:status_report_pdf_preview')}?status={BudgetStatus.APPROVED}")
+        self.assertContains(response, reverse("budget:status_report_pdf"))
+        self.assertContains(response, "download=1")
+
+    def test_budget_status_report_counts_only_selected_status(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=76)
+
+        matching_customer = create_customer(workshop=workshop, suffix=76)
+        matching_vehicle = create_vehicle(workshop=workshop, customer=matching_customer, suffix=76, plate="ABC7676")
+        matching_collaborator = create_collaborator(workshop=workshop, suffix=76, name="Carlos 76")
+        matching_budget = create_budget(workshop=workshop)
+        matching_budget.customer = matching_customer
+        matching_budget.vehicle = matching_vehicle
+        matching_budget.collaborator = matching_collaborator
+        matching_budget.status = BudgetStatus.APPROVED
+        matching_budget.save(update_fields=["customer", "vehicle", "collaborator", "status"])
+
+        other_customer = create_customer(workshop=workshop, suffix=77)
+        other_vehicle = create_vehicle(workshop=workshop, customer=other_customer, suffix=77, plate="ABC7777")
+        other_collaborator = create_collaborator(workshop=workshop, suffix=77, name="Carlos 77")
+        other_budget = create_budget(workshop=workshop)
+        other_budget.customer = other_customer
+        other_budget.vehicle = other_vehicle
+        other_budget.collaborator = other_collaborator
+        other_budget.status = BudgetStatus.APPROVED
+        other_budget.save(update_fields=["customer", "vehicle", "collaborator", "status"])
+
+        draft_budget = create_budget(workshop=workshop)
+        draft_budget.status = BudgetStatus.DRAFT
+        draft_budget.save(update_fields=["status"])
+
+        response = self.client.get(reverse("budget:budget_list"), {"status": BudgetStatus.APPROVED, "client": matching_customer.name})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertQuerySetEqual(response.context["budget"].order_by("pk"), [matching_budget], transform=lambda obj: obj)
+        self.assertNotIn(other_budget, response.context["budget"])
+        self.assertEqual(response.context["selected_status_report"]["count"], 2)
+
+    def test_budget_list_hides_status_report_without_valid_status(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=78)
+        approved_budget = create_budget(workshop=workshop)
+        approved_budget.status = BudgetStatus.APPROVED
+        approved_budget.save(update_fields=["status"])
+
+        response = self.client.get(reverse("budget:budget_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.context["selected_status_report"])
+        self.assertNotContains(response, "Relatorio do status")
+        self.assertNotContains(response, "Imprimir relatorio em PDF")
+
+    def test_budget_list_htmx_partial_keeps_status_report_in_table_content(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=79)
+        approved_budget = create_budget(workshop=workshop)
+        approved_budget.status = BudgetStatus.APPROVED
+        approved_budget.save(update_fields=["status"])
+        second_approved_budget = create_budget(workshop=workshop)
+        second_approved_budget.status = BudgetStatus.APPROVED
+        second_approved_budget.save(update_fields=["status"])
+
+        response = self.client.get(reverse("budget:budget_list"), {"status": BudgetStatus.APPROVED}, HTTP_HX_REQUEST="true")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="budget-table-content"')
+        self.assertContains(response, "Relatorio do status")
+        self.assertContains(response, "Aprovado")
+        self.assertContains(response, "Imprimir relatorio em PDF")
+
+
+class BudgetStatusReportPdfTests(TestCase):
+    def _login_with_active_workshop(self, *, suffix: int) -> Workshop:
+        user, workshop = create_director_user_with_workshop(suffix=suffix)
+        self.client.force_login(user)
+
+        session = self.client.session
+        session["active_workshop_id"] = workshop.pk
+        session.save()
+        return workshop
+
+    def test_status_report_pdf_preview_renders_html_for_iframe(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=95)
+        customer = create_customer(workshop=workshop, suffix=95)
+        vehicle = create_vehicle(workshop=workshop, customer=customer, suffix=95, plate="BDG9595")
+        collaborator = create_collaborator(workshop=workshop, suffix=95, name="Tecnico 95")
+
+        approved_budget = create_budget(workshop=workshop)
+        approved_budget.customer = customer
+        approved_budget.vehicle = vehicle
+        approved_budget.collaborator = collaborator
+        approved_budget.status = BudgetStatus.APPROVED
+        approved_budget.save(update_fields=["customer", "vehicle", "collaborator", "status"])
+
+        draft_budget = create_budget(workshop=workshop)
+        draft_budget.status = BudgetStatus.DRAFT
+        draft_budget.save(update_fields=["status"])
+
+        response = self.client.get(reverse("budget:status_report_pdf_preview"), {"status": BudgetStatus.APPROVED})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "<!DOCTYPE html>", html=False)
+        self.assertContains(response, "Relatorio de Orcamentos por Status")
+        self.assertContains(response, workshop.name)
+        self.assertContains(response, "Aprovado")
+        self.assertContains(response, f"#{approved_budget.pk}")
+        self.assertContains(response, customer.name)
+        self.assertContains(response, vehicle.plate)
+        self.assertContains(response, collaborator.name)
+        self.assertIsNone(response.headers.get("X-Frame-Options"))
+
+    @patch("apps.budget.views.workflow_views.render_budget_status_report_pdf_document")
+    def test_status_report_pdf_view_returns_attachment_and_ignores_other_filters(self, render_document_mock) -> None:
+        workshop = self._login_with_active_workshop(suffix=96)
+
+        matching_customer = create_customer(workshop=workshop, suffix=96)
+        matching_vehicle = create_vehicle(workshop=workshop, customer=matching_customer, suffix=96, plate="BDG9696")
+        matching_collaborator = create_collaborator(workshop=workshop, suffix=96, name="Tecnico 96")
+        matching_budget = create_budget(workshop=workshop)
+        matching_budget.customer = matching_customer
+        matching_budget.vehicle = matching_vehicle
+        matching_budget.collaborator = matching_collaborator
+        matching_budget.status = BudgetStatus.APPROVED
+        matching_budget.save(update_fields=["customer", "vehicle", "collaborator", "status"])
+
+        other_customer = create_customer(workshop=workshop, suffix=97)
+        other_vehicle = create_vehicle(workshop=workshop, customer=other_customer, suffix=97, plate="BDG9797")
+        other_collaborator = create_collaborator(workshop=workshop, suffix=97, name="Tecnico 97")
+        other_budget = create_budget(workshop=workshop)
+        other_budget.customer = other_customer
+        other_budget.vehicle = other_vehicle
+        other_budget.collaborator = other_collaborator
+        other_budget.status = BudgetStatus.APPROVED
+        other_budget.save(update_fields=["customer", "vehicle", "collaborator", "status"])
+
+        draft_budget = create_budget(workshop=workshop)
+        draft_budget.status = BudgetStatus.DRAFT
+        draft_budget.save(update_fields=["status"])
+
+        render_document_mock.return_value = DocumentPayload(content=b"%PDF-budget-status-report", filename="relatorio_orcamentos_por_status_approved.pdf")
+
+        response = self.client.get(
+            reverse("budget:status_report_pdf"),
+            {"status": BudgetStatus.APPROVED, "client": matching_customer.name, "download": "1"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"%PDF-budget-status-report")
+        self.assertIn('attachment; filename="relatorio_orcamentos_por_status_approved.pdf"', response["Content-Disposition"])
+
+        context = render_document_mock.call_args.kwargs["context"]
+        self.assertEqual(context["selected_status_report"]["count"], 2)
+        self.assertCountEqual(context["report_budgets"], [matching_budget, other_budget])
+        self.assertEqual(context["status_report_pdf_title"], "Relatorio de Orcamentos por Status")
+
+    def test_status_report_pdf_views_return_404_without_valid_status(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=98)
+        approved_budget = create_budget(workshop=workshop)
+        approved_budget.status = BudgetStatus.APPROVED
+        approved_budget.save(update_fields=["status"])
+
+        preview_response = self.client.get(reverse("budget:status_report_pdf_preview"))
+        pdf_response = self.client.get(reverse("budget:status_report_pdf"), {"status": "invalid-status"})
+
+        self.assertEqual(preview_response.status_code, 404)
+        self.assertEqual(pdf_response.status_code, 404)
+
 
 class BudgetTotalsConsistencyTests(TestCase):
     def test_total_base_value_uses_item_selling_totals_only(self) -> None:
