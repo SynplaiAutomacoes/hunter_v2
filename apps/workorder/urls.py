@@ -6,6 +6,8 @@ app_name = "workorder"
 
 urlpatterns = [
     path("", views.WorkOrderListView.as_view(), name="workorder_list"),
+    path("status-report/pdf/preview/", views.WorkOrderStatusReportPdfPreviewView.as_view(), name="status_report_pdf_preview"),
+    path("status-report/pdf/", views.WorkOrderStatusReportPdfView.as_view(), name="status_report_pdf"),
     path("<int:pk>/", views.WorkOrderDetailView.as_view(), name="workorder_detail"),
     path("<int:pk>/resume-section/", views.WorkOrderResumeSectionView.as_view(), name="resume_section"),
     path("<int:pk>/payment-section/", views.WorkOrderPaymentSectionView.as_view(), name="payment_section"),

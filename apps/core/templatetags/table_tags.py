@@ -602,6 +602,8 @@ def render_table(
     filter_button_label: str = "Filtro",
     filter_panel_title: str = "Filtrar resultados",
     filter_param_names: str | Sequence[str] = (),
+    summary_template: str = "",
+    footer_template: str = "",
     show_controls: bool = True,
     preserve_selection: bool = False,
     hierarchical_selection: bool = False,
@@ -631,6 +633,10 @@ def render_table(
         filter_panel_title: Título exibido no painel de filtros.
         filter_param_names: Nomes dos parâmetros GET usados pelos filtros extras.
             Pode ser string separada por vírgula (ex.: "city,state") ou sequência.
+        summary_template: Caminho opcional de template para renderizar um resumo
+            acima dos controles e da tabela.
+        footer_template: Caminho opcional de template para renderizar conteúdo
+            abaixo da tabela e da paginação.
         show_controls: Se False, oculta os controles superiores (busca/ordenação/filtros).
         preserve_selection: Se True, mantém checkboxes de linha marcados com base na query string atual.
         hierarchical_selection: Se True, sincroniza seleção pai/filhos via metadados de hierarquia.
@@ -728,6 +734,8 @@ def render_table(
         "filter_fields_template": filter_fields_template,
         "filter_button_label": filter_button_label,
         "filter_panel_title": filter_panel_title,
+        "summary_template": (summary_template or "").strip(),
+        "footer_template": (footer_template or "").strip(),
         "has_active_filters": has_active_filters,
         "clear_filter_url": clear_filter_url,
         "htmx_target": f"#{table_id}-content",

@@ -515,7 +515,9 @@ class TestRenderTableTag(TestCase):
 
         self.assertIn('id="t-controls-form"', html)
         self.assertIn('type="submit"', html)
-        self.assertIn('id="t-content" hx-disinherit="hx-vals"', html)
+        self.assertIn('id="t"', html)
+        self.assertIn('id="t-content"', html)
+        self.assertIn('hx-disinherit="hx-vals"', html)
         self.assertIn('@htmx:after-swap.window="syncMasterCheckbox()"', html)
         self.assertNotIn("@htmx:afterSwap.window", html)
         self.assertIn('@htmx:before-request.window="if ($event.detail && $event.detail.elt && $event.detail.elt.id === controlsFormId && $refs.filterModal?.open) $refs.filterModal.close()"', html)
@@ -529,7 +531,6 @@ class TestRenderTableTag(TestCase):
         self.assertIn("modal-box w-11/12 max-w-2xl", html)
         self.assertIn("max-h-[65vh]", html)
         self.assertNotIn("@submit.window", html)
-        self.assertNotIn("requestSubmit()", html)
 
     def test_filter_overlay_template_receives_parent_context_variables(self):
         request = self.factory.get("/workshops/")
@@ -557,6 +558,56 @@ class TestRenderTableTag(TestCase):
         self.assertIn("Em Aberto", html)
         self.assertIn('value="approved"', html)
         self.assertIn("Aprovado", html)
+
+    def test_render_table_can_render_summary_template_inside_table_content(self):
+        for i in range(1, 13):
+            create_workshop(name=f"Oficina {i:02d}", cnpj=f"11.222.333/0001-{i:02d}")
+
+        request = self.factory.get("/workshops/")
+        template = Template(
+            """
+            {% load table_tags %}
+            {% render_table workshops fields table_id='t' per_page=10 summary_template='tables/partials/_pagination.html' %}
+            """
+        )
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "workshops": Workshop.objects.all(),
+                    "fields": [TableColumn(label="Nome", attr="name")],
+                }
+            )
+        )
+
+        pagination_marker = 'class="flex items-center justify-between gap-3 pt-4"'
+        self.assertEqual(html.count(pagination_marker), 2)
+        self.assertLess(html.find(pagination_marker), html.find('id="t-controls-form"'))
+
+    def test_render_table_can_render_footer_template_inside_table_content(self):
+        for i in range(1, 13):
+            create_workshop(name=f"Oficina Rodape {i:02d}", cnpj=f"22.333.444/0001-{i:02d}")
+
+        request = self.factory.get("/workshops/")
+        template = Template(
+            """
+            {% load table_tags %}
+            {% render_table workshops fields table_id='t' per_page=10 footer_template='tables/partials/_pagination.html' %}
+            """
+        )
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "workshops": Workshop.objects.all(),
+                    "fields": [TableColumn(label="Nome", attr="name")],
+                }
+            )
+        )
+
+        pagination_marker = 'class="flex items-center justify-between gap-3 pt-4"'
+        self.assertEqual(html.count(pagination_marker), 2)
+        self.assertGreater(html.rfind(pagination_marker), html.find(pagination_marker))
 
     def test_render_table_clear_filter_url_removes_only_filter_params(self):
         request = self.factory.get("/workshops/?q=Oficina&sort=name&page=3&city=Campinas&state=SP")

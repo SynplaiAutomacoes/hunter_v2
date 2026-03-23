@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from datetime import date
 from dataclasses import dataclass
 from typing import Any, Callable, Literal, Sequence
 
 from django.db.models import QuerySet
 from django.http import QueryDict
 
-FilterKind = Literal["choice", "boolean", "icontains", "iexact"]
+FilterKind = Literal["choice", "boolean", "icontains", "iexact", "date_gte", "date_lte"]
 ValueNormalizer = Callable[[str], str]
 
 
@@ -28,6 +29,13 @@ def _normalize_param_value(params: QueryDict, *, filter_config: QueryParamFilter
         return raw_value
 
     return filter_config.normalizer(raw_value).strip()
+
+
+def _parse_date_param(raw_value: str) -> date | None:
+    try:
+        return date.fromisoformat(raw_value)
+    except ValueError:
+        return None
 
 
 def apply_query_param_filters(
@@ -57,6 +65,20 @@ def apply_query_param_filters(
 
         if filter_config.kind == "icontains":
             filtered_queryset = filtered_queryset.filter(**{f"{filter_config.lookup}__icontains": raw_value})
+            continue
+
+        if filter_config.kind == "date_gte":
+            parsed_date = _parse_date_param(raw_value)
+            if parsed_date is None:
+                continue
+            filtered_queryset = filtered_queryset.filter(**{f"{filter_config.lookup}__gte": parsed_date})
+            continue
+
+        if filter_config.kind == "date_lte":
+            parsed_date = _parse_date_param(raw_value)
+            if parsed_date is None:
+                continue
+            filtered_queryset = filtered_queryset.filter(**{f"{filter_config.lookup}__lte": parsed_date})
             continue
 
         filtered_queryset = filtered_queryset.filter(**{f"{filter_config.lookup}__iexact": raw_value})
