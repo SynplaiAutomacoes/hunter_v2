@@ -2,6 +2,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, ListView, UpdateView
 
+from apps.core.query_filters import apply_is_active_filter
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxTemplateResponseMixin
@@ -18,7 +19,9 @@ class PaymentMethodListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplat
     workshop_permission_codename = "view_paymentmethod"
 
     def get_queryset(self):
-        return super().get_queryset().order_by("description")
+        queryset = super().get_queryset()
+        queryset = apply_is_active_filter(queryset, params=self.request.GET)
+        return queryset.order_by("description")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

@@ -13,11 +13,13 @@ from apps.finance.views import (
     FinancialGroupUpdateView,
     NfeCreateRedirectView,
     NfeDocumentDownloadView,
+    NfeRequestCancelView,
     NfeRequestDetailView,
     NfeRequestListView,
     NfeRequestReconcileView,
     NfeRequestUpdateView,
     NfseCreateRedirectView,
+    NfseRequestCancelView,
     NfseDocumentDownloadView,
     NfseRequestDetailView,
     NfseRequestListView,
@@ -40,7 +42,7 @@ from apps.finance.views import (
     DreResultsView,
 )
 from apps.finance.views.bank_account import BankAccountListView, BankAccountUpdateView, BankAccountCreateView
-from apps.finance.views.financial_movement import FinancialMovementListView, FinancialMovementCreateView, FinancialMovementUpdateView, SourceDetailView
+from apps.finance.views.financial_movement import FinancialMovementCreateView, FinancialMovementDeleteView, FinancialMovementListView, FinancialMovementUpdateView, SourceDetailView
 from apps.finance.views.payment_method import PaymentMethodListView, PaymentMethodCreateView, PaymentMethodUpdateView
 
 app_name = "finance"
@@ -67,6 +69,7 @@ urlpatterns = [
     path("nfe/create/", NfeCreateRedirectView.as_view(), name="nfe_create"),
     path("nfe/<int:pk>/", NfeRequestDetailView.as_view(), name="nfe_detail"),
     path("nfe/<int:pk>/reconciliar/", NfeRequestReconcileView.as_view(), name="nfe_reconcile"),
+    path("nfe/<int:pk>/cancelar/", NfeRequestCancelView.as_view(), name="nfe_cancel"),
     path("nfe/<int:pk>/documentos/<str:document>/", NfeDocumentDownloadView.as_view(), name="nfe_document_download"),
     path("nfe/<int:pk>/edit/", NfeRequestUpdateView.as_view(), name="nfe_update"),
     # Classe Imposto
@@ -86,11 +89,13 @@ urlpatterns = [
     path("financial-movement/", FinancialMovementListView.as_view(), name="financial_movement_list"),
     path("financial-movement/create/", FinancialMovementCreateView.as_view(), name="financial_movement_create"),
     path("financial-movement/<int:pk>/update/", FinancialMovementUpdateView.as_view(), name="financial_movement_update"),
+    path("financial-movement/<int:pk>/delete/", FinancialMovementDeleteView.as_view(), name="financial_movement_delete"),
     path("financial-movement/source_details/", SourceDetailView.as_view(), name="source_details"),
     # NFS-e
     path("nfse/", NfseRequestListView.as_view(), name="nfse_list"),
     path("nfse/create/", NfseCreateRedirectView.as_view(), name="nfse_create"),
     path("nfse/<int:pk>/", NfseRequestDetailView.as_view(), name="nfse_detail"),
+    path("nfse/<int:pk>/cancelar/", NfseRequestCancelView.as_view(), name="nfse_cancel"),
     path("nfse/<int:pk>/documentos/<str:document>/", NfseDocumentDownloadView.as_view(), name="nfse_document_download"),
     path("nfse/<int:pk>/edit/", NfseRequestUpdateView.as_view(), name="nfse_update"),
     # WebMania

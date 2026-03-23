@@ -1,1 +1,1 @@
-{% include 'crud/partials/table.html' with queryset=payment_methods fields=fields actions=actions table_id='payment_methods-table' %}
+{% include 'crud/partials/table.html' with queryset=payment_methods fields=fields actions=actions table_id='payment_methods-table' filter_fields_template='tables/partials/is_active_filters_fields.html' filter_button_label='Filtro' filter_panel_title='Filtrar formas de pagamento' filter_param_names='is_active' %}

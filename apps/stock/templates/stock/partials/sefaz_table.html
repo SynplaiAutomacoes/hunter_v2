@@ -30,7 +30,6 @@
             <thead>
                 <tr>
                     <th>Data Emissão</th>
-                    <th>Número NF-e</th>
                     <th>Fornecedor</th>
                     <th>CNPJ</th>
                     <th>Valor Total</th>
@@ -42,7 +41,6 @@
                 {% for nota in form.notas %}
                 <tr class="hover">
                     <td>{{ nota.issue_date|date:"d/m/Y" }}</td>
-                    <td>{{ nota.nf_number_display }}</td>
                     <td>{{ nota.issuer_name }}</td>
                     <td>{{ nota.issuer_cnpj }}</td>
                     <td>R$ {{ nota.total_value }}</td>
@@ -67,7 +65,7 @@
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="7" class="text-center py-8 opacity-50">Nenhuma nota encontrada na SEFAZ.</td>
+                    <td colspan="6" class="text-center py-8 opacity-50">Nenhuma nota encontrada na SEFAZ.</td>
                 </tr>
                 {% endfor %}
             </tbody>

@@ -18,7 +18,7 @@ from apps.checklist.models import Checklist
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.utils import alert_confirm_layout
 from apps.core.widgets import CalendarDateInput, MoneyInput, NumberInput, PercentageInput, SearchableSelectInput, SelectInput, TextInput, TextareaInput
-from apps.customer.models import Vehicle
+from apps.customer.models import Customer, Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
 
 from .shared import MAX_BUDGET_IMAGES, _get_budget_with_prefetched_items, _render_budget_items_rows, _validate_uploaded_files, _validate_uploaded_images
@@ -316,6 +316,19 @@ class BudgetStep1Form(forms.ModelForm):
             self.initial["workshop"] = workshop_name
             self.fields["customer"].queryset = self.fields["customer"].queryset.filter(workshop=self.workshop)
 
+            if not self.is_bound and (not self.instance or not self.instance.pk):
+                requested_customer_id = (self.request.GET.get("customer") if self.request else "") or ""
+                requested_vehicle_id = (self.request.GET.get("vehicle") if self.request else "") or ""
+
+                requested_customer = Customer.objects.filter(workshop=self.workshop, pk=requested_customer_id).first() if requested_customer_id else None
+                if requested_customer is not None:
+                    self.initial["customer"] = requested_customer.pk
+                    self.fields["vehicle"].queryset = Vehicle.objects.filter(customer=requested_customer)
+
+                requested_vehicle = Vehicle.objects.filter(workshop=self.workshop, pk=requested_vehicle_id).first() if requested_vehicle_id else None
+                if requested_vehicle is not None and (requested_customer is None or requested_vehicle.customer_id == requested_customer.pk):
+                    self.initial["vehicle"] = requested_vehicle.pk
+
         if self.instance:
             user = self.instance.cost_estimator
             if user:
@@ -347,8 +360,14 @@ class BudgetStep1Form(forms.ModelForm):
         if not selected_customer_id and self.instance and self.instance.customer_id:
             selected_customer_id = str(self.instance.customer_id)
 
+        if not selected_customer_id and self.initial.get("customer"):
+            selected_customer_id = str(self.initial.get("customer"))
+
         if not selected_vehicle_id and self.instance and self.instance.vehicle_id:
             selected_vehicle_id = str(self.instance.vehicle_id)
+
+        if not selected_vehicle_id and self.initial.get("vehicle"):
+            selected_vehicle_id = str(self.initial.get("vehicle"))
 
         customer_vehicle_x_data = json.dumps({"customerId": selected_customer_id, "vehicleId": selected_vehicle_id})
 
@@ -2613,7 +2632,9 @@ class BudgetStep6Form(forms.ModelForm):
         status_label = status_data["text"]
         status_class = status_data["class"]
 
-        saved_observation = budget.pdf_observation or ""
+        saved_observation = ""
+        if self.workshop:
+            saved_observation = self.workshop.pdf_observation or ""
 
         # Render das linhas (mantido)
         rows = _render_budget_items_rows(budget, step6=True)
@@ -2642,13 +2663,14 @@ class BudgetStep6Form(forms.ModelForm):
                 function saveObservation(budgetId) {
                     const observation = document.getElementById('budget-observation').value;
 
-                    fetch('{reverse("budget:save_observation", args=[budget.pk])}', {
+                    fetch('/budget/save-observation/', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                             'X-CSRFToken': '{{ csrf_token }}'
                         },
                         body: JSON.stringify({
+                            budget_id: budgetId,
                             observation: observation,
                         })
                     });

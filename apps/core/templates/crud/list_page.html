@@ -17,12 +17,47 @@
                 id="{% block crud_table_wrapper_id %}table-wrapper{% endblock %}"
                 hx-get="{% block crud_table_hx_get %}{{ request.path }}{% endblock %}"
                 hx-trigger="{% block crud_table_hx_trigger %}table-refresh from:body{% endblock %}"
-                hx-vals="js:{...(() => { const params = {}; const searchParams = new URLSearchParams(window.location.search); searchParams.forEach((value, key) => { if (key === 'page') { return; } if (Object.prototype.hasOwnProperty.call(params, key)) { const currentValue = params[key]; params[key] = Array.isArray(currentValue) ? [...currentValue, value] : [currentValue, value]; return; } params[key] = value; }); return params; })()}"
                 hx-target="this"
                 hx-swap="innerHTML"
             >
                 {% block crud_table %}{% endblock %}
             </div>
+
+            <script>
+                (function () {
+                    const wrapper = document.currentScript.previousElementSibling;
+                    if (!wrapper || wrapper.dataset.queryParamsBound === 'true') return;
+
+                    wrapper.dataset.queryParamsBound = 'true';
+                    wrapper.addEventListener('htmx:configRequest', function (event) {
+                        if (!event.detail || event.detail.elt !== wrapper) return;
+
+                        const parameters = event.detail.parameters || {};
+                        const searchParams = new URLSearchParams(window.location.search);
+
+                        searchParams.forEach((value, key) => {
+                            if (!Object.prototype.hasOwnProperty.call(parameters, key)) {
+                                parameters[key] = value;
+                                return;
+                            }
+
+                            const currentValue = parameters[key];
+                            if (Array.isArray(currentValue)) {
+                                if (!currentValue.includes(value)) {
+                                    parameters[key] = [...currentValue, value];
+                                }
+                                return;
+                            }
+
+                            if (currentValue !== value) {
+                                parameters[key] = [currentValue, value];
+                            }
+                        });
+
+                        event.detail.parameters = parameters;
+                    });
+                })();
+            </script>
         </div>
     </div>
 

@@ -6,9 +6,15 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.test import TestCase
+from django.urls import reverse
 
+from apps.accounts.models import Account, User
+from apps.catalog.models.groups import CatalogGroup
+from apps.catalog.models.products import Product
+from apps.collaborators.models import WorkshopMember
+from apps.iam.utils import get_or_create_director_role
 from apps.stock.forms import ImportSefazListForm
-from apps.stock.models import SefazZipCache, StockImport
+from apps.stock.models import SefazZipCache, StockImport, StockMovement, StockProduct, StockTransfer
 from apps.stock.utils import NFParser
 from apps.workshops.models.workshops import Workshop
 
@@ -93,3 +99,201 @@ class StockSefazTests(TestCase):
         )
 
         self.assertEqual(stock_import.nf_number_display, "987")
+
+
+def create_director_user_with_workshop(*, suffix: int = 1) -> tuple[User, Workshop]:
+    user = User.objects.create_user(username=f"stock_director{suffix}", password="123", cpf=f"33344455{suffix:03d}")
+    account = Account.objects.create(name=f"Conta Estoque {suffix}", owner=user)
+    user.account = account
+    user.is_account_owner = True
+    user.save(update_fields=["account", "is_account_owner"])
+
+    workshop = Workshop.objects.create(
+        account=account,
+        name=f"Oficina Estoque {suffix}",
+        cnpj=f"31.222.444/0001-{suffix:02d}",
+        phone="+5511988887777",
+        address="Rua Estoque, 10",
+        uf="SP",
+    )
+
+    director_role = get_or_create_director_role(account=account, with_all_permissions=True)
+    WorkshopMember.objects.create(user=user, workshop=workshop, role=director_role, is_active=True)
+    return user, workshop
+
+
+class StockTransferFlowTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.destination_workshop = create_director_user_with_workshop(suffix=20)
+        self.source_workshop = Workshop.objects.create(
+            account=self.destination_workshop.account,
+            name="Oficina Origem",
+            cnpj="31.222.444/0001-21",
+            phone="+5511988887766",
+            address="Rua Origem, 20",
+            uf="SP",
+        )
+        director_role = get_or_create_director_role(account=self.destination_workshop.account, with_all_permissions=True)
+        WorkshopMember.objects.create(user=self.user, workshop=self.source_workshop, role=director_role, is_active=True)
+
+        self.source_group = CatalogGroup.objects.create(workshop=self.source_workshop, name="Filtros")
+        self.destination_group = CatalogGroup.objects.create(workshop=self.destination_workshop, name="Filtros")
+        self.source_product = Product.objects.create(
+            workshop=self.source_workshop,
+            code="FLT-001",
+            name="Filtro de Oleo",
+            unit=Product.Unit.UND,
+            group=self.source_group,
+            cost_price="10.00",
+            selling_price="15.00",
+            origin_cst=Product.OriginCST.NACIONAL,
+            purpose=Product.Purpose.RESALE,
+        )
+        self.destination_product = Product.objects.create(
+            workshop=self.destination_workshop,
+            code="FLT-DEST-001",
+            name="Filtro de Oleo Destino",
+            unit=Product.Unit.UND,
+            group=self.destination_group,
+            cost_price="11.00",
+            selling_price="16.00",
+            origin_cst=Product.OriginCST.NACIONAL,
+            purpose=Product.Purpose.RESALE,
+        )
+        self.source_stock = StockProduct.objects.get(workshop=self.source_workshop, product=self.source_product)
+        self.source_stock.current_quantity = 8
+        self.source_stock.save(update_fields=["current_quantity"])
+        self.destination_stock = StockProduct.objects.get(workshop=self.destination_workshop, product=self.destination_product)
+        self.destination_stock.current_quantity = 2
+        self.destination_stock.save(update_fields=["current_quantity"])
+
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["active_workshop_id"] = self.destination_workshop.pk
+        session.save()
+
+    def test_transfer_workflow_moves_stock_between_workshops(self) -> None:
+        response = self.client.post(reverse("stock:transfer") + "?step=1", {"source_workshop": self.source_workshop.pk, "destination_workshop": self.destination_workshop.pk})
+        self.assertEqual(response.status_code, 302)
+
+        transfer = StockTransfer.objects.get()
+        transfer.items_data = [
+            {
+                "source_product_id": str(self.source_product.pk),
+                "destination_product_id": str(self.destination_product.pk),
+                "qtd": 3,
+                "valor": "10.00",
+            }
+        ]
+        transfer.current_step = 3
+        transfer.save(update_fields=["items_data", "current_step"])
+
+        response = self.client.post(reverse("stock:transfer_update", kwargs={"pk": transfer.pk}) + "?step=3", {})
+        self.assertEqual(response.status_code, 302)
+
+        transfer.refresh_from_db()
+        self.source_stock.refresh_from_db()
+        self.destination_stock.refresh_from_db()
+
+        self.assertEqual(transfer.status, StockTransfer.TransferStatus.COMPLETED)
+        self.assertEqual(self.source_stock.current_quantity, 5)
+        self.assertEqual(self.destination_stock.current_quantity, 5)
+
+        exit_movement = StockMovement.objects.get(workshop=self.source_workshop, stock_transfer=transfer, type=StockMovement.MovementType.EXIT)
+        entry_movement = StockMovement.objects.get(workshop=self.destination_workshop, stock_transfer=transfer, type=StockMovement.MovementType.ENTRY)
+        self.assertEqual(exit_movement.quantity, 3)
+        self.assertEqual(entry_movement.quantity, 3)
+
+    def test_transfer_summary_blocks_when_source_stock_is_insufficient(self) -> None:
+        transfer = StockTransfer.objects.create(
+            source_workshop=self.source_workshop,
+            destination_workshop=self.destination_workshop,
+            user=self.user,
+            current_step=3,
+            items_data=[
+                {
+                    "source_product_id": str(self.source_product.pk),
+                    "destination_product_id": str(self.destination_product.pk),
+                    "qtd": 99,
+                    "valor": "10.00",
+                }
+            ],
+        )
+
+        response = self.client.post(reverse("stock:transfer_update", kwargs={"pk": transfer.pk}) + "?step=3", {})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Saldo insuficiente")
+
+        transfer.refresh_from_db()
+        self.source_stock.refresh_from_db()
+        self.destination_stock.refresh_from_db()
+        self.assertEqual(transfer.status, StockTransfer.TransferStatus.DRAFT)
+        self.assertEqual(self.source_stock.current_quantity, 8)
+        self.assertEqual(self.destination_stock.current_quantity, 2)
+
+    def test_create_destination_product_endpoint_clones_product_into_destination(self) -> None:
+        transfer = StockTransfer.objects.create(
+            source_workshop=self.source_workshop,
+            destination_workshop=self.destination_workshop,
+            user=self.user,
+            current_step=2,
+            items_data=[
+                {
+                    "source_product_id": str(self.source_product.pk),
+                    "destination_product_id": None,
+                    "qtd": 1,
+                    "valor": "10.00",
+                }
+            ],
+        )
+
+        response = self.client.post(reverse("stock:create_transfer_destination_product") + f"?pk={transfer.pk}&item_idx=0")
+        self.assertEqual(response.status_code, 204)
+
+        transfer.refresh_from_db()
+        destination_product_id = transfer.items_data[0]["destination_product_id"]
+        self.assertIsNotNone(destination_product_id)
+
+        created_product = Product.objects.get(pk=destination_product_id)
+        self.assertEqual(created_product.workshop, self.destination_workshop)
+        self.assertEqual(created_product.code, self.source_product.code)
+        self.assertEqual(created_product.group.name, self.source_group.name)
+
+    def test_stock_history_lists_imports_and_transfers(self) -> None:
+        stock_import = StockImport.objects.create(
+            workshop=self.destination_workshop,
+            user=self.user,
+            nf_key="0" * 44,
+            nf_number="1234",
+            supplier_name="Fornecedor XPTO",
+            status=StockImport.ImportStatus.COMPLETED,
+        )
+        transfer = StockTransfer.objects.create(
+            source_workshop=self.source_workshop,
+            destination_workshop=self.destination_workshop,
+            user=self.user,
+            status=StockTransfer.TransferStatus.COMPLETED,
+        )
+
+        response = self.client.get(reverse("stock:stock_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "1234")
+        self.assertContains(response, "Fornecedor XPTO")
+        self.assertContains(response, "TRANSFERENCIA")
+        self.assertContains(response, f"{self.source_workshop.name} -&gt; {self.destination_workshop.name}")
+        self.assertContains(response, reverse("stock:history_edit", kwargs={"record_type": "import", "pk": stock_import.pk}))
+        self.assertContains(response, reverse("stock:history_edit", kwargs={"record_type": "transfer", "pk": transfer.pk}))
+        self.assertContains(response, reverse("stock:stock_delete", args=[stock_import.pk]))
+        self.assertEqual(response.content.decode("utf-8").count("btn-table-delete"), 2)
+
+    def test_history_edit_redirect_routes_transfer_to_transfer_update(self) -> None:
+        transfer = StockTransfer.objects.create(
+            source_workshop=self.source_workshop,
+            destination_workshop=self.destination_workshop,
+            user=self.user,
+        )
+
+        response = self.client.get(reverse("stock:history_edit", kwargs={"record_type": "transfer", "pk": transfer.pk}))
+
+        self.assertRedirects(response, reverse("stock:transfer_update", kwargs={"pk": transfer.pk}), fetch_redirect_response=False)

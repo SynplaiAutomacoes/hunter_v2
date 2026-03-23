@@ -37,7 +37,7 @@ from apps.core.documents.signature import normalize_signature_phone_number, pars
 from apps.core.documents.services import SignatureDeliveryServiceError, get_signed_document_url
 from apps.workorder.models import WorkOrder
 from apps.budget.views.pdf_views import signature_file, signature_preview, visualizar_pdf_assinatura
-from apps.budget.views.workflow_views import BUDGET_LIST_FILTERS, SaveObservationView, trigger_signature_send_if_needed
+from apps.budget.views.workflow_views import BUDGET_LIST_FILTERS, trigger_signature_send_if_needed
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.query_filters import apply_query_param_filters
 from apps.customer.models import Customer, Vehicle
@@ -218,6 +218,60 @@ class BudgetListFiltersTests(TestCase):
         self.assertIn('value="Ana"', html)
         self.assertIn('value="ABC1234"', html)
         self.assertIn('value="Joao"', html)
+
+    def _login_with_active_workshop(self, *, suffix: int) -> Workshop:
+        user, workshop = create_director_user_with_workshop(suffix=suffix)
+        self.client.force_login(user)
+
+        session = self.client.session
+        session["active_workshop_id"] = workshop.pk
+        session.save()
+        return workshop
+
+    def test_budget_list_hides_cancelled_by_default(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=72)
+        approved_budget = create_budget(workshop=workshop)
+        approved_budget.status = BudgetStatus.APPROVED
+        approved_budget.save(update_fields=["status"])
+        cancelled_budget = create_budget(workshop=workshop)
+        cancelled_budget.status = BudgetStatus.CANCELLED
+        cancelled_budget.save(update_fields=["status"])
+
+        response = self.client.get(reverse("budget:budget_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertQuerySetEqual(response.context["budget"].order_by("pk"), [approved_budget], transform=lambda obj: obj)
+        self.assertNotIn(cancelled_budget, response.context["budget"])
+
+    def test_budget_list_shows_cancelled_when_cancelled_filter_is_selected(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=73)
+        approved_budget = create_budget(workshop=workshop)
+        approved_budget.status = BudgetStatus.APPROVED
+        approved_budget.save(update_fields=["status"])
+        cancelled_budget = create_budget(workshop=workshop)
+        cancelled_budget.status = BudgetStatus.CANCELLED
+        cancelled_budget.save(update_fields=["status"])
+
+        response = self.client.get(reverse("budget:budget_list"), {"status": BudgetStatus.CANCELLED})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertQuerySetEqual(response.context["budget"].order_by("pk"), [cancelled_budget], transform=lambda obj: obj)
+        self.assertNotIn(approved_budget, response.context["budget"])
+
+    def test_budget_list_keeps_cancelled_hidden_for_invalid_status_filter(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=74)
+        approved_budget = create_budget(workshop=workshop)
+        approved_budget.status = BudgetStatus.APPROVED
+        approved_budget.save(update_fields=["status"])
+        cancelled_budget = create_budget(workshop=workshop)
+        cancelled_budget.status = BudgetStatus.CANCELLED
+        cancelled_budget.save(update_fields=["status"])
+
+        response = self.client.get(reverse("budget:budget_list"), {"status": "invalid-status"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertQuerySetEqual(response.context["budget"].order_by("pk"), [approved_budget], transform=lambda obj: obj)
+        self.assertNotIn(cancelled_budget, response.context["budget"])
 
 
 class BudgetTotalsConsistencyTests(TestCase):
@@ -656,10 +710,9 @@ class BudgetSignaturePublicViewTests(TestCase):
     def test_signature_preview_renders_budget_pdf_template(self, build_context_mock, render_mock) -> None:
         workshop = create_workshop(suffix=78)
         budget = create_budget(workshop=workshop)
-        budget.pdf_observation = "Observacao do orcamento"
         token = extract_token_from_url(build_signature_preview_url(budget=budget))
 
-        build_context_mock.return_value = {"budget": budget, "observacao": budget.pdf_observation}
+        build_context_mock.return_value = {"budget": budget, "observacao": workshop.pdf_observation}
         render_mock.return_value = HttpResponse("preview")
 
         response = signature_preview(self.factory.get("/"), token)
@@ -667,7 +720,7 @@ class BudgetSignaturePublicViewTests(TestCase):
         self.assertEqual(response.content, b"preview")
         render_mock.assert_called_once()
         self.assertEqual(render_mock.call_args.args[1], "budget/partials/pdf/visualizarPDF.html")
-        self.assertEqual(render_mock.call_args.args[2], {"budget": budget, "observacao": budget.pdf_observation})
+        self.assertEqual(render_mock.call_args.args[2], {"budget": budget, "observacao": workshop.pdf_observation})
 
     def test_signature_preview_rejects_inactive_token(self) -> None:
         workshop = create_workshop(suffix=79)
@@ -694,55 +747,6 @@ class BudgetSignaturePublicViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, b"%PDF-file")
         self.assertIn('inline; filename="orcamento_', response["Content-Disposition"])
-
-
-class BudgetObservationTests(TestCase):
-    def setUp(self) -> None:
-        self.factory = RequestFactory()
-
-    def test_save_observation_updates_only_target_budget(self) -> None:
-        workshop = create_workshop(suffix=20)
-        first_budget = create_budget(workshop=workshop)
-        second_budget = create_budget(workshop=workshop)
-        second_budget.pdf_observation = "Manter"
-        second_budget.save(update_fields=["pdf_observation"])
-
-        request = self.factory.post(
-            "/budget/",
-            data='{"observation":"Observacao exclusiva"}',
-            content_type="application/json",
-        )
-
-        view = SaveObservationView()
-        view.workshop = workshop
-
-        response = view.post(request, first_budget.pk)
-
-        self.assertEqual(response.status_code, 200)
-        first_budget.refresh_from_db()
-        second_budget.refresh_from_db()
-        self.assertEqual(first_budget.pdf_observation, "Observacao exclusiva")
-        self.assertEqual(second_budget.pdf_observation, "Manter")
-
-    @patch("apps.budget.documents.provider.build_budget_pdf_context")
-    def test_build_budget_pdf_render_request_uses_budget_observation(self, build_context_mock) -> None:
-        from apps.budget.documents.provider import build_budget_pdf_render_request
-
-        workshop = create_workshop(suffix=21)
-        workshop.pdf_observation = "Observacao da oficina"
-        workshop.save(update_fields=["pdf_observation"])
-
-        budget = create_budget(workshop=workshop)
-        budget.pdf_observation = "Observacao do orcamento"
-        budget.save(update_fields=["pdf_observation"])
-
-        request = self.factory.get("/")
-        build_context_mock.return_value = {"budget": budget, "observacao": budget.pdf_observation}
-
-        render_request = build_budget_pdf_render_request(budget=budget, request=request)
-
-        self.assertEqual(render_request.context["observacao"], "Observacao do orcamento")
-        build_context_mock.assert_called_once_with(budget=budget, observacao="Observacao do orcamento", request=request)
 
 
 class BudgetSignatureInternalPdfTests(TestCase):

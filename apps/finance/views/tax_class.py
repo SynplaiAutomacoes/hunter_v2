@@ -11,6 +11,7 @@ from django.shortcuts import redirect
 from django.urls import reverse
 from django.views.generic import TemplateView
 
+from apps.core.query_filters import apply_is_active_filter
 from apps.finance.forms import (
     CofinsScenarioForm,
     CofinsScenarioFormSet,
@@ -809,7 +810,9 @@ class TaxClassPresetListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateVi
     workshop_permission_codename = "view_nfserequest"
 
     def _get_queryset_by_tab(self, *, tab: str):
-        return TaxClassPreset.objects.filter(workshop=self.workshop, kind=TaxClassManagerView._preset_kind_from_tab(tab)).order_by("name", "id")
+        queryset = TaxClassPreset.objects.filter(workshop=self.workshop, kind=TaxClassManagerView._preset_kind_from_tab(tab))
+        queryset = apply_is_active_filter(queryset, params=self.request.GET)
+        return queryset.order_by("name", "id")
 
     def get_context_data(self, **kwargs: object) -> dict[str, object]:
         context = super().get_context_data(**kwargs)
