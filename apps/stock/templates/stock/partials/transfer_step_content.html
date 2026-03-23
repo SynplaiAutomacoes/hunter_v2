@@ -1,0 +1,47 @@
+{% load crispy_forms_tags %}
+
+<div id="transfer-step-wrapper" class="w-full"
+     hx-get="{{ request.path }}?step={{ current_step }}{% if object.pk %}&pk={{ object.pk }}{% endif %}"
+     hx-trigger="productCreated from:body"
+     hx-target="#step-container"
+     hx-indicator="#loading-spinner"
+     hx-swap="innerHTML">
+
+    {% include 'navbar/stepper.html' %}
+
+    <div class="flex items-center justify-between mb-6">
+        {% if current_step > 1 %}
+            {% if object.pk %}
+                {% url 'stock:transfer_update' object.pk as back_url_base %}
+            {% else %}
+                {% url 'stock:transfer' as back_url_base %}
+            {% endif %}
+
+            <button type="button" class="btn btn-outline"
+                    hx-get="{{ back_url_base }}?step={{ current_step|add:-1 }}{% if object.pk %}&pk={{ object.pk }}{% endif %}"
+                    hx-target="#step-container"
+                    hx-push-url="true">
+                <span class="material-icons">arrow_back</span> Voltar
+            </button>
+        {% else %}
+            <div></div>
+        {% endif %}
+
+        <button type="submit" form="transfer-form" class="btn btn-primary">
+            {% if not object.pk or current_step < steps_config|length %} Continuar {% else %} Finalizar Transferência {% endif %}
+        </button>
+    </div>
+
+    <div id="form-container">
+        <form id="transfer-form"
+              method="post"
+              action="{{ request.path }}?step={{ current_step }}{% if object.pk %}&pk={{ object.pk }}{% endif %}"
+              hx-post="{{ request.path }}?step={{ current_step }}{% if object.pk %}&pk={{ object.pk }}{% endif %}"
+              hx-target="#step-container"
+              enctype="multipart/form-data"
+              hx-swap="innerHTML">
+            {% csrf_token %}
+            {% crispy form %}
+        </form>
+    </div>
+</div>
