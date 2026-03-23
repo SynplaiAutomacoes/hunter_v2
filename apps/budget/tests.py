@@ -219,6 +219,60 @@ class BudgetListFiltersTests(TestCase):
         self.assertIn('value="ABC1234"', html)
         self.assertIn('value="Joao"', html)
 
+    def _login_with_active_workshop(self, *, suffix: int) -> Workshop:
+        user, workshop = create_director_user_with_workshop(suffix=suffix)
+        self.client.force_login(user)
+
+        session = self.client.session
+        session["active_workshop_id"] = workshop.pk
+        session.save()
+        return workshop
+
+    def test_budget_list_hides_cancelled_by_default(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=72)
+        approved_budget = create_budget(workshop=workshop)
+        approved_budget.status = BudgetStatus.APPROVED
+        approved_budget.save(update_fields=["status"])
+        cancelled_budget = create_budget(workshop=workshop)
+        cancelled_budget.status = BudgetStatus.CANCELLED
+        cancelled_budget.save(update_fields=["status"])
+
+        response = self.client.get(reverse("budget:budget_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertQuerySetEqual(response.context["budget"].order_by("pk"), [approved_budget], transform=lambda obj: obj)
+        self.assertNotIn(cancelled_budget, response.context["budget"])
+
+    def test_budget_list_shows_cancelled_when_cancelled_filter_is_selected(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=73)
+        approved_budget = create_budget(workshop=workshop)
+        approved_budget.status = BudgetStatus.APPROVED
+        approved_budget.save(update_fields=["status"])
+        cancelled_budget = create_budget(workshop=workshop)
+        cancelled_budget.status = BudgetStatus.CANCELLED
+        cancelled_budget.save(update_fields=["status"])
+
+        response = self.client.get(reverse("budget:budget_list"), {"status": BudgetStatus.CANCELLED})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertQuerySetEqual(response.context["budget"].order_by("pk"), [cancelled_budget], transform=lambda obj: obj)
+        self.assertNotIn(approved_budget, response.context["budget"])
+
+    def test_budget_list_keeps_cancelled_hidden_for_invalid_status_filter(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=74)
+        approved_budget = create_budget(workshop=workshop)
+        approved_budget.status = BudgetStatus.APPROVED
+        approved_budget.save(update_fields=["status"])
+        cancelled_budget = create_budget(workshop=workshop)
+        cancelled_budget.status = BudgetStatus.CANCELLED
+        cancelled_budget.save(update_fields=["status"])
+
+        response = self.client.get(reverse("budget:budget_list"), {"status": "invalid-status"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertQuerySetEqual(response.context["budget"].order_by("pk"), [approved_budget], transform=lambda obj: obj)
+        self.assertNotIn(cancelled_budget, response.context["budget"])
+
 
 class BudgetTotalsConsistencyTests(TestCase):
     def test_total_base_value_uses_item_selling_totals_only(self) -> None:
