@@ -2082,9 +2082,10 @@ class WebmaniaCompanyUpdateFormTests(TestCase):
 
         self.assertTrue(form.is_valid(), msg=form.errors)
 
-    def test_save_encrypts_certificado_and_preserves_value_when_blank(self) -> None:
+    def test_certificate_fields_are_read_only_and_preserve_existing_value(self) -> None:
         self.company.certificado = encrypt_secret("CERT_ANTIGO")
-        self.company.save(update_fields=["certificado"])
+        self.company.certificado_senha = encrypt_secret("SENHA_ANTIGA")
+        self.company.save(update_fields=["certificado", "certificado_senha"])
 
         update_form = WebmaniaCompanyUpdateForm(
             data={
@@ -2092,14 +2093,18 @@ class WebmaniaCompanyUpdateFormTests(TestCase):
                 "cnpj": "11.222.333/0001-81",
                 "razao_social": "Empresa Teste",
                 "certificado": "NOVO_CERTIFICADO",
+                "certificado_senha": "NOVA_SENHA",
             },
             instance=self.company,
         )
 
         self.assertTrue(update_form.is_valid(), msg=update_form.errors)
+        self.assertTrue(update_form.fields["certificado"].disabled)
+        self.assertTrue(update_form.fields["certificado_senha"].disabled)
         updated_company = update_form.save()
         self.assertTrue(is_encrypted_secret(updated_company.certificado))
-        self.assertEqual(decrypt_secret(updated_company.certificado), "NOVO_CERTIFICADO")
+        self.assertEqual(decrypt_secret(updated_company.certificado), "CERT_ANTIGO")
+        self.assertEqual(decrypt_secret(updated_company.certificado_senha), "SENHA_ANTIGA")
 
         keep_form = WebmaniaCompanyUpdateForm(
             data={
@@ -2114,7 +2119,8 @@ class WebmaniaCompanyUpdateFormTests(TestCase):
         self.assertTrue(keep_form.is_valid(), msg=keep_form.errors)
         kept_company = keep_form.save()
         self.assertTrue(is_encrypted_secret(kept_company.certificado))
-        self.assertEqual(decrypt_secret(kept_company.certificado), "NOVO_CERTIFICADO")
+        self.assertEqual(decrypt_secret(kept_company.certificado), "CERT_ANTIGO")
+        self.assertEqual(decrypt_secret(kept_company.certificado_senha), "SENHA_ANTIGA")
 
     @override_settings(WEBMANIA_AMBIENT="1")
     def test_hides_homolog_fields_when_not_in_homolog_environment(self) -> None:

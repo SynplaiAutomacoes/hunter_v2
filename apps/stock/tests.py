@@ -5,6 +5,7 @@ import gzip
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 
@@ -27,7 +28,7 @@ class StockSefazTests(TestCase):
             phone="+5511999999999",
             address="Rua Teste, 123",
             uf="SP",
-            pfx_certificate="certificados/teste.pfx",
+            pfx_certificate=SimpleUploadedFile("teste.pfx", b"certificado-teste", content_type="application/x-pkcs12"),
             certificate_password="segredo",
         )
 

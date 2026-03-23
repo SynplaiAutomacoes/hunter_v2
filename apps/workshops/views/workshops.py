@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 from datetime import date
 import logging
 from typing import Any, cast
@@ -10,8 +9,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.http import HttpResponse
-from django.http import JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.template.response import TemplateResponse
 from django.urls import reverse, reverse_lazy
@@ -33,7 +31,7 @@ from apps.finance.services.webmania_b2b import (
     sync_b2b_companies_to_database,
     update_webmania_company,
 )
-from apps.finance.services.webmania_secrets import decrypt_secret, encrypt_secret
+from apps.finance.services.webmania_secrets import decrypt_secret
 from apps.finance.views.common import DirectorWorkshopAccessMixin
 from apps.iam.utils import get_or_create_director_role
 from apps.workshops.forms.workshops import (
@@ -47,11 +45,43 @@ from apps.workshops.forms.workshops import (
     WorkshopOptionalsSectionForm,
 )
 from apps.workshops.models.workshops import Workshop
+from apps.workshops.services.files import (
+    WorkshopFileStorageError,
+    WorkshopFileSyncError,
+    clear_workshop_logo,
+    get_workshop_logo_file,
+    save_workshop_certificate_atomic,
+    save_workshop_logo,
+    schedule_workshop_files_cleanup,
+)
 from apps.workshops.util.monthly_costs import create_default_monthly_costs
 from apps.workshops.util.workshops import has_workshop_perm, is_workshop_director, is_workshop_manager
 
 
 logger = logging.getLogger(__name__)
+
+
+def _get_user_workshop_queryset(request):
+    user = cast(Any, request.user)
+    account_id = getattr(user, "account_id", None)
+    base_qs = Workshop.objects.select_related("webmania_company").filter(account_id=account_id)
+
+    active_workshop_id = request.session.get("active_workshop_id")
+    active_workshop = base_qs.filter(pk=active_workshop_id, is_active=True, members__user=user, members__is_active=True).distinct().first() if active_workshop_id else None
+
+    if active_workshop is not None and is_workshop_director(user=user, workshop=active_workshop, request=request):
+        return base_qs.filter(members__user=user, members__is_active=True).distinct()
+
+    if active_workshop is not None and is_workshop_manager(user=user, workshop=active_workshop, request=request):
+        return base_qs.filter(pk=active_workshop.pk)
+
+    return base_qs.filter(
+        members__user=user,
+        members__is_active=True,
+        members__role__permissions__content_type__app_label="workshops",
+        members__role__permissions__content_type__model="workshop",
+        members__role__permissions__codename="change_workshop",
+    ).distinct()
 
 
 # TODO: Não permitir nome igual de oficina
@@ -180,30 +210,8 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
         self.company = self._get_or_create_company()
         return super().dispatch(request, *args, **kwargs)
 
-    def _get_workshop_queryset(self):
-        user = cast(Any, self.request.user)
-        account_id = getattr(user, "account_id", None)
-        base_qs = Workshop.objects.select_related("webmania_company").filter(account_id=account_id)
-
-        active_workshop_id = self.request.session.get("active_workshop_id")
-        active_workshop = base_qs.filter(pk=active_workshop_id, is_active=True, members__user=user, members__is_active=True).distinct().first() if active_workshop_id else None
-
-        if active_workshop is not None and is_workshop_director(user=user, workshop=active_workshop, request=self.request):
-            return base_qs.filter(members__user=user, members__is_active=True).distinct()
-
-        if active_workshop is not None and is_workshop_manager(user=user, workshop=active_workshop, request=self.request):
-            return base_qs.filter(pk=active_workshop.pk)
-
-        return base_qs.filter(
-            members__user=user,
-            members__is_active=True,
-            members__role__permissions__content_type__app_label="workshops",
-            members__role__permissions__content_type__model="workshop",
-            members__role__permissions__codename="change_workshop",
-        ).distinct()
-
     def _get_workshop(self) -> Workshop:
-        return get_object_or_404(self._get_workshop_queryset(), pk=self.kwargs.get("pk"))
+        return get_object_or_404(_get_user_workshop_queryset(self.request), pk=self.kwargs.get("pk"))
 
     def _get_or_create_company(self) -> WebmaniaCompany:
         company = getattr(self.object, "webmania_company", None)
@@ -292,16 +300,13 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
 
         return payload
 
+    def _logo_preview_url(self) -> str:
+        if not self.object.has_logo_file:
+            return ""
+        return reverse("workshops:logo", kwargs={"pk": self.object.pk})
+
     def _current_certificate_name(self) -> str:
-        if not self.object.pfx_certificate:
-            return ""
-
-        raw_name = str(self.object.pfx_certificate.name or "")
-        if not raw_name:
-            return ""
-
-        normalized = raw_name.replace("\\", "/")
-        return normalized.split("/")[-1]
+        return self.object.current_certificate_file_name
 
     def _certificate_status(self) -> dict[str, str]:
         certificate_name = self._current_certificate_name()
@@ -346,8 +351,10 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             "optionals_form": forms_map[self.TAB_OPCIONAIS],
             "credential_preview_fields": self._credential_preview_fields(),
             "certificate_status": self._certificate_status(),
+            "has_certificate_file": self.object.has_certificate_file,
+            "has_certificate_password": bool(str(self.object.certificate_password or "").strip()),
             "can_change_webmania_company": can_change_webmania_company,
-            "logo_form": WorkshopLogoForm(instance=self.object),
+            "logo_form": WorkshopLogoForm(instance=self.object, preview_url=self._logo_preview_url()),
         }
 
     def _build_update_url(self, *, tab: str, nf_subtab: str) -> str:
@@ -432,41 +439,6 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
 
         return redirect(self._build_update_url(tab=tab, nf_subtab=nf_subtab))
 
-    @staticmethod
-    def _encode_workshop_certificate(workshop: Workshop) -> str:
-        if not workshop.pfx_certificate:
-            return ""
-
-        try:
-            workshop.pfx_certificate.open("rb")
-            try:
-                raw_bytes = workshop.pfx_certificate.read()
-            finally:
-                workshop.pfx_certificate.close()
-        except OSError:
-            return ""
-
-        if not raw_bytes:
-            return ""
-
-        return base64.b64encode(raw_bytes).decode()
-
-    def _update_company_certificate_snapshot(self, *, encoded_certificate: str, certificate_password: str) -> None:
-        update_fields: list[str] = []
-
-        new_certificate_value = encrypt_secret(encoded_certificate) if encoded_certificate else ""
-        if self.company.certificado != new_certificate_value:
-            self.company.certificado = new_certificate_value
-            update_fields.append("certificado")
-
-        new_password_value = encrypt_secret(certificate_password) if certificate_password else ""
-        if self.company.certificado_senha != new_password_value:
-            self.company.certificado_senha = new_password_value
-            update_fields.append("certificado_senha")
-
-        if update_fields:
-            self.company.save(update_fields=update_fields)
-
     def _save_certificate_form(self, *, form: WorkshopCertificateSectionForm, tab: str, nf_subtab: str):
         if not form.changed_data:
             logger.info(
@@ -483,41 +455,15 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             getattr(self.request.user, "id", None),
         )
 
-        with transaction.atomic():
-            self.object = form.save()
-
-        encoded_certificate = self._encode_workshop_certificate(self.object)
-        certificate_password = str(self.object.certificate_password or "").strip()
-        self._update_company_certificate_snapshot(encoded_certificate=encoded_certificate, certificate_password=certificate_password)
-
-        payload: dict[str, str] = {}
-        if encoded_certificate:
-            payload["certificado"] = encoded_certificate
-        if certificate_password:
-            payload["certificado_senha"] = certificate_password
-
-        if not payload:
-            messages.success(self.request, "Certificados locais atualizados com sucesso.")
-            logger.info(
-                "workshop_certificate_saved_local_only workshop_id=%s reason=no_payload user_id=%s",
-                getattr(self.object, "pk", None),
-                getattr(self.request.user, "id", None),
-            )
-            return redirect(self._build_update_url(tab=tab, nf_subtab=nf_subtab))
-
-        if not self._can_change_webmania_company():
-            messages.warning(self.request, "Certificados locais atualizados. Sem permissao para sincronizar na integracao.")
-            logger.warning(
-                "workshop_certificate_saved_without_sync_permission workshop_id=%s user_id=%s",
-                getattr(self.object, "pk", None),
-                getattr(self.request.user, "id", None),
-            )
-            return redirect(self._build_update_url(tab=tab, nf_subtab=nf_subtab))
-
         try:
-            update_webmania_company(company=self.company, payload=payload)
-        except WebmaniaB2BServiceError as exc:
-            public_message = to_public_integration_message(str(exc))
+            save_workshop_certificate_atomic(
+                workshop=self.object,
+                company=self.company,
+                uploaded_file=form.cleaned_data.get("pfx_certificate"),
+                certificate_password=str(form.cleaned_data.get("certificate_password") or ""),
+            )
+        except (WebmaniaB2BServiceError, WorkshopFileStorageError, WorkshopFileSyncError) as exc:
+            public_message = to_public_integration_message(str(exc)) if isinstance(exc, WebmaniaB2BServiceError) else str(exc)
             self._save_company_sync_metadata(error=public_message)
             logger.warning(
                 "workshop_certificate_sync_failed workshop_id=%s error=%s user_id=%s",
@@ -525,11 +471,14 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
                 public_message,
                 getattr(self.request.user, "id", None),
             )
-            messages.warning(self.request, f"Certificados locais atualizados, mas a sincronizacao falhou: {public_message}")
-            return redirect(self._build_update_url(tab=tab, nf_subtab=nf_subtab))
+            form.add_error(None, public_message)
+            forms_map = self._build_forms(active_tab=tab)
+            forms_map[tab] = form
+            context = self._build_context(forms_map=forms_map, active_tab=tab, active_nf_subtab=nf_subtab)
+            return TemplateResponse(self.request, self.template_name, context)
 
         self._save_company_sync_metadata(error="")
-        messages.success(self.request, "Certificados atualizados e sincronizados com sucesso.")
+        messages.success(self.request, "Certificado atualizado e sincronizado com sucesso.")
         logger.info(
             "workshop_certificate_sync_succeeded workshop_id=%s user_id=%s",
             getattr(self.object, "pk", None),
@@ -547,7 +496,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
 
     def post(self, request, *args, **kwargs):
         if request.POST.get("tab") == self.TAB_LOGO_AUTOUPLOAD:
-            logo_form = WorkshopLogoForm(data=request.POST, files=request.FILES, instance=self.object)
+            logo_form = WorkshopLogoForm(data=request.POST, files=request.FILES, instance=self.object, preview_url=self._logo_preview_url())
             if not logo_form.is_valid():
                 first_error = "Erro ao salvar logo da oficina."
                 if logo_form.errors:
@@ -556,9 +505,22 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
                         first_error = str(logo_form.errors[first_key][0])
                 return JsonResponse({"ok": False, "message": first_error}, status=400)
 
-            if logo_form.changed_data:
-                logo_form.save()
-                return JsonResponse({"ok": True, "message": "Logo da oficina atualizada."})
+            if not logo_form.changed_data:
+                return JsonResponse({"ok": True, "message": "Nenhuma alteracao na logo."})
+
+            try:
+                if logo_form.should_clear():
+                    clear_workshop_logo(workshop=self.object)
+                    return JsonResponse({"ok": True, "message": "Logo da oficina removida."})
+
+                if logo_form.has_new_upload():
+                    uploaded_logo = logo_form.cleaned_data.get("logo")
+                    if uploaded_logo is None or uploaded_logo is False:
+                        return JsonResponse({"ok": True, "message": "Nenhuma alteracao na logo."})
+                    save_workshop_logo(workshop=self.object, uploaded_file=uploaded_logo)
+                    return JsonResponse({"ok": True, "message": "Logo da oficina atualizada."})
+            except WorkshopFileStorageError as exc:
+                return JsonResponse({"ok": False, "message": str(exc)}, status=400)
 
             return JsonResponse({"ok": True, "message": "Nenhuma alteracao na logo."})
 
@@ -579,6 +541,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             self.TAB_EMPRESA,
             self.TAB_ENDERECO,
             self.TAB_NOTA_FISCAL,
+            self.TAB_CERTIFICADO,
             self.TAB_OPCIONAIS,
         }
         if active_tab in restricted_webmania_tabs and not self._can_change_webmania_company():
@@ -610,6 +573,23 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
 
         context = self._build_context(forms_map=forms_map, active_tab=active_tab, active_nf_subtab=active_nf_subtab)
         return TemplateResponse(request, self.template_name, context)
+
+
+class WorkshopLogoView(LoginRequiredMixin, View):
+    def get(self, request, *args, **kwargs):
+        workshop = get_object_or_404(_get_user_workshop_queryset(request), pk=self.kwargs.get("pk"))
+
+        try:
+            stored_logo = get_workshop_logo_file(workshop)
+        except WorkshopFileStorageError as exc:
+            raise Http404(str(exc)) from exc
+
+        if stored_logo is None:
+            raise Http404("Logo nao encontrada.")
+
+        response = HttpResponse(stored_logo.content, content_type=stored_logo.content_type)
+        response["Content-Disposition"] = f'inline; filename="{stored_logo.filename}"'
+        return response
 
 
 class WorkshopDeleteView(LoginRequiredMixin, HtmxDeleteResponseMixin, DeleteView):
@@ -648,6 +628,7 @@ class WorkshopDeleteView(LoginRequiredMixin, HtmxDeleteResponseMixin, DeleteView
         )
 
         with transaction.atomic():
+            schedule_workshop_files_cleanup(self.object)
             self.object.delete()
 
         if self.request.session.get("active_workshop_id") == workshop_pk:

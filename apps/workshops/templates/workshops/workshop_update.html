@@ -234,8 +234,8 @@
                         </div>
                     {% endif %}
 
-                    <div class="mb-5 rounded-lg border p-4 {% if workshop.pfx_certificate and workshop.certificate_password %}border-success/30 bg-success/10{% elif workshop.pfx_certificate or workshop.certificate_password %}border-warning/30 bg-warning/10{% else %}border-base-300 bg-base-200/60{% endif %}">
-                        <p class="font-semibold {% if workshop.pfx_certificate and workshop.certificate_password %}text-success{% elif workshop.pfx_certificate or workshop.certificate_password %}text-warning{% else %}text-base-content{% endif %}">{{ certificate_status.label }}</p>
+                    <div class="mb-5 rounded-lg border p-4 {% if has_certificate_file and has_certificate_password %}border-success/30 bg-success/10{% elif has_certificate_file or has_certificate_password %}border-warning/30 bg-warning/10{% else %}border-base-300 bg-base-200/60{% endif %}">
+                        <p class="font-semibold {% if has_certificate_file and has_certificate_password %}text-success{% elif has_certificate_file or has_certificate_password %}text-warning{% else %}text-base-content{% endif %}">{{ certificate_status.label }}</p>
                         <p class="text-sm text-base-content/80 mt-1">{{ certificate_status.description }}</p>
                     </div>
 
@@ -266,7 +266,11 @@
 
                     <div class="divider"></div>
                     <div class="flex items-center justify-end gap-2">
-                        <button type="submit" class="btn-form-save">Salvar certificado</button>
+                        {% if can_change_webmania_company %}
+                            <button type="submit" class="btn-form-save">Salvar certificado</button>
+                        {% else %}
+                            <span class="text-sm text-warning">Voce nao possui permissao para alterar o certificado desta oficina.</span>
+                        {% endif %}
                     </div>
                 </form>
             </div>

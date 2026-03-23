@@ -4,6 +4,8 @@ import base64
 
 from djmoney.money import Money
 
+from apps.workshops.services.files import WorkshopFileStorageError, get_workshop_logo_file
+
 
 def _build_pdf_pages(produtos: list[dict], servicos: list[dict]) -> list[dict]:
     return [
@@ -82,6 +84,16 @@ def build_budget_pdf_context(*, budget, observacao: str, request=None) -> dict:
         }
         for line in snapshot.service_lines
     ]
+
+    workshop_logo_data_uri = ""
+    try:
+        stored_logo = get_workshop_logo_file(budget.workshop)
+    except WorkshopFileStorageError:
+        stored_logo = None
+
+    if stored_logo is not None and stored_logo.content:
+        encoded_logo = base64.b64encode(stored_logo.content).decode("ascii")
+        workshop_logo_data_uri = f"data:{stored_logo.content_type};base64,{encoded_logo}"
 
     return {
         "budget": budget,

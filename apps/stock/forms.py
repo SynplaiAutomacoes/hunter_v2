@@ -36,6 +36,7 @@ from apps.stock.models import StockTransfer
 from apps.stock.utils import NFParser
 from apps.suppliers.models import Supplier
 from apps.workshops.models.workshops import Workshop
+from apps.workshops.services.files import workshop_certificate_temp_path, workshop_has_certificate
 from apps.workshops.util.workshops import has_workshop_perm
 
 
@@ -133,16 +134,17 @@ class ImportStep1Form(forms.ModelForm):
             if len(nf_key) != 44:
                 self.add_error("access_key", "Insira uma chave válida de 44 dígitos.")
 
-            elif not self.workshop.pfx_certificate or not self.workshop.certificate_password:
+            elif not workshop_has_certificate(self.workshop) or not self.workshop.certificate_password:
                 self.add_error("method", "Oficina sem certificado configurado.")
 
             else:
                 try:
-                    comunicacao = ComunicacaoSefaz(self.workshop.uf.upper(), self.workshop.pfx_certificate.path, self.workshop.certificate_password)
-                    cnpj_clean = re.sub(r"\D", "", self.workshop.cnpj)
+                    with workshop_certificate_temp_path(self.workshop) as certificate_path:
+                        comunicacao = ComunicacaoSefaz(self.workshop.uf.upper(), certificate_path, self.workshop.certificate_password)
+                        cnpj_clean = re.sub(r"\D", "", self.workshop.cnpj)
 
-                    xml_response = comunicacao.consulta_distribuicao(cnpj=cnpj_clean, chave=nf_key)
-                    content = xml_response.content
+                        xml_response = comunicacao.consulta_distribuicao(cnpj=cnpj_clean, chave=nf_key)
+                        content = xml_response.content
 
                     if b"<cStat>215</cStat>" in content:
                         self.add_error("access_key", "Rejeição da SEFAZ por falha no esquema. Verifique se o CNPJ do certificado é o destinatário da nota.")
@@ -771,7 +773,7 @@ class ImportSefazListForm(forms.ModelForm):
         if not self.workshop.can_search_sefaz:
             return False, "A busca da SEFAZ foi executada recentemente. Aguarde alguns minutos para atualizar novamente."
 
-        if not self.workshop.pfx_certificate or not self.workshop.certificate_password:
+        if not workshop_has_certificate(self.workshop) or not self.workshop.certificate_password:
             return False, "Configure certificado e senha da oficina antes de buscar notas na SEFAZ."
 
         started_at = time.perf_counter()
@@ -779,8 +781,9 @@ class ImportSefazListForm(forms.ModelForm):
             cnpj = re.sub(r"\D", "", self.workshop.cnpj)
             nsu = self.workshop.last_nsu_sefaz
 
-            comunicacao = ComunicacaoSefaz(self.workshop.uf.upper(), self.workshop.pfx_certificate.path, self.workshop.certificate_password)
-            xml_resp = comunicacao.consulta_distribuicao(cnpj=cnpj, nsu=nsu)
+            with workshop_certificate_temp_path(self.workshop) as certificate_path:
+                comunicacao = ComunicacaoSefaz(self.workshop.uf.upper(), certificate_path, self.workshop.certificate_password)
+                xml_resp = comunicacao.consulta_distribuicao(cnpj=cnpj, nsu=nsu)
 
             # Parsing do retorno da SEFAZ (simplificado do seu exemplo)
             tree = etree.fromstring(xml_resp.content)
@@ -832,8 +835,9 @@ class ImportSefazListForm(forms.ModelForm):
 
         if key:
             try:
-                comunicacao = ComunicacaoSefaz(self.workshop.uf, self.workshop.pfx_certificate.path, self.workshop.certificate_password)
-                xml_completo = comunicacao.consulta_distribuicao(cnpj=re.sub(r"\D", "", self.workshop.cnpj), chave=key)
+                with workshop_certificate_temp_path(self.workshop) as certificate_path:
+                    comunicacao = ComunicacaoSefaz(self.workshop.uf, certificate_path, self.workshop.certificate_password)
+                    xml_completo = comunicacao.consulta_distribuicao(cnpj=re.sub(r"\D", "", self.workshop.cnpj), chave=key)
 
                 nf_data = NFParser.parse_nfe_xml_to_dict(self.workshop, xml_completo.content)
 
