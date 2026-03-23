@@ -8,6 +8,15 @@ from apps.suppliers.models import Supplier
 from djmoney.models.fields import MoneyField
 
 
+def _extract_nf_number_from_access_key(access_key: str | None) -> str:
+    if not access_key:
+        return ""
+    normalized_key = str(access_key).strip()
+    if len(normalized_key) >= 34:
+        return normalized_key[25:34].lstrip("0") or "0"
+    return ""
+
+
 class StockProduct(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="stock_products")
     product = models.OneToOneField("catalog.Product", on_delete=models.CASCADE, related_name="stock_products")
@@ -24,6 +33,7 @@ class StockProduct(TimeStampedModel):
     def __str__(self):
         return f"{self.product.name} - {self.current_quantity} unidades"
 
+
 class StockMovement(TimeStampedModel):
     class MovementType(models.TextChoices):
         ENTRY = "ENTRADA", "Entrada"
@@ -35,7 +45,9 @@ class StockMovement(TimeStampedModel):
         REJECTED = "REJEITADO", "Rejeitado"
 
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="movements")
-    stock_product = models.ForeignKey(StockProduct, on_delete=models.CASCADE, verbose_name="Peça",related_name="movements")
+    stock_product = models.ForeignKey(StockProduct, on_delete=models.CASCADE, verbose_name="Peça", related_name="movements")
+    stock_transfer = models.ForeignKey("stock.StockTransfer", on_delete=models.SET_NULL, null=True, blank=True, related_name="movements")
+    stock_product = models.ForeignKey(StockProduct, on_delete=models.CASCADE, verbose_name="Peça", related_name="movements")
     type = models.CharField(max_length=10, choices=MovementType.choices, verbose_name="Tipo")
     supplier = models.ForeignKey(Supplier, on_delete=models.SET_NULL, verbose_name="Fornecedor", null=True, blank=True, related_name="movements")
     transcation_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, related_name="movements", null=True)
@@ -105,9 +117,11 @@ class SefazZipCache(TimeStampedModel):
     class Meta:
         verbose_name = "Cache do Sefaz (zip)"
         verbose_name_plural = "Cache do Sefaz (zip)"
-
-    class Meta:
         unique_together = ("workshop", "key")
+
+    @property
+    def nf_number_display(self) -> str:
+        return self.nf_number or _extract_nf_number_from_access_key(self.key)
 
 
 class StockImport(TimeStampedModel):
@@ -116,16 +130,16 @@ class StockImport(TimeStampedModel):
         COMPLETED = "CONCLUIDO", "Concluído"
 
     class ImportMethods(models.TextChoices):
-        SEFAZ = 'SEFAZ', 'SEFAZ'
-        XML = 'XML', 'Arquivo XML'
-        KEY = 'KEY', 'Chave de Acesso'
-        MANUAL = 'MANUAL', 'Importar Manualmente'
+        SEFAZ = "SEFAZ", "SEFAZ"
+        XML = "XML", "Arquivo XML"
+        KEY = "KEY", "Chave de Acesso"
+        MANUAL = "MANUAL", "Importar Manualmente"
 
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE)
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, verbose_name="Aberto por",on_delete=models.SET_NULL, null=True)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, verbose_name="Aberto por", on_delete=models.SET_NULL, null=True)
 
     # Dados da NF
-    nf_number = models.CharField(verbose_name="NF",max_length=50, blank=True, null=True)
+    nf_number = models.CharField(verbose_name="NF", max_length=50, blank=True, null=True)
     nf_key = models.CharField(max_length=44, verbose_name="Chave de Acesso", blank=False, null=False)
     supplier_name = models.CharField(verbose_name="Fornecedor", max_length=255, blank=True, null=True)
     supplier_cnpj = models.CharField(max_length=20, blank=True, null=True)
@@ -134,7 +148,7 @@ class StockImport(TimeStampedModel):
     current_step = models.PositiveIntegerField(default=1)
     items_data = models.JSONField(default=list)
     payments_data = models.JSONField(default=list)
-    method = models.CharField(verbose_name="Selecione o método de Importação de Itens",max_length=30, choices=ImportMethods.choices, default=ImportMethods.XML)
+    method = models.CharField(verbose_name="Selecione o método de Importação de Itens", max_length=30, choices=ImportMethods.choices, default=ImportMethods.XML)
     status = models.CharField(max_length=20, choices=ImportStatus.choices, default=ImportStatus.DRAFT)
 
     class Meta:
@@ -145,10 +159,43 @@ class StockImport(TimeStampedModel):
         return f"Importação {self.nf_number} - {self.workshop}"
 
     @property
+    def nf_number_display(self) -> str:
+        return self.nf_number or _extract_nf_number_from_access_key(self.nf_key)
+
+    @property
     def stockimport_status_badge(self):
         status_color = {
             StockImport.ImportStatus.DRAFT: "badge-soft badge-ghost",
             StockImport.ImportStatus.COMPLETED: "badge-success",
+        }
+
+        return {"text": self.get_status_display(), "class": status_color.get(self.status, "badge-ghost")}
+
+
+class StockTransfer(TimeStampedModel):
+    class TransferStatus(models.TextChoices):
+        DRAFT = "RASCUNHO", "Rascunho"
+        COMPLETED = "CONCLUIDO", "Concluído"
+
+    source_workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="stock_transfers_sent")
+    destination_workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="stock_transfers_received")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, verbose_name="Aberto por", on_delete=models.SET_NULL, null=True)
+    current_step = models.PositiveIntegerField(default=1)
+    items_data = models.JSONField(default=list)
+    status = models.CharField(max_length=20, choices=TransferStatus.choices, default=TransferStatus.DRAFT)
+
+    class Meta:
+        verbose_name = "Transferência de Estoque"
+        verbose_name_plural = "Transferências de Estoque"
+
+    def __str__(self) -> str:
+        return f"Transferência {self.pk or '---'} - {self.source_workshop} -> {self.destination_workshop}"
+
+    @property
+    def stocktransfer_status_badge(self):
+        status_color = {
+            StockTransfer.TransferStatus.DRAFT: "badge-soft badge-ghost",
+            StockTransfer.TransferStatus.COMPLETED: "badge-success",
         }
 
         return {"text": self.get_status_display(), "class": status_color.get(self.status, "badge-ghost")}

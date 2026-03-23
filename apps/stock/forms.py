@@ -3,6 +3,7 @@ import logging
 import time
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from typing import Any
 
 from django import forms
 from django.conf import settings
@@ -12,6 +13,8 @@ from django.db import transaction
 import gzip
 import base64
 
+from django.core.paginator import Paginator
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils.safestring import mark_safe
 from lxml import etree
@@ -28,10 +31,12 @@ from apps.core.widgets import TextInput, SelectInput, NumberInput, MoneyInput, C
 from apps.finance.models.payment_method import PaymentMethod
 
 from apps.stock.models import StockPaymentMethod, StockImport, StockProduct, StockMovement, SefazZipCache
+from apps.stock.models import StockTransfer
 
 from apps.stock.utils import NFParser
 from apps.suppliers.models import Supplier
 from apps.workshops.models.workshops import Workshop
+from apps.workshops.util.workshops import has_workshop_perm
 
 
 external_calls_logger = logging.getLogger("performance.external")
@@ -742,6 +747,12 @@ class ImportSefazListForm(forms.ModelForm):
         self.import_payments = kwargs.pop("import_payments", [])
         super().__init__(*args, **kwargs)
 
+        queryset = SefazZipCache.objects.filter(workshop=self.workshop).order_by("-issue_date", "-criado_em")
+
+        page_number = self.request.GET.get("page", 1) if self.request else 1
+        paginator = Paginator(queryset, 10)
+        self.page_obj = paginator.get_page(page_number)
+
         imported_keys = StockImport.objects.filter(workshop=self.workshop).values_list("nf_key", flat=True)
         self.notas = SefazZipCache.objects.filter(workshop=self.workshop)
 
@@ -1100,6 +1111,489 @@ class ImportManualItemsForm(forms.ModelForm):
         if not self.instance.items_data or len(self.instance.items_data) == 0:
             raise forms.ValidationError("Adicione pelo menos um item para prosseguir.")
         return cleaned_data
+
+
+class TransferStepWorkshopsForm(forms.ModelForm):
+    source_workshop = forms.ModelChoiceField(queryset=Workshop.objects.none(), label="Oficina de Origem", widget=SelectInput())
+    destination_workshop = forms.ModelChoiceField(queryset=Workshop.objects.none(), label="Oficina de Destino", widget=SelectInput())
+
+    class Meta:
+        model = StockTransfer
+        fields = ["source_workshop", "destination_workshop"]
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        self.request = kwargs.pop("request", None)
+        self.allowed_workshops = kwargs.pop("allowed_workshops", Workshop.objects.none())
+        super().__init__(*args, **kwargs)
+
+        self.fields["source_workshop"].queryset = self.allowed_workshops
+        self.fields["destination_workshop"].queryset = self.allowed_workshops
+
+        active_workshop_id = self.request.session.get("active_workshop_id") if self.request is not None else None
+        if not self.instance.pk and active_workshop_id:
+            self.initial.setdefault("destination_workshop", active_workshop_id)
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout(
+            Div(
+                HTML('<h2 class="text-2xl font-bold mb-6 text-base-content">Origem e Destino</h2>'),
+                Div(
+                    Field("source_workshop", wrapper_class="col-span-12 lg:col-span-6"),
+                    Field("destination_workshop", wrapper_class="col-span-12 lg:col-span-6"),
+                    css_class="grid grid-cols-12 gap-4",
+                ),
+                HTML(
+                    """
+                    <div class="alert mt-6 bg-info/10 text-info border-none">
+                        <span class="material-icons">swap_horiz</span>
+                        <span class="text-xs">Selecione a oficina de onde o estoque sairá e a oficina que receberá os itens.</span>
+                    </div>
+                    """
+                ),
+            )
+        )
+
+    def clean(self) -> dict[str, Any]:
+        cleaned_data = super().clean()
+        source_workshop = cleaned_data.get("source_workshop")
+        destination_workshop = cleaned_data.get("destination_workshop")
+
+        if source_workshop and destination_workshop and source_workshop == destination_workshop:
+            self.add_error("destination_workshop", "Selecione uma oficina diferente da origem.")
+
+        if source_workshop and destination_workshop and source_workshop.account_id != destination_workshop.account_id:
+            self.add_error("destination_workshop", "A transferência só pode ocorrer entre oficinas da mesma conta.")
+
+        if self.request is not None:
+            for field_name, workshop in (("source_workshop", source_workshop), ("destination_workshop", destination_workshop)):
+                if workshop and not has_workshop_perm(
+                    user=self.request.user,
+                    workshop=workshop,
+                    app_label="stock",
+                    model="stockmovement",
+                    codename="change_stockmovement",
+                    request=self.request,
+                ):
+                    self.add_error(field_name, "Você não possui permissão para movimentar estoque nesta oficina.")
+
+        return cleaned_data
+
+
+class TransferItemsForm(forms.ModelForm):
+    class Meta:
+        model = StockTransfer
+        fields = []
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        self.request = kwargs.pop("request", None)
+        super().__init__(*args, **kwargs)
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout(HTML(self._build_transfer_items_html()))
+
+    def _build_transfer_items_html(self) -> str:
+        return f"""
+        <div class="space-y-6">
+            <div>
+                <h2 class="text-2xl font-bold text-base-content">Pareamento de Produtos</h2>
+                <p class="text-sm text-base-content/70 mt-1">Escolha na esquerda os itens da oficina de origem e vincule ou crie o produto correspondente na oficina de destino.</p>
+            </div>
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+                {self._render_source_column()}
+                {self._render_destination_column()}
+            </div>
+        </div>"""
+
+    def _selected_items_map(self) -> dict[str, dict[str, Any]]:
+        return {str(item.get("source_product_id")): item for item in (self.instance.items_data or []) if item.get("source_product_id")}
+
+    def _source_products(self):
+        search_query = self.request.GET.get("source_search", "").strip() if self.request is not None else ""
+        queryset = Product.objects.filter(workshop=self.instance.source_workshop, is_active=True, stock_products__current_quantity__gt=0).select_related("group", "stock_products").order_by("name")
+        if search_query:
+            queryset = queryset.filter(Q(code__icontains=search_query) | Q(name__icontains=search_query) | Q(brand__icontains=search_query))
+        return queryset, search_query
+
+    def _render_source_column(self) -> str:
+        queryset, search_query = self._source_products()
+        selected_map = self._selected_items_map()
+        rows = ""
+
+        for product in queryset:
+            selected_item = selected_map.get(str(product.id))
+            stock_entry = StockProduct.objects.filter(workshop=self.instance.source_workshop, product=product).first()
+            available_quantity = stock_entry.current_quantity if stock_entry else 0
+            selected = selected_item is not None
+            row_class = "bg-primary/5 border-primary/20" if selected else ""
+
+            rows += f"""
+            <tr class="border-b border-base-300 {row_class}">
+                <td>
+                    <div class="font-semibold">{product.name}</div>
+                    <div class="text-xs opacity-60">{product.code or "Sem codigo"}</div>
+                </td>
+                <td class="text-center"><span class="badge badge-ghost font-mono">{available_quantity}</span></td>
+                <td class="text-right">
+                    {self._render_source_action_button(product_id=product.id, selected=selected)}
+                </td>
+            </tr>"""
+
+        search_url = f"{reverse('stock:transfer_update', kwargs={'pk': self.instance.pk})}?step=2"
+        return f"""
+        <div class="card bg-base-100 border border-base-300 shadow-sm">
+            <div class="card-body p-4 space-y-4">
+                <div>
+                    <div class="flex items-center justify-between gap-3 mb-1">
+                        <h3 class="text-base font-bold uppercase">Origem</h3>
+                        <span class="badge badge-outline">{self.instance.source_workshop.name}</span>
+                    </div>
+                    <p class="text-sm text-base-content/70">Selecione os itens que vao sair do estoque.</p>
+                </div>
+                <label class="form-control w-full">
+                    <input type="text" name="source_search" value="{search_query}" class="input input-bordered w-full"
+                           placeholder="Buscar por codigo, nome ou marca"
+                           hx-get="{search_url}"
+                           hx-include="this"
+                           hx-vals='{{"pk": "{self.instance.pk}"}}'
+                           hx-trigger="keyup changed delay:300ms"
+                           hx-target="#step-container"
+                           hx-push-url="true">
+                </label>
+                <div class="overflow-x-auto rounded-xl border border-base-300 max-h-[34rem]">
+                    <table class="table table-sm w-full">
+                        <thead class="bg-base-200 sticky top-0 z-10">
+                            <tr>
+                                <th>Produto</th>
+                                <th class="text-center">Estoque</th>
+                                <th class="text-right">Acao</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {rows or '<tr><td colspan="3" class="text-center italic py-8">Nenhum produto com estoque encontrado.</td></tr>'}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>"""
+
+    def _render_source_action_button(self, *, product_id: int, selected: bool) -> str:
+        if selected:
+            return f"""
+            <button type="button" class="btn btn-error btn-xs"
+                    hx-post="{reverse("stock:remove_transfer_item")}?pk={self.instance.pk}&source_product_id={product_id}"
+                    hx-target="#step-container">
+                Remover
+            </button>"""
+        return f"""
+        <button type="button" class="btn btn-primary btn-xs"
+                hx-post="{reverse("stock:add_transfer_source_item")}"
+                hx-vals='{{"pk": "{self.instance.pk}", "product_id": "{product_id}", "quantity": "1"}}'
+                hx-target="#step-container">
+            Selecionar
+        </button>"""
+
+    def _render_destination_column(self) -> str:
+        items = self.instance.items_data or []
+        rows = ""
+        total_geral = Decimal("0.00")
+
+        for idx, item in enumerate(items):
+            source_product = Product.objects.filter(id=item.get("source_product_id"), workshop=self.instance.source_workshop).first()
+            destination_product = Product.objects.filter(id=item.get("destination_product_id"), workshop=self.instance.destination_workshop).first()
+            if source_product is None:
+                continue
+
+            stock_entry = StockProduct.objects.filter(workshop=self.instance.source_workshop, product=source_product).first()
+            available_quantity = stock_entry.current_quantity if stock_entry else 0
+            quantity = int(str(item.get("qtd", 1) or 1))
+            value = Decimal(str(item.get("valor", "0")).replace(",", "."))
+            subtotal = Decimal(quantity) * value
+            total_geral += subtotal
+
+            quantity_input = NumberInput(mode="positive").render(
+                name=f"items_qty_{idx}",
+                value=str(quantity),
+                attrs={
+                    "class": "text-center input input-bordered input-sm w-20",
+                    "min": "1",
+                    "hx-post": reverse("stock:update_transfer_item_data", kwargs={"pk": self.instance.pk}),
+                    "hx-trigger": "change delay:300ms",
+                    "hx-vals": f"js:{{item_idx: {idx}}}",
+                    "hx-target": "#step-container",
+                    "hx-swap": "innerHTML",
+                },
+            )
+
+            rows += f"""
+            <tr class="border-b border-base-300 align-top">
+                <td>
+                    <div class="font-semibold">{source_product.name}</div>
+                    <div class="text-xs opacity-60">{source_product.code or "Sem codigo"}</div>
+                </td>
+                <td class="text-center">
+                    <span class="badge badge-ghost font-mono">{available_quantity}</span>
+                </td>
+                <td class="text-center">{quantity_input}</td>
+                <td>{self._render_destination_cell(idx=idx, destination_product=destination_product)}</td>
+                <td class="text-right font-semibold">{Money(subtotal, "BRL")}</td>
+                <td class="text-right">
+                    <button type="button" class="btn btn-ghost btn-xs text-error"
+                            hx-post="{reverse("stock:remove_transfer_item")}?pk={self.instance.pk}&item_idx={idx}"
+                            hx-target="#step-container">
+                        Remover
+                    </button>
+                </td>
+            </tr>"""
+
+        return f"""
+        <div class="card bg-base-100 border border-base-300 shadow-sm">
+            <div class="card-body p-4 space-y-4">
+                <div class="flex items-center justify-between gap-3">
+                    <div>
+                        <h3 class="text-base font-bold uppercase">Destino</h3>
+                        <p class="text-sm text-base-content/70">Associe cada item selecionado a um produto da oficina de destino.</p>
+                    </div>
+                    <span class="badge badge-outline">{self.instance.destination_workshop.name}</span>
+                </div>
+                <div class="overflow-x-auto rounded-xl border border-base-300 max-h-[34rem]">
+                    <table class="table table-sm w-full">
+                        <thead class="bg-base-200 sticky top-0 z-10">
+                            <tr>
+                                <th>Produto de Origem</th>
+                                <th class="text-center">Estoque</th>
+                                <th class="text-center">Quantidade</th>
+                                <th>Produto no Destino</th>
+                                <th class="text-right">Subtotal</th>
+                                <th class="text-right">Acao</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {rows or '<tr><td colspan="6" class="text-center italic py-8">Selecione itens na coluna da esquerda para montar a transferencia.</td></tr>'}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="pt-2 border-t border-base-300 flex items-center justify-between font-semibold">
+                    <span>Total selecionado</span>
+                    <span>{Money(total_geral, "BRL")}</span>
+                </div>
+            </div>
+        </div>"""
+
+    def _render_destination_cell(self, *, idx: int, destination_product: Product | None) -> str:
+        if destination_product is not None:
+            return f"""
+            <div class="space-y-2">
+                <div>
+                    <div class="text-[11px] uppercase tracking-wide text-success font-semibold">Produto vinculado</div>
+                    <div class="font-medium">{destination_product.name}</div>
+                    <div class="text-xs opacity-50">{destination_product.code}</div>
+                </div>
+                <div class="flex gap-2">
+                    <button type="button" class="btn btn-outline btn-xs" hx-target="#modal-container"
+                            hx-get="{reverse("stock:transfer_destination_link")}?pk={self.instance.pk}&item_idx={idx}">Vincular Outro</button>
+                    <button type="button" class="btn btn-ghost btn-xs text-error"
+                            hx-post="{reverse("stock:transfer_unlink_destination")}?pk={self.instance.pk}&item_idx={idx}"
+                            hx-target="#step-container">Desvincular Item</button>
+                </div>
+            </div>"""
+
+        return f"""
+        <div class="flex flex-wrap gap-2 items-center">
+            <span class="italic text-warning text-xs">Nenhum produto vinculado</span>
+            <button type="button" class="btn btn-primary btn-xs" hx-target="#modal-container"
+                    hx-get="{reverse("stock:transfer_destination_link")}?pk={self.instance.pk}&item_idx={idx}">Vincular Produto</button>
+            <button type="button" class="btn btn-success btn-xs"
+                    hx-post="{reverse("stock:create_transfer_destination_product")}?pk={self.instance.pk}&item_idx={idx}"
+                    hx-target="#step-container">Cadastrar Produto</button>
+        </div>"""
+
+    def clean(self) -> dict[str, Any]:
+        cleaned_data = super().clean()
+        if not self.instance.items_data:
+            self.add_error(None, "Selecione ao menos um item na oficina de origem para transferir.")
+            return cleaned_data
+
+        for item in self.instance.items_data:
+            if not item.get("destination_product_id"):
+                self.add_error(None, "Existem itens sem produto vinculado na oficina de destino.")
+                break
+
+        return cleaned_data
+
+
+class TransferSummaryForm(forms.ModelForm):
+    class Meta:
+        model = StockTransfer
+        fields = []
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        self.request = kwargs.pop("request", None)
+        super().__init__(*args, **kwargs)
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout(HTML(self._build_summary_html()))
+
+    def _build_summary_html(self) -> str:
+        rows = ""
+        total = Decimal("0.00")
+
+        for item in self.instance.items_data:
+            source_product = Product.objects.filter(id=item.get("source_product_id"), workshop=self.instance.source_workshop).first()
+            destination_product = Product.objects.filter(id=item.get("destination_product_id"), workshop=self.instance.destination_workshop).first()
+            if source_product is None or destination_product is None:
+                continue
+
+            quantidade = int(str(item.get("qtd", 0) or 0))
+            valor = Decimal(str(item.get("valor", "0")).replace(",", "."))
+            subtotal = Decimal(quantidade) * valor
+            total += subtotal
+
+            rows += f"""
+            <tr>
+                <td><div class="font-medium">{source_product.name}</div><div class="text-xs opacity-50">{source_product.code}</div></td>
+                <td><div class="font-medium">{destination_product.name}</div><div class="text-xs opacity-50">{destination_product.code}</div></td>
+                <td class="text-center">{quantidade}</td>
+                <td class="text-right">{Money(valor, "BRL")}</td>
+                <td class="text-right font-bold">{Money(subtotal, "BRL")}</td>
+            </tr>"""
+
+        return f"""
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div class="lg:col-span-8">
+                <div class="card bg-base-200 shadow-sm">
+                    <div class="card-body p-4">
+                        <h3 class="text-base font-bold uppercase mb-3">Itens da Transferência</h3>
+                        <div class="overflow-x-auto rounded-xl border border-base-300">
+                            <table class="table w-full">
+                                <thead>
+                                    <tr class="bg-base-300">
+                                        <th>Origem</th>
+                                        <th>Destino</th>
+                                        <th class="text-center">Qtd</th>
+                                        <th class="text-right">Custo</th>
+                                        <th class="text-right">Subtotal</th>
+                                    </tr>
+                                </thead>
+                                <tbody>{rows or '<tr><td colspan="5" class="text-center italic py-8">Nenhum item adicionado.</td></tr>'}</tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="lg:col-span-4 space-y-6">
+                <div class="card bg-base-200 shadow-sm">
+                    <div class="card-body p-4">
+                        <h3 class="text-base font-bold uppercase mb-3">Trajeto</h3>
+                        <p class="text-sm opacity-70">Saindo de</p>
+                        <p class="text-lg font-bold">{self.instance.source_workshop.name}</p>
+                        <div class="divider my-1"></div>
+                        <p class="text-sm opacity-70">Entrando em</p>
+                        <p class="text-lg font-bold">{self.instance.destination_workshop.name}</p>
+                    </div>
+                </div>
+                <div class="card bg-base-200 shadow-sm">
+                    <div class="card-body p-4">
+                        <h3 class="text-base font-bold uppercase mb-3">Resumo Financeiro</h3>
+                        <div class="flex justify-between items-center font-black text-xl">
+                            <span>Total Transferido</span>
+                            <span>{Money(total, "BRL")}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>"""
+
+    def clean(self) -> dict[str, Any]:
+        cleaned_data = super().clean()
+        if not self.instance.items_data:
+            self.add_error(None, "Adicione ao menos um item para transferir.")
+
+        for item in self.instance.items_data:
+            if not item.get("destination_product_id"):
+                self.add_error(None, "Existem itens sem produto vinculado na oficina de destino.")
+                break
+
+            try:
+                quantity = int(str(item.get("qtd", 0) or 0))
+            except (TypeError, ValueError):
+                quantity = 0
+
+            source_entry = StockProduct.objects.filter(workshop=self.instance.source_workshop, product_id=item.get("source_product_id")).select_related("product").first()
+            if quantity <= 0:
+                self.add_error(None, "Todas as quantidades devem ser maiores que zero.")
+                break
+            if source_entry is None:
+                self.add_error(None, "Um dos itens da transferência não pôde ser localizado.")
+                break
+            if source_entry.current_quantity < quantity:
+                self.add_error(None, f"Saldo insuficiente para o produto {source_entry.product.name} na oficina de origem.")
+                break
+
+        return cleaned_data
+
+    @transaction.atomic
+    def save(self, commit: bool = True) -> StockTransfer:
+        instance: StockTransfer = super().save(commit=False)
+        if instance.status == StockTransfer.TransferStatus.COMPLETED:
+            return instance
+
+        source_product_ids = [int(item["source_product_id"]) for item in instance.items_data]
+        destination_product_ids = [int(item["destination_product_id"]) for item in instance.items_data]
+        source_entries = StockProduct.objects.select_for_update().select_related("product").filter(workshop=instance.source_workshop, product_id__in=source_product_ids)
+        destination_entries = StockProduct.objects.select_for_update().select_related("product").filter(workshop=instance.destination_workshop, product_id__in=destination_product_ids)
+        source_by_product_id = {entry.product_id: entry for entry in source_entries}
+        destination_by_product_id = {entry.product_id: entry for entry in destination_entries}
+
+        parsed_items: list[tuple[StockProduct, StockProduct, int]] = []
+        for item in instance.items_data:
+            quantity = int(str(item.get("qtd", 0) or 0))
+            if quantity <= 0:
+                raise forms.ValidationError("Todas as quantidades devem ser maiores que zero.")
+
+            source_product_id = int(item["source_product_id"])
+            destination_product_id = int(item["destination_product_id"])
+            source_entry = source_by_product_id.get(source_product_id)
+            destination_entry = destination_by_product_id.get(destination_product_id)
+
+            if source_entry is None or destination_entry is None:
+                raise forms.ValidationError("Um dos itens da transferência não pôde ser localizado.")
+            if source_entry.current_quantity < quantity:
+                raise forms.ValidationError(f"Saldo insuficiente para o produto {source_entry.product.name} na oficina de origem.")
+
+            parsed_items.append((source_entry, destination_entry, quantity))
+
+        for source_entry, destination_entry, quantity in parsed_items:
+            source_entry.current_quantity -= quantity
+            source_entry.save(update_fields=["current_quantity"])
+            destination_entry.current_quantity += quantity
+            destination_entry.save(update_fields=["current_quantity"])
+
+            StockMovement.objects.create(
+                workshop=instance.source_workshop,
+                stock_transfer=instance,
+                stock_product=source_entry,
+                type=StockMovement.MovementType.EXIT,
+                quantity=quantity,
+                status=StockMovement.MovementStatus.APPROVED,
+                transcation_by=self.request.user if self.request is not None else None,
+            )
+            StockMovement.objects.create(
+                workshop=instance.destination_workshop,
+                stock_transfer=instance,
+                stock_product=destination_entry,
+                type=StockMovement.MovementType.ENTRY,
+                quantity=quantity,
+                status=StockMovement.MovementStatus.APPROVED,
+                transcation_by=self.request.user if self.request is not None else None,
+            )
+
+        instance.status = StockTransfer.TransferStatus.COMPLETED
+        if commit:
+            instance.save()
+        return instance
 
 
 class QuickProductForm(forms.ModelForm):

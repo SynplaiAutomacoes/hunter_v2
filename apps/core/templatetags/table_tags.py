@@ -78,6 +78,37 @@ class TableAction:
     hx_swap: str | None = None
     hx_select: str | None = None
     hx_push_url: str | None = None
+    visible: bool | Callable[[Any], bool] = True
+
+
+def _normalize_columns(fields: Sequence[TableColumn | dict[str, Any]]) -> list[TableColumn]:
+    normalized: list[TableColumn] = []
+    for column in fields:
+        if isinstance(column, TableColumn):
+            normalized.append(column)
+        else:
+            normalized.append(TableColumn(**column))
+    return normalized
+
+
+def _normalize_actions(actions: Sequence[TableAction | dict[str, Any]] | None) -> list[TableAction]:
+    normalized: list[TableAction] = []
+    for action in actions or []:
+        if isinstance(action, TableAction):
+            normalized.append(action)
+            continue
+
+        action_dict = dict(action)
+        kind = action_dict.pop("kind", None)
+        if kind == "delete":
+            normalized.append(TableAction(label=action_dict.pop("label", "Excluir"), icon=action_dict.pop("icon", "delete"), a_class=action_dict.pop("a_class", "btn-table-delete"), aria_label=action_dict.pop("aria_label", "Excluir registro"), **action_dict))
+        elif kind == "edit":
+            normalized.append(TableAction(label=action_dict.pop("label", "Editar"), icon=action_dict.pop("icon", "edit"), a_class=action_dict.pop("a_class", "btn-table-edit"), aria_label=action_dict.pop("aria_label", "Editar registro"), **action_dict))
+        elif kind == "view":
+            normalized.append(TableAction(label=action_dict.pop("label", "Visualizar"), icon=action_dict.pop("icon", "visibility"), a_class=action_dict.pop("a_class", "btn-table-view"), aria_label=action_dict.pop("aria_label", "Visualizar registro"), **action_dict))
+        else:
+            normalized.append(TableAction(**action_dict))
+    return normalized
 
 
 def _resolve_attr(obj: Any, attr: str | Callable[[Any], Any] | None) -> Any:
@@ -268,6 +299,72 @@ def _paginate(qs: QuerySet[Any], *, per_page: int, page_number: str) -> tuple[An
     return page_obj, paginator
 
 
+def _apply_search_to_sequence(items: Sequence[Any], *, columns: Sequence[TableColumn], search_query: str) -> tuple[list[Any], str]:
+    if not search_query:
+        return list(items), search_query
+
+    normalized = search_query.strip().lower()
+    truthy_terms = {"sim"}
+    falsy_terms = {"nao", "não"}
+
+    bool_term: bool | None = None
+    if normalized in truthy_terms:
+        bool_term = True
+    elif normalized in falsy_terms:
+        bool_term = False
+
+    searchable_columns = [col for col in columns if col.searchable and (col.search_by or col.attr)]
+    if not searchable_columns:
+        return list(items), search_query
+
+    filtered_items: list[Any] = []
+    for item in items:
+        for col in searchable_columns:
+            value = _resolve_attr(item, col.attr)
+            if bool_term is not None and type(value) is bool and value is bool_term:
+                filtered_items.append(item)
+                break
+            if value is None:
+                continue
+            if normalized in str(value).lower():
+                filtered_items.append(item)
+                break
+
+    return filtered_items, search_query
+
+
+def _apply_sort_to_sequence(items: Sequence[Any], *, columns: Sequence[TableColumn], sort_attr: str, sort_desc: bool, sort_is_valid: bool) -> tuple[list[Any], str, str, bool]:
+    if not sort_is_valid:
+        return list(items), "", "", False
+
+    col_for_sort = next((c for c in columns if c.attr == sort_attr), None)
+    if col_for_sort is None:
+        return list(items), "", "", False
+
+    def _normalize(value: Any) -> tuple[int, Any]:
+        if value is None or value == "":
+            return (1, "")
+        if isinstance(value, bool):
+            return (0, int(value))
+        if isinstance(value, (datetime, date)):
+            return (0, value)
+        return (0, str(value).lower())
+
+    sorted_items = sorted(list(items), key=lambda item: _normalize(_resolve_attr(item, col_for_sort.attr)), reverse=sort_desc)
+    return sorted_items, sort_attr if not sort_desc else f"-{sort_attr}", sort_attr, sort_desc
+
+
+def _paginate_sequence(items: Sequence[Any], *, per_page: int, page_number: str) -> tuple[Any, Paginator]:
+    paginator = Paginator(list(items), per_page)
+    try:
+        page_obj = paginator.page(page_number)
+    except PageNotAnInteger:
+        page_obj = paginator.page(1)
+    except EmptyPage:
+        page_obj = paginator.page(paginator.num_pages)
+    return page_obj, paginator
+
+
 def _render_columns(
     *,
     columns: Sequence[TableColumn],
@@ -382,6 +479,10 @@ def _render_rows(
         row_actions: list[dict[str, Any]] = []
         if has_actions:
             for action in actions:
+                is_visible = action.visible(obj) if callable(action.visible) else bool(action.visible)
+                if not is_visible:
+                    continue
+
                 href = _resolve_action_href(obj, action)
                 if not href:
                     continue
@@ -484,7 +585,7 @@ def _copy_parent_context(context: Any) -> dict[str, Any]:
 @register.inclusion_tag("tables/main_table.html", takes_context=True)
 def render_table(
     context: Any,
-    queryset: QuerySet[Any],
+    queryset: QuerySet[Any] | Sequence[Any],
     fields: Sequence[TableColumn],
     *,
     table_id: str = "table",
@@ -542,29 +643,39 @@ def render_table(
     show_filter_controls = bool(filter_fields_template)
     normalized_filter_param_names = _normalize_filter_param_names(filter_param_names)
 
-    columns = fields
-    action_list = actions or []
+    columns = _normalize_columns(fields)
+    action_list = _normalize_actions(actions)
     has_actions = bool(action_list)
 
+    is_queryset = isinstance(queryset, QuerySet)
+
     search_query = _get_search_query(request, show_search=show_search, search_param=search_param)
-    filtered_qs, search_query = _apply_search(queryset, columns=columns, search_query=search_query)
+    if is_queryset:
+        filtered_items, search_query = _apply_search(queryset, columns=columns, search_query=search_query)
+    else:
+        filtered_items, search_query = _apply_search_to_sequence(queryset, columns=columns, search_query=search_query)
 
     sortable_attrs = {c.attr for c in columns if c.sortable and c.attr}
     sort, sort_attr, sort_desc, sort_is_valid = _parse_sort(request, sortable_attrs=sortable_attrs)
 
-    ordered_qs, sort, sort_attr, sort_desc = _apply_sort(
-        filtered_qs,
-        columns=columns,
-        sort=sort,
-        sort_attr=sort_attr,
-        sort_desc=sort_desc,
-        sort_is_valid=sort_is_valid,
-    )
-
-    ordered_qs = _ensure_stable_ordering(ordered_qs)
+    if is_queryset:
+        ordered_items, sort, sort_attr, sort_desc = _apply_sort(
+            filtered_items,
+            columns=columns,
+            sort=sort,
+            sort_attr=sort_attr,
+            sort_desc=sort_desc,
+            sort_is_valid=sort_is_valid,
+        )
+        ordered_items = _ensure_stable_ordering(ordered_items)
+    else:
+        ordered_items, sort, sort_attr, sort_desc = _apply_sort_to_sequence(filtered_items, columns=columns, sort_attr=sort_attr, sort_desc=sort_desc, sort_is_valid=sort_is_valid)
 
     page_number = request.GET.get("page", "1")
-    page_obj, paginator = _paginate(ordered_qs, per_page=per_page, page_number=page_number)
+    if is_queryset:
+        page_obj, paginator = _paginate(ordered_items, per_page=per_page, page_number=page_number)
+    else:
+        page_obj, paginator = _paginate_sequence(ordered_items, per_page=per_page, page_number=page_number)
 
     rendered_columns = _render_columns(columns=columns, request=request, sort_attr=sort_attr, sort_desc=sort_desc)
     selected_values: set[str] = set()

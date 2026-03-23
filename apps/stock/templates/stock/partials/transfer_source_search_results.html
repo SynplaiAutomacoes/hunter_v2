@@ -1,0 +1,30 @@
+{% for product in products %}
+<tr>
+    <td>
+        <div class="font-bold text-xs">{{ product.code }}</div>
+        <div class="text-sm">{{ product.name }}</div>
+    </td>
+    <td class="text-center font-mono">{{ product.stock_products.current_quantity }}</td>
+    <td class="text-right font-mono">{{ product.cost_price }}</td>
+    <td class="text-center">
+        <button type="button" class="btn btn-primary btn-xs" @click="confirmLink({ id: '{{ product.id }}' })">Adicionar</button>
+    </td>
+</tr>
+{% empty %}
+<tr>
+    <td colspan="4" class="text-center py-4 opacity-50">Nenhum produto com saldo encontrado.</td>
+</tr>
+{% endfor %}
+
+{% if page_obj.has_next %}
+<tr id="load-more-row">
+    <td colspan="4" class="p-0">
+        <button class="btn btn-ghost btn-block btn-sm no-animation"
+                hx-get="{% url 'stock:transfer_source_product_search' %}?page={{ page_obj.next_page_number }}&product_search={{ query }}&source_workshop={{ source_workshop }}"
+                hx-target="#load-more-row"
+                hx-swap="outerHTML">
+            Carregar mais...
+        </button>
+    </td>
+</tr>
+{% endif %}

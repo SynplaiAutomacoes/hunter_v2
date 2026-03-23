@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from dataclasses import dataclass
 from django.db import connection
 from django.db.models import F, Func, IntegerField, Value
 from django.db.models.functions import Cast, NullIf
@@ -118,6 +119,23 @@ class CrudWrapperTemplateTests(SimpleTestCase):
 class TestRenderTableTag(TestCase):
     def setUp(self):
         self.factory = RequestFactory()
+
+    def test_render_table_supports_sequence_input(self):
+        @dataclass(frozen=True)
+        class Row:
+            name: str
+
+        request = self.factory.get("/workshops/?q=Beta")
+
+        rendered = render_table(
+            context={"request": request},
+            queryset=[Row(name="Alfa"), Row(name="Beta")],
+            fields=[TableColumn(label="Nome", attr="name")],
+            table_id="t",
+        )
+
+        self.assertEqual(len(rendered["rows"]), 1)
+        self.assertEqual(rendered["rows"][0]["cells"][0]["value"], "Beta")
 
     def test_renders_and_paginates(self):
         for i in range(1, 13):

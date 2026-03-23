@@ -1,0 +1,46 @@
+<div class="modal modal-open" x-data="{
+    confirmLink(product) {
+        htmx.ajax('POST', '{% url 'stock:add_transfer_source_item' %}', {
+            values: {
+                pk: '{{ pk }}',
+                product_id: product.id
+            },
+            target: '#modal-container'
+        });
+    }
+}">
+    <div class="modal-box max-w-4xl">
+        <h3 class="font-bold text-lg mb-4">Selecionar Produto da Origem</h3>
+
+        <div class="form-control w-full mb-4">
+            <input type="text"
+                   name="product_search"
+                   class="input input-bordered w-full"
+                   placeholder="Pesquise por código, nome ou marca..."
+                   hx-get="{% url 'stock:transfer_source_product_search' %}?source_workshop={{ source_workshop.pk }}"
+                   hx-trigger="keyup changed delay:500ms"
+                   hx-target="#transfer-source-results">
+        </div>
+
+        <div class="overflow-x-auto max-h-96 border border-base-300 rounded-box">
+            <table class="table table-sm table-zebra w-full">
+                <thead class="sticky top-0 bg-base-200">
+                    <tr>
+                        <th>Produto</th>
+                        <th class="text-center">Saldo</th>
+                        <th class="text-right">Custo</th>
+                        <th class="text-center">Ações</th>
+                    </tr>
+                </thead>
+                <tbody id="transfer-source-results"
+                       hx-get="{% url 'stock:transfer_source_product_search' %}?source_workshop={{ source_workshop.pk }}"
+                       hx-trigger="load">
+                </tbody>
+            </table>
+        </div>
+
+        <div class="modal-action">
+            <button class="btn btn-ghost" onclick="document.getElementById('modal-container').innerHTML=''">Fechar</button>
+        </div>
+    </div>
+</div>
