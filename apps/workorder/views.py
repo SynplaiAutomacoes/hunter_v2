@@ -91,12 +91,37 @@ WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
     ),
 )
 
+WORKORDER_STATUS_CHOICES = tuple((status.value, str(status.label)) for status in WorkOrderStatus)
+WORKORDER_STATUS_BADGE_CLASSES = {
+    WorkOrderStatus.DRAFT: "badge-soft badge-ghost min-w-sm",
+    WorkOrderStatus.APPROVED: "badge-success min-w-sm",
+    WorkOrderStatus.REJECTED: "badge-error min-w-sm",
+    WorkOrderStatus.CANCELLED: "badge-warning min-w-sm",
+}
+
 
 class WorkOrderListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = WorkOrder
     template_name = "workorder/workorder_list.html"
     context_object_name = "workorder"
     htmx_template_name = "workorder/partials/workorder_table.html"
+
+    def _get_selected_status(self) -> str:
+        return str(self.request.GET.get("status") or "").strip()
+
+    def _get_selected_status_report(self) -> dict[str, object] | None:
+        selected_status = self._get_selected_status()
+        try:
+            status_choice = WorkOrderStatus(selected_status)
+        except ValueError:
+            return None
+
+        return {
+            "value": selected_status,
+            "label": str(status_choice.label),
+            "count": WorkOrder.objects.filter(workshop=self.workshop, status=selected_status).count(),
+            "badge_class": WORKORDER_STATUS_BADGE_CLASSES.get(status_choice, "badge-ghost"),
+        }
 
     def get_queryset(self):
         queryset = (
@@ -117,7 +142,7 @@ class WorkOrderListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRes
             )
         )
 
-        selected_status = str(self.request.GET.get("status") or "").strip()
+        selected_status = self._get_selected_status()
         if selected_status != WorkOrderStatus.CANCELLED:
             queryset = queryset.exclude(status=WorkOrderStatus.CANCELLED)
 
@@ -131,11 +156,12 @@ class WorkOrderListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRes
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        created_at_field = WorkOrder._meta.get_field("criado_em")
 
         context["fields"] = [
             TableColumn("ID", attr="id"),
             TableColumn("Cliente", attr="budget.customer"),
-            TableColumn(str(WorkOrder.criado_em.field.verbose_name), attr=WorkOrder.criado_em.field.name),
+            TableColumn(str(created_at_field.verbose_name), attr=created_at_field.name),
             TableColumn("Veículo", attr="budget.vehicle"),
             TableColumn("Valor Total", attr="total_budget_value"),
             TableColumn("Status", attr="workorder_status_badge", format="status_badge"),
@@ -144,7 +170,8 @@ class WorkOrderListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRes
         context["actions"] = [
             TableActionDefaults.edit("workorder:workorder_detail"),
         ]
-        context["status_choices"] = WorkOrder.status.field.choices
+        context["status_choices"] = WORKORDER_STATUS_CHOICES
+        context["selected_status_report"] = self._get_selected_status_report()
         return context
 
 

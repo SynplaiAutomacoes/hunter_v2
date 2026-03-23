@@ -1,0 +1,16 @@
+{% if selected_status_report %}
+    <div class="mb-4 flex flex-col gap-3 rounded-box border border-base-300 bg-base-200/40 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-base-content/60">Relatorio do status</p>
+            <p class="mt-1 text-sm text-base-content/70">Total de O.S. cadastradas com o status selecionado.</p>
+        </div>
+
+        <div class="flex items-center gap-3 rounded-box bg-base-100 px-4 py-3 shadow-sm">
+            <span class="badge {{ selected_status_report.badge_class|cut:' min-w-sm' }} font-semibold uppercase">{{ selected_status_report.label }}</span>
+            <div class="text-right">
+                <p class="text-2xl font-semibold leading-none text-base-content">{{ selected_status_report.count }}</p>
+                <p class="text-xs uppercase tracking-wide text-base-content/60">O.S. com este status</p>
+            </div>
+        </div>
+    </div>
+{% endif %}

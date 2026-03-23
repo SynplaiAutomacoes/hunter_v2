@@ -94,6 +94,10 @@
     @htmx:after-swap.window="syncMasterCheckbox()"
 >
     <div id="{{ table_id }}-content">
+        {% if summary_template %}
+            {% include summary_template %}
+        {% endif %}
+
         {% if show_controls|default:True %}
             {% include "tables/partials/_table_controls.html" %}
         {% endif %}
