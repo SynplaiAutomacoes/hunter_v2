@@ -78,6 +78,7 @@ class TableAction:
     hx_swap: str | None = None
     hx_select: str | None = None
     hx_push_url: str | None = None
+    visible: bool | Callable[[Any], bool] = True
 
 
 def _normalize_columns(fields: Sequence[TableColumn | dict[str, Any]]) -> list[TableColumn]:
@@ -478,6 +479,10 @@ def _render_rows(
         row_actions: list[dict[str, Any]] = []
         if has_actions:
             for action in actions:
+                is_visible = action.visible(obj) if callable(action.visible) else bool(action.visible)
+                if not is_visible:
+                    continue
+
                 href = _resolve_action_href(obj, action)
                 if not href:
                     continue

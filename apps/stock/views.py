@@ -62,6 +62,10 @@ class StockHistoryRow:
     def record_edit_url(self) -> str:
         return reverse("stock:history_edit", kwargs={"record_type": self.record_type, "pk": self.pk})
 
+    @property
+    def can_delete(self) -> bool:
+        return self.record_type == "import"
+
 
 class StockAlertsListView(LoginRequiredMixin, WorkshopScopedMixin, ListView):
     model = StockProduct
@@ -208,6 +212,7 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
         ]
         context["actions"] = [
             TableActionDefaults.edit(url_name="stock:history_edit", args=(), kwargs={"record_type": "record_type", "pk": "pk"}),
+            TableActionDefaults.delete(url_name="stock:stock_delete", visible=lambda row: getattr(row, "can_delete", False)),
         ]
         return context
 

@@ -284,6 +284,8 @@ class StockTransferFlowTests(TestCase):
         self.assertContains(response, f"{self.source_workshop.name} -&gt; {self.destination_workshop.name}")
         self.assertContains(response, reverse("stock:history_edit", kwargs={"record_type": "import", "pk": stock_import.pk}))
         self.assertContains(response, reverse("stock:history_edit", kwargs={"record_type": "transfer", "pk": transfer.pk}))
+        self.assertContains(response, reverse("stock:stock_delete", args=[stock_import.pk]))
+        self.assertEqual(response.content.decode("utf-8").count("btn-table-delete"), 2)
 
     def test_history_edit_redirect_routes_transfer_to_transfer_update(self) -> None:
         transfer = StockTransfer.objects.create(
