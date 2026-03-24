@@ -434,6 +434,16 @@
 
             if (filtersShell) {
                 const selectedCustomer = getFilterValue(customerInput);
+                const selectedVehicle = getFilterValue(vehicleInput);
+
+                if (filtersShell.__x) {
+                    const filtersData = Alpine.$data(filtersShell);
+                    if (filtersData) {
+                        filtersData.customerId = selectedCustomer || '';
+                        filtersData.vehicleId = selectedVehicle || '';
+                    }
+                }
+
                 if (selectedCustomer) {
                     window.reloadCalendarVehicleFilterOptions(selectedCustomer);
                 }

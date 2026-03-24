@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from datetime import timedelta
 from decimal import Decimal
+from typing import cast
 from urllib.parse import urlparse
 from unittest.mock import PropertyMock, patch
 
 import requests
+from django import forms
 from django.http import QueryDict
 from django.template import Context, Template
 from apps.accounts.models import Account, User
@@ -16,6 +18,7 @@ from django.urls import reverse
 from django.utils import timezone
 from djmoney.money import Money
 
+from apps.budget.forms import BudgetStep1Form
 from apps.budget.forms.shared import _render_budget_items_rows
 from apps.budget.models import Budget, BudgetItem, BudgetStatus, SignatureStatus
 from apps.budget.pdf_context import build_budget_pdf_context
@@ -160,6 +163,31 @@ def create_kit(*, workshop: Workshop, suffix: int, products: list[tuple[Product,
 
 def extract_token_from_url(url: str) -> str:
     return urlparse(url).path.rstrip("/").split("/")[-1]
+
+
+class BudgetStep1FormTests(TestCase):
+    def test_prefills_vehicle_from_request_and_renders_vehicle_option(self) -> None:
+        user, workshop = create_director_user_with_workshop(suffix=69)
+        customer = create_customer(workshop=workshop, suffix=69)
+        vehicle = create_vehicle(workshop=workshop, customer=customer, suffix=69, plate="BDG6969")
+
+        request = RequestFactory().get(reverse("budget:budget_create"), {"customer": customer.pk, "vehicle": vehicle.pk})
+        request.user = user
+
+        form = BudgetStep1Form(workshop=workshop, request=request)
+        vehicle_field = cast(forms.ModelChoiceField, form.fields["vehicle"])
+        vehicle_queryset = vehicle_field.queryset
+
+        self.assertEqual(form.initial["customer"], customer.pk)
+        self.assertEqual(form.initial["vehicle"], vehicle.pk)
+        self.assertIsNotNone(vehicle_queryset)
+        assert vehicle_queryset is not None
+        self.assertQuerySetEqual(vehicle_queryset.order_by("pk"), [vehicle], transform=lambda obj: obj)
+
+        rendered_vehicle_field = str(form["vehicle"])
+        self.assertIn(str(vehicle), rendered_vehicle_field)
+        self.assertIn(reverse("budget:vehicle-detail"), rendered_vehicle_field)
+        self.assertIn(':disabled="!customerId"', rendered_vehicle_field)
 
 
 class BudgetListFiltersTests(TestCase):

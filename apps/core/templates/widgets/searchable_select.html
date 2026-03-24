@@ -64,6 +64,12 @@
         name="{{ widget.name }}"
         id="{{ widget.attrs.id }}"
         :value="value"
+        {% if widget.attrs.disabled %}disabled{% endif %}
+        {% for name, value in widget.attrs.items %}
+            {% if name != "id" and name != "name" and name != "placeholder" and name != "required" and name != "disabled" and name != "readonly" and name != "class" %}
+                {% if value is True %}{{ name }}{% elif value is False or value is None %}{% else %}{{ name }}="{{ value|escape }}"{% endif %}
+            {% endif %}
+        {% endfor %}
     >
 
     <div class="relative flex items-center">
@@ -74,7 +80,12 @@
             @input="open = true"
             placeholder="Digite para buscar..."
             class="input-theme {{ widget.attrs.class }} w-full pr-10"
-            :class="{'ring-2 ring-primary border-primary': open}"
+            :class="{'ring-2 ring-primary border-primary': open, 'opacity-50 cursor-not-allowed': $el.disabled}"
+            {% for name, value in widget.attrs.items %}
+                {% if name == ":disabled" or name == "x-bind:disabled" %}
+                    {% if value is True %}{{ name }}{% elif value is False or value is None %}{% else %}{{ name }}="{{ value|escape }}"{% endif %}
+                {% endif %}
+            {% endfor %}
             {% if widget.attrs.disabled or widget.attrs.readonly %}disabled{% endif %}>
 
         <div class="absolute inset-y-0 right-0 flex items-center pr-2 gap-1">

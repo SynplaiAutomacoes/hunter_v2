@@ -114,6 +114,23 @@ class AppointmentModelValidationTests(TestCase):
 
         adjacent.full_clean()
 
+    def test_requires_guest_name_and_phone_when_customer_is_not_registered(self) -> None:
+        _, workshop = create_director_user_with_workshop(suffix=12)
+        starts_at = timezone.now().replace(minute=0, second=0, microsecond=0)
+
+        appointment = Appointment(
+            workshop=workshop,
+            title="Sem cadastro",
+            starts_at=starts_at,
+            ends_at=starts_at + timedelta(hours=1),
+        )
+
+        with self.assertRaises(ValidationError) as exc_info:
+            appointment.full_clean()
+
+        self.assertIn("guest_customer_name", exc_info.exception.message_dict)
+        self.assertIn("guest_customer_phone", exc_info.exception.message_dict)
+
 
 class AppointmentViewsTests(TestCase):
     def setUp(self) -> None:
@@ -178,6 +195,90 @@ class AppointmentViewsTests(TestCase):
         payload = response.json()
         self.assertEqual(len(payload), 1)
         self.assertEqual(payload[0]["title"], "Troca de Oleo - Cliente Agenda 30")
+
+    def test_create_allows_registered_customer_without_vehicle(self) -> None:
+        starts_at = timezone.now().replace(minute=0, second=0, microsecond=0)
+        response = self.client.post(
+            reverse("scheduling:appointment_create"),
+            {
+                "title": "Agendamento sem veiculo",
+                "is_customer_registered": "on",
+                "customer": str(self.customer.pk),
+                "starts_at": starts_at.strftime("%Y-%m-%dT%H:%M"),
+                "ends_at": (starts_at + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M"),
+                "block_color": "#0ea5e9",
+                "status": "scheduled",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 204)
+        appointment = Appointment.objects.get()
+        self.assertEqual(appointment.customer, self.customer)
+        self.assertIsNone(appointment.vehicle)
+
+    def test_create_allows_guest_customer_without_registered_customer(self) -> None:
+        starts_at = timezone.now().replace(minute=0, second=0, microsecond=0)
+        response = self.client.post(
+            reverse("scheduling:appointment_create"),
+            {
+                "title": "Agendamento avulso",
+                "guest_customer_name": "Cliente Balcao",
+                "guest_customer_phone": "+5511999990000",
+                "starts_at": starts_at.strftime("%Y-%m-%dT%H:%M"),
+                "ends_at": (starts_at + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M"),
+                "block_color": "#0ea5e9",
+                "status": "scheduled",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 204)
+        appointment = Appointment.objects.get()
+        self.assertIsNone(appointment.customer)
+        self.assertIsNone(appointment.vehicle)
+        self.assertEqual(appointment.guest_customer_name, "Cliente Balcao")
+        self.assertEqual(str(appointment.guest_customer_phone), "(11) 99999-0000")
+
+    def test_save_and_create_budget_without_vehicle_redirects_with_customer_only(self) -> None:
+        starts_at = timezone.now().replace(minute=0, second=0, microsecond=0)
+        response = self.client.post(
+            reverse("scheduling:appointment_create"),
+            {
+                "title": "Agendamento sem veiculo",
+                "is_customer_registered": "on",
+                "customer": str(self.customer.pk),
+                "starts_at": starts_at.strftime("%Y-%m-%dT%H:%M"),
+                "ends_at": (starts_at + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M"),
+                "block_color": "#0ea5e9",
+                "status": "scheduled",
+                "action": "save_and_create_budget",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(response.headers.get("HX-Redirect"), f"{reverse('budget:budget_create')}?customer={self.customer.pk}")
+
+    def test_save_and_create_budget_without_registered_customer_redirects_empty_budget(self) -> None:
+        starts_at = timezone.now().replace(minute=0, second=0, microsecond=0)
+        response = self.client.post(
+            reverse("scheduling:appointment_create"),
+            {
+                "title": "Agendamento avulso",
+                "guest_customer_name": "Cliente Balcao",
+                "guest_customer_phone": "+5511999990000",
+                "starts_at": starts_at.strftime("%Y-%m-%dT%H:%M"),
+                "ends_at": (starts_at + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M"),
+                "block_color": "#0ea5e9",
+                "status": "scheduled",
+                "action": "save_and_create_budget",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(response.headers.get("HX-Redirect"), reverse("budget:budget_create"))
 
     def test_move_endpoint_reverts_on_overlap_conflict(self) -> None:
         base_start = timezone.now().replace(minute=0, second=0, microsecond=0)
