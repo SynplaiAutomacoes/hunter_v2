@@ -30,6 +30,7 @@ class FinancialGroupListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempla
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
+        context["financial_groups_per_page"] = max(self.object_list.count(), 1)
         context["fields"] = [
             TableColumn(label="Grupo / Subgrupo", attr="dre_hierarchy_label", sort_by="sort_key", search_by="name"),
             TableColumn(label="Ativo", attr="is_active"),

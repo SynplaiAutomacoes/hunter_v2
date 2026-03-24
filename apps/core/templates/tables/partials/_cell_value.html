@@ -1,3 +1,5 @@
+{% load format_tags %}
+
 {% with empty_center=empty_center|default:False %}
     {% if cell.is_boolean %}
         {% if cell.bool_value %}
@@ -23,6 +25,9 @@
 
         {% elif cell.format == "styled_text" %}
             <span class="{{ cell.value.class }}">{{ cell.value.text }}</span>
+
+        {% elif cell.format == "money_br" %}
+            {{ cell.value|money_br }}
 
         {% elif cell.format %}
             <span

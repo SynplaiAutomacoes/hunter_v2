@@ -1,18 +1,21 @@
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import re
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from urllib.parse import urlencode
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Prefetch
-from django.http import HttpResponse, JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
+from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.generic import DetailView, ListView, TemplateView
@@ -30,7 +33,12 @@ from apps.core.views import HtmxTemplateResponseMixin
 from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
 from apps.workorder.discount_sync import sync_workorder_discount_to_budget
 from apps.workorder.approval import WorkOrderApprovalError, approve_workorder_with_stock
-from apps.workorder.documents.provider import render_workorder_pdf_document, build_workorder_pdf_render_request
+from apps.workorder.documents.provider import (
+    build_workorder_pdf_render_request,
+    build_workorder_status_report_pdf_render_request,
+    render_workorder_pdf_document,
+    render_workorder_status_report_pdf_document,
+)
 from apps.workorder.forms import (
     WorkOrderCustomerApprovalForm,
     WorkOrderItemEditForm,
@@ -89,19 +97,150 @@ WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
             }
         ),
     ),
+    QueryParamFilter(
+        param_name="data_inicial",
+        lookup="criado_em__date",
+        kind="date_gte",
+    ),
+    QueryParamFilter(
+        param_name="data_final",
+        lookup="criado_em__date",
+        kind="date_lte",
+    ),
 )
 
+WORKORDER_STATUS_REPORT_FILTERS: tuple[QueryParamFilter, ...] = (
+    QueryParamFilter(
+        param_name="data_inicial",
+        lookup="criado_em__date",
+        kind="date_gte",
+    ),
+    QueryParamFilter(
+        param_name="data_final",
+        lookup="criado_em__date",
+        kind="date_lte",
+    ),
+)
 
-class WorkOrderListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
-    model = WorkOrder
-    template_name = "workorder/workorder_list.html"
-    context_object_name = "workorder"
-    htmx_template_name = "workorder/partials/workorder_table.html"
+WORKORDER_STATUS_CHOICES = tuple((status.value, str(status.label)) for status in WorkOrderStatus)
+WORKORDER_STATUS_BADGE_CLASSES = {
+    WorkOrderStatus.DRAFT: "badge-soft badge-ghost min-w-sm",
+    WorkOrderStatus.APPROVED: "badge-success min-w-sm",
+    WorkOrderStatus.REJECTED: "badge-error min-w-sm",
+    WorkOrderStatus.CANCELLED: "badge-warning min-w-sm",
+}
+WORKORDER_STATUS_REPORT_PDF_TITLE = "Relatorio de Ordens de Servico por Status"
 
-    def get_queryset(self):
-        queryset = (
-            super()
-            .get_queryset()
+
+def _build_workshop_logo_data_uri(*, workshop) -> str:
+    workshop_logo = getattr(workshop, "logo", None)
+    if not workshop_logo:
+        return ""
+
+    try:
+        workshop_logo.open("rb")
+        try:
+            logo_bytes = workshop_logo.read()
+        finally:
+            workshop_logo.close()
+
+        if not logo_bytes:
+            return ""
+
+        extension = str(getattr(workshop_logo, "name", "")).lower().split(".")[-1]
+        content_type_map = {
+            "png": "image/png",
+            "jpg": "image/jpeg",
+            "jpeg": "image/jpeg",
+            "webp": "image/webp",
+            "gif": "image/gif",
+            "svg": "image/svg+xml",
+        }
+        content_type = content_type_map.get(extension, "image/png")
+        encoded_logo = base64.b64encode(logo_bytes).decode("ascii")
+        return f"data:{content_type};base64,{encoded_logo}"
+    except OSError:
+        return ""
+
+
+def _parse_report_date_param(raw_value: str | None) -> date | None:
+    value = str(raw_value or "").strip()
+    if not value:
+        return None
+
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _build_period_label(*, start_date: date | None, end_date: date | None) -> str:
+    if start_date and end_date:
+        return f"{start_date.strftime('%d/%m/%Y')} a {end_date.strftime('%d/%m/%Y')}"
+    if start_date:
+        return f"A partir de {start_date.strftime('%d/%m/%Y')}"
+    if end_date:
+        return f"Ate {end_date.strftime('%d/%m/%Y')}"
+    return "Todo o periodo"
+
+
+class WorkOrderStatusReportDataMixin:
+    status_report_pdf_title = WORKORDER_STATUS_REPORT_PDF_TITLE
+
+    def _get_selected_status(self) -> str:
+        return str(self.request.GET.get("status") or "").strip()
+
+    def _get_selected_status_choice(self) -> WorkOrderStatus | None:
+        cached = getattr(self, "_selected_status_choice_cache", None)
+        if cached is not None:
+            return cached
+
+        try:
+            selected_status_choice = WorkOrderStatus(self._get_selected_status())
+        except ValueError:
+            selected_status_choice = None
+
+        self._selected_status_choice_cache = selected_status_choice
+        return selected_status_choice
+
+    def _get_report_start_date(self) -> date | None:
+        return _parse_report_date_param(self.request.GET.get("data_inicial"))
+
+    def _get_report_end_date(self) -> date | None:
+        return _parse_report_date_param(self.request.GET.get("data_final"))
+
+    def _get_status_report_period_label(self) -> str:
+        return _build_period_label(start_date=self._get_report_start_date(), end_date=self._get_report_end_date())
+
+    def _get_status_report_querystring(self) -> str:
+        selected_status_choice = self._get_selected_status_choice()
+        if selected_status_choice is None:
+            return ""
+
+        query_params = {"status": str(selected_status_choice)}
+
+        raw_start_date = str(self.request.GET.get("data_inicial") or "").strip()
+        raw_end_date = str(self.request.GET.get("data_final") or "").strip()
+        if raw_start_date:
+            query_params["data_inicial"] = raw_start_date
+        if raw_end_date:
+            query_params["data_final"] = raw_end_date
+
+        return urlencode(query_params)
+
+    def _get_workorder_table_fields(self) -> list[TableColumn]:
+        return [
+            TableColumn("ID", attr="id"),
+            TableColumn("Cliente", attr="budget.customer"),
+            TableColumn("Criado em", attr="criado_em"),
+            TableColumn("Veículo", attr="budget.vehicle"),
+            TableColumn("Valor Total", attr="total_budget_value"),
+            TableColumn("Status", attr="workorder_status_badge", format="status_badge"),
+        ]
+
+    def _get_workorder_base_queryset(self):
+        return (
+            WorkOrder.objects.filter(workshop=self.workshop)
             .select_related("budget", "budget__customer", "budget__vehicle")
             .prefetch_related(
                 Prefetch(
@@ -117,7 +256,62 @@ class WorkOrderListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRes
             )
         )
 
-        selected_status = str(self.request.GET.get("status") or "").strip()
+    def _get_selected_status_report_queryset(self):
+        cached = getattr(self, "_selected_status_report_queryset_cache", None)
+        if cached is not None:
+            return cached
+
+        selected_status_choice = self._get_selected_status_choice()
+        if selected_status_choice is None:
+            queryset = self._get_workorder_base_queryset().none()
+        else:
+            queryset = apply_query_param_filters(
+                self._get_workorder_base_queryset().filter(status=selected_status_choice),
+                params=self.request.GET,
+                filter_configs=WORKORDER_STATUS_REPORT_FILTERS,
+            ).order_by("-criado_em")
+
+        self._selected_status_report_queryset_cache = queryset
+        return queryset
+
+    def _get_selected_status_report(self) -> dict[str, object] | None:
+        selected_status_choice = self._get_selected_status_choice()
+        if selected_status_choice is None:
+            return None
+
+        return {
+            "value": selected_status_choice,
+            "label": str(selected_status_choice.label),
+            "count": self._get_selected_status_report_queryset().count(),
+            "badge_class": WORKORDER_STATUS_BADGE_CLASSES.get(selected_status_choice, "badge-ghost"),
+        }
+
+    def _build_status_report_pdf_context(self) -> dict[str, object]:
+        selected_status_report = self._get_selected_status_report()
+        if selected_status_report is None:
+            raise Http404("Status de ordem de servico invalido")
+
+        return {
+            "workshop": self.workshop,
+            "report_workorders": list(self._get_selected_status_report_queryset()),
+            "selected_status_report": selected_status_report,
+            "status_report_pdf_title": self.status_report_pdf_title,
+            "status_report_period_label": self._get_status_report_period_label(),
+            "workshop_logo_data_uri": _build_workshop_logo_data_uri(workshop=self.workshop),
+            "auto_print": self.request.GET.get("autoprint") == "1",
+        }
+
+
+class WorkOrderListView(LoginRequiredMixin, WorkOrderStatusReportDataMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
+    model = WorkOrder
+    template_name = "workorder/workorder_list.html"
+    context_object_name = "workorder"
+    htmx_template_name = "workorder/partials/workorder_table.html"
+
+    def get_queryset(self):
+        queryset = self._get_workorder_base_queryset()
+
+        selected_status = self._get_selected_status()
         if selected_status != WorkOrderStatus.CANCELLED:
             queryset = queryset.exclude(status=WorkOrderStatus.CANCELLED)
 
@@ -131,21 +325,42 @@ class WorkOrderListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRes
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-
-        context["fields"] = [
-            TableColumn("ID", attr="id"),
-            TableColumn("Cliente", attr="budget.customer"),
-            TableColumn(str(WorkOrder.criado_em.field.verbose_name), attr=WorkOrder.criado_em.field.name),
-            TableColumn("Veículo", attr="budget.vehicle"),
-            TableColumn("Valor Total", attr="total_budget_value"),
-            TableColumn("Status", attr="workorder_status_badge", format="status_badge"),
-        ]
+        context["fields"] = self._get_workorder_table_fields()
 
         context["actions"] = [
             TableActionDefaults.edit("workorder:workorder_detail"),
         ]
-        context["status_choices"] = WorkOrder.status.field.choices
+        context["status_choices"] = WORKORDER_STATUS_CHOICES
+        context["selected_status_report"] = self._get_selected_status_report()
+        context["status_report_period_label"] = self._get_status_report_period_label()
+        context["status_report_querystring"] = self._get_status_report_querystring()
+        context["status_report_pdf_title"] = self.status_report_pdf_title
         return context
+
+
+@method_decorator(xframe_options_exempt, name="dispatch")
+class WorkOrderStatusReportPdfPreviewView(LoginRequiredMixin, WorkOrderStatusReportDataMixin, WorkshopScopedMixin, TemplateView):
+    model = WorkOrder
+    workshop_permission_codename = "view_workorder"
+
+    def get(self, request, *args, **kwargs):
+        render_request = build_workorder_status_report_pdf_render_request(
+            context=self._build_status_report_pdf_context(),
+            request=request,
+        )
+        return render(request, render_request.template_name, render_request.context)
+
+
+class WorkOrderStatusReportPdfView(LoginRequiredMixin, WorkOrderStatusReportDataMixin, WorkshopScopedMixin, View):
+    model = WorkOrder
+    workshop_permission_codename = "view_workorder"
+
+    def get(self, request, *args, **kwargs):
+        document = render_workorder_status_report_pdf_document(
+            context=self._build_status_report_pdf_context(),
+            request=request,
+        )
+        return build_pdf_http_response(document=document, download=request.GET.get("download") == "1")
 
 
 class WorkOrderDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):

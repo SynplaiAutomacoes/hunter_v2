@@ -6,10 +6,13 @@ from django import forms
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
-from django.http import HttpResponse
+from django.http import HttpRequest, HttpResponse
 from django.urls import reverse, reverse_lazy
+from django.utils import timezone
+from django.utils.decorators import method_decorator
 from django.views import View
-from django.views.generic import ListView, CreateView, DeleteView, UpdateView
+from django.views.decorators.clickjacking import xframe_options_exempt
+from django.views.generic import ListView, CreateView, DeleteView, TemplateView, UpdateView
 from django.shortcuts import get_object_or_404, redirect, render
 from django.contrib import messages
 from django.db import transaction
@@ -36,7 +39,9 @@ from .forms import (
 from .models import StockImport, StockMovement, StockProduct, StockTransfer
 from ..catalog.models.groups import CatalogGroup
 from ..catalog.models.products import Product
+from ..core.documents.http import build_pdf_http_response
 from ..core.forms import MultiStepFormMixin
+from ..core.query_filters import QueryParamFilter, apply_query_param_filters
 from ..core.tables import TableActionDefaults
 from ..core.templatetags.table_tags import TableColumn
 from ..core.utils import clean_id
@@ -46,6 +51,8 @@ from ..suppliers.models import Supplier
 from ..workshops.mixin import WorkshopScopedMixin
 from ..workshops.models.workshops import Workshop
 from ..workshops.util.workshops import get_active_workshop_or_404, has_workshop_perm
+from .report_documents import build_stock_report_excel_document, build_stock_report_pdf_render_request, render_stock_report_pdf_document
+from .reporting import build_stock_report_column_options, build_stock_report_pdf_rows, build_stock_report_summary, get_stock_report_columns
 
 
 @dataclass(frozen=True)
@@ -112,6 +119,238 @@ class ReplenishmentListView(LoginRequiredMixin, WorkshopScopedMixin, ListView):
     def get_queryset(self):
         suggested_order_calc = ExpressionWrapper(F("restock_quantity") - F("current_quantity"), output_field=IntegerField())
         return StockProduct.objects.filter(workshop=self.workshop).annotate(suggested_order=suggested_order_calc).filter(suggested_order__gt=0)
+
+
+STOCK_REPORT_PDF_TITLE = "Relatorio de Estoque"
+STOCK_REPORT_FILTER_PARAM_NAMES: tuple[str, ...] = ("piece", "code", "group", "supplier", "quantity_min", "quantity_max")
+
+
+class StockReportDataMixin:
+    request: HttpRequest
+    workshop: Workshop
+    stock_report_pdf_title = STOCK_REPORT_PDF_TITLE
+
+    def _parse_quantity_param(self, param_name: str) -> int | None:
+        raw_value = str(self.request.GET.get(param_name) or "").strip()
+        if not raw_value:
+            return None
+
+        try:
+            return int(Decimal(raw_value.replace(",", ".")))
+        except (InvalidOperation, TypeError, ValueError):
+            return None
+
+    def _get_selected_group(self) -> CatalogGroup | None:
+        cached = getattr(self, "_selected_stock_report_group_cache", None)
+        if cached is not None:
+            return cached
+
+        raw_value = str(self.request.GET.get("group") or "").strip()
+        selected_group = CatalogGroup.objects.filter(workshop=self.workshop, pk=int(raw_value)).first() if raw_value.isdigit() else None
+        self._selected_stock_report_group_cache = selected_group
+        return selected_group
+
+    def _get_selected_supplier(self) -> Supplier | None:
+        cached = getattr(self, "_selected_stock_report_supplier_cache", None)
+        if cached is not None:
+            return cached
+
+        raw_value = str(self.request.GET.get("supplier") or "").strip()
+        selected_supplier = Supplier.objects.filter(workshop=self.workshop, pk=int(raw_value)).first() if raw_value.isdigit() else None
+        self._selected_stock_report_supplier_cache = selected_supplier
+        return selected_supplier
+
+    def _get_selected_columns(self):
+        cached = getattr(self, "_selected_stock_report_columns_cache", None)
+        if cached is not None:
+            return cached
+
+        selected_columns = get_stock_report_columns(self.request.GET.getlist("columns"))
+        self._selected_stock_report_columns_cache = selected_columns
+        return selected_columns
+
+    def _get_stock_report_base_queryset(self):
+        return StockProduct.objects.filter(workshop=self.workshop).select_related("product", "product__group", "supplier")
+
+    def _apply_stock_report_filters(self, queryset):
+        group_ids = frozenset(str(group_id) for group_id in CatalogGroup.objects.filter(workshop=self.workshop).values_list("id", flat=True))
+        supplier_ids = frozenset(str(supplier_id) for supplier_id in Supplier.objects.filter(workshop=self.workshop).values_list("id", flat=True))
+        queryset = apply_query_param_filters(
+            queryset,
+            params=self.request.GET,
+            filter_configs=(
+                QueryParamFilter(param_name="piece", lookup="product__name", kind="icontains"),
+                QueryParamFilter(param_name="code", lookup="product__code", kind="icontains"),
+                QueryParamFilter(param_name="group", lookup="product__group_id", kind="choice", allowed_values=group_ids),
+                QueryParamFilter(param_name="supplier", lookup="supplier_id", kind="choice", allowed_values=supplier_ids),
+            ),
+        )
+
+        quantity_min = self._parse_quantity_param("quantity_min")
+        quantity_max = self._parse_quantity_param("quantity_max")
+        if quantity_min is not None:
+            queryset = queryset.filter(current_quantity__gte=quantity_min)
+        if quantity_max is not None:
+            queryset = queryset.filter(current_quantity__lte=quantity_max)
+        return queryset
+
+    def _apply_stock_report_sort(self, queryset):
+        raw_sort = str(self.request.GET.get("sort") or "").strip()
+        if not raw_sort:
+            return queryset.order_by("product__name", "product__code", "pk")
+
+        sort_attr = raw_sort.lstrip("-")
+        sort_desc = raw_sort.startswith("-")
+        selected_column = next(
+            (column for column in self._get_selected_columns() if column.table_column.sortable and column.table_column.attr == sort_attr),
+            None,
+        )
+        if selected_column is None:
+            return queryset.order_by("product__name", "product__code", "pk")
+
+        sort_by = selected_column.table_column.sort_by or sort_attr.replace(".", "__")
+        ordering = [sort_by] if not isinstance(sort_by, (list, tuple)) else list(sort_by)
+        resolved_ordering: list[object] = []
+        for entry in ordering:
+            if isinstance(entry, str):
+                resolved_ordering.append(f"-{entry}" if sort_desc else entry)
+            else:
+                resolved_ordering.append(entry.desc() if sort_desc else entry.asc())
+
+        if "pk" not in [entry for entry in resolved_ordering if isinstance(entry, str)]:
+            resolved_ordering.append("pk")
+        return queryset.order_by(*resolved_ordering)
+
+    def _get_stock_report_queryset(self):
+        cached = getattr(self, "_stock_report_queryset_cache", None)
+        if cached is not None:
+            return cached
+
+        queryset = self._apply_stock_report_sort(self._apply_stock_report_filters(self._get_stock_report_base_queryset()))
+        self._stock_report_queryset_cache = queryset
+        return queryset
+
+    def _get_stock_report_items(self) -> list[StockProduct]:
+        cached = getattr(self, "_stock_report_items_cache", None)
+        if cached is not None:
+            return cached
+
+        items = list(self._get_stock_report_queryset())
+        self._stock_report_items_cache = items
+        return items
+
+    def _get_stock_report_totals(self) -> dict[str, object]:
+        cached = getattr(self, "_stock_report_totals_cache", None)
+        if cached is not None:
+            return cached
+
+        totals = build_stock_report_summary(self._get_stock_report_items())
+        self._stock_report_totals_cache = totals
+        return totals
+
+    def _get_stock_report_querystring(self) -> str:
+        return self.request.GET.urlencode()
+
+    def _build_stock_report_filter_descriptions(self) -> list[str]:
+        descriptions: list[str] = []
+        piece = str(self.request.GET.get("piece") or "").strip()
+        code = str(self.request.GET.get("code") or "").strip()
+        if piece:
+            descriptions.append(f'Peca: "{piece}"')
+        if code:
+            descriptions.append(f'Codigo: "{code}"')
+
+        selected_group = self._get_selected_group()
+        if selected_group is not None:
+            descriptions.append(f"Grupo: {selected_group.name}")
+
+        selected_supplier = self._get_selected_supplier()
+        if selected_supplier is not None:
+            descriptions.append(f"Fornecedor: {selected_supplier.name}")
+
+        quantity_min = self._parse_quantity_param("quantity_min")
+        quantity_max = self._parse_quantity_param("quantity_max")
+        if quantity_min is not None and quantity_max is not None:
+            descriptions.append(f"Quantidade entre {quantity_min} e {quantity_max}")
+        elif quantity_min is not None:
+            descriptions.append(f"Quantidade a partir de {quantity_min}")
+        elif quantity_max is not None:
+            descriptions.append(f"Quantidade ate {quantity_max}")
+
+        return descriptions
+
+    def _build_stock_report_export_context(self) -> dict[str, object]:
+        selected_columns = self._get_selected_columns()
+        stock_report_items = self._get_stock_report_items()
+        return {
+            "workshop": self.workshop,
+            "selected_columns": selected_columns,
+            "stock_report_items": stock_report_items,
+            "stock_report_rows": build_stock_report_pdf_rows(items=stock_report_items, selected_columns=selected_columns),
+            "stock_report_totals": self._get_stock_report_totals(),
+            "stock_report_filter_descriptions": self._build_stock_report_filter_descriptions(),
+            "stock_report_pdf_title": self.stock_report_pdf_title,
+            "generated_at_label": timezone.localtime().strftime("%d/%m/%Y %H:%M"),
+            "auto_print": self.request.GET.get("autoprint") == "1",
+        }
+
+
+class StockReportListView(LoginRequiredMixin, StockReportDataMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
+    model = StockProduct
+    template_name = "stock/report.html"
+    context_object_name = "stock_report_items"
+    htmx_template_name = "stock/partials/report_table.html"
+    workshop_permission_codename = "view_stockproduct"
+
+    def get_queryset(self):
+        return self._get_stock_report_queryset()
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        selected_columns = self._get_selected_columns()
+        context["fields"] = [column.table_column for column in selected_columns]
+        context["actions"] = []
+        context["stock_report_column_options"] = build_stock_report_column_options(self.request.GET.getlist("columns"))
+        context["stock_report_selected_column_labels"] = [column.label for column in selected_columns]
+        context["stock_report_group_choices"] = [(str(group_id), name) for group_id, name in CatalogGroup.objects.filter(workshop=self.workshop).order_by("name").values_list("id", "name")]
+        context["stock_report_supplier_choices"] = [(str(supplier_id), name) for supplier_id, name in Supplier.objects.filter(workshop=self.workshop, is_active=True).order_by("name").values_list("id", "name")]
+        context["stock_report_totals"] = self._get_stock_report_totals()
+        context["stock_report_querystring"] = self._get_stock_report_querystring()
+        context["stock_report_filter_descriptions"] = self._build_stock_report_filter_descriptions()
+        context["stock_report_pdf_title"] = self.stock_report_pdf_title
+        return context
+
+
+@method_decorator(xframe_options_exempt, name="dispatch")
+class StockReportPdfPreviewView(LoginRequiredMixin, StockReportDataMixin, WorkshopScopedMixin, TemplateView):
+    model = StockProduct
+    workshop_permission_codename = "view_stockproduct"
+
+    def get(self, request, *args, **kwargs):
+        render_request = build_stock_report_pdf_render_request(context=self._build_stock_report_export_context(), request=request)
+        return render(request, render_request.template_name, render_request.context)
+
+
+class StockReportPdfView(LoginRequiredMixin, StockReportDataMixin, WorkshopScopedMixin, View):
+    model = StockProduct
+    workshop_permission_codename = "view_stockproduct"
+
+    def get(self, request, *args, **kwargs):
+        document = render_stock_report_pdf_document(context=self._build_stock_report_export_context(), request=request)
+        return build_pdf_http_response(document=document, download=request.GET.get("download") == "1")
+
+
+class StockReportExcelView(LoginRequiredMixin, StockReportDataMixin, WorkshopScopedMixin, View):
+    model = StockProduct
+    workshop_permission_codename = "view_stockproduct"
+
+    def get(self, request, *args, **kwargs):
+        document = build_stock_report_excel_document(context=self._build_stock_report_export_context())
+        response = HttpResponse(document.content, content_type=document.content_type)
+        response["Content-Disposition"] = f'attachment; filename="{document.filename}"'
+        response["X-Content-Type-Options"] = "nosniff"
+        response["Cache-Control"] = "no-store"
+        return response
 
 
 class MovementApprovalListView(LoginRequiredMixin, WorkshopScopedMixin, ListView):

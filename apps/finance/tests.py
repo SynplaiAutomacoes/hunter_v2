@@ -3840,6 +3840,19 @@ class FinancialGroupViewsTests(TestCase):
         self.assertIn(child.dre_hierarchy_label, content)
         self.assertIn(grandchild.dre_hierarchy_label, content)
 
+    def test_list_view_displays_all_groups_without_pagination(self) -> None:
+        groups = [FinancialGroup.objects.create(workshop=self.workshop, name=f"Grupo {index:02d}") for index in range(1, 12)]
+
+        response = self.client.get(reverse("finance:financial_groups_list"))
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+
+        self.assertIn(groups[-1].code, content)
+        self.assertIn(groups[-1].name, content)
+        self.assertNotIn("Página 1 de 2", content)
+        self.assertNotIn("Próxima", content)
+
     def test_create_view_creates_child_group_with_expected_code(self) -> None:
         parent = FinancialGroup.objects.create(workshop=self.workshop, name="Contas fixas")
 

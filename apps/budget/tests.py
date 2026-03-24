@@ -203,6 +203,8 @@ class BudgetListFiltersTests(TestCase):
         matching_budget.collaborator = matching_collaborator
         matching_budget.status = BudgetStatus.APPROVED
         matching_budget.save(update_fields=["customer", "vehicle", "collaborator", "status"])
+        matching_created_at = timezone.now() - timedelta(days=3)
+        Budget.objects.filter(pk=matching_budget.pk).update(criado_em=matching_created_at)
 
         other_customer = create_customer(workshop=workshop, suffix=71)
         other_vehicle = create_vehicle(workshop=workshop, customer=other_customer, suffix=71, plate="XYZ9876")
@@ -213,8 +215,10 @@ class BudgetListFiltersTests(TestCase):
         other_budget.collaborator = other_collaborator
         other_budget.status = BudgetStatus.CANCELLED
         other_budget.save(update_fields=["customer", "vehicle", "collaborator", "status"])
+        Budget.objects.filter(pk=other_budget.pk).update(criado_em=timezone.now() - timedelta(days=12))
 
-        params = QueryDict("client=Cliente+70&vehicle=ABC1234&collaborator=Joao&status=approved")
+        selected_date = matching_created_at.date().isoformat()
+        params = QueryDict(f"client=Cliente+70&vehicle=ABC1234&collaborator=Joao&status=approved&data_inicial={selected_date}&data_final={selected_date}")
 
         filtered = apply_query_param_filters(
             Budget.objects.filter(workshop=workshop),
@@ -226,7 +230,10 @@ class BudgetListFiltersTests(TestCase):
         self.assertNotIn(other_budget, filtered)
 
     def test_budget_filter_fields_template_renders_new_inputs(self) -> None:
-        request = RequestFactory().get("/budget/", {"client": "Ana", "vehicle": "ABC1234", "collaborator": "Joao", "status": BudgetStatus.APPROVED})
+        request = RequestFactory().get(
+            "/budget/",
+            {"client": "Ana", "vehicle": "ABC1234", "collaborator": "Joao", "status": BudgetStatus.APPROVED, "data_inicial": "2026-03-01", "data_final": "2026-03-31"},
+        )
         template = Template("{% include 'budget/partials/budget_filters_fields.html' %}")
 
         html = template.render(
@@ -243,9 +250,13 @@ class BudgetListFiltersTests(TestCase):
         self.assertIn('name="vehicle"', html)
         self.assertIn('name="collaborator"', html)
         self.assertIn('name="status"', html)
+        self.assertIn('name="data_inicial"', html)
+        self.assertIn('name="data_final"', html)
         self.assertIn('value="Ana"', html)
         self.assertIn('value="ABC1234"', html)
         self.assertIn('value="Joao"', html)
+        self.assertIn('value="2026-03-01"', html)
+        self.assertIn('value="2026-03-31"', html)
 
     def _login_with_active_workshop(self, *, suffix: int) -> Workshop:
         user, workshop = create_director_user_with_workshop(suffix=suffix)
@@ -300,6 +311,240 @@ class BudgetListFiltersTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertQuerySetEqual(response.context["budget"].order_by("pk"), [approved_budget], transform=lambda obj: obj)
         self.assertNotIn(cancelled_budget, response.context["budget"])
+
+    def test_budget_list_shows_status_report_for_selected_status(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=75)
+        approved_budget = create_budget(workshop=workshop)
+        approved_budget.status = BudgetStatus.APPROVED
+        approved_budget.save(update_fields=["status"])
+        matching_created_at = timezone.now() - timedelta(days=2)
+        Budget.objects.filter(pk=approved_budget.pk).update(criado_em=matching_created_at)
+        second_approved_budget = create_budget(workshop=workshop)
+        second_approved_budget.status = BudgetStatus.APPROVED
+        second_approved_budget.save(update_fields=["status"])
+        Budget.objects.filter(pk=second_approved_budget.pk).update(criado_em=timezone.now() - timedelta(days=10))
+        draft_budget = create_budget(workshop=workshop)
+        draft_budget.status = BudgetStatus.DRAFT
+        draft_budget.save(update_fields=["status"])
+        Budget.objects.filter(pk=draft_budget.pk).update(criado_em=matching_created_at)
+
+        selected_date = matching_created_at.date().isoformat()
+
+        response = self.client.get(reverse("budget:budget_list"), {"status": BudgetStatus.APPROVED, "data_inicial": selected_date, "data_final": selected_date})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["selected_status_report"], {"value": BudgetStatus.APPROVED, "label": "Aprovado", "count": 1, "badge_class": "badge-success min-w-sm"})
+        self.assertContains(response, "Relatorio do status")
+        self.assertContains(response, "Aprovado")
+        self.assertContains(response, "Orcamentos com este status")
+        self.assertContains(response, "Imprimir relatorio em PDF")
+        self.assertContains(response, f"{reverse('budget:status_report_pdf_preview')}?status={BudgetStatus.APPROVED}")
+        self.assertContains(response, reverse("budget:status_report_pdf"))
+        self.assertContains(response, "download=1")
+        self.assertContains(response, f"data_inicial={selected_date}")
+        self.assertContains(response, f"data_final={selected_date}")
+
+    def test_budget_status_report_counts_only_selected_status(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=76)
+
+        matching_customer = create_customer(workshop=workshop, suffix=76)
+        matching_vehicle = create_vehicle(workshop=workshop, customer=matching_customer, suffix=76, plate="ABC7676")
+        matching_collaborator = create_collaborator(workshop=workshop, suffix=76, name="Carlos 76")
+        matching_budget = create_budget(workshop=workshop)
+        matching_budget.customer = matching_customer
+        matching_budget.vehicle = matching_vehicle
+        matching_budget.collaborator = matching_collaborator
+        matching_budget.status = BudgetStatus.APPROVED
+        matching_budget.save(update_fields=["customer", "vehicle", "collaborator", "status"])
+        matching_created_at = timezone.now() - timedelta(days=3)
+        Budget.objects.filter(pk=matching_budget.pk).update(criado_em=matching_created_at)
+
+        other_customer = create_customer(workshop=workshop, suffix=77)
+        other_vehicle = create_vehicle(workshop=workshop, customer=other_customer, suffix=77, plate="ABC7777")
+        other_collaborator = create_collaborator(workshop=workshop, suffix=77, name="Carlos 77")
+        other_budget = create_budget(workshop=workshop)
+        other_budget.customer = other_customer
+        other_budget.vehicle = other_vehicle
+        other_budget.collaborator = other_collaborator
+        other_budget.status = BudgetStatus.APPROVED
+        other_budget.save(update_fields=["customer", "vehicle", "collaborator", "status"])
+        Budget.objects.filter(pk=other_budget.pk).update(criado_em=matching_created_at)
+
+        out_of_range_budget = create_budget(workshop=workshop)
+        out_of_range_budget.status = BudgetStatus.APPROVED
+        out_of_range_budget.save(update_fields=["status"])
+        Budget.objects.filter(pk=out_of_range_budget.pk).update(criado_em=timezone.now() - timedelta(days=14))
+
+        draft_budget = create_budget(workshop=workshop)
+        draft_budget.status = BudgetStatus.DRAFT
+        draft_budget.save(update_fields=["status"])
+
+        selected_date = matching_created_at.date().isoformat()
+        response = self.client.get(
+            reverse("budget:budget_list"),
+            {"status": BudgetStatus.APPROVED, "client": matching_customer.name, "data_inicial": selected_date, "data_final": selected_date},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertQuerySetEqual(response.context["budget"].order_by("pk"), [matching_budget], transform=lambda obj: obj)
+        self.assertNotIn(other_budget, response.context["budget"])
+        self.assertNotIn(out_of_range_budget, response.context["budget"])
+        self.assertEqual(response.context["selected_status_report"]["count"], 2)
+
+    def test_budget_list_hides_status_report_without_valid_status(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=78)
+        approved_budget = create_budget(workshop=workshop)
+        approved_budget.status = BudgetStatus.APPROVED
+        approved_budget.save(update_fields=["status"])
+
+        response = self.client.get(reverse("budget:budget_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.context["selected_status_report"])
+        self.assertNotContains(response, "Relatorio do status")
+        self.assertNotContains(response, "Imprimir relatorio em PDF")
+
+    def test_budget_list_htmx_partial_keeps_status_report_in_table_content(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=79)
+        approved_budget = create_budget(workshop=workshop)
+        approved_budget.status = BudgetStatus.APPROVED
+        approved_budget.save(update_fields=["status"])
+        second_approved_budget = create_budget(workshop=workshop)
+        second_approved_budget.status = BudgetStatus.APPROVED
+        second_approved_budget.save(update_fields=["status"])
+
+        response = self.client.get(reverse("budget:budget_list"), {"status": BudgetStatus.APPROVED}, HTTP_HX_REQUEST="true")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="budget-table-content"')
+        self.assertContains(response, "Relatorio do status")
+        self.assertContains(response, "Aprovado")
+        self.assertContains(response, "Imprimir relatorio em PDF")
+
+
+class BudgetStatusReportPdfTests(TestCase):
+    def _login_with_active_workshop(self, *, suffix: int) -> Workshop:
+        user, workshop = create_director_user_with_workshop(suffix=suffix)
+        self.client.force_login(user)
+
+        session = self.client.session
+        session["active_workshop_id"] = workshop.pk
+        session.save()
+        return workshop
+
+    def test_status_report_pdf_preview_renders_html_for_iframe(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=95)
+        customer = create_customer(workshop=workshop, suffix=95)
+        vehicle = create_vehicle(workshop=workshop, customer=customer, suffix=95, plate="BDG9595")
+        collaborator = create_collaborator(workshop=workshop, suffix=95, name="Tecnico 95")
+
+        approved_budget = create_budget(workshop=workshop)
+        approved_budget.customer = customer
+        approved_budget.vehicle = vehicle
+        approved_budget.collaborator = collaborator
+        approved_budget.status = BudgetStatus.APPROVED
+        approved_budget.save(update_fields=["customer", "vehicle", "collaborator", "status"])
+        matching_created_at = timezone.now() - timedelta(days=4)
+        Budget.objects.filter(pk=approved_budget.pk).update(criado_em=matching_created_at)
+
+        other_customer = create_customer(workshop=workshop, suffix=951)
+        other_vehicle = create_vehicle(workshop=workshop, customer=other_customer, suffix=951, plate="BDG9511")
+        other_collaborator = create_collaborator(workshop=workshop, suffix=951, name="Tecnico 951")
+        out_of_range_budget = create_budget(workshop=workshop)
+        out_of_range_budget.customer = other_customer
+        out_of_range_budget.vehicle = other_vehicle
+        out_of_range_budget.collaborator = other_collaborator
+        out_of_range_budget.status = BudgetStatus.APPROVED
+        out_of_range_budget.save(update_fields=["customer", "vehicle", "collaborator", "status"])
+        Budget.objects.filter(pk=out_of_range_budget.pk).update(criado_em=timezone.now() - timedelta(days=12))
+
+        draft_budget = create_budget(workshop=workshop)
+        draft_budget.status = BudgetStatus.DRAFT
+        draft_budget.save(update_fields=["status"])
+
+        selected_date = matching_created_at.date().isoformat()
+
+        response = self.client.get(reverse("budget:status_report_pdf_preview"), {"status": BudgetStatus.APPROVED, "data_inicial": selected_date, "data_final": selected_date})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "<!DOCTYPE html>", html=False)
+        self.assertContains(response, "Relatorio de Orcamentos por Status")
+        self.assertContains(response, workshop.name)
+        self.assertContains(response, "Aprovado")
+        self.assertContains(response, f"#{approved_budget.pk}")
+        self.assertContains(response, customer.name)
+        self.assertContains(response, vehicle.plate)
+        self.assertContains(response, collaborator.name)
+        self.assertNotContains(response, f"#{out_of_range_budget.pk}")
+        self.assertContains(response, matching_created_at.strftime("%d/%m/%Y"))
+        self.assertIsNone(response.headers.get("X-Frame-Options"))
+
+    @patch("apps.budget.views.workflow_views.render_budget_status_report_pdf_document")
+    def test_status_report_pdf_view_returns_attachment_and_ignores_other_filters(self, render_document_mock) -> None:
+        workshop = self._login_with_active_workshop(suffix=96)
+
+        matching_customer = create_customer(workshop=workshop, suffix=96)
+        matching_vehicle = create_vehicle(workshop=workshop, customer=matching_customer, suffix=96, plate="BDG9696")
+        matching_collaborator = create_collaborator(workshop=workshop, suffix=96, name="Tecnico 96")
+        matching_budget = create_budget(workshop=workshop)
+        matching_budget.customer = matching_customer
+        matching_budget.vehicle = matching_vehicle
+        matching_budget.collaborator = matching_collaborator
+        matching_budget.status = BudgetStatus.APPROVED
+        matching_budget.save(update_fields=["customer", "vehicle", "collaborator", "status"])
+        matching_created_at = timezone.now() - timedelta(days=5)
+        Budget.objects.filter(pk=matching_budget.pk).update(criado_em=matching_created_at)
+
+        other_customer = create_customer(workshop=workshop, suffix=97)
+        other_vehicle = create_vehicle(workshop=workshop, customer=other_customer, suffix=97, plate="BDG9797")
+        other_collaborator = create_collaborator(workshop=workshop, suffix=97, name="Tecnico 97")
+        other_budget = create_budget(workshop=workshop)
+        other_budget.customer = other_customer
+        other_budget.vehicle = other_vehicle
+        other_budget.collaborator = other_collaborator
+        other_budget.status = BudgetStatus.APPROVED
+        other_budget.save(update_fields=["customer", "vehicle", "collaborator", "status"])
+        Budget.objects.filter(pk=other_budget.pk).update(criado_em=matching_created_at)
+
+        out_of_range_budget = create_budget(workshop=workshop)
+        out_of_range_budget.status = BudgetStatus.APPROVED
+        out_of_range_budget.save(update_fields=["status"])
+        Budget.objects.filter(pk=out_of_range_budget.pk).update(criado_em=timezone.now() - timedelta(days=17))
+
+        draft_budget = create_budget(workshop=workshop)
+        draft_budget.status = BudgetStatus.DRAFT
+        draft_budget.save(update_fields=["status"])
+
+        render_document_mock.return_value = DocumentPayload(content=b"%PDF-budget-status-report", filename="relatorio_orcamentos_por_status_approved.pdf")
+        selected_date = matching_created_at.date().isoformat()
+
+        response = self.client.get(
+            reverse("budget:status_report_pdf"),
+            {"status": BudgetStatus.APPROVED, "client": matching_customer.name, "data_inicial": selected_date, "data_final": selected_date, "download": "1"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"%PDF-budget-status-report")
+        self.assertIn('attachment; filename="relatorio_orcamentos_por_status_approved.pdf"', response["Content-Disposition"])
+
+        context = render_document_mock.call_args.kwargs["context"]
+        self.assertEqual(context["selected_status_report"]["count"], 2)
+        self.assertCountEqual(context["report_budgets"], [matching_budget, other_budget])
+        self.assertNotIn(out_of_range_budget, context["report_budgets"])
+        self.assertEqual(context["status_report_pdf_title"], "Relatorio de Orcamentos por Status")
+        self.assertEqual(context["status_report_period_label"], f"{matching_created_at.strftime('%d/%m/%Y')} a {matching_created_at.strftime('%d/%m/%Y')}")
+
+    def test_status_report_pdf_views_return_404_without_valid_status(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=98)
+        approved_budget = create_budget(workshop=workshop)
+        approved_budget.status = BudgetStatus.APPROVED
+        approved_budget.save(update_fields=["status"])
+
+        preview_response = self.client.get(reverse("budget:status_report_pdf_preview"))
+        pdf_response = self.client.get(reverse("budget:status_report_pdf"), {"status": "invalid-status"})
+
+        self.assertEqual(preview_response.status_code, 404)
+        self.assertEqual(pdf_response.status_code, 404)
 
 
 class BudgetTotalsConsistencyTests(TestCase):

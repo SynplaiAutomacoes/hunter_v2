@@ -1,0 +1,17 @@
+<div class="mb-6">
+    <div class="grid gap-4 md:grid-cols-2">
+        <div class="card border border-base-300 bg-base-100 shadow-sm">
+            <div class="card-body gap-2 p-5">
+                <p class="text-xs font-semibold uppercase tracking-[0.18em] text-base-content/55">Quantidade total</p>
+                <p class="text-3xl font-black text-base-content">{{ stock_report_totals.total_quantity_display }}</p>
+            </div>
+        </div>
+
+        <div class="card border border-base-300 bg-base-100 shadow-sm">
+            <div class="card-body gap-2 p-5">
+                <p class="text-xs font-semibold uppercase tracking-[0.18em] text-base-content/55">Custo total do estoque</p>
+                <p class="text-3xl font-black text-success">{{ stock_report_totals.stock_total_cost_display }}</p>
+            </div>
+        </div>
+    </div>
+</div>

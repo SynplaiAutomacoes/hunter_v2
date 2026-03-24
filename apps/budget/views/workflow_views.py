@@ -1,22 +1,29 @@
 import json
+from datetime import date
 from decimal import Decimal, InvalidOperation
+from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Prefetch
-from django.http import HttpResponse, JsonResponse
-from django.shortcuts import redirect
+from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
+from django.shortcuts import redirect, render
 from django.urls import reverse, reverse_lazy
+from django.utils.decorators import method_decorator
 from django.utils import timezone
 from django.views import View
-from django.views.generic import CreateView, DeleteView, ListView
+from django.views.decorators.clickjacking import xframe_options_exempt
+from django.views.generic import CreateView, DeleteView, ListView, TemplateView
 from djmoney.money import Money
 from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
+from apps.budget.documents.provider import build_budget_status_report_pdf_render_request, render_budget_status_report_pdf_document
 from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
 from apps.budget.models import Budget, BudgetItem, BudgetStatus, SignatureStatus
+from apps.budget.pdf_context import build_workshop_logo_data_uri
 from apps.budget.service import SuperSignError, send_budget_for_signature
+from apps.core.documents.http import build_pdf_http_response
 from apps.core.forms import MultiStepFormMixin
 from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
@@ -25,6 +32,7 @@ from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.workorder.discount_sync import sync_budget_discount_to_workorder
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.models.workshop_costs import WorkshopCost
+from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
 from .shared import _get_budget_for_workshop, logger
@@ -75,19 +83,109 @@ BUDGET_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
         kind="choice",
         allowed_values=frozenset(str(status_value) for status_value, _ in (Budget.status.field.choices or ())),
     ),
+    QueryParamFilter(
+        param_name="data_inicial",
+        lookup="criado_em__date",
+        kind="date_gte",
+    ),
+    QueryParamFilter(
+        param_name="data_final",
+        lookup="criado_em__date",
+        kind="date_lte",
+    ),
 )
 
+BUDGET_STATUS_REPORT_FILTERS: tuple[QueryParamFilter, ...] = (
+    QueryParamFilter(
+        param_name="data_inicial",
+        lookup="criado_em__date",
+        kind="date_gte",
+    ),
+    QueryParamFilter(
+        param_name="data_final",
+        lookup="criado_em__date",
+        kind="date_lte",
+    ),
+)
 
-class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
-    model = Budget
-    template_name = "budget/budget_list.html"
-    context_object_name = "budget"
-    htmx_template_name = "budget/partials/budget_table.html"
+BUDGET_STATUS_CHOICES = tuple((status.value, str(status.label)) for status in BudgetStatus)
+BUDGET_STATUS_BADGE_CLASSES = {
+    BudgetStatus.DRAFT: "badge-neutral min-w-sm",
+    BudgetStatus.WAITING_CLIENT: "badge-warning min-w-sm",
+    BudgetStatus.WAITING_DIAGNOSIS: "badge-warning min-w-sm",
+    BudgetStatus.WAITING_ITEMS: "badge-warning min-w-sm",
+    BudgetStatus.WAITING_PRICING: "badge-info min-w-sm",
+    BudgetStatus.WAITING_REVIEW: "badge-info min-w-sm",
+    BudgetStatus.APPROVED: "badge-success min-w-sm",
+    BudgetStatus.REJECTED: "badge-error min-w-sm",
+    BudgetStatus.CANCELLED: "badge-error min-w-sm",
+}
+BUDGET_STATUS_REPORT_PDF_TITLE = "Relatorio de Orcamentos por Status"
 
-    def get_queryset(self):
-        queryset = (
-            super()
-            .get_queryset()
+
+def _parse_report_date_param(raw_value: str | None) -> date | None:
+    value = str(raw_value or "").strip()
+    if not value:
+        return None
+
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _build_period_label(*, start_date: date | None, end_date: date | None) -> str:
+    if start_date and end_date:
+        return f"{start_date.strftime('%d/%m/%Y')} a {end_date.strftime('%d/%m/%Y')}"
+    if start_date:
+        return f"A partir de {start_date.strftime('%d/%m/%Y')}"
+    if end_date:
+        return f"Ate {end_date.strftime('%d/%m/%Y')}"
+    return "Todo o periodo"
+
+
+class BudgetStatusReportDataMixin:
+    status_report_pdf_title = BUDGET_STATUS_REPORT_PDF_TITLE
+    request: HttpRequest
+    workshop: Workshop
+
+    def _get_selected_status(self) -> str:
+        return str(self.request.GET.get("status") or "").strip()
+
+    def _get_selected_status_choice(self) -> BudgetStatus | None:
+        try:
+            return BudgetStatus(self._get_selected_status())
+        except ValueError:
+            return None
+
+    def _get_report_start_date(self) -> date | None:
+        return _parse_report_date_param(self.request.GET.get("data_inicial"))
+
+    def _get_report_end_date(self) -> date | None:
+        return _parse_report_date_param(self.request.GET.get("data_final"))
+
+    def _get_status_report_period_label(self) -> str:
+        return _build_period_label(start_date=self._get_report_start_date(), end_date=self._get_report_end_date())
+
+    def _get_status_report_querystring(self) -> str:
+        selected_status_choice = self._get_selected_status_choice()
+        if selected_status_choice is None:
+            return ""
+
+        query_params = {"status": str(selected_status_choice)}
+
+        raw_start_date = str(self.request.GET.get("data_inicial") or "").strip()
+        raw_end_date = str(self.request.GET.get("data_final") or "").strip()
+        if raw_start_date:
+            query_params["data_inicial"] = raw_start_date
+        if raw_end_date:
+            query_params["data_final"] = raw_end_date
+
+        return urlencode(query_params)
+
+    def _get_budget_base_queryset(self):
+        return (
+            Budget.objects.filter(workshop=self.workshop)
             .select_related("customer", "vehicle", "collaborator")
             .prefetch_related(
                 Prefetch(
@@ -103,7 +201,65 @@ class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespon
             )
         )
 
-        selected_status = str(self.request.GET.get("status") or "").strip()
+    def _get_budget_table_fields(self) -> list[TableColumn]:
+        return [
+            TableColumn("ID", attr="id"),
+            TableColumn(str(Budget.customer.field.verbose_name), attr=Budget.customer.field.name),
+            TableColumn(str(Budget.vehicle.field.verbose_name), attr=Budget.vehicle.field.name),
+            TableColumn(str(Budget.collaborator.field.verbose_name), attr="collaborator_name"),
+            TableColumn("Criado em", attr="criado_em"),
+            TableColumn("Valor Total", attr="total_budget_value"),
+            TableColumn(str(Budget.status.field.verbose_name), attr="budget_status_badge", format="status_badge"),
+        ]
+
+    def _get_selected_status_report_queryset(self):
+        selected_status_choice = self._get_selected_status_choice()
+        if selected_status_choice is None:
+            return self._get_budget_base_queryset().none()
+        return apply_query_param_filters(
+            self._get_budget_base_queryset().filter(status=selected_status_choice),
+            params=self.request.GET,
+            filter_configs=BUDGET_STATUS_REPORT_FILTERS,
+        ).order_by("-criado_em")
+
+    def _get_selected_status_report(self) -> dict[str, object] | None:
+        selected_status_choice = self._get_selected_status_choice()
+        if selected_status_choice is None:
+            return None
+
+        return {
+            "value": selected_status_choice,
+            "label": str(selected_status_choice.label),
+            "count": self._get_selected_status_report_queryset().count(),
+            "badge_class": BUDGET_STATUS_BADGE_CLASSES.get(selected_status_choice, "badge-neutral"),
+        }
+
+    def _build_status_report_pdf_context(self) -> dict[str, object]:
+        selected_status_report = self._get_selected_status_report()
+        if selected_status_report is None:
+            raise Http404("Status de orcamento invalido")
+
+        return {
+            "workshop": self.workshop,
+            "report_budgets": list(self._get_selected_status_report_queryset()),
+            "selected_status_report": selected_status_report,
+            "status_report_pdf_title": self.status_report_pdf_title,
+            "status_report_period_label": self._get_status_report_period_label(),
+            "workshop_logo_data_uri": build_workshop_logo_data_uri(workshop=self.workshop),
+            "auto_print": self.request.GET.get("autoprint") == "1",
+        }
+
+
+class BudgetListView(LoginRequiredMixin, BudgetStatusReportDataMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
+    model = Budget
+    template_name = "budget/budget_list.html"
+    context_object_name = "budget"
+    htmx_template_name = "budget/partials/budget_table.html"
+
+    def get_queryset(self):
+        queryset = self._get_budget_base_queryset()
+
+        selected_status = self._get_selected_status()
         if selected_status != BudgetStatus.CANCELLED:
             queryset = queryset.exclude(status=BudgetStatus.CANCELLED)
 
@@ -117,22 +273,43 @@ class BudgetListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespon
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["fields"] = [
-            TableColumn("ID", attr="id"),
-            TableColumn(Budget.customer.field.verbose_name, attr=Budget.customer.field.name),
-            TableColumn(Budget.vehicle.field.verbose_name, attr=Budget.vehicle.field.name),
-            TableColumn(Budget.collaborator.field.verbose_name, attr="collaborator_name"),
-            TableColumn(Budget.criado_em.field.verbose_name, attr=Budget.criado_em.field.name),
-            TableColumn("Valor Total", attr="total_budget_value"),
-            TableColumn(Budget.status.field.verbose_name, attr="budget_status_badge", format="status_badge"),
-        ]
+        context["fields"] = self._get_budget_table_fields()
         context["actions"] = [
             TableActionDefaults.edit("budget:budget_update"),
         ]
-        context["status_choices"] = Budget.status.field.choices
+        context["status_choices"] = BUDGET_STATUS_CHOICES
+        context["selected_status_report"] = self._get_selected_status_report()
+        context["status_report_period_label"] = self._get_status_report_period_label()
+        context["status_report_querystring"] = self._get_status_report_querystring()
+        context["status_report_pdf_title"] = self.status_report_pdf_title
         context["budget_events_enabled"] = getattr(settings, "BUDGET_EVENTS_ENABLED", False)
         context["budget_poll_interval_seconds"] = getattr(settings, "BUDGET_POLL_INTERVAL_SECONDS", 20)
         return context
+
+
+@method_decorator(xframe_options_exempt, name="dispatch")
+class BudgetStatusReportPdfPreviewView(LoginRequiredMixin, BudgetStatusReportDataMixin, WorkshopScopedMixin, TemplateView):
+    model = Budget
+    workshop_permission_codename = "view_budget"
+
+    def get(self, request, *args, **kwargs):
+        render_request = build_budget_status_report_pdf_render_request(
+            context=self._build_status_report_pdf_context(),
+            request=request,
+        )
+        return render(request, render_request.template_name, render_request.context)
+
+
+class BudgetStatusReportPdfView(LoginRequiredMixin, BudgetStatusReportDataMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "view_budget"
+
+    def get(self, request, *args, **kwargs):
+        document = render_budget_status_report_pdf_document(
+            context=self._build_status_report_pdf_context(),
+            request=request,
+        )
+        return build_pdf_http_response(document=document, download=request.GET.get("download") == "1")
 
 
 class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixin, CreateView):

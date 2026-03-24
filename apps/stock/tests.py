@@ -2,21 +2,26 @@ from __future__ import annotations
 
 import base64
 import gzip
+from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from django.core.management import call_command
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
+from openpyxl import load_workbook
 
 from apps.accounts.models import Account, User
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.collaborators.models import WorkshopMember
+from apps.core.documents.contract import DocumentPayload
 from apps.iam.utils import get_or_create_director_role
-from apps.stock.forms import ImportSefazListForm
+from apps.stock.forms import ImportSefazListForm, ImportStepSummaryForm
 from apps.stock.models import SefazZipCache, StockImport, StockMovement, StockProduct, StockTransfer
 from apps.stock.utils import NFParser
+from apps.suppliers.models import Supplier
 from apps.workshops.models.workshops import Workshop
 
 
@@ -298,3 +303,348 @@ class StockTransferFlowTests(TestCase):
         response = self.client.get(reverse("stock:history_edit", kwargs={"record_type": "transfer", "pk": transfer.pk}))
 
         self.assertRedirects(response, reverse("stock:transfer_update", kwargs={"pk": transfer.pk}), fetch_redirect_response=False)
+
+
+class StockReportViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=30)
+        self.group_filters = CatalogGroup.objects.create(workshop=self.workshop, name="Filtros")
+        self.group_engine = CatalogGroup.objects.create(workshop=self.workshop, name="Motor")
+        self.supplier_a = Supplier.objects.create(workshop=self.workshop, cnpj="12.345.678/0001-90", name="Fornecedor A")
+        self.supplier_b = Supplier.objects.create(workshop=self.workshop, cnpj="98.765.432/0001-10", name="Fornecedor B")
+
+        self.product_filter = Product.objects.create(
+            workshop=self.workshop,
+            code="FLT-001",
+            name="Filtro de Oleo",
+            unit=Product.Unit.UND,
+            group=self.group_filters,
+            cost_price="10.00",
+            selling_price="15.00",
+            origin_cst=Product.OriginCST.NACIONAL,
+            purpose=Product.Purpose.RESALE,
+        )
+        self.product_oil = Product.objects.create(
+            workshop=self.workshop,
+            code="OLE-002",
+            name="Oleo de Motor",
+            unit=Product.Unit.LT,
+            group=self.group_filters,
+            cost_price="20.00",
+            selling_price="30.00",
+            origin_cst=Product.OriginCST.NACIONAL,
+            purpose=Product.Purpose.RESALE,
+        )
+        self.product_head = Product.objects.create(
+            workshop=self.workshop,
+            code="CAB-003",
+            name="Cabecote",
+            unit=Product.Unit.PC,
+            group=self.group_engine,
+            cost_price="7.50",
+            selling_price="12.00",
+            origin_cst=Product.OriginCST.NACIONAL,
+            purpose=Product.Purpose.RESALE,
+        )
+
+        self.stock_filter = StockProduct.objects.get(workshop=self.workshop, product=self.product_filter)
+        self.stock_filter.current_quantity = 5
+        self.stock_filter.supplier = self.supplier_a
+        self.stock_filter.last_nf = "NF-001"
+        self.stock_filter.save(update_fields=["current_quantity", "supplier", "last_nf"])
+
+        self.stock_oil = StockProduct.objects.get(workshop=self.workshop, product=self.product_oil)
+        self.stock_oil.current_quantity = 3
+        self.stock_oil.supplier = self.supplier_b
+        self.stock_oil.last_nf = "NF-002"
+        self.stock_oil.save(update_fields=["current_quantity", "supplier", "last_nf"])
+
+        self.stock_head = StockProduct.objects.get(workshop=self.workshop, product=self.product_head)
+        self.stock_head.current_quantity = 0
+        self.stock_head.save(update_fields=["current_quantity"])
+
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_report_page_renders_default_columns_and_totals(self) -> None:
+        response = self.client.get(reverse("stock:report"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Relatorio de Estoque")
+        self.assertContains(response, "Exportar Excel")
+        self.assertContains(response, "Gerar PDF")
+        self.assertContains(response, "FLT-001")
+        self.assertContains(response, "Oleo de Motor")
+        self.assertContains(response, "R$ 110,00")
+        self.assertEqual(response.context["stock_report_totals"]["item_count"], 3)
+        self.assertEqual(response.context["stock_report_totals"]["total_quantity"], 8)
+
+    def test_report_page_renders_summary_cards_above_controls_and_export_buttons_on_controls_row(self) -> None:
+        response = self.client.get(reverse("stock:report"))
+
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode()
+        controls_form_index = html.find('id="stock-report-table-controls-form"')
+        controls_form_end_index = html.find("</form>", controls_form_index)
+
+        self.assertLess(html.find("Quantidade total"), controls_form_index)
+        self.assertLess(html.find('aria-controls="stock-report-table-filter-modal"', controls_form_index, controls_form_end_index), html.find("Exportar Excel", controls_form_index, controls_form_end_index))
+        self.assertLess(html.find("Exportar Excel", controls_form_index, controls_form_end_index), html.find("Gerar PDF", controls_form_index, controls_form_end_index))
+        self.assertLess(html.find("Gerar PDF", controls_form_index, controls_form_end_index), controls_form_end_index)
+
+    def test_report_filters_by_piece_code_group_supplier_and_quantity_range(self) -> None:
+        response = self.client.get(
+            reverse("stock:report"),
+            data={
+                "piece": "Filtro",
+                "code": "FLT",
+                "group": str(self.group_filters.pk),
+                "supplier": str(self.supplier_a.pk),
+                "quantity_min": "4",
+                "quantity_max": "6",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "FLT-001")
+        self.assertNotContains(response, "OLE-002")
+        self.assertNotContains(response, "CAB-003")
+        self.assertEqual(response.context["stock_report_totals"]["item_count"], 1)
+        self.assertEqual(response.context["stock_report_totals"]["total_quantity"], 5)
+        self.assertEqual(response.context["stock_report_totals"]["stock_total_cost_display"], "R$ 50,00")
+
+    def test_report_respects_selected_columns_and_preserves_them_in_export_links(self) -> None:
+        response = self.client.get(
+            reverse("stock:report"),
+            data={"columns": ["code", "quantity", "item_total_cost"]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([field.label for field in response.context["fields"]], ["Codigo", "Quantidade", "Custo total do item"])
+        self.assertContains(response, "columns=code")
+        self.assertContains(response, "columns=quantity")
+        self.assertContains(response, "columns=item_total_cost")
+
+    def test_report_last_nf_column_shows_friendly_empty_state_text(self) -> None:
+        response = self.client.get(
+            reverse("stock:report"),
+            data={"columns": ["code", "last_nf"]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "NF-001")
+        self.assertContains(response, "NF-002")
+        self.assertContains(response, "Nenhuma NF relacionada")
+
+    def test_pdf_preview_view_renders_html_for_iframe(self) -> None:
+        response = self.client.get(
+            reverse("stock:report_pdf_preview"),
+            data={"columns": ["code", "quantity", "item_total_cost"]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "<!DOCTYPE html>", html=False)
+        self.assertContains(response, "Relatorio de Estoque")
+        self.assertContains(response, "Custo total do item")
+        self.assertIsNone(response.headers.get("X-Frame-Options"))
+
+    def test_pdf_preview_last_nf_column_shows_friendly_empty_state_text(self) -> None:
+        response = self.client.get(
+            reverse("stock:report_pdf_preview"),
+            data={"columns": ["code", "last_nf"]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "NF-001")
+        self.assertContains(response, "NF-002")
+        self.assertContains(response, "Nenhuma NF relacionada")
+
+    @patch("apps.stock.views.render_stock_report_pdf_document")
+    def test_pdf_view_returns_downloadable_document_with_filtered_context(self, render_document_mock) -> None:
+        render_document_mock.return_value = DocumentPayload(content=b"%PDF-stock", filename="relatorio_estoque.pdf")
+
+        response = self.client.get(
+            reverse("stock:report_pdf"),
+            data={
+                "code": "FLT-001",
+                "columns": ["code", "quantity"],
+                "download": "1",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"%PDF-stock")
+        self.assertIn('attachment; filename="relatorio_estoque.pdf"', response["Content-Disposition"])
+        context = render_document_mock.call_args.kwargs["context"]
+        self.assertEqual(context["stock_report_totals"]["item_count"], 1)
+        self.assertEqual([column.label for column in context["selected_columns"]], ["Codigo", "Quantidade"])
+        self.assertEqual(context["stock_report_items"][0].product.code, "FLT-001")
+
+    def test_excel_view_returns_workbook_with_selected_columns_and_totals(self) -> None:
+        response = self.client.get(
+            reverse("stock:report_excel"),
+            data={
+                "group": str(self.group_filters.pk),
+                "quantity_min": "1",
+                "columns": ["code", "quantity", "unit_cost", "item_total_cost"],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        self.assertIn('attachment; filename="relatorio_estoque_', response["Content-Disposition"])
+
+        workbook = load_workbook(filename=BytesIO(response.content))
+        sheet = workbook["Relatorio"]
+
+        headers = [sheet.cell(row=10, column=column_index).value for column_index in range(1, 5)]
+        self.assertEqual(headers, ["Codigo", "Quantidade", "Custo unitario", "Custo total do item"])
+        self.assertEqual(sheet["B6"].value, "2")
+        self.assertEqual(sheet["B7"].value, "8")
+        self.assertEqual(sheet["B8"].value, "R$ 110,00")
+        self.assertEqual(sheet["A11"].value, "FLT-001")
+        self.assertEqual(sheet["B11"].value, 5)
+        self.assertEqual(sheet["C11"].value, 10)
+        self.assertEqual(sheet["D12"].value, 60)
+
+    def test_excel_view_last_nf_column_shows_friendly_empty_state_text(self) -> None:
+        response = self.client.get(
+            reverse("stock:report_excel"),
+            data={"columns": ["code", "last_nf"]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        workbook = load_workbook(filename=BytesIO(response.content))
+        sheet = workbook["Relatorio"]
+        values_by_code = {str(code): value for code, value in sheet.iter_rows(min_row=11, max_col=2, values_only=True) if code is not None}
+
+        self.assertEqual(values_by_code["CAB-003"], "Nenhuma NF relacionada")
+        self.assertEqual(values_by_code["FLT-001"], "NF-001")
+        self.assertEqual(values_by_code["OLE-002"], "NF-002")
+
+
+class StockImportSupplierSyncTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=40)
+        self.group = CatalogGroup.objects.create(workshop=self.workshop, name="Filtros")
+        self.supplier_old = Supplier.objects.create(workshop=self.workshop, cnpj="12.345.678/0001-40", name="Fornecedor Antigo")
+        self.supplier_new = Supplier.objects.create(workshop=self.workshop, cnpj="98.765.432/0001-40", name="Fornecedor Novo")
+        self.product = Product.objects.create(
+            workshop=self.workshop,
+            code="FLT-040",
+            name="Filtro Premium",
+            unit=Product.Unit.UND,
+            group=self.group,
+            cost_price="10.00",
+            selling_price="15.00",
+            origin_cst=Product.OriginCST.NACIONAL,
+            purpose=Product.Purpose.RESALE,
+        )
+        self.stock_product = StockProduct.objects.get(workshop=self.workshop, product=self.product)
+        self.stock_product.current_quantity = 2
+        self.stock_product.supplier = self.supplier_old
+        self.stock_product.last_nf = "NF-OLD"
+        self.stock_product.save(update_fields=["current_quantity", "supplier", "last_nf"])
+
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_completed_import_updates_existing_stock_product_supplier_to_latest(self) -> None:
+        stock_import = StockImport.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            nf_key="4" * 44,
+            nf_number="NF-NEW",
+            supplier_name=self.supplier_new.name,
+            supplier_cnpj=self.supplier_new.cnpj,
+            items_data=[{"linked_product_id": str(self.product.pk), "qtd": "3"}],
+            payments_data=[],
+        )
+        form = ImportStepSummaryForm(data={}, instance=stock_import, workshop=self.workshop, request=SimpleNamespace(user=self.user))
+
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+
+        stock_import.refresh_from_db()
+        self.stock_product.refresh_from_db()
+        movement = StockMovement.objects.get(stock_product=self.stock_product, type=StockMovement.MovementType.ENTRY, status=StockMovement.MovementStatus.APPROVED)
+
+        self.assertEqual(stock_import.status, StockImport.ImportStatus.COMPLETED)
+        self.assertEqual(self.stock_product.current_quantity, 5)
+        self.assertEqual(self.stock_product.last_nf, "NF-NEW")
+        self.assertEqual(self.stock_product.supplier, self.supplier_new)
+        self.assertEqual(movement.supplier, self.supplier_new)
+
+
+class BackfillStockProductSuppliersCommandTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=50)
+        self.group = CatalogGroup.objects.create(workshop=self.workshop, name="Filtros")
+        self.supplier_a = Supplier.objects.create(workshop=self.workshop, cnpj="12.345.678/0001-50", name="Fornecedor A")
+        self.supplier_b = Supplier.objects.create(workshop=self.workshop, cnpj="98.765.432/0001-50", name="Fornecedor B")
+        self.product = Product.objects.create(
+            workshop=self.workshop,
+            code="FLT-050",
+            name="Filtro Backfill",
+            unit=Product.Unit.UND,
+            group=self.group,
+            cost_price="10.00",
+            selling_price="15.00",
+            origin_cst=Product.OriginCST.NACIONAL,
+            purpose=Product.Purpose.RESALE,
+        )
+        self.stock_product = StockProduct.objects.get(workshop=self.workshop, product=self.product)
+
+    def test_command_sets_supplier_from_latest_approved_entry_movement(self) -> None:
+        StockMovement.objects.create(
+            workshop=self.workshop,
+            stock_product=self.stock_product,
+            type=StockMovement.MovementType.ENTRY,
+            supplier=self.supplier_a,
+            quantity=1,
+            status=StockMovement.MovementStatus.APPROVED,
+            transcation_by=self.user,
+        )
+        StockMovement.objects.create(
+            workshop=self.workshop,
+            stock_product=self.stock_product,
+            type=StockMovement.MovementType.ENTRY,
+            supplier=self.supplier_b,
+            quantity=1,
+            status=StockMovement.MovementStatus.APPROVED,
+            transcation_by=self.user,
+        )
+        StockMovement.objects.create(
+            workshop=self.workshop,
+            stock_product=self.stock_product,
+            type=StockMovement.MovementType.EXIT,
+            quantity=1,
+            status=StockMovement.MovementStatus.APPROVED,
+            transcation_by=self.user,
+        )
+
+        call_command("backfill_stock_product_suppliers", workshop_id=self.workshop.pk)
+
+        self.stock_product.refresh_from_db()
+        self.assertEqual(self.stock_product.supplier, self.supplier_b)
+
+    def test_command_dry_run_does_not_persist_changes(self) -> None:
+        StockMovement.objects.create(
+            workshop=self.workshop,
+            stock_product=self.stock_product,
+            type=StockMovement.MovementType.ENTRY,
+            supplier=self.supplier_a,
+            quantity=1,
+            status=StockMovement.MovementStatus.APPROVED,
+            transcation_by=self.user,
+        )
+
+        call_command("backfill_stock_product_suppliers", workshop_id=self.workshop.pk, dry_run=True)
+
+        self.stock_product.refresh_from_db()
+        self.assertIsNone(self.stock_product.supplier)
