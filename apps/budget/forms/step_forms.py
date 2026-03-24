@@ -2,6 +2,7 @@ import base64
 import json
 from decimal import Decimal
 from html import escape
+from typing import cast
 
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import HTML, Div, Field, Layout
@@ -282,22 +283,21 @@ class BudgetStep1Form(forms.ModelForm):
         self.request = kwargs.pop("request", None)
         super().__init__(*args, **kwargs)
 
-        self.fields["customer"].widget.attrs.update(
+        customer_field = cast(forms.ModelChoiceField, self.fields["customer"])
+        vehicle_field = cast(forms.ModelChoiceField, self.fields["vehicle"])
+
+        customer_field.widget.attrs.update(
             {
-                "x-model": "customerId",
                 "hx-get": reverse_lazy("budget:customer-detail"),
                 "hx-trigger": "change",
                 "hx-target": "#resumo-cliente",
-                "@change": "customerId = $el.value; vehicleId = ''; updateVehicleList($el.value);",
             }
         )
 
-        self.fields["vehicle"].widget.attrs.update(
+        vehicle_field.widget.attrs.update(
             {
-                "x-model": "vehicleId",
                 "id": "id_vehicle",
                 ":disabled": "!customerId",
-                ":class": "{ 'cursor-not-allowed': !customerId }",
                 "hx-get": reverse_lazy("budget:vehicle-detail"),
                 "hx-trigger": "change",
                 "hx-target": "#resumo-veiculo",
@@ -305,29 +305,41 @@ class BudgetStep1Form(forms.ModelForm):
             }
         )
 
-        self.fields["vehicle"].widget.attrs.update({"id": "id_vehicle"})
+        vehicle_field.widget.attrs.update({"id": "id_vehicle"})
         self.fields["fuel_level"].required = False
         self.fields["current_km"].error_messages["required"] = "Preencha o KM atual para continuar."
+
+        selected_customer_id = ""
+        selected_vehicle_id = ""
+        selected_customer = None
+        selected_vehicle = None
 
         # Preenchimento inicial
         if self.workshop:
             workshop_name = self.workshop.name
             self.fields["workshop"].initial = workshop_name
             self.initial["workshop"] = workshop_name
-            self.fields["customer"].queryset = self.fields["customer"].queryset.filter(workshop=self.workshop)
+            customer_field.queryset = Customer.objects.filter(workshop=self.workshop).order_by("name")
 
             if not self.is_bound and (not self.instance or not self.instance.pk):
                 requested_customer_id = (self.request.GET.get("customer") if self.request else "") or ""
                 requested_vehicle_id = (self.request.GET.get("vehicle") if self.request else "") or ""
 
                 requested_customer = Customer.objects.filter(workshop=self.workshop, pk=requested_customer_id).first() if requested_customer_id else None
+                requested_vehicle = Vehicle.objects.filter(workshop=self.workshop, pk=requested_vehicle_id).first() if requested_vehicle_id else None
+
+                if requested_customer is None and requested_vehicle is not None:
+                    requested_customer = requested_vehicle.customer
+
                 if requested_customer is not None:
                     self.initial["customer"] = requested_customer.pk
-                    self.fields["vehicle"].queryset = Vehicle.objects.filter(customer=requested_customer)
+                    selected_customer = requested_customer
+                    selected_customer_id = str(requested_customer.pk)
 
-                requested_vehicle = Vehicle.objects.filter(workshop=self.workshop, pk=requested_vehicle_id).first() if requested_vehicle_id else None
-                if requested_vehicle is not None and (requested_customer is None or requested_vehicle.customer_id == requested_customer.pk):
+                if requested_vehicle is not None and (requested_customer is None or requested_vehicle.customer.pk == requested_customer.pk):
                     self.initial["vehicle"] = requested_vehicle.pk
+                    selected_vehicle = requested_vehicle
+                    selected_vehicle_id = str(requested_vehicle.pk)
 
         if self.instance:
             user = self.instance.cost_estimator
@@ -335,12 +347,6 @@ class BudgetStep1Form(forms.ModelForm):
                 display_name = user.get_full_name() or user.username
                 self.fields["cost_estimator"].initial = display_name
                 self.initial["cost_estimator"] = display_name
-
-            customer_id = self.data.get("customer") or (self.instance.customer_id if self.instance.customer else None)
-            if customer_id:
-                self.fields["vehicle"].queryset = Vehicle.objects.filter(customer_id=customer_id)
-            else:
-                self.fields["vehicle"].queryset = Vehicle.objects.none()
 
         if not self.instance.pk:
             self.fields["entry_date"].initial = timezone.now().date()
@@ -351,8 +357,6 @@ class BudgetStep1Form(forms.ModelForm):
             user = self.request.user
             self.fields["cost_estimator"].initial = user.get_full_name() or user.username
 
-        selected_customer_id = ""
-        selected_vehicle_id = ""
         if self.is_bound:
             selected_customer_id = (self.data.get("customer") or "").strip()
             selected_vehicle_id = (self.data.get("vehicle") or "").strip()
@@ -368,6 +372,24 @@ class BudgetStep1Form(forms.ModelForm):
 
         if not selected_vehicle_id and self.initial.get("vehicle"):
             selected_vehicle_id = str(self.initial.get("vehicle"))
+
+        customer_queryset = Customer.objects.all()
+        vehicle_queryset = Vehicle.objects.all()
+        if self.workshop:
+            customer_queryset = customer_queryset.filter(workshop=self.workshop)
+            vehicle_queryset = vehicle_queryset.filter(workshop=self.workshop)
+
+        if selected_customer_id:
+            selected_customer = customer_queryset.filter(pk=selected_customer_id).first()
+            vehicle_field.queryset = vehicle_queryset.filter(customer_id=selected_customer_id).order_by("plate")
+        else:
+            vehicle_field.queryset = Vehicle.objects.none()
+
+        if selected_vehicle_id:
+            selected_vehicle_queryset = vehicle_queryset.filter(pk=selected_vehicle_id)
+            if selected_customer_id:
+                selected_vehicle_queryset = selected_vehicle_queryset.filter(customer_id=selected_customer_id)
+            selected_vehicle = selected_vehicle_queryset.first()
 
         customer_vehicle_x_data = json.dumps({"customerId": selected_customer_id, "vehicleId": selected_vehicle_id})
 
@@ -567,10 +589,10 @@ class BudgetStep1Form(forms.ModelForm):
                         HTML('<h2 class="text-2xl font-bold mb-4 pb-2">Resumo</h2>'),
                         # Cliente
                         HTML('<h4 class="text-lg font-bold mb-2">Cliente</h4>'),
-                        Div(HTML(render_to_string("budget/partials/components/customer_resume.html", {"customer": self.instance.customer})), id="resumo-cliente", css_class="mb-6 overflow-x-auto"),
+                        Div(HTML(render_to_string("budget/partials/components/customer_resume.html", {"customer": selected_customer})), id="resumo-cliente", css_class="mb-6 overflow-x-auto"),
                         # Veículo
                         HTML('<h4 class="text-lg font-bold mb-2">Veículo</h4>'),
-                        Div(HTML(render_to_string("budget/partials/components/vehicle_resume.html", {"vehicle": self.instance.vehicle})), id="resumo-veiculo", css_class="overflow-x-auto"),
+                        Div(HTML(render_to_string("budget/partials/components/vehicle_resume.html", {"vehicle": selected_vehicle})), id="resumo-veiculo", css_class="overflow-x-auto"),
                     ),
                     css_class="col-span-12 lg:col-span-5",
                 ),
