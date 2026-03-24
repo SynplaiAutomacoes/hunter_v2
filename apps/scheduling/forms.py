@@ -296,23 +296,22 @@ class AppointmentForm(forms.ModelForm):
                 HTML('<div class="col-span-12 mb-1 mt-1 text-sm font-semibold uppercase tracking-wide text-base-content/70">Cliente e Veiculo</div>'),
                 Field("title", wrapper_class="col-span-12"),
                 Div(
+                    HTML('<label for="id_is_customer_registered" class="mb-0 text-sm font-semibold text-base-content">Cliente cadastrado</label>'),
                     HTML(
                         """
-                        <div class="flex flex-1 items-center justify-between gap-4 rounded-2xl border border-base-300 bg-gradient-to-r from-base-100 to-base-200/60 px-4 py-3 shadow-sm transition-all duration-200"
-                             :class="isCustomerRegistered ? 'border-primary/40 ring-2 ring-primary/10' : 'border-base-300'">
-                            <div class="space-y-1">
-                                <label for="id_is_customer_registered" class="mb-0 block text-sm font-semibold text-base-content">Cliente cadastrado</label>
-                                <p class="text-xs text-base-content/70">Ative para selecionar cliente e veículo já cadastrados.</p>
-                            </div>
-                            <div class="flex items-center gap-3">
-                                <span class="rounded-full px-3 py-1 text-xs font-semibold transition-colors duration-200"
-                                      :class="isCustomerRegistered ? 'bg-primary text-primary-content' : 'bg-base-300 text-base-content/70'"
-                                      x-text="isCustomerRegistered ? 'Sim' : 'Não'"></span>
+                        <input
+                            type="checkbox"
+                            name="is_customer_registered"
+                            id="id_is_customer_registered"
+                            class="toggle toggle-primary"
+                            {% if form.is_customer_registered.value %}checked{% endif %}
+                        >
+                        {% if form.is_customer_registered.errors %}
+                            <span class="text-sm text-error">{{ form.is_customer_registered.errors|join:', ' }}</span>
+                        {% endif %}
                         """
                     ),
-                    Field("is_customer_registered", wrapper_class="mb-0 flex items-center"),
-                    HTML("</div></div>"),
-                    css_class="col-span-12",
+                    css_class="col-span-12 flex items-center justify-between gap-3",
                 ),
                 Div(
                     Field("guest_customer_name", wrapper_class="col-span-12 lg:col-span-6"),
