@@ -14,8 +14,8 @@ from djmoney.money import Money
 def _extract_nf_number_from_access_key(access_key: str | None) -> str:
     if not access_key:
         return ""
-    normalized_key = str(access_key).strip()
-    if len(normalized_key) >= 34:
+    normalized_key = "".join(character for character in str(access_key).strip() if character.isdigit())
+    if len(normalized_key) == 44:
         return normalized_key[25:34].lstrip("0") or "0"
     return ""
 

@@ -980,7 +980,7 @@ class SupplierDetailsView(LoginRequiredMixin, WorkshopScopedMixin, View):
             history_html += f"""<tr class="text-sm">
                     <td>#{imp.id or "---"}</td>
                     <td class="py-2">{imp.criado_em.strftime("%d/%m/%Y")}</td>
-                    <td>{imp.nf_number or "---"}</td>
+                    <td>{imp.nf_number_display or "---"}</td>
                     <td>
                         <a href="{reverse("stock:stock_update", kwargs={"pk": imp.id})}" title="Acessar Importação" class="btn btn-ghost btn-sm btn-circle">
                             <span class="material-icons !text-sm">visibility</span>

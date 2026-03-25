@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import base64
 import gzip
+from datetime import timedelta
 from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.test import RequestFactory, TestCase
 from django.urls import reverse
+from django.utils import timezone
 from openpyxl import load_workbook
 
 from apps.accounts.models import Account, User
@@ -18,7 +20,7 @@ from apps.catalog.models.products import Product
 from apps.collaborators.models import WorkshopMember
 from apps.core.documents.contract import DocumentPayload
 from apps.iam.utils import get_or_create_director_role
-from apps.stock.forms import ImportSefazListForm, ImportStepSummaryForm
+from apps.stock.forms import ImportSefazListForm, ImportStep1Form, ImportStepSummaryForm, ImportStepSupplierForm
 from apps.stock.models import SefazZipCache, StockImport, StockMovement, StockProduct, StockTransfer
 from apps.stock.utils import NFParser
 from apps.suppliers.models import Supplier
@@ -27,6 +29,7 @@ from apps.workshops.models.workshops import Workshop
 
 class StockSefazTests(TestCase):
     def setUp(self) -> None:
+        self.factory = RequestFactory()
         self.workshop = Workshop.objects.create(
             name="Oficina Teste",
             cnpj="11.222.333/0001-81",
@@ -97,6 +100,84 @@ class StockSefazTests(TestCase):
         cache = SefazZipCache.objects.get(workshop=self.workshop, key=self._build_access_key(nf_number=123))
         self.assertEqual(cache.nf_number, "123")
         self.assertEqual(cache.nf_number_display, "123")
+
+    def test_import_step1_save_uses_access_key_fallback_for_nf_number(self) -> None:
+        access_key = self._build_access_key(nf_number=321)
+        form = ImportStep1Form(workshop=self.workshop, data={"method": "KEY"})
+        form.cleaned_data = {"method": "KEY"}
+        form.parsed_nf_data = {
+            "nf_key": access_key,
+            "nf_number": None,
+            "supplier_cnpj": "11222333000181",
+            "supplier_name": "Fornecedor Teste",
+            "items": [],
+            "payments": [],
+        }
+
+        stock_import = form.save(commit=False)
+
+        self.assertEqual(stock_import.nf_number, "321")
+
+    def test_import_sefaz_list_form_uses_paginated_page_queryset(self) -> None:
+        issued_at = timezone.now()
+        for nf_number in range(1, 16):
+            SefazZipCache.objects.create(
+                workshop=self.workshop,
+                key=self._build_access_key(nf_number=nf_number),
+                nf_number=str(nf_number),
+                issuer_name=f"Fornecedor {nf_number}",
+                issuer_cnpj="11222333000181",
+                total_value="123.45",
+                issue_date=issued_at + timedelta(minutes=nf_number),
+            )
+
+        request = self.factory.get("/stock/import/", {"page": 2})
+        form = ImportSefazListForm(workshop=self.workshop, request=request)
+
+        self.assertEqual(form.notas.number, 2)
+        self.assertEqual(len(form.notas.object_list), 5)
+        self.assertEqual([nota.nf_number for nota in form.notas.object_list], ["5", "4", "3", "2", "1"])
+
+    def test_import_sefaz_save_updates_cache_with_resolved_number(self) -> None:
+        access_key = self._build_access_key(nf_number=456)
+        cache = SefazZipCache.objects.create(workshop=self.workshop, key=access_key)
+        form = ImportSefazListForm(workshop=self.workshop, data={"selected_key": access_key})
+
+        self.assertTrue(form.is_valid())
+
+        with patch("apps.stock.forms.ComunicacaoSefaz") as comunicacao_cls:
+            comunicacao_cls.return_value.consulta_distribuicao.return_value = SimpleNamespace(content=self._build_res_nfe_xml(nf_number=456, include_number=False))
+
+            stock_import = form.save(commit=False)
+
+        cache.refresh_from_db()
+        self.assertEqual(stock_import.nf_number, "456")
+        self.assertEqual(cache.nf_number, "456")
+        self.assertEqual(cache.issuer_name, "Fornecedor Teste")
+        self.assertEqual(cache.issuer_cnpj, "11222333000181")
+
+    def test_supplier_and_summary_forms_use_nf_number_display_fallback(self) -> None:
+        stock_import = StockImport.objects.create(
+            workshop=self.workshop,
+            nf_key=self._build_access_key(nf_number=654),
+            supplier_name="Fornecedor Teste",
+            supplier_cnpj="11222333000181",
+            items_data=[],
+            payments_data=[],
+        )
+
+        supplier_form = ImportStepSupplierForm(instance=stock_import, workshop=self.workshop)
+        summary_form = ImportStepSummaryForm(instance=stock_import, workshop=self.workshop)
+
+        assert supplier_form.helper is not None
+        assert supplier_form.helper.layout is not None
+        assert summary_form.helper is not None
+        assert summary_form.helper.layout is not None
+        assert supplier_form.helper.layout.fields
+        assert summary_form.helper.layout.fields
+
+        self.assertIn("NF-e: 654", supplier_form.helper.layout.fields[0].html)
+        self.assertIn("#654", summary_form.helper.layout.fields[0].html)
 
     def test_stock_import_number_display_falls_back_to_access_key(self) -> None:
         stock_import = StockImport.objects.create(
