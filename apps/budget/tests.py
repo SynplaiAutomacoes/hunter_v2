@@ -10,6 +10,7 @@ import requests
 from django import forms
 from django.http import QueryDict
 from django.template import Context, Template
+from django.template.loader import render_to_string
 from apps.accounts.models import Account, User
 from django.http import Http404, HttpResponse
 from django.db import connection
@@ -880,6 +881,30 @@ class BudgetPdfContextTests(TestCase):
         context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste")
 
         self.assertEqual(context["produtos"][0]["application"], "Fiat Uno")
+
+    def test_budget_pdf_template_allows_long_freeform_text_to_wrap(self) -> None:
+        workshop = create_workshop(suffix=94)
+        customer = create_customer(workshop=workshop, suffix=94)
+        vehicle = create_vehicle(workshop=workshop, customer=customer, suffix=94, plate="PDF9494")
+        budget = create_budget(workshop=workshop)
+        budget.customer = customer
+        budget.vehicle = vehicle
+        budget.problem_description = "Relato com quebra de linha\n" + ("problema-muito-longo-" * 12)
+        budget.save(update_fields=["customer", "vehicle", "problem_description"])
+
+        observation = "Observacao tecnica extensa\n" + ("observacao-sem-espaco-" * 12)
+        request = RequestFactory().get("/")
+        request.user = User.objects.create_user(username="budget-pdf-user-94", password="123")
+
+        context = build_budget_pdf_context(budget=budget, observacao=observation, request=request)
+        html = render_to_string("budget/partials/pdf/visualizarPDF.html", context)
+
+        self.assertIn("overflow-wrap: anywhere;", html)
+        self.assertIn("white-space: pre-wrap;", html)
+        self.assertNotIn("max-height: 65px;", html)
+        self.assertNotIn("max-height: 116px;", html)
+        self.assertIn("summary-totals-box", html)
+        self.assertIn("preserve-freeform-text", html)
 
 
 class BudgetDuplicateKitProductTests(TestCase):
