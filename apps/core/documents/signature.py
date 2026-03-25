@@ -16,7 +16,7 @@ from apps.core.documents.contract import SignatureRecipient
 
 SIGNATURE_POSITION: dict[str, float] = {
     "x": 443.0,
-    "y": 95.0,
+    "y": 210.0,
     "width": 120.0,
     "height": 38.0,
 }

@@ -40,14 +40,15 @@ from .shared import _get_budget_for_workshop, logger
 
 
 def trigger_signature_send_if_needed(*, request, budget: Budget) -> tuple[str, str, str | None]:
+    is_resend = False
+
     with transaction.atomic():
         locked_budget = Budget.objects.select_for_update().get(pk=budget.pk)
 
-        if locked_budget.signature_request_status == SignatureStatus.SENT and locked_budget.signature_external_id:
-            return "info", "Orçamento já enviado para assinatura do cliente.", reverse("budget:budget_list")
-
         if locked_budget.signature_request_status == SignatureStatus.SENDING:
             return "info", "O envio do orçamento ainda está em processamento.", None
+
+        is_resend = locked_budget.signature_request_status == SignatureStatus.SENT and bool(locked_budget.signature_external_id)
 
         locked_budget.mark_signature_sending()
 
@@ -59,7 +60,8 @@ def trigger_signature_send_if_needed(*, request, budget: Budget) -> tuple[str, s
         return "error", "Falha ao enviar orçamento para assinatura. Tente novamente em instantes.", None
 
     budget.mark_signature_sent(result.envelope_id, document_id=result.document_id)
-    return "success", "Orçamento enviado para assinatura do cliente.", reverse("budget:budget_list")
+    success_message = "Documento reenviado para assinatura do cliente." if is_resend else "Orçamento enviado para assinatura do cliente."
+    return "success", success_message, reverse("budget:budget_list")
 
 
 BUDGET_LIST_FILTERS: tuple[QueryParamFilter, ...] = (

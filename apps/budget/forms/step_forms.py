@@ -13,7 +13,7 @@ from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from djmoney.money import Money
 
-from apps.budget.models import Budget, BudgetImage, BudgetImageType, Defect
+from apps.budget.models import Budget, BudgetImage, BudgetImageType, Defect, SignatureStatus
 from apps.budget.pricing import resolve_discount_fields
 from apps.checklist.models import Checklist
 from apps.collaborators.models import WorkshopCollaborator
@@ -2653,6 +2653,13 @@ class BudgetStep6Form(forms.ModelForm):
         status_data = budget.budget_status_badge
         status_label = status_data["text"]
         status_class = status_data["class"]
+        is_signature_resend = budget.signature_request_status == SignatureStatus.SENT and bool(budget.signature_external_id)
+        signature_button_label = "Reenviar Documento" if is_signature_resend else "Enviar para Assinatura"
+        can_toggle_signed_pdf = budget.signature_request_status in {SignatureStatus.SENT, SignatureStatus.APPROVED} and bool(budget.signature_external_id or budget.signature_document_id)
+        signed_pdf_url = f"{reverse('budget:visualizar_pdf_assinatura', args=[budget.pk])}?variant=signed"
+        base_pdf_url = f"{reverse('budget:visualizar_pdf_assinatura', args=[budget.pk])}?variant=base"
+        signed_pdf_download_url = f"{reverse('budget:visualizar_pdf_assinatura', args=[budget.pk])}?download=1&variant=signed"
+        base_pdf_download_url = f"{reverse('budget:visualizar_pdf_assinatura', args=[budget.pk])}?download=1&variant=base"
 
         saved_observation = ""
         if self.workshop:
@@ -2779,6 +2786,8 @@ class BudgetStep6Form(forms.ModelForm):
                     const label = document.getElementById('send-signature-label');
                     const spinner = document.getElementById('send-signature-spinner');
                     const endpoint = btn ? btn.dataset.url : '';
+                    const isResend = btn ? btn.dataset.isResend === 'true' : false;
+                    const defaultLabel = isResend ? 'Reenviar Documento' : 'Enviar para Assinatura';
 
                     if (!endpoint) {
                         document.body.dispatchEvent(new CustomEvent('showToast', {
@@ -2788,6 +2797,14 @@ class BudgetStep6Form(forms.ModelForm):
                             },
                         }));
                         return;
+                    }
+
+                    if (isResend) {
+                        const confirmed = await customConfirm('Você tem certeza que deseja reenviar este documento para assinatura?');
+                        if (!confirmed) {
+                            if (label) label.textContent = defaultLabel;
+                            return;
+                        }
                     }
 
                     if (btn) btn.disabled = true;
@@ -2832,9 +2849,23 @@ class BudgetStep6Form(forms.ModelForm):
                         }));
                     } finally {
                         if (btn) btn.disabled = false;
-                        if (label) label.textContent = 'Enviar para Assinatura';
+                        if (label) label.textContent = defaultLabel;
                         if (spinner) spinner.classList.add('hidden');
                     }
+                }
+
+                function toggleBudgetPdfVariant() {
+                    const modal = document.getElementById('pdfModal');
+                    if (!modal || !modal.__x || !modal.__x.$data || !modal.__x.$data.showPdfVariantToggle) {
+                        return;
+                    }
+
+                    const modalState = modal.__x.$data;
+                    const shouldShowBase = modalState.pdfVariant === 'signed';
+                    modalState.pdfVariant = shouldShowBase ? 'base' : 'signed';
+                    modalState.pdfUrl = shouldShowBase ? modalState.basePdfUrl : modalState.signedPdfUrl;
+                    modalState.pdfDownloadUrl = shouldShowBase ? modalState.baseDownloadUrl : modalState.signedDownloadUrl;
+                    modalState.pdfToggleLabel = shouldShowBase ? 'Ver assinado' : 'Ver não assinado';
                 }
             </script>
             """),
@@ -2979,7 +3010,7 @@ class BudgetStep6Form(forms.ModelForm):
                         HTML(f"""
                         <div class="grid grid-cols-12 gap-3 text-center mb-8">
                             <button type="button" class="btn btn-success col-span-4"
-                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse("budget:visualizar_pdf_assinatura", args=[budget.pk])}', downloadUrl: '{reverse("budget:visualizar_pdf_assinatura", args=[budget.pk])}?download=1', showSignatureBtn: true }} }}))">
+                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{signed_pdf_url}', downloadUrl: '{signed_pdf_download_url}', showSignatureBtn: true, signatureButtonLabel: '{signature_button_label}', isSignatureResend: {"true" if is_signature_resend else "false"}, showPdfVariantToggle: {"true" if can_toggle_signed_pdf else "false"}, pdfVariant: 'signed', signedPdfUrl: '{signed_pdf_url}', basePdfUrl: '{base_pdf_url}', signedDownloadUrl: '{signed_pdf_download_url}', baseDownloadUrl: '{base_pdf_download_url}' }} }}))">
                                 Visualizar PDF
                             </button>
 
@@ -3077,8 +3108,8 @@ class BudgetStep6Form(forms.ModelForm):
             HTML("""
             <dialog id="pdfModal"
                     class="modal"
-                    x-data="{ pdfUrl: '', pdfDownloadUrl: '', showSignatureBtn: false }"
-                    @open-pdf-modal.window="pdfUrl = $event.detail.url; pdfDownloadUrl = $event.detail.downloadUrl || ''; showSignatureBtn = $event.detail.showSignatureBtn || false; $el.showModal()">
+                    x-data="{ pdfUrl: '', pdfDownloadUrl: '', showSignatureBtn: false, signatureButtonLabel: 'Enviar para Assinatura', isSignatureResend: false, showPdfVariantToggle: false, pdfVariant: 'signed', pdfToggleLabel: 'Ver não assinado', signedPdfUrl: '', basePdfUrl: '', signedDownloadUrl: '', baseDownloadUrl: '' }"
+                    @open-pdf-modal.window="pdfUrl = $event.detail.url; pdfDownloadUrl = $event.detail.downloadUrl || ''; showSignatureBtn = $event.detail.showSignatureBtn || false; signatureButtonLabel = $event.detail.signatureButtonLabel || 'Enviar para Assinatura'; isSignatureResend = $event.detail.isSignatureResend || false; showPdfVariantToggle = $event.detail.showPdfVariantToggle || false; pdfVariant = $event.detail.pdfVariant || 'signed'; pdfToggleLabel = pdfVariant === 'base' ? 'Ver assinado' : 'Ver não assinado'; signedPdfUrl = $event.detail.signedPdfUrl || ''; basePdfUrl = $event.detail.basePdfUrl || ''; signedDownloadUrl = $event.detail.signedDownloadUrl || ''; baseDownloadUrl = $event.detail.baseDownloadUrl || ''; $el.showModal()">
 
               <div class="modal-box max-w-5xl w-full h-[90vh] p-0 flex flex-col">
 
@@ -3094,9 +3125,17 @@ class BudgetStep6Form(forms.ModelForm):
                                 id="send-signature-btn"
                                 x-show="showSignatureBtn"
                                 data-url="{% url 'budget:send_signature' form.instance.pk %}"
+                                :data-is-resend="isSignatureResend ? 'true' : 'false'"
                                 onclick="sendBudgetForSignature(this)">
                             <span class="loading loading-spinner loading-xs hidden" id="send-signature-spinner"></span>
-                            <span id="send-signature-label">Enviar para Assinatura</span>
+                            <span id="send-signature-label" x-text="signatureButtonLabel"></span>
+                        </button>
+
+                        <button type="button"
+                                class="btn btn-sm btn-outline"
+                                x-show="showPdfVariantToggle"
+                                @click="toggleBudgetPdfVariant()"
+                                x-text="pdfToggleLabel">
                         </button>
 
                         <button type="button"
