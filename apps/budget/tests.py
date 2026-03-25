@@ -47,6 +47,8 @@ from apps.customer.models import Customer, Vehicle
 from apps.collaborators.models import WorkshopMember
 from apps.iam.utils import get_or_create_director_role
 from apps.workshops.models.workshops import Workshop
+from apps.workshops.models.workshop_costs import WorkshopCost
+from apps.scheduling.models import Appointment
 
 
 BUDGET_TEST_DEFAULTS_PREPARED = False
@@ -188,6 +190,59 @@ class BudgetStep1FormTests(TestCase):
         self.assertIn(str(vehicle), rendered_vehicle_field)
         self.assertIn(reverse("budget:vehicle-detail"), rendered_vehicle_field)
         self.assertIn(':disabled="!customerId"', rendered_vehicle_field)
+
+
+class BudgetCreateViewAppointmentSyncTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=91)
+        self.customer = create_customer(workshop=self.workshop, suffix=91)
+        self.vehicle = create_vehicle(workshop=self.workshop, customer=self.customer, suffix=91, plate="BDG9191")
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+        today = timezone.now()
+        WorkshopCost.objects.create(workshop=self.workshop, month=today.month, year=today.year, mechanic_quantity=1)
+
+    def test_create_syncs_budget_back_to_originating_appointment(self) -> None:
+        previous_budget = create_budget(workshop=self.workshop)
+        previous_budget.customer = self.customer
+        previous_budget.vehicle = self.vehicle
+        previous_budget.save(update_fields=["customer", "vehicle"])
+        previous_workorder = WorkOrder.objects.create(workshop=self.workshop, budget=previous_budget)
+
+        appointment = Appointment.objects.create(
+            workshop=self.workshop,
+            customer=self.customer,
+            vehicle=self.vehicle,
+            title="Agendamento com orçamento",
+            starts_at=timezone.now().replace(minute=0, second=0, microsecond=0),
+            ends_at=timezone.now().replace(minute=0, second=0, microsecond=0) + timedelta(hours=1),
+            budget=previous_budget,
+            workorder=previous_workorder,
+        )
+
+        response = self.client.post(
+            f"{reverse('budget:budget_create')}?step=1&appointment_id={appointment.pk}",
+            {
+                "entry_date": timezone.now().date().isoformat(),
+                "customer": str(self.customer.pk),
+                "vehicle": str(self.vehicle.pk),
+                "current_km": "12000",
+                "fuel_level": "5",
+            },
+        )
+
+        appointment.refresh_from_db()
+        budget = Budget.objects.exclude(pk=previous_budget.pk).get()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(appointment.budget, budget)
+        self.assertIsNone(appointment.workorder)
+        self.assertEqual(appointment.budget.customer, self.customer)
+        self.assertEqual(response.headers.get("Location"), f"{reverse('budget:budget_create')}?step=2&pk={budget.pk}&appointment_id={appointment.pk}")
 
 
 class BudgetListFiltersTests(TestCase):

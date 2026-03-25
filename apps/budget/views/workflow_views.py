@@ -29,6 +29,7 @@ from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
+from apps.scheduling.models import Appointment
 from apps.workorder.discount_sync import sync_budget_discount_to_workorder
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.models.workshop_costs import WorkshopCost
@@ -142,6 +143,21 @@ def _build_period_label(*, start_date: date | None, end_date: date | None) -> st
     if end_date:
         return f"Ate {end_date.strftime('%d/%m/%Y')}"
     return "Todo o periodo"
+
+
+def _parse_positive_int(raw_value: str | None) -> int | None:
+    value = str(raw_value or "").strip()
+    if not value:
+        return None
+
+    try:
+        parsed_value = int(value)
+    except (TypeError, ValueError):
+        return None
+
+    if parsed_value <= 0:
+        return None
+    return parsed_value
 
 
 class BudgetStatusReportDataMixin:
@@ -325,6 +341,59 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
         {"title": "Revisão e Confirmação", "form_class": BudgetStep6Form, "auto_apply": False},
     ]
 
+    def _get_origin_appointment_id(self) -> int | None:
+        return _parse_positive_int(self.request.GET.get("appointment_id"))
+
+    def _build_create_flow_url(self, *, step: int, budget_id: int | None = None) -> str:
+        query_params: dict[str, int] = {"step": step}
+        if budget_id:
+            query_params["pk"] = budget_id
+
+        appointment_id = self._get_origin_appointment_id()
+        if appointment_id:
+            query_params["appointment_id"] = appointment_id
+
+        return f"{reverse('budget:budget_create')}?{urlencode(query_params)}"
+
+    def _sync_originating_appointment(self) -> None:
+        appointment_id = self._get_origin_appointment_id()
+        if appointment_id is None or not self.object:
+            return
+
+        budget = self.object
+
+        appointment = Appointment.objects.select_related("workorder").filter(pk=appointment_id, workshop=self.workshop).first()
+        if appointment is None:
+            logger.warning("Agendamento de origem nao encontrado para sincronizar orcamento", extra={"appointment_id": appointment_id, "budget_id": budget.pk})
+            return
+
+        appointment_customer_id = getattr(appointment, "customer_id", None)
+        appointment_vehicle_id = getattr(appointment, "vehicle_id", None)
+        appointment_workorder_id = getattr(appointment, "workorder_id", None)
+
+        if appointment_customer_id and budget.customer_id and appointment_customer_id != budget.customer_id:
+            logger.info(
+                "Sincronizacao automatica ignorada por cliente divergente",
+                extra={"appointment_id": appointment.pk, "budget_id": budget.pk},
+            )
+            return
+
+        if appointment_vehicle_id and budget.vehicle_id and appointment_vehicle_id != budget.vehicle_id:
+            logger.info(
+                "Sincronizacao automatica ignorada por veiculo divergente",
+                extra={"appointment_id": appointment.pk, "budget_id": budget.pk},
+            )
+            return
+
+        update_fields = ["budget", "atualizado_em"]
+        appointment.budget = budget
+
+        if appointment_workorder_id and appointment.workorder and appointment.workorder.budget_id != budget.pk:
+            appointment.workorder = None
+            update_fields.append("workorder")
+
+        appointment.save(update_fields=update_fields)
+
     def get(self, request, *args, **kwargs):
         today = timezone.now()
         if not WorkshopCost.objects.filter(workshop=self.workshop, month=today.month, year=today.year).exists():
@@ -336,13 +405,13 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
         if budget_pk and not requested_step:
             budget = self.get_object()
             if budget:
-                target_url = f"{reverse('budget:budget_create')}?step={budget.current_step}&pk={budget.pk}"
+                target_url = self._build_create_flow_url(step=budget.current_step, budget_id=budget.pk)
                 return redirect(target_url)
 
         return super().get(request, *args, **kwargs)
 
     def get_template_names(self):
-        if self.request.htmx:
+        if bool(getattr(self.request, "htmx", False)):
             return ["budget/partials/budget_step_content.html"]
         return [self.template_name]
 
@@ -379,17 +448,25 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
             response["HX-Trigger"] = json.dumps(triggers)
         return response
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["origin_appointment_id"] = self._get_origin_appointment_id()
+        return context
+
     def _block_step5_advance_if_needed(self, current_step):
         if current_step != 5 or self._is_step5_calculation_done():
+            return None
+
+        if not self.object:
             return None
 
         warning_message = "Realize o cálculo da etapa 5 antes de avançar para a revisão."
         if self.kwargs.get("pk"):
             current_url = f"{reverse('budget:budget_update', kwargs={'pk': self.object.pk})}?step={current_step}"
         else:
-            current_url = f"{reverse('budget:budget_create')}?step={current_step}&pk={self.object.pk}"
+            current_url = self._build_create_flow_url(step=current_step, budget_id=self.object.pk)
 
-        if self.request.htmx:
+        if bool(getattr(self.request, "htmx", False)):
             return self._render_htmx_step_response(step=current_step, push_url=current_url, triggers={"showToast": {"message": warning_message, "type": "warning"}})
 
         messages.warning(self.request, warning_message)
@@ -401,7 +478,7 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
         return bool(self.object.step5_calculation_viewed or self.object.current_step > 5)
 
     def _sync_step5_calculation_viewed_from_post(self, current_step):
-        if current_step != 5:
+        if current_step != 5 or not self.object:
             return
 
         if self.object.current_step > 5 and not self.object.step5_calculation_viewed:
@@ -421,6 +498,11 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
         form.instance.cost_estimator = self.request.user
 
         self.object = form.save()  # Salva o progresso atual
+        assert self.object is not None
+        current_step = self.get_current_step()
+
+        if current_step == 1:
+            self._sync_originating_appointment()
 
         # Aplicar status automático configurado para esta etapa (se houver)
         try:
@@ -428,7 +510,6 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
         except Exception:
             logger.exception("Falha ao aplicar status automatico no create do budget", extra={"budget_id": self.object.pk})
 
-        current_step = self.get_current_step()
         self._sync_step5_calculation_viewed_from_post(current_step)
         block_step5_response = self._block_step5_advance_if_needed(current_step)
         if block_step5_response:
@@ -440,16 +521,16 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
 
         if current_step < len(self.steps_definition):
             next_step = current_step + 1
-            success_url = f"{reverse('budget:budget_create')}?step={next_step}&pk={self.object.pk}"
+            success_url = self._build_create_flow_url(step=next_step, budget_id=self.object.pk)
 
-            if self.request.htmx:
+            if bool(getattr(self.request, "htmx", False)):
                 return self._render_htmx_step_response(step=next_step, push_url=success_url)
 
             return redirect(success_url)
 
         toast_type, toast_message, redirect_url = ("success", "Orçamento finalizado. Envie para assinatura no modal de PDF.", reverse("budget:budget_list"))
 
-        if self.request.htmx:
+        if bool(getattr(self.request, "htmx", False)):
             response = HttpResponse(status=204)
             triggers = {"showToast": {"message": toast_message, "type": toast_type}}
             if redirect_url:
@@ -473,6 +554,8 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
 class BudgetUpdateView(BudgetCreateView):
     def get(self, request, *args, **kwargs):
         self.object = self.get_object()
+        if self.object is None:
+            return redirect("budget:budget_list")
         step_na_url = int(request.GET.get("step", 0))
 
         if not step_na_url:
@@ -505,6 +588,7 @@ class BudgetUpdateView(BudgetCreateView):
         form.instance.workshop = self.workshop
         form.instance.cost_estimator = self.request.user
         self.object = form.save()
+        assert self.object is not None
 
         # Aplicar status automático configurado para esta etapa (se houver)
         try:
@@ -528,14 +612,14 @@ class BudgetUpdateView(BudgetCreateView):
             # Importante: Apontamos para budget_update para manter o contexto de edição
             success_url = f"{reverse('budget:budget_update', kwargs={'pk': self.object.pk})}?step={next_step}"
 
-            if self.request.htmx:
+            if bool(getattr(self.request, "htmx", False)):
                 return self._render_htmx_step_response(step=next_step, push_url=success_url)
 
             return redirect(success_url)
 
         toast_type, toast_message, redirect_url = ("success", "Orçamento finalizado. Envie para assinatura no modal de PDF.", reverse("budget:budget_list"))
 
-        if self.request.htmx:
+        if bool(getattr(self.request, "htmx", False)):
             response = HttpResponse(status=204)
             triggers = {"showToast": {"message": toast_message, "type": toast_type}}
             if redirect_url:

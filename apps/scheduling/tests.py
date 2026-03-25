@@ -258,7 +258,8 @@ class AppointmentViewsTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 204)
-        self.assertEqual(response.headers.get("HX-Redirect"), f"{reverse('budget:budget_create')}?customer={self.customer.pk}")
+        appointment = Appointment.objects.get()
+        self.assertEqual(response.headers.get("HX-Redirect"), f"{reverse('budget:budget_create')}?customer={self.customer.pk}&appointment_id={appointment.pk}")
 
     def test_save_and_create_budget_without_registered_customer_redirects_empty_budget(self) -> None:
         starts_at = timezone.now().replace(minute=0, second=0, microsecond=0)
@@ -278,7 +279,8 @@ class AppointmentViewsTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 204)
-        self.assertEqual(response.headers.get("HX-Redirect"), reverse("budget:budget_create"))
+        appointment = Appointment.objects.get()
+        self.assertEqual(response.headers.get("HX-Redirect"), f"{reverse('budget:budget_create')}?appointment_id={appointment.pk}")
 
     def test_move_endpoint_reverts_on_overlap_conflict(self) -> None:
         base_start = timezone.now().replace(minute=0, second=0, microsecond=0)
