@@ -2854,19 +2854,6 @@ class BudgetStep6Form(forms.ModelForm):
                     }
                 }
 
-                function toggleBudgetPdfVariant() {
-                    const modal = document.getElementById('pdfModal');
-                    if (!modal || !modal.__x || !modal.__x.$data || !modal.__x.$data.showPdfVariantToggle) {
-                        return;
-                    }
-
-                    const modalState = modal.__x.$data;
-                    const shouldShowBase = modalState.pdfVariant === 'signed';
-                    modalState.pdfVariant = shouldShowBase ? 'base' : 'signed';
-                    modalState.pdfUrl = shouldShowBase ? modalState.basePdfUrl : modalState.signedPdfUrl;
-                    modalState.pdfDownloadUrl = shouldShowBase ? modalState.baseDownloadUrl : modalState.signedDownloadUrl;
-                    modalState.pdfToggleLabel = shouldShowBase ? 'Ver assinado' : 'Ver não assinado';
-                }
             </script>
             """),
             # =========================
@@ -3108,7 +3095,7 @@ class BudgetStep6Form(forms.ModelForm):
             HTML("""
             <dialog id="pdfModal"
                     class="modal"
-                    x-data="{ pdfUrl: '', pdfDownloadUrl: '', showSignatureBtn: false, signatureButtonLabel: 'Enviar para Assinatura', isSignatureResend: false, showPdfVariantToggle: false, pdfVariant: 'signed', pdfToggleLabel: 'Ver não assinado', signedPdfUrl: '', basePdfUrl: '', signedDownloadUrl: '', baseDownloadUrl: '' }"
+                    x-data="{ pdfUrl: '', pdfDownloadUrl: '', showSignatureBtn: false, signatureButtonLabel: 'Enviar para Assinatura', isSignatureResend: false, showPdfVariantToggle: false, pdfVariant: 'signed', pdfToggleLabel: 'Ver não assinado', signedPdfUrl: '', basePdfUrl: '', signedDownloadUrl: '', baseDownloadUrl: '', togglePdfVariant() { if (!this.showPdfVariantToggle) return; const shouldShowBase = this.pdfVariant === 'signed'; this.pdfVariant = shouldShowBase ? 'base' : 'signed'; this.pdfUrl = shouldShowBase ? this.basePdfUrl : this.signedPdfUrl; this.pdfDownloadUrl = shouldShowBase ? this.baseDownloadUrl : this.signedDownloadUrl; this.pdfToggleLabel = shouldShowBase ? 'Ver assinado' : 'Ver não assinado'; } }"
                     @open-pdf-modal.window="pdfUrl = $event.detail.url; pdfDownloadUrl = $event.detail.downloadUrl || ''; showSignatureBtn = $event.detail.showSignatureBtn || false; signatureButtonLabel = $event.detail.signatureButtonLabel || 'Enviar para Assinatura'; isSignatureResend = $event.detail.isSignatureResend || false; showPdfVariantToggle = $event.detail.showPdfVariantToggle || false; pdfVariant = $event.detail.pdfVariant || 'signed'; pdfToggleLabel = pdfVariant === 'base' ? 'Ver assinado' : 'Ver não assinado'; signedPdfUrl = $event.detail.signedPdfUrl || ''; basePdfUrl = $event.detail.basePdfUrl || ''; signedDownloadUrl = $event.detail.signedDownloadUrl || ''; baseDownloadUrl = $event.detail.baseDownloadUrl || ''; $el.showModal()">
 
               <div class="modal-box max-w-5xl w-full h-[90vh] p-0 flex flex-col">
@@ -3134,7 +3121,7 @@ class BudgetStep6Form(forms.ModelForm):
                         <button type="button"
                                 class="btn btn-sm btn-outline"
                                 x-show="showPdfVariantToggle"
-                                @click="toggleBudgetPdfVariant()"
+                                @click="togglePdfVariant()"
                                 x-text="pdfToggleLabel">
                         </button>
 
