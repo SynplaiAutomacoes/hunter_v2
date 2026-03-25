@@ -16,7 +16,6 @@
         .pdf-content {
             width: 100%;
             box-sizing: border-box;
-            break-inside: avoid;
             min-height: 287mm;
             display: flex;
             flex-direction: column;
@@ -105,15 +104,38 @@
         }
 
         .issue-section {
-            min-height: 60px;
-            max-height: 65px;
-            overflow: hidden;
+            break-inside: auto;
+            page-break-inside: auto;
         }
 
         .summary-section {
-            min-height: 116px;
-            max-height: 116px;
-            overflow: hidden;
+            display: block;
+            break-inside: auto;
+            page-break-inside: auto;
+        }
+
+        .preserve-freeform-text {
+            margin: 0;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            line-height: 1.35;
+        }
+
+        .summary-observation {
+            margin-bottom: 16px;
+        }
+
+        .summary-totals-row {
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .summary-totals-box {
+            width: 320px;
+            max-width: 100%;
+            break-inside: avoid;
+            page-break-inside: avoid;
         }
 
         .signature-block {
@@ -155,7 +177,25 @@
 
         @media print {
             body { background-color: white !important; padding: 0 !important; }
-            .pdf-content { border: none !important; box-shadow: none !important; }
+            .pdf-content {
+                border: none !important;
+                box-shadow: none !important;
+                min-height: auto;
+                display: block;
+                break-inside: auto;
+                page-break-inside: auto;
+            }
+
+            .pdf-main {
+                display: block;
+            }
+
+            .footer-section,
+            .summary-totals-box,
+            .signature-line {
+                break-inside: avoid;
+                page-break-inside: avoid;
+            }
         }
     </style>
 </head>
@@ -217,7 +257,7 @@
 
         <div class="issue-section p-4 border-b border-gray-200">
             <h4 class="font-bold mb-2 uppercase">Reclamações/Problemas</h4>
-            <p><span class="text-gray-500 italic">Relato principal do cliente:</span> {{ budget.problem_description|default:"Não informado." }}</p>
+            <p class="preserve-freeform-text"><span class="text-gray-500 italic">Relato principal do cliente:</span> {{ budget.problem_description|default:"Não informado." }}</p>
         </div>
         {% endif %}
 
@@ -269,32 +309,33 @@
             </table>
         </div>
 
-        <div class="summary-section grid grid-cols-2 gap-8 p-4 border-b-0">
-            <div>
+        <div class="summary-section p-4 border-b-0">
+            <div class="summary-observation">
                 <h4 class="font-bold mb-2 uppercase">Observação</h4>
-                <p class="text-[12px]">{{ observacao|default:"Nenhuma observação técnica adicional." }}</p>
+                <p class="text-[12px] preserve-freeform-text">{{ observacao|default:"Nenhuma observação técnica adicional." }}</p>
             </div>
-            <div class="bg-gray-50 p-3 rounded-md text-right">
-                <div class="flex justify-between mb-1 text-gray-600">
-                    <span>Total de Produtos:</span>
-                    <span>{{ total_produtos }}</span>
-                </div>
-                <div class="flex justify-between mb-1 text-gray-600">
-                    <span>Total de Serviços:</span>
-                    <span>{{ total_servicos }}</span>
-                </div>
-                {% if budget.resolved_discount_value.amount > 0 %}
-                <div class="flex justify-between mb-1 text-red-600">
-                    <span>Desconto:</span>
-                    <span>- {{ budget.resolved_discount_value }}</span>
-                </div>
-                {% endif %}
-                <div class="flex justify-between font-bold text-[16px] mt-2 pt-2 border-t border-gray-300">
-                    <span>TOTAL GERAL:</span>
-                    <span>{{ budget.total_budget_value }}</span>
+            <div class="summary-totals-row">
+                <div class="summary-totals-box bg-gray-50 p-3 rounded-md text-right">
+                    <div class="flex justify-between mb-1 text-gray-600">
+                        <span>Total de Produtos:</span>
+                        <span>{{ total_produtos }}</span>
+                    </div>
+                    <div class="flex justify-between mb-1 text-gray-600">
+                        <span>Total de Serviços:</span>
+                        <span>{{ total_servicos }}</span>
+                    </div>
+                    {% if budget.resolved_discount_value.amount > 0 %}
+                    <div class="flex justify-between mb-1 text-red-600">
+                        <span>Desconto:</span>
+                        <span>- {{ budget.resolved_discount_value }}</span>
+                    </div>
+                    {% endif %}
+                    <div class="flex justify-between font-bold text-[16px] mt-2 pt-2 border-t border-gray-300">
+                        <span>TOTAL GERAL:</span>
+                        <span>{{ budget.total_budget_value }}</span>
+                    </div>
                 </div>
             </div>
-        </div>
         </div>
 
         <div class="footer-section pt-3 border-t border-gray-200 text-[11px] text-gray-500">
