@@ -226,6 +226,7 @@ class AppointmentCreateView(AppointmentBaseFormMixin, CreateView):
             redirect_url = build_budget_create_url(
                 customer_id=object_appointment.customer.pk if object_appointment.customer else None,
                 vehicle_id=object_appointment.vehicle.pk if object_appointment.vehicle else None,
+                appointment_id=object_appointment.pk,
             )
             if bool(getattr(self.request, "htmx", False)):
                 return self._htmx_redirect_response(url=redirect_url)
@@ -336,6 +337,7 @@ class AppointmentUpdateView(AppointmentBaseFormMixin, UpdateView):
             redirect_url = build_budget_create_url(
                 customer_id=object_appointment.customer.pk if object_appointment.customer else None,
                 vehicle_id=object_appointment.vehicle.pk if object_appointment.vehicle else None,
+                appointment_id=object_appointment.pk,
             )
             if bool(getattr(self.request, "htmx", False)):
                 return self._htmx_redirect_response(url=redirect_url)
@@ -399,6 +401,7 @@ class AppointmentDetailView(LoginRequiredMixin, WorkshopScopedMixin, TemplateVie
         context["create_budget_url"] = build_budget_create_url(
             customer_id=appointment.customer.pk if appointment.customer else None,
             vehicle_id=appointment.vehicle.pk if appointment.vehicle else None,
+            appointment_id=appointment.pk,
         )
         context["budget_url"] = reverse("budget:budget_update", kwargs={"pk": appointment.budget.pk}) if appointment.budget else ""
         context["workorder_url"] = reverse("workorder:workorder_detail", kwargs={"pk": appointment.workorder.pk}) if appointment.workorder else ""

@@ -531,12 +531,14 @@ class AppointmentMoveForm(forms.Form):
         return cleaned_data
 
 
-def build_budget_create_url(*, customer_id: int | None = None, vehicle_id: int | None = None) -> str:
+def build_budget_create_url(*, customer_id: int | None = None, vehicle_id: int | None = None, appointment_id: int | None = None) -> str:
     params: list[str] = []
     if customer_id:
         params.append(f"customer={customer_id}")
     if vehicle_id:
         params.append(f"vehicle={vehicle_id}")
+    if appointment_id:
+        params.append(f"appointment_id={appointment_id}")
 
     base_url = reverse("budget:budget_create")
     if not params:
