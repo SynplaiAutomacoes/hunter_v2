@@ -1,4 +1,4 @@
-<aside class="xl:sticky xl:top-24 self-start">
+<aside class="w-full self-start xl:sticky xl:top-24">
     <div class="card border border-base-300 bg-base-100 shadow-sm">
         <div class="card-body gap-4 p-5">
             <div>
@@ -8,14 +8,14 @@
 
             <div class="space-y-3">
                 {% for group in variable_groups %}
-                    <div class="collapse collapse-arrow border border-base-300 bg-base-200/40">
-                        <input type="radio" name="message-variable-group" {% if forloop.first %}checked{% endif %} />
-                        <div class="collapse-title flex items-center justify-between gap-3 pr-10 text-sm font-semibold text-base-content">
-                            <span>{{ group.title }}</span>
-                            <span class="badge badge-outline badge-sm">{{ group.variables|length }}</span>
-                        </div>
-                        <div class="collapse-content">
-                            <div class="space-y-3 pt-1">
+                    <div class="collapse collapse-arrow bg-base-100 border border-base-300">
+                        <input type="radio" name="message-variable-group" {% if forloop.first %}checked="checked"{% endif %} />
+                        <div class="collapse-title font-semibold">{{ group.title }}</div>
+                        <div class="collapse-content text-sm">
+                            <div class="mb-3 flex items-center justify-between text-xs font-medium uppercase tracking-wide text-base-content/60">
+                                <span>{{ group.variables|length }} variáveis</span>
+                            </div>
+                            <div class="space-y-3">
                                 {% for variable in group.variables %}
                                     <div class="rounded-box border border-base-300 bg-base-100 p-3">
                                         <div class="flex flex-wrap items-center gap-2">

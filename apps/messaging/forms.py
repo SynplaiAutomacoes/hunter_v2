@@ -2,10 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from crispy_forms.helper import FormHelper  # type: ignore[import-untyped]
-from crispy_forms.layout import Div, Field, HTML, Layout, Submit  # type: ignore[import-untyped]
 from django import forms
-from django.urls import reverse
 
 from apps.core.widgets import CheckboxInput, TextInput, TextareaInput
 from apps.messaging.models import MessageTemplate
@@ -28,23 +25,6 @@ class MessageTemplateForm(forms.ModelForm):
     def __init__(self, *args: Any, workshop: Workshop | None = None, **kwargs: Any):
         super().__init__(*args, **kwargs)
         self.workshop = workshop
-
-        self.helper = FormHelper()
-        self.helper.form_method = "post"
-        self.helper.layout = Layout(
-            Div(
-                Field("name", wrapper_class="col-span-12"),
-                Field("message", wrapper_class="col-span-12"),
-                Field("is_active", wrapper_class="col-span-12"),
-                css_class="grid grid-cols-12 gap-4",
-            ),
-            HTML('<div class="divider"></div>'),
-            Div(
-                HTML(f'<a href="{reverse("messaging:message_template_list")}" class="btn-form-cancel">Cancelar</a>'),
-                Submit("submit", "Salvar", css_class="btn-form-save"),
-                css_class="flex items-center justify-end gap-2",
-            ),
-        )
 
     def clean_name(self) -> str:
         name = str(self.cleaned_data.get("name") or "").strip()
