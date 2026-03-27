@@ -1,0 +1,9 @@
+{% extends 'crud/form_page.html' %}
+
+{% block crud_title %}Editar grupo de mensagens{% endblock %}
+{% block crud_subtitle %}Atualize a mensagem, os clientes selecionados e a situacao deste grupo.{% endblock %}
+{% block crud_back_url %}{% url 'messaging:customer_message_group_list' %}{% endblock %}
+
+{% block crud_form %}
+    {% include 'messaging/partials/customer_message_group_form.html' %}
+{% endblock %}
