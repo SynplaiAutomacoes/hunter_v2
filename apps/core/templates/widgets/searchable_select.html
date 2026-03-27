@@ -18,7 +18,9 @@
                 const selectedEl = this.$refs.options.querySelector(`[data-value='${this.value}']`);
                 if (selectedEl) {
                     this.label = selectedEl.dataset.label;
-                    this.search = this.label;
+                    if (!this.open) {
+                        this.search = '';
+                    }
                 }
             });
         },
@@ -38,7 +40,7 @@
         select(el) {
             this.value = el.dataset.value || '';
             this.label = el.dataset.label || '';
-            this.search = this.label;
+            this.search = '';
             this.open = false;
             this.dispatchEvents();
         },
@@ -49,14 +51,24 @@
             this.open = false;
             this.dispatchEvents();
         },
-        toggle() {
-            if (this.open) return this.open = false;
+        openDropdown() {
             this.search = '';
             this.open = true;
+        },
+        closeDropdown() {
+            this.open = false;
+            this.search = '';
+        },
+        toggle() {
+            if (this.open) {
+                this.closeDropdown();
+                return;
+            }
+            this.openDropdown();
         }
     }"
     class="relative"
-    @click.outside="open = false">
+    @click.outside="closeDropdown()">
 
     <input
         x-ref="hiddenInput"
@@ -75,9 +87,12 @@
     <div class="relative flex items-center">
         <input
             type="text"
-            x-model="search"
-            @focus="open = true"
-            @input="open = true"
+            x-ref="searchInput"
+            :value="open ? search : label"
+            @focus="openDropdown()"
+            @click="if (!open) openDropdown()"
+            @input="search = $event.target.value; open = true"
+            @keydown.escape.stop="closeDropdown()"
             placeholder="Digite para buscar..."
             class="input-theme {{ widget.attrs.class }} w-full pr-10"
             :class="{'ring-2 ring-primary border-primary': open, 'opacity-50 cursor-not-allowed': $el.disabled}"
@@ -114,10 +129,11 @@
                 {% for option in group_choices %}
                     {% if option.value %}
                         <li
-                            x-show="!search || '{{ option.label|escapejs }}'.toLowerCase().includes(search.toLowerCase())"
+                            x-show="!search || $el.dataset.searchText.includes(search.toLowerCase())"
                             @click="select($el)"
                             data-value="{{ option.value }}"
                             data-label="{{ option.label }}"
+                            data-search-text="{{ option.label|lower }}"
                             class="relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white transition-colors group">
                             <span class="block truncate" :class="{'font-bold': value == '{{ option.value }}'}">
                                 {{ option.label }}

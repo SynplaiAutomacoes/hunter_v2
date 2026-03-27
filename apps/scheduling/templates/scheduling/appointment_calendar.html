@@ -192,19 +192,28 @@
                 return hiddenInput ? hiddenInput.closest('[x-data]') : null;
             }
 
+            function getAlpineContext(element) {
+                if (!element || !window.Alpine) return null;
+                try {
+                    return Alpine.$data(element);
+                } catch (error) {
+                    return null;
+                }
+            }
+
             function clearSearchableSelect(hiddenId) {
                 const container = getSearchableContainerByHiddenId(hiddenId);
-                if (!container || !container.__x) return;
 
-                const data = Alpine.$data(container);
+                const data = getAlpineContext(container);
                 if (data && data.clear) {
                     data.clear();
                 }
             }
 
             function appendOptionToSearchable(container, option) {
-                if (!container || !container.__x) return;
-                const data = Alpine.$data(container);
+                if (!container) return null;
+
+                const data = getAlpineContext(container);
                 const optionsUl = container.querySelector('ul[role="listbox"]');
                 if (!data || !optionsUl) return;
 
@@ -212,19 +221,21 @@
                 li.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white transition-colors group';
                 li.setAttribute('data-value', String(option.id));
                 li.setAttribute('data-label', option.label);
-                li.setAttribute('x-show', `!search || '${String(option.label).replace(/'/g, "\\'")}'.toLowerCase().includes(search.toLowerCase())`);
+                li.setAttribute('data-search-text', String(option.label).toLowerCase());
+                li.setAttribute('x-show', '!search || $el.dataset.searchText.includes(search.toLowerCase())');
                 li.innerHTML = `<span class="block truncate">${option.label}</span>`;
                 li.addEventListener('click', () => data.select(li));
                 optionsUl.appendChild(li);
+                return li;
             }
 
-            window.reloadCalendarVehicleFilterOptions = async function (customerId) {
+            window.reloadCalendarVehicleFilterOptions = async function (customerId, selectedVehicleId = null) {
                 const vehicleContainer = getSearchableContainerByHiddenId('appointment-filter-vehicle');
-                if (!vehicleContainer || !vehicleContainer.__x) {
+                if (!vehicleContainer) {
                     return;
                 }
 
-                const data = Alpine.$data(vehicleContainer);
+                const data = getAlpineContext(vehicleContainer);
                 const optionsUl = vehicleContainer.querySelector('ul[role="listbox"]');
                 if (!data || !optionsUl) {
                     return;
@@ -243,9 +254,18 @@
                         return;
                     }
                     const vehicles = await response.json();
-                    vehicles.forEach(vehicle => appendOptionToSearchable(vehicleContainer, vehicle));
+                    let selectedOption = null;
+                    vehicles.forEach(vehicle => {
+                        const option = appendOptionToSearchable(vehicleContainer, vehicle);
+                        if (selectedVehicleId && String(vehicle.id) === String(selectedVehicleId)) {
+                            selectedOption = option;
+                        }
+                    });
                     if (window.Alpine && Alpine.initTree) {
                         Alpine.initTree(optionsUl);
+                    }
+                    if (selectedOption) {
+                        data.select(selectedOption);
                     }
                 } catch (error) {
                     console.error('Erro ao carregar veiculos do filtro:', error);
@@ -436,16 +456,14 @@
                 const selectedCustomer = getFilterValue(customerInput);
                 const selectedVehicle = getFilterValue(vehicleInput);
 
-                if (filtersShell.__x) {
-                    const filtersData = Alpine.$data(filtersShell);
-                    if (filtersData) {
-                        filtersData.customerId = selectedCustomer || '';
-                        filtersData.vehicleId = selectedVehicle || '';
-                    }
+                const filtersData = getAlpineContext(filtersShell);
+                if (filtersData) {
+                    filtersData.customerId = selectedCustomer || '';
+                    filtersData.vehicleId = selectedVehicle || '';
                 }
 
                 if (selectedCustomer) {
-                    window.reloadCalendarVehicleFilterOptions(selectedCustomer);
+                    window.reloadCalendarVehicleFilterOptions(selectedCustomer, selectedVehicle);
                 }
             }
         })();

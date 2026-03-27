@@ -135,10 +135,18 @@ class AppointmentForm(forms.ModelForm):
             HTML(
                 r"""
                 <script>
+                    function getAlpineContext(element) {
+                        if (!element || !window.Alpine) return null;
+                        try {
+                            return Alpine.$data(element);
+                        } catch (error) {
+                            return null;
+                        }
+                    }
+
                     function syncAppointmentContextFromInput(name, value) {
                         const shell = document.querySelector('[data-appointment-form-shell]');
-                        if (!shell || !shell.__x) return;
-                        const data = Alpine.$data(shell);
+                        const data = getAlpineContext(shell);
                         if (!data) return;
 
                         if (name === 'is_customer_registered') {
@@ -161,11 +169,9 @@ class AppointmentForm(forms.ModelForm):
 
                     function setRegisteredMode(isRegistered) {
                         const shell = document.querySelector('[data-appointment-form-shell]');
-                        if (shell && shell.__x) {
-                            const shellData = Alpine.$data(shell);
-                            if (shellData) {
-                                shellData.isCustomerRegistered = !!isRegistered;
-                            }
+                        const shellData = getAlpineContext(shell);
+                        if (shellData) {
+                            shellData.isCustomerRegistered = !!isRegistered;
                         }
 
                         const toggle = document.getElementById('id_is_customer_registered');
@@ -182,7 +188,7 @@ class AppointmentForm(forms.ModelForm):
                         const vehicleContainer = vehicleInput.closest('[x-data]');
                         if (!vehicleContainer) return;
 
-                        const vehicleData = Alpine.$data(vehicleContainer);
+                        const vehicleData = getAlpineContext(vehicleContainer);
                         const optionsUl = vehicleContainer.querySelector('ul[role="listbox"]');
                         if (!vehicleData || !optionsUl) return;
 
@@ -205,7 +211,8 @@ class AppointmentForm(forms.ModelForm):
                                 li.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white transition-colors group';
                                 li.setAttribute('data-value', String(v.id));
                                 li.setAttribute('data-label', v.label);
-                                li.setAttribute('x-show', `!search || '${v.label.replace(/'/g, "\\'")}'.toLowerCase().includes(search.toLowerCase())`);
+                                li.setAttribute('data-search-text', String(v.label).toLowerCase());
+                                li.setAttribute('x-show', '!search || $el.dataset.searchText.includes(search.toLowerCase())');
                                 li.innerHTML = `<span class="block truncate">${v.label}</span>`;
                                 li.addEventListener('click', () => vehicleData.select(li));
                                 optionsUl.appendChild(li);
@@ -232,8 +239,11 @@ class AppointmentForm(forms.ModelForm):
                         if (!customerInput) return;
 
                         const customerEl = customerInput.closest('[x-data]');
-                        const customerData = Alpine.$data(customerEl);
+                        if (!customerEl) return;
+
+                        const customerData = getAlpineContext(customerEl);
                         const optionsUl = customerEl.querySelector('ul[role="listbox"]');
+                        if (!customerData || !optionsUl) return;
 
                         const customerId = String(customer.id);
                         const customerName = customer.name || 'Cliente';
@@ -244,10 +254,15 @@ class AppointmentForm(forms.ModelForm):
                             option.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white transition-colors group';
                             option.setAttribute('data-value', customerId);
                             option.setAttribute('data-label', customerName);
-                            option.setAttribute('x-show', `!search || '${customerName.replace(/'/g, "\\'")}'.toLowerCase().includes(search.toLowerCase())`);
+                            option.setAttribute('data-search-text', String(customerName).toLowerCase());
+                            option.setAttribute('x-show', '!search || $el.dataset.searchText.includes(search.toLowerCase())');
                             option.innerHTML = `<span class="block truncate">${customerName}</span>`;
                             option.addEventListener('click', () => customerData.select(option));
                             optionsUl.appendChild(option);
+
+                            if (window.Alpine && Alpine.initTree) {
+                                Alpine.initTree(optionsUl);
+                            }
                         }
 
                         customerData.select(option);
