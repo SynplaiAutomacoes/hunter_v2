@@ -9,7 +9,7 @@
             <div class="max-h-[70vh] space-y-3 overflow-y-auto pr-1 xl:max-h-[calc(100vh-11rem)]">
                 {% for group in variable_groups %}
                     <div class="collapse collapse-arrow bg-base-100 border border-base-300">
-                        <input type="radio" name="message-variable-group" {% if forloop.first %}checked="checked"{% endif %} />
+                        <input type="checkbox" {% if forloop.first %}checked="checked"{% endif %} />
                         <div class="collapse-title pr-12 font-semibold">{{ group.title }}</div>
                         <div class="collapse-content text-sm">
                             <div class="mb-3 flex items-center justify-between text-xs font-medium uppercase tracking-wide text-base-content/60">
@@ -28,13 +28,12 @@
                                             </div>
                                             <button
                                                 type="button"
-                                                class="btn btn-ghost btn-xs shrink-0"
+                                                class="btn btn-ghost btn-xs btn-square shrink-0"
                                                 title="Copiar token"
                                                 aria-label="Copiar {{ variable.token }}"
-                                                onclick="navigator.clipboard.writeText('{{ variable.token|escapejs }}'); this.dataset.copied='true'; this.querySelector('[data-copy-label]').textContent='Copiado'; setTimeout(() => { this.querySelector('[data-copy-label]').textContent='Copiar'; this.dataset.copied='false'; }, 1200);"
+                                                onclick="navigator.clipboard.writeText('{{ variable.token|escapejs }}'); this.classList.add('text-success'); setTimeout(() => { this.classList.remove('text-success'); }, 1200);"
                                             >
                                                 <span class="material-icons text-sm">content_copy</span>
-                                                <span data-copy-label>Copiar</span>
                                             </button>
                                         </div>
                                     </div>
