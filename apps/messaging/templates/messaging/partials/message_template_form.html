@@ -8,7 +8,7 @@
             </div>
         {% endif %}
 
-        <div class="grid grid-cols-1 gap-4 lg:grid-cols-12">
+        <div class="grid grid-cols-1 gap-5 lg:grid-cols-12">
             <div class="lg:col-span-9">
                 <label for="{{ form.name.id_for_label }}" class="mb-2 block text-sm font-semibold text-base-content">{{ form.name.label }}</label>
                 {{ form.name }}
@@ -18,8 +18,12 @@
             </div>
 
             <div class="lg:col-span-3 lg:self-end">
-                <div class="flex h-full min-h-14 items-center justify-between rounded-box border border-base-300 bg-base-100 px-4 py-3">
-                    <label for="{{ form.is_active.id_for_label }}" class="text-sm font-semibold text-base-content">Ativa</label>
+                <label class="mb-2 block text-sm font-semibold text-base-content lg:invisible">Status</label>
+                <label for="{{ form.is_active.id_for_label }}" class="flex min-h-12 cursor-pointer items-center justify-between rounded-box border border-base-300 bg-base-100 px-4 py-3 transition hover:border-primary/40 hover:bg-base-200/40">
+                    <div>
+                        <span class="block text-sm font-semibold text-base-content">Ativa</span>
+                        <span class="block text-xs text-base-content/60">Disponível para disparo</span>
+                    </div>
                     <input
                         type="checkbox"
                         name="{{ form.is_active.html_name }}"
@@ -27,7 +31,7 @@
                         class="toggle toggle-primary"
                         {% if form.is_active.value %}checked{% endif %}
                     >
-                </div>
+                </label>
                 {% if form.is_active.errors %}
                     <div class="mt-2 text-sm text-error">{{ form.is_active.errors }}</div>
                 {% endif %}
