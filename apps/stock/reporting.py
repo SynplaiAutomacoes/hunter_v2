@@ -105,7 +105,7 @@ STOCK_REPORT_COLUMN_DEFINITIONS: tuple[StockReportColumnDefinition, ...] = (
     StockReportColumnDefinition(
         key="group",
         label="Grupo",
-        table_column=TableColumn("Grupo", attr="product.group", sort_by="product__group__name"),
+        table_column=TableColumn("Grupo", attr="product.group", sort_by="product__group__name", search_by="product__group__name"),
         pdf_value_resolver=_resolve_group,
         excel_value_resolver=lambda item: _resolve_group(item),
         excel_width=22,
@@ -113,7 +113,7 @@ STOCK_REPORT_COLUMN_DEFINITIONS: tuple[StockReportColumnDefinition, ...] = (
     StockReportColumnDefinition(
         key="supplier",
         label="Fornecedor",
-        table_column=TableColumn("Fornecedor", attr="supplier", sort_by="supplier__name"),
+        table_column=TableColumn("Fornecedor", attr="supplier", sort_by="supplier__name", search_by="supplier__name"),
         pdf_value_resolver=_resolve_supplier,
         excel_value_resolver=lambda item: _resolve_supplier(item),
         excel_width=24,

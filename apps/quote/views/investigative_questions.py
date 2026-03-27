@@ -30,7 +30,7 @@ class InvestigativeQuestionListView(LoginRequiredMixin, WorkshopScopedMixin, Htm
         context["fields"] = [
             TableColumn(label="Ordem", attr="order"),
             TableColumn(label="Pergunta", attr="text"),
-            TableColumn(label="Tipo", attr="get_response_type_display"),
+            TableColumn(label="Tipo", attr="get_response_type_display", search_by="response_type"),
             TableColumn(label="Ativa", attr="is_active"),
         ]
 
