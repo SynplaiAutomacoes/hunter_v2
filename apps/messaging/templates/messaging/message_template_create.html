@@ -1,0 +1,9 @@
+{% extends 'crud/form_page.html' %}
+
+{% block crud_title %}Nova mensagem WhatsApp{% endblock %}
+{% block crud_subtitle %}Cadastre uma mensagem personalizada e reutilize variáveis ao montar seus disparos.{% endblock %}
+{% block crud_back_url %}{% url 'messaging:message_template_list' %}{% endblock %}
+
+{% block crud_form %}
+    {% include 'messaging/partials/message_template_form.html' %}
+{% endblock %}

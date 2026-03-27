@@ -40,6 +40,7 @@ urlpatterns = [
     path("scheduling/", include("apps.scheduling.urls")),
     path("stock/", include("apps.stock.urls")),
     path("finance/", include("apps.finance.urls")),
+    path("messaging/", include("apps.messaging.urls")),
 ]
 
 if settings.DEBUG:

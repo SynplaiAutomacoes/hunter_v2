@@ -1,0 +1,60 @@
+<form method="post" class="flex flex-col gap-6 xl:flex-row xl:items-start">
+    {% csrf_token %}
+
+    <div class="w-full xl:min-w-0 xl:flex-1">
+        {% if form.non_field_errors %}
+            <div class="mb-4 rounded-box border border-error/30 bg-error/10 p-4 text-sm text-error">
+                {{ form.non_field_errors }}
+            </div>
+        {% endif %}
+
+        <div class="grid grid-cols-1 gap-5 lg:grid-cols-12">
+            <div class="lg:col-span-9">
+                <label for="{{ form.name.id_for_label }}" class="mb-2 block text-sm font-semibold text-base-content">{{ form.name.label }}</label>
+                {{ form.name }}
+                {% if form.name.errors %}
+                    <div class="mt-2 text-sm text-error">{{ form.name.errors }}</div>
+                {% endif %}
+            </div>
+
+            <div class="lg:col-span-3 lg:self-end">
+                <label class="mb-2 block text-sm font-semibold text-base-content lg:invisible">Status</label>
+                <label for="{{ form.is_active.id_for_label }}" class="flex min-h-12 cursor-pointer items-center justify-between rounded-box border border-base-300 bg-base-100 px-4 py-3 transition hover:border-primary/40 hover:bg-base-200/40">
+                    <div>
+                        <span class="block text-sm font-semibold text-base-content">Ativa</span>
+                        <span class="block text-xs text-base-content/60">Disponível para disparo</span>
+                    </div>
+                    <input
+                        type="checkbox"
+                        name="{{ form.is_active.html_name }}"
+                        id="{{ form.is_active.id_for_label }}"
+                        class="toggle toggle-primary"
+                        {% if form.is_active.value %}checked{% endif %}
+                    >
+                </label>
+                {% if form.is_active.errors %}
+                    <div class="mt-2 text-sm text-error">{{ form.is_active.errors }}</div>
+                {% endif %}
+            </div>
+
+            <div class="lg:col-span-12">
+                <label for="{{ form.message.id_for_label }}" class="mb-2 block text-sm font-semibold text-base-content">{{ form.message.label }}</label>
+                {{ form.message }}
+                {% if form.message.errors %}
+                    <div class="mt-2 text-sm text-error">{{ form.message.errors }}</div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="divider my-6"></div>
+
+        <div class="flex items-center justify-end gap-2">
+            <a href="{% url 'messaging:message_template_list' %}" class="btn-form-cancel">Cancelar</a>
+            <button type="submit" class="btn-form-save">Salvar</button>
+        </div>
+    </div>
+
+    <div class="w-full xl:w-[24rem] xl:shrink-0">
+        {% include 'messaging/partials/variable_groups_accordion.html' %}
+    </div>
+</form>
