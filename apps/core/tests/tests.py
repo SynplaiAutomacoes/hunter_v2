@@ -374,8 +374,8 @@ class TestRenderTableTag(TestCase):
         self.assertIn("▼", html)
 
     def test_search_filters_rows(self):
-        create_workshop(name="Alpha")
-        create_workshop(name="Beta")
+        create_workshop(name="Alpha", cnpj="10.000.000/0001-01")
+        create_workshop(name="Beta", cnpj="10.000.000/0001-02")
 
         request = self.factory.get("/workshops/?q=Alp")
         template = Template(
@@ -413,6 +413,59 @@ class TestRenderTableTag(TestCase):
         self.assertIn("let hadSearchValue = input.value.trim() !== ''", html)
         self.assertIn("form.requestSubmit()", html)
         self.assertNotIn("window.htmx.trigger(form, 'submit')", html)
+
+    def test_search_ignores_invalid_related_lookup_and_keeps_valid_columns(self):
+        create_workshop(name="Alpha", cnpj="10.000.000/0001-01")
+        create_workshop(name="Beta", cnpj="10.000.000/0001-02")
+
+        request = self.factory.get("/workshops/?q=Alpha")
+        template = Template(
+            """
+            {% load table_tags %}
+            {% render_table workshops fields table_id='t' per_page=10 %}
+            """
+        )
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "workshops": Workshop.objects.all(),
+                    "fields": [
+                        TableColumn(label="Nome", attr="name"),
+                        TableColumn(label="Conta", attr="account"),
+                    ],
+                }
+            )
+        )
+
+        self.assertIn("Alpha", html)
+        self.assertNotIn("Beta", html)
+
+    def test_search_supports_callable_display_with_multiple_search_by_lookups(self):
+        create_workshop(name="Alpha", address="Rua Central", cnpj="10.000.000/0001-03")
+        create_workshop(name="Beta", address="Avenida Industrial", cnpj="10.000.000/0001-04")
+
+        request = self.factory.get("/workshops/?q=industrial")
+        template = Template(
+            """
+            {% load table_tags %}
+            {% render_table workshops fields table_id='t' per_page=10 %}
+            """
+        )
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "workshops": Workshop.objects.all(),
+                    "fields": [
+                        TableColumn(label="Resumo", attr=lambda workshop: f"{workshop.name} - {workshop.address}", search_by=("name", "address")),
+                    ],
+                }
+            )
+        )
+
+        self.assertIn("Beta - Avenida Industrial", html)
+        self.assertNotIn("Alpha - Rua Central", html)
 
     def test_search_query_is_kept_in_pagination_links(self):
         for i in range(1, 26):

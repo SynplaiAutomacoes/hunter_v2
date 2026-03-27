@@ -50,7 +50,7 @@ class SupplierListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
             TableColumn(Supplier.contact_person.field.verbose_name, attr=Supplier.contact_person.field.name),
             TableColumn(Supplier.phone.field.verbose_name, attr=Supplier.phone.field.name),
             TableColumn(Supplier.email.field.verbose_name, attr=Supplier.email.field.name),
-            TableColumn("Endereço", attr="full_address"),
+            TableColumn("Endereço", attr="full_address", search_by=("logradouro", "numero", "cidade", "estado")),
             TableColumn(Supplier.registration_date.field.verbose_name, attr=Supplier.registration_date.field.name),
         ]
 
