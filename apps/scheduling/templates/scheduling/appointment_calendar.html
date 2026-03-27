@@ -105,6 +105,14 @@
             color: hsl(var(--pc));
         }
 
+        #appointments-calendar .fc .fc-prev-button:not(:disabled):active,
+        #appointments-calendar .fc .fc-next-button:not(:disabled):active {
+            background: hsl(var(--b3));
+            border-color: hsl(var(--b3));
+            color: hsl(var(--bc));
+            box-shadow: none;
+        }
+
         #appointments-calendar .fc .fc-col-header-cell-cushion,
         #appointments-calendar .fc .fc-daygrid-day-number,
         #appointments-calendar .fc .fc-list-day-text,
@@ -287,6 +295,17 @@
                 appointmentModal.showModal();
             }
 
+            function capitalizeCalendarToolbarTitle() {
+                const titleEl = calendarEl.querySelector('.fc-toolbar-title');
+                if (!titleEl || !titleEl.textContent) {
+                    return;
+                }
+
+                titleEl.textContent = titleEl.textContent.replace(/^\p{L}/u, function (match) {
+                    return match.toLocaleUpperCase('pt-BR');
+                });
+            }
+
             function openCreateFromRange(startValue, endValue) {
                 if (!startValue) {
                     openModalFromUrl('{{ create_url }}');
@@ -332,6 +351,9 @@
                     failure: function () {
                         document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'Nao foi possivel carregar os agendamentos.', type: 'error' } }));
                     },
+                },
+                datesSet: function () {
+                    capitalizeCalendarToolbarTitle();
                 },
                 select: function (selectionInfo) {
                     openCreateFromRange(selectionInfo.startStr, selectionInfo.endStr);
@@ -451,6 +473,7 @@
             });
 
             calendar.render();
+            capitalizeCalendarToolbarTitle();
 
             if (filtersShell) {
                 const selectedCustomer = getFilterValue(customerInput);
