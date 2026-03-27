@@ -1,0 +1,12 @@
+{% extends 'crud/form_page.html' %}
+
+{% block crud_title %}Nova mensagem WhatsApp{% endblock %}
+{% block crud_subtitle %}Cadastre uma mensagem personalizada e reutilize variáveis ao montar seus disparos.{% endblock %}
+{% block crud_back_url %}{% url 'messaging:message_template_list' %}{% endblock %}
+
+{% block crud_form %}
+    <div class="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
+        <div>{% crispy form %}</div>
+        {% include 'messaging/partials/variable_groups_accordion.html' %}
+    </div>
+{% endblock %}
