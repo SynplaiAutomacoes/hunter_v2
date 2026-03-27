@@ -4855,6 +4855,7 @@ class DreReportViewTests(TestCase):
         month: int,
         year: int,
         tax_rate: str,
+        mechanic_salary: str = "0.00",
         operational_cost: str,
         financial_cost: str,
         workshop: Workshop | None = None,
@@ -4875,7 +4876,7 @@ class DreReportViewTests(TestCase):
         rent_cost = MonthlyCost.objects.create(workshop=selected_workshop, name=f"Aluguel {month}/{year}")
         bank_fee_cost = MonthlyCost.objects.create(workshop=selected_workshop, name=f"Taxas bancarias {month}/{year}")
 
-        WorkshopCostItem.objects.create(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_cost, amount=Money("0.00", "BRL"))
+        WorkshopCostItem.objects.create(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_cost, amount=Money(mechanic_salary, "BRL"))
         WorkshopCostItem.objects.create(workshop_cost=workshop_cost, monthly_cost=rent_cost, amount=Money(operational_cost, "BRL"))
         WorkshopCostItem.objects.create(workshop_cost=workshop_cost, monthly_cost=bank_fee_cost, amount=Money(financial_cost, "BRL"))
 
@@ -5059,8 +5060,8 @@ class DreReportViewTests(TestCase):
         self.assertEqual(rows["(+) Receita Bruta de Vendas e Serviços"], Money("500.00", "BRL"))
         self.assertEqual(rows["(-) Custos Mercadorias Vendidas"], Money("170.00", "BRL"))
         self.assertEqual(rows["(=) Receita Bruta de Vendas"], Money("330.00", "BRL"))
-        self.assertEqual(rows["(-) Despesas Financeiras"], Money("15.00", "BRL"))
-        self.assertEqual(rows["(=) Resultado Operacional"], Money("-15.00", "BRL"))
+        self.assertEqual(rows["(-) Despesas Financeiras"], Money("95.00", "BRL"))
+        self.assertEqual(rows["(=) Resultado Operacional"], Money("-95.00", "BRL"))
         self.assertEqual(response.context["selected_workshop_label"], "Todas as filiais")
         self.assertTrue(response.context["is_consolidated_workshops"])
         self.assertContains(response, "Consolidado de 2 filiais")
@@ -5124,7 +5125,7 @@ class DreReportViewTests(TestCase):
         self.assertContains(response, "Demonstração de Resultado de Exercício")
         self.assertContains(response, self.workshop.name)
         self.assertContains(response, "01/01/2026 até 31/01/2026")
-        self.assertContains(response, "(=) Resultado Operacional")
+        self.assertContains(response, "(+) Receitas Financeiras")
 
     def test_results_page_renders_back_button_to_report_with_current_filters(self) -> None:
         response = self.client.get(
@@ -5204,6 +5205,7 @@ class DreReportViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "<!DOCTYPE html>", html=False)
         self.assertContains(response, "Demonstração do Resultado do Exercício")
+        self.assertContains(response, "(+) Receitas Financeiras")
         self.assertIsNone(response.headers.get("X-Frame-Options"))
 
     def test_build_dre_pdf_render_request_uses_normalized_workshop_name_in_filename(self) -> None:
@@ -5272,10 +5274,10 @@ class DreReportViewTests(TestCase):
         self.assertEqual(rows["(-) Custos Mercadorias Vendidas"], Money("120.00", "BRL"))
         self.assertEqual(rows["(=) Receita Bruta de Vendas"], Money("180.00", "BRL"))
         self.assertEqual(rows["(+) Receitas Financeiras"], Money("0.00", "BRL"))
-        self.assertEqual(rows["(-) Despesas Financeiras"], Money("10.00", "BRL"))
-        self.assertEqual(rows["(=) Resultado Operacional"], Money("-10.00", "BRL"))
+        self.assertEqual(rows["(-) Despesas Financeiras"], Money("70.00", "BRL"))
+        self.assertEqual(rows["(=) Resultado Operacional"], Money("-70.00", "BRL"))
         self.assertEqual(cards["Receita Bruta de Vendas"], Money("180.00", "BRL"))
-        self.assertEqual(cards["Resultado Operacional"], Money("-10.00", "BRL"))
+        self.assertEqual(cards["Resultado Operacional"], Money("-70.00", "BRL"))
         content = response.content.decode("utf-8")
         self.assertIn("(Receita Bruta de Vendas e Serviços - Custos Mercadorias Vendidas)", content)
         self.assertIn("(Receitas Financeiras - Despesas Financeiras)", content)
@@ -5318,8 +5320,8 @@ class DreReportViewTests(TestCase):
         cards = {card["label"]: card["amount"] for card in response.context["dre_summary_cards"]}
 
         self.assertEqual(rows["(+) Receita Bruta de Vendas e Serviços"], Money("300.00", "BRL"))
-        self.assertEqual(rows["(-) Custos Mercadorias Vendidas"], Money("0.00", "BRL"))
         self.assertEqual(rows["(=) Receita Bruta de Vendas"], Money("300.00", "BRL"))
+        self.assertEqual(rows["(-) Custos Mercadorias Vendidas"], Money("0.00", "BRL"))
         self.assertEqual(rows["(+) Receitas Financeiras"], Money("0.00", "BRL"))
         self.assertEqual(rows["(-) Despesas Financeiras"], Money("0.00", "BRL"))
         self.assertEqual(rows["(=) Resultado Operacional"], Money("0.00", "BRL"))
@@ -5472,11 +5474,42 @@ class DreReportViewTests(TestCase):
         expense_row = next(row for row in response.context["dre_rows"] if row["component"] == "despesas_financeiras")
 
         self.assertEqual(expense_row["detail_kind"], "financial_entries")
-        self.assertEqual(len(expense_row["details"]), 1)
-        detail = expense_row["details"][0]
-        self.assertEqual(detail["summary"], "Taxas bancarias 1/2026")
-        self.assertEqual(detail["reference"], "Janeiro/2026")
-        self.assertEqual(detail["amount"], Money("10.00", "BRL"))
+        self.assertEqual(expense_row["amount"], Money("70.00", "BRL"))
+        detail_map = {detail["summary"]: (detail["reference"], detail["amount"]) for detail in expense_row["details"]}
+        self.assertEqual(len(detail_map), 2)
+        self.assertEqual(detail_map["Aluguel 1/2026"], ("Janeiro/2026", Money("60.00", "BRL")))
+        self.assertEqual(detail_map["Taxas bancarias 1/2026"], ("Janeiro/2026", Money("10.00", "BRL")))
+
+    def test_results_page_includes_mechanic_salary_in_financial_expense_details_when_non_zero(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+        self._create_workshop_cost_snapshot(
+            month=1,
+            year=2026,
+            tax_rate="0.10",
+            mechanic_salary="25.00",
+            operational_cost="60.00",
+            financial_cost="10.00",
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        expense_row = next(row for row in response.context["dre_rows"] if row["component"] == "despesas_financeiras")
+
+        self.assertEqual(expense_row["amount"], Money("95.00", "BRL"))
+        detail_map = {detail["summary"]: (detail["reference"], detail["amount"]) for detail in expense_row["details"]}
+        self.assertEqual(len(detail_map), 3)
+        self.assertEqual(detail_map["Salarios mecanicos produtivos"], ("Janeiro/2026", Money("25.00", "BRL")))
+        self.assertEqual(detail_map["Aluguel 1/2026"], ("Janeiro/2026", Money("60.00", "BRL")))
+        self.assertEqual(detail_map["Taxas bancarias 1/2026"], ("Janeiro/2026", Money("10.00", "BRL")))
 
     def test_results_page_keeps_expandable_source_rows_openable_without_data(self) -> None:
         response = self.client.get(
@@ -5631,8 +5664,9 @@ class DreReportViewTests(TestCase):
         self.assertEqual(gross_revenue_row["details"][0]["summary"], f"OS/PEDIDO Nº {workorder.pk} - Cliente PDF DRE")
         self.assertEqual(gross_revenue_row["details"][0]["payment_date"], date(2026, 1, 20))
         self.assertEqual(costs_row["details"][0]["amount"], Money("120.00", "BRL"))
-        self.assertEqual(expense_row["details"][0]["summary"], "Taxas bancarias 1/2026")
-        self.assertEqual(expense_row["details"][0]["reference"], "Janeiro/2026")
+        expense_detail_map = {detail["summary"]: detail["reference"] for detail in expense_row["details"]}
+        self.assertEqual(expense_detail_map["Aluguel 1/2026"], "Janeiro/2026")
+        self.assertEqual(expense_detail_map["Taxas bancarias 1/2026"], "Janeiro/2026")
 
     @patch("apps.finance.views.dre.render_dre_pdf_document")
     def test_pdf_view_supports_download_disposition(self, render_document_mock) -> None:
@@ -5717,6 +5751,7 @@ class DreReportViewTests(TestCase):
         self.assertIn("(+) Receita Bruta de Vendas e Serviços", summary_values)
         self.assertIn(180, summary_values)
         self.assertIn(f"OS/PEDIDO Nº {workorder.pk} - Cliente Excel DRE", detail_values)
+        self.assertIn("Aluguel 1/2026", detail_values)
         self.assertIn("Taxas bancarias 1/2026", detail_values)
 
 
