@@ -5568,6 +5568,16 @@ class DreReportViewTests(TestCase):
 
         self.assertEqual(content.count("chevron_right"), 4)
         self.assertEqual(content.count("expand_more"), 4)
+        self.assertEqual(content.count("row-hover"), 4)
+        self.assertEqual(content.count('@click="openRow = openRow ==='), 4)
+        self.assertRegex(
+            content,
+            r"<tr\s+class=\"[^\"]*row-hover[^\"]*cursor-pointer[^\"]*\"\s+@click=\"openRow = openRow === 'receita_bruta_vendas_e_servicos' \? null : 'receita_bruta_vendas_e_servicos'\"",
+        )
+        self.assertNotRegex(
+            content,
+            r"<td[^>]*@click=\"openRow = openRow === 'receita_bruta_vendas_e_servicos' \? null : 'receita_bruta_vendas_e_servicos'\"",
+        )
         self.assertEqual(sum(1 for row in response.context["dre_rows"] if row["is_expandable"]), 4)
 
     @patch("apps.finance.views.dre.render_dre_pdf_document")
