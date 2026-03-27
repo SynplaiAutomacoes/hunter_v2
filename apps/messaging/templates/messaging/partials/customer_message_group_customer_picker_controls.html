@@ -4,4 +4,8 @@
     <template x-for="customer in selectedCustomers" :key="`picker-hidden-selected-${customer.id}`">
         <input type="hidden" name="selected_customers" :value="customer.id">
     </template>
+
+    <template x-for="customerId in pickerSelectionIds" :key="`picker-selection-${customerId}`">
+        <input type="hidden" name="customer_picker_selection" :value="customerId">
+    </template>
 </div>

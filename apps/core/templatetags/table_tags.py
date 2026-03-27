@@ -757,6 +757,7 @@ def render_table(
     show_controls: bool = True,
     preserve_selection: bool = False,
     hierarchical_selection: bool = False,
+    htmx_push_url: bool = True,
 ) -> dict[str, Any]:
     """
     Inclusion tag principal para renderizar uma tabela de dados completa.
@@ -792,6 +793,7 @@ def render_table(
         show_controls: Se False, oculta os controles superiores (busca/ordenação/filtros).
         preserve_selection: Se True, mantém checkboxes de linha marcados com base na query string atual.
         hierarchical_selection: Se True, sincroniza seleção pai/filhos via metadados de hierarquia.
+        htmx_push_url: Se True, atualiza a URL do navegador durante interações HTMX da tabela.
     """
     parent_context = _copy_parent_context(context)
     request: HttpRequest = parent_context["request"]
@@ -894,5 +896,5 @@ def render_table(
         "htmx_target": f"#{table_id}-content",
         "htmx_select": f"#{table_id}-content",
         "htmx_swap": "outerHTML",
-        "htmx_push_url": "true",
+        "htmx_push_url": "true" if htmx_push_url else "false",
     }

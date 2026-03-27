@@ -11,10 +11,11 @@
         pickerTableId: 'customer-message-group-customer-picker-table'
     })"
     x-init="init()"
+    @change="handlePickerTableChange($event)"
     @message-template-added.window="handleTemplateAdded($event.detail)"
     class="space-y-8"
 >
-    <form id="customer-message-group-form" method="post" class="flex flex-col gap-6 xl:flex-row xl:items-start">
+    <form id="customer-message-group-form" method="post" action="{% if object and object.pk %}{% url 'messaging:customer_message_group_update' object.pk %}{% else %}{% url 'messaging:customer_message_group_create' %}{% endif %}" class="flex flex-col gap-6 xl:flex-row xl:items-start">
         {% csrf_token %}
 
         <div class="w-full xl:min-w-0 xl:flex-1">
@@ -124,7 +125,7 @@
                 hx-trigger="load"
                 hx-target="this"
                 hx-swap="innerHTML"
-                hx-include="#customer-message-group-form [name='selected_customers']"
+                hx-include="#customer-message-group-root [name='selected_customers'], #customer-message-group-root [name='customer_picker_selection']"
             >
                 <div class="flex min-h-60 items-center justify-center rounded-box border border-dashed border-base-300 bg-base-200/40 p-6 text-sm text-base-content/60">
                     Carregando clientes disponiveis...
@@ -152,6 +153,7 @@
         window.customerMessageGroupForm = function customerMessageGroupForm(config) {
             return {
                 selectedCustomers: [],
+                pickerSelectionIds: [],
                 messageTemplates: [],
                 pickerTableId: config.pickerTableId,
                 selectedCustomersElementId: config.selectedCustomersElementId,
@@ -263,6 +265,43 @@
                         checkbox.checked = false;
                     });
                 },
+                getVisibleCustomerIds(table) {
+                    if (!table) {
+                        return [];
+                    }
+
+                    return [...new Set(
+                        Array.from(table.querySelectorAll('input.row-checkbox[data-row-id]'))
+                            .map((checkbox) => Number.parseInt(String(checkbox.dataset.rowId || checkbox.value || ''), 10))
+                            .filter((customerId) => Number.isInteger(customerId))
+                    )];
+                },
+                syncPickerSelectionFromTable() {
+                    const table = this.getPickerTable();
+                    const visibleCustomerIds = new Set(this.getVisibleCustomerIds(table).map((customerId) => String(customerId)));
+                    const checkedCustomerIds = new Set(this.getCheckedCustomerIds(table).map((customerId) => String(customerId)));
+
+                    this.pickerSelectionIds = this.pickerSelectionIds.filter((customerId) => !visibleCustomerIds.has(String(customerId)));
+                    checkedCustomerIds.forEach((customerId) => {
+                        const alreadySelected = this.pickerSelectionIds.some((selectedId) => String(selectedId) === customerId);
+                        if (!alreadySelected) {
+                            this.pickerSelectionIds.push(Number(customerId));
+                        }
+                    });
+                },
+                handlePickerTableChange(event) {
+                    const target = event.target;
+                    if (!(target instanceof HTMLInputElement) || target.type !== 'checkbox') {
+                        return;
+                    }
+
+                    const table = this.getPickerTable();
+                    if (!table || !target.closest(`#${this.pickerTableId}`)) {
+                        return;
+                    }
+
+                    this.syncPickerSelectionFromTable();
+                },
                 refreshCustomerPicker() {
                     this.$nextTick(() => {
                         const controlsForm = document.getElementById(`${this.pickerTableId}-controls-form`);
@@ -279,31 +318,28 @@
                     });
                 },
                 addSelectedCustomersFromTable() {
-                    const table = this.getPickerTable();
-                    const checkedCustomerIds = this.getCheckedCustomerIds(table);
-                    if (checkedCustomerIds.length === 0) {
+                    if (this.pickerSelectionIds.length === 0) {
                         return;
                     }
 
-                    checkedCustomerIds.forEach((customerId) => {
+                    this.pickerSelectionIds.forEach((customerId) => {
                         const alreadySelected = this.selectedCustomers.some((selectedCustomer) => Number(selectedCustomer.id) === customerId);
                         if (!alreadySelected) {
                             this.selectedCustomers.push({ id: customerId });
                         }
                     });
 
-                    this.clearCheckedRows(table);
+                    this.pickerSelectionIds = [];
                     this.refreshCustomerPicker();
                 },
                 removeSelectedCustomersFromTable() {
-                    const table = this.getPickerTable();
-                    const checkedCustomerIds = new Set(this.getCheckedCustomerIds(table).map((customerId) => String(customerId)));
-                    if (checkedCustomerIds.size === 0) {
+                    if (this.pickerSelectionIds.length === 0) {
                         return;
                     }
 
-                    this.selectedCustomers = this.selectedCustomers.filter((customer) => !checkedCustomerIds.has(String(customer.id)));
-                    this.clearCheckedRows(table);
+                    const idsToRemove = new Set(this.pickerSelectionIds.map((customerId) => String(customerId)));
+                    this.selectedCustomers = this.selectedCustomers.filter((customer) => !idsToRemove.has(String(customer.id)));
+                    this.pickerSelectionIds = [];
                     this.refreshCustomerPicker();
                 },
             };
