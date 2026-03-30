@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 from datetime import timedelta
 from decimal import Decimal
 from typing import cast
@@ -996,6 +997,44 @@ class BudgetPdfViewTests(TestCase):
         self.assertContains(response, 'src="data:image/png;base64,bW9uZ28tbG9nbw=="', html=False)
         build_workshop_logo_data_uri_mock.assert_called_once_with(workshop=self.workshop)
 
+    def test_visualizar_pdf_uses_budget_observation_only(self) -> None:
+        budget_a = self._create_budget_with_customer_and_vehicle(suffix=101)
+        budget_b = self._create_budget_with_customer_and_vehicle(suffix=102)
+        self.workshop.pdf_observation = "Observacao da oficina"
+        self.workshop.save(update_fields=["pdf_observation"])
+        budget_a.pdf_observation = "Observacao do orcamento A"
+        budget_a.save(update_fields=["pdf_observation"])
+
+        response = self.client.get(reverse("budget:visualizar_pdf", args=[budget_b.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Nenhuma observação técnica adicional.")
+        self.assertNotContains(response, "Observacao da oficina")
+        self.assertNotContains(response, "Observacao do orcamento A")
+
+    def test_save_observation_updates_only_selected_budget(self) -> None:
+        budget_a = create_budget(workshop=self.workshop)
+        budget_b = create_budget(workshop=self.workshop)
+        budget_b.pdf_observation = "Nao alterar"
+        budget_b.save(update_fields=["pdf_observation"])
+        self.workshop.pdf_observation = "Observacao da oficina"
+        self.workshop.save(update_fields=["pdf_observation"])
+
+        response = self.client.post(
+            reverse("budget:save_observation"),
+            data=json.dumps({"budget_id": budget_a.pk, "observation": "Observacao do orcamento A"}),
+            content_type="application/json",
+        )
+
+        budget_a.refresh_from_db()
+        budget_b.refresh_from_db()
+        self.workshop.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(budget_a.pdf_observation, "Observacao do orcamento A")
+        self.assertEqual(budget_b.pdf_observation, "Nao alterar")
+        self.assertEqual(self.workshop.pdf_observation, "Observacao da oficina")
+
 
 class BudgetStep6FormTests(TestCase):
     def test_step6_pdf_modal_uses_resend_label_for_sent_signature(self) -> None:
@@ -1048,6 +1087,23 @@ class BudgetStep6FormTests(TestCase):
         self.assertNotIn("Existem pecas com quantidade acima do estoque disponivel", html)
         self.assertIn("signatureBlocked: false", html)
         self.assertIn(f"onclick=\"updateBudgetStatus({budget.pk}, 'approve')\"", html)
+
+    def test_step6_uses_budget_observation_without_inheriting_workshop_value(self) -> None:
+        workshop = create_workshop(suffix=69)
+        workshop.pdf_observation = "Observacao da oficina"
+        workshop.save(update_fields=["pdf_observation"])
+
+        budget = create_budget(workshop=workshop)
+        budget.pdf_observation = "Observacao do orcamento"
+        budget.save(update_fields=["pdf_observation"])
+
+        request = RequestFactory().get("/")
+        request.user = User.objects.create_user(username="budget-step6-user-69", password="123")
+        form = BudgetStep6Form(instance=budget, workshop=workshop, request=request)
+        html = Template("{% load crispy_forms_tags %}{% crispy form %}").render(Context({"form": form, "csrf_token": "token"}))
+
+        self.assertIn("Observacao do orcamento", html)
+        self.assertNotIn("Observacao da oficina", html)
 
 
 class BudgetProductIssueTests(TestCase):
@@ -1294,9 +1350,11 @@ class BudgetSignaturePublicViewTests(TestCase):
     def test_signature_preview_renders_budget_pdf_template(self, build_context_mock, render_mock) -> None:
         workshop = create_workshop(suffix=78)
         budget = create_budget(workshop=workshop)
+        budget.pdf_observation = "Observacao do orcamento"
+        budget.save(update_fields=["pdf_observation"])
         token = extract_token_from_url(build_signature_preview_url(budget=budget))
 
-        build_context_mock.return_value = {"budget": budget, "observacao": workshop.pdf_observation}
+        build_context_mock.return_value = {"budget": budget, "observacao": budget.pdf_observation}
         render_mock.return_value = HttpResponse("preview")
 
         response = signature_preview(self.factory.get("/"), token)
@@ -1304,7 +1362,7 @@ class BudgetSignaturePublicViewTests(TestCase):
         self.assertEqual(response.content, b"preview")
         render_mock.assert_called_once()
         self.assertEqual(render_mock.call_args.args[1], "budget/partials/pdf/visualizarPDF.html")
-        self.assertEqual(render_mock.call_args.args[2], {"budget": budget, "observacao": workshop.pdf_observation})
+        self.assertEqual(render_mock.call_args.args[2], {"budget": budget, "observacao": budget.pdf_observation})
 
     def test_signature_preview_rejects_inactive_token(self) -> None:
         workshop = create_workshop(suffix=79)

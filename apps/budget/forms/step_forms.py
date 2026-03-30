@@ -2669,9 +2669,7 @@ class BudgetStep6Form(forms.ModelForm):
         signed_pdf_download_url = f"{reverse('budget:visualizar_pdf_assinatura', args=[budget.pk])}?download=1&variant=signed"
         base_pdf_download_url = f"{reverse('budget:visualizar_pdf_assinatura', args=[budget.pk])}?download=1&variant=base"
 
-        saved_observation = ""
-        if self.workshop:
-            saved_observation = self.workshop.pdf_observation or ""
+        saved_observation = budget.pdf_observation or ""
 
         # Render das linhas (mantido)
         rows = _render_budget_items_rows(budget, step6=True)

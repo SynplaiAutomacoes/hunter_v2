@@ -31,8 +31,9 @@ def build_workshop_logo_data_uri(*, workshop) -> str:
     return f"data:{stored_logo.content_type};base64,{encoded_logo}"
 
 
-def build_budget_pdf_context(*, budget, observacao: str, request=None) -> dict:
+def build_budget_pdf_context(*, budget, observacao: str | None = None, request=None) -> dict:
     snapshot = budget.pricing_snapshot
+    resolved_observation = observacao if observacao is not None else budget.pdf_observation
 
     produtos = [
         {
@@ -78,7 +79,7 @@ def build_budget_pdf_context(*, budget, observacao: str, request=None) -> dict:
         "total_servicos": budget.get_total_services_by_slider,
         "desconto": budget.resolved_discount_value,
         "total_geral": budget.total_budget_value,
-        "observacao": observacao,
+        "observacao": resolved_observation,
         "total_profit_product_value": sum((line.profit_value for line in snapshot.product_lines), Money(0, "BRL")),
         "total_profit_service_value": sum((line.profit_value for line in snapshot.service_lines), Money(0, "BRL")),
         "workshop_logo_data_uri": workshop_logo_data_uri,
