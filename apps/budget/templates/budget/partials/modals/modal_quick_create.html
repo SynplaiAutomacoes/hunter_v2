@@ -52,6 +52,9 @@
                         </span>
                     </label>
                     {{ field }}
+                    {% if field.name == 'name' and form.similar_name_target_id %}
+                        <div id="{{ form.similar_name_target_id }}"></div>
+                    {% endif %}
                     {% if field.errors %}
                         <label class="label">
                             <span class="label-text-alt text-error">{{ field.errors.0 }}</span>

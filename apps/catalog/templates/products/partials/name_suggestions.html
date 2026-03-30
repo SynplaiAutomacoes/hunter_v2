@@ -1,0 +1,23 @@
+{% if products %}
+<div class="rounded-box border border-warning/30 bg-warning/10 p-3 mt-2">
+    <div class="flex items-start gap-2 text-warning-content">
+        <span class="material-icons text-warning text-base mt-0.5">warning_amber</span>
+        <div class="w-full">
+            <p class="text-sm font-semibold">Encontramos produtos com nome parecido</p>
+            <p class="text-xs opacity-80 mb-2">Confira antes de cadastrar para evitar duplicidade.</p>
+            <ul class="space-y-1">
+                {% for product in products %}
+                <li>
+                    <button type="button"
+                            class="w-full rounded-md border border-base-300 bg-base-100 px-3 py-2 text-left hover:bg-base-200 transition"
+                            onclick="document.getElementById('id_name').value = '{{ product.name|escapejs }}'; document.getElementById('product-name-suggestions').innerHTML = '';">
+                        <span class="block text-sm font-medium text-base-content">{{ product.name }}</span>
+                        <span class="block text-xs text-base-content/70">{{ product.code }}{% if product.brand %} | {{ product.brand }}{% endif %}</span>
+                    </button>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+</div>
+{% endif %}

@@ -1194,6 +1194,105 @@ class BudgetProductIssueTests(TestCase):
         self.assertEqual(budget.signature_request_status, SignatureStatus.SENT)
 
 
+class BudgetQuickCreateProductValidationTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=99)
+        self.budget = create_budget(workshop=self.workshop)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_quick_create_product_shows_duplicate_name_error(self) -> None:
+        existing_product = create_product(workshop=self.workshop, suffix=99)
+
+        response = self.client.post(
+            reverse("budget:quick_create_item", args=[self.budget.pk, "product"]),
+            {
+                "code": "P-999",
+                "unit": Product.Unit.UND,
+                "name": existing_product.name,
+                "group": existing_product.group.pk,
+                "cost_price_0": "10.00",
+                "cost_price_1": "BRL",
+                "selling_price_0": "20.00",
+                "selling_price_1": "BRL",
+                "modal_context": "parent",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Já existe um produto com este nome.")
+        self.assertEqual(Product.objects.filter(workshop=self.workshop, name=existing_product.name).count(), 1)
+        self.assertFalse(BudgetItem.objects.filter(budget=self.budget, product__name=existing_product.name).exists())
+
+    def test_register_local_product_shows_duplicate_name_error(self) -> None:
+        existing_product = create_product(workshop=self.workshop, suffix=100)
+        local_item = BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            description="Produto local 100",
+            quantity=1,
+            product_cost_price=Money("10.00", "BRL"),
+            product_selling_price=Money("20.00", "BRL"),
+            shipping=Money("0.00", "BRL"),
+            is_local=True,
+        )
+
+        response = self.client.post(
+            reverse("budget:register_local_item", args=[self.budget.pk, local_item.pk]),
+            {
+                "code": "P-1000",
+                "unit": Product.Unit.UND,
+                "name": existing_product.name,
+                "group": existing_product.group.pk,
+                "cost_price_0": "10.00",
+                "cost_price_1": "BRL",
+                "selling_price_0": "20.00",
+                "selling_price_1": "BRL",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        local_item.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["HX-Retarget"], "#modal-container")
+        self.assertContains(response, "Já existe um produto com este nome.")
+        self.assertEqual(Product.objects.filter(workshop=self.workshop, name=existing_product.name).count(), 1)
+        self.assertTrue(local_item.is_local)
+        self.assertIsNone(local_item.product)
+
+    def test_quick_create_product_modal_shows_similar_name_lookup(self) -> None:
+        response = self.client.get(
+            reverse("budget:quick_create_item", args=[self.budget.pk, "product"]),
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'hx-get="/catalog/products/search/"')
+        self.assertContains(response, 'hx-vals="{&quot;quick_name_lookup&quot;: &quot;1&quot;}"')
+        self.assertContains(response, 'id="product-name-suggestions"')
+
+    def test_product_name_lookup_returns_similar_products(self) -> None:
+        create_product(workshop=self.workshop, suffix=101)
+
+        response = self.client.get(
+            reverse("catalog:product_search"),
+            {
+                "quick_name_lookup": "1",
+                "name": "Produto 101",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Encontramos produtos com nome parecido")
+        self.assertContains(response, "Produto 101")
+
+
 class BudgetDuplicateKitProductTests(TestCase):
     def test_step4_kit_price_includes_products_and_services(self) -> None:
         workshop = create_workshop(suffix=87)

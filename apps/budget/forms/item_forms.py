@@ -150,9 +150,21 @@ class QuickProductForm(forms.ModelForm):
     def __init__(self, *args, workshop=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.workshop = workshop
+        self.similar_name_target_id = "product-name-suggestions"
 
         if workshop:
             self.fields["group"].queryset = CatalogGroup.objects.filter(workshop=workshop)
+
+        self.fields["name"].widget.attrs.update(
+            {
+                "autocomplete": "off",
+                "hx-get": reverse("catalog:product_search"),
+                "hx-trigger": "keyup changed delay:400ms",
+                "hx-target": f"#{self.similar_name_target_id}",
+                "hx-swap": "innerHTML",
+                "hx-vals": '{"quick_name_lookup": "1"}',
+            }
+        )
 
         # Labels
         self.fields["code"].label = "Código"
@@ -161,6 +173,26 @@ class QuickProductForm(forms.ModelForm):
         self.fields["group"].label = "Grupo"
         self.fields["cost_price"].label = "Custo"
         self.fields["selling_price"].label = "Valor de Venda"
+
+    def clean_name(self):
+        name = self.cleaned_data.get("name")
+        if name and self.workshop:
+            qs = Product.objects.filter(workshop=self.workshop, name__iexact=name)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise forms.ValidationError("Já existe um produto com este nome.")
+        return name
+
+    def clean_code(self):
+        code = self.cleaned_data.get("code")
+        if code and self.workshop:
+            qs = Product.objects.filter(workshop=self.workshop, code__iexact=code)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise forms.ValidationError("Já existe um produto cadastrado com este código.")
+        return code
 
 
 class QuickServiceForm(forms.ModelForm):
@@ -175,10 +207,21 @@ class QuickServiceForm(forms.ModelForm):
             "selling_price": MoneyInput(),
         }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, workshop=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.workshop = workshop
 
         # Labels
         self.fields["name"].label = "Nome do Serviço"
         self.fields["duration"].label = "Duração"
         self.fields["selling_price"].label = "Valor de Venda"
+
+    def clean_name(self):
+        name = self.cleaned_data.get("name")
+        if name and self.workshop:
+            qs = Service.objects.filter(workshop=self.workshop, name__iexact=name)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise forms.ValidationError("Já existe um serviço com este nome.")
+        return name

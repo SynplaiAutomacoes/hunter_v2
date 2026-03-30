@@ -191,11 +191,16 @@ class ProductSearchSelectView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "view_product"
 
     def get(self, request, *args, **kwargs):
-        query = request.GET.get("equivalent_search", "").strip()
+        is_quick_name_lookup = request.GET.get("quick_name_lookup") == "1"
+        query = request.GET.get("name" if is_quick_name_lookup else "equivalent_search", "").strip()
         ignore_id = request.GET.get("ignore_id", "")
 
         if len(query) < 1:
             return HttpResponse("")
+
+        if is_quick_name_lookup:
+            products = Product.objects.filter(workshop=self.workshop, name__icontains=query).only("id", "code", "name", "brand").order_by("name")[:5]
+            return render(request, "products/partials/name_suggestions.html", {"products": products, "query": query})
 
         products = Product.objects.filter(Q(code__icontains=query) | Q(name__icontains=query) | Q(brand__icontains=query), workshop=self.workshop).only("code", "name", "brand")
 

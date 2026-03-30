@@ -2,6 +2,7 @@ import json
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db import IntegrityError
 from django.http import HttpResponse
 from django.shortcuts import render
 from django.template.loader import render_to_string
@@ -146,40 +147,46 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
             if form.is_valid():
                 product = form.save(commit=False)
                 product.workshop = self.workshop
-                product.save()
+                try:
+                    product.save()
+                except IntegrityError:
+                    form.add_error("code", "Já existe um produto cadastrado com este código.")
+                else:
+                    # Vincular ao budget item
+                    item.product = product
+                    item.is_local = False
+                    item.save()
 
-                # Vincular ao budget item
-                item.product = product
-                item.is_local = False
-                item.save()
+                    # Retornar a linha atualizada com OOB swap
+                    context = {"item": item, "budget": item.budget, "is_full_render": False}
+                    row_html = render_to_string("budget/partials/items/item_product_row.html", context)
 
-                # Retornar a linha atualizada com OOB swap
-                context = {"item": item, "budget": item.budget, "is_full_render": False}
-                row_html = render_to_string("budget/partials/items/item_product_row.html", context)
-
-                response = HtmxResponseHelper.success("Produto cadastrado com sucesso!", close_modal=True, update_summary=True, content=row_html)
-                return response
+                    response = HtmxResponseHelper.success("Produto cadastrado com sucesso!", close_modal=True, update_summary=True, content=row_html)
+                    return response
 
         else:
             # Cadastrar serviço
-            form = QuickServiceForm(request.POST)
+            form = QuickServiceForm(request.POST, workshop=self.workshop)
 
             if form.is_valid():
                 service = form.save(commit=False)
                 service.workshop = self.workshop
-                service.save()
+                try:
+                    service.save()
+                except IntegrityError:
+                    form.add_error("name", "Já existe um serviço com este nome.")
+                else:
+                    # Vincular ao budget item
+                    item.service = service
+                    item.is_local = False
+                    item.save()
 
-                # Vincular ao budget item
-                item.service = service
-                item.is_local = False
-                item.save()
+                    # Retornar a linha atualizada
+                    context = {"item": item, "budget": item.budget, "is_full_render": False}
+                    row_html = render_to_string("budget/partials/items/item_service_row.html", context)
 
-                # Retornar a linha atualizada
-                context = {"item": item, "budget": item.budget, "is_full_render": False}
-                row_html = render_to_string("budget/partials/items/item_service_row.html", context)
-
-                response = HtmxResponseHelper.success("Serviço cadastrado com sucesso!", close_modal=True, update_summary=True, content=row_html)
-                return response
+                    response = HtmxResponseHelper.success("Serviço cadastrado com sucesso!", close_modal=True, update_summary=True, content=row_html)
+                    return response
 
         # Se form inválido, retorna com erros
         context = {
@@ -249,7 +256,7 @@ class QuickCreateProductView(LoginRequiredMixin, WorkshopScopedMixin, View):
             form = QuickProductForm(workshop=self.workshop)
             title = "Cadastrar Novo Produto"
         elif item_type == "service":
-            form = QuickServiceForm()
+            form = QuickServiceForm(workshop=self.workshop)
             title = "Cadastrar Novo Serviço"
         else:
             return HttpResponse("Tipo inválido", status=400)
@@ -274,69 +281,75 @@ class QuickCreateProductView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if item_type == "product":
             form = QuickProductForm(request.POST, workshop=self.workshop)
         elif item_type == "service":
-            form = QuickServiceForm(request.POST)
+            form = QuickServiceForm(request.POST, workshop=self.workshop)
         else:
             return HttpResponse("Tipo inválido", status=400)
 
         if form.is_valid():
             catalog_item = form.save(commit=False)
             catalog_item.workshop = self.workshop
-            catalog_item.save()
+            try:
+                catalog_item.save()
+            except IntegrityError:
+                if item_type == "product":
+                    form.add_error("code", "Já existe um produto cadastrado com este código.")
+                else:
+                    form.add_error("name", "Já existe um serviço com este nome.")
+            else:
+                if modal_context == "child":
+                    item_label = "Produto" if item_type == "product" else "Serviço"
+                    return HtmxResponseHelper.success(
+                        f"{item_label} cadastrado com sucesso!",
+                        close_modal=True,
+                        additional_triggers={
+                            "quickItemCreated": {
+                                "item_id": catalog_item.pk,
+                                "item_type": item_type,
+                                "budget_id": budget_id,
+                            }
+                        },
+                    )
 
-            if modal_context == "child":
-                item_label = "Produto" if item_type == "product" else "Serviço"
-                return HtmxResponseHelper.success(
-                    f"{item_label} cadastrado com sucesso!",
-                    close_modal=True,
-                    additional_triggers={
-                        "quickItemCreated": {
-                            "item_id": catalog_item.pk,
-                            "item_type": item_type,
-                            "budget_id": budget_id,
+                if item_type == "product":
+                    budget_item = BudgetItem.objects.create(
+                        workshop=self.workshop,
+                        budget=budget,
+                        product=catalog_item,
+                        quantity=1,
+                    )
+                else:
+                    budget_item = BudgetItem.objects.create(
+                        workshop=self.workshop,
+                        budget=budget,
+                        service=catalog_item,
+                        quantity=1,
+                    )
+
+                # Reset etapas 5 e 6 após modificar a etapa 4
+                reset_steps_after_step_4(budget)
+
+                created_budget_item_id = getattr(budget_item, "pk")
+
+                current_step = _get_current_step_from_referer(request, budget.current_step)
+                context = {
+                    "budget": budget,
+                    "item_type": item_type,
+                    "item_ids": [created_budget_item_id],
+                    "total_items": 1,
+                    "current_index": 0,
+                    "current_step": current_step,
+                }
+
+                return HtmxResponseHelper.render_and_trigger(
+                    "budget/partials/modals/modal_edit_queue.html",
+                    context,
+                    {
+                        "showToast": {
+                            "message": f"{'Produto' if item_type == 'product' else 'Serviço'} cadastrado e adicionado ao orçamento!",
+                            "type": "success",
                         }
                     },
                 )
-
-            if item_type == "product":
-                budget_item = BudgetItem.objects.create(
-                    workshop=self.workshop,
-                    budget=budget,
-                    product=catalog_item,
-                    quantity=1,
-                )
-            else:
-                budget_item = BudgetItem.objects.create(
-                    workshop=self.workshop,
-                    budget=budget,
-                    service=catalog_item,
-                    quantity=1,
-                )
-
-            # Reset etapas 5 e 6 após modificar a etapa 4
-            reset_steps_after_step_4(budget)
-
-            created_budget_item_id = getattr(budget_item, "pk")
-
-            current_step = _get_current_step_from_referer(request, budget.current_step)
-            context = {
-                "budget": budget,
-                "item_type": item_type,
-                "item_ids": [created_budget_item_id],
-                "total_items": 1,
-                "current_index": 0,
-                "current_step": current_step,
-            }
-
-            return HtmxResponseHelper.render_and_trigger(
-                "budget/partials/modals/modal_edit_queue.html",
-                context,
-                {
-                    "showToast": {
-                        "message": f"{'Produto' if item_type == 'product' else 'Serviço'} cadastrado e adicionado ao orçamento!",
-                        "type": "success",
-                    }
-                },
-            )
 
         # Se form inválido
         context = {
