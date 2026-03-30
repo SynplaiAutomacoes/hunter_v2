@@ -1,0 +1,9 @@
+{% extends 'crud/form_page.html' %}
+
+{% block crud_title %}Novo grupo de mensagens{% endblock %}
+{% block crud_subtitle %}Cadastre um grupo fixo de clientes, defina a mensagem e monte a lista de contatos para disparo.{% endblock %}
+{% block crud_back_url %}{% url 'messaging:customer_message_group_list' %}{% endblock %}
+
+{% block crud_form %}
+    {% include 'messaging/partials/customer_message_group_form.html' %}
+{% endblock %}

@@ -222,12 +222,12 @@ class BudgetStatusReportDataMixin:
     def _get_budget_table_fields(self) -> list[TableColumn]:
         return [
             TableColumn("ID", attr="id"),
-            TableColumn(str(Budget.customer.field.verbose_name), attr=Budget.customer.field.name),
-            TableColumn(str(Budget.vehicle.field.verbose_name), attr=Budget.vehicle.field.name),
-            TableColumn(str(Budget.collaborator.field.verbose_name), attr="collaborator_name"),
+            TableColumn(str(Budget.customer.field.verbose_name), attr=Budget.customer.field.name, search_by="customer__name"),
+            TableColumn(str(Budget.vehicle.field.verbose_name), attr=Budget.vehicle.field.name, search_by=("vehicle__plate", "vehicle__model", "vehicle__brand")),
+            TableColumn(str(Budget.collaborator.field.verbose_name), attr="collaborator_name", search_by="collaborator__name"),
             TableColumn("Criado em", attr="criado_em"),
-            TableColumn("Valor Total", attr="total_budget_value"),
-            TableColumn(str(Budget.status.field.verbose_name), attr="budget_status_badge", format="status_badge"),
+            TableColumn("Valor Total", attr="total_budget_value", searchable=False),
+            TableColumn(str(Budget.status.field.verbose_name), attr="budget_status_badge", search_by="status", format="status_badge"),
         ]
 
     def _get_selected_status_report_queryset(self):

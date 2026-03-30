@@ -231,11 +231,11 @@ class WorkOrderStatusReportDataMixin:
     def _get_workorder_table_fields(self) -> list[TableColumn]:
         return [
             TableColumn("ID", attr="id"),
-            TableColumn("Cliente", attr="budget.customer"),
+            TableColumn("Cliente", attr="budget.customer", search_by="budget__customer__name"),
             TableColumn("Criado em", attr="criado_em"),
-            TableColumn("Veículo", attr="budget.vehicle"),
-            TableColumn("Valor Total", attr="total_budget_value"),
-            TableColumn("Status", attr="workorder_status_badge", format="status_badge"),
+            TableColumn("Veículo", attr="budget.vehicle", search_by=("budget__vehicle__plate", "budget__vehicle__model", "budget__vehicle__brand")),
+            TableColumn("Valor Total", attr="total_budget_value", searchable=False),
+            TableColumn("Status", attr="workorder_status_badge", search_by="status", format="status_badge"),
         ]
 
     def _get_workorder_base_queryset(self):

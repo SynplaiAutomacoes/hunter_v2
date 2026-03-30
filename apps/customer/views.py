@@ -60,8 +60,8 @@ class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
 
         context["fields"] = [
             TableColumn(Customer.name.field.verbose_name, attr=Customer.name.field.name),
-            TableColumn(Customer.cpf_or_cnpj.field.verbose_name, attr="cpf_or_cnpj_formatted"),
-            TableColumn("Endereço", attr="full_address"),
+            TableColumn(Customer.cpf_or_cnpj.field.verbose_name, attr="cpf_or_cnpj_formatted", search_by="cpf_or_cnpj"),
+            TableColumn("Endereço", attr="full_address", search_by=("logradouro", "numero", "cidade", "estado")),
             TableColumn(Customer.is_active.field.verbose_name, attr=Customer.is_active.field.name),
         ]
 
@@ -169,9 +169,9 @@ class CustomerHistoryListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempl
 
         context["fields"] = [
             TableColumn(Customer.name.field.verbose_name, attr=Customer.name.field.name),
-            TableColumn(Customer.cpf_or_cnpj.field.verbose_name, attr="cpf_or_cnpj_formatted"),
-            TableColumn("Endereço", attr="full_address"),
-            TableColumn("Qtd. Veículos", attr="vehicles_count"),
+            TableColumn(Customer.cpf_or_cnpj.field.verbose_name, attr="cpf_or_cnpj_formatted", search_by="cpf_or_cnpj"),
+            TableColumn("Endereço", attr="full_address", search_by=("logradouro", "numero", "cidade", "estado")),
+            TableColumn("Qtd. Veículos", attr="vehicles_count", searchable=False),
         ]
 
         context["actions"] = [
@@ -191,9 +191,9 @@ class CustomerHistoryDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailV
 
         context["vehicle_fields"] = [
             TableColumn(Vehicle.plate.field.verbose_name, attr=Vehicle.plate.field.name),
-            TableColumn("Marca / Modelo", attr=lambda x: f"{x.brand} {x.model}"),
-            TableColumn("Ano (Fab/Mod)", attr=lambda x: f"{x.year_fabrication} / {x.year_model}"),
-            TableColumn(Vehicle.km.field.verbose_name, attr=lambda x: x.km if x.km is not None else "-"),
+            TableColumn("Marca / Modelo", attr=lambda x: f"{x.brand} {x.model}", search_by=("brand", "model")),
+            TableColumn("Ano (Fab/Mod)", attr=lambda x: f"{x.year_fabrication} / {x.year_model}", search_by=("year_fabrication", "year_model")),
+            TableColumn(Vehicle.km.field.verbose_name, attr=lambda x: x.km if x.km is not None else "-", search_by="km"),
             TableColumn(Vehicle.chassi.field.verbose_name, attr=Vehicle.chassi.field.name),
         ]
 

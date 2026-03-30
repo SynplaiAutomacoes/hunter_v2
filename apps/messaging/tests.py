@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date
+import json
+from datetime import date, timedelta
 
 from django.db import connection
 from django.test import RequestFactory, TestCase
@@ -12,7 +13,7 @@ from apps.budget.models import Budget
 from apps.collaborators.models import WorkshopMember
 from apps.customer.models import Customer, Vehicle
 from apps.iam.utils import get_or_create_director_role
-from apps.messaging.models import MessageTemplate
+from apps.messaging.models import CustomerMessageGroup, CustomerMessageGroupMembership, MessageTemplate
 from apps.messaging.rendering import render_message_template
 from apps.messaging.views import MessageTemplateListView
 from apps.workorder.models import WorkOrder, WorkOrderStatus
@@ -71,6 +72,50 @@ def create_budget(*, workshop: Workshop, customer: Customer, vehicle: Vehicle) -
     )
     budget.save()
     return budget
+
+
+def create_customer_record(*, workshop: Workshop, suffix: int, is_active: bool = True, birth_date: date | None = None) -> Customer:
+    return Customer.objects.create(
+        workshop=workshop,
+        name=f"Cliente {suffix}",
+        cpf_or_cnpj=str(10_000_000_000 + suffix),
+        birth_date=birth_date,
+        phone=f"+551199000{suffix:04d}",
+        email=f"cliente{suffix}@example.com",
+        is_active=is_active,
+    )
+
+
+def create_vehicle_record(*, workshop: Workshop, customer: Customer, suffix: int) -> Vehicle:
+    return Vehicle.objects.create(
+        workshop=workshop,
+        customer=customer,
+        plate=f"MSG1A{suffix:02d}",
+        brand="Toyota",
+        model=f"Modelo {suffix}",
+        year_fabrication="2023",
+        year_model="2024",
+        color="Prata",
+    )
+
+
+def create_workorder_for_customer(*, workshop: Workshop, customer: Customer, suffix: int, created_at) -> WorkOrder:
+    vehicle = create_vehicle_record(workshop=workshop, customer=customer, suffix=suffix)
+    budget = create_budget(workshop=workshop, customer=customer, vehicle=vehicle)
+    workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+    WorkOrder.objects.filter(pk=workorder.pk).update(criado_em=created_at)
+    workorder.refresh_from_db()
+    return workorder
+
+
+def create_customer_message_group(*, workshop: Workshop, suffix: int = 1, is_active: bool = True) -> CustomerMessageGroup:
+    return CustomerMessageGroup.objects.create(
+        workshop=workshop,
+        name=f"Grupo {suffix}",
+        description=f"Descricao do grupo {suffix}",
+        message="Ola %%nome%%, temos uma nova campanha para voce.",
+        is_active=is_active,
+    )
 
 
 class MessageTemplateListViewFilterTests(TestCase):
@@ -223,3 +268,161 @@ class MessageTemplateViewTests(TestCase):
         self.assertEqual(delete_response.status_code, 200)
         self.assertEqual(delete_response.headers.get("HX-Trigger"), "message-templates-table-refresh")
         self.assertFalse(MessageTemplate.objects.filter(pk=template.pk).exists())
+
+
+class CustomerMessageGroupCustomerPickerViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=30)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_customer_picker_hides_inactive_by_default(self) -> None:
+        active_customer = create_customer_record(workshop=self.workshop, suffix=31, is_active=True, birth_date=date(1991, 5, 20))
+        inactive_customer = create_customer_record(workshop=self.workshop, suffix=32, is_active=False, birth_date=date(1988, 7, 10))
+
+        create_workorder_for_customer(workshop=self.workshop, customer=active_customer, suffix=31, created_at=timezone.now() - timedelta(days=20))
+        create_workorder_for_customer(workshop=self.workshop, customer=inactive_customer, suffix=32, created_at=timezone.now() - timedelta(days=200))
+
+        response = self.client.get(reverse("messaging:customer_message_group_customer_picker"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, active_customer.name)
+        self.assertNotContains(response, inactive_customer.name)
+
+    def test_customer_picker_filters_by_birth_date_and_latest_os_range(self) -> None:
+        birthday_customer = create_customer_record(workshop=self.workshop, suffix=33, birth_date=date(1990, 5, 20))
+        recent_customer = create_customer_record(workshop=self.workshop, suffix=34, birth_date=date(1992, 10, 10))
+        older_customer = create_customer_record(workshop=self.workshop, suffix=35, birth_date=date(1985, 1, 15))
+
+        create_workorder_for_customer(workshop=self.workshop, customer=birthday_customer, suffix=33, created_at=timezone.now() - timedelta(days=15))
+        create_workorder_for_customer(workshop=self.workshop, customer=recent_customer, suffix=34, created_at=timezone.now() - timedelta(days=45))
+        create_workorder_for_customer(workshop=self.workshop, customer=older_customer, suffix=35, created_at=timezone.now() - timedelta(days=240))
+
+        birthday_response = self.client.get(
+            reverse("messaging:customer_message_group_customer_picker"),
+            {
+                "is_active": "all",
+                "birth_date_start": "1990-05-01",
+                "birth_date_end": "1990-05-31",
+            },
+        )
+
+        self.assertContains(birthday_response, birthday_customer.name)
+        self.assertNotContains(birthday_response, recent_customer.name)
+        self.assertNotContains(birthday_response, older_customer.name)
+
+        latest_os_response = self.client.get(
+            reverse("messaging:customer_message_group_customer_picker"),
+            {
+                "is_active": "all",
+                "latest_os_start": (timezone.now().date() - timedelta(days=60)).isoformat(),
+                "latest_os_end": timezone.now().date().isoformat(),
+            },
+        )
+
+        self.assertContains(latest_os_response, birthday_customer.name)
+        self.assertContains(latest_os_response, recent_customer.name)
+        self.assertNotContains(latest_os_response, older_customer.name)
+
+
+class CustomerMessageGroupViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=40)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+        self.customer_one = create_customer_record(workshop=self.workshop, suffix=41, birth_date=date(1990, 4, 5))
+        self.customer_two = create_customer_record(workshop=self.workshop, suffix=42, birth_date=date(1987, 9, 18))
+
+    def test_create_group_with_selected_customers_and_message_template(self) -> None:
+        template = create_message_template(workshop=self.workshop, suffix=41, is_active=True)
+
+        response = self.client.post(
+            reverse("messaging:customer_message_group_create"),
+            {
+                "name": "Clientes aniversario",
+                "description": "Clientes para mensagens promocionais de aniversario.",
+                "message_template": str(template.pk),
+                "message": "Ola %%nome%%, preparamos um desconto especial para seu aniversario.",
+                "is_active": "on",
+                "selected_customers": [str(self.customer_one.pk), str(self.customer_two.pk)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("messaging:customer_message_group_list"))
+
+        group = CustomerMessageGroup.objects.get(workshop=self.workshop, name="Clientes aniversario")
+        self.assertEqual(group.description, "Clientes para mensagens promocionais de aniversario.")
+        self.assertEqual(group.message_template, template)
+        self.assertEqual(group.message, "Ola %%nome%%, preparamos um desconto especial para seu aniversario.")
+        self.assertTrue(group.is_active)
+        self.assertSetEqual(
+            set(CustomerMessageGroupMembership.objects.filter(group=group).values_list("customer_id", flat=True)),
+            {self.customer_one.pk, self.customer_two.pk},
+        )
+
+    def test_update_group_can_remove_customers_and_disable_it(self) -> None:
+        group = create_customer_message_group(workshop=self.workshop, suffix=50, is_active=True)
+        CustomerMessageGroupMembership.objects.create(group=group, customer=self.customer_one)
+        CustomerMessageGroupMembership.objects.create(group=group, customer=self.customer_two)
+
+        response = self.client.post(
+            reverse("messaging:customer_message_group_update", kwargs={"pk": group.pk}),
+            {
+                "name": group.name,
+                "description": "Grupo ajustado para uma nova campanha.",
+                "message": "Ola %%nome%%, esta e a nova mensagem do grupo.",
+                "selected_customers": [str(self.customer_two.pk)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        group.refresh_from_db()
+        self.assertEqual(group.description, "Grupo ajustado para uma nova campanha.")
+        self.assertEqual(group.message, "Ola %%nome%%, esta e a nova mensagem do grupo.")
+        self.assertFalse(group.is_active)
+        self.assertSetEqual(
+            set(CustomerMessageGroupMembership.objects.filter(group=group).values_list("customer_id", flat=True)),
+            {self.customer_two.pk},
+        )
+
+    def test_create_group_requires_at_least_one_customer(self) -> None:
+        response = self.client.post(
+            reverse("messaging:customer_message_group_create"),
+            {
+                "name": "Grupo vazio",
+                "description": "Nao deve salvar sem clientes.",
+                "message": "Mensagem teste",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Selecione pelo menos um cliente para o grupo.")
+        self.assertFalse(CustomerMessageGroup.objects.filter(workshop=self.workshop, name="Grupo vazio").exists())
+
+    def test_quick_create_message_template_returns_htmx_trigger_payload(self) -> None:
+        response = self.client.post(
+            reverse("messaging:message_template_quick_create"),
+            {
+                "name": "Mensagem rapida",
+                "message": "Ola %%nome%%, esta mensagem foi criada no modal.",
+                "is_active": "on",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        trigger_payload = json.loads(response.headers.get("HX-Trigger", "{}"))
+        self.assertIn("message-template-added", trigger_payload)
+
+        created_template = MessageTemplate.objects.get(workshop=self.workshop, name="Mensagem rapida")
+        self.assertEqual(trigger_payload["message-template-added"]["id"], str(created_template.pk))
+        self.assertEqual(trigger_payload["message-template-added"]["name"], "Mensagem rapida")
+        self.assertEqual(trigger_payload["message-template-added"]["message"], "Ola %%nome%%, esta mensagem foi criada no modal.")
