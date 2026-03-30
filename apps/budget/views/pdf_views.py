@@ -7,7 +7,7 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 
 from apps.budget.documents.provider import render_budget_pdf_document
 from apps.budget.models import Budget, SignatureStatus
-from apps.budget.pdf_context import build_budget_pdf_context
+from apps.budget.pdf_context import build_budget_pdf_context, build_workshop_logo_data_uri
 from apps.budget.service import BUDGET_SIGNATURE_DOCUMENT_ID_KEY, BUDGET_SIGNATURE_TOKEN_SALT
 from apps.checklist.models import Checklist
 from apps.core.documents.contract import DocumentPayload
@@ -108,7 +108,7 @@ def visualizar_pdf_checklist(request, pk):
         "name": workshop.name or "-",
         "address": workshop.address or "-",
         "cep_city": workshop_cep_city,
-        "phone": workshop.phone,
+        "phone": workshop.pdf_phone,
     }
 
     context = {
@@ -116,6 +116,7 @@ def visualizar_pdf_checklist(request, pk):
         "checklist": checklist,
         "checklist_rows": checklist_rows,
         "workshop_header": workshop_header,
+        "workshop_logo_data_uri": build_workshop_logo_data_uri(workshop=workshop),
         "auto_print": request.GET.get("autoprint") == "1",
     }
 

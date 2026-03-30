@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from datetime import timedelta
 from decimal import Decimal
 from typing import cast
@@ -32,6 +33,7 @@ from apps.budget.service import (
     build_signature_preview_url,
     send_budget_for_signature,
 )
+from apps.checklist.models import Checklist, ChecklistItem
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.kits import Kit, KitProduct, KitService
 from apps.catalog.models.products import Product
@@ -49,6 +51,7 @@ from apps.collaborators.models import WorkshopMember
 from apps.iam.utils import get_or_create_director_role
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.models.workshop_costs import WorkshopCost
+from apps.workshops.services.files import StoredWorkshopFile
 from apps.scheduling.models import Appointment
 
 
@@ -905,6 +908,89 @@ class BudgetPdfContextTests(TestCase):
         self.assertNotIn("max-height: 116px;", html)
         self.assertIn("summary-totals-box", html)
         self.assertIn("preserve-freeform-text", html)
+
+    @patch("apps.budget.pdf_context.get_workshop_logo_file")
+    def test_build_budget_pdf_context_uses_logo_saved_in_mongo(self, get_workshop_logo_file_mock) -> None:
+        workshop = create_workshop(suffix=97)
+        budget = create_budget(workshop=workshop)
+        logo_bytes = b"mongo-logo"
+        get_workshop_logo_file_mock.return_value = StoredWorkshopFile(
+            file_id="mongo-logo-id",
+            filename="logo.png",
+            content_type="image/png",
+            content=logo_bytes,
+            uploaded_at=None,
+        )
+
+        context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste")
+
+        expected_logo_data_uri = f"data:image/png;base64,{base64.b64encode(logo_bytes).decode('ascii')}"
+        self.assertEqual(context["workshop_logo_data_uri"], expected_logo_data_uri)
+
+
+class BudgetPdfViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=97)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def _create_budget_with_customer_and_vehicle(self, *, suffix: int) -> Budget:
+        customer = create_customer(workshop=self.workshop, suffix=suffix)
+        vehicle = create_vehicle(workshop=self.workshop, customer=customer, suffix=suffix, plate=f"BGT{suffix:04d}"[:7])
+        budget = create_budget(workshop=self.workshop)
+        budget.customer = customer
+        budget.vehicle = vehicle
+        budget.save(update_fields=["customer", "vehicle"])
+        return budget
+
+    @staticmethod
+    def _build_logo_file(*, content: bytes) -> StoredWorkshopFile:
+        return StoredWorkshopFile(
+            file_id="mongo-logo-id",
+            filename="logo.png",
+            content_type="image/png",
+            content=content,
+            uploaded_at=None,
+        )
+
+    @patch("apps.budget.pdf_context.get_workshop_logo_file")
+    def test_visualizar_pdf_gestor_renders_workshop_logo(self, get_workshop_logo_file_mock) -> None:
+        budget = self._create_budget_with_customer_and_vehicle(suffix=98)
+        logo_bytes = b"gestor-logo"
+        get_workshop_logo_file_mock.return_value = self._build_logo_file(content=logo_bytes)
+
+        response = self.client.get(reverse("budget:visualizar_pdf_gestor", args=[budget.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        expected_logo_data_uri = f"data:image/png;base64,{base64.b64encode(logo_bytes).decode('ascii')}"
+        self.assertContains(response, f'src="{expected_logo_data_uri}"', html=False)
+
+    @patch("apps.budget.pdf_context.get_workshop_logo_file")
+    def test_visualizar_pdf_mecanico_renders_workshop_logo(self, get_workshop_logo_file_mock) -> None:
+        budget = self._create_budget_with_customer_and_vehicle(suffix=99)
+        logo_bytes = b"mecanico-logo"
+        get_workshop_logo_file_mock.return_value = self._build_logo_file(content=logo_bytes)
+
+        response = self.client.get(reverse("budget:visualizar_pdf_mecanico", args=[budget.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        expected_logo_data_uri = f"data:image/png;base64,{base64.b64encode(logo_bytes).decode('ascii')}"
+        self.assertContains(response, f'src="{expected_logo_data_uri}"', html=False)
+
+    @patch("apps.budget.views.pdf_views.build_workshop_logo_data_uri", return_value="data:image/png;base64,bW9uZ28tbG9nbw==")
+    def test_visualizar_pdf_checklist_renders_workshop_logo(self, build_workshop_logo_data_uri_mock) -> None:
+        budget = self._create_budget_with_customer_and_vehicle(suffix=100)
+        checklist = Checklist.objects.create(workshop=self.workshop, name="Checklist PDF")
+        ChecklistItem.objects.create(checklist=checklist, group="Motor", description="Verificar oleo", response_type="SIM_NAO", order=1)
+
+        response = self.client.get(reverse("budget:visualizar_pdf_checklist", args=[budget.pk]), {"checklist": checklist.pk})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'src="data:image/png;base64,bW9uZ28tbG9nbw=="', html=False)
+        build_workshop_logo_data_uri_mock.assert_called_once_with(workshop=self.workshop)
 
 
 class BudgetStep6FormTests(TestCase):

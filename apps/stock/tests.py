@@ -531,6 +531,17 @@ class StockReportViewTests(TestCase):
         self.assertContains(response, "Custo total do item")
         self.assertIsNone(response.headers.get("X-Frame-Options"))
 
+    @patch("apps.stock.views.build_workshop_logo_data_uri", return_value="data:image/png;base64,bW9uZ28tbG9nbw==")
+    def test_pdf_preview_view_renders_workshop_logo(self, build_workshop_logo_data_uri_mock) -> None:
+        response = self.client.get(
+            reverse("stock:report_pdf_preview"),
+            data={"columns": ["code", "quantity", "item_total_cost"]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'src="data:image/png;base64,bW9uZ28tbG9nbw=="', html=False)
+        build_workshop_logo_data_uri_mock.assert_called_once_with(workshop=self.workshop)
+
     def test_pdf_preview_last_nf_column_shows_friendly_empty_state_text(self) -> None:
         response = self.client.get(
             reverse("stock:report_pdf_preview"),

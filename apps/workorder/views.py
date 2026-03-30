@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import json
 import logging
 import re
@@ -24,6 +23,7 @@ from djmoney.money import Money
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.models.kits import Kit
+from apps.budget.pdf_context import build_workshop_logo_data_uri
 from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
 from apps.core.documents.http import build_pdf_http_response
@@ -130,37 +130,6 @@ WORKORDER_STATUS_BADGE_CLASSES = {
     WorkOrderStatus.CANCELLED: "badge-warning min-w-sm",
 }
 WORKORDER_STATUS_REPORT_PDF_TITLE = "Relatorio de Ordens de Servico por Status"
-
-
-def _build_workshop_logo_data_uri(*, workshop) -> str:
-    workshop_logo = getattr(workshop, "logo", None)
-    if not workshop_logo:
-        return ""
-
-    try:
-        workshop_logo.open("rb")
-        try:
-            logo_bytes = workshop_logo.read()
-        finally:
-            workshop_logo.close()
-
-        if not logo_bytes:
-            return ""
-
-        extension = str(getattr(workshop_logo, "name", "")).lower().split(".")[-1]
-        content_type_map = {
-            "png": "image/png",
-            "jpg": "image/jpeg",
-            "jpeg": "image/jpeg",
-            "webp": "image/webp",
-            "gif": "image/gif",
-            "svg": "image/svg+xml",
-        }
-        content_type = content_type_map.get(extension, "image/png")
-        encoded_logo = base64.b64encode(logo_bytes).decode("ascii")
-        return f"data:{content_type};base64,{encoded_logo}"
-    except OSError:
-        return ""
 
 
 def _parse_report_date_param(raw_value: str | None) -> date | None:
@@ -297,7 +266,7 @@ class WorkOrderStatusReportDataMixin:
             "selected_status_report": selected_status_report,
             "status_report_pdf_title": self.status_report_pdf_title,
             "status_report_period_label": self._get_status_report_period_label(),
-            "workshop_logo_data_uri": _build_workshop_logo_data_uri(workshop=self.workshop),
+            "workshop_logo_data_uri": build_workshop_logo_data_uri(workshop=self.workshop),
             "auto_print": self.request.GET.get("autoprint") == "1",
         }
 

@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from io import BytesIO
 from datetime import date, datetime, timedelta
+from io import BytesIO
 import re
-import json
-from datetime import timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
@@ -27,11 +25,10 @@ from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.collaborators.models import WorkshopMember
 from apps.core.documents.contract import DocumentPayload
+from apps.customer.models import Customer, Vehicle
 from apps.finance.documents.provider import build_dre_excel_document, build_dre_pdf_render_request
 from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm
 from apps.finance.forms.dre import DreForm
-from apps.customer.models import Customer, Vehicle
-from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm
 from apps.finance.forms.emission_ui import build_step5_pricing_panel_data
 from apps.finance.forms.financial_group import FinancialGroupForm
 from apps.finance.forms.payment_method import PaymentMethodForm
@@ -63,12 +60,9 @@ from apps.finance.services.webmania_secrets import decrypt_secret, encrypt_secre
 from apps.finance.views.nfse import NfseRequestCreateView
 from apps.iam.utils import get_or_create_director_role
 from apps.sources.models import Source
-from apps.workorder.models import WorkOrder
-from apps.workorder.models import WorkOrderItem
-from apps.workorder.models import WorkOrderPaymentMethod
+from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderStatus
 from apps.workshops.models.monthly_costs import MonthlyCost
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
-from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderStatus
 from apps.workshops.forms.workshops import WorkshopFiscalSectionForm
 from apps.workshops.models.workshops import Workshop
 
@@ -4041,7 +4035,7 @@ class FinancialReportsHomeViewTests(TestCase):
         today = timezone.localdate()
         previous_month_date = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
 
-        credit_movement = FinancialMovement.objects.create(
+        FinancialMovement.objects.create(
             workshop=self.workshop,
             user=self.user,
             source=self.source,
@@ -4049,7 +4043,7 @@ class FinancialReportsHomeViewTests(TestCase):
             amount=Money("1500.00", "BRL"),
             due_date=today,
         )
-        credit_movement = FinancialMovement.objects.create(
+        FinancialMovement.objects.create(
             workshop=self.workshop,
             user=self.user,
             source=self.source,
@@ -4057,7 +4051,7 @@ class FinancialReportsHomeViewTests(TestCase):
             amount=Money("400.00", "BRL"),
             due_date=today,
         )
-        credit_movement = FinancialMovement.objects.create(
+        FinancialMovement.objects.create(
             workshop=self.workshop,
             user=self.user,
             source=self.source,
@@ -4087,7 +4081,7 @@ class FinancialReportsHomeViewTests(TestCase):
         same_year_other_month = today.replace(month=1, day=15) if today.month != 1 else today.replace(month=2, day=15)
         previous_year_date = today.replace(year=today.year - 1, month=12, day=15)
 
-        credit_movement = FinancialMovement.objects.create(
+        FinancialMovement.objects.create(
             workshop=self.workshop,
             user=self.user,
             source=self.source,
@@ -5087,6 +5081,41 @@ class DreReportViewTests(TestCase):
         self.assertEqual(context["selected_workshop_label"], "Todas as filiais")
         self.assertTrue(context["is_consolidated_workshops"])
         self.assertEqual([workshop.pk for workshop in context["selected_workshops"]], [self.workshop.pk, second_workshop.pk])
+
+    @patch("apps.finance.views.dre.build_workshop_logo_data_uri", return_value="data:image/png;base64,bW9uZ28tbG9nbw==")
+    def test_pdf_preview_renders_selected_workshop_logo(self, build_workshop_logo_data_uri_mock) -> None:
+        response = self.client.get(
+            reverse("finance:dre_pdf_preview"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'src="data:image/png;base64,bW9uZ28tbG9nbw=="', html=False)
+        build_workshop_logo_data_uri_mock.assert_called_once_with(workshop=self.workshop)
+
+    @patch("apps.finance.views.dre.build_workshop_logo_data_uri", return_value="data:image/png;base64,bW9uZ28tbG9nbw==")
+    def test_pdf_preview_hides_logo_for_consolidated_workshops(self, build_workshop_logo_data_uri_mock) -> None:
+        self._create_additional_workshop(suffix=93)
+
+        response = self.client.get(
+            reverse("finance:dre_pdf_preview"),
+            data={
+                "filial": DreForm.ALL_WORKSHOPS_VALUE,
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'src="data:image/png;base64,bW9uZ28tbG9nbw=="', html=False)
+        self.assertContains(response, "Consolidado de 2 filiais")
+        build_workshop_logo_data_uri_mock.assert_not_called()
 
     def test_excel_view_uses_all_workshops_label_in_summary_sheet(self) -> None:
         second_workshop = self._create_additional_workshop(suffix=92)

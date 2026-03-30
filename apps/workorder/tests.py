@@ -369,6 +369,18 @@ class WorkOrderStatusReportPdfTests(TestCase):
         self.assertContains(response, matching_created_at.strftime("%d/%m/%Y"))
         self.assertIsNone(response.headers.get("X-Frame-Options"))
 
+    @patch("apps.workorder.views.build_workshop_logo_data_uri", return_value="data:image/png;base64,bW9uZ28tbG9nbw==")
+    def test_status_report_pdf_preview_includes_workshop_logo_data_uri(self, build_workshop_logo_data_uri_mock) -> None:
+        workshop = self._login_with_active_workshop(suffix=95)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=create_budget(workshop=workshop), status=WorkOrderStatus.APPROVED)
+
+        response = self.client.get(reverse("workorder:status_report_pdf_preview"), {"status": WorkOrderStatus.APPROVED})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'src="data:image/png;base64,bW9uZ28tbG9nbw=="', html=False)
+        build_workshop_logo_data_uri_mock.assert_called_once_with(workshop=workshop)
+        self.assertContains(response, f"#{workorder.pk}")
+
     @patch("apps.workorder.views.render_workorder_status_report_pdf_document")
     def test_status_report_pdf_view_returns_attachment_and_ignores_other_filters(self, render_document_mock) -> None:
         workshop = self._login_with_active_workshop(suffix=92)
