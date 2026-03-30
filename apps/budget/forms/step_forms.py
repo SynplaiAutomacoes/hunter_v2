@@ -716,13 +716,12 @@ class BudgetStep2Form(forms.ModelForm):
 
 class BudgetStep3Form(forms.ModelForm):
     new_defect = forms.CharField(label=False, required=False, widget=TextInput(attrs={"id": "id_new_defect", "placeholder": "Digite um defeito e clique em Adicionar", "onkeypress": "if(event.keyCode==13){ event.preventDefault(); addDefectRow(); }"}))
-    checklist = forms.ModelChoiceField(label="Selecione o Checklist", queryset=Checklist.objects.none(), required=False, widget=SelectInput())
-    collaborator = forms.ModelChoiceField(label="Selecione o colaborador que realizará o serviço", required=True, queryset=WorkshopCollaborator.objects.none(), widget=SelectInput())
+    collaborator = forms.ModelMultipleChoiceField(label="Selecione os colaboradores", required=False, queryset=WorkshopCollaborator.objects.none())
     images = MultipleFileField(label=None, required=False, widget=MultipleFileInput(attrs={"class": "file-input file-input-bordered w-full"}))
 
     class Meta:
         model = Budget
-        fields = ["collaborator", "checklist", "technical_diagnosis"]
+        fields = ["checklist", "technical_diagnosis"]
         widgets = {
             "technical_diagnosis": TextareaInput(
                 attrs={
@@ -743,25 +742,32 @@ class BudgetStep3Form(forms.ModelForm):
             self.fields["collaborator"].queryset = WorkshopCollaborator.objects.filter(workshop=self.workshop, is_active=True)
             self.fields["checklist"].queryset = Checklist.objects.filter(workshop=self.workshop).order_by("name")
 
-        self.fields["collaborator"].error_messages["required"] = "Selecione um colaborador para continuar."
+        # Configurações para o componente de múltiplos colaboradores
+        collaborator_choices = list(self.fields["collaborator"].queryset.values_list("id", "name"))
+        
+        initial_collaborators = []
+        if self.instance.pk:
+            initial_collaborators = [{"id": str(c.id), "name": c.name, "is_new": False} for c in self.instance.collaborators.all()]
 
+        if not initial_collaborators:
+            initial_collaborators = [{"id": "", "is_new": True}]
+
+        import json
+        self.initial_collaborators_json = json.dumps(initial_collaborators)
+        
         checklist_pdf_base_url = reverse("budget:visualizar_pdf_checklist", args=[self.instance.pk]) if self.instance.pk else ""
 
-        initial_collab_id = ""
-        if self.instance.pk and self.instance.collaborator:
-            initial_collab_id = self.instance.collaborator.id
-
-        self.fields["collaborator"].widget.attrs.update(
-            {
-                "x-model": "collaboratorId",
-            }
-        )
 
         slot_placeholder_urls = {slot_type: static(path) for slot_type, path in SLOT_PLACEHOLDER_PATHS.items()}
         slot_placeholder_urls_js = "{" + ", ".join([f"'{slot_type}': '{slot_placeholder_urls[slot_type]}'" for slot_type in SLOT_IMAGE_TYPES]) + "}"
         slots_initial_html, additional_initial_html = _build_step3_images_initial_html(self.instance, slot_placeholder_urls)
         if not slots_initial_html:
             slots_initial_html = _build_step3_slot_fallback_html(slot_placeholder_urls)
+
+        from django.template.loader import render_to_string
+        collaborator_html = render_to_string(template_name="budget/partials/components/collaborator_field.html",
+            context={"field": self["collaborator"], "initial_collaborators_json": self.initial_collaborators_json},
+            request=self.request)
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -822,41 +828,32 @@ class BudgetStep3Form(forms.ModelForm):
                         const eventDetail = evt && evt.detail ? evt.detail : null;
                         const createdCollaboratorId = eventDetail && eventDetail.id ? String(eventDetail.id) : '';
 
-                        const selectElement = document.querySelector('#id_collaborator');
-                        const currentValue = selectElement ? selectElement.value : '';
-
-                        const collaboratorIdToSelect = createdCollaboratorId || currentValue;
-                        if (collaboratorIdToSelect) {{
-                            localStorage.setItem('budget_step3_collaborator', collaboratorIdToSelect);
-                        }}
-
                         const budgetId = {self.instance.pk if self.instance.pk else "null"};
-                        if (!budgetId) {{
-                            localStorage.removeItem('budget_step3_collaborator');
-                            return;
+                        const collabIdx = localStorage.getItem('budget_step3_collaborator_idx');
+                        
+                        // Atualiza as opções de todos os selects de colaboradores na página
+                        if (createdCollaboratorId && eventDetail.name) {{
+                             const selects = document.querySelectorAll('select[name="collaborators_list"]');
+                             selects.forEach(select => {{
+                                 const option = document.createElement('option');
+                                 option.value = createdCollaboratorId;
+                                 option.textContent = eventDetail.name;
+                                 select.appendChild(option);
+                             }});
+                             
+                             // Se sabermos qual índice estava sendo editado, selecionamos o novo lá
+                             if (collabIdx !== null) {{
+                                 const container = document.getElementById('collaborator-field-container');
+                                 if (container && typeof Alpine !== 'undefined') {{
+                                     const alpineData = Alpine.$data(container);
+                                     if (alpineData && alpineData.collabs[collabIdx]) {{
+                                         alpineData.collabs[collabIdx].id = createdCollaboratorId;
+                                     }}
+                                 }}
+                             }}
                         }}
-
-                        const savedId = localStorage.getItem('budget_step3_collaborator');
-                        const url = `/budget/${{budgetId}}/collaborator-field/` + (savedId ? `?selected=${{savedId}}` : '');
-
-                        htmx.ajax('GET', url, {{
-                            target: '#collaborator-field-container',
-                            swap: 'outerHTML'
-                        }}).then(() => {{
-                            if (savedId) {{
-                                setTimeout(() => {{
-                                    const alpineContainer = document.querySelector('[x-data*="collaboratorId"]');
-                                    if (alpineContainer && typeof Alpine !== 'undefined') {{
-                                        const alpineData = Alpine.$data(alpineContainer);
-                                        if (alpineData) {{
-                                            alpineData.collaboratorId = savedId;
-                                        }}
-                                    }}
-                                }}, 100);
-                            }}
-
-                            localStorage.removeItem('budget_step3_collaborator');
-                        }});
+                        
+                        localStorage.removeItem('budget_step3_collaborator_idx');
                     }});
                 </script>"""),
             Div(
@@ -865,9 +862,7 @@ class BudgetStep3Form(forms.ModelForm):
                     # Diagnóstico Técnico
                     Div(
                         HTML('<h3 class="text-2xl font-bold mb-4">Diagnóstico Técnico</h3>'),
-                        HTML(f'''
-                            {{% include "budget/partials/components/collaborator_field.html" with field=form.collaborator initial_collab_id="{initial_collab_id}" %}}
-                        '''),
+                        HTML(collaborator_html),
                         #
                         HTML('<label class="block text-gray-700 font-bold mb-2">Adicione os defeitos encontrados durante a inspeção</label>'),
                         Div(id="defect-list-container", css_class="mb-4 p-4 border-2 border-dashed border-gray-200 rounded-lg min-h-[120px] flex flex-wrap content-start"),
@@ -1511,6 +1506,10 @@ class BudgetStep3Form(forms.ModelForm):
     def clean(self):
         cleaned_data = super().clean()
 
+        collaborator_ids = [cid for cid in self.request.POST.getlist("collaborators_list") if cid.strip()]
+        if not collaborator_ids:
+             self.add_error("collaborator", "Selecione pelo menos um colaborador para continuar.")
+
         if not self.files:
             return cleaned_data
 
@@ -1553,6 +1552,14 @@ class BudgetStep3Form(forms.ModelForm):
 
     def save(self, commit=True):
         budget = super().save(commit=commit)
+
+        # Processamento dos Colaboradores
+        if "collaborators_list" in self.request.POST:
+            collaborator_ids = [cid for cid in self.request.POST.getlist("collaborators_list") if cid.strip()]
+            if collaborator_ids:
+                budget.collaborators.set(collaborator_ids)
+            else:
+                budget.collaborators.clear()
 
         # Processamento dos Defeitos (Somente no Save final)
         if "defects_list" in self.request.POST:

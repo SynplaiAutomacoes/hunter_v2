@@ -276,9 +276,9 @@ class BudgetListFiltersTests(TestCase):
         other_budget = create_budget(workshop=workshop)
         other_budget.customer = other_customer
         other_budget.vehicle = other_vehicle
-        other_budget.collaborator = other_collaborator
         other_budget.status = BudgetStatus.CANCELLED
-        other_budget.save(update_fields=["customer", "vehicle", "collaborator", "status"])
+        other_budget.save(update_fields=["customer", "vehicle", "status"])
+        other_budget.collaborators.set([other_collaborator])
         Budget.objects.filter(pk=other_budget.pk).update(criado_em=timezone.now() - timedelta(days=12))
 
         selected_date = matching_created_at.date().isoformat()
@@ -505,9 +505,9 @@ class BudgetStatusReportPdfTests(TestCase):
         approved_budget = create_budget(workshop=workshop)
         approved_budget.customer = customer
         approved_budget.vehicle = vehicle
-        approved_budget.collaborator = collaborator
         approved_budget.status = BudgetStatus.APPROVED
-        approved_budget.save(update_fields=["customer", "vehicle", "collaborator", "status"])
+        approved_budget.save(update_fields=["customer", "vehicle", "status"])
+        approved_budget.collaborators.set([collaborator])
         matching_created_at = timezone.now() - timedelta(days=4)
         Budget.objects.filter(pk=approved_budget.pk).update(criado_em=matching_created_at)
 
@@ -517,9 +517,9 @@ class BudgetStatusReportPdfTests(TestCase):
         out_of_range_budget = create_budget(workshop=workshop)
         out_of_range_budget.customer = other_customer
         out_of_range_budget.vehicle = other_vehicle
-        out_of_range_budget.collaborator = other_collaborator
         out_of_range_budget.status = BudgetStatus.APPROVED
-        out_of_range_budget.save(update_fields=["customer", "vehicle", "collaborator", "status"])
+        out_of_range_budget.save(update_fields=["customer", "vehicle", "status"])
+        out_of_range_budget.collaborators.set([other_collaborator])
         Budget.objects.filter(pk=out_of_range_budget.pk).update(criado_em=timezone.now() - timedelta(days=12))
 
         draft_budget = create_budget(workshop=workshop)
