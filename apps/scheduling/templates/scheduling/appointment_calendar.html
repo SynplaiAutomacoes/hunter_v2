@@ -82,6 +82,7 @@
         #appointments-calendar .fc .fc-toolbar-title {
             color: hsl(var(--bc));
             font-weight: 700;
+            text-transform: capitalize;
         }
 
         #appointments-calendar .fc .fc-button {
@@ -295,17 +296,6 @@
                 appointmentModal.showModal();
             }
 
-            function capitalizeCalendarToolbarTitle() {
-                const titleEl = calendarEl.querySelector('.fc-toolbar-title');
-                if (!titleEl || !titleEl.textContent) {
-                    return;
-                }
-
-                titleEl.textContent = titleEl.textContent.replace(/^\p{L}/u, function (match) {
-                    return match.toLocaleUpperCase('pt-BR');
-                });
-            }
-
             function openCreateFromRange(startValue, endValue) {
                 if (!startValue) {
                     openModalFromUrl('{{ create_url }}');
@@ -342,6 +332,11 @@
                     month: 'Mes',
                     list: 'Ano',
                 },
+                views: {
+                    dayGridMonth: {
+                        titleFormat: { year: 'numeric', month: 'long' },
+                    },
+                },
                 events: {
                     url: '{{ calendar_events_url }}',
                     method: 'GET',
@@ -351,9 +346,6 @@
                     failure: function () {
                         document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'Nao foi possivel carregar os agendamentos.', type: 'error' } }));
                     },
-                },
-                datesSet: function () {
-                    capitalizeCalendarToolbarTitle();
                 },
                 select: function (selectionInfo) {
                     openCreateFromRange(selectionInfo.startStr, selectionInfo.endStr);
@@ -473,7 +465,6 @@
             });
 
             calendar.render();
-            capitalizeCalendarToolbarTitle();
 
             if (filtersShell) {
                 const selectedCustomer = getFilterValue(customerInput);
