@@ -47,8 +47,9 @@ def _get_budget_with_prefetched_items(budget):
 
     prefetched_budget = (
         Budget.objects.filter(pk=budget.pk)
-        .select_related("customer", "vehicle", "collaborator")
+        .select_related("customer", "vehicle")
         .prefetch_related(
+            "collaborators",
             Prefetch(
                 "items",
                 queryset=BudgetItem.objects.select_related("product", "service", "kit")

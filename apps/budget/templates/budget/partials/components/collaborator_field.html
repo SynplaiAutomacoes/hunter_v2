@@ -53,7 +53,7 @@
                 </div>
 
                 <div class="flex gap-1 mb-1">
-                    <button type="button" class="btn btn-square btn-sm"
+                    <button type="button" class="btn btn-circle btn-sm"
                             :class="collab.id ? 'btn-warning' : 'btn-primary'"
                             @click="
                                 const id = collab.id;
@@ -67,7 +67,7 @@
                     <button type="button" 
                             x-show="collabs.length > 1"
                             @click="removeCollab(index)" 
-                            class="btn btn-square btn-sm btn-error text-white">
+                            class="btn btn-circle btn-sm btn-error text-white">
                         <span class="material-icons text-sm">delete</span>
                     </button>
                 </div>
