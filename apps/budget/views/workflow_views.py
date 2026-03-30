@@ -77,7 +77,7 @@ BUDGET_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
     ),
     QueryParamFilter(
         param_name="collaborator",
-        lookup="collaborator__name",
+        lookup="collaborators__name",
         kind="icontains",
     ),
     QueryParamFilter(
@@ -204,7 +204,8 @@ class BudgetStatusReportDataMixin:
     def _get_budget_base_queryset(self):
         return (
             Budget.objects.filter(workshop=self.workshop)
-            .select_related("customer", "vehicle", "collaborator")
+            .select_related("customer", "vehicle")
+            .prefetch_related("collaborators")
             .prefetch_related(
                 Prefetch(
                     "items",
@@ -224,7 +225,6 @@ class BudgetStatusReportDataMixin:
             TableColumn("ID", attr="id"),
             TableColumn(str(Budget.customer.field.verbose_name), attr=Budget.customer.field.name, search_by="customer__name"),
             TableColumn(str(Budget.vehicle.field.verbose_name), attr=Budget.vehicle.field.name, search_by=("vehicle__plate", "vehicle__model", "vehicle__brand")),
-            TableColumn(str(Budget.collaborator.field.verbose_name), attr="collaborator_name", search_by="collaborator__name"),
             TableColumn("Criado em", attr="criado_em"),
             TableColumn("Valor Total", attr="total_budget_value", searchable=False),
             TableColumn(str(Budget.status.field.verbose_name), attr="budget_status_badge", search_by="status", format="status_badge"),
