@@ -14,7 +14,7 @@ from django.template import Context, Template
 from django.template.loader import render_to_string
 
 from apps.accounts.models import Account, User
-from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
+from apps.budget.approval import approve_budget_with_stock
 from django.http import Http404, HttpResponse
 from django.db import connection
 from django.test import RequestFactory, TestCase, override_settings
@@ -1030,7 +1030,7 @@ class BudgetStep6FormTests(TestCase):
         self.assertIn("showPdfVariantToggle: false", html)
         self.assertIn('x-show="showPdfVariantToggle"', html)
 
-    def test_step6_disables_approval_and_signature_when_stock_is_insufficient(self) -> None:
+    def test_step6_keeps_approval_and_signature_available_when_stock_is_insufficient(self) -> None:
         workshop = create_workshop(suffix=97)
         budget = create_budget(workshop=workshop)
         product = create_product(workshop=workshop, suffix=97)
@@ -1045,8 +1045,9 @@ class BudgetStep6FormTests(TestCase):
         form = BudgetStep6Form(instance=budget, workshop=workshop, request=request)
         html = Template("{% load crispy_forms_tags %}{% crispy form %}").render(Context({"form": form, "csrf_token": "token"}))
 
-        self.assertIn("Existem pecas com quantidade acima do estoque disponivel", html)
-        self.assertIn("signatureBlocked: true", html)
+        self.assertNotIn("Existem pecas com quantidade acima do estoque disponivel", html)
+        self.assertIn("signatureBlocked: false", html)
+        self.assertIn(f"onclick=\"updateBudgetStatus({budget.pk}, 'approve')\"", html)
 
 
 class BudgetProductIssueTests(TestCase):
@@ -1067,7 +1068,7 @@ class BudgetProductIssueTests(TestCase):
         self.assertIn("Excede o estoque em 2 pecas.", rows["product"])
         self.assertIn("Produto com NCM invalido.", rows["product"])
 
-    def test_approve_budget_blocks_when_stock_is_insufficient(self) -> None:
+    def test_approve_budget_allows_stock_issue(self) -> None:
         workshop = create_workshop(suffix=99)
         budget = create_budget(workshop=workshop)
         product = create_product(workshop=workshop, suffix=99)
@@ -1077,11 +1078,13 @@ class BudgetProductIssueTests(TestCase):
         stock_product.current_quantity = 1
         stock_product.save(update_fields=["current_quantity"])
 
-        with self.assertRaisesMessage(BudgetApprovalError, "Existem pecas com quantidade acima do estoque disponivel"):
-            approve_budget_with_stock(budget=budget)
+        approve_budget_with_stock(budget=budget)
+
+        budget.refresh_from_db()
+        self.assertEqual(budget.status, BudgetStatus.APPROVED)
 
     @patch("apps.budget.views.workflow_views.send_budget_for_signature")
-    def test_trigger_signature_send_if_needed_blocks_for_stock(self, send_signature_mock) -> None:
+    def test_trigger_signature_send_if_needed_allows_stock_issue(self, send_signature_mock) -> None:
         workshop = create_workshop(suffix=67)
         budget = create_budget(workshop=workshop)
         product = create_product(workshop=workshop, suffix=67)
@@ -1091,12 +1094,20 @@ class BudgetProductIssueTests(TestCase):
         stock_product.current_quantity = 1
         stock_product.save(update_fields=["current_quantity"])
 
+        send_signature_mock.return_value = SignatureDeliveryResult(
+            envelope_id="env-67",
+            document_id="doc-67",
+            provider="supersign",
+            raw_response={"ok": True},
+        )
+
         toast_type, toast_message, redirect_url = trigger_signature_send_if_needed(request=RequestFactory().post("/"), budget=budget)
 
-        self.assertEqual(toast_type, "error")
-        self.assertIn("Existem pecas com quantidade acima do estoque disponivel", toast_message)
-        self.assertIsNone(redirect_url)
-        send_signature_mock.assert_not_called()
+        budget.refresh_from_db()
+        self.assertEqual(toast_type, "success")
+        self.assertEqual(toast_message, "Orçamento enviado para assinatura do cliente.")
+        self.assertEqual(redirect_url, reverse("budget:budget_list"))
+        self.assertEqual(budget.signature_request_status, SignatureStatus.SENT)
 
     @patch("apps.budget.views.workflow_views.send_budget_for_signature")
     def test_trigger_signature_send_if_needed_allows_invalid_ncm(self, send_signature_mock) -> None:

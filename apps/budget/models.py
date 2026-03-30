@@ -586,10 +586,6 @@ class Budget(TimeStampedModel):
         if self.has_local_items:
             blockers.append("Existem itens nao cadastrados no sistema.")
 
-        stock_reason = self.product_issue_summary.stock_block_reason()
-        if stock_reason:
-            blockers.append(stock_reason)
-
         return blockers
 
     @property
