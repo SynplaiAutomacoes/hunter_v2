@@ -4,6 +4,8 @@
             label: 'Cadastros',
             items: [
                 { label: 'Cliente', href: '{% url "customer:customer_list" %}' },
+                { label: 'Mensagens WhatsApp', href: '{% url "messaging:message_template_list" %}' },
+                { label: 'Grupos de Mensagens', href: '{% url "messaging:customer_message_group_list" %}' },
                 { label: 'Colaborador', href: '{% url "collaborators:collaborator_list" %}' },
                 { label: 'Fornecedor', href: '{% url "suppliers:supplier_list" %}' },
                 { label: 'Produto', href: '{% url "catalog:product_list" %}' },
@@ -32,6 +34,7 @@
                 { label: 'Importar Itens', href: '{% url "stock:stock_list" %}' },
                 { label: 'Aprovação', href: '{% url "stock:approvals" %}' },
                 { label: 'Reabastecimento', href: '{% url "stock:replenishment" %}' },
+                { label: 'Relatório', href: '{% url "stock:report" %}' },
                 { label: 'Movimentações', href: '{% url "stock:movements" %}' },
                 { label: 'Alertas', href: '{% url "stock:alerts" %}' }
             ]
@@ -47,7 +50,6 @@
                 { label: 'Formas de Pagamento', href: '{% url "finance:payment_methods_list" %}' },
                 { label: 'Grupos Financeiros', href: '{% url "finance:financial_groups_list" %}' },
                 { label: 'Classe de Imposto', href: '{% url "finance:tax_class_list" %}' },
-                { label: 'Presets Fiscais', href: '{% url "finance:tax_class_preset_list" %}' },
                 { label: 'Gerar DRE', href: '{% url "finance:dre_report" %}' },
                 { label: 'Relatórios', href: '{% url "finance:reports_home" %}' }
             ]

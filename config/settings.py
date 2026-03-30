@@ -59,6 +59,11 @@ SUPERSIGN_ACCOUNT_ID = os.getenv("SUPERSIGN_ACCOUNT_ID", "")
 SUPERSIGN_API_KEY = os.getenv("SUPERSIGN_API_KEY", "")
 SUPERSIGN_FOLDER_ID = os.getenv("SUPERSIGN_FOLDER_ID", "")
 
+MONGODB_URI = os.getenv("MONGODB_URI", "")
+MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "hunter")
+MONGODB_CERT_BUCKET = os.getenv("MONGODB_CERT_BUCKET", "certificado")
+MONGODB_LOGO_BUCKET = os.getenv("MONGODB_LOGO_BUCKET", "logo")
+
 if not DEBUG:
     SECURE_SSL_REDIRECT = os.getenv("DJANGO_SECURE_SSL_REDIRECT", "1").lower() in ("1", "true", "yes")
     SESSION_COOKIE_SECURE = True
@@ -107,6 +112,7 @@ INSTALLED_APPS = [
     "apps.scheduling",
     "apps.stock",
     "apps.finance",
+    "apps.messaging",
 ]
 
 MIDDLEWARE = [

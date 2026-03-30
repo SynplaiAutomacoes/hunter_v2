@@ -17,7 +17,7 @@ from django.core.paginator import Paginator
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils.safestring import mark_safe
-from lxml import etree
+from lxml.etree import fromstring
 from django.urls import reverse
 from django.utils import timezone
 from djmoney.forms import MoneyField
@@ -33,9 +33,10 @@ from apps.finance.models.payment_method import PaymentMethod
 from apps.stock.models import StockPaymentMethod, StockImport, StockProduct, StockMovement, SefazZipCache
 from apps.stock.models import StockTransfer
 
-from apps.stock.utils import NFParser
+from apps.stock.utils import NFParser, extract_nf_number_from_access_key, parse_sefaz_distribution_doc_metadata
 from apps.suppliers.models import Supplier
 from apps.workshops.models.workshops import Workshop
+from apps.workshops.services.files import workshop_certificate_temp_path, workshop_has_certificate
 from apps.workshops.util.workshops import has_workshop_perm
 
 
@@ -97,7 +98,7 @@ class ImportStep1Form(forms.ModelForm):
         if self.parsed_nf_data:
             data = self.parsed_nf_data
             obj.workshop = self.workshop
-            obj.nf_number = data.get("nf_number")
+            obj.nf_number = data.get("nf_number") or extract_nf_number_from_access_key(data.get("nf_key"))
             obj.nf_key = data.get("nf_key", "")
             obj.supplier_cnpj = data.get("supplier_cnpj")
             obj.supplier_name = data.get("supplier_name")
@@ -133,16 +134,17 @@ class ImportStep1Form(forms.ModelForm):
             if len(nf_key) != 44:
                 self.add_error("access_key", "Insira uma chave válida de 44 dígitos.")
 
-            elif not self.workshop.pfx_certificate or not self.workshop.certificate_password:
+            elif not workshop_has_certificate(self.workshop) or not self.workshop.certificate_password:
                 self.add_error("method", "Oficina sem certificado configurado.")
 
             else:
                 try:
-                    comunicacao = ComunicacaoSefaz(self.workshop.uf.upper(), self.workshop.pfx_certificate.path, self.workshop.certificate_password)
-                    cnpj_clean = re.sub(r"\D", "", self.workshop.cnpj)
+                    with workshop_certificate_temp_path(self.workshop) as certificate_path:
+                        comunicacao = ComunicacaoSefaz(self.workshop.uf.upper(), certificate_path, self.workshop.certificate_password)
+                        cnpj_clean = re.sub(r"\D", "", self.workshop.cnpj)
 
-                    xml_response = comunicacao.consulta_distribuicao(cnpj=cnpj_clean, chave=nf_key)
-                    content = xml_response.content
+                        xml_response = comunicacao.consulta_distribuicao(cnpj=cnpj_clean, chave=nf_key)
+                        content = xml_response.content
 
                     if b"<cStat>215</cStat>" in content:
                         self.add_error("access_key", "Rejeição da SEFAZ por falha no esquema. Verifique se o CNPJ do certificado é o destinatário da nota.")
@@ -164,10 +166,14 @@ class ImportStep1Form(forms.ModelForm):
             if not nf_data.get("nf_key"):
                 nf_data["nf_key"] = cleaned_data.get("access_key") or self.data.get("access_key")
 
+            nf_number = nf_data.get("nf_number") or extract_nf_number_from_access_key(nf_data.get("nf_key"))
+            if nf_number:
+                nf_data["nf_number"] = nf_number
+
             if StockImport.objects.filter(workshop=self.workshop, nf_key=nf_data["nf_key"]).exclude(pk=self.instance.pk).exists():
                 self.add_error("method", f"A NF com chave {nf_data['nf_key']} já existe.")
 
-            elif StockImport.objects.filter(workshop=self.workshop, nf_number=nf_data["nf_number"], supplier_cnpj=nf_data["supplier_cnpj"]).exclude(pk=self.instance.pk).exists():
+            elif nf_data.get("nf_number") and StockImport.objects.filter(workshop=self.workshop, nf_number=nf_data["nf_number"], supplier_cnpj=nf_data["supplier_cnpj"]).exclude(pk=self.instance.pk).exists():
                 self.add_error("method", f"A NF número {nf_data['nf_number']} deste fornecedor já foi importada.")
 
             self.parsed_nf_data = nf_data
@@ -190,7 +196,7 @@ class ImportStepSupplierForm(forms.ModelForm):
 
         nome = self.instance.supplier_name or "Não informado"
         cnpj = self.instance.supplier_cnpj or "Não informado"
-        nNF = self.instance.nf_number or "---"
+        nNF = self.instance.nf_number_display or "---"
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -611,7 +617,7 @@ class ImportStepSummaryForm(forms.ModelForm):
 
         supplier_name = self.instance.supplier_name or "Não informado"
         supplier_cnpj = self.instance.supplier_cnpj or "Não informado"
-        nf_number = self.instance.nf_number or "---"
+        nf_number = self.instance.nf_number_display or "---"
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -670,6 +676,10 @@ class ImportStepSummaryForm(forms.ModelForm):
     def save(self, commit=True):
         instance = super().save(commit=False)
         workshop = self.workshop
+        resolved_nf_number = instance.nf_number or extract_nf_number_from_access_key(instance.nf_key)
+
+        if resolved_nf_number and instance.nf_number != resolved_nf_number:
+            instance.nf_number = resolved_nf_number
 
         if instance.status == StockImport.ImportStatus.COMPLETED:
             return instance
@@ -681,7 +691,7 @@ class ImportStepSummaryForm(forms.ModelForm):
         for item in instance.items_data:
             product_id = item.get("linked_product_id")
             product = Product.objects.get(id=product_id, workshop=workshop)
-            stock_product, created = StockProduct.objects.get_or_create(workshop=workshop, product=product, defaults={"supplier": supplier, "last_nf": instance.nf_number})
+            stock_product, _created = StockProduct.objects.get_or_create(workshop=workshop, product=product, defaults={"supplier": supplier, "last_nf": resolved_nf_number})
 
             quantity = Decimal(str(item.get("qtd", 0)))
             StockMovement.objects.create(
@@ -695,8 +705,12 @@ class ImportStepSummaryForm(forms.ModelForm):
             )
 
             stock_product.current_quantity += quantity
-            stock_product.last_nf = instance.nf_number
-            stock_product.save()
+            stock_product.last_nf = resolved_nf_number
+            update_fields = ["current_quantity", "last_nf"]
+            if supplier is not None:
+                stock_product.supplier = supplier
+                update_fields.append("supplier")
+            stock_product.save(update_fields=update_fields)
 
         for pay in instance.payments_data:
             payment_due_date = pay.get("payment_date")
@@ -717,7 +731,7 @@ class ImportStepSummaryForm(forms.ModelForm):
 
             method_id = pay.get("method")
             payment_method_obj = get_object_or_404(PaymentMethod, id=method_id, workshop=workshop)
-            StockPaymentMethod.objects.create(workshop=workshop, payment_method=payment_method_obj, installments_count=installments, first_installment_amount=Money(first_amount, "BRL"), remaining_installments_amount=Money(remaining_amount, "BRL"), nf_number=instance.nf_number or "MANUAL", due_date=payment_due_date)
+            StockPaymentMethod.objects.create(workshop=workshop, payment_method=payment_method_obj, installments_count=installments, first_installment_amount=Money(first_amount, "BRL"), remaining_installments_amount=Money(remaining_amount, "BRL"), nf_number=resolved_nf_number or "MANUAL", due_date=payment_due_date)
 
         instance.status = StockImport.ImportStatus.COMPLETED
         if commit:
@@ -754,10 +768,11 @@ class ImportSefazListForm(forms.ModelForm):
         self.page_obj = paginator.get_page(page_number)
 
         imported_keys = StockImport.objects.filter(workshop=self.workshop).values_list("nf_key", flat=True)
-        self.notas = SefazZipCache.objects.filter(workshop=self.workshop)
 
-        for nota in self.notas:
+        for nota in self.page_obj:
             nota.is_imported = nota.key in imported_keys
+
+        self.notas = self.page_obj
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -771,7 +786,7 @@ class ImportSefazListForm(forms.ModelForm):
         if not self.workshop.can_search_sefaz:
             return False, "A busca da SEFAZ foi executada recentemente. Aguarde alguns minutos para atualizar novamente."
 
-        if not self.workshop.pfx_certificate or not self.workshop.certificate_password:
+        if not workshop_has_certificate(self.workshop) or not self.workshop.certificate_password:
             return False, "Configure certificado e senha da oficina antes de buscar notas na SEFAZ."
 
         started_at = time.perf_counter()
@@ -779,11 +794,12 @@ class ImportSefazListForm(forms.ModelForm):
             cnpj = re.sub(r"\D", "", self.workshop.cnpj)
             nsu = self.workshop.last_nsu_sefaz
 
-            comunicacao = ComunicacaoSefaz(self.workshop.uf.upper(), self.workshop.pfx_certificate.path, self.workshop.certificate_password)
-            xml_resp = comunicacao.consulta_distribuicao(cnpj=cnpj, nsu=nsu)
+            with workshop_certificate_temp_path(self.workshop) as certificate_path:
+                comunicacao = ComunicacaoSefaz(self.workshop.uf.upper(), certificate_path, self.workshop.certificate_password)
+                xml_resp = comunicacao.consulta_distribuicao(cnpj=cnpj, nsu=nsu)
 
             # Parsing do retorno da SEFAZ (simplificado do seu exemplo)
-            tree = etree.fromstring(xml_resp.content)
+            tree = fromstring(xml_resp.content)
             ns = {"ns": "http://www.portalfiscal.inf.br/nfe"}
             cached_count = 0
 
@@ -793,23 +809,20 @@ class ImportSefazListForm(forms.ModelForm):
                 docs = tree.xpath("//ns:docZip", namespaces=ns)
                 for doc in docs:
                     content = gzip.decompress(base64.b64decode(doc.text))
-                    nfe_tree = etree.fromstring(content)
-                    tag = etree.QName(nfe_tree).localname
-
-                    dados = {}
-                    if tag == "resNFe":
-                        dados = {"key": nfe_tree.get("chNFe"), "nome": nfe_tree.get("xNome"), "cnpj": nfe_tree.get("CNPJ") or nfe_tree.get("CPF"), "valor": nfe_tree.get("vNF"), "data": nfe_tree.get("dhEmi")}
-                    elif tag == "nfeProc":
-                        dados = {
-                            "key": nfe_tree.xpath("//ns:infNFe/@Id", namespaces=ns)[0].replace("NFe", ""),
-                            "nome": nfe_tree.xpath("//ns:emit/ns:xNome/text()", namespaces=ns)[0],
-                            "cnpj": nfe_tree.xpath("//ns:emit/ns:CNPJ/text()", namespaces=ns)[0],
-                            "valor": nfe_tree.xpath("//ns:vNF/text()", namespaces=ns)[0],
-                            "data": nfe_tree.xpath("//ns:dhEmi/text()", namespaces=ns)[0],
-                        }
+                    dados = parse_sefaz_distribution_doc_metadata(content) or {}
 
                     if dados.get("key"):
-                        SefazZipCache.objects.update_or_create(key=dados["key"], workshop=self.workshop, defaults={"issuer_name": dados["nome"], "issuer_cnpj": dados["cnpj"], "total_value": dados["valor"], "issue_date": dados["data"]})
+                        SefazZipCache.objects.update_or_create(
+                            key=dados["key"],
+                            workshop=self.workshop,
+                            defaults={
+                                "nf_number": dados.get("nf_number"),
+                                "issuer_name": dados.get("nome"),
+                                "issuer_cnpj": dados.get("cnpj"),
+                                "total_value": dados.get("valor"),
+                                "issue_date": dados.get("data"),
+                            },
+                        )
                         cached_count += 1
 
             self.workshop.last_sefaz_search_date = timezone.now()
@@ -832,19 +845,27 @@ class ImportSefazListForm(forms.ModelForm):
 
         if key:
             try:
-                comunicacao = ComunicacaoSefaz(self.workshop.uf, self.workshop.pfx_certificate.path, self.workshop.certificate_password)
-                xml_completo = comunicacao.consulta_distribuicao(cnpj=re.sub(r"\D", "", self.workshop.cnpj), chave=key)
+                with workshop_certificate_temp_path(self.workshop) as certificate_path:
+                    comunicacao = ComunicacaoSefaz(self.workshop.uf, certificate_path, self.workshop.certificate_password)
+                    xml_completo = comunicacao.consulta_distribuicao(cnpj=re.sub(r"\D", "", self.workshop.cnpj), chave=key)
 
                 nf_data = NFParser.parse_nfe_xml_to_dict(self.workshop, xml_completo.content)
 
                 if nf_data:
-                    instance.nf_number = nf_data["nf_number"]
+                    resolved_nf_number = nf_data.get("nf_number") or extract_nf_number_from_access_key(nf_data.get("nf_key"))
+                    instance.nf_number = resolved_nf_number
                     instance.nf_key = nf_data["nf_key"]
                     instance.supplier_cnpj = nf_data["supplier_cnpj"]
                     instance.supplier_name = nf_data["supplier_name"]
                     instance.items_data = nf_data["items"]
                     instance.payments_data = nf_data["payments"]
                     instance.method = "SEFAZ"
+
+                    SefazZipCache.objects.filter(workshop=self.workshop, key=instance.nf_key).update(
+                        nf_number=resolved_nf_number or None,
+                        issuer_name=instance.supplier_name,
+                        issuer_cnpj=instance.supplier_cnpj,
+                    )
             except Exception as e:
                 raise forms.ValidationError(f"Erro ao baixar nota completa: {e}")
 

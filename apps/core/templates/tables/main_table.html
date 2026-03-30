@@ -94,6 +94,10 @@
     @htmx:after-swap.window="syncMasterCheckbox()"
 >
     <div id="{{ table_id }}-content">
+        {% if summary_template %}
+            {% include summary_template %}
+        {% endif %}
+
         {% if show_controls|default:True %}
             {% include "tables/partials/_table_controls.html" %}
         {% endif %}
@@ -101,5 +105,9 @@
         {% include "tables/partials/_table_cards_mobile.html" %}
         {% include "tables/partials/_table_desktop.html" %}
         {% include "tables/partials/_pagination.html" %}
+
+        {% if footer_template %}
+            {% include footer_template %}
+        {% endif %}
     </div>
 </div>

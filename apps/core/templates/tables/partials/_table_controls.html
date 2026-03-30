@@ -1,4 +1,4 @@
-{% if show_search or sort_options|length > 1 or selectable or show_filter_controls %}
+{% if show_search or sort_options|length > 1 or selectable or show_filter_controls or controls_actions_template %}
     <div class="relative z-40 pb-4" style="overflow: visible;">
         <form
             id="{{ table_id }}-controls-form"
@@ -71,11 +71,21 @@
                 {% endif %}
             </div>
 
-            {% if selectable %}
-                <label class="md:hidden inline-flex items-center gap-2 self-start sm:self-center m-0">
-                    <input type="checkbox" class="checkbox" x-model="all" @change="toggleAll" aria-label="Selecionar todos" />
-                    <span class="text-sm text-base-content/70">Selecionar todos</span>
-                </label>
+            {% if selectable or controls_actions_template %}
+                <div class="flex w-full flex-col gap-3 sm:w-auto sm:items-end sm:self-start">
+                    {% if controls_actions_template %}
+                        <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:justify-end">
+                            {% include controls_actions_template %}
+                        </div>
+                    {% endif %}
+
+                    {% if selectable %}
+                        <label class="md:hidden inline-flex items-center gap-2 self-start sm:self-end m-0">
+                            <input type="checkbox" class="checkbox" x-model="all" @change="toggleAll" aria-label="Selecionar todos" />
+                            <span class="text-sm text-base-content/70">Selecionar todos</span>
+                        </label>
+                    {% endif %}
+                </div>
             {% endif %}
         </form>
 

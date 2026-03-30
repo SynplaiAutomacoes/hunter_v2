@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.accounts.models import Account, User
 from apps.collaborators.models import WorkshopMember
@@ -13,6 +14,7 @@ from apps.finance.models.finance import WebmaniaCompany
 from apps.finance.services.webmania_secrets import decrypt_secret
 from apps.iam.models import WorkshopRole
 from apps.iam.utils import get_or_create_director_role
+from apps.workshops.services.files import StoredWorkshopFile
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.workshops import is_workshop_director, is_workshop_manager
 
@@ -46,6 +48,33 @@ def create_director_user_with_workshop(*, suffix: int = 1) -> tuple[User, Worksh
     WorkshopMember.objects.create(user=user, workshop=workshop, role=director_role, is_active=True)
 
     return user, workshop
+
+
+class FakeWorkshopFileService:
+    def __init__(self) -> None:
+        self._counter = 0
+        self.files: dict[str, dict[str, StoredWorkshopFile]] = {
+            "certificate": {},
+            "logo": {},
+        }
+
+    def save_file(self, *, kind: str, content: bytes, filename: str, content_type: str, workshop_id: int) -> StoredWorkshopFile:
+        self._counter += 1
+        stored_file = StoredWorkshopFile(
+            file_id=f"{kind}-{self._counter}",
+            filename=filename,
+            content_type=content_type,
+            content=content,
+            uploaded_at=timezone.now(),
+        )
+        self.files[kind][stored_file.file_id] = stored_file
+        return stored_file
+
+    def read_file(self, *, kind: str, file_id: str) -> StoredWorkshopFile:
+        return self.files[kind][file_id]
+
+    def delete_file(self, *, kind: str, file_id: str) -> None:
+        self.files[kind].pop(file_id, None)
 
 
 class WorkshopWebmaniaIntegrationTests(TestCase):
@@ -171,8 +200,12 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
             certificate_bytes,
             content_type="application/x-pkcs12",
         )
+        file_service = FakeWorkshopFileService()
 
-        with patch("apps.workshops.views.workshops.update_webmania_company", return_value={"success": True}) as update_mock:
+        with (
+            patch("apps.workshops.services.files.get_workshop_file_service", return_value=file_service),
+            patch("apps.workshops.services.files.update_webmania_company", return_value={"success": True}) as update_mock,
+        ):
             response = self.client.post(
                 reverse("workshops:update", kwargs={"pk": self.workshop.pk}),
                 data={
@@ -195,6 +228,12 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
 
         self.workshop.refresh_from_db()
         self.assertEqual(self.workshop.certificate_password, "senha-certificado")
+        self.assertTrue(self.workshop.certificate_mongo_file_id)
+        self.assertEqual(self.workshop.certificate_file_name, "certificado.pfx")
+        self.assertFalse(bool(self.workshop.pfx_certificate))
+
+        stored_certificate = file_service.files["certificate"][self.workshop.certificate_mongo_file_id]
+        self.assertEqual(stored_certificate.content, certificate_bytes)
 
         page_response = self.client.get(f"{reverse('workshops:update', kwargs={'pk': self.workshop.pk})}?tab=certificado")
         self.assertEqual(page_response.status_code, 200)
@@ -202,6 +241,38 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
         self.assertContains(page_response, ".pfx")
         self.assertNotContains(page_response, "certificados/")
         self.assertNotContains(page_response, "Atualmente:")
+
+    def test_logo_autoupload_saves_logo_in_mongo_and_serves_preview(self) -> None:
+        logo_bytes = b"fake-logo-bytes"
+        logo_file = SimpleUploadedFile(
+            "logo.png",
+            logo_bytes,
+            content_type="image/png",
+        )
+        file_service = FakeWorkshopFileService()
+
+        with patch("apps.workshops.services.files.get_workshop_file_service", return_value=file_service):
+            response = self.client.post(
+                reverse("workshops:update", kwargs={"pk": self.workshop.pk}),
+                data={
+                    "tab": "logo_autoupload",
+                    "logo": logo_file,
+                },
+            )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertJSONEqual(response.content, {"ok": True, "message": "Logo da oficina atualizada."})
+
+            self.workshop.refresh_from_db()
+            self.assertTrue(self.workshop.logo_mongo_file_id)
+            self.assertEqual(self.workshop.logo_file_name, "logo.png")
+            self.assertFalse(bool(self.workshop.logo))
+
+            preview_response = self.client.get(reverse("workshops:logo", kwargs={"pk": self.workshop.pk}))
+
+        self.assertEqual(preview_response.status_code, 200)
+        self.assertEqual(preview_response["Content-Type"], "image/png")
+        self.assertEqual(preview_response.content, logo_bytes)
 
     def test_delete_workshop_removes_local_records_only(self) -> None:
         company = WebmaniaCompany.objects.create(workshop=self.workshop, webmania_company_id="DEL-01")

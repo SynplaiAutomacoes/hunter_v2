@@ -19,6 +19,9 @@ from apps.workshops.util.workshops import get_active_workshop_or_404
 
 logger = logging.getLogger(__name__)
 
+SIGNED_PDF_VARIANT = "signed"
+BASE_PDF_VARIANT = "base"
+
 
 @xframe_options_exempt
 def visualizar_pdf(request, pk):
@@ -172,13 +175,27 @@ def _build_budget_pdf_file_response(*, budget: Budget, download: bool, use_signe
     return build_pdf_http_response(document=document, download=download)
 
 
+def _get_requested_pdf_variant(request) -> str:
+    requested_variant = str(request.GET.get("variant") or "").strip().lower()
+    if requested_variant == BASE_PDF_VARIANT:
+        return BASE_PDF_VARIANT
+    if requested_variant == SIGNED_PDF_VARIANT:
+        return SIGNED_PDF_VARIANT
+    return SIGNED_PDF_VARIANT
+
+
+def _can_use_signed_budget_pdf(budget: Budget) -> bool:
+    return bool(budget.signature_document_id or budget.signature_external_id) and budget.signature_request_status in {SignatureStatus.SENT, SignatureStatus.APPROVED}
+
+
 @xframe_options_exempt
 def visualizar_pdf_assinatura(request, pk):
     workshop = get_active_workshop_or_404(request)
     budget = get_object_or_404(Budget.objects.select_related("workshop"), pk=pk, workshop=workshop)
     should_download = request.GET.get("download") == "1"
+    requested_variant = _get_requested_pdf_variant(request)
 
-    if (budget.signature_document_id or budget.signature_external_id) and budget.signature_request_status in {SignatureStatus.SENT, SignatureStatus.APPROVED}:
+    if requested_variant == SIGNED_PDF_VARIANT and _can_use_signed_budget_pdf(budget):
         try:
             signed_pdf = download_signed_document_content(
                 document_id=budget.signature_document_id,

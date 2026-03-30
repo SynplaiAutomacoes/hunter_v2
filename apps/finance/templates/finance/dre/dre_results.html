@@ -94,7 +94,6 @@
                 <div class="flex flex-col gap-2 border-b border-base-300 pb-4 md:flex-row md:items-end md:justify-between">
                     <div>
                         <h2 class="text-2xl font-bold text-base-content">Resumo DRE</h2>
-                        <p class="text-sm text-base-content/65">Estrutura alinhada com o modelo operacional validado pelo cliente.</p>
                     </div>
                 </div>
 
@@ -108,11 +107,11 @@
                         </thead>
                         <tbody>
                             {% for row in dre_rows %}
-                                <tr class="{% if row.tone == 'highlight' or row.tone == 'result' %}bg-base-200{% else %}bg-base-100{% endif %}">
-                                    <td
-                                        class="{% if row.is_expandable %}cursor-pointer transition hover:bg-base-200/70{% endif %}"
-                                        {% if row.is_expandable %}@click="openRow = openRow === '{{ row.component }}' ? null : '{{ row.component }}'"{% endif %}
-                                    >
+                                <tr
+                                    class="{% if row.is_expandable %}row-hover cursor-pointer {% endif %}{% if row.tone == 'highlight' or row.tone == 'result' %}bg-base-200{% else %}bg-base-100{% endif %}"
+                                    {% if row.is_expandable %}@click="openRow = openRow === '{{ row.component }}' ? null : '{{ row.component }}'"{% endif %}
+                                >
+                                    <td>
                                         <div class="flex items-start justify-between gap-3">
                                             <div class="space-y-1">
                                                 <div class="flex items-start gap-2">
@@ -127,10 +126,7 @@
                                             </div>
                                         </div>
                                     </td>
-                                    <td
-                                        class="text-right font-semibold {% if row.is_expandable %}cursor-pointer transition hover:bg-base-200/70{% endif %} {% if row.tone == 'negative' %}text-error{% elif row.tone == 'positive' %}text-success{% elif row.tone == 'result' %}text-warning-content{% else %}text-base-content{% endif %}"
-                                        {% if row.is_expandable %}@click="openRow = openRow === '{{ row.component }}' ? null : '{{ row.component }}'"{% endif %}
-                                    >{{ row.amount }}</td>
+                                    <td class="text-right font-semibold {% if row.tone == 'negative' %}text-error{% elif row.tone == 'positive' %}text-success{% elif row.tone == 'result' %}text-warning-content{% else %}text-base-content{% endif %}">{{ row.amount }}</td>
                                 </tr>
                                 {% if row.is_expandable %}
                                     <tr class="bg-base-200/40" x-cloak x-show="openRow === '{{ row.component }}'">

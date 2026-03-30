@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 import re
 
 from django import template
@@ -50,3 +51,22 @@ def phone_br(value: object) -> str:
         return f"({digits[:2]}) {digits[2:6]}-{digits[6:10]}"
 
     return raw
+
+
+@register.filter
+def money_br(value: object) -> str:
+    if value in (None, ""):
+        return ""
+
+    raw_amount = getattr(value, "amount", value)
+    try:
+        amount = Decimal(str(raw_amount))
+    except (InvalidOperation, TypeError, ValueError):
+        return str(value)
+
+    amount = amount.quantize(Decimal("0.01"))
+    sign = "-" if amount < 0 else ""
+    absolute_amount = abs(amount)
+    integer_part, decimal_part = f"{absolute_amount:.2f}".split(".")
+    grouped_integer = f"{int(integer_part):,}".replace(",", ".")
+    return f"{sign}R$ {grouped_integer},{decimal_part}"

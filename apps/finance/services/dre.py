@@ -11,15 +11,12 @@ from djmoney.money import Money
 
 from apps.finance.models import FinancialGroup
 from apps.workorder.models import WorkOrder, WorkOrderStatus
-from apps.workshops.models.monthly_costs import MonthlyCost
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from apps.workshops.models.workshops import Workshop
-from apps.workshops.util.monthly_costs import MECHANIC_SALARY_MONTHLY_COST_NAME
 
 
 _ZERO_MONEY = Money("0.00", "BRL")
 _MONEY_QUANTIZER = Decimal("0.01")
-_FINANCIAL_EXPENSE_KEYWORDS = ("banc", "emprest", "juros", "financeir")
 _MONTH_LABELS = {
     1: "Janeiro",
     2: "Fevereiro",
@@ -70,15 +67,12 @@ def build_dre_calculation(
         custos_mercadorias_vendidas += workorder.total_costs_products_value + workorder.total_costs_services_value
 
     receitas_financeiras = _ZERO_MONEY
+    financial_expense_details = _build_financial_expense_details(workshop_costs=workshop_costs)
     despesas_financeiras = _ZERO_MONEY
-    for workshop_cost in workshop_costs:
-        workshop_cost_items = getattr(workshop_cost, "items").all()
-        for item in workshop_cost_items:
-            monthly_cost_name = _normalize_label(item.monthly_cost.name)
-            if monthly_cost_name == _normalize_label(MECHANIC_SALARY_MONTHLY_COST_NAME):
-                continue
-            if _is_financial_expense(item.monthly_cost):
-                despesas_financeiras += item.amount
+    for detail in financial_expense_details:
+        amount = detail.get("amount")
+        if isinstance(amount, Money):
+            despesas_financeiras += amount
 
     all_amounts = {
         "receita_bruta_vendas_e_servicos": receita_bruta_vendas_e_servicos,
@@ -93,23 +87,24 @@ def build_dre_calculation(
     resultado_operacional = visible_amounts["receitas_financeiras"] - visible_amounts["despesas_financeiras"]
     row_details = _build_row_details(
         workorders=workorders,
-        workshop_costs=workshop_costs,
         visible_components=visible_components,
         all_amounts=visible_amounts,
         receita_bruta_de_vendas=receita_bruta_de_vendas,
         resultado_operacional=resultado_operacional,
+        financial_expense_details=financial_expense_details,
+    )
+    rows = _build_rows(
+        receita_bruta_vendas_e_servicos=visible_amounts["receita_bruta_vendas_e_servicos"],
+        custos_mercadorias_vendidas=visible_amounts["custos_mercadorias_vendidas"],
+        receita_bruta_de_vendas=receita_bruta_de_vendas,
+        receitas_financeiras=visible_amounts["receitas_financeiras"],
+        despesas_financeiras=visible_amounts["despesas_financeiras"],
+        resultado_operacional=resultado_operacional,
+        row_details=row_details,
     )
 
     return DreCalculationResult(
-        rows=_build_rows(
-            receita_bruta_vendas_e_servicos=visible_amounts["receita_bruta_vendas_e_servicos"],
-            custos_mercadorias_vendidas=visible_amounts["custos_mercadorias_vendidas"],
-            receita_bruta_de_vendas=receita_bruta_de_vendas,
-            receitas_financeiras=visible_amounts["receitas_financeiras"],
-            despesas_financeiras=visible_amounts["despesas_financeiras"],
-            resultado_operacional=resultado_operacional,
-            row_details=row_details,
-        ),
+        rows=rows,
         summary_cards=_build_summary_cards(
             receita_bruta_de_vendas=receita_bruta_de_vendas,
             resultado_operacional=resultado_operacional,
@@ -259,11 +254,6 @@ def _resolve_visible_components(*, selected_financial_groups: list[FinancialGrou
     return visible_components
 
 
-def _is_financial_expense(monthly_cost: MonthlyCost) -> bool:
-    normalized_name = _normalize_label(monthly_cost.name)
-    return any(keyword in normalized_name for keyword in _FINANCIAL_EXPENSE_KEYWORDS)
-
-
 def _normalize_label(value: str) -> str:
     normalized = unicodedata.normalize("NFKD", value or "")
     return "".join(character for character in normalized if not unicodedata.combining(character)).casefold().strip()
@@ -276,11 +266,11 @@ def _quantize_money(value: Decimal) -> Money:
 def _build_row_details(
     *,
     workorders: list[WorkOrder],
-    workshop_costs: list[WorkshopCost],
     visible_components: set[str],
     all_amounts: dict[str, Money],
     receita_bruta_de_vendas: Money,
     resultado_operacional: Money,
+    financial_expense_details: list[dict[str, object]],
 ) -> dict[str, list[dict[str, object]]]:
     details: dict[str, list[dict[str, object]]] = {}
 
@@ -294,7 +284,6 @@ def _build_row_details(
         if cost_details:
             details[_ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS] = cost_details
 
-    financial_expense_details = _build_financial_expense_details(workshop_costs=workshop_costs)
     if _ROW_COMPONENT_DESPESAS_FINANCEIRAS in visible_components and financial_expense_details:
         details[_ROW_COMPONENT_DESPESAS_FINANCEIRAS] = financial_expense_details
 
@@ -317,10 +306,7 @@ def _build_financial_expense_details(*, workshop_costs: list[WorkshopCost]) -> l
     details: list[dict[str, object]] = []
     for workshop_cost in workshop_costs:
         for item in getattr(workshop_cost, "items").all():
-            monthly_cost_name = _normalize_label(item.monthly_cost.name)
-            if monthly_cost_name == _normalize_label(MECHANIC_SALARY_MONTHLY_COST_NAME):
-                continue
-            if not _is_financial_expense(item.monthly_cost):
+            if not _has_non_zero_amount(item.amount):
                 continue
             details.append(
                 {
@@ -330,6 +316,15 @@ def _build_financial_expense_details(*, workshop_costs: list[WorkshopCost]) -> l
                 }
             )
     return details
+
+
+def _has_non_zero_amount(value: object) -> bool:
+    amount = getattr(value, "amount", value)
+    if isinstance(amount, Decimal):
+        return amount != Decimal("0")
+    if isinstance(amount, (int, float)):
+        return amount != 0
+    return bool(amount)
 
 
 def _get_latest_payment_due_date(*, workorder: WorkOrder) -> date | None:

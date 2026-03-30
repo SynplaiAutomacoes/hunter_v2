@@ -29,7 +29,7 @@ class WorkshopCostListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplate
         context = super().get_context_data(**kwargs)
 
         context["fields"] = [
-            TableColumn(label="Mês/Ano", attr="__str__"),
+            TableColumn(label="Mês/Ano", attr="__str__", search_by=("month", "year")),
             TableColumn(label="Mecânicos", attr="mechanic_quantity"),
             TableColumn(label="Horas Úteis/Mês", attr="working_hours_per_month"),
             TableColumn(label="Total Geral", attr="total_monthly_costs"),
@@ -82,37 +82,37 @@ class WorkshopCostCopyView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
         original_instance = self.get_object()
 
         # Referência
-        initial['month'] = original_instance.month
-        initial['year'] = original_instance.year
+        initial["month"] = original_instance.month
+        initial["year"] = original_instance.year
 
         # Mecânicos
-        initial['mechanic_quantity'] = original_instance.mechanic_quantity
-        initial['work_hours_per_day'] = original_instance.work_hours_per_day
-        initial['working_hours_per_month'] = original_instance.working_hours_per_month
-        initial['productivity_average'] = original_instance.productivity_average
+        initial["mechanic_quantity"] = original_instance.mechanic_quantity
+        initial["work_hours_per_day"] = original_instance.work_hours_per_day
+        initial["working_hours_per_month"] = original_instance.working_hours_per_month
+        initial["productivity_average"] = original_instance.productivity_average
 
         # Taxas
-        initial['card_rate'] = original_instance.card_rate
-        initial['tax_rate'] = original_instance.tax_rate
-        initial['profit_margin'] = original_instance.profit_margin
-        initial['commission_rate'] = original_instance.commission_rate
-        initial['risk_coefficient'] = original_instance.risk_coefficient
+        initial["card_rate"] = original_instance.card_rate
+        initial["tax_rate"] = original_instance.tax_rate
+        initial["profit_margin"] = original_instance.profit_margin
+        initial["commission_rate"] = original_instance.commission_rate
+        initial["risk_coefficient"] = original_instance.risk_coefficient
 
         # Metas Inputs
-        initial['parts_purchase_cap'] = original_instance.parts_purchase_cap
-        initial['freight_cost'] = original_instance.freight_cost
-        initial['third_party_service_cap'] = original_instance.third_party_service_cap
+        initial["parts_purchase_cap"] = original_instance.parts_purchase_cap
+        initial["freight_cost"] = original_instance.freight_cost
+        initial["third_party_service_cap"] = original_instance.third_party_service_cap
 
         for item in original_instance.items.all():
             field_name = f"cost_item_{item.monthly_cost_id}"
             initial[field_name] = item.amount
 
         # Calculados (Readonly)
-        initial['total_value'] = original_instance.total_value
-        initial['total_monthly_costs'] = original_instance.total_monthly_costs
-        initial['profit_target'] = original_instance.profit_target
-        initial['gross_revenue_target'] = original_instance.gross_revenue_target
-        initial['profitability_multiplier'] = original_instance.profitability_multiplier
+        initial["total_value"] = original_instance.total_value
+        initial["total_monthly_costs"] = original_instance.total_monthly_costs
+        initial["profit_target"] = original_instance.profit_target
+        initial["gross_revenue_target"] = original_instance.gross_revenue_target
+        initial["profitability_multiplier"] = original_instance.profitability_multiplier
 
         return initial
 
@@ -135,7 +135,7 @@ class WorkshopCostCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, *args, **kwargs):
         form = WorkshopCostForm(request.POST, workshop=self.workshop)
-        
+
         try:
             form.full_clean()
         except Exception:
@@ -148,17 +148,17 @@ class WorkshopCostCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         class MockItem:
             amount: Money
 
-        cleaned_data = getattr(form, 'cleaned_data', {})
+        cleaned_data = getattr(form, "cleaned_data", {})
 
         for cost in form.active_costs:
             field_name = f"cost_item_{cost.id}"
             amount = cleaned_data.get(field_name)
-            
+
             if amount is None:
-                amount = Money(0, 'BRL')
-            
+                amount = Money(0, "BRL")
+
             cost_items.append(MockItem(amount=amount))
-        
+
         total_value = instance.calculate_total_value()
         total_monthly_costs = instance.calculate_total_monthly_costs(items=cost_items)
         profit_target = instance.calculate_profit_target(total_monthly_costs)

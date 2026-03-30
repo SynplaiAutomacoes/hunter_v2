@@ -1,0 +1,19 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Mensagens WhatsApp{% endblock %}
+{% block crud_subtitle %}Crie mensagens personalizadas com variáveis de cliente, veículo, orçamento e O.S.{% endblock %}
+
+{% block crud_header_actions %}
+    <div class="flex flex-col gap-2 sm:flex-row">
+        <a href="{% url 'messaging:customer_message_group_list' %}" class="btn btn-outline">Ver Grupos</a>
+        <a href="{% url 'messaging:message_template_create' %}" class="btn btn-primary">Nova Mensagem</a>
+    </div>
+{% endblock %}
+
+{% block crud_table_wrapper_id %}message-templates-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'messaging:message_template_list' %}{% endblock %}
+{% block crud_table_hx_trigger %}message-templates-table-refresh from:body{% endblock %}
+
+{% block crud_table %}
+    {% include 'messaging/partials/message_template_table.html' %}
+{% endblock %}
