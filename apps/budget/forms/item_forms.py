@@ -210,6 +210,18 @@ class QuickServiceForm(forms.ModelForm):
     def __init__(self, *args, workshop=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.workshop = workshop
+        self.similar_name_target_id = "service-name-suggestions"
+
+        self.fields["name"].widget.attrs.update(
+            {
+                "autocomplete": "off",
+                "hx-get": reverse("catalog:services_search"),
+                "hx-trigger": "keyup changed delay:500ms",
+                "hx-target": f"#{self.similar_name_target_id}",
+                "hx-swap": "innerHTML",
+                "hx-vals": '{"target_id": "service-name-suggestions"}',
+            }
+        )
 
         # Labels
         self.fields["name"].label = "Nome do Serviço"

@@ -1293,6 +1293,52 @@ class BudgetQuickCreateProductValidationTests(TestCase):
         self.assertContains(response, "Produto 101")
 
 
+class ServiceNameSuggestionTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=12)
+        self.budget = create_budget(workshop=self.workshop)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_service_create_page_shows_similar_name_lookup(self) -> None:
+        response = self.client.get(reverse("catalog:services_create"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'hx-get="/catalog/services/search/"')
+        self.assertContains(response, 'id="name-suggestions"')
+
+    def test_quick_create_service_modal_shows_similar_name_lookup(self) -> None:
+        response = self.client.get(
+            reverse("budget:quick_create_item", args=[self.budget.pk, "service"]),
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'hx-get="/catalog/services/search/"')
+        self.assertContains(response, 'hx-vals="{&quot;target_id&quot;: &quot;service-name-suggestions&quot;}"')
+        self.assertContains(response, 'id="service-name-suggestions"')
+
+    def test_service_name_lookup_returns_similar_services(self) -> None:
+        create_service(workshop=self.workshop, suffix=12)
+
+        response = self.client.get(
+            reverse("catalog:services_search"),
+            {
+                "name": "Servico 12",
+                "target_id": "service-name-suggestions",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Encontramos serviços com nome parecido")
+        self.assertContains(response, "Servico 12")
+        self.assertContains(response, "service-name-suggestions")
+
+
 class BudgetDuplicateKitProductTests(TestCase):
     def test_step4_kit_price_includes_products_and_services(self) -> None:
         workshop = create_workshop(suffix=87)
