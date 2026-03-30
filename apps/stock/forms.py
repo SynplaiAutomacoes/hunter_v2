@@ -27,6 +27,7 @@ from pynfe.processamento import ComunicacaoSefaz
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.core.forms import address_layout, AddressFormMixin
+from apps.core.utils import alert_confirm_layout
 from apps.core.widgets import TextInput, SelectInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput, PhoneInput, EmailInput, TextareaInput
 from apps.finance.models.payment_method import PaymentMethod
 
@@ -543,6 +544,7 @@ class ImportStepPaymentForm(forms.ModelForm):
                 HTML('<div class="mt-6 overflow-x-auto">'),
                 HTML(self._generate_payments_table_html()),
                 HTML("</div>"),
+                alert_confirm_layout(title="Deseja remover este lançamento financeiro?"),
                 id="import-step-container",
                 css_class="card-body",
             ),
@@ -578,7 +580,7 @@ class ImportStepPaymentForm(forms.ModelForm):
                         <button type="button" 
                                 hx-post="{delete_url}" 
                                 hx-target="#import-step-container" 
-                                hx-confirm="Deseja remover este pagamento?"
+                                data-confirm="Deseja remover este lançamento financeiro?"
                                 class="btn btn-ghost btn-xs text-error">
                             <span class="material-icons text-sm">delete</span>
                         </button>

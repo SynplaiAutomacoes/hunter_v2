@@ -818,6 +818,8 @@ class StockImportPaymentFlowTests(TestCase):
         self.assertIn("30,00", html)
         self.assertIn("15,00", html)
         self.assertIn("Frete da transportadora", html)
+        self.assertIn("alert_confirm_modal", html)
+        self.assertIn('data-confirm="Deseja remover este lançamento financeiro?"', html)
 
     def test_summary_save_persists_total_without_splitting_installments(self) -> None:
         payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Cartao", installments_count=4)
