@@ -175,10 +175,21 @@ class QuickServiceForm(forms.ModelForm):
             "selling_price": MoneyInput(),
         }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, workshop=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.workshop = workshop
 
         # Labels
         self.fields["name"].label = "Nome do Serviço"
         self.fields["duration"].label = "Duração"
         self.fields["selling_price"].label = "Valor de Venda"
+
+    def clean_name(self):
+        name = self.cleaned_data.get("name")
+        if name and self.workshop:
+            qs = Service.objects.filter(workshop=self.workshop, name__iexact=name)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise forms.ValidationError("Já existe um serviço com este nome.")
+        return name
