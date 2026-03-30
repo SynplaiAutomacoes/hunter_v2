@@ -45,6 +45,17 @@ class IssuedDocumentsFilterMixin:
         },
     }
 
+    ARCHIVE_TYPE_LABELS: dict[str, str] = {
+        "all": "todas-as-notas",
+        "nfe": "notas-fiscais-produto",
+        "nfse": "notas-fiscais-servico",
+    }
+
+    DOCUMENT_GROUP_LABELS: dict[str, str] = {
+        "xml": "xmls",
+        "pdfs": "pdfs",
+    }
+
     DOCUMENT_SPECS_BY_TYPE: dict[str, dict[str, list[tuple[str, str, str]]]] = {
         "nfe": {
             "xml": [("xml", "xml_url", "xml")],
@@ -231,7 +242,8 @@ class IssuedDocumentsFilterMixin:
 
     def _build_archive_folder(self, *, note_type: str, request_pk: int, identifier: object) -> str:
         safe_identifier = self._sanitize_archive_fragment(identifier)
-        return f"{note_type}/{safe_identifier}-req-{request_pk}"
+        note_type_label = "NF-e" if note_type == "nfe" else "NFS-e"
+        return f"{note_type_label}/{safe_identifier}-solicitacao-{request_pk}"
 
     def _collect_document_entries(self, *, nfe_requests: list[NfeRequest], nfse_requests: list[NfseRequest], document_group: str) -> list[dict[str, str]]:
         entries: list[dict[str, str]] = []
@@ -250,7 +262,7 @@ class IssuedDocumentsFilterMixin:
                 document_url = str(getattr(latest_item, field_name, "") or "").strip()
                 if not document_url:
                     continue
-                entries.append({"archive_name": f"{folder}/{document_name}.{extension}", "url": document_url})
+                entries.append({"archive_name": f"{folder}/{self._build_document_filename(note_type='nfe', identifier=getattr(latest_item, 'number', '') or request_obj.number_display, document_name=document_name, extension=extension)}", "url": document_url})
 
         for request_obj in nfse_requests:
             latest_item = self._get_latest_prefetched_item(request_obj)
@@ -266,9 +278,29 @@ class IssuedDocumentsFilterMixin:
                 document_url = str(getattr(latest_item, field_name, "") or "").strip()
                 if not document_url:
                     continue
-                entries.append({"archive_name": f"{folder}/{document_name}.{extension}", "url": document_url})
+                identifier = getattr(latest_item, "number", "") or getattr(latest_item, "rps_number", "") or request_obj.rps_number_display
+                entries.append({"archive_name": f"{folder}/{self._build_document_filename(note_type='nfse', identifier=identifier, document_name=document_name, extension=extension)}", "url": document_url})
 
         return entries
+
+    def _build_document_filename(self, *, note_type: str, identifier: object, document_name: str, extension: str) -> str:
+        safe_identifier = self._sanitize_archive_fragment(identifier)
+        label_map = {
+            "nfe": {
+                "xml": "xml-da-nf-e",
+                "danfe": "danfe",
+                "danfe-simples": "danfe-simples",
+                "danfe-etiqueta": "danfe-etiqueta",
+            },
+            "nfse": {
+                "xml": "xml-da-nfs-e",
+                "pdf-nfse": "pdf-da-nfs-e",
+                "pdf-rps": "pdf-do-rps",
+            },
+        }
+        document_label = label_map[note_type].get(document_name, document_name)
+        prefix = "nf-e" if note_type == "nfe" else "nfs-e"
+        return f"{prefix}-{safe_identifier}-{document_label}.{extension}"
 
 
 class IssuedDocumentsListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, IssuedDocumentsFilterMixin, TemplateView):
@@ -338,7 +370,8 @@ class IssuedDocumentsArchiveDownloadView(LoginRequiredMixin, WorkshopScopedMixin
         return response
 
     def _build_archive_filename(self, *, state: dict[str, Any], document_group: str) -> str:
-        selected_note_type = self._sanitize_archive_fragment(state["selected_note_type"])
+        selected_note_type = self.ARCHIVE_TYPE_LABELS.get(str(state["selected_note_type"]), "todas-as-notas")
+        document_group_label = self.DOCUMENT_GROUP_LABELS.get(document_group, document_group)
         start_fragment = self._sanitize_archive_fragment(state["start_raw"])
         end_fragment = self._sanitize_archive_fragment(state["end_raw"])
-        return f"notas-{selected_note_type}-{document_group}-{start_fragment}-a-{end_fragment}.zip"
+        return f"{selected_note_type}-{document_group_label}-{start_fragment}-ate-{end_fragment}.zip"

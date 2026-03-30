@@ -3802,19 +3802,19 @@ class IssuedDocumentsViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "application/zip")
-        self.assertIn("notas-all-xml-2026-01-01-a-2026-01-31.zip", response["Content-Disposition"])
+        self.assertIn("todas-as-notas-xmls-2026-01-01-ate-2026-01-31.zip", response["Content-Disposition"])
         self.assertEqual(download_mock.call_count, 2)
 
         with zipfile.ZipFile(BytesIO(response.content)) as archive_file:
             self.assertEqual(
                 sorted(archive_file.namelist()),
                 [
-                    f"nfe/1100-req-{nfe_request.pk}/xml.xml",
-                    f"nfse/2100-req-{nfse_request.pk}/xml.xml",
+                    f"NF-e/1100-solicitacao-{nfe_request.pk}/nf-e-1100-xml-da-nf-e.xml",
+                    f"NFS-e/2100-solicitacao-{nfse_request.pk}/nfs-e-2100-xml-da-nfs-e.xml",
                 ],
             )
-            self.assertEqual(archive_file.read(f"nfe/1100-req-{nfe_request.pk}/xml.xml"), b"<nfe />")
-            self.assertEqual(archive_file.read(f"nfse/2100-req-{nfse_request.pk}/xml.xml"), b"<nfse />")
+            self.assertEqual(archive_file.read(f"NF-e/1100-solicitacao-{nfe_request.pk}/nf-e-1100-xml-da-nf-e.xml"), b"<nfe />")
+            self.assertEqual(archive_file.read(f"NFS-e/2100-solicitacao-{nfse_request.pk}/nfs-e-2100-xml-da-nfs-e.xml"), b"<nfse />")
 
     def test_issued_documents_download_pdfs_returns_only_nfe_documents_for_nfe_filter(self) -> None:
         january_10 = timezone.make_aware(datetime(2026, 1, 10, 10, 0, 0))
@@ -3856,9 +3856,9 @@ class IssuedDocumentsViewTests(TestCase):
             self.assertEqual(
                 sorted(archive_file.namelist()),
                 [
-                    f"nfe/1200-req-{nfe_request.pk}/danfe-etiqueta.pdf",
-                    f"nfe/1200-req-{nfe_request.pk}/danfe-simples.pdf",
-                    f"nfe/1200-req-{nfe_request.pk}/danfe.pdf",
+                    f"NF-e/1200-solicitacao-{nfe_request.pk}/nf-e-1200-danfe-etiqueta.pdf",
+                    f"NF-e/1200-solicitacao-{nfe_request.pk}/nf-e-1200-danfe-simples.pdf",
+                    f"NF-e/1200-solicitacao-{nfe_request.pk}/nf-e-1200-danfe.pdf",
                 ],
             )
 
@@ -3892,8 +3892,8 @@ class IssuedDocumentsViewTests(TestCase):
             self.assertEqual(
                 sorted(archive_file.namelist()),
                 [
-                    f"nfse/2300-req-{nfse_request.pk}/pdf-nfse.pdf",
-                    f"nfse/2300-req-{nfse_request.pk}/pdf-rps.pdf",
+                    f"NFS-e/2300-solicitacao-{nfse_request.pk}/nfs-e-2300-pdf-da-nfs-e.pdf",
+                    f"NFS-e/2300-solicitacao-{nfse_request.pk}/nfs-e-2300-pdf-do-rps.pdf",
                 ],
             )
 
