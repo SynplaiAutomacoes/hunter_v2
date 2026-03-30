@@ -394,10 +394,7 @@ class WorkOrderDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
         context = super().get_context_data(**kwargs)
         context["payment_form"] = WorkOrderPaymentForm(workorder=self.object)
         context.update(_build_customer_approvement_context(self.object))
-        items_context = _build_edit_items_context(self.object)
-        context["product_items"] = items_context["product_items"]
-        context["service_items"] = items_context["service_items"]
-        context["kit_items"] = items_context["kit_items"]
+        context.update(_build_edit_items_context(self.object))
         return context
 
 
