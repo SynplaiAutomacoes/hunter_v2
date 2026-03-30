@@ -31,8 +31,8 @@ class FinancialMovementListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTem
         context = super().get_context_data(**kw)
         context["fields"] = [
             TableColumn("ID", attr="id"),
-            TableColumn(FinancialMovement.source.field.verbose_name, attr="source"),
-            TableColumn("Tipo", attr="get_direction_display"),
+            TableColumn(FinancialMovement.source.field.verbose_name, attr="source", search_by="source__name"),
+            TableColumn("Tipo", attr="get_direction_display", search_by="direction"),
             TableColumn(FinancialMovement.amount.field.verbose_name, attr=FinancialMovement.amount.field.name),
             TableColumn(FinancialMovement.due_date.field.verbose_name, attr=FinancialMovement.due_date.field.name),
         ]

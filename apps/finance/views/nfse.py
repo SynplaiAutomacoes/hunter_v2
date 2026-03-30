@@ -60,11 +60,11 @@ class NfseRequestListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
         )
         context["fields"] = [
             TableColumn("ID", attr="id"),
-            TableColumn("RPS", attr="rps_number_display"),
-            TableColumn("Ordem de Serviço", attr="workorder"),
-            TableColumn("Cliente", attr="customer_name"),
+            TableColumn("RPS", attr="rps_number_display", search_by="reserved_rps_number"),
+            TableColumn("Ordem de Serviço", attr="workorder", search_by="workorder__id"),
+            TableColumn("Cliente", attr="customer_name", search_by="workorder__budget__customer__name"),
             TableColumn("Criado em", attr=NfseRequest.criado_em.field.name),
-            TableColumn("Status", attr="nfse_request_status_badge", format="status_badge"),
+            TableColumn("Status", attr="nfse_request_status_badge", search_by="status", format="status_badge"),
         ]
         context["actions"] = [
             TableActionDefaults.view("finance:nfse_detail"),

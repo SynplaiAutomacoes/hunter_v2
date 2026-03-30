@@ -1,17 +1,19 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, date
-from typing import Any, Callable, Sequence
+from typing import Any
 
-from django.core.exceptions import FieldError
+from django.core.exceptions import FieldDoesNotExist, FieldError
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
-from django.db.models import Q, QuerySet
+from django.db.models import Field, Q, QuerySet
 from django.db.models.expressions import BaseExpression
 from django.http import HttpRequest
 from django.template import Library
 from django.urls import NoReverseMatch, reverse
 from django.utils.http import urlencode
+from django.utils.text import slugify
 
 register = Library()
 
@@ -23,12 +25,14 @@ class TableColumn:
 
     Attributes:
         label: O texto exibido no cabeçalho da coluna.
-        attr: O atributo do objeto (ex: 'nome', 'usuario.email') a ser exibido.
+        attr: O atributo do objeto (ex: 'nome', 'usuario.email') ou callable
+              usado para obter o valor exibido.
         th_class: Classes CSS adicionais para o elemento <th>.
         td_class: Classes CSS adicionais para o elemento <td>.
         sortable: Se True, permite ordenar a tabela por esta coluna.
         searchable: Se True, o valor desta coluna será considerado na busca global.
-        search_by: Caminho de lookup personalizado para a busca (ex: 'cliente__nome').
+        search_by: Caminho ou caminhos de lookup personalizados para a busca
+                   (ex: 'cliente__nome' ou ('veiculo__placa', 'veiculo__modelo')).
                    Se None, usa o valor de `attr`.
         sort_by: Expressão ou campo personalizado para ordenação no ORM.
                  Pode ser uma string, Expression, ou lista deles.
@@ -36,12 +40,12 @@ class TableColumn:
     """
 
     label: str
-    attr: str | None
+    attr: str | Callable[[Any], Any] | None
     th_class: str = ""
     td_class: str = ""
     sortable: bool = True
     searchable: bool = True
-    search_by: str | None = None
+    search_by: str | Sequence[str] | None = None
     sort_by: str | BaseExpression | Sequence[str | BaseExpression] | None = None
     format: str | None = None
 
@@ -155,6 +159,106 @@ def _build_url(request: HttpRequest, *, updates: dict[str, Any]) -> str:
     return f"{request.path}?{qs}" if qs else request.path
 
 
+@dataclass(frozen=True)
+class _TableSearchLookup:
+    lookup: str
+    field: Field | None = None
+
+
+def _iter_string_search_sources(source: str | Sequence[str] | None) -> list[str]:
+    if source is None:
+        return []
+    if isinstance(source, str):
+        return [source]
+    return [item for item in source if isinstance(item, str)]
+
+
+def _resolve_model_field(model: type[Any], lookup_part: str) -> tuple[Field | Any | None, bool]:
+    try:
+        return model._meta.get_field(lookup_part), False
+    except FieldDoesNotExist:
+        for field in model._meta.get_fields():
+            if getattr(field, "attname", None) == lookup_part:
+                return field, True
+    return None, False
+
+
+def _resolve_search_lookup(model: type[Any], lookup: str, *, annotations: set[str]) -> _TableSearchLookup | None:
+    if "__" not in lookup and lookup in annotations:
+        return _TableSearchLookup(lookup=lookup)
+
+    current_model = model
+    parts = lookup.split("__")
+    resolved_field: Field | None = None
+
+    for index, part in enumerate(parts):
+        field, matched_attname = _resolve_model_field(current_model, part)
+        if field is None:
+            return None
+
+        is_last = index == len(parts) - 1
+        if is_last:
+            if matched_attname:
+                resolved_field = field if isinstance(field, Field) else None
+                break
+
+            if getattr(field, "is_relation", False):
+                return None
+
+            resolved_field = field if isinstance(field, Field) else None
+            break
+
+        if matched_attname or not getattr(field, "is_relation", False) or getattr(field, "related_model", None) is None:
+            return None
+
+        current_model = field.related_model
+
+    return _TableSearchLookup(lookup=lookup, field=resolved_field)
+
+
+def _get_search_lookups(qs: QuerySet[Any], *, columns: Sequence[TableColumn]) -> list[_TableSearchLookup]:
+    annotations = set(getattr(qs.query, "annotations", {}).keys())
+    lookups: list[_TableSearchLookup] = []
+    seen: set[str] = set()
+
+    for col in columns:
+        if not col.searchable:
+            continue
+
+        lookup_source = col.search_by if col.search_by is not None else col.attr
+        for raw_lookup in _iter_string_search_sources(lookup_source):
+            lookup = raw_lookup.strip().replace(".", "__")
+            if not lookup or lookup in seen:
+                continue
+
+            resolved_lookup = _resolve_search_lookup(qs.model, lookup, annotations=annotations)
+            if resolved_lookup is None:
+                continue
+
+            seen.add(lookup)
+            lookups.append(resolved_lookup)
+
+    return lookups
+
+
+def _matching_choice_values(field: Field | None, *, search_query: str) -> list[Any]:
+    if field is None or not getattr(field, "flatchoices", None):
+        return []
+
+    normalized_query = slugify(search_query)
+    if not normalized_query:
+        return []
+
+    matched_values: list[Any] = []
+    for value, label in field.flatchoices:
+        if value in (None, ""):
+            continue
+        if normalized_query in slugify(str(label)):
+            matched_values.append(value)
+
+    return matched_values
+
+
 def _as_ordering_terms(col: TableColumn, *, desc: bool) -> list[str | BaseExpression]:
     """
     C onverte a configuração de ordenação de uma coluna em termos compatíveis
@@ -209,28 +313,47 @@ def _apply_search(
     elif normalized in falsy_terms:
         bool_term = False
 
-    lookups: list[str] = []
-    for col in columns:
-        if not col.searchable:
-            continue
-        lookup = (col.search_by or col.attr or "").strip()
-        if not lookup:
-            continue
-        lookups.append(lookup.replace(".", "__"))
+    lookups = _get_search_lookups(qs, columns=columns)
 
     if not lookups:
         return qs, search_query
 
-    q_obj = Q()
-    for lookup in lookups:
-        if bool_term is not None:
-            q_obj |= Q(**{f"{lookup}__exact": bool_term})
-        q_obj |= Q(**{f"{lookup}__icontains": search_query})
+    query_clauses: list[Q] = []
+    for lookup_spec in lookups:
+        lookup = lookup_spec.lookup
 
-    try:
-        return qs.filter(q_obj), search_query
-    except FieldError:
-        return qs, ""
+        if bool_term is not None:
+            exact_clause = Q(**{f"{lookup}__exact": bool_term})
+            try:
+                qs.filter(exact_clause)
+            except FieldError:
+                pass
+            else:
+                query_clauses.append(exact_clause)
+
+        for choice_value in _matching_choice_values(lookup_spec.field, search_query=search_query):
+            choice_clause = Q(**{f"{lookup}__exact": choice_value})
+            try:
+                qs.filter(choice_clause)
+            except FieldError:
+                continue
+            query_clauses.append(choice_clause)
+
+        contains_clause = Q(**{f"{lookup}__icontains": search_query})
+        try:
+            qs.filter(contains_clause)
+        except FieldError:
+            continue
+        query_clauses.append(contains_clause)
+
+    if not query_clauses:
+        return qs, search_query
+
+    combined_query = query_clauses[0]
+    for clause in query_clauses[1:]:
+        combined_query |= clause
+
+    return qs.filter(combined_query), search_query
 
 
 def _parse_sort(request: HttpRequest, *, sortable_attrs: set[str]) -> tuple[str, str, bool, bool]:
@@ -313,21 +436,47 @@ def _apply_search_to_sequence(items: Sequence[Any], *, columns: Sequence[TableCo
     elif normalized in falsy_terms:
         bool_term = False
 
-    searchable_columns = [col for col in columns if col.searchable and (col.search_by or col.attr)]
-    if not searchable_columns:
+    searchable_sources: list[list[str | Callable[[Any], Any]]] = []
+    for col in columns:
+        if not col.searchable:
+            continue
+
+        if col.search_by is None:
+            if col.attr in (None, ""):
+                continue
+            sources: list[str | Callable[[Any], Any]] = [col.attr]
+        else:
+            sources = []
+            for raw_lookup in _iter_string_search_sources(col.search_by):
+                lookup = raw_lookup.strip()
+                if not lookup:
+                    continue
+                sources.append(lookup.replace("__", "."))
+            if not sources:
+                continue
+
+        searchable_sources.append(sources)
+
+    if not searchable_sources:
         return list(items), search_query
 
     filtered_items: list[Any] = []
     for item in items:
-        for col in searchable_columns:
-            value = _resolve_attr(item, col.attr)
-            if bool_term is not None and type(value) is bool and value is bool_term:
-                filtered_items.append(item)
-                break
-            if value is None:
-                continue
-            if normalized in str(value).lower():
-                filtered_items.append(item)
+        matched = False
+        for sources in searchable_sources:
+            for source in sources:
+                value = _resolve_attr(item, source)
+                if bool_term is not None and type(value) is bool and value is bool_term:
+                    filtered_items.append(item)
+                    matched = True
+                    break
+                if value is None:
+                    continue
+                if normalized in slugify(str(value)):
+                    filtered_items.append(item)
+                    matched = True
+                    break
+            if matched:
                 break
 
     return filtered_items, search_query
@@ -602,9 +751,13 @@ def render_table(
     filter_button_label: str = "Filtro",
     filter_panel_title: str = "Filtrar resultados",
     filter_param_names: str | Sequence[str] = (),
+    summary_template: str = "",
+    controls_actions_template: str = "",
+    footer_template: str = "",
     show_controls: bool = True,
     preserve_selection: bool = False,
     hierarchical_selection: bool = False,
+    htmx_push_url: bool = True,
 ) -> dict[str, Any]:
     """
     Inclusion tag principal para renderizar uma tabela de dados completa.
@@ -631,9 +784,16 @@ def render_table(
         filter_panel_title: Título exibido no painel de filtros.
         filter_param_names: Nomes dos parâmetros GET usados pelos filtros extras.
             Pode ser string separada por vírgula (ex.: "city,state") ou sequência.
+        summary_template: Caminho opcional de template para renderizar um resumo
+            acima dos controles e da tabela.
+        controls_actions_template: Caminho opcional de template para renderizar
+            ações extras à direita da linha de controles.
+        footer_template: Caminho opcional de template para renderizar conteúdo
+            abaixo da tabela e da paginação.
         show_controls: Se False, oculta os controles superiores (busca/ordenação/filtros).
         preserve_selection: Se True, mantém checkboxes de linha marcados com base na query string atual.
         hierarchical_selection: Se True, sincroniza seleção pai/filhos via metadados de hierarquia.
+        htmx_push_url: Se True, atualiza a URL do navegador durante interações HTMX da tabela.
     """
     parent_context = _copy_parent_context(context)
     request: HttpRequest = parent_context["request"]
@@ -728,10 +888,13 @@ def render_table(
         "filter_fields_template": filter_fields_template,
         "filter_button_label": filter_button_label,
         "filter_panel_title": filter_panel_title,
+        "summary_template": (summary_template or "").strip(),
+        "controls_actions_template": (controls_actions_template or "").strip(),
+        "footer_template": (footer_template or "").strip(),
         "has_active_filters": has_active_filters,
         "clear_filter_url": clear_filter_url,
         "htmx_target": f"#{table_id}-content",
         "htmx_select": f"#{table_id}-content",
         "htmx_swap": "outerHTML",
-        "htmx_push_url": "true",
+        "htmx_push_url": "true" if htmx_push_url else "false",
     }

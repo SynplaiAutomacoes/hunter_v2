@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from django.core.exceptions import ValidationError
 from django.db import models
+from phonenumber_field.modelfields import PhoneNumberField
 
 from apps.core.models import TimeStampedModel
 
@@ -14,8 +15,10 @@ class AppointmentStatus(models.TextChoices):
 
 class Appointment(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="appointments")
-    customer = models.ForeignKey("customer.Customer", verbose_name="Cliente", on_delete=models.PROTECT, related_name="appointments")
-    vehicle = models.ForeignKey("customer.Vehicle", verbose_name="Veiculo", on_delete=models.PROTECT, related_name="appointments")
+    customer = models.ForeignKey("customer.Customer", verbose_name="Cliente", on_delete=models.PROTECT, related_name="appointments", null=True, blank=True)
+    vehicle = models.ForeignKey("customer.Vehicle", verbose_name="Veiculo", on_delete=models.PROTECT, related_name="appointments", null=True, blank=True)
+    guest_customer_name = models.CharField(verbose_name="Nome do cliente", max_length=255, blank=True, default="")
+    guest_customer_phone = PhoneNumberField(verbose_name="Telefone do cliente", blank=True, default="")
     title = models.CharField(verbose_name="Titulo", max_length=120)
     starts_at = models.DateTimeField(verbose_name="Data e hora de entrada")
     ends_at = models.DateTimeField(verbose_name="Data e hora de saida")
@@ -36,7 +39,23 @@ class Appointment(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        return f"{self.title} - {self.vehicle}"
+        return f"{self.title} - {self.display_customer_name}"
+
+    @property
+    def display_customer_name(self) -> str:
+        if self.customer_id and self.customer:
+            return self.customer.name
+        return self.guest_customer_name or "Cliente nao cadastrado"
+
+    @property
+    def display_customer_phone(self) -> str:
+        if self.customer_id and self.customer:
+            return str(self.customer.phone or "")
+        return str(self.guest_customer_phone or "")
+
+    @property
+    def display_vehicle_label(self) -> str:
+        return str(self.vehicle) if self.vehicle_id and self.vehicle else "Sem veiculo vinculado"
 
     def clean(self) -> None:
         errors: dict[str, list[str]] = {}
@@ -49,6 +68,15 @@ class Appointment(TimeStampedModel):
 
         if self.ends_at and self.starts_at and self.ends_at <= self.starts_at:
             errors.setdefault("ends_at", []).append("A data de saida deve ser maior que a data de entrada.")
+
+        if not customer_id:
+            if not self.guest_customer_name.strip():
+                errors.setdefault("guest_customer_name", []).append("Informe o nome do cliente quando ele nao estiver cadastrado.")
+            if not str(self.guest_customer_phone or "").strip():
+                errors.setdefault("guest_customer_phone", []).append("Informe o telefone do cliente quando ele nao estiver cadastrado.")
+
+        if vehicle_id and not customer_id:
+            errors.setdefault("vehicle", []).append("Selecione um cliente cadastrado para vincular um veiculo.")
 
         if customer_id and vehicle_id and self.vehicle.customer_id != customer_id:
             errors.setdefault("vehicle", []).append("O veiculo deve pertencer ao cliente selecionado.")

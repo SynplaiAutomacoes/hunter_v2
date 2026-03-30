@@ -1,0 +1,55 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Relatorio de Estoque{% endblock %}
+{% block crud_subtitle %}Filtre a posicao atual do estoque, escolha os campos do relatorio e exporte em Excel ou PDF.{% endblock %}
+
+{% block crud_header_actions %}
+    <dialog id="stockReportPdfModal"
+            class="modal"
+            x-data="{ url: '', downloadUrl: '', title: 'Relatorio de Estoque' }"
+            @open-pdf-modal.window="url = $event.detail.url; downloadUrl = $event.detail.downloadUrl || ''; title = $event.detail.title || 'Relatorio de Estoque'; $el.showModal()">
+        <div class="modal-box flex h-[90vh] w-full max-w-5xl flex-col p-0">
+            <div class="flex items-center justify-between border-b bg-base-200 px-6 py-4">
+                <h3 class="flex items-center gap-2 text-xl font-bold">
+                    <span class="material-icons">description</span>
+                    <span x-text="title"></span>
+                </h3>
+
+                <div class="flex gap-2">
+                    <button type="button"
+                            class="btn btn-sm btn-primary"
+                            onclick="const frame = document.querySelector('#stockReportPdfModal iframe'); if (frame && frame.contentWindow) { frame.contentWindow.focus(); frame.contentWindow.print(); }">
+                        Imprimir
+                    </button>
+                    <button type="button"
+                            class="btn btn-sm btn-success"
+                            x-show="downloadUrl"
+                            @click="window.open(downloadUrl, '_blank')">
+                        Baixar PDF
+                    </button>
+                    <button type="button" class="btn btn-sm" onclick="document.getElementById('stockReportPdfModal').close()">
+                        Fechar
+                    </button>
+                </div>
+            </div>
+
+            <div class="flex-1 bg-gray-100">
+                <template x-if="url">
+                    <iframe :src="url" class="h-full w-full" frameborder="0"></iframe>
+                </template>
+            </div>
+        </div>
+
+        <form method="dialog" class="modal-backdrop">
+            <button>close</button>
+        </form>
+    </dialog>
+{% endblock %}
+
+{% block crud_table_wrapper_id %}stock-report-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'stock:report' %}{% endblock %}
+{% block crud_table_hx_trigger %}stock-report-table-refresh from:body{% endblock %}
+
+{% block crud_table %}
+    {% include 'stock/partials/report_table.html' %}
+{% endblock %}

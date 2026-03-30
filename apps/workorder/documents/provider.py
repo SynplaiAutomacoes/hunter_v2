@@ -22,3 +22,29 @@ def render_workorder_pdf_document(*, workorder: WorkOrder, request=None, filenam
         filename=filename,
     )
     return render_template_request_to_pdf(render_request)
+
+
+def build_workorder_status_report_pdf_render_request(*, context: dict[str, object], request=None, filename: str | None = None) -> DocumentRenderRequest:
+    selected_status_report = context.get("selected_status_report")
+    status_value = "status"
+    if isinstance(selected_status_report, dict):
+        status_value = str(selected_status_report.get("value") or status_value)
+
+    resolved_filename = filename or f"relatorio_ordens_servico_por_status_{status_value}.pdf"
+    render_context = dict(context)
+    render_context["request"] = request
+
+    return DocumentRenderRequest(
+        template_name="workorder/pdf/visualizar_status_report_pdf.html",
+        context=render_context,
+        filename=resolved_filename,
+    )
+
+
+def render_workorder_status_report_pdf_document(*, context: dict[str, object], request=None, filename: str | None = None) -> DocumentPayload:
+    render_request = build_workorder_status_report_pdf_render_request(
+        context=context,
+        request=request,
+        filename=filename,
+    )
+    return render_template_request_to_pdf(render_request)

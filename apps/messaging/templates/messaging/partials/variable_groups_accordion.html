@@ -1,0 +1,48 @@
+<aside class="w-full self-start xl:sticky xl:top-24">
+    <div class="card border border-base-300 bg-base-100 shadow-sm">
+        <div class="card-body gap-4 p-5">
+            <div>
+                <h2 class="text-lg font-bold text-base-content">Variáveis disponíveis</h2>
+                <p class="mt-1 text-sm text-base-content/70">Use os tokens abaixo dentro da mensagem, como <span class="font-mono font-medium">%%nome%%</span> e <span class="font-mono font-medium">%%placa%%</span>.</p>
+            </div>
+
+            <div class="max-h-[70vh] space-y-3 overflow-y-auto pr-1 xl:max-h-[calc(100vh-11rem)]">
+                {% for group in variable_groups %}
+                    <div class="collapse collapse-arrow bg-base-100 border border-base-300">
+                        <input type="checkbox" {% if forloop.first %}checked="checked"{% endif %} />
+                        <div class="collapse-title pr-12 font-semibold">{{ group.title }}</div>
+                        <div class="collapse-content text-sm">
+                            <div class="mb-3 flex items-center justify-between text-xs font-medium uppercase tracking-wide text-base-content/60">
+                                <span>{{ group.variables|length }} variáveis</span>
+                            </div>
+                            <div class="space-y-3">
+                                {% for variable in group.variables %}
+                                    <div class="rounded-box border border-base-300 bg-base-100 p-3 shadow-sm">
+                                        <div class="flex items-start justify-between gap-3">
+                                            <div class="min-w-0">
+                                                <div class="flex flex-wrap items-center gap-2">
+                                                    <code class="rounded bg-base-200 px-2 py-1 text-xs font-semibold text-primary">{{ variable.token }}</code>
+                                                    <span class="text-sm font-medium text-base-content">{{ variable.label }}</span>
+                                                </div>
+                                                <p class="mt-2 text-xs leading-relaxed text-base-content/70">{{ variable.description }}</p>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                class="btn btn-ghost btn-xs btn-square shrink-0"
+                                                title="Copiar token"
+                                                aria-label="Copiar {{ variable.token }}"
+                                                onclick="navigator.clipboard.writeText('{{ variable.token|escapejs }}'); this.classList.add('text-success'); setTimeout(() => { this.classList.remove('text-success'); }, 1200);"
+                                            >
+                                                <span class="material-icons text-sm">content_copy</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</aside>

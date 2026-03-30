@@ -10,7 +10,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.budget.models import Budget
-from apps.core.widgets import CheckboxInput, SearchableSelectInput, SelectInput, TextInput, TextareaInput
+from apps.core.widgets import CheckboxInput, PhoneInput, SearchableSelectInput, SelectInput, TextInput, TextareaInput
 from apps.customer.models import Customer, Vehicle
 from apps.scheduling.models import Appointment, AppointmentStatus
 from apps.workorder.models import WorkOrder
@@ -18,16 +18,21 @@ from apps.workshops.models.workshops import Workshop
 
 
 class AppointmentForm(forms.ModelForm):
-    customer = forms.ModelChoiceField(label="Cliente", queryset=Customer.objects.none(), widget=SearchableSelectInput())
+    is_customer_registered = forms.BooleanField(label="Cliente cadastrado", required=False, initial=True, widget=CheckboxInput())
+    customer = forms.ModelChoiceField(label="Cliente", queryset=Customer.objects.none(), widget=SearchableSelectInput(), required=False)
     vehicle = forms.ModelChoiceField(label="Veiculo", queryset=Vehicle.objects.none(), widget=SearchableSelectInput(), required=False)
+    guest_customer_name = forms.CharField(label="Nome", required=False, widget=TextInput())
+    guest_customer_phone = forms.CharField(label="Telefone", required=False, widget=PhoneInput())
     budget = forms.ModelChoiceField(label="Orcamento vinculado", queryset=Budget.objects.none(), widget=SearchableSelectInput(), required=False)
     workorder = forms.ModelChoiceField(label="Ordem de servico vinculada", queryset=WorkOrder.objects.none(), widget=SearchableSelectInput(), required=False)
 
     class Meta:
         model = Appointment
-        fields = ["title", "customer", "vehicle", "starts_at", "ends_at", "block_color", "alert_customer", "status", "budget", "workorder", "notes"]
+        fields = ["title", "customer", "vehicle", "guest_customer_name", "guest_customer_phone", "starts_at", "ends_at", "block_color", "alert_customer", "status", "budget", "workorder", "notes"]
         widgets = {
             "title": TextInput(),
+            "guest_customer_name": TextInput(),
+            "guest_customer_phone": PhoneInput(),
             "starts_at": forms.DateTimeInput(format="%Y-%m-%dT%H:%M", attrs={"type": "datetime-local", "class": "input-theme h-12"}),
             "ends_at": forms.DateTimeInput(format="%Y-%m-%dT%H:%M", attrs={"type": "datetime-local", "class": "input-theme h-12"}),
             "block_color": forms.HiddenInput(),
@@ -45,6 +50,7 @@ class AppointmentForm(forms.ModelForm):
             self.instance.workshop = self.workshop
 
         customer_field = self.fields["customer"]
+        registered_field = self.fields["is_customer_registered"]
         vehicle_field = self.fields["vehicle"]
         budget_field = self.fields["budget"]
         workorder_field = self.fields["workorder"]
@@ -78,14 +84,30 @@ class AppointmentForm(forms.ModelForm):
             budget_field.queryset = Budget.objects.filter(workshop=self.workshop).select_related("customer", "vehicle").order_by("-criado_em")
             workorder_field.queryset = WorkOrder.objects.filter(workshop=self.workshop).select_related("budget", "budget__customer", "budget__vehicle").order_by("-criado_em")
 
+        customer_field.widget.attrs.update({":disabled": "!isCustomerRegistered"})
+        vehicle_field.widget.attrs.update({":disabled": "!isCustomerRegistered || !customerId"})
+        budget_field.widget.attrs.update({":disabled": "!isCustomerRegistered || !vehicleId"})
+        workorder_field.widget.attrs.update({":disabled": "!isCustomerRegistered || !vehicleId"})
+
+        is_customer_registered = True
+        if self.is_bound:
+            is_customer_registered = (self.data.get("is_customer_registered") or "") in {"on", "true", "1", "True"}
+        elif self.instance and self.instance.pk:
+            is_customer_registered = bool(self.instance.customer_id)
+        elif "is_customer_registered" in self.initial:
+            is_customer_registered = bool(self.initial.get("is_customer_registered"))
+
+        registered_field.initial = is_customer_registered
+        self.initial["is_customer_registered"] = is_customer_registered
+
         selected_customer_id = ""
         selected_vehicle_id = ""
         if self.is_bound:
             selected_customer_id = (self.data.get("customer") or "").strip()
             selected_vehicle_id = (self.data.get("vehicle") or "").strip()
-        elif self.instance and self.instance.pk:
+        elif self.instance and self.instance.pk and is_customer_registered:
             selected_customer_id = str(self.instance.customer_id)
-            selected_vehicle_id = str(self.instance.vehicle_id)
+            selected_vehicle_id = str(self.instance.vehicle_id or "")
 
         if not selected_customer_id and self.initial.get("customer"):
             selected_customer_id = str(self.initial.get("customer"))
@@ -93,7 +115,7 @@ class AppointmentForm(forms.ModelForm):
         if not selected_vehicle_id and self.initial.get("vehicle"):
             selected_vehicle_id = str(self.initial.get("vehicle"))
 
-        if selected_customer_id and self.workshop:
+        if is_customer_registered and selected_customer_id and self.workshop:
             vehicle_field.queryset = Vehicle.objects.filter(workshop=self.workshop, customer_id=selected_customer_id).order_by("plate")
         else:
             vehicle_field.queryset = Vehicle.objects.none()
@@ -107,17 +129,33 @@ class AppointmentForm(forms.ModelForm):
         self.helper = FormHelper()
         self.helper.form_tag = False
 
-        customer_vehicle_x_data = json.dumps({"customerId": selected_customer_id, "vehicleId": selected_vehicle_id})
+        customer_vehicle_x_data = json.dumps({"customerId": selected_customer_id, "vehicleId": selected_vehicle_id, "isCustomerRegistered": is_customer_registered})
 
         self.helper.layout = Layout(
             HTML(
                 r"""
                 <script>
+                    function getAlpineContext(element) {
+                        if (!element || !window.Alpine) return null;
+                        try {
+                            return Alpine.$data(element);
+                        } catch (error) {
+                            return null;
+                        }
+                    }
+
                     function syncAppointmentContextFromInput(name, value) {
                         const shell = document.querySelector('[data-appointment-form-shell]');
-                        if (!shell || !shell.__x) return;
-                        const data = Alpine.$data(shell);
+                        const data = getAlpineContext(shell);
                         if (!data) return;
+
+                        if (name === 'is_customer_registered') {
+                            data.isCustomerRegistered = value === true || value === 'true' || value === 'on' || value === '1';
+                            if (!data.isCustomerRegistered) {
+                                data.customerId = '';
+                                data.vehicleId = '';
+                            }
+                        }
 
                         if (name === 'customer') {
                             data.customerId = value || '';
@@ -129,6 +167,20 @@ class AppointmentForm(forms.ModelForm):
                         }
                     }
 
+                    function setRegisteredMode(isRegistered) {
+                        const shell = document.querySelector('[data-appointment-form-shell]');
+                        const shellData = getAlpineContext(shell);
+                        if (shellData) {
+                            shellData.isCustomerRegistered = !!isRegistered;
+                        }
+
+                        const toggle = document.getElementById('id_is_customer_registered');
+                        if (toggle) {
+                            toggle.checked = !!isRegistered;
+                            toggle.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
+                    }
+
                     async function updateVehicleList(customerId, selectedVehicleId = null) {
                         const vehicleInput = document.querySelector('#id_vehicle');
                         if (!vehicleInput) return;
@@ -136,7 +188,7 @@ class AppointmentForm(forms.ModelForm):
                         const vehicleContainer = vehicleInput.closest('[x-data]');
                         if (!vehicleContainer) return;
 
-                        const vehicleData = Alpine.$data(vehicleContainer);
+                        const vehicleData = getAlpineContext(vehicleContainer);
                         const optionsUl = vehicleContainer.querySelector('ul[role="listbox"]');
                         if (!vehicleData || !optionsUl) return;
 
@@ -159,7 +211,8 @@ class AppointmentForm(forms.ModelForm):
                                 li.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white transition-colors group';
                                 li.setAttribute('data-value', String(v.id));
                                 li.setAttribute('data-label', v.label);
-                                li.setAttribute('x-show', `!search || '${v.label.replace(/'/g, "\\'")}'.toLowerCase().includes(search.toLowerCase())`);
+                                li.setAttribute('data-search-text', String(v.label).toLowerCase());
+                                li.setAttribute('x-show', '!search || $el.dataset.searchText.includes(search.toLowerCase())');
                                 li.innerHTML = `<span class="block truncate">${v.label}</span>`;
                                 li.addEventListener('click', () => vehicleData.select(li));
                                 optionsUl.appendChild(li);
@@ -180,12 +233,17 @@ class AppointmentForm(forms.ModelForm):
 
                     function selectCustomerFromQuickForm(customer) {
                         if (!customer || !customer.id) return;
+                        setRegisteredMode(true);
+
                         const customerInput = document.querySelector('#id_customer');
                         if (!customerInput) return;
 
                         const customerEl = customerInput.closest('[x-data]');
-                        const customerData = Alpine.$data(customerEl);
+                        if (!customerEl) return;
+
+                        const customerData = getAlpineContext(customerEl);
                         const optionsUl = customerEl.querySelector('ul[role="listbox"]');
+                        if (!customerData || !optionsUl) return;
 
                         const customerId = String(customer.id);
                         const customerName = customer.name || 'Cliente';
@@ -196,10 +254,15 @@ class AppointmentForm(forms.ModelForm):
                             option.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white transition-colors group';
                             option.setAttribute('data-value', customerId);
                             option.setAttribute('data-label', customerName);
-                            option.setAttribute('x-show', `!search || '${customerName.replace(/'/g, "\\'")}'.toLowerCase().includes(search.toLowerCase())`);
+                            option.setAttribute('data-search-text', String(customerName).toLowerCase());
+                            option.setAttribute('x-show', '!search || $el.dataset.searchText.includes(search.toLowerCase())');
                             option.innerHTML = `<span class="block truncate">${customerName}</span>`;
                             option.addEventListener('click', () => customerData.select(option));
                             optionsUl.appendChild(option);
+
+                            if (window.Alpine && Alpine.initTree) {
+                                Alpine.initTree(optionsUl);
+                            }
                         }
 
                         customerData.select(option);
@@ -231,6 +294,8 @@ class AppointmentForm(forms.ModelForm):
                             const vehicle = evt && evt.detail ? evt.detail : null;
                             if (!vehicle || !vehicle.id) return;
 
+                            setRegisteredMode(true);
+
                             const customerInput = document.querySelector('#id_customer');
                             const customerId = customerInput && customerInput.value ? customerInput.value : (vehicle.customer_id || '');
                             if (!customerId) return;
@@ -246,6 +311,30 @@ class AppointmentForm(forms.ModelForm):
                 HTML('<div class="col-span-12 mb-1 mt-1 text-sm font-semibold uppercase tracking-wide text-base-content/70">Cliente e Veiculo</div>'),
                 Field("title", wrapper_class="col-span-12"),
                 Div(
+                    HTML('<label for="id_is_customer_registered" class="mb-0 text-sm font-semibold text-base-content">Cliente cadastrado</label>'),
+                    HTML(
+                        """
+                        <input
+                            type="checkbox"
+                            name="is_customer_registered"
+                            id="id_is_customer_registered"
+                            class="toggle toggle-primary"
+                            {% if form.is_customer_registered.value %}checked{% endif %}
+                        >
+                        {% if form.is_customer_registered.errors %}
+                            <span class="text-sm text-error">{{ form.is_customer_registered.errors|join:', ' }}</span>
+                        {% endif %}
+                        """
+                    ),
+                    css_class="col-span-12 flex items-center justify-between gap-3",
+                ),
+                Div(
+                    Field("guest_customer_name", wrapper_class="col-span-12 lg:col-span-6"),
+                    Field("guest_customer_phone", wrapper_class="col-span-12 lg:col-span-6"),
+                    x_show="!isCustomerRegistered",
+                    css_class="col-span-12 grid grid-cols-12 gap-4",
+                ),
+                Div(
                     Field("customer", wrapper_class="flex-1 mb-0"),
                     HTML(
                         """
@@ -259,6 +348,7 @@ class AppointmentForm(forms.ModelForm):
                         </button>
                         """
                     ),
+                    x_show="isCustomerRegistered",
                     css_class="col-span-12 flex items-end gap-2",
                 ),
                 Div(
@@ -276,6 +366,7 @@ class AppointmentForm(forms.ModelForm):
                         </button>
                         """
                     ),
+                    x_show="isCustomerRegistered",
                     css_class="col-span-12 flex items-end gap-2",
                 ),
                 HTML('<div class="col-span-12 mb-1 mt-2 text-sm font-semibold uppercase tracking-wide text-base-content/70">Horario e Status</div>'),
@@ -292,7 +383,14 @@ class AppointmentForm(forms.ModelForm):
                 data_appointment_form_shell="1",
                 **{
                     "@change": """
-                        if ($event.target && $event.target.name === 'customer') {
+                        if ($event.target && $event.target.name === 'is_customer_registered') {
+                            isCustomerRegistered = !!$event.target.checked;
+                            if (!isCustomerRegistered) {
+                                customerId = '';
+                                vehicleId = '';
+                                updateVehicleList('');
+                            }
+                        } else if ($event.target && $event.target.name === 'customer') {
                             customerId = $event.target.value || '';
                             vehicleId = '';
                             updateVehicleList(customerId);
@@ -312,13 +410,44 @@ class AppointmentForm(forms.ModelForm):
 
         customer = cleaned_data.get("customer")
         vehicle = cleaned_data.get("vehicle")
+        is_customer_registered = bool(cleaned_data.get("is_customer_registered"))
+        guest_customer_name = (cleaned_data.get("guest_customer_name") or "").strip()
+        guest_customer_phone = (cleaned_data.get("guest_customer_phone") or "").strip()
+
+        if is_customer_registered:
+            if customer is None:
+                self.add_error("customer", "Selecione um cliente cadastrado para continuar.")
+            cleaned_data["guest_customer_name"] = ""
+            cleaned_data["guest_customer_phone"] = ""
+        else:
+            if not guest_customer_name:
+                self.add_error("guest_customer_name", "Informe o nome do cliente.")
+            if not guest_customer_phone:
+                self.add_error("guest_customer_phone", "Informe o telefone do cliente.")
+
+            cleaned_data["customer"] = None
+            cleaned_data["vehicle"] = None
+            cleaned_data["budget"] = None
+            cleaned_data["workorder"] = None
+
         if customer and vehicle and vehicle.customer_id != customer.id:
             self.add_error("vehicle", "O veiculo deve pertencer ao cliente selecionado.")
+
+        if vehicle and customer is None:
+            self.add_error("vehicle", "Selecione um cliente cadastrado para vincular um veiculo.")
 
         return cleaned_data
 
     def save(self, commit: bool = True):
         self.instance.workshop = self.workshop
+        if self.cleaned_data.get("is_customer_registered"):
+            self.instance.guest_customer_name = ""
+            self.instance.guest_customer_phone = ""
+        else:
+            self.instance.customer = None
+            self.instance.vehicle = None
+            self.instance.budget = None
+            self.instance.workorder = None
         return super().save(commit=commit)
 
 
@@ -364,6 +493,8 @@ class AppointmentCalendarFilterForm(forms.Form):
 
         if self.workshop:
             customer_field.queryset = Customer.objects.filter(workshop=self.workshop, is_active=True).order_by("name")
+
+        vehicle_field.widget.attrs.update({":disabled": "!customerId"})
 
         selected_customer_id = ""
         if self.is_bound:
@@ -415,5 +546,16 @@ class AppointmentMoveForm(forms.Form):
         return cleaned_data
 
 
-def build_budget_create_url(*, customer_id: int, vehicle_id: int) -> str:
-    return f"{reverse('budget:budget_create')}?customer={customer_id}&vehicle={vehicle_id}"
+def build_budget_create_url(*, customer_id: int | None = None, vehicle_id: int | None = None, appointment_id: int | None = None) -> str:
+    params: list[str] = []
+    if customer_id:
+        params.append(f"customer={customer_id}")
+    if vehicle_id:
+        params.append(f"vehicle={vehicle_id}")
+    if appointment_id:
+        params.append(f"appointment_id={appointment_id}")
+
+    base_url = reverse("budget:budget_create")
+    if not params:
+        return base_url
+    return f"{base_url}?{'&'.join(params)}"

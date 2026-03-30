@@ -1,0 +1,3 @@
+{% load table_tags %}
+
+{% render_table customers fields table_id='customer-message-group-customer-picker-table' checkbox_name='customer_picker_selection' preserve_selection=True htmx_push_url=False filter_fields_template='messaging/partials/customer_message_group_customer_filters_fields.html' filter_button_label='Filtros' filter_panel_title='Filtrar clientes para o grupo' filter_param_names='is_active,birth_date_start,birth_date_end,latest_os_start,latest_os_end' controls_actions_template='messaging/partials/customer_message_group_customer_picker_controls.html' footer_template='messaging/partials/customer_message_group_customer_picker_footer.html' empty_text='Nenhum cliente encontrado com os filtros informados.' %}

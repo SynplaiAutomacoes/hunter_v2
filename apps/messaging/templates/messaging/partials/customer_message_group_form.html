@@ -1,0 +1,348 @@
+{% load static %}
+
+{{ selected_customers|json_script:'customer-message-group-selected-customers-data' }}
+{{ message_templates_payload|json_script:'customer-message-group-message-templates-data' }}
+
+<div
+    id="customer-message-group-root"
+    x-data="customerMessageGroupForm({
+        selectedCustomersElementId: 'customer-message-group-selected-customers-data',
+        messageTemplatesElementId: 'customer-message-group-message-templates-data',
+        pickerTableId: 'customer-message-group-customer-picker-table'
+    })"
+    x-init="init()"
+    @change="handlePickerTableChange($event)"
+    @message-template-added.window="handleTemplateAdded($event.detail)"
+    class="space-y-8"
+>
+    <form id="customer-message-group-form" method="post" action="{% if object and object.pk %}{% url 'messaging:customer_message_group_update' object.pk %}{% else %}{% url 'messaging:customer_message_group_create' %}{% endif %}" class="flex flex-col gap-6 xl:flex-row xl:items-start">
+        {% csrf_token %}
+
+        <div class="w-full xl:min-w-0 xl:flex-1">
+            {% if form.non_field_errors %}
+                <div class="mb-4 rounded-box border border-error/30 bg-error/10 p-4 text-sm text-error">
+                    {{ form.non_field_errors }}
+                </div>
+            {% endif %}
+
+            <div class="grid grid-cols-1 gap-5 lg:grid-cols-12">
+                <div class="lg:col-span-8">
+                    <label for="{{ form.name.id_for_label }}" class="mb-2 block text-sm font-semibold text-base-content">{{ form.name.label }}</label>
+                    {{ form.name }}
+                    {% if form.name.errors %}
+                        <div class="mt-2 text-sm text-error">{{ form.name.errors }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="lg:col-span-4 lg:self-end">
+                    <label class="mb-2 block text-sm font-semibold text-base-content lg:invisible">Status</label>
+                    <label for="{{ form.is_active.id_for_label }}" class="flex min-h-12 cursor-pointer items-center justify-between rounded-box border border-base-300 bg-base-100 px-4 py-3 transition hover:border-primary/40 hover:bg-base-200/40">
+                        <div>
+                            <span class="block text-sm font-semibold text-base-content">Ativo</span>
+                            <span class="block text-xs text-base-content/60">Disponivel para novos disparos</span>
+                        </div>
+                        <input
+                            type="checkbox"
+                            name="{{ form.is_active.html_name }}"
+                            id="{{ form.is_active.id_for_label }}"
+                            class="toggle toggle-primary"
+                            {% if form.is_active.value %}checked{% endif %}
+                        >
+                    </label>
+                    {% if form.is_active.errors %}
+                        <div class="mt-2 text-sm text-error">{{ form.is_active.errors }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="lg:col-span-12">
+                    <label for="{{ form.description.id_for_label }}" class="mb-2 block text-sm font-semibold text-base-content">{{ form.description.label }}</label>
+                    {{ form.description }}
+                    {% if form.description.errors %}
+                        <div class="mt-2 text-sm text-error">{{ form.description.errors }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="lg:col-span-12">
+                    <div class="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <label for="{{ form.message_template.id_for_label }}" class="block text-sm font-semibold text-base-content">{{ form.message_template.label }}</label>
+                        <div class="flex flex-col gap-2 sm:flex-row">
+                            <button
+                                type="button"
+                                class="btn btn-outline btn-sm"
+                                @click="applySelectedTemplate(true)"
+                            >
+                                Usar mensagem selecionada
+                            </button>
+                            <button
+                                type="button"
+                                class="btn btn-primary btn-sm"
+                                hx-get="{% url 'messaging:message_template_quick_create' %}"
+                                hx-target="#modal-container"
+                                hx-swap="innerHTML"
+                            >
+                                Criar nova mensagem
+                            </button>
+                        </div>
+                    </div>
+                    {{ form.message_template }}
+                    <p class="mt-2 text-xs text-base-content/60">Selecione uma mensagem ja cadastrada para preencher o campo abaixo ou crie uma nova sem sair desta tela.</p>
+                    {% if form.message_template.errors %}
+                        <div class="mt-2 text-sm text-error">{{ form.message_template.errors }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="lg:col-span-12">
+                    <label for="{{ form.message.id_for_label }}" class="mb-2 block text-sm font-semibold text-base-content">{{ form.message.label }}</label>
+                    {{ form.message }}
+                    <p class="mt-2 text-xs text-base-content/60">A mensagem salva no grupo e a versao final usada neste publico. Ela pode ser personalizada mesmo quando voce escolher uma mensagem cadastrada.</p>
+                    {% if form.message.errors %}
+                        <div class="mt-2 text-sm text-error">{{ form.message.errors }}</div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="hidden">
+                <template x-for="customer in selectedCustomers" :key="`selected-customer-input-${customer.id}`">
+                    <input type="hidden" name="selected_customers" :value="customer.id">
+                </template>
+            </div>
+        </div>
+
+        <div class="w-full xl:w-[24rem] xl:shrink-0">
+            {% include 'messaging/partials/variable_groups_accordion.html' %}
+        </div>
+    </form>
+
+    <section class="card border border-base-300 bg-base-100 shadow-sm">
+        <div class="card-body gap-4 p-5">
+            <div>
+                <h2 class="text-lg font-bold text-base-content">Selecionar clientes</h2>
+            </div>
+
+            <div
+                id="customer-message-group-customer-picker"
+                hx-get="{{ customer_picker_url }}"
+                hx-trigger="load"
+                hx-target="this"
+                hx-swap="innerHTML"
+                hx-include="#customer-message-group-root [name='selected_customers'], #customer-message-group-root [name='customer_picker_selection']"
+            >
+                <div class="flex min-h-60 items-center justify-center rounded-box border border-dashed border-base-300 bg-base-200/40 p-6 text-sm text-base-content/60">
+                    Carregando clientes disponiveis...
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="divider my-6"></div>
+
+    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+        <a href="{% url 'messaging:customer_message_group_list' %}" class="btn-form-cancel">Cancelar</a>
+        <button type="submit" form="customer-message-group-form" class="btn-form-save">Salvar</button>
+    </div>
+
+    <div id="modal-container"></div>
+</div>
+
+<script>
+    (function () {
+        if (window.customerMessageGroupForm) {
+            return;
+        }
+
+        window.customerMessageGroupForm = function customerMessageGroupForm(config) {
+            return {
+                selectedCustomers: [],
+                pickerSelectionIds: [],
+                messageTemplates: [],
+                pickerTableId: config.pickerTableId,
+                selectedCustomersElementId: config.selectedCustomersElementId,
+                messageTemplatesElementId: config.messageTemplatesElementId,
+                init() {
+                    this.selectedCustomers = this.parseJsonScript(this.selectedCustomersElementId);
+                    this.messageTemplates = this.parseJsonScript(this.messageTemplatesElementId);
+                },
+                parseJsonScript(elementId) {
+                    const element = document.getElementById(elementId);
+                    if (!element) {
+                        return [];
+                    }
+
+                    try {
+                        return JSON.parse(element.textContent || '[]');
+                    } catch (error) {
+                        return [];
+                    }
+                },
+                getTemplateById(templateId) {
+                    const normalizedId = String(templateId || '');
+                    if (!normalizedId) {
+                        return null;
+                    }
+
+                    return this.messageTemplates.find((template) => String(template.id) === normalizedId) || null;
+                },
+                applySelectedTemplate(forceOverwrite) {
+                    const select = this.$refs.messageTemplateSelect;
+                    const messageField = this.$refs.messageField;
+                    if (!select || !messageField) {
+                        return;
+                    }
+
+                    const template = this.getTemplateById(select.value);
+                    if (!template) {
+                        return;
+                    }
+
+                    if (!forceOverwrite && String(messageField.value || '').trim() !== '') {
+                        return;
+                    }
+
+                    messageField.value = template.message || '';
+                    messageField.dispatchEvent(new Event('input', { bubbles: true }));
+                    messageField.dispatchEvent(new Event('change', { bubbles: true }));
+                },
+                syncTemplateSelection(forceOverwrite) {
+                    this.applySelectedTemplate(forceOverwrite);
+                },
+                handleTemplateAdded(detail) {
+                    if (!detail || !detail.id) {
+                        return;
+                    }
+
+                    const existingTemplate = this.getTemplateById(detail.id);
+                    if (!existingTemplate) {
+                        this.messageTemplates.push({
+                            id: detail.id,
+                            name: detail.name,
+                            message: detail.message,
+                            is_active: true,
+                        });
+                    }
+
+                    const select = this.$refs.messageTemplateSelect;
+                    if (select) {
+                        const normalizedId = String(detail.id);
+                        let option = Array.from(select.options).find((currentOption) => currentOption.value === normalizedId);
+                        if (!option) {
+                            option = new Option(detail.name, normalizedId, true, true);
+                            select.add(option);
+                        }
+                        option.text = detail.name;
+                        select.value = normalizedId;
+                    }
+
+                    const messageField = this.$refs.messageField;
+                    if (messageField) {
+                        messageField.value = detail.message || '';
+                        messageField.dispatchEvent(new Event('input', { bubbles: true }));
+                        messageField.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+
+                    const modalContainer = document.getElementById('modal-container');
+                    if (modalContainer) {
+                        modalContainer.innerHTML = '';
+                    }
+                },
+                getPickerTable() {
+                    return document.getElementById(this.pickerTableId);
+                },
+                getCheckedCustomerIds(table) {
+                    if (!table) {
+                        return [];
+                    }
+
+                    return Array.from(table.querySelectorAll('input.row-checkbox:checked'))
+                        .map((checkbox) => Number.parseInt(String(checkbox.value || ''), 10))
+                        .filter((customerId) => Number.isInteger(customerId));
+                },
+                clearCheckedRows(table) {
+                    if (!table) {
+                        return;
+                    }
+
+                    Array.from(table.querySelectorAll('input.row-checkbox:checked')).forEach((checkbox) => {
+                        checkbox.checked = false;
+                    });
+                },
+                getVisibleCustomerIds(table) {
+                    if (!table) {
+                        return [];
+                    }
+
+                    return [...new Set(
+                        Array.from(table.querySelectorAll('input.row-checkbox[data-row-id]'))
+                            .map((checkbox) => Number.parseInt(String(checkbox.dataset.rowId || checkbox.value || ''), 10))
+                            .filter((customerId) => Number.isInteger(customerId))
+                    )];
+                },
+                syncPickerSelectionFromTable() {
+                    const table = this.getPickerTable();
+                    const visibleCustomerIds = new Set(this.getVisibleCustomerIds(table).map((customerId) => String(customerId)));
+                    const checkedCustomerIds = new Set(this.getCheckedCustomerIds(table).map((customerId) => String(customerId)));
+
+                    this.pickerSelectionIds = this.pickerSelectionIds.filter((customerId) => !visibleCustomerIds.has(String(customerId)));
+                    checkedCustomerIds.forEach((customerId) => {
+                        const alreadySelected = this.pickerSelectionIds.some((selectedId) => String(selectedId) === customerId);
+                        if (!alreadySelected) {
+                            this.pickerSelectionIds.push(Number(customerId));
+                        }
+                    });
+                },
+                handlePickerTableChange(event) {
+                    const target = event.target;
+                    if (!(target instanceof HTMLInputElement) || target.type !== 'checkbox') {
+                        return;
+                    }
+
+                    const table = this.getPickerTable();
+                    if (!table || !target.closest(`#${this.pickerTableId}`)) {
+                        return;
+                    }
+
+                    this.syncPickerSelectionFromTable();
+                },
+                refreshCustomerPicker() {
+                    this.$nextTick(() => {
+                        const controlsForm = document.getElementById(`${this.pickerTableId}-controls-form`);
+                        if (!controlsForm) {
+                            return;
+                        }
+
+                        const pageInput = controlsForm.querySelector('input[name="page"]');
+                        if (pageInput) {
+                            pageInput.value = '1';
+                        }
+
+                        controlsForm.requestSubmit();
+                    });
+                },
+                addSelectedCustomersFromTable() {
+                    if (this.pickerSelectionIds.length === 0) {
+                        return;
+                    }
+
+                    this.pickerSelectionIds.forEach((customerId) => {
+                        const alreadySelected = this.selectedCustomers.some((selectedCustomer) => Number(selectedCustomer.id) === customerId);
+                        if (!alreadySelected) {
+                            this.selectedCustomers.push({ id: customerId });
+                        }
+                    });
+
+                    this.pickerSelectionIds = [];
+                    this.refreshCustomerPicker();
+                },
+                removeSelectedCustomersFromTable() {
+                    if (this.pickerSelectionIds.length === 0) {
+                        return;
+                    }
+
+                    const idsToRemove = new Set(this.pickerSelectionIds.map((customerId) => String(customerId)));
+                    this.selectedCustomers = this.selectedCustomers.filter((customer) => !idsToRemove.has(String(customer.id)));
+                    this.pickerSelectionIds = [];
+                    this.refreshCustomerPicker();
+                },
+            };
+        };
+    })();
+</script>

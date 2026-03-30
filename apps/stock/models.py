@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
@@ -6,13 +8,14 @@ from apps.core.models import TimeStampedModel
 from apps.finance.models.payment_method import PaymentMethod
 from apps.suppliers.models import Supplier
 from djmoney.models.fields import MoneyField
+from djmoney.money import Money
 
 
 def _extract_nf_number_from_access_key(access_key: str | None) -> str:
     if not access_key:
         return ""
-    normalized_key = str(access_key).strip()
-    if len(normalized_key) >= 34:
+    normalized_key = "".join(character for character in str(access_key).strip() if character.isdigit())
+    if len(normalized_key) == 44:
         return normalized_key[25:34].lstrip("0") or "0"
     return ""
 
@@ -32,6 +35,22 @@ class StockProduct(TimeStampedModel):
 
     def __str__(self):
         return f"{self.product.name} - {self.current_quantity} unidades"
+
+    @property
+    def unit_cost(self) -> Money:
+        product = getattr(self, "product", None)
+        cost_price = getattr(product, "cost_price", None)
+        if isinstance(cost_price, Money):
+            return cost_price
+        return Money(Decimal(str(cost_price or 0)), "BRL")
+
+    @property
+    def item_total_cost(self) -> Money:
+        return self.unit_cost * self.current_quantity
+
+    @property
+    def last_nf_display(self) -> str:
+        return str(self.last_nf or "Nenhuma NF relacionada")
 
 
 class StockMovement(TimeStampedModel):

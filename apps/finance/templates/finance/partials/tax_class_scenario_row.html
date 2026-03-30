@@ -1,0 +1,20 @@
+<tr>
+    {% for field in row_form.visible_fields %}
+        {% if field.name != 'DELETE' %}
+            <td class="min-w-32 align-top">
+                <div class="space-y-1.5">
+                    {{ field }}
+                    {% if show_field_errors %}
+                        {{ field.errors }}
+                    {% endif %}
+                </div>
+            </td>
+        {% endif %}
+    {% endfor %}
+    <td class="w-20 text-center align-top">
+        {{ row_form.DELETE }}
+        {% for hidden_field in row_form.hidden_fields %}
+            {{ hidden_field }}
+        {% endfor %}
+    </td>
+</tr>

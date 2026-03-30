@@ -29,7 +29,7 @@ class BankAccountListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
             TableColumn(BankAccount.bank_name.field.verbose_name, attr=BankAccount.bank_name.field.name),
             TableColumn(BankAccount.agency.field.verbose_name, attr=BankAccount.agency.field.name),
             TableColumn(BankAccount.account_number.field.verbose_name, attr=BankAccount.account_number.field.name),
-            TableColumn(BankAccount.account_type.field.verbose_name, attr="get_account_type_display"),
+            TableColumn(BankAccount.account_type.field.verbose_name, attr="get_account_type_display", search_by="account_type"),
             TableColumn(BankAccount.is_active.field.verbose_name, attr=BankAccount.is_active.field.name),
         ]
         context["actions"] = [TableActionDefaults.edit("finance:bank_account_update")]
