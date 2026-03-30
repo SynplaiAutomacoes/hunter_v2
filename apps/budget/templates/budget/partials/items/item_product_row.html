@@ -38,7 +38,16 @@
     <td class="budget-step4-application">
         <span class="break-words whitespace-normal leading-snug">{{ item.product.application|default:"-" }}</span>
     </td>
-    <td class="text-center">{{ item.quantity }}</td>
+    <td class="text-center">
+        <span class="inline-flex items-center justify-center gap-1">
+            <span>{{ item.quantity }}</span>
+            {% if item.has_product_issues %}
+                <span class="tooltip tooltip-left shrink-0" data-tip="{{ item.product_issue_tooltip }}">
+                    <span class="material-icons text-warning" style="font-size: 18px;">warning</span>
+                </span>
+            {% endif %}
+        </span>
+    </td>
     <td class="text-right">{{ item.product_cost_price }}</td>
     <td class="text-right">
         {% if step6 %}

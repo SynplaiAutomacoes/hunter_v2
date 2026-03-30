@@ -134,6 +134,7 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
             kit_items.append(item)
 
     pricing_snapshot = workorder.pricing_snapshot
+    workorder.product_issue_summary
 
     return {
         "workorder": workorder,
@@ -201,6 +202,9 @@ def _build_workorder_pdf_file_response(*, workorder: WorkOrder, download: bool, 
 
 
 def trigger_workorder_signature_send_if_needed(*, workorder: WorkOrder) -> tuple[str, str]:
+    if workorder.has_signature_blockers:
+        return "error", workorder.signature_blockers_display
+
     with transaction.atomic():
         locked_workorder = WorkOrder.objects.select_for_update().get(pk=workorder.pk)
 

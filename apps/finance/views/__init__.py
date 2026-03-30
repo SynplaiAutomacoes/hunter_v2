@@ -4,6 +4,7 @@ from apps.finance.services.webmania_b2b import sync_b2b_companies_to_database
 from .financial_group import FinancialGroupCreateView, FinancialGroupDeleteView, FinancialGroupListView, FinancialGroupUpdateView
 from .common import DirectorWorkshopAccessMixin
 from .emission import EmissionPreviewView, EmissionRequestCreateView, EmissionWorkOrderItemUpdateView, EmissionWorkOrderKitComponentUpdateView, NfeCreateRedirectView, NfseCreateRedirectView
+from .issued_documents import IssuedDocumentsArchiveDownloadView, IssuedDocumentsListView
 from .nfe import NfeDocumentDownloadView, NfeRequestCancelView, NfeRequestCreateView, NfeRequestDetailView, NfeRequestListView, NfeRequestReconcileView, NfeRequestUpdateView
 from .nfse import NfseDocumentDownloadView, NfseRequestCancelView, NfseRequestCreateView, NfseRequestDetailView, NfseRequestListView, NfseRequestUpdateView
 from .reports import FinancialReportsHomeView
@@ -30,6 +31,8 @@ __all__ = [
     "FinancialGroupListView",
     "FinancialReportsHomeView",
     "FinancialGroupUpdateView",
+    "IssuedDocumentsArchiveDownloadView",
+    "IssuedDocumentsListView",
     "NfeCreateRedirectView",
     "NfeDocumentDownloadView",
     "NfeRequestCancelView",

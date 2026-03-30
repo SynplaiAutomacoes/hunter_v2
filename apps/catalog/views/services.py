@@ -110,9 +110,16 @@ class ServiceNameSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return HttpResponse()
 
         # Busca serviços da mesma oficina que contêm o texto (case-insensitive)
-        suggestions = Service.objects.filter(workshop=self.workshop, name__icontains=query).values_list("name", flat=True).distinct()[:5]  # Limita a 5 sugestões
+        suggestions = Service.objects.filter(workshop=self.workshop, name__icontains=query).only("id", "name", "duration", "selling_price", "selling_price_currency").order_by("name")[:5]
 
-        return render(request, "services/partials/name_suggestions.html", {"suggestions": suggestions})
+        return render(
+            request,
+            "services/partials/name_suggestions.html",
+            {
+                "suggestions": suggestions,
+                "target_id": request.GET.get("target_id", "name-suggestions"),
+            },
+        )
 
 
 class CalculateServiceCatalogPricesView(LoginRequiredMixin, WorkshopScopedMixin, View):

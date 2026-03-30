@@ -42,6 +42,9 @@ from .shared import _get_budget_for_workshop, logger
 def trigger_signature_send_if_needed(*, request, budget: Budget) -> tuple[str, str, str | None]:
     is_resend = False
 
+    if budget.has_signature_blockers:
+        return "error", budget.signature_blockers_display, None
+
     with transaction.atomic():
         locked_budget = Budget.objects.select_for_update().get(pk=budget.pk)
 
@@ -777,9 +780,11 @@ class SaveObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def post(self, request):
         try:
             data = json.loads(request.body)
+            budget_id = int(data.get("budget_id"))
             observation = data.get("observation", "").strip()
-            self.workshop.pdf_observation = observation
-            self.workshop.save()
+            budget = _get_budget_for_workshop(self.workshop, budget_id)
+            budget.pdf_observation = observation
+            budget.save(update_fields=["pdf_observation"])
             return JsonResponse({"success": True})
-        except (json.JSONDecodeError, AttributeError):
+        except (TypeError, ValueError, json.JSONDecodeError, AttributeError, Http404):
             return JsonResponse({"success": False}, status=400)

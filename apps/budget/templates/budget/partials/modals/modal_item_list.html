@@ -61,6 +61,7 @@
                 <th class="w-full">Descrição</th>
                 {% if item_type == 'product' %}
                     <th class="min-w-[300px]">Aplicação</th>
+                    <th class="whitespace-nowrap text-center">Em estoque</th>
                 {% endif %}
                 {% if item_type != 'kit' %}
                     <th class="whitespace-nowrap">Preço Venda</th>{% endif %}
@@ -125,6 +126,7 @@
 
                     {% if item_type == 'product' %}
                         <td class="min-w-[300px] whitespace-normal break-words">{{ item.application|default:"-" }}</td>
+                        <td class="text-center font-semibold whitespace-nowrap">{{ item.current_stock }}</td>
                     {% endif %}
 
                     {% if item_type != 'kit' %}

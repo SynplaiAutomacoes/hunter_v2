@@ -275,6 +275,19 @@ class ProductForm(forms.ModelForm):
 
         return code
 
+    def clean_name(self):
+        name = self.cleaned_data.get("name")
+
+        if name and self.workshop:
+            qs = Product.objects.filter(workshop=self.workshop, name__iexact=name)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+
+            if qs.exists():
+                raise forms.ValidationError("Já existe um produto com este nome.")
+
+        return name
+
     def clean(self):
         cleaned_data = super().clean()
         cost_price = cleaned_data.get("cost_price")

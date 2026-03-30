@@ -43,6 +43,7 @@
             label: 'Financeiro',
             items: [
                 { label: 'Emitir nota', href: '{% url "finance:emission_create" %}?reset=1' },
+                { label: 'Central de Notas', href: '{% url "finance:issued_documents_list" %}' },
                 { label: 'NF-e Emitidas', href: '{% url "finance:nfe_emit" %}' },
                 { label: 'NFS-e Emitidas', href: '{% url "finance:nfse_list" %}' },
                 { label: 'Movimentação Financeira', href: '{% url "finance:financial_movement_list" %}' },

@@ -21,6 +21,7 @@ from django.db.models import F, ExpressionWrapper, IntegerField, Q
 from djmoney.money import Money
 
 from .forms import (
+    AdditionalChargeSessionForm,
     ImportManualItemsForm,
     ImportSefazListForm,
     ImportStep1Form,
@@ -36,6 +37,7 @@ from .forms import (
     TransferStepWorkshopsForm,
     TransferSummaryForm,
 )
+from .financial_entries import calculate_import_totals, get_next_entry_id
 from .models import StockImport, StockMovement, StockProduct, StockTransfer
 from ..catalog.models.groups import CatalogGroup
 from ..catalog.models.products import Product
@@ -717,39 +719,39 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
         method_code = (request.POST.get("payment_method") or "").strip()
         payment_date = (request.POST.get("payment_date") or "").strip()
         first_amount_str = (request.POST.get("first_amount_0") or "").strip()
-        installments_str = (request.POST.get("installments_count") or "").strip()
 
-        if not all([method_code, payment_date, installments_str, first_amount_str]):
+        if not all([method_code, payment_date, first_amount_str]):
             return self._htmx_payment_response("Preencha todos os campos do pagamento antes de incluir.", level="warning")
 
         try:
             first_amount = Decimal(first_amount_str.replace(",", "."))
-            installments = int(installments_str)
-            if first_amount <= 0 or installments <= 0:
-                return self._htmx_payment_response("Informe valores válidos para o pagamento.", level="warning")
+            if first_amount <= 0:
+                return self._htmx_payment_response("Informe um valor válido para o pagamento.", level="warning")
 
             method_obj = PaymentMethod.objects.filter(id=method_code, workshop=self.workshop, is_active=True).first()
             if not method_obj:
                 return self._htmx_payment_response("A forma de pagamento selecionada é inválida.", level="warning")
 
-            total_paid = first_amount * installments
+            installments = max(int(method_obj.installments_count or 1), 1)
+            total_paid = first_amount
 
-            valor_total_nf = sum(Decimal(str(item.get("valor", 0))) * Decimal(str(item.get("qtd", 0))) for item in obj.items_data)
-            valor_ja_pago = sum(Decimal(str(p.get("total_paid", 0))) for p in obj.payments_data)
-            valor_disponivel = valor_total_nf - valor_ja_pago
+            totals = calculate_import_totals(items=list(obj.items_data or []), entries=list(obj.payments_data or []))
+            valor_disponivel = totals.pending_value
 
-            if total_paid > valor_disponivel:
-                return self._htmx_payment_response(f"O valor informado (R$ {total_paid}) excede o saldo pendente (R$ {valor_disponivel}).", level="warning")
+            if first_amount > valor_disponivel:
+                return self._htmx_payment_response(f"O valor informado (R$ {first_amount}) excede o saldo pendente (R$ {valor_disponivel}).", level="warning")
 
             payments = list(obj.payments_data or [])
             new_payment = {
-                "id": len(payments) + 1,
+                "id": get_next_entry_id(payments),
+                "entry_type": "payment",
                 "method": method_obj.id,
                 "method_display": method_obj.description,
                 "installments": str(installments),
                 "first_amount": str(first_amount),
                 "total_paid": str(total_paid),
                 "payment_date": payment_date,
+                "reason": method_obj.description,
             }
 
             payments.append(new_payment)
@@ -776,6 +778,60 @@ class RemovePaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
         obj.save(update_fields=["payments_data"])
         response = HttpResponse(status=204)
         response["HX-Trigger"] = json.dumps({"productCreated": {}})
+        return response
+
+
+class AdditionalChargeModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = StockImport
+    workshop_permission_codename = "change_stockimport"
+
+    def get(self, request, *args, **kwargs):
+        pk = request.GET.get("pk")
+        stock_import = get_object_or_404(StockImport, id=pk, workshop=self.workshop)
+        context = {
+            "form": AdditionalChargeSessionForm(),
+            "stock_import": stock_import,
+        }
+        return render(request, "stock/partials/modal/add_additional_value_modal.html", context)
+
+
+class AddAdditionalChargeSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = StockImport
+    workshop_permission_codename = "change_stockimport"
+
+    def post(self, request, *args, **kwargs):
+        pk = request.GET.get("pk")
+        stock_import = get_object_or_404(StockImport, id=pk, workshop=self.workshop)
+        form = AdditionalChargeSessionForm(request.POST)
+
+        if not form.is_valid():
+            return render(request, "stock/partials/modal/add_additional_value_modal.html", {"form": form, "stock_import": stock_import}, status=400)
+
+        entries = list(stock_import.payments_data or [])
+        amount = form.cleaned_data["amount"]
+        reason = form.cleaned_data["reason"]
+
+        entries.append(
+            {
+                "id": get_next_entry_id(entries),
+                "entry_type": "additional_charge",
+                "amount": str(amount.amount),
+                "reason": reason,
+            }
+        )
+        stock_import.payments_data = entries
+        stock_import.save(update_fields=["payments_data"])
+
+        response = HttpResponse("")
+        response["HX-Trigger"] = json.dumps(
+            {
+                "showToast": {
+                    "type": "success",
+                    "message": "Valor adicional incluído com sucesso.",
+                },
+                "productCreated": {},
+            }
+        )
         return response
 
 

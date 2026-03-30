@@ -45,8 +45,36 @@
         {% csrf_token %}
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="item-fields-container">
+            {% if item.product %}
+                <div class="form-control w-full">
+                    <label class="label">
+                        <span class="label-text font-semibold flex items-center gap-2">
+                            <span class="material-icons text-sm">inventory</span>
+                            Em estoque
+                        </span>
+                    </label>
+                    <input
+                        type="number"
+                        id="stock-quantity-reference"
+                        class="input input-bordered"
+                        value="{{ item.stock_quantity|default_if_none:0 }}"
+                        readonly
+                        disabled>
+                </div>
+            {% endif %}
             {% include "budget/partials/modals/modal_edit_item_form.html" %}
         </div>
+
+        {% if item.product %}
+            <div
+                id="stock-warning-alert"
+                class="alert alert-warning {% if not item.excess_quantity %}hidden{% endif %}">
+                <span class="material-icons">warning</span>
+                <span id="stock-warning-message">
+                    A quantidade solicitada excede o estoque em {{ item.excess_quantity }} peça{{ item.excess_quantity|pluralize }}.
+                </span>
+            </div>
+        {% endif %}
     </form>
 
     <!-- Action buttons (only if NOT in queue) -->
@@ -215,6 +243,35 @@
                 this.focusFirstInput();
                 this.setupUpdateMasterButton();
                 this.setupSaveLocalButton();
+                this.setupStockWarning();
+            },
+
+            setupStockWarning() {
+                const quantityInput = document.getElementById('id_quantity');
+                const stockInput = document.getElementById('stock-quantity-reference');
+                const alertBox = document.getElementById('stock-warning-alert');
+                const message = document.getElementById('stock-warning-message');
+
+                if (!quantityInput || !stockInput || !alertBox || !message) {
+                    return;
+                }
+
+                const updateWarning = () => {
+                    const quantity = Number.parseInt(quantityInput.value || '0', 10) || 0;
+                    const stock = Number.parseInt(stockInput.value || '0', 10) || 0;
+                    const excess = Math.max(quantity - stock, 0);
+                    if (excess > 0) {
+                        message.textContent = `A quantidade solicitada excede o estoque em ${excess} peça${excess === 1 ? '' : 's'}.`;
+                        alertBox.classList.remove('hidden');
+                        return;
+                    }
+
+                    alertBox.classList.add('hidden');
+                };
+
+                quantityInput.addEventListener('input', updateWarning);
+                quantityInput.addEventListener('change', updateWarning);
+                updateWarning();
             }
         };
 
