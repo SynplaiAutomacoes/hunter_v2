@@ -12,7 +12,9 @@ from django import forms
 from django.http import QueryDict
 from django.template import Context, Template
 from django.template.loader import render_to_string
+
 from apps.accounts.models import Account, User
+from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
 from django.http import Http404, HttpResponse
 from django.db import connection
 from django.test import RequestFactory, TestCase, override_settings
@@ -41,14 +43,15 @@ from apps.catalog.models.services import Service
 from apps.core.documents.contract import DocumentPayload, SignatureDeliveryResult
 from apps.core.documents.signature import normalize_signature_phone_number, parse_document_signature_token
 from apps.core.documents.services import SignatureDeliveryServiceError, get_signed_document_url
-from apps.workorder.models import WorkOrder
-from apps.budget.views.pdf_views import signature_file, signature_preview, visualizar_pdf_assinatura
-from apps.budget.views.workflow_views import BUDGET_LIST_FILTERS, trigger_signature_send_if_needed
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.query_filters import apply_query_param_filters
 from apps.customer.models import Customer, Vehicle
 from apps.collaborators.models import WorkshopMember
 from apps.iam.utils import get_or_create_director_role
+from apps.stock.models import StockProduct
+from apps.workorder.models import WorkOrder
+from apps.budget.views.pdf_views import signature_file, signature_preview, visualizar_pdf_assinatura
+from apps.budget.views.workflow_views import BUDGET_LIST_FILTERS, trigger_signature_send_if_needed
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.services.files import StoredWorkshopFile
@@ -143,6 +146,7 @@ def create_product(*, workshop: Workshop, suffix: int = 1, application: str = ""
         unit=Product.Unit.UND,
         name=f"Produto {suffix}",
         description=f"Descricao {suffix}",
+        ncm="87089990",
         application=application,
         group=group,
         cost_price=Money("10.00", "BRL"),
@@ -1025,6 +1029,102 @@ class BudgetStep6FormTests(TestCase):
 
         self.assertIn("showPdfVariantToggle: false", html)
         self.assertIn('x-show="showPdfVariantToggle"', html)
+
+    def test_step6_disables_approval_and_signature_when_stock_is_insufficient(self) -> None:
+        workshop = create_workshop(suffix=97)
+        budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=97)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=3)
+
+        stock_product = StockProduct.objects.get(workshop=workshop, product=product)
+        stock_product.current_quantity = 1
+        stock_product.save(update_fields=["current_quantity"])
+
+        request = RequestFactory().get("/")
+        request.user = User.objects.create_user(username="budget-step6-user-97", password="123")
+        form = BudgetStep6Form(instance=budget, workshop=workshop, request=request)
+        html = Template("{% load crispy_forms_tags %}{% crispy form %}").render(Context({"form": form, "csrf_token": "token"}))
+
+        self.assertIn("Existem pecas com quantidade acima do estoque disponivel", html)
+        self.assertIn("signatureBlocked: true", html)
+
+
+class BudgetProductIssueTests(TestCase):
+    def test_step4_product_rows_render_stock_and_invalid_ncm_warnings(self) -> None:
+        workshop = create_workshop(suffix=98)
+        budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=98)
+        product.ncm = ""
+        product.save(update_fields=["ncm"])
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=3)
+
+        stock_product = StockProduct.objects.get(workshop=workshop, product=product)
+        stock_product.current_quantity = 1
+        stock_product.save(update_fields=["current_quantity"])
+
+        rows = _render_budget_items_rows(budget, step6=False)
+
+        self.assertIn("Excede o estoque em 2 pecas.", rows["product"])
+        self.assertIn("Produto com NCM invalido.", rows["product"])
+
+    def test_approve_budget_blocks_when_stock_is_insufficient(self) -> None:
+        workshop = create_workshop(suffix=99)
+        budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=99)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=2)
+
+        stock_product = StockProduct.objects.get(workshop=workshop, product=product)
+        stock_product.current_quantity = 1
+        stock_product.save(update_fields=["current_quantity"])
+
+        with self.assertRaisesMessage(BudgetApprovalError, "Existem pecas com quantidade acima do estoque disponivel"):
+            approve_budget_with_stock(budget=budget)
+
+    @patch("apps.budget.views.workflow_views.send_budget_for_signature")
+    def test_trigger_signature_send_if_needed_blocks_for_stock(self, send_signature_mock) -> None:
+        workshop = create_workshop(suffix=67)
+        budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=67)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=2)
+
+        stock_product = StockProduct.objects.get(workshop=workshop, product=product)
+        stock_product.current_quantity = 1
+        stock_product.save(update_fields=["current_quantity"])
+
+        toast_type, toast_message, redirect_url = trigger_signature_send_if_needed(request=RequestFactory().post("/"), budget=budget)
+
+        self.assertEqual(toast_type, "error")
+        self.assertIn("Existem pecas com quantidade acima do estoque disponivel", toast_message)
+        self.assertIsNone(redirect_url)
+        send_signature_mock.assert_not_called()
+
+    @patch("apps.budget.views.workflow_views.send_budget_for_signature")
+    def test_trigger_signature_send_if_needed_allows_invalid_ncm(self, send_signature_mock) -> None:
+        workshop = create_workshop(suffix=68)
+        budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=68)
+        product.ncm = ""
+        product.save(update_fields=["ncm"])
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=1)
+
+        stock_product = StockProduct.objects.get(workshop=workshop, product=product)
+        stock_product.current_quantity = 5
+        stock_product.save(update_fields=["current_quantity"])
+
+        send_signature_mock.return_value = SignatureDeliveryResult(
+            envelope_id="env-68",
+            document_id="doc-68",
+            provider="supersign",
+            raw_response={"ok": True},
+        )
+
+        toast_type, toast_message, redirect_url = trigger_signature_send_if_needed(request=RequestFactory().post("/"), budget=budget)
+
+        budget.refresh_from_db()
+        self.assertEqual(toast_type, "success")
+        self.assertEqual(toast_message, "Orçamento enviado para assinatura do cliente.")
+        self.assertEqual(redirect_url, reverse("budget:budget_list"))
+        self.assertEqual(budget.signature_request_status, SignatureStatus.SENT)
 
 
 class BudgetDuplicateKitProductTests(TestCase):
