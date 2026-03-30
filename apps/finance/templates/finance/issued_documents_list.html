@@ -1,0 +1,76 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Central de Notas Emitidas{% endblock %}
+{% block crud_subtitle %}Filtre NF-e e NFS-e por periodo e baixe XMLs ou PDFs em arquivo ZIP.{% endblock %}
+
+{% block crud_header_actions %}
+    <div class="flex w-full flex-col gap-3 lg:items-end">
+        <form method="get" class="flex w-full flex-col gap-3 xl:w-auto xl:flex-row xl:items-end xl:justify-end">
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-3 xl:min-w-[42rem]">
+                <div>
+                    <label for="issued-documents-start-date" class="label pt-0 pb-1">
+                        <span class="label-text text-xs">Data inicial</span>
+                    </label>
+                    <input
+                        type="date"
+                        id="issued-documents-start-date"
+                        name="data_inicial"
+                        value="{{ filter_state.start_raw }}"
+                        class="input input-bordered input-sm w-full"
+                    />
+                </div>
+
+                <div>
+                    <label for="issued-documents-end-date" class="label pt-0 pb-1">
+                        <span class="label-text text-xs">Data final</span>
+                    </label>
+                    <input
+                        type="date"
+                        id="issued-documents-end-date"
+                        name="data_final"
+                        value="{{ filter_state.end_raw }}"
+                        class="input input-bordered input-sm w-full"
+                    />
+                </div>
+
+                <div>
+                    <label for="issued-documents-type" class="label pt-0 pb-1">
+                        <span class="label-text text-xs">Tipo de nota</span>
+                    </label>
+                    <select id="issued-documents-type" name="tipo" class="select select-bordered select-sm w-full">
+                        {% for value, label in note_type_choices %}
+                            <option value="{{ value }}" {% if filter_state.selected_note_type == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div class="flex flex-wrap gap-2 xl:justify-end">
+                <button type="submit" class="btn btn-primary btn-sm">Filtrar</button>
+                <a href="{% url 'finance:issued_documents_list' %}" class="btn btn-ghost btn-sm">Limpar</a>
+            </div>
+        </form>
+
+        <div class="flex flex-wrap gap-2 xl:justify-end">
+            {% if can_download_xml and download_xml_url %}
+                <a href="{{ download_xml_url }}" class="btn btn-outline btn-sm">Baixar XML</a>
+            {% else %}
+                <span class="btn btn-outline btn-sm btn-disabled">Baixar XML</span>
+            {% endif %}
+
+            {% if can_download_pdfs and download_pdfs_url %}
+                <a href="{{ download_pdfs_url }}" class="btn btn-outline btn-sm">Baixar PDFs</a>
+            {% else %}
+                <span class="btn btn-outline btn-sm btn-disabled">Baixar PDFs</span>
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}
+
+{% block crud_table_wrapper_id %}issued-documents-results-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'finance:issued_documents_list' %}{% endblock %}
+{% block crud_table_hx_trigger %}issued-documents-refresh from:body{% endblock %}
+
+{% block crud_table %}
+    {% include 'finance/partials/issued_documents_results.html' %}
+{% endblock %}

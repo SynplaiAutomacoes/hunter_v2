@@ -11,6 +11,8 @@ from apps.finance.views import (
     FinancialGroupListView,
     FinancialReportsHomeView,
     FinancialGroupUpdateView,
+    IssuedDocumentsArchiveDownloadView,
+    IssuedDocumentsListView,
     NfeCreateRedirectView,
     NfeDocumentDownloadView,
     NfeRequestCancelView,
@@ -49,6 +51,8 @@ app_name = "finance"
 
 urlpatterns = [
     path("reports/", FinancialReportsHomeView.as_view(), name="reports_home"),
+    path("notas-emitidas/", IssuedDocumentsListView.as_view(), name="issued_documents_list"),
+    path("notas-emitidas/download/<str:document_group>/", IssuedDocumentsArchiveDownloadView.as_view(), name="issued_documents_download"),
     # Financial Groups
     path("financial-groups/", FinancialGroupListView.as_view(), name="financial_groups_list"),
     path("financial-groups/create/", FinancialGroupCreateView.as_view(), name="financial_groups_create"),
