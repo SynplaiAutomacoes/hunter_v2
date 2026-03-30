@@ -1,25 +1,104 @@
 {% load crispy_forms_field %}
 
-<div class="w-full mb-6" x-data="{ collaboratorId: '{{ initial_collab_id }}' }" id="collaborator-field-container">
-    <h5 class="font-bold mb-2">Colaboradores</h5>
+<div class="w-full mb-6" 
+     x-data="{ 
+            collabs: (initial => initial.map(c => ({...c, _key: Date.now() + Math.random()})))(
+            {% if initial_collaborators_json %}{{ initial_collaborators_json|safe }}{% else %}[]{% endif %}
+        ),
 
-    <div class="flex items-end gap-2 w-full">
-        <div class="flex-1" id="div_id_collaborator">
-            {% crispy_field field wrapper_class="mb-0" %}
-        </div>
+        addCollab() {
+            this.collabs.push({ id: '', is_new: true, _key: Date.now() + Math.random() });
+        },
 
-        <button type="button" class="btn btn-circle"
-                :class="collaboratorId ? 'btn-warning' : 'btn-primary'"
-                @click="
-                    localStorage.setItem('budget_step3_collaborator', collaboratorId || '');
-                    const url = collaboratorId ? `/collaborators/update/modal/${collaboratorId}/` : '/collaborators/create/modal/';
-                    htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
-                    document.getElementById('form_modal').showModal();">
-            <span class="material-icons" x-text="collaboratorId ? 'edit' : 'person_add'"></span>
+        removeCollab(index) {
+            this.collabs.splice(index, 1);
+        },
+        updateCollab(index, id) {
+            this.collabs[index].id = id;
+        }
+     }" 
+     id="collaborator-field-container">
+    
+    <div class="flex items-center justify-between mb-4 pb-2 border-b border-gray-100">
+        <h5 class="font-bold flex items-center gap-2">
+            <span class="material-icons text-primary">group</span>
+            Colaboradores
+        </h5>
+        <button type="button" @click="addCollab()" class="btn btn-sm btn-primary gap-1" title="Adicionar Colaborador">
+            <span class="material-icons">add</span>
+            <span>Adicionar</span>
         </button>
+    </div>
+
+    <div class="space-y-4 max-h-64 overflow-y-auto pr-2 custom-scrollbar" id="collabs-list">
+        <template x-for="(collab, index) in collabs" :key="collab._key">
+            <div class="flex items-end gap-2 w-full animate-fadeIn">
+                <div class="flex-1">
+                    <label class="label p-0 mb-1" x-show="index === 0">
+                        <span class="label-text text-xs text-gray-500">Colaborador Principal</span>
+                    </label>
+                    <label class="label p-0 mb-1" x-show="index > 0">
+                        <span class="label-text text-xs text-gray-500">Colaborador Adicional</span>
+                    </label>
+                    
+                    <select :name="'collaborators_list'"
+                            class="select select-bordered w-full bg-base-200" 
+                            x-model="collab.id"
+                            required>
+                        <option value="" disabled>Selecione um colaborador...</option>
+                        {% for choice_id, choice_label in field.field.choices %}
+                            <option value="{{ choice_id }}" :selected="collab.id == '{{ choice_id }}'">{{ choice_label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="flex gap-1 mb-1">
+                    <button type="button" class="btn btn-square btn-sm"
+                            :class="collab.id ? 'btn-warning' : 'btn-primary'"
+                            @click="
+                                const id = collab.id;
+                                localStorage.setItem('budget_step3_collaborator_idx', index);
+                                const url = id ? `/collaborators/update/modal/${id}/` : '/collaborators/create/modal/';
+                                htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
+                                document.getElementById('form_modal').showModal();">
+                        <span class="material-icons text-sm" x-text="collab.id ? 'edit' : 'person_add'"></span>
+                    </button>
+                    
+                    <button type="button" 
+                            x-show="collabs.length > 1"
+                            @click="removeCollab(index)" 
+                            class="btn btn-square btn-sm btn-error text-white">
+                        <span class="material-icons text-sm">delete</span>
+                    </button>
+                </div>
+            </div>
+        </template>
     </div>
 
     {% if field.errors %}
         <span class="label-text-alt text-error mt-1 block">{{ field.errors.0 }}</span>
     {% endif %}
+
+    <style>
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fadeIn {
+            animation: fadeIn 0.3s ease-out forwards;
+        }
+    </style>
 </div>

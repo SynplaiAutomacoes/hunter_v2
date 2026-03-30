@@ -633,19 +633,25 @@ class BudgetStep3CollaboratorFieldView(LoginRequiredMixin, WorkshopScopedMixin, 
         budget = _get_budget_for_workshop(self.workshop, budget_id)
         form = BudgetStep3Form(instance=budget, workshop=self.workshop, request=request)
 
-        # Get the selected collaborator ID from query params (for restoration)
-        selected_id = request.GET.get("selected", "")
-        if selected_id:
-            form.fields["collaborator"].initial = selected_id
+        # Configurações para o componente de múltiplos colaboradores
+        import json
+        initial_collaborators = []
+        if budget.pk:
+            initial_collaborators = [
+                {"id": str(c.id), "name": c.name}
+                for c in budget.collaborators.all()
+            ]
+        
+        if not initial_collaborators:
+            initial_collaborators = [{"id": "", "is_new": True}]
 
-        # Determine initial collaborator ID for Alpine.js x-data
-        initial_collab_id = selected_id or (budget.collaborator.id if budget.collaborator else "")
+        initial_collaborators_json = json.dumps(initial_collaborators)
 
         # Render the field using the template
         context = {
             "form": form,
             "field": form["collaborator"],
-            "initial_collab_id": initial_collab_id,
+            "initial_collaborators_json": initial_collaborators_json,
         }
 
         return render(request, "budget/partials/components/collaborator_field.html", context)
