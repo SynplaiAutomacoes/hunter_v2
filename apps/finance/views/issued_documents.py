@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 import zipfile
 from datetime import date
@@ -46,14 +47,14 @@ class IssuedDocumentsFilterMixin:
     }
 
     ARCHIVE_TYPE_LABELS: dict[str, str] = {
-        "all": "todas-as-notas",
-        "nfe": "notas-fiscais-produto",
-        "nfse": "notas-fiscais-servico",
+        "all": "todas",
+        "nfe": "nf",
+        "nfse": "nfs",
     }
 
     DOCUMENT_GROUP_LABELS: dict[str, str] = {
-        "xml": "xmls",
-        "pdfs": "pdfs",
+        "xml": "xml",
+        "pdfs": "pdf",
     }
 
     DOCUMENT_SPECS_BY_TYPE: dict[str, dict[str, list[tuple[str, str, str]]]] = {
@@ -128,6 +129,12 @@ class IssuedDocumentsFilterMixin:
         normalized = normalized.strip("-._")
         return normalized or "documento"
 
+    @staticmethod
+    def _format_date_fragment(value: object) -> str:
+        if isinstance(value, date):
+            return value.strftime("%Y-%m-%d")
+        return IssuedDocumentsFilterMixin._sanitize_archive_fragment(value)
+
     def _build_nfe_queryset(self, *, start_date: date, end_date: date):
         return (
             NfeRequest.objects.filter(workshop=self.workshop, criado_em__date__range=(start_date, end_date))
@@ -187,7 +194,7 @@ class IssuedDocumentsFilterMixin:
             "request_id": request_obj.pk,
             "number": request_obj.number_display,
             "reference": f"Serie {series_value}",
-            "workorder_id": request_obj.workorder_id,
+            "workorder_id": getattr(request_obj, "workorder_id", None),
             "customer_name": request_obj.customer_name,
             "created_at": request_obj.criado_em,
             "status_badge": request_obj.nfe_request_status_badge,
@@ -214,7 +221,7 @@ class IssuedDocumentsFilterMixin:
             "request_id": request_obj.pk,
             "number": note_number or request_obj.rps_number_display,
             "reference": " / ".join(reference_parts) if reference_parts else "-",
-            "workorder_id": request_obj.workorder_id,
+            "workorder_id": getattr(request_obj, "workorder_id", None),
             "customer_name": request_obj.customer_name,
             "created_at": request_obj.criado_em,
             "status_badge": request_obj.nfse_request_status_badge,
@@ -240,11 +247,6 @@ class IssuedDocumentsFilterMixin:
             }
         )
 
-    def _build_archive_folder(self, *, note_type: str, request_pk: int, identifier: object) -> str:
-        safe_identifier = self._sanitize_archive_fragment(identifier)
-        note_type_label = "NF-e" if note_type == "nfe" else "NFS-e"
-        return f"{note_type_label}/{safe_identifier}-solicitacao-{request_pk}"
-
     def _collect_document_entries(self, *, nfe_requests: list[NfeRequest], nfse_requests: list[NfseRequest], document_group: str) -> list[dict[str, str]]:
         entries: list[dict[str, str]] = []
 
@@ -253,54 +255,73 @@ class IssuedDocumentsFilterMixin:
             if latest_item is None:
                 continue
 
-            folder = self._build_archive_folder(
-                note_type="nfe",
-                request_pk=request_obj.pk,
-                identifier=getattr(latest_item, "number", "") or getattr(latest_item, "access_key", "") or request_obj.number_display,
-            )
             for document_name, field_name, extension in self.DOCUMENT_SPECS_BY_TYPE["nfe"][document_group]:
                 document_url = str(getattr(latest_item, field_name, "") or "").strip()
                 if not document_url:
                     continue
-                entries.append({"archive_name": f"{folder}/{self._build_document_filename(note_type='nfe', identifier=getattr(latest_item, 'number', '') or request_obj.number_display, document_name=document_name, extension=extension)}", "url": document_url})
+                entries.append(
+                    {
+                        "archive_name": self._build_document_filename(
+                            note_type="nfe",
+                            customer_name=request_obj.customer_name,
+                            emitted_at=request_obj.criado_em.date(),
+                            identifier=getattr(latest_item, "number", "") or request_obj.number_display,
+                            document_name=document_name,
+                            extension=extension,
+                        ),
+                        "url": document_url,
+                    }
+                )
 
         for request_obj in nfse_requests:
             latest_item = self._get_latest_prefetched_item(request_obj)
             if latest_item is None:
                 continue
 
-            folder = self._build_archive_folder(
-                note_type="nfse",
-                request_pk=request_obj.pk,
-                identifier=getattr(latest_item, "number", "") or getattr(latest_item, "rps_number", "") or request_obj.rps_number_display,
-            )
             for document_name, field_name, extension in self.DOCUMENT_SPECS_BY_TYPE["nfse"][document_group]:
                 document_url = str(getattr(latest_item, field_name, "") or "").strip()
                 if not document_url:
                     continue
                 identifier = getattr(latest_item, "number", "") or getattr(latest_item, "rps_number", "") or request_obj.rps_number_display
-                entries.append({"archive_name": f"{folder}/{self._build_document_filename(note_type='nfse', identifier=identifier, document_name=document_name, extension=extension)}", "url": document_url})
+                entries.append(
+                    {
+                        "archive_name": self._build_document_filename(
+                            note_type="nfse",
+                            customer_name=request_obj.customer_name,
+                            emitted_at=request_obj.criado_em.date(),
+                            identifier=identifier,
+                            document_name=document_name,
+                            extension=extension,
+                        ),
+                        "url": document_url,
+                    }
+                )
 
         return entries
 
-    def _build_document_filename(self, *, note_type: str, identifier: object, document_name: str, extension: str) -> str:
+    def _build_document_filename(self, *, note_type: str, customer_name: object, emitted_at: date, identifier: object, document_name: str, extension: str) -> str:
+        note_type_label = "nf" if note_type == "nfe" else "nfs"
+        customer_fragment = self._sanitize_archive_fragment(customer_name)
+        date_fragment = self._format_date_fragment(emitted_at)
         safe_identifier = self._sanitize_archive_fragment(identifier)
         label_map = {
             "nfe": {
-                "xml": "xml-da-nf-e",
+                "xml": "",
                 "danfe": "danfe",
                 "danfe-simples": "danfe-simples",
                 "danfe-etiqueta": "danfe-etiqueta",
             },
             "nfse": {
-                "xml": "xml-da-nfs-e",
+                "xml": "",
                 "pdf-nfse": "pdf-da-nfs-e",
                 "pdf-rps": "pdf-do-rps",
             },
         }
         document_label = label_map[note_type].get(document_name, document_name)
-        prefix = "nf-e" if note_type == "nfe" else "nfs-e"
-        return f"{prefix}-{safe_identifier}-{document_label}.{extension}"
+        base_name = f"{note_type_label}-{customer_fragment}-{date_fragment}-{safe_identifier}"
+        if document_label:
+            return f"{base_name}-{document_label}.{extension}"
+        return f"{base_name}.{extension}"
 
 
 class IssuedDocumentsListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, IssuedDocumentsFilterMixin, TemplateView):
@@ -357,9 +378,9 @@ class IssuedDocumentsArchiveDownloadView(LoginRequiredMixin, WorkshopScopedMixin
 
         archive_buffer = BytesIO()
         try:
+            downloaded_entries = self._download_document_entries(entries=entries)
             with zipfile.ZipFile(archive_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as archive_file:
-                for entry in entries:
-                    downloaded = download_webmania_document(workshop=self.workshop, url=entry["url"])
+                for entry, downloaded in downloaded_entries:
                     archive_file.writestr(entry["archive_name"], downloaded.content)
         except WebmaniaDocumentDownloadError as exc:
             return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
@@ -370,8 +391,22 @@ class IssuedDocumentsArchiveDownloadView(LoginRequiredMixin, WorkshopScopedMixin
         return response
 
     def _build_archive_filename(self, *, state: dict[str, Any], document_group: str) -> str:
-        selected_note_type = self.ARCHIVE_TYPE_LABELS.get(str(state["selected_note_type"]), "todas-as-notas")
+        selected_note_type = self.ARCHIVE_TYPE_LABELS.get(str(state["selected_note_type"]), "todas")
         document_group_label = self.DOCUMENT_GROUP_LABELS.get(document_group, document_group)
-        start_fragment = self._sanitize_archive_fragment(state["start_raw"])
-        end_fragment = self._sanitize_archive_fragment(state["end_raw"])
-        return f"{selected_note_type}-{document_group_label}-{start_fragment}-ate-{end_fragment}.zip"
+        return f"{selected_note_type}-{document_group_label}.zip"
+
+    def _download_document_entries(self, *, entries: list[dict[str, str]]) -> list[tuple[dict[str, str], Any]]:
+        if len(entries) == 1:
+            entry = entries[0]
+            return [(entry, download_webmania_document(workshop=self.workshop, url=entry["url"]))]
+
+        downloaded_entries: list[tuple[dict[str, str], Any]] = []
+        max_workers = min(8, len(entries))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_map = {executor.submit(download_webmania_document, workshop=self.workshop, url=entry["url"]): entry for entry in entries}
+            for future in as_completed(future_map):
+                entry = future_map[future]
+                downloaded_entries.append((entry, future.result()))
+
+        downloaded_entries.sort(key=lambda item: item[0]["archive_name"])
+        return downloaded_entries

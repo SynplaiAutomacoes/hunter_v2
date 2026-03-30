@@ -8,6 +8,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import ANY, Mock, patch
+import time
 
 from django.contrib.messages import get_messages
 from django.core.exceptions import ValidationError
@@ -3775,13 +3776,13 @@ class IssuedDocumentsViewTests(TestCase):
         january_10 = timezone.make_aware(datetime(2026, 1, 10, 10, 0, 0))
         january_15 = timezone.make_aware(datetime(2026, 1, 15, 15, 30, 0))
 
-        nfe_request = self._create_nfe_request(
+        self._create_nfe_request(
             customer_name="Cliente XML NF",
             created_at=january_10,
             number="1100",
             xml_url="https://files.test/nfe-1100.xml",
         )
-        nfse_request = self._create_nfse_request(
+        self._create_nfse_request(
             customer_name="Cliente XML NFS",
             created_at=january_15,
             number="2100",
@@ -3802,25 +3803,25 @@ class IssuedDocumentsViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "application/zip")
-        self.assertIn("todas-as-notas-xmls-2026-01-01-ate-2026-01-31.zip", response["Content-Disposition"])
+        self.assertIn("todas-xml.zip", response["Content-Disposition"])
         self.assertEqual(download_mock.call_count, 2)
 
         with zipfile.ZipFile(BytesIO(response.content)) as archive_file:
             self.assertEqual(
                 sorted(archive_file.namelist()),
                 [
-                    f"NF-e/1100-solicitacao-{nfe_request.pk}/nf-e-1100-xml-da-nf-e.xml",
-                    f"NFS-e/2100-solicitacao-{nfse_request.pk}/nfs-e-2100-xml-da-nfs-e.xml",
+                    "nf-Cliente-XML-NF-2026-01-10-1100.xml",
+                    "nfs-Cliente-XML-NFS-2026-01-15-2100.xml",
                 ],
             )
-            self.assertEqual(archive_file.read(f"NF-e/1100-solicitacao-{nfe_request.pk}/nf-e-1100-xml-da-nf-e.xml"), b"<nfe />")
-            self.assertEqual(archive_file.read(f"NFS-e/2100-solicitacao-{nfse_request.pk}/nfs-e-2100-xml-da-nfs-e.xml"), b"<nfse />")
+            self.assertEqual(archive_file.read("nf-Cliente-XML-NF-2026-01-10-1100.xml"), b"<nfe />")
+            self.assertEqual(archive_file.read("nfs-Cliente-XML-NFS-2026-01-15-2100.xml"), b"<nfse />")
 
     def test_issued_documents_download_pdfs_returns_only_nfe_documents_for_nfe_filter(self) -> None:
         january_10 = timezone.make_aware(datetime(2026, 1, 10, 10, 0, 0))
         january_15 = timezone.make_aware(datetime(2026, 1, 15, 15, 30, 0))
 
-        nfe_request = self._create_nfe_request(
+        self._create_nfe_request(
             customer_name="Cliente PDF NF",
             created_at=january_10,
             number="1200",
@@ -3856,16 +3857,16 @@ class IssuedDocumentsViewTests(TestCase):
             self.assertEqual(
                 sorted(archive_file.namelist()),
                 [
-                    f"NF-e/1200-solicitacao-{nfe_request.pk}/nf-e-1200-danfe-etiqueta.pdf",
-                    f"NF-e/1200-solicitacao-{nfe_request.pk}/nf-e-1200-danfe-simples.pdf",
-                    f"NF-e/1200-solicitacao-{nfe_request.pk}/nf-e-1200-danfe.pdf",
+                    "nf-Cliente-PDF-NF-2026-01-10-1200-danfe-etiqueta.pdf",
+                    "nf-Cliente-PDF-NF-2026-01-10-1200-danfe-simples.pdf",
+                    "nf-Cliente-PDF-NF-2026-01-10-1200-danfe.pdf",
                 ],
             )
 
     def test_issued_documents_download_pdfs_returns_nfse_and_rps_pdfs_for_nfse_filter(self) -> None:
         january_15 = timezone.make_aware(datetime(2026, 1, 15, 15, 30, 0))
 
-        nfse_request = self._create_nfse_request(
+        self._create_nfse_request(
             customer_name="Cliente PDF NFS",
             created_at=january_15,
             number="2300",
@@ -3892,10 +3893,39 @@ class IssuedDocumentsViewTests(TestCase):
             self.assertEqual(
                 sorted(archive_file.namelist()),
                 [
-                    f"NFS-e/2300-solicitacao-{nfse_request.pk}/nfs-e-2300-pdf-da-nfs-e.pdf",
-                    f"NFS-e/2300-solicitacao-{nfse_request.pk}/nfs-e-2300-pdf-do-rps.pdf",
+                    "nfs-Cliente-PDF-NFS-2026-01-15-2300-pdf-da-nfs-e.pdf",
+                    "nfs-Cliente-PDF-NFS-2026-01-15-2300-pdf-do-rps.pdf",
                 ],
             )
+
+    def test_issued_documents_download_uses_concurrent_requests(self) -> None:
+        january_10 = timezone.make_aware(datetime(2026, 1, 10, 10, 0, 0))
+
+        self._create_nfe_request(
+            customer_name="Cliente Concorrencia",
+            created_at=january_10,
+            number="1300",
+            danfe_url="https://files.test/nfe-1300-danfe.pdf",
+            danfe_simple_url="https://files.test/nfe-1300-simples.pdf",
+            danfe_label_url="https://files.test/nfe-1300-etiqueta.pdf",
+        )
+
+        started_at = time.perf_counter()
+
+        def _slow_download(*, workshop, url):
+            time.sleep(0.2)
+            return DownloadedWebmaniaDocument(content=url.encode(), content_type="application/pdf", content_disposition="")
+
+        with patch("apps.finance.views.issued_documents.download_webmania_document", side_effect=_slow_download):
+            response = self.client.get(
+                reverse("finance:issued_documents_download", kwargs={"document_group": "pdfs"}),
+                data={"data_inicial": "2026-01-01", "data_final": "2026-01-31", "tipo": "nfe"},
+            )
+
+        elapsed = time.perf_counter() - started_at
+
+        self.assertEqual(response.status_code, 200)
+        self.assertLess(elapsed, 0.55)
 
 
 class NfeCancelServiceTests(TestCase):
