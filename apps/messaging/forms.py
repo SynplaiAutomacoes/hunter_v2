@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 from django import forms
+from django.db.models import Q
 
 from apps.core.widgets import CheckboxInput, TextInput, TextareaInput
 from apps.messaging.models import CustomerMessageGroup, MessageTemplate
@@ -70,7 +71,13 @@ class CustomerMessageGroupForm(forms.ModelForm):
         self.fields["message"].widget.attrs.update({"x-ref": "messageField"})
 
         if self.workshop is not None:
-            message_template_field.queryset = MessageTemplate.objects.filter(workshop=self.workshop).order_by("name")
+            current_message_template_id = self.instance.message_template_id if self.instance.pk else None
+            template_queryset = MessageTemplate.objects.filter(workshop=self.workshop)
+            if current_message_template_id is None:
+                template_queryset = template_queryset.filter(is_active=True)
+            else:
+                template_queryset = template_queryset.filter(Q(is_active=True) | Q(pk=current_message_template_id))
+            message_template_field.queryset = template_queryset.order_by("name")
 
     def clean_name(self) -> str:
         name = str(self.cleaned_data.get("name") or "").strip()
