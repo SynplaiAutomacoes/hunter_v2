@@ -1198,6 +1198,8 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Cartão Master/Visa")
         self.assertContains(response, "24/03/2026")
+        self.assertContains(response, "alert_confirm_modal")
+        self.assertContains(response, 'data-confirm="Deseja remover esta forma de pagamento?"', html=False)
 
         payment = WorkOrderPaymentMethod.objects.get(workorder=self.workorder)
         self.assertEqual(payment.installments_count, 4)
