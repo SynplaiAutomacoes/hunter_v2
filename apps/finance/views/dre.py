@@ -10,6 +10,7 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import TemplateView
 
+from apps.budget.pdf_context import build_workshop_logo_data_uri
 from apps.core.documents.http import build_pdf_http_response
 from apps.core.templatetags.table_tags import TableColumn
 from apps.finance.documents.provider import build_dre_excel_document, render_dre_pdf_document
@@ -142,6 +143,7 @@ class DreBaseView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             end_date=self._parse_date_param(self.request.GET.get("data_final")),
             selected_financial_groups=selected_financial_groups,
         )
+        workshop_logo_data_uri = build_workshop_logo_data_uri(workshop=selected_workshop) if selected_workshop is not None else ""
 
         return {
             "selected_workshop": selected_workshop,
@@ -155,6 +157,7 @@ class DreBaseView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             "selected_financial_groups": selected_financial_groups,
             "dre_rows": dre_calculation.rows,
             "dre_summary_cards": dre_calculation.summary_cards,
+            "workshop_logo_data_uri": workshop_logo_data_uri,
         }
 
     def _parse_date_param(self, raw_value: str | None) -> date | None:

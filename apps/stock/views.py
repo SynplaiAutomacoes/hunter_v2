@@ -39,6 +39,7 @@ from .forms import (
 from .models import StockImport, StockMovement, StockProduct, StockTransfer
 from ..catalog.models.groups import CatalogGroup
 from ..catalog.models.products import Product
+from ..budget.pdf_context import build_workshop_logo_data_uri
 from ..core.documents.http import build_pdf_http_response
 from ..core.forms import MultiStepFormMixin
 from ..core.query_filters import QueryParamFilter, apply_query_param_filters
@@ -290,6 +291,7 @@ class StockReportDataMixin:
             "stock_report_totals": self._get_stock_report_totals(),
             "stock_report_filter_descriptions": self._build_stock_report_filter_descriptions(),
             "stock_report_pdf_title": self.stock_report_pdf_title,
+            "workshop_logo_data_uri": build_workshop_logo_data_uri(workshop=self.workshop),
             "generated_at_label": timezone.localtime().strftime("%d/%m/%Y %H:%M"),
             "auto_print": self.request.GET.get("autoprint") == "1",
         }

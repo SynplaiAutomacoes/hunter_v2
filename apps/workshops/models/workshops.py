@@ -157,6 +157,15 @@ class Workshop(TimeStampedModel):
         return "-"
 
     @property
+    def pdf_phone(self) -> str:
+        company = self._get_webmania_company()
+        if company is not None:
+            company_phone = str(company.telefone or "").strip()
+            if company_phone:
+                return company_phone
+        return str(self.phone or "").strip()
+
+    @property
     def webmania_company_unit_display(self) -> str:
         company = self._get_webmania_company()
         if company is None:
