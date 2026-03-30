@@ -27,9 +27,10 @@ from pynfe.processamento import ComunicacaoSefaz
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.core.forms import address_layout, AddressFormMixin
-from apps.core.widgets import TextInput, SelectInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput, PhoneInput, EmailInput
+from apps.core.widgets import TextInput, SelectInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput, PhoneInput, EmailInput, TextareaInput
 from apps.finance.models.payment_method import PaymentMethod
 
+from apps.stock.financial_entries import ADDITIONAL_CHARGE_ENTRY_TYPE, PAYMENT_ENTRY_TYPE, calculate_import_totals, get_entry_amount, get_entry_reason, normalize_entry_type
 from apps.stock.models import StockPaymentMethod, StockImport, StockProduct, StockMovement, SefazZipCache
 from apps.stock.models import StockTransfer
 
@@ -379,10 +380,10 @@ class ImportStepPaymentForm(forms.ModelForm):
         if self.workshop:
             self.fields["payment_method"].queryset = PaymentMethod.objects.filter(workshop=self.workshop, is_active=True).order_by("description")
 
-        # Cálculos Financeiros
-        valor_total = sum(Decimal(str(item.get("valor", 0))) * Decimal(str(item.get("qtd", 0))) for item in self.import_items)
-        valor_pago = sum(Decimal(str(p.get("total_paid", 0))) for p in self.import_payments)
-        valor_pendente = valor_total - valor_pago
+        totals = calculate_import_totals(items=self.import_items, entries=self.import_payments)
+        valor_total = totals.total_value
+        valor_pago = totals.total_paid
+        valor_pendente = totals.pending_value
 
         resume = {
             "total_nf_display": valor_total,
@@ -525,7 +526,11 @@ class ImportStepPaymentForm(forms.ModelForm):
                 ),
                 Div(
                     Field("installments_count"),
-                    HTML(f"""<div class="col-span-12 flex justify-end">
+                    HTML(f"""<div class="col-span-12 flex justify-end gap-2">
+                        <button type="button"
+                                hx-get="{reverse("stock:add_additional_value_modal")}?pk={self.instance.pk}"
+                                hx-target="#modal-container"
+                                class="btn btn-outline">Adicionar Valor</button>
                         <button type="button" hx-post="{reverse("stock:add_payment_session")}?pk={self.instance.pk}"
                                 hx-target="#import-step-container"
                                 hx-include="#import-step-container"
@@ -545,19 +550,30 @@ class ImportStepPaymentForm(forms.ModelForm):
 
     def _generate_payments_table_html(self):
         rows = ""
-        for p in self.import_payments:
-            payment_date = p.get("payment_date", "")
-            try:
-                date_obj = datetime.strptime(payment_date, "%Y-%m-%d")
-                payment_date = date_obj.strftime("%d/%m/%Y")
-            except ValueError:
-                continue
-            delete_url = reverse("stock:remove_payment_session", kwargs={"payment_id": p["id"]})
+        for entry in self.import_payments:
+            entry_type = normalize_entry_type(entry)
+            payment_date = str(entry.get("payment_date") or "")
+            if entry_type == PAYMENT_ENTRY_TYPE and payment_date:
+                try:
+                    payment_date = datetime.strptime(payment_date, "%Y-%m-%d").strftime("%d/%m/%Y")
+                except ValueError:
+                    payment_date = "-"
+            else:
+                payment_date = "-"
+
+            amount = get_entry_amount(entry)
+            sign = "+" if entry_type == ADDITIONAL_CHARGE_ENTRY_TYPE else "-"
+            entry_type_label = "Valor adicional" if entry_type == ADDITIONAL_CHARGE_ENTRY_TYPE else "Pagamento"
+            reason = get_entry_reason(entry) or "-"
+            description = str(entry.get("method_display") or entry_type_label)
+            delete_url = reverse("stock:remove_payment_session", kwargs={"payment_id": entry["id"]})
             delete_url += f"?pk={self.instance.pk}"
             rows += f"""<tr>
-                    <td>{p["method_display"]}</td>
+                    <td>{description}</td>
+                    <td>{entry_type_label}</td>
                     <td>{payment_date}</td>
-                    <td class="font-bold">{Money(p["total_paid"], "BRL")}</td>
+                    <td class="font-bold whitespace-nowrap">{sign} {Money(amount, "BRL")}</td>
+                    <td>{reason}</td>
                     <td class="text-center">
                         <button type="button" 
                                 hx-post="{delete_url}" 
@@ -570,14 +586,16 @@ class ImportStepPaymentForm(forms.ModelForm):
                 </tr>"""
 
         if not rows:
-            rows = '<tr><td colspan="4" class="text-center text-gray-500 italic py-4">Nenhuma forma de pagamento registrada.</td></tr>'
+            rows = '<tr><td colspan="6" class="text-center text-gray-500 italic py-4">Nenhum lançamento financeiro registrado.</td></tr>'
 
         return f"""<table class="table table-zebra w-full">
                 <thead>
                     <tr class="bg-base-300">
-                        <th>Forma de Pagamento</th>
+                        <th>Descrição</th>
+                        <th>Tipo</th>
                         <th>Vencimento</th>
-                        <th>Valor Total</th>
+                        <th>Valor</th>
+                        <th>Motivo</th>
                         <th class="text-center">Ações</th>
                     </tr>
                 </thead>
@@ -632,24 +650,25 @@ class ImportStepSummaryForm(forms.ModelForm):
                     <tr class="h-5"><td colspan="4"></td></tr>"""
 
         payments_html = ""
-        total_value = Money(0, "BRL")
+        totals = calculate_import_totals(items=list(self.instance.items_data or []), entries=list(self.instance.payments_data or []))
+        total_value = Money(totals.pending_value, "BRL")
         for pay in self.instance.payments_data:
-            raw_value = str(pay.get("total_paid", "0.00"))
-            if "," in raw_value:
-                clean_value = raw_value.replace(".", "").replace(",", ".")
+            value = Money(get_entry_amount(pay), "BRL")
+            entry_type = normalize_entry_type(pay)
+            sign = "+" if entry_type == ADDITIONAL_CHARGE_ENTRY_TYPE else "-"
+            if entry_type == ADDITIONAL_CHARGE_ENTRY_TYPE:
+                details = get_entry_reason(pay) or "Sem motivo informado"
             else:
-                clean_value = raw_value
-            value = Money(Decimal(clean_value), "BRL")
-            total_value += value
-            payment_date = pay.get("payment_date", "")
-            try:
-                payment_date_display = datetime.strptime(payment_date, "%Y-%m-%d").strftime("%d/%m/%Y") if payment_date else "-"
-            except ValueError:
-                payment_date_display = "-"
+                payment_date = pay.get("payment_date", "")
+                try:
+                    payment_date_display = datetime.strptime(payment_date, "%Y-%m-%d").strftime("%d/%m/%Y") if payment_date else "-"
+                except ValueError:
+                    payment_date_display = "-"
+                details = f"{pay.get('method_display', 'Não encontrado')} - Vencimento {payment_date_display}"
 
             payments_html += f"""<div class="flex justify-between items-center mb-2 gap-4">
-                            <span class="text-sm">{pay.get("method_display", "Não encontrado")} - Vencimento {payment_date_display}</span>
-                            <span class="font-bold">{value}</span>
+                            <span class="text-sm">{details}</span>
+                            <span class="font-bold">{sign} {value}</span>
                         </div>"""
 
         supplier_name = self.instance.supplier_name or "Não informado"
@@ -699,7 +718,7 @@ class ImportStepSummaryForm(forms.ModelForm):
                             {payments_html}
                             <div class="divider my-1"></div>
                             <div class="flex justify-between items-center font-black text-xl">
-                                <span>Total Geral</span>
+                                <span>Saldo Pendente</span>
                                 <span>{total_value}</span>
                             </div>
                         </div>
@@ -750,6 +769,9 @@ class ImportStepSummaryForm(forms.ModelForm):
             stock_product.save(update_fields=update_fields)
 
         for pay in instance.payments_data:
+            if normalize_entry_type(pay) != PAYMENT_ENTRY_TYPE:
+                continue
+
             payment_due_date = pay.get("payment_date")
             if isinstance(payment_due_date, str) and payment_due_date:
                 try:
@@ -779,6 +801,29 @@ class ImportStepSummaryForm(forms.ModelForm):
             if not item.get("linked_product_id"):
                 self.add_error(None, "Existem itens pendentes de vínculo.")
         return cleaned_data
+
+
+class AdditionalChargeSessionForm(forms.Form):
+    amount = MoneyField(max_digits=14, decimal_places=2, label="Valor", widget=MoneyInput)
+    reason = forms.CharField(label="Motivo", max_length=255, widget=TextareaInput(attrs={"rows": 3, "placeholder": "Ex: Frete da transportadora"}))
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout(
+            Div(
+                Field("amount"),
+                Field("reason"),
+                css_class="space-y-4",
+            )
+        )
+
+    def clean_reason(self) -> str:
+        reason = str(self.cleaned_data.get("reason") or "").strip()
+        if not reason:
+            raise forms.ValidationError("Informe o motivo do valor adicional.")
+        return reason
 
 
 class ImportSefazListForm(forms.ModelForm):

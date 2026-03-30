@@ -25,6 +25,8 @@ urlpatterns = [
     # Payment
     path("remove_payment_session/<int:payment_id>/", views.RemovePaymentSessionView.as_view(), name="remove_payment_session"),
     path("add_payment_session/", views.AddPaymentSessionView.as_view(), name="add_payment_session"),
+    path("payment/additional/modal/", views.AdditionalChargeModalView.as_view(), name="add_additional_value_modal"),
+    path("payment/additional/add/", views.AddAdditionalChargeSessionView.as_view(), name="add_additional_value_session"),
     # Link / Unlink
     path("link-manual/", views.LinkProductManualView.as_view(), name="link_product_manual"),
     path("unlink-item/", views.UnlinkItemView.as_view(), name="unlink_item"),

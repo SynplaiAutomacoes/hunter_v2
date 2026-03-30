@@ -710,6 +710,72 @@ class StockImportPaymentFlowTests(TestCase):
         self.assertEqual(stock_import.payments_data[0]["first_amount"], "40.00")
         self.assertEqual(stock_import.payments_data[0]["total_paid"], "40.00")
 
+    def test_add_additional_value_modal_renders_fields(self) -> None:
+        stock_import = StockImport.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            nf_key="8" * 44,
+            items_data=[{"valor": "100.00", "qtd": "1"}],
+            payments_data=[],
+        )
+
+        response = self.client.get(f"{reverse('stock:add_additional_value_modal')}?pk={stock_import.pk}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Adicionar Valor")
+        self.assertContains(response, "Motivo")
+        self.assertContains(response, "Confirmar")
+
+    def test_add_additional_value_session_appends_positive_entry_and_reason(self) -> None:
+        stock_import = StockImport.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            nf_key="9" * 44,
+            items_data=[{"valor": "100.00", "qtd": "1"}],
+            payments_data=[],
+        )
+
+        response = self.client.post(
+            f"{reverse('stock:add_additional_value_session')}?pk={stock_import.pk}",
+            data={
+                "amount_0": "15.00",
+                "amount_1": "BRL",
+                "reason": "Frete da transportadora",
+            },
+        )
+
+        stock_import.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(stock_import.payments_data), 1)
+        self.assertEqual(stock_import.payments_data[0]["entry_type"], "additional_charge")
+        self.assertEqual(stock_import.payments_data[0]["amount"], "15.00")
+        self.assertEqual(stock_import.payments_data[0]["reason"], "Frete da transportadora")
+
+    def test_add_payment_session_allows_pending_amount_including_additional_values(self) -> None:
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Cartao", installments_count=2)
+        stock_import = StockImport.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            nf_key="1" * 44,
+            items_data=[{"valor": "100.00", "qtd": "1"}],
+            payments_data=[{"id": 1, "entry_type": "additional_charge", "amount": "20.00", "reason": "Frete"}],
+        )
+
+        response = self.client.post(
+            f"{reverse('stock:add_payment_session')}?pk={stock_import.pk}",
+            data={
+                "payment_method": str(payment_method.pk),
+                "payment_date": "2026-03-24",
+                "first_amount_0": "110.00",
+            },
+        )
+
+        stock_import.refresh_from_db()
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(len(stock_import.payments_data), 2)
+        self.assertEqual(stock_import.payments_data[1]["entry_type"], "payment")
+        self.assertEqual(stock_import.payments_data[1]["total_paid"], "110.00")
+
     def test_payment_form_renders_workorder_style_labels_and_table(self) -> None:
         payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix", installments_count=1)
         stock_import = StockImport.objects.create(
@@ -726,7 +792,14 @@ class StockImportPaymentFlowTests(TestCase):
                     "first_amount": "30.00",
                     "total_paid": "30.00",
                     "payment_date": "2026-03-24",
-                }
+                    "reason": "Pix",
+                },
+                {
+                    "id": 2,
+                    "entry_type": "additional_charge",
+                    "amount": "15.00",
+                    "reason": "Frete da transportadora",
+                },
             ],
         )
 
@@ -736,9 +809,15 @@ class StockImportPaymentFlowTests(TestCase):
         self.assertIn("Valor Pago", html)
         self.assertIn("Valor Pendente", html)
         self.assertIn("Salvar Plano de Pagamento", html)
-        self.assertIn("Valor Total", html)
+        self.assertIn("Adicionar Valor", html)
+        self.assertIn("Valor", html)
         self.assertIn("Vencimento", html)
-        self.assertNotIn("Parcelas", html)
+        self.assertIn("Motivo", html)
+        self.assertIn("- R$", html)
+        self.assertIn("+ R$", html)
+        self.assertIn("30,00", html)
+        self.assertIn("15,00", html)
+        self.assertIn("Frete da transportadora", html)
 
     def test_summary_save_persists_total_without_splitting_installments(self) -> None:
         payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Cartao", installments_count=4)
@@ -757,7 +836,14 @@ class StockImportPaymentFlowTests(TestCase):
                     "first_amount": "40.00",
                     "total_paid": "40.00",
                     "payment_date": "2026-03-24",
-                }
+                    "reason": "Cartao",
+                },
+                {
+                    "id": 2,
+                    "entry_type": "additional_charge",
+                    "amount": "15.00",
+                    "reason": "Frete",
+                },
             ],
             status=StockImport.ImportStatus.DRAFT,
         )
@@ -772,6 +858,7 @@ class StockImportPaymentFlowTests(TestCase):
         self.assertEqual(payment.first_installment_amount, Money("40.00", "BRL"))
         self.assertEqual(payment.remaining_installments_amount, Money("0.00", "BRL"))
         self.assertEqual(payment.total_paid, Money("40.00", "BRL"))
+        self.assertEqual(StockPaymentMethod.objects.filter(workshop=self.workshop).count(), 1)
 
 
 class BackfillStockProductSuppliersCommandTests(TestCase):
