@@ -91,7 +91,13 @@ def _build_selected_customers_payload(*, workshop, selected_customer_ids: Iterab
     return [serialized_by_id[customer_id] for customer_id in customer_ids if customer_id in serialized_by_id]
 
 
-def _build_message_templates_payload(*, workshop: Any) -> list[dict[str, Any]]:
+def _build_message_templates_payload(*, workshop: Any, current_template_id: int | None = None) -> list[dict[str, Any]]:
+    queryset = MessageTemplate.objects.filter(workshop=workshop)
+    if current_template_id is None:
+        queryset = queryset.filter(is_active=True)
+    else:
+        queryset = queryset.filter(Q(is_active=True) | Q(pk=current_template_id))
+
     return [
         {
             "id": template.pk,
@@ -99,7 +105,7 @@ def _build_message_templates_payload(*, workshop: Any) -> list[dict[str, Any]]:
             "message": template.message,
             "is_active": template.is_active,
         }
-        for template in MessageTemplate.objects.filter(workshop=workshop).order_by("name")
+        for template in queryset.order_by("name")
     ]
 
 
@@ -233,6 +239,7 @@ class MessageTemplateQuickCreateView(LoginRequiredMixin, WorkshopScopedMixin, Cr
                     "id": str(message_template.pk),
                     "name": message_template.name,
                     "message": message_template.message,
+                    "is_active": message_template.is_active,
                 }
             }
         )
@@ -332,7 +339,7 @@ class CustomerMessageGroupUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
             workshop=self.workshop,
             selected_customer_ids=_get_context_selected_customer_ids(request=self.request, current_object=self.object),
         )
-        context["message_templates_payload"] = _build_message_templates_payload(workshop=self.workshop)
+        context["message_templates_payload"] = _build_message_templates_payload(workshop=self.workshop, current_template_id=self.object.message_template_id)
         context["variable_groups"] = get_variable_groups()
         context["customer_picker_url"] = reverse("messaging:customer_message_group_customer_picker")
         return context

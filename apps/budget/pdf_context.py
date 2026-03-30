@@ -19,34 +19,16 @@ def _build_pdf_pages(produtos: list[dict], servicos: list[dict]) -> list[dict]:
 
 
 def build_workshop_logo_data_uri(*, workshop) -> str:
-    workshop_logo = getattr(workshop, "logo", None)
-    if not workshop_logo:
-        return ""
-
     try:
-        workshop_logo.open("rb")
-        try:
-            logo_bytes = workshop_logo.read()
-        finally:
-            workshop_logo.close()
-
-        if not logo_bytes:
-            return ""
-
-        extension = str(getattr(workshop_logo, "name", "")).lower().split(".")[-1]
-        content_type_map = {
-            "png": "image/png",
-            "jpg": "image/jpeg",
-            "jpeg": "image/jpeg",
-            "webp": "image/webp",
-            "gif": "image/gif",
-            "svg": "image/svg+xml",
-        }
-        content_type = content_type_map.get(extension, "image/png")
-        encoded_logo = base64.b64encode(logo_bytes).decode("ascii")
-        return f"data:{content_type};base64,{encoded_logo}"
-    except OSError:
+        stored_logo = get_workshop_logo_file(workshop)
+    except WorkshopFileStorageError:
         return ""
+
+    if stored_logo is None or not stored_logo.content:
+        return ""
+
+    encoded_logo = base64.b64encode(stored_logo.content).decode("ascii")
+    return f"data:{stored_logo.content_type};base64,{encoded_logo}"
 
 
 def build_budget_pdf_context(*, budget, observacao: str, request=None) -> dict:
@@ -85,15 +67,7 @@ def build_budget_pdf_context(*, budget, observacao: str, request=None) -> dict:
         for line in snapshot.service_lines
     ]
 
-    workshop_logo_data_uri = ""
-    try:
-        stored_logo = get_workshop_logo_file(budget.workshop)
-    except WorkshopFileStorageError:
-        stored_logo = None
-
-    if stored_logo is not None and stored_logo.content:
-        encoded_logo = base64.b64encode(stored_logo.content).decode("ascii")
-        workshop_logo_data_uri = f"data:{stored_logo.content_type};base64,{encoded_logo}"
+    workshop_logo_data_uri = build_workshop_logo_data_uri(workshop=budget.workshop)
 
     return {
         "budget": budget,
@@ -107,6 +81,6 @@ def build_budget_pdf_context(*, budget, observacao: str, request=None) -> dict:
         "observacao": observacao,
         "total_profit_product_value": sum((line.profit_value for line in snapshot.product_lines), Money(0, "BRL")),
         "total_profit_service_value": sum((line.profit_value for line in snapshot.service_lines), Money(0, "BRL")),
-        "workshop_logo_data_uri": build_workshop_logo_data_uri(workshop=budget.workshop),
+        "workshop_logo_data_uri": workshop_logo_data_uri,
         "request": request,
     }

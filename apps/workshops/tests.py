@@ -291,6 +291,19 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
         self.assertNotIn("active_workshop_id", self.client.session)
 
 
+class WorkshopPdfPhoneTests(TestCase):
+    def test_pdf_phone_prefers_webmania_company_phone_when_available(self) -> None:
+        _, workshop = create_director_user_with_workshop(suffix=21)
+        WebmaniaCompany.objects.create(workshop=workshop, telefone="+5511988880001")
+
+        self.assertEqual(workshop.pdf_phone, "+5511988880001")
+
+    def test_pdf_phone_falls_back_to_workshop_phone(self) -> None:
+        _, workshop = create_director_user_with_workshop(suffix=22)
+
+        self.assertEqual(workshop.pdf_phone, "(11) 98888-7777")
+
+
 def create_manager_user_with_workshop(*, suffix: int = 1) -> tuple[User, Workshop, WorkshopRole]:
     """Create a user with a Gerente role on a workshop (not account owner)."""
     owner = User.objects.create_user(username=f"mgr_owner{suffix}", password="123", cpf=f"33344455{suffix:03d}")
