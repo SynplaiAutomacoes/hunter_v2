@@ -747,11 +747,8 @@ class BudgetStep3Form(forms.ModelForm):
         
         initial_collaborators = []
         if self.instance.pk:
-            initial_collaborators = [
-                {"id": str(c.id), "name": c.name}
-                for c in self.instance.collaborators.all()
-            ]
-        
+            initial_collaborators = [{"id": str(c.id), "name": c.name, "is_new": False} for c in self.instance.collaborators.all()]
+
         if not initial_collaborators:
             initial_collaborators = [{"id": "", "is_new": True}]
 
@@ -766,6 +763,11 @@ class BudgetStep3Form(forms.ModelForm):
         slots_initial_html, additional_initial_html = _build_step3_images_initial_html(self.instance, slot_placeholder_urls)
         if not slots_initial_html:
             slots_initial_html = _build_step3_slot_fallback_html(slot_placeholder_urls)
+
+        from django.template.loader import render_to_string
+        collaborator_html = render_to_string(template_name="budget/partials/components/collaborator_field.html",
+            context={"field": self["collaborator"], "initial_collaborators_json": self.initial_collaborators_json},
+            request=self.request)
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -860,9 +862,7 @@ class BudgetStep3Form(forms.ModelForm):
                     # Diagnóstico Técnico
                     Div(
                         HTML('<h3 class="text-2xl font-bold mb-4">Diagnóstico Técnico</h3>'),
-                        HTML(f'''
-                            {{% include "budget/partials/components/collaborator_field.html" with field=form.collaborator %}}
-                        '''),
+                        HTML(collaborator_html),
                         #
                         HTML('<label class="block text-gray-700 font-bold mb-2">Adicione os defeitos encontrados durante a inspeção</label>'),
                         Div(id="defect-list-container", css_class="mb-4 p-4 border-2 border-dashed border-gray-200 rounded-lg min-h-[120px] flex flex-wrap content-start"),

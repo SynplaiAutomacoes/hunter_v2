@@ -1,11 +1,17 @@
 {% load crispy_forms_field %}
 
-<div class="w-full mb-6" 
-     x-data="{ 
-            collabs: (initial => initial.map(c => ({...c, _key: Date.now() + Math.random()})))(
-            {% if initial_collaborators_json %}{{ initial_collaborators_json|safe }}{% else %}[]{% endif %}
-        ),
-
+<div class="w-full mb-6"
+     x-data="{
+        collabs: [],
+        init() {
+            const data = JSON.parse(
+                document.getElementById('initial-collabs-data').textContent
+            );
+            this.collabs = data.map(c => ({
+                ...c,
+                _key: Date.now() + Math.random()
+            }));
+        },
         addCollab() {
             this.collabs.push({ id: '', is_new: true, _key: Date.now() + Math.random() });
         },
@@ -42,12 +48,12 @@
                     </label>
                     
                     <select :name="'collaborators_list'"
-                            class="select select-bordered w-full bg-base-200" 
+                            class="select select-bordered w-full bg-base-200"
                             x-model="collab.id"
                             required>
                         <option value="" disabled>Selecione um colaborador...</option>
                         {% for choice_id, choice_label in field.field.choices %}
-                            <option value="{{ choice_id }}" :selected="collab.id == '{{ choice_id }}'">{{ choice_label }}</option>
+                            <option value="{{ choice_id }}">{{ choice_label }}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -101,4 +107,12 @@
             animation: fadeIn 0.3s ease-out forwards;
         }
     </style>
+
+    <script id="initial-collabs-data" type="application/json">
+        {{ initial_collaborators_json|safe }}
+    </script>
 </div>
+
+<script id="initial-collabs-data" type="application/json">
+    {{ initial_collaborators_json|safe }}
+</script>
