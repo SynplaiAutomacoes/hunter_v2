@@ -446,6 +446,52 @@ def create_kit(*, workshop: Workshop, suffix: int, products: list[tuple[Product,
     return kit
 
 
+class WorkOrderDetailViewTests(TestCase):
+    def _login_with_active_workshop(self, *, suffix: int) -> Workshop:
+        user, workshop = create_director_user_with_workshop(suffix=suffix)
+        self.client.force_login(user)
+
+        session = self.client.session
+        session["active_workshop_id"] = workshop.pk
+        session.save()
+        return workshop
+
+    def test_detail_view_renders_resume_items_on_initial_load(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=95)
+
+        customer = create_customer(workshop=workshop, suffix=95)
+        vehicle = create_vehicle(workshop=workshop, customer=customer, suffix=95, plate="OSR9595")
+        budget = create_budget(workshop=workshop)
+        budget.customer = customer
+        budget.vehicle = vehicle
+        budget.save(update_fields=["customer", "vehicle"])
+
+        direct_product = create_product(workshop=workshop, suffix=951)
+        kit_product = create_product(workshop=workshop, suffix=952)
+        direct_service = create_service(workshop=workshop, suffix=951)
+        kit_service = create_service(workshop=workshop, suffix=952)
+        kit = create_kit(workshop=workshop, suffix=9511, products=[(kit_product, 2)])
+        KitService.objects.create(kit=kit, service=kit_service, quantity=1, duration=kit_service.duration)
+
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=direct_product, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, service=direct_service, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        workorder.sync_from_budget()
+
+        response = self.client.get(reverse("workorder:workorder_detail", args=[workorder.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("summary_product_items", response.context)
+        self.assertIn("summary_service_items", response.context)
+        self.assertContains(response, direct_product.name)
+        self.assertContains(response, kit_product.name)
+        self.assertContains(response, direct_service.name)
+        self.assertContains(response, kit_service.name)
+        self.assertContains(response, kit.name)
+
+
 class WorkOrderTotalsConsistencyTests(TestCase):
     def test_total_base_value_uses_workorder_item_selling_totals_only(self) -> None:
         workshop = create_workshop(suffix=81)
