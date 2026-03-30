@@ -717,29 +717,28 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
         method_code = (request.POST.get("payment_method") or "").strip()
         payment_date = (request.POST.get("payment_date") or "").strip()
         first_amount_str = (request.POST.get("first_amount_0") or "").strip()
-        installments_str = (request.POST.get("installments_count") or "").strip()
 
-        if not all([method_code, payment_date, installments_str, first_amount_str]):
+        if not all([method_code, payment_date, first_amount_str]):
             return self._htmx_payment_response("Preencha todos os campos do pagamento antes de incluir.", level="warning")
 
         try:
             first_amount = Decimal(first_amount_str.replace(",", "."))
-            installments = int(installments_str)
-            if first_amount <= 0 or installments <= 0:
-                return self._htmx_payment_response("Informe valores válidos para o pagamento.", level="warning")
+            if first_amount <= 0:
+                return self._htmx_payment_response("Informe um valor válido para o pagamento.", level="warning")
 
             method_obj = PaymentMethod.objects.filter(id=method_code, workshop=self.workshop, is_active=True).first()
             if not method_obj:
                 return self._htmx_payment_response("A forma de pagamento selecionada é inválida.", level="warning")
 
-            total_paid = first_amount * installments
+            installments = max(int(method_obj.installments_count or 1), 1)
+            total_paid = first_amount
 
             valor_total_nf = sum(Decimal(str(item.get("valor", 0))) * Decimal(str(item.get("qtd", 0))) for item in obj.items_data)
             valor_ja_pago = sum(Decimal(str(p.get("total_paid", 0))) for p in obj.payments_data)
             valor_disponivel = valor_total_nf - valor_ja_pago
 
-            if total_paid > valor_disponivel:
-                return self._htmx_payment_response(f"O valor informado (R$ {total_paid}) excede o saldo pendente (R$ {valor_disponivel}).", level="warning")
+            if first_amount > valor_disponivel:
+                return self._htmx_payment_response(f"O valor informado (R$ {first_amount}) excede o saldo pendente (R$ {valor_disponivel}).", level="warning")
 
             payments = list(obj.payments_data or [])
             new_payment = {

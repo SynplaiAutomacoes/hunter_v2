@@ -356,7 +356,7 @@ class ImportStepItemsForm(forms.ModelForm):
 
 class ImportStepPaymentForm(forms.ModelForm):
     payment_method = forms.ModelChoiceField(queryset=PaymentMethod.objects.none(), label="Forma de Pagamento", widget=SelectInput, required=False, empty_label="Selecione uma forma")
-    installments_count = forms.IntegerField(min_value=1, initial=1, label="Número de Parcelas", widget=NumberInput, required=False)
+    installments_count = forms.IntegerField(min_value=1, initial=1, label="Número de Parcelas", widget=forms.HiddenInput, required=False)
     first_amount = MoneyField(max_digits=14, decimal_places=2, label="Valor Pago", widget=MoneyInput, required=False)
     payment_date = forms.DateField(label="Data de Vencimento", widget=CalendarDateInput, required=False)
 
@@ -403,69 +403,103 @@ class ImportStepPaymentForm(forms.ModelForm):
             self.fields[field_name].widget.attrs.update({"readonly": True, "class": "cursor-not-allowed opacity-75"})
 
         self.fields["payment_method"].label = mark_safe('Forma de Pagamento <span class="text-error">*</span>')
-        self.fields["installments_count"].label = mark_safe('Número de Parcelas <span class="text-error">*</span>')
-        self.fields["first_amount"].label = mark_safe('Valor Pago <span class="text-error">*</span>')
+        self.fields["first_amount"].label = mark_safe('Valor a ser pago <span class="text-error">*</span>')
         self.fields["payment_date"].label = mark_safe('Data de Vencimento <span class="text-error">*</span>')
+        self.fields["total_allocated_display"].label = "Valor Pago"
+        self.fields["pending_display"].label = "Valor Pendente"
+
+        today_iso = timezone.localdate().isoformat()
+        pending_amount_js = format(valor_pendente, "f")
 
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
             HTML(f"""
             <script>
-                document.addEventListener('DOMContentLoaded', function() {{
-                    const checkPaymentLimit = () => {{
-                        const firstAmountHidden = document.getElementById('id_first_amount_0');
-                        const installmentsInput = document.getElementById('id_installments_count');
-                        
-                        const pendingValue = parseFloat("{str(valor_pendente).replace(",", ".")}") || 0;
+                (function() {{
+                    window.initStockPaymentForm = function() {{
+                        const paymentContainer = document.getElementById('import-step-container');
+                        if (paymentContainer && paymentContainer.dataset.paymentInitialized === 'true') return;
 
+                        const paymentMethodInput = document.getElementById('id_payment_method');
+                        const firstAmountInput = document.getElementById('id_first_amount_0');
+                        const firstAmountDisplay = document.getElementById('id_first_amount_0_display');
+                        const dueDateInput = document.getElementById('id_payment_date');
                         const btnAdd = document.querySelector('button[hx-post*="add_payment_session"]');
                         const warningDiv = document.getElementById('payment-warning-js');
+                        const warningMessage = warningDiv ? warningDiv.querySelector('.payment-warning-message') : null;
+                        const pendingValue = parseFloat('{pending_amount_js}') || 0;
+                        const todayValue = '{today_iso}';
 
-                        if (!firstAmountHidden || !installmentsInput || !btnAdd) return;
-                        
-                        const unitAmount = parseFloat(firstAmountHidden.value) || 0;
-                        const qtyInstallments = parseInt(installmentsInput.value) || 1;
-                        const totalProposed = unitAmount * qtyInstallments;
+                        if (!paymentMethodInput || !firstAmountInput || !btnAdd) return;
 
-                        if (totalProposed > pendingValue) {{
-                            btnAdd.disabled = true;
-                            btnAdd.classList.add('btn-disabled', 'opacity-50');
-                            if (warningDiv) {{
-                                warningDiv.classList.remove('hidden');
-                                warningDiv.querySelector('.excess-amount').innerText =
-                                    "R$ " + (totalProposed - pendingValue).toLocaleString('pt-BR', {{minimumFractionDigits: 2}});
-                            }}
-                        }} else {{
-                            btnAdd.disabled = false;
-                            btnAdd.classList.remove('btn-disabled', 'opacity-50');
-                            if (warningDiv) warningDiv.classList.add('hidden');
+                        if (paymentContainer) {{
+                            paymentContainer.dataset.paymentInitialized = 'true';
                         }}
+
+                        const toggleWarning = (show, message) => {{
+                            if (!warningDiv) return;
+                            warningDiv.classList.toggle('hidden', !show);
+                            if (warningMessage) warningMessage.textContent = message || '';
+                        }};
+
+                        const updateDueDate = (force) => {{
+                            if (dueDateInput && paymentMethodInput.value && (force || !dueDateInput.value)) {{
+                                dueDateInput.value = todayValue;
+                            }}
+                        }};
+
+                        const checkPaymentLimit = () => {{
+                            const totalProposed = parseFloat(firstAmountInput.value) || 0;
+
+                            if (pendingValue <= 0) {{
+                                btnAdd.disabled = true;
+                                btnAdd.classList.add('btn-disabled', 'opacity-50');
+                                toggleWarning(true, 'A importação não possui saldo pendente para um novo pagamento.');
+                                return;
+                            }}
+
+                            if (totalProposed > (pendingValue + 0.001)) {{
+                                btnAdd.disabled = true;
+                                btnAdd.classList.add('btn-disabled', 'opacity-50');
+                                const excess = (totalProposed - pendingValue).toLocaleString('pt-BR', {{minimumFractionDigits: 2}});
+                                toggleWarning(true, `O valor a ser pago não pode exceder o saldo disponível de R$ {"{"}pendingValue.toLocaleString('pt-BR', {{minimumFractionDigits: 2}}){"}"}. Excesso de R$ ${{excess}}.`);
+                            }} else {{
+                                btnAdd.disabled = false;
+                                btnAdd.classList.remove('btn-disabled', 'opacity-50');
+                                toggleWarning(false, '');
+                            }}
+                        }};
+
+                        paymentMethodInput.addEventListener('change', function() {{
+                            updateDueDate(true);
+                            checkPaymentLimit();
+                        }});
+                        paymentMethodInput.addEventListener('input', function() {{
+                            updateDueDate(true);
+                            checkPaymentLimit();
+                        }});
+
+                        if (firstAmountDisplay) {{
+                            firstAmountDisplay.addEventListener('input', function() {{
+                                requestAnimationFrame(checkPaymentLimit);
+                            }});
+                            firstAmountDisplay.addEventListener('blur', function() {{
+                                setTimeout(checkPaymentLimit, 0);
+                            }});
+                        }}
+
+                        updateDueDate(false);
+                        setTimeout(checkPaymentLimit, 500);
                     }};
 
-                    document.addEventListener('focusout', function(e) {{
-                        const target = e.target;
-
-                        if (target.id === 'id_first_amount_0_display') {{
-                            checkPaymentLimit();
-                        }}
-
-                        const instHidden = document.getElementById('id_installments_count');
-                        if (instHidden) {{
-                            const container = instHidden.closest('[x-data]');
-                            if (container && container.contains(target)) {{
-                                setTimeout(checkPaymentLimit, 50);
-                            }}
-                        }}
-                    }});
-
-                    setTimeout(checkPaymentLimit, 500);
-                }});
+                    window.setTimeout(window.initStockPaymentForm, 0);
+                }})();
             </script>
             """),
             Div(
                 HTML('<h3 class="font-bold text-2xl pb-2 mb-2">Configuração das Formas de Pagamento</h3>'),
-                HTML('<h5 class="text-lg pb-2 mb-4">Adicione, edite e salve múltiplos planos de pagamentos para esta importação.</h5>'),
+                HTML('<h5 class="text-lg pb-2 mb-4">Adicione e salve múltiplos planos de pagamento para esta importação.</h5>'),
                 #
                 HTML(f"""
                     <div id="payment-warning-js" class="hidden col-span-12 mb-4">
@@ -473,9 +507,8 @@ class ImportStepPaymentForm(forms.ModelForm):
                             <span class="material-icons">error_outline</span>
                             <div>
                                 <h3 class="font-bold text-sm">Valor Não Permitido</h3>
-                                <div class="text-xs">
-                                    O valor excede o saldo disponível de <strong>R$ {valor_pendente:,.2f}</strong>. 
-                                    Excesso de <strong class="excess-amount"></strong>.
+                                <div class="text-xs payment-warning-message">
+                                    O valor a ser pago não pode exceder o saldo disponível de <strong>R$ {valor_pendente:,.2f}</strong>.
                                 </div>
                             </div>
                         </div>
@@ -486,20 +519,20 @@ class ImportStepPaymentForm(forms.ModelForm):
                 #
                 Div(
                     Field("payment_method", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("installments_count", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("first_amount", wrapper_class="col-span-12 lg:col-span-4"),
-                    css_class="grid grid-cols-12 gap-4 mb-2 mt-4 pb-4",
-                ),
-                #
-                Div(
                     Field("payment_date", wrapper_class="col-span-12 lg:col-span-4"),
-                    Div(css_class="col-span-12 lg:col-span-4"),
-                    HTML(f"""<button type="button" hx-post="{reverse("stock:add_payment_session")}?pk={self.instance.pk}"
-                                        hx-target="#import-step-container" 
-                                        hx-include="#import-step-container"
-                                        hx-indicator="#payment-loader"
-                                        class="btn btn-primary col-span-12 lg:col-span-4"> Incluir Pagamento</button>"""),
-                    css_class="grid grid-cols-12 gap-4 mb-2 pb-4",
+                    css_class="grid grid-cols-12 gap-4 mb-2 mt-4",
+                ),
+                Div(
+                    Field("installments_count"),
+                    HTML(f"""<div class="col-span-12 flex justify-end">
+                        <button type="button" hx-post="{reverse("stock:add_payment_session")}?pk={self.instance.pk}"
+                                hx-target="#import-step-container"
+                                hx-include="#import-step-container"
+                                hx-indicator="#payment-loader"
+                                class="btn btn-primary">Salvar Plano de Pagamento</button>
+                    </div>"""),
+                    css_class="grid grid-cols-12 gap-4 mb-4 pb-4",
                 ),
                 #
                 HTML('<div class="mt-6 overflow-x-auto">'),
@@ -523,7 +556,6 @@ class ImportStepPaymentForm(forms.ModelForm):
             delete_url += f"?pk={self.instance.pk}"
             rows += f"""<tr>
                     <td>{p["method_display"]}</td>
-                    <td>{p["installments"]}x</td>
                     <td>{payment_date}</td>
                     <td class="font-bold">{Money(p["total_paid"], "BRL")}</td>
                     <td class="text-center">
@@ -538,15 +570,14 @@ class ImportStepPaymentForm(forms.ModelForm):
                 </tr>"""
 
         if not rows:
-            rows = '<tr><td colspan="5" class="text-center text-gray-500 italic py-4">Nenhum pagamento registrado.</td></tr>'
+            rows = '<tr><td colspan="4" class="text-center text-gray-500 italic py-4">Nenhuma forma de pagamento registrada.</td></tr>'
 
         return f"""<table class="table table-zebra w-full">
                 <thead>
                     <tr class="bg-base-300">
                         <th>Forma de Pagamento</th>
-                        <th>Parcelas</th>
-                        <th>Data de Vencimento</th>
-                        <th>Valor Pago</th>
+                        <th>Vencimento</th>
+                        <th>Valor Total</th>
                         <th class="text-center">Ações</th>
                     </tr>
                 </thead>
@@ -610,8 +641,14 @@ class ImportStepSummaryForm(forms.ModelForm):
                 clean_value = raw_value
             value = Money(Decimal(clean_value), "BRL")
             total_value += value
-            payments_html += f"""<div class="flex justify-between items-center mb-2">
-                            <span class="text-sm">{pay.get("method_display", "Não encontrado")} ({pay.get("installments", 1)}x)</span>
+            payment_date = pay.get("payment_date", "")
+            try:
+                payment_date_display = datetime.strptime(payment_date, "%Y-%m-%d").strftime("%d/%m/%Y") if payment_date else "-"
+            except ValueError:
+                payment_date_display = "-"
+
+            payments_html += f"""<div class="flex justify-between items-center mb-2 gap-4">
+                            <span class="text-sm">{pay.get("method_display", "Não encontrado")} - Vencimento {payment_date_display}</span>
                             <span class="font-bold">{value}</span>
                         </div>"""
 
@@ -716,7 +753,7 @@ class ImportStepSummaryForm(forms.ModelForm):
             payment_due_date = pay.get("payment_date")
             if isinstance(payment_due_date, str) and payment_due_date:
                 try:
-                    payment_due_date = datetime.strptime(payment_due_date, "%Y-%m-%d")
+                    payment_due_date = timezone.make_aware(datetime.strptime(payment_due_date, "%Y-%m-%d"))
                 except ValueError:
                     payment_due_date = timezone.now()
             else:
@@ -726,8 +763,6 @@ class ImportStepSummaryForm(forms.ModelForm):
             installments = int(pay.get("installments", 1))
             first_amount = Decimal(str(pay.get("first_amount", total_val)))
             remaining_amount = Decimal("0.00")
-            if installments > 1:
-                remaining_amount = (total_val - first_amount) / (installments - 1)
 
             method_id = pay.get("method")
             payment_method_obj = get_object_or_404(PaymentMethod, id=method_id, workshop=workshop)

@@ -12,16 +12,19 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from django.utils import timezone
+from django.template import Context, Template
 from openpyxl import load_workbook
+from djmoney.money import Money
 
 from apps.accounts.models import Account, User
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.collaborators.models import WorkshopMember
 from apps.core.documents.contract import DocumentPayload
+from apps.finance.models.payment_method import PaymentMethod
 from apps.iam.utils import get_or_create_director_role
-from apps.stock.forms import ImportSefazListForm, ImportStep1Form, ImportStepSummaryForm, ImportStepSupplierForm
-from apps.stock.models import SefazZipCache, StockImport, StockMovement, StockProduct, StockTransfer
+from apps.stock.forms import ImportSefazListForm, ImportStep1Form, ImportStepPaymentForm, ImportStepSummaryForm, ImportStepSupplierForm
+from apps.stock.models import SefazZipCache, StockImport, StockMovement, StockPaymentMethod, StockProduct, StockTransfer
 from apps.stock.utils import NFParser
 from apps.suppliers.models import Supplier
 from apps.workshops.models.workshops import Workshop
@@ -671,6 +674,104 @@ class StockImportSupplierSyncTests(TestCase):
         self.assertEqual(self.stock_product.last_nf, "NF-NEW")
         self.assertEqual(self.stock_product.supplier, self.supplier_new)
         self.assertEqual(movement.supplier, self.supplier_new)
+
+
+class StockImportPaymentFlowTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=41)
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_add_payment_session_keeps_entered_amount_as_total_paid(self) -> None:
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Cartao", installments_count=4)
+        stock_import = StockImport.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            nf_key="5" * 44,
+            items_data=[{"valor": "100.00", "qtd": "1"}],
+            payments_data=[],
+        )
+
+        response = self.client.post(
+            f"{reverse('stock:add_payment_session')}?pk={stock_import.pk}",
+            data={
+                "payment_method": str(payment_method.pk),
+                "payment_date": "2026-03-24",
+                "first_amount_0": "40.00",
+            },
+        )
+
+        stock_import.refresh_from_db()
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(len(stock_import.payments_data), 1)
+        self.assertEqual(stock_import.payments_data[0]["installments"], "4")
+        self.assertEqual(stock_import.payments_data[0]["first_amount"], "40.00")
+        self.assertEqual(stock_import.payments_data[0]["total_paid"], "40.00")
+
+    def test_payment_form_renders_workorder_style_labels_and_table(self) -> None:
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix", installments_count=1)
+        stock_import = StockImport.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            nf_key="6" * 44,
+            items_data=[{"valor": "100.00", "qtd": "1"}],
+            payments_data=[
+                {
+                    "id": 1,
+                    "method": payment_method.pk,
+                    "method_display": payment_method.description,
+                    "installments": "1",
+                    "first_amount": "30.00",
+                    "total_paid": "30.00",
+                    "payment_date": "2026-03-24",
+                }
+            ],
+        )
+
+        form = ImportStepPaymentForm(instance=stock_import, workshop=self.workshop, import_items=stock_import.items_data, import_payments=stock_import.payments_data)
+        html = Template("{% load crispy_forms_tags %}{% crispy form %}").render(Context({"form": form}))
+
+        self.assertIn("Valor Pago", html)
+        self.assertIn("Valor Pendente", html)
+        self.assertIn("Salvar Plano de Pagamento", html)
+        self.assertIn("Valor Total", html)
+        self.assertIn("Vencimento", html)
+        self.assertNotIn("Parcelas", html)
+
+    def test_summary_save_persists_total_without_splitting_installments(self) -> None:
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Cartao", installments_count=4)
+        stock_import = StockImport.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            nf_key="7" * 44,
+            nf_number="NF-700",
+            items_data=[],
+            payments_data=[
+                {
+                    "id": 1,
+                    "method": payment_method.pk,
+                    "method_display": payment_method.description,
+                    "installments": "4",
+                    "first_amount": "40.00",
+                    "total_paid": "40.00",
+                    "payment_date": "2026-03-24",
+                }
+            ],
+            status=StockImport.ImportStatus.DRAFT,
+        )
+
+        form = ImportStepSummaryForm(data={}, instance=stock_import, workshop=self.workshop, request=SimpleNamespace(user=self.user))
+
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+
+        payment = StockPaymentMethod.objects.get(workshop=self.workshop, nf_number="NF-700")
+        self.assertEqual(payment.installments_count, 4)
+        self.assertEqual(payment.first_installment_amount, Money("40.00", "BRL"))
+        self.assertEqual(payment.remaining_installments_amount, Money("0.00", "BRL"))
+        self.assertEqual(payment.total_paid, Money("40.00", "BRL"))
 
 
 class BackfillStockProductSuppliersCommandTests(TestCase):
