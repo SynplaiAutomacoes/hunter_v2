@@ -36,6 +36,8 @@ from .forms import (
     TransferItemsForm,
     TransferStepWorkshopsForm,
     TransferSummaryForm,
+    TransferStepOperationForm,
+    TransferStepReasonForm,
 )
 from .financial_entries import calculate_import_totals, get_next_entry_id
 from .models import StockImport, StockMovement, StockProduct, StockTransfer
@@ -427,19 +429,28 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
         ]
 
         transfers_queryset = StockTransfer.objects.filter(Q(source_workshop=self.workshop) | Q(destination_workshop=self.workshop)).select_related("user", "source_workshop", "destination_workshop").order_by("-criado_em")
-        transfers = [
-            StockHistoryRow(
-                pk=transfer.pk,
-                record_type="transfer",
-                id=transfer.pk,
-                nf_number="TRANSFERENCIA",
-                supplier_name=f"{transfer.source_workshop.name} -> {transfer.destination_workshop.name}",
-                user=transfer.user,
-                criado_em=transfer.criado_em,
-                history_status_badge=transfer.stocktransfer_status_badge,
+        transfers = []
+        for transfer in transfers_queryset:
+            if transfer.operation_type == StockTransfer.OperationType.ADJUSTMENT:
+                if transfer.status == StockTransfer.TransferStatus.DRAFT: continue
+                display_path = f"BAIXA"
+            elif transfer.destination_workshop:
+                display_path = f"{transfer.source_workshop.name} -> {transfer.destination_workshop.name}"
+            else:
+                display_path = f"{transfer.source_workshop.name} -> ---"
+
+            transfers.append(
+                StockHistoryRow(
+                    pk=transfer.pk,
+                    record_type="transfer",
+                    id=transfer.pk,
+                    nf_number="TRANSFERÊNCIA" if transfer.operation_type == StockTransfer.OperationType.TRANSFER else "BAIXA",
+                    supplier_name=display_path,
+                    user=transfer.user,
+                    criado_em=transfer.criado_em,
+                    history_status_badge=transfer.stocktransfer_status_badge,
+                )
             )
-            for transfer in transfers_queryset
-        ]
 
         return sorted([*imports, *transfers], key=lambda row: row.criado_em, reverse=True)
 
@@ -1242,20 +1253,25 @@ class StockTransferCreateView(StockTransferAccessMixin, MultiStepFormMixin, Crea
         kwargs = super().get_form_kwargs()
         obj = self.get_object()
         kwargs.update({"request": self.request, "instance": obj})
+
         if self.get_form_class() is TransferStepWorkshopsForm:
             kwargs["allowed_workshops"] = self.get_allowed_workshops()
+
         return kwargs
 
     def get_steps_definition(self):
-        transfer_object = getattr(self, "object", None) or self.get_object()
-        base_steps = [{"title": "Origem e Destino", "form_class": TransferStepWorkshopsForm}]
-        if transfer_object:
-            base_steps.extend(
-                [
-                    {"title": "Itens da Transferência", "form_class": TransferItemsForm},
-                    {"title": "Revisão e Confirmação", "form_class": TransferSummaryForm},
-                ]
-            )
+        obj = self.get_object()
+        base_steps = [{"title": "Configuração", "form_class": TransferStepOperationForm}]
+
+        if obj:
+            if obj.operation_type == StockTransfer.OperationType.TRANSFER:
+                base_steps.extend([{"title": "Origem e Destino", "form_class": TransferStepWorkshopsForm}, {"title": "Selecionar Itens", "form_class": TransferItemsForm}])
+
+            if obj.operation_type == StockTransfer.OperationType.ADJUSTMENT:
+                base_steps.append({"title": "Motivo", "form_class": TransferStepReasonForm})
+
+        base_steps.append({"title": "Revisão", "form_class": TransferSummaryForm})
+
         return base_steps
 
     def get_success_url(self):
@@ -1269,10 +1285,15 @@ class StockTransferCreateView(StockTransferAccessMixin, MultiStepFormMixin, Crea
         current_step = self.get_current_step()
         total_steps = len(self.get_steps_config())
 
+        if self.object.operation_type == StockTransfer.OperationType.ADJUSTMENT:
+            self.object.source_workshop = get_active_workshop_or_404(self.request)
+            self.object.destination_workshop = None
+
         next_step_value = current_step + 1
         if self.object.current_step < next_step_value:
             self.object.current_step = next_step_value
-            self.object.save(update_fields=["current_step"])
+
+        self.object.save()
 
         if current_step < total_steps:
             success_url = f"{reverse('stock:transfer_update', kwargs={'pk': self.object.pk})}?step={current_step + 1}"
@@ -1312,10 +1333,15 @@ class StockTransferUpdateView(StockTransferCreateView):
         current_step = self.get_current_step()
         total_steps = len(self.get_steps_config())
 
+        if self.object.operation_type == StockTransfer.OperationType.ADJUSTMENT:
+            self.object.source_workshop = get_active_workshop_or_404(self.request)
+            self.object.destination_workshop = None
+
         next_step_value = current_step + 1
         if self.object.current_step < next_step_value:
             self.object.current_step = next_step_value
-            self.object.save(update_fields=["current_step"])
+
+        self.object.save()
 
         if current_step < total_steps:
             success_url = f"{reverse('stock:transfer_update', kwargs={'pk': self.object.pk})}?step={current_step + 1}"
@@ -1364,7 +1390,12 @@ class AddTransferSourceItemView(StockTransferAccessMixin, View):
         raw_quantity = request.POST.get("quantity") or "1"
         transfer = get_object_or_404(StockTransfer, pk=pk)
         source_product = get_object_or_404(Product, id=product_id, workshop=transfer.source_workshop)
-        items = list(transfer.items_data)
+        
+        clear_others = request.POST.get("clear_others") == "true"
+        if clear_others:
+            items = []
+        else:
+            items = list(transfer.items_data)
 
         try:
             quantity = max(1, int(Decimal(str(raw_quantity).replace(",", "."))))
