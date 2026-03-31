@@ -9,6 +9,7 @@ from djmoney.money import Money
 from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
+from apps.catalog.product_issues import ProductIssueSummary, annotate_product_issues
 from apps.core.models import TimeStampedModel
 from djmoney.models.fields import MoneyField
 
@@ -84,6 +85,7 @@ class Budget(TimeStampedModel):
     problem_description = models.TextField(verbose_name="Relato principal do cliente", blank=True, null=True)
     technical_diagnosis = models.TextField(verbose_name="Observações Técnicas", blank=True, null=True)
     notes = models.TextField(verbose_name="Observações Complementares", blank=True, null=True)
+    pdf_observation = models.CharField(verbose_name="Observação do PDF", max_length=250, blank=True, default="")
     current_km = models.PositiveIntegerField(verbose_name="KM Atual", default=0)
     fuel_level = models.PositiveIntegerField(verbose_name="Nível do Tanque", choices=FuelLevel.choices, null=True, blank=True)
     defect = models.ForeignKey(Defect, on_delete=models.SET_NULL, related_name="budgets", null=True)
@@ -478,6 +480,8 @@ class Budget(TimeStampedModel):
     def invalidate_pricing_snapshot_cache(self) -> None:
         if hasattr(self, "_pricing_snapshot_cache"):
             delattr(self, "_pricing_snapshot_cache")
+        if hasattr(self, "_product_issue_summary_cache"):
+            delattr(self, "_product_issue_summary_cache")
 
     def sync_discount_fields(self) -> None:
         self.invalidate_pricing_snapshot_cache()
@@ -564,6 +568,50 @@ class Budget(TimeStampedModel):
     @property
     def has_local_items(self):
         return self.items.filter(is_local=True).exists()
+
+    @property
+    def product_issue_summary(self) -> ProductIssueSummary:
+        cached_summary = getattr(self, "_product_issue_summary_cache", None)
+        if cached_summary is None:
+            cached_summary = annotate_product_issues(workshop=self.workshop, items=self.pricing_snapshot.product_lines)
+            setattr(self, "_product_issue_summary_cache", cached_summary)
+        return cached_summary
+
+    @property
+    def has_stock_issues(self) -> bool:
+        return self.product_issue_summary.has_stock_issues
+
+    @property
+    def has_invalid_ncm_items(self) -> bool:
+        return self.product_issue_summary.has_invalid_ncm_issues
+
+    @property
+    def approval_blockers(self) -> list[str]:
+        blockers: list[str] = []
+        if self.has_local_items:
+            blockers.append("Existem itens nao cadastrados no sistema.")
+
+        return blockers
+
+    @property
+    def has_approval_blockers(self) -> bool:
+        return bool(self.approval_blockers)
+
+    @property
+    def approval_blockers_display(self) -> str:
+        return " ".join(self.approval_blockers)
+
+    @property
+    def signature_blockers(self) -> list[str]:
+        return list(self.approval_blockers)
+
+    @property
+    def has_signature_blockers(self) -> bool:
+        return bool(self.signature_blockers)
+
+    @property
+    def signature_blockers_display(self) -> str:
+        return " ".join(self.signature_blockers)
 
     @property
     def ordered_images(self):

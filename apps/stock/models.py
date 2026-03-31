@@ -120,7 +120,7 @@ class StockPaymentMethod(TimeStampedModel):
 
     @property
     def total_paid(self):
-        return self.first_installment_amount.amount + ((self.installments_count - 1) * self.remaining_installments_amount.amount)
+        return Money(self.first_installment_amount.amount + ((self.installments_count - 1) * self.remaining_installments_amount.amount), "BRL")
 
 
 class SefazZipCache(TimeStampedModel):

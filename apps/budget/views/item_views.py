@@ -14,6 +14,7 @@ from apps.budget.models import Budget, BudgetItem
 from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
+from apps.catalog.product_issues import annotate_product_issues
 from apps.workshops.mixin import WorkshopScopedMixin
 
 from .shared import _calculate_service_prices, _get_budget_for_workshop, _get_budget_item_for_workshop, _get_budget_workshop_cost, _get_current_step_from_referer, _parse_duration_from_string, _step_redirect_response, logger, reset_steps_after_step_4
@@ -93,6 +94,8 @@ class ItemSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, TemplateVi
 
         model_class, title = map_config.get(item_type, (Product, "Selecionar Item"))
         queryset = model_class.objects.filter(workshop=self.workshop, is_active=True)
+        if item_type == "product":
+            queryset = queryset.select_related("stock_products")
 
         # Get already added items to mark them as selected
         existing_items = set()
@@ -338,6 +341,7 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def get(self, request, budget_id, item_id):
         item = _get_budget_item_for_workshop(self.workshop, budget_id, item_id)
+        annotate_product_issues(workshop=self.workshop, items=[item])
         form = BudgetItemEditForm(instance=item, budget_id=budget_id)
         in_queue = request.GET.get("in_queue", "false").lower() == "true"
 
@@ -384,6 +388,7 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
             },
         )
 
+        annotate_product_issues(workshop=self.workshop, items=[item])
         return render(request, "budget/partials/modals/modal_edit_item.html", {"form": form, "item": item, "budget_id": budget_id})
 
     def update_master_record(self, item):

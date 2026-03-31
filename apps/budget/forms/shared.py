@@ -2,6 +2,8 @@ from django import forms
 from django.db.models import Prefetch
 from django.template.loader import render_to_string
 
+from apps.catalog.product_issues import annotate_product_issues
+
 MAX_BUDGET_IMAGES = 10
 MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024
 ALLOWED_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "gif"}
@@ -99,6 +101,8 @@ def _render_budget_items_rows(budget, step6=False):
 
     if budget_for_render.pk:
         if step6 and pricing_snapshot is not None:
+            annotate_product_issues(workshop=budget_for_render.workshop, items=pricing_snapshot.product_lines)
+
             for item in pricing_snapshot.product_lines:
                 rows["product"] += render_to_string(
                     "budget/partials/items/item_product_row.html",
@@ -129,6 +133,11 @@ def _render_budget_items_rows(budget, step6=False):
                 if _budget_item_type(item) == "kit":
                     rows["kit"] += render_to_string("budget/partials/items/item_kit_row.html", {"item": item, "budget": budget_for_render, "is_full_render": True, "step6": True})
         else:
+            annotate_product_issues(
+                workshop=budget_for_render.workshop,
+                items=[item for item in budget_for_render.items.all() if _budget_item_type(item) == "product"],
+            )
+
             for item in budget_for_render.items.all():
                 item_type = _budget_item_type(item)
                 context = {

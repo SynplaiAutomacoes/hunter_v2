@@ -2662,15 +2662,21 @@ class BudgetStep6Form(forms.ModelForm):
         status_class = status_data["class"]
         is_signature_resend = budget.signature_request_status == SignatureStatus.SENT and bool(budget.signature_external_id)
         signature_button_label = "Reenviar Documento" if is_signature_resend else "Enviar para Assinatura"
+        approval_blockers = list(budget.approval_blockers)
+        approval_blockers_display = " ".join(approval_blockers)
+        signature_blockers = list(budget.signature_blockers)
+        signature_blockers_display = " ".join(signature_blockers)
+        approval_button_class = "btn-disabled cursor-not-allowed" if approval_blockers else "btn-success"
+        approval_button_attrs = f'disabled title="{escape(approval_blockers_display)}"' if approval_blockers else f"onclick=\"updateBudgetStatus({budget.pk}, 'approve')\""
+        signature_blocked_json = "true" if signature_blockers else "false"
+        signature_blocked_reason_json = escape(json.dumps(signature_blockers_display))
         can_toggle_signed_pdf = budget.signature_request_status in {SignatureStatus.SENT, SignatureStatus.APPROVED} and bool(budget.signature_external_id or budget.signature_document_id)
         signed_pdf_url = f"{reverse('budget:visualizar_pdf_assinatura', args=[budget.pk])}?variant=signed"
         base_pdf_url = f"{reverse('budget:visualizar_pdf_assinatura', args=[budget.pk])}?variant=base"
         signed_pdf_download_url = f"{reverse('budget:visualizar_pdf_assinatura', args=[budget.pk])}?download=1&variant=signed"
         base_pdf_download_url = f"{reverse('budget:visualizar_pdf_assinatura', args=[budget.pk])}?download=1&variant=base"
 
-        saved_observation = ""
-        if self.workshop:
-            saved_observation = self.workshop.pdf_observation or ""
+        saved_observation = budget.pdf_observation or ""
 
         # Render das linhas (mantido)
         rows = _render_budget_items_rows(budget, step6=True)
@@ -2780,12 +2786,23 @@ class BudgetStep6Form(forms.ModelForm):
                     const confirmed = await customConfirm("Você tem certeza que deseja alterar o status deste orçamento?");
                     if (!confirmed) return;
 
-                    fetch(`/budget/update-status/${budgetId}/${status}`, {
+                    const response = await fetch(`/budget/update-status/${budgetId}/${status}`, {
                         method: 'POST',
-                        headers: { 'X-CSRFToken': '{{ csrf_token }}' }
-                    }).then(() => {
-                        window.location.href = "{% url 'budget:budget_list' %}";
+                        headers: { 'X-CSRFToken': '{{ csrf_token }}', 'X-Requested-With': 'XMLHttpRequest' }
                     });
+
+                    const payload = await response.json().catch(() => ({}));
+                    if (!response.ok || payload.success === false) {
+                        document.body.dispatchEvent(new CustomEvent('showToast', {
+                            detail: {
+                                type: 'error',
+                                message: payload.error || 'Falha ao atualizar o status do orçamento.',
+                            },
+                        }));
+                        return;
+                    }
+
+                    window.location.href = "{% url 'budget:budget_list' %}";
                 }
 
                 async function sendBudgetForSignature(buttonEl) {
@@ -3004,7 +3021,7 @@ class BudgetStep6Form(forms.ModelForm):
                         HTML(f"""
                         <div class="grid grid-cols-12 gap-3 text-center mb-8">
                             <button type="button" class="btn btn-success col-span-4"
-                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{signed_pdf_url}', downloadUrl: '{signed_pdf_download_url}', showSignatureBtn: true, signatureButtonLabel: '{signature_button_label}', isSignatureResend: {"true" if is_signature_resend else "false"}, showPdfVariantToggle: {"true" if can_toggle_signed_pdf else "false"}, pdfVariant: 'signed', signedPdfUrl: '{signed_pdf_url}', basePdfUrl: '{base_pdf_url}', signedDownloadUrl: '{signed_pdf_download_url}', baseDownloadUrl: '{base_pdf_download_url}' }} }}))">
+                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{signed_pdf_url}', downloadUrl: '{signed_pdf_download_url}', showSignatureBtn: true, signatureButtonLabel: '{signature_button_label}', isSignatureResend: {"true" if is_signature_resend else "false"}, signatureBlocked: {signature_blocked_json}, signatureBlockedReason: {signature_blocked_reason_json}, showPdfVariantToggle: {"true" if can_toggle_signed_pdf else "false"}, pdfVariant: 'signed', signedPdfUrl: '{signed_pdf_url}', basePdfUrl: '{base_pdf_url}', signedDownloadUrl: '{signed_pdf_download_url}', baseDownloadUrl: '{base_pdf_download_url}' }} }}))">
                                 Visualizar PDF
                             </button>
 
@@ -3068,19 +3085,8 @@ class BudgetStep6Form(forms.ModelForm):
                             </button>
 
                             <button type="button"
-                                class="btn col-span-4
-                                    {{% if form.instance.has_local_items %}}
-                                        btn-disabled cursor-not-allowed
-                                    {{% else %}}
-                                        btn-success
-                                    {{% endif %}}"
-                                {{% if not form.instance.has_local_items %}}
-                                    onclick="updateBudgetStatus({budget.pk}, 'approve')"
-                                {{% endif %}}
-                                {{% if form.instance.has_local_items %}}
-                                    disabled
-                                    title="Existem itens não cadastrados no sistema"
-                                {{% endif %}}>
+                                class="btn col-span-4 {approval_button_class}"
+                                {approval_button_attrs}>
                                 Aprovar
                             </button>
 
@@ -3102,8 +3108,8 @@ class BudgetStep6Form(forms.ModelForm):
             HTML("""
             <dialog id="pdfModal"
                     class="modal"
-                    x-data="{ pdfUrl: '', pdfDownloadUrl: '', showSignatureBtn: false, signatureButtonLabel: 'Enviar para Assinatura', isSignatureResend: false, showPdfVariantToggle: false, pdfVariant: 'signed', pdfToggleLabel: 'Ver não assinado', signedPdfUrl: '', basePdfUrl: '', signedDownloadUrl: '', baseDownloadUrl: '', togglePdfVariant() { if (!this.showPdfVariantToggle) return; const shouldShowBase = this.pdfVariant === 'signed'; this.pdfVariant = shouldShowBase ? 'base' : 'signed'; this.pdfUrl = shouldShowBase ? this.basePdfUrl : this.signedPdfUrl; this.pdfDownloadUrl = shouldShowBase ? this.baseDownloadUrl : this.signedDownloadUrl; this.pdfToggleLabel = shouldShowBase ? 'Ver assinado' : 'Ver não assinado'; } }"
-                    @open-pdf-modal.window="pdfUrl = $event.detail.url; pdfDownloadUrl = $event.detail.downloadUrl || ''; showSignatureBtn = $event.detail.showSignatureBtn || false; signatureButtonLabel = $event.detail.signatureButtonLabel || 'Enviar para Assinatura'; isSignatureResend = $event.detail.isSignatureResend || false; showPdfVariantToggle = $event.detail.showPdfVariantToggle || false; pdfVariant = $event.detail.pdfVariant || 'signed'; pdfToggleLabel = pdfVariant === 'base' ? 'Ver assinado' : 'Ver não assinado'; signedPdfUrl = $event.detail.signedPdfUrl || ''; basePdfUrl = $event.detail.basePdfUrl || ''; signedDownloadUrl = $event.detail.signedDownloadUrl || ''; baseDownloadUrl = $event.detail.baseDownloadUrl || ''; $el.showModal()">
+                    x-data="{ pdfUrl: '', pdfDownloadUrl: '', showSignatureBtn: false, signatureButtonLabel: 'Enviar para Assinatura', isSignatureResend: false, signatureBlocked: false, signatureBlockedReason: '', showPdfVariantToggle: false, pdfVariant: 'signed', pdfToggleLabel: 'Ver não assinado', signedPdfUrl: '', basePdfUrl: '', signedDownloadUrl: '', baseDownloadUrl: '', togglePdfVariant() { if (!this.showPdfVariantToggle) return; const shouldShowBase = this.pdfVariant === 'signed'; this.pdfVariant = shouldShowBase ? 'base' : 'signed'; this.pdfUrl = shouldShowBase ? this.basePdfUrl : this.signedPdfUrl; this.pdfDownloadUrl = shouldShowBase ? this.baseDownloadUrl : this.signedDownloadUrl; this.pdfToggleLabel = shouldShowBase ? 'Ver assinado' : 'Ver não assinado'; } }"
+                    @open-pdf-modal.window="pdfUrl = $event.detail.url; pdfDownloadUrl = $event.detail.downloadUrl || ''; showSignatureBtn = $event.detail.showSignatureBtn || false; signatureButtonLabel = $event.detail.signatureButtonLabel || 'Enviar para Assinatura'; isSignatureResend = $event.detail.isSignatureResend || false; signatureBlocked = $event.detail.signatureBlocked || false; signatureBlockedReason = $event.detail.signatureBlockedReason || ''; showPdfVariantToggle = $event.detail.showPdfVariantToggle || false; pdfVariant = $event.detail.pdfVariant || 'signed'; pdfToggleLabel = pdfVariant === 'base' ? 'Ver assinado' : 'Ver não assinado'; signedPdfUrl = $event.detail.signedPdfUrl || ''; basePdfUrl = $event.detail.basePdfUrl || ''; signedDownloadUrl = $event.detail.signedDownloadUrl || ''; baseDownloadUrl = $event.detail.baseDownloadUrl || ''; $el.showModal()">
 
               <div class="modal-box max-w-5xl w-full h-[90vh] p-0 flex flex-col">
 
@@ -3115,11 +3121,14 @@ class BudgetStep6Form(forms.ModelForm):
 
                     <div class="flex gap-2">
                         <button type="button"
-                                class="btn btn-sm btn-primary"
+                                class="btn btn-sm"
                                 id="send-signature-btn"
                                 x-show="showSignatureBtn"
                                 data-url="{% url 'budget:send_signature' form.instance.pk %}"
                                 :data-is-resend="isSignatureResend ? 'true' : 'false'"
+                                :class="signatureBlocked ? 'btn-disabled cursor-not-allowed' : 'btn-primary'"
+                                :disabled="signatureBlocked"
+                                :title="signatureBlockedReason"
                                 onclick="sendBudgetForSignature(this)">
                             <span class="loading loading-spinner loading-xs hidden" id="send-signature-spinner"></span>
                             <span id="send-signature-label" x-text="signatureButtonLabel"></span>

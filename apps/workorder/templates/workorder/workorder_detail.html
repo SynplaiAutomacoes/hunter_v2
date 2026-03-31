@@ -49,13 +49,13 @@
     </dialog>
 </div>
 
-<dialog id="pdfModal" class="modal" x-data="{u:'', d:'', s:false}"
-        @open-pdf-modal.window="u=$event.detail.url; d=$event.detail.downloadUrl; s=$event.detail.showSignatureBtn; $el.showModal()">
+<dialog id="pdfModal" class="modal" x-data="{u:'', d:'', s:false, sb:false, sr:''}"
+        @open-pdf-modal.window="u=$event.detail.url; d=$event.detail.downloadUrl; s=$event.detail.showSignatureBtn; sb=$event.detail.signatureBlocked || false; sr=$event.detail.signatureBlockedReason || ''; $el.showModal()">
         <div class="modal-box max-w-5xl h-[90vh] p-0 flex flex-col">
             <div class="p-4 border-b flex justify-between items-center bg-base-200">
                 <h3 class="font-bold">Visualização da Ordem de Serviço</h3>
                 <div class="flex gap-2">
-                    <button x-show="s" class="btn btn-sm btn-primary"
+                    <button x-show="s" class="btn btn-sm" :class="sb ? 'btn-disabled cursor-not-allowed' : 'btn-primary'" :disabled="sb" :title="sr"
                         data-url="{% url 'workorder:send_signature' workorder.pk %}"
                         onclick="sendBudgetForSignature(this)">Enviar para Assinatura</button>
                     <button class="btn btn-sm btn-success" x-show="d" @click="window.open(d, '_blank')">Baixar PDF</button>
