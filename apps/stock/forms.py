@@ -27,7 +27,8 @@ from pynfe.processamento import ComunicacaoSefaz
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.core.forms import address_layout, AddressFormMixin
-from apps.core.widgets import TextInput, SelectInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput, PhoneInput, EmailInput
+from apps.core.widgets import TextInput, SelectInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput, PhoneInput, EmailInput, \
+    TextareaInput
 from apps.finance.models.payment_method import PaymentMethod
 
 from apps.stock.models import StockPaymentMethod, StockImport, StockProduct, StockMovement, SefazZipCache
@@ -42,6 +43,8 @@ from apps.workshops.util.workshops import has_workshop_perm
 
 external_calls_logger = logging.getLogger("performance.external")
 
+
+# Stock
 
 class ImportStep1Form(forms.ModelForm):
     xml_file = forms.FileField(label="Selecione o arquivo XML", required=False)
@@ -1134,6 +1137,144 @@ class ImportManualItemsForm(forms.ModelForm):
         return cleaned_data
 
 
+# Transfer
+
+
+class TransferStepOperationForm(forms.ModelForm):
+    class Meta:
+        model = StockTransfer
+        fields = ["operation_type"]
+        widgets = {
+            "operation_type": SelectInput(),
+        }
+
+    def __init__(self, *args, **kwargs):
+        self.request = kwargs.pop("request", None)
+        super().__init__(*args, **kwargs)
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout(
+            Div(
+                HTML('<h2 class="text-2xl font-bold mb-6">Tipo de Operação</h2>'),
+                Field("operation_type"),
+            )
+        )
+
+
+class TransferStepReasonForm(forms.ModelForm):
+    selected_product_id = forms.IntegerField(widget=forms.HiddenInput(), required=False)
+
+    class Meta:
+        model = StockTransfer
+        fields = ["reason"]
+        widgets = {"reason": TextareaInput(attrs={"rows": 4, "placeholder": "Ex: Danificado na montagem, item vencido, uso interno..."})}
+
+    def _render_search_and_list_html(self) -> str:
+        search_query = self.request.GET.get("source_search", "").strip() if self.request is not None else ""
+
+        queryset = Product.objects.filter(workshop=self.instance.source_workshop, is_active=True, stock_products__current_quantity__gt=0).select_related("stock_products").order_by("name")
+
+        if search_query:
+            queryset = queryset.filter(Q(code__icontains=search_query) | Q(name__icontains=search_query))
+
+        selected_id = None
+        if self.instance.items_data:
+            selected_id = self.instance.items_data[0].get("source_product_id")
+
+        rows = ""
+        for product in queryset[:15]:
+            is_selected = str(product.id) == str(selected_id)
+            row_class = "bg-primary text-primary-content" if is_selected else "hover:bg-base-200 cursor-pointer"
+            icon = "check_circle" if is_selected else "radio_button_unchecked"
+
+            # Action button via HTMX que limpa a lista e adiciona apenas este item
+            rows += f"""
+            <tr class="{row_class}" 
+                hx-post="{reverse("stock:add_transfer_source_item")}" 
+                hx-vals='{{"pk": "{self.instance.pk}", "product_id": "{product.id}", "quantity": "1", "clear_others": "true"}}'
+                hx-target="#step-container">
+                <td class="w-10"><span class="material-icons text-sm">{icon}</span></td>
+                <td>
+                    <div class="font-bold">{product.name}</div>
+                    <div class="text-[10px] opacity-70">{product.code or "S/ Cód"}</div>
+                </td>
+                <td class="text-right font-mono">{product.stock_products.current_quantity if product.stock_products else 0}</td>
+            </tr>"""
+
+        search_url = f"{reverse('stock:transfer_update', kwargs={'pk': self.instance.pk})}?step=3"
+
+        return f"""
+        <div class="space-y-4">
+            <input type="text" name="source_search" value="{search_query}" 
+                   class="input input-bordered w-full" 
+                   placeholder="Buscar produto para baixa..."
+                   hx-get="{search_url}"
+                   hx-trigger="keyup changed delay:300ms"
+                   hx-target="#step-container">
+
+            <div class="overflow-x-auto rounded-lg border border-base-300 max-h-80">
+                <table class="table table-sm w-full">
+                    <thead class="bg-base-200 sticky top-0">
+                        <tr>
+                            <th></th>
+                            <th>Produto</th>
+                            <th class="text-right">Estoque Atual</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows or '<tr><td colspan="3" class="text-center py-8">Nenhum produto encontrado.</td></tr>'}
+                    </tbody>
+                </table>
+            </div>
+        </div>"""
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        self.request = kwargs.pop("request", None)
+        super().__init__(*args, **kwargs)
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+
+        self.fields["reason"].required = True
+        self.fields["reason"].label = "Motivo da Baixa"
+
+        self.helper.layout = Layout(
+            Div(
+                HTML('<h2 class="text-2xl font-bold mb-2 text-base-content">Motivo da Baixa</h2>'),
+                HTML('<p class="text-sm text-base-content/70 mb-6">Selecione o item e explique por que estes item esta saindo do estoque.</p>'),
+                Div(
+                    # Coluna da Esquerda: Busca e Seleção
+                    Div(HTML(self._render_search_and_list_html()), css_class="col-span-12 lg:col-span-7"),
+
+                    # Coluna da Direita: Justificativa
+                    Div(
+                        HTML('<h3 class="text-sm font-bold uppercase mb-4 opacity-60">Justificativa</h3>'),
+                        Field("reason"),
+                        HTML("""<div class="alert bg-warning/10 text-warning border-none mt-4">
+                            <span class="material-icons">info</span>
+                            <span class="text-xs">A baixa irá alterar a quantidade do item selecionado permanentemente do estoque.</span>
+                        </div> """),
+                        css_class="col-span-12 lg:col-span-5 bg-base-200/30 p-4 rounded-xl border border-base-300",
+                    ),
+                    css_class="grid grid-cols-12 gap-6",
+                ),
+            )
+        )
+
+    def clean(self):
+        cleaned_data = super().clean()
+
+        if not self.instance.items_data:
+            self.add_error(None, "Você precisa selecionar um item da lista para prosseguir com a baixa.")
+
+        reason = self.cleaned_data.get("reason")
+        if len(reason) < 5:
+            raise forms.ValidationError("Por favor, forneça um motivo mais detalhado para a baixa.")
+
+        return cleaned_data
+
+
 class TransferStepWorkshopsForm(forms.ModelForm):
     source_workshop = forms.ModelChoiceField(queryset=Workshop.objects.none(), label="Oficina de Origem", widget=SelectInput())
     destination_workshop = forms.ModelChoiceField(queryset=Workshop.objects.none(), label="Oficina de Destino", widget=SelectInput())
@@ -1616,6 +1757,8 @@ class TransferSummaryForm(forms.ModelForm):
             instance.save()
         return instance
 
+
+# Quick Forms
 
 class QuickProductForm(forms.ModelForm):
     class Meta:

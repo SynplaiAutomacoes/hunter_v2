@@ -196,8 +196,14 @@ class StockTransfer(TimeStampedModel):
         DRAFT = "RASCUNHO", "Rascunho"
         COMPLETED = "CONCLUIDO", "Concluído"
 
-    source_workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="stock_transfers_sent")
-    destination_workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="stock_transfers_received")
+    class OperationType(models.TextChoices):
+        TRANSFER = "TRANSFER", "Transferência entre oficinas"
+        ADJUSTMENT = "ADJUSTMENT", "Baixa em estoque"
+
+    operation_type = models.CharField(max_length=30, verbose_name="Selecione o Tipo de Operação", choices=OperationType.choices, default=OperationType.TRANSFER)
+    reason = models.TextField(verbose_name="Motivo da Baixa", blank=True, null=True)
+    source_workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina de Origem", on_delete=models.CASCADE, related_name="stock_transfers_sent", blank=True, null=True)
+    destination_workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina de Destino",on_delete=models.CASCADE, related_name="stock_transfers_received", null=True, blank=True)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, verbose_name="Aberto por", on_delete=models.SET_NULL, null=True)
     current_step = models.PositiveIntegerField(default=1)
     items_data = models.JSONField(default=list)
@@ -208,7 +214,9 @@ class StockTransfer(TimeStampedModel):
         verbose_name_plural = "Transferências de Estoque"
 
     def __str__(self) -> str:
-        return f"Transferência {self.pk or '---'} - {self.source_workshop} -> {self.destination_workshop}"
+        if self.operation_type == StockTransfer.OperationType.TRANSFER:
+            return f"Transferência {self.pk or '---'} - {self.source_workshop} -> {self.destination_workshop}"
+        return "Baixa em Estoque"
 
     @property
     def stocktransfer_status_badge(self):
