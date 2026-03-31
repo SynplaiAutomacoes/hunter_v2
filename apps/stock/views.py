@@ -1390,7 +1390,12 @@ class AddTransferSourceItemView(StockTransferAccessMixin, View):
         raw_quantity = request.POST.get("quantity") or "1"
         transfer = get_object_or_404(StockTransfer, pk=pk)
         source_product = get_object_or_404(Product, id=product_id, workshop=transfer.source_workshop)
-        items = list(transfer.items_data)
+        
+        clear_others = request.POST.get("clear_others") == "true"
+        if clear_others:
+            items = []
+        else:
+            items = list(transfer.items_data)
 
         try:
             quantity = max(1, int(Decimal(str(raw_quantity).replace(",", "."))))

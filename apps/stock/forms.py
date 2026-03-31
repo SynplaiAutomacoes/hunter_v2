@@ -1254,27 +1254,26 @@ class TransferStepReasonForm(forms.ModelForm):
 
     def _render_search_and_list_html(self) -> str:
         search_query = self.request.GET.get("source_search", "").strip() if self.request is not None else ""
-
         queryset = Product.objects.filter(workshop=self.instance.source_workshop, is_active=True, stock_products__current_quantity__gt=0).select_related("stock_products").order_by("name")
 
         if search_query:
             queryset = queryset.filter(Q(code__icontains=search_query) | Q(name__icontains=search_query))
 
-        selected_id = None
-        if self.instance.items_data:
-            selected_id = self.instance.items_data[0].get("source_product_id")
+        selected_ids = {str(item.get("source_product_id")) for item in (self.instance.items_data or [])}
 
         rows = ""
         for product in queryset[:15]:
-            is_selected = str(product.id) == str(selected_id)
-            row_class = "bg-primary text-primary-content" if is_selected else "hover:bg-base-200 cursor-pointer"
-            icon = "check_circle" if is_selected else "radio_button_unchecked"
+            is_selected = str(product.id) in selected_ids
+            row_class = "bg-primary/10 text-primary" if is_selected else "hover:bg-base-200 cursor-pointer"
+            icon = "check_circle" if is_selected else "add_circle_outline"
+            
+            action_url = reverse("stock:remove_transfer_item") if is_selected else reverse("stock:add_transfer_source_item")
+            hx_vals = f'{{"pk": "{self.instance.pk}", "source_product_id": "{product.id}"}}' if is_selected else f'{{"pk": "{self.instance.pk}", "product_id": "{product.id}", "quantity": "1"}}'
 
-            # Action button via HTMX que limpa a lista e adiciona apenas este item
             rows += f"""
             <tr class="{row_class}" 
-                hx-post="{reverse("stock:add_transfer_source_item")}" 
-                hx-vals='{{"pk": "{self.instance.pk}", "product_id": "{product.id}", "quantity": "1", "clear_others": "true"}}'
+                hx-post="{action_url}" 
+                hx-vals='{hx_vals}'
                 hx-target="#step-container">
                 <td class="w-10"><span class="material-icons text-sm">{icon}</span></td>
                 <td>
@@ -1284,18 +1283,20 @@ class TransferStepReasonForm(forms.ModelForm):
                 <td class="text-right font-mono">{product.stock_products.current_quantity if product.stock_products else 0}</td>
             </tr>"""
 
-        search_url = f"{reverse('stock:transfer_update', kwargs={'pk': self.instance.pk})}?step=3"
+        search_url = f"{reverse('stock:transfer_update', kwargs={'pk': self.instance.pk})}?step=2"
+
+        selected_items_html = self._render_selected_items_html()
 
         return f"""
         <div class="space-y-4">
             <input type="text" name="source_search" value="{search_query}" 
                    class="input input-bordered w-full" 
-                   placeholder="Buscar produto para baixa..."
+                   placeholder="Buscar produto para seleção..."
                    hx-get="{search_url}"
                    hx-trigger="keyup changed delay:300ms"
                    hx-target="#step-container">
 
-            <div class="overflow-x-auto rounded-lg border border-base-300 max-h-80">
+            <div class="overflow-x-auto rounded-lg border border-base-300 max-h-60">
                 <table class="table table-sm w-full">
                     <thead class="bg-base-200 sticky top-0">
                         <tr>
@@ -1307,6 +1308,66 @@ class TransferStepReasonForm(forms.ModelForm):
                     <tbody>
                         {rows or '<tr><td colspan="3" class="text-center py-8">Nenhum produto encontrado.</td></tr>'}
                     </tbody>
+                </table>
+            </div>
+            {selected_items_html}
+        </div>"""
+
+    def _render_selected_items_html(self) -> str:
+        items = self.instance.items_data or []
+        rows = ""
+        for idx, item in enumerate(items):
+            product = Product.objects.filter(id=item.get("source_product_id"), workshop=self.instance.source_workshop).first()
+            if not product:
+                continue
+
+            quantity = int(str(item.get("qtd", 1) or 1))
+
+            quantity_input = NumberInput(mode="positive").render(
+                name=f"items_qty_{idx}",
+                value=str(quantity),
+                attrs={
+                    "class": "text-center input input-bordered input-sm w-16",
+                    "min": "1",
+                    "hx-post": reverse("stock:update_transfer_item_data", kwargs={"pk": self.instance.pk}),
+                    "hx-trigger": "change delay:300ms",
+                    "hx-vals": f'js:{{item_idx: {idx}}}',
+                    "hx-target": "#step-container",
+                },
+            )
+
+            rows += f"""
+            <tr class="border-b border-base-300">
+                <td>
+                    <div class="font-bold">{product.name}</div>
+                    <div class="text-[10px] opacity-70">{product.code}</div>
+                </td>
+                <td class="text-center">{quantity_input}</td>
+                <td class="text-right">
+                    <button type="button" class="btn btn-ghost btn-xs text-error"
+                            hx-post="{reverse('stock:remove_transfer_item')}?pk={self.instance.pk}&item_idx={idx}"
+                            hx-target="#step-container">
+                        <span class="material-icons text-sm">delete</span>
+                    </button>
+                </td>
+            </tr>"""
+
+        if not rows:
+            return ""
+
+        return f"""
+        <div class="mt-6">
+            <h3 class="text-sm font-bold uppercase mb-3 opacity-60">Itens Selecionados</h3>
+            <div class="overflow-x-auto rounded-lg border border-base-300">
+                <table class="table table-sm w-full">
+                    <thead class="bg-base-200">
+                        <tr>
+                            <th>Produto</th>
+                            <th class="text-center">Qtd</th>
+                            <th class="text-right">Ação</th>
+                        </tr>
+                    </thead>
+                    <tbody>{rows}</tbody>
                 </table>
             </div>
         </div>"""
@@ -1484,7 +1545,7 @@ class TransferItemsForm(forms.ModelForm):
                 </td>
             </tr>"""
 
-        search_url = f"{reverse('stock:transfer_update', kwargs={'pk': self.instance.pk})}?step=2"
+        search_url = f"{reverse('stock:transfer_update', kwargs={'pk': self.instance.pk})}?step=3"
         return f"""
         <div class="card bg-base-100 border border-base-300 shadow-sm">
             <div class="card-body p-4 space-y-4">
@@ -1797,8 +1858,9 @@ class TransferSummaryForm(forms.ModelForm):
         if not self.instance.items_data:
             self.add_error(None, "Adicione ao menos um item para transferir.")
 
+        is_transfer = self.instance.operation_type == StockTransfer.OperationType.TRANSFER
         for item in self.instance.items_data:
-            if not item.get("destination_product_id"):
+            if is_transfer and not item.get("destination_product_id"):
                 self.add_error(None, "Existem itens sem produto vinculado na oficina de destino.")
                 break
 
@@ -1826,12 +1888,17 @@ class TransferSummaryForm(forms.ModelForm):
         if instance.status == StockTransfer.TransferStatus.COMPLETED:
             return instance
 
+        is_transfer = instance.operation_type == StockTransfer.OperationType.TRANSFER
         source_product_ids = [int(item["source_product_id"]) for item in instance.items_data]
-        destination_product_ids = [int(item["destination_product_id"]) for item in instance.items_data]
         source_entries = StockProduct.objects.select_for_update().select_related("product").filter(workshop=instance.source_workshop, product_id__in=source_product_ids)
-        destination_entries = StockProduct.objects.select_for_update().select_related("product").filter(workshop=instance.destination_workshop, product_id__in=destination_product_ids)
         source_by_product_id = {entry.product_id: entry for entry in source_entries}
-        destination_by_product_id = {entry.product_id: entry for entry in destination_entries}
+
+        if is_transfer:
+            destination_product_ids = [int(item["destination_product_id"]) for item in instance.items_data]
+            destination_entries = StockProduct.objects.select_for_update().select_related("product").filter(workshop=instance.destination_workshop, product_id__in=destination_product_ids)
+            destination_by_product_id = {entry.product_id: entry for entry in destination_entries}
+        else:
+            destination_by_product_id = {}
 
         parsed_items: list[tuple[StockProduct, StockProduct, int]] = []
         for item in instance.items_data:
@@ -1840,11 +1907,11 @@ class TransferSummaryForm(forms.ModelForm):
                 raise forms.ValidationError("Todas as quantidades devem ser maiores que zero.")
 
             source_product_id = int(item["source_product_id"])
-            destination_product_id = int(item["destination_product_id"])
+            destination_product_id = int(item["destination_product_id"]) if is_transfer else None
             source_entry = source_by_product_id.get(source_product_id)
-            destination_entry = destination_by_product_id.get(destination_product_id)
+            destination_entry = destination_by_product_id.get(destination_product_id) if is_transfer else None
 
-            if source_entry is None or destination_entry is None:
+            if source_entry is None or (is_transfer and destination_entry is None):
                 raise forms.ValidationError("Um dos itens da transferência não pôde ser localizado.")
             if source_entry.current_quantity < quantity:
                 raise forms.ValidationError(f"Saldo insuficiente para o produto {source_entry.product.name} na oficina de origem.")
@@ -1854,8 +1921,10 @@ class TransferSummaryForm(forms.ModelForm):
         for source_entry, destination_entry, quantity in parsed_items:
             source_entry.current_quantity -= quantity
             source_entry.save(update_fields=["current_quantity"])
-            destination_entry.current_quantity += quantity
-            destination_entry.save(update_fields=["current_quantity"])
+
+            if is_transfer and destination_entry:
+                destination_entry.current_quantity += quantity
+                destination_entry.save(update_fields=["current_quantity"])
 
             StockMovement.objects.create(
                 workshop=instance.source_workshop,
@@ -1866,15 +1935,17 @@ class TransferSummaryForm(forms.ModelForm):
                 status=StockMovement.MovementStatus.APPROVED,
                 transcation_by=self.request.user if self.request is not None else None,
             )
-            StockMovement.objects.create(
-                workshop=instance.destination_workshop,
-                stock_transfer=instance,
-                stock_product=destination_entry,
-                type=StockMovement.MovementType.ENTRY,
-                quantity=quantity,
-                status=StockMovement.MovementStatus.APPROVED,
-                transcation_by=self.request.user if self.request is not None else None,
-            )
+
+            if is_transfer and instance.destination_workshop and destination_entry:
+                StockMovement.objects.create(
+                    workshop=instance.destination_workshop,
+                    stock_transfer=instance,
+                    stock_product=destination_entry,
+                    type=StockMovement.MovementType.ENTRY,
+                    quantity=quantity,
+                    status=StockMovement.MovementStatus.APPROVED,
+                    transcation_by=self.request.user if self.request is not None else None,
+                )
 
         instance.status = StockTransfer.TransferStatus.COMPLETED
         if commit:
