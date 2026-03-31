@@ -432,6 +432,7 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
         transfers = []
         for transfer in transfers_queryset:
             if transfer.operation_type == StockTransfer.OperationType.ADJUSTMENT:
+                if transfer.status == StockTransfer.TransferStatus.DRAFT: continue
                 display_path = f"BAIXA"
             elif transfer.destination_workshop:
                 display_path = f"{transfer.source_workshop.name} -> {transfer.destination_workshop.name}"

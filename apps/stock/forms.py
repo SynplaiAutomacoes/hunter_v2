@@ -1683,66 +1683,108 @@ class TransferSummaryForm(forms.ModelForm):
     def _build_summary_html(self) -> str:
         rows = ""
         total = Decimal("0.00")
+        is_transfer = self.instance.operation_type == StockTransfer.OperationType.TRANSFER
 
-        for item in self.instance.items_data:
+        for item in self.instance.items_data or []:
             source_product = Product.objects.filter(id=item.get("source_product_id"), workshop=self.instance.source_workshop).first()
-            destination_product = Product.objects.filter(id=item.get("destination_product_id"), workshop=self.instance.destination_workshop).first()
-            if source_product is None or destination_product is None:
+            if source_product is None:
                 continue
+
+            destination_product = None
+            if is_transfer:
+                destination_product = Product.objects.filter(id=item.get("destination_product_id"), workshop=self.instance.destination_workshop).first()
+                if destination_product is None:
+                    continue
 
             quantidade = int(str(item.get("qtd", 0) or 0))
             valor = Decimal(str(item.get("valor", "0")).replace(",", "."))
             subtotal = Decimal(quantidade) * valor
             total += subtotal
 
+            if is_transfer:
+                dest_cell = f'<td><div class="font-medium">{destination_product.name}</div><div class="text-xs opacity-50">{destination_product.code}</div></td>'
+            else:
+                dest_cell = ""
+
             rows += f"""
             <tr>
                 <td><div class="font-medium">{source_product.name}</div><div class="text-xs opacity-50">{source_product.code}</div></td>
-                <td><div class="font-medium">{destination_product.name}</div><div class="text-xs opacity-50">{destination_product.code}</div></td>
+                {dest_cell}
                 <td class="text-center">{quantidade}</td>
                 <td class="text-right">{Money(valor, "BRL")}</td>
                 <td class="text-right font-bold">{Money(subtotal, "BRL")}</td>
             </tr>"""
+
+        table_header = (
+            """
+            <th>Origem</th>
+            <th>Destino</th>
+            <th class="text-center">Qtd</th>
+            <th class="text-right">Custo</th>
+            <th class="text-right">Subtotal</th>
+        """
+            if is_transfer
+            else """
+            <th>Produto</th>
+            <th class="text-center">Qtd</th>
+            <th class="text-right">Custo Unitário</th>
+            <th class="text-right">Subtotal</th>
+        """
+        )
+
+        destination_block = ""
+        if is_transfer:
+            dest_name = self.instance.destination_workshop.name if self.instance.destination_workshop else "---"
+            destination_block = f"""
+                <div class="divider my-1"></div>
+                <p class="text-sm opacity-70">Entrando em</p>
+                <p class="text-lg font-bold">{dest_name}</p>
+            """
+
+        reason_block = ""
+        if not is_transfer and self.instance.reason:
+            reason_block = f"""
+                <div class="card bg-warning/5 border border-warning/20 shadow-sm mt-4">
+                    <div class="card-body p-4">
+                        <h3 class="text-xs font-bold uppercase opacity-60">Motivo da Baixa</h3>
+                        <p class="text-sm italic">"{self.instance.reason}"</p>
+                    </div>
+                </div>
+            """
 
         return f"""
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
             <div class="lg:col-span-8">
                 <div class="card bg-base-200 shadow-sm">
                     <div class="card-body p-4">
-                        <h3 class="text-base font-bold uppercase mb-3">Itens da Transferência</h3>
+                        <h3 class="text-base font-bold uppercase mb-3">{"Itens da Transferência" if is_transfer else "Itens para Baixa"}</h3>
                         <div class="overflow-x-auto rounded-xl border border-base-300">
                             <table class="table w-full">
                                 <thead>
                                     <tr class="bg-base-300">
-                                        <th>Origem</th>
-                                        <th>Destino</th>
-                                        <th class="text-center">Qtd</th>
-                                        <th class="text-right">Custo</th>
-                                        <th class="text-right">Subtotal</th>
+                                        {table_header}
                                     </tr>
                                 </thead>
-                                <tbody>{rows or '<tr><td colspan="5" class="text-center italic py-8">Nenhum item adicionado.</td></tr>'}</tbody>
+                                <tbody>{rows or '<tr><td colspan="5" class="text-center italic py-8">Nenhum item selecionado.</td></tr>'}</tbody>
                             </table>
                         </div>
                     </div>
                 </div>
+                {reason_block}
             </div>
             <div class="lg:col-span-4 space-y-6">
                 <div class="card bg-base-200 shadow-sm">
                     <div class="card-body p-4">
-                        <h3 class="text-base font-bold uppercase mb-3">Trajeto</h3>
-                        <p class="text-sm opacity-70">Saindo de</p>
+                        <h3 class="text-base font-bold uppercase mb-3">Detalhes</h3>
+                        <p class="text-sm opacity-70">Oficina de Origem</p>
                         <p class="text-lg font-bold">{self.instance.source_workshop.name}</p>
-                        <div class="divider my-1"></div>
-                        <p class="text-sm opacity-70">Entrando em</p>
-                        <p class="text-lg font-bold">{self.instance.destination_workshop.name}</p>
+                        {destination_block}
                     </div>
                 </div>
                 <div class="card bg-base-200 shadow-sm">
                     <div class="card-body p-4">
-                        <h3 class="text-base font-bold uppercase mb-3">Resumo Financeiro</h3>
+                        <h3 class="text-base font-bold uppercase mb-3">{"Total da Transferência" if is_transfer else "Total da Baixa"}</h3>
                         <div class="flex justify-between items-center font-black text-xl">
-                            <span>Total Transferido</span>
                             <span>{Money(total, "BRL")}</span>
                         </div>
                     </div>
