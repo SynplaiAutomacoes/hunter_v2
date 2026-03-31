@@ -293,7 +293,7 @@ def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int
         if line.quantity <= 0:
             continue
 
-        unit_price = (allocated_total / line.quantity).quantize(Decimal("0.0000000001"), rounding=ROUND_HALF_UP)
+        unit_price = (allocated_total / line.quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         product_payload: dict[str, Any] = {
             "nome": line.description,
             "codigo": line.code,
@@ -301,7 +301,7 @@ def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int
             "quantidade": _format_quantity(line.quantity),
             "unidade": line.unit,
             "origem": line.origin,
-            "subtotal": _format_decimal(unit_price, places=10),
+            "subtotal": _format_decimal(unit_price, places=2),
             "total": _format_decimal(allocated_total, places=2),
             "classe_imposto": tax_class_reference,
         }

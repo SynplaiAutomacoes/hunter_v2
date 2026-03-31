@@ -1339,6 +1339,70 @@ class ServiceNameSuggestionTests(TestCase):
         self.assertContains(response, "service-name-suggestions")
 
 
+class BudgetQuickCreateServiceValidationTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=97)
+        self.budget = create_budget(workshop=self.workshop)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_quick_create_service_shows_duplicate_name_error(self) -> None:
+        create_service(workshop=self.workshop, suffix=97)
+
+        response = self.client.post(
+            reverse("budget:quick_create_item", args=[self.budget.pk, "service"]),
+            {
+                "name": "Servico 97",
+                "duration": "01:00",
+                "selling_price_0": "20.00",
+                "selling_price_1": "BRL",
+                "modal_context": "parent",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Já existe um serviço com este nome.")
+        self.assertEqual(Service.objects.filter(workshop=self.workshop, name="Servico 97").count(), 1)
+        self.assertFalse(BudgetItem.objects.filter(budget=self.budget, service__name="Servico 97").exists())
+
+    def test_register_local_service_shows_duplicate_name_error(self) -> None:
+        create_service(workshop=self.workshop, suffix=98)
+        local_item = BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            description="Servico local 98",
+            quantity=1,
+            service_cost_price=Money("10.00", "BRL"),
+            service_selling_price=Money("20.00", "BRL"),
+            duration=timedelta(hours=1),
+            is_local=True,
+        )
+
+        response = self.client.post(
+            reverse("budget:register_local_item", args=[self.budget.pk, local_item.pk]),
+            {
+                "name": "Servico 98",
+                "duration": "01:00",
+                "selling_price_0": "20.00",
+                "selling_price_1": "BRL",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        local_item.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["HX-Retarget"], "#modal-container")
+        self.assertContains(response, "Já existe um serviço com este nome.")
+        self.assertEqual(Service.objects.filter(workshop=self.workshop, name="Servico 98").count(), 1)
+        self.assertTrue(local_item.is_local)
+        self.assertIsNone(local_item.service)
+
+
 class BudgetDuplicateKitProductTests(TestCase):
     def test_step4_kit_price_includes_products_and_services(self) -> None:
         workshop = create_workshop(suffix=87)
