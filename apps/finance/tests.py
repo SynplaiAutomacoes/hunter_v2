@@ -1147,7 +1147,7 @@ class EmissionRequestNumberReservationTests(TestCase):
         self.assertEqual(payload.get("serie"), 1)
 
     @override_settings(WEBMANIA_AMBIENT="2")
-    def test_build_nfe_payload_keeps_unit_price_precision_for_multi_quantity_items(self) -> None:
+    def test_build_nfe_payload_rounds_unit_price_up_with_two_decimal_places(self) -> None:
         _, workorder, nfe_request, _ = self._build_requests(suffix=77)
         reserve_nfe_request_number(nfe_request=nfe_request)
 
@@ -1163,7 +1163,7 @@ class EmissionRequestNumberReservationTests(TestCase):
 
         self.assertEqual(product_payload["quantidade"], "3")
         self.assertEqual(product_payload["total"], "80.00")
-        self.assertEqual(product_payload["subtotal"], "26.6666666667")
+        self.assertEqual(product_payload["subtotal"], "26.67")
 
     @override_settings(WEBMANIA_AMBIENT="2")
     def test_build_nfse_payload_includes_reserved_rps_number_and_series(self) -> None:

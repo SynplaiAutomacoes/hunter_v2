@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, ROUND_UP
 import logging
 import re
 from typing import Any
@@ -239,7 +239,7 @@ def _build_unit_price_for_api(*, allocated_total: Decimal, quantity: Decimal) ->
     if quantity <= 0:
         raise NfeEmissionError("Quantidade invalida ao montar item da NF-e.")
 
-    return (allocated_total / quantity).quantize(Decimal("0.0000000001"), rounding=ROUND_HALF_UP)
+    return (allocated_total / quantity).quantize(Decimal("0.01"), rounding=ROUND_UP)
 
 
 def _build_payment_payload(*, workorder: WorkOrder, total_value: Decimal) -> dict[str, Any]:
@@ -308,7 +308,7 @@ def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int
             "quantidade": _format_quantity(line.quantity),
             "unidade": line.unit,
             "origem": line.origin,
-            "subtotal": _format_decimal(unit_price, places=10),
+            "subtotal": _format_decimal(unit_price, places=2),
             "total": _format_decimal(allocated_total, places=2),
             "classe_imposto": tax_class_reference,
         }
