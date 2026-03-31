@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, ROUND_UP
 import logging
 import re
 from typing import Any
@@ -235,6 +235,13 @@ def _format_quantity(value: Decimal) -> str:
     return _format_decimal(value, places=4)
 
 
+def _build_unit_price_for_api(*, allocated_total: Decimal, quantity: Decimal) -> Decimal:
+    if quantity <= 0:
+        raise NfeEmissionError("Quantidade invalida ao montar item da NF-e.")
+
+    return (allocated_total / quantity).quantize(Decimal("0.01"), rounding=ROUND_UP)
+
+
 def _build_payment_payload(*, workorder: WorkOrder, total_value: Decimal) -> dict[str, Any]:
     payment = workorder.payments.order_by("id").first()
     payment_method_map = {
@@ -293,7 +300,7 @@ def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int
         if line.quantity <= 0:
             continue
 
-        unit_price = (allocated_total / line.quantity).quantize(Decimal("0.0000000001"), rounding=ROUND_HALF_UP)
+        unit_price = _build_unit_price_for_api(allocated_total=allocated_total, quantity=line.quantity)
         product_payload: dict[str, Any] = {
             "nome": line.description,
             "codigo": line.code,
@@ -301,7 +308,7 @@ def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int
             "quantidade": _format_quantity(line.quantity),
             "unidade": line.unit,
             "origem": line.origin,
-            "subtotal": _format_decimal(unit_price, places=10),
+            "subtotal": _format_decimal(unit_price, places=2),
             "total": _format_decimal(allocated_total, places=2),
             "classe_imposto": tax_class_reference,
         }
@@ -360,9 +367,11 @@ def emit_nfe_request(*, nfe_request: NfeRequest, request: HttpRequest | None = N
         raise NfeEmissionError(str(exc)) from exc
 
     payload = build_nfe_payload(nfe_request=nfe_request, request=request, slider_override=slider_override)
+    print("363 - payload enviado:", payload)
 
     try:
         response = requests.post(emit_url, json=payload, headers=headers, timeout=30)
+        print("367 - response:", response)
         response.raise_for_status()
     except requests.RequestException as exc:
         message = build_webmania_request_exception_message(exc, default="Falha ao emitir NF-e", scope="nfe")
@@ -370,6 +379,7 @@ def emit_nfe_request(*, nfe_request: NfeRequest, request: HttpRequest | None = N
 
     try:
         data = response.json()
+        print("375 - data:", data)
     except ValueError as exc:
         raise NfeEmissionError("Resposta invalida da API de emissao de NF-e.") from exc
 
