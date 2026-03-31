@@ -42,7 +42,7 @@ from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
 from apps.finance.services.emission import NfseEmissionError, _build_taker_payload, _default_service_description, _service_total_value, build_nfse_payload, build_webmania_webhook_token, cancel_nfse_document, emit_nfse_request, sync_emission_response
 from apps.finance.services.nfe_emission import NfeEmissionError, _build_nfe_products_payload, _extract_product_lines, build_nfe_payload, cancel_nfe_document, sync_nfe_emission_response
-from apps.finance.services.numbering import reserve_nfe_request_number, reserve_nfse_request_rps_number
+from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfe_request_number, reserve_nfse_request_rps_number
 from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder, compute_slider_allocation, distribute_total_proportionally
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
 from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers
@@ -1109,6 +1109,15 @@ class EmissionRequestNumberReservationTests(TestCase):
         self.assertEqual(nfe_request.reserved_number, 9000)
         self.assertEqual(nfe_request.reserved_series, 1)
 
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_reserve_nfe_request_number_requires_series_configuration(self) -> None:
+        company, _, nfe_request, _ = self._build_requests(suffix=78)
+        company.nfe_serie = None
+        company.save(update_fields=["nfe_serie"])
+
+        with self.assertRaisesMessage(EmissionNumberReservationError, "Configure a série NF-e da oficina antes de emitir a NF-e."):
+            reserve_nfe_request_number(nfe_request=nfe_request)
+
     @override_settings(WEBMANIA_AMBIENT="1")
     def test_reserve_nfse_request_rps_number_uses_production_counter_and_reuses_same_number(self) -> None:
         company, _, _, nfse_request = self._build_requests(suffix=71)
@@ -1136,6 +1145,25 @@ class EmissionRequestNumberReservationTests(TestCase):
 
         self.assertEqual(payload.get("numero"), 9000)
         self.assertEqual(payload.get("serie"), 1)
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_build_nfe_payload_keeps_unit_price_precision_for_multi_quantity_items(self) -> None:
+        _, workorder, nfe_request, _ = self._build_requests(suffix=77)
+        reserve_nfe_request_number(nfe_request=nfe_request)
+
+        item = workorder.items.filter(product__isnull=False).first()
+        self.assertIsNotNone(item)
+        assert item is not None
+        item.quantity = 3
+        item.product_selling_price = Money("10.00", "BRL")
+        item.save(update_fields=["quantity", "product_selling_price"])
+
+        payload = build_nfe_payload(nfe_request=nfe_request, slider_override=-100)
+        product_payload = payload["produtos"][0]
+
+        self.assertEqual(product_payload["quantidade"], "3")
+        self.assertEqual(product_payload["total"], "80.00")
+        self.assertEqual(product_payload["subtotal"], "26.6666666667")
 
     @override_settings(WEBMANIA_AMBIENT="2")
     def test_build_nfse_payload_includes_reserved_rps_number_and_series(self) -> None:

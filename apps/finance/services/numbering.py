@@ -50,6 +50,8 @@ def reserve_nfe_request_number(*, nfe_request: NfeRequest) -> ReservedNfeNumber:
         next_number = getattr(company, counter_field)
         if next_number is None:
             raise EmissionNumberReservationError("Configure o próximo número NF-e da oficina antes de emitir a NF-e.")
+        if company.nfe_serie is None:
+            raise EmissionNumberReservationError("Configure a série NF-e da oficina antes de emitir a NF-e.")
 
         locked_request.reserved_number = int(next_number)
         locked_request.reserved_series = company.nfe_serie
