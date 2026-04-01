@@ -28,8 +28,7 @@ from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.core.forms import address_layout, AddressFormMixin
 from apps.core.utils import alert_confirm_layout
-from apps.core.widgets import TextInput, SelectInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput, PhoneInput, EmailInput, \
-    TextareaInput
+from apps.core.widgets import TextInput, SelectInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput, PhoneInput, EmailInput, TextareaInput
 from apps.finance.models.payment_method import PaymentMethod
 
 from apps.stock.financial_entries import ADDITIONAL_CHARGE_ENTRY_TYPE, PAYMENT_ENTRY_TYPE, calculate_import_totals, get_entry_amount, get_entry_reason, normalize_entry_type
@@ -47,6 +46,7 @@ external_calls_logger = logging.getLogger("performance.external")
 
 
 # Stock
+
 
 class ImportStep1Form(forms.ModelForm):
     xml_file = forms.FileField(label="Selecione o arquivo XML", required=False)
@@ -1266,7 +1266,7 @@ class TransferStepReasonForm(forms.ModelForm):
             is_selected = str(product.id) in selected_ids
             row_class = "bg-primary/10 text-primary" if is_selected else "hover:bg-base-200 cursor-pointer"
             icon = "check_circle" if is_selected else "add_circle_outline"
-            
+
             action_url = reverse("stock:remove_transfer_item") if is_selected else reverse("stock:add_transfer_source_item")
             hx_vals = f'{{"pk": "{self.instance.pk}", "source_product_id": "{product.id}"}}' if is_selected else f'{{"pk": "{self.instance.pk}", "product_id": "{product.id}", "quantity": "1"}}'
 
@@ -1331,7 +1331,7 @@ class TransferStepReasonForm(forms.ModelForm):
                     "min": "1",
                     "hx-post": reverse("stock:update_transfer_item_data", kwargs={"pk": self.instance.pk}),
                     "hx-trigger": "change delay:300ms",
-                    "hx-vals": f'js:{{item_idx: {idx}}}',
+                    "hx-vals": f"js:{{item_idx: {idx}}}",
                     "hx-target": "#step-container",
                 },
             )
@@ -1345,7 +1345,7 @@ class TransferStepReasonForm(forms.ModelForm):
                 <td class="text-center">{quantity_input}</td>
                 <td class="text-right">
                     <button type="button" class="btn btn-ghost btn-xs text-error"
-                            hx-post="{reverse('stock:remove_transfer_item')}?pk={self.instance.pk}&item_idx={idx}"
+                            hx-post="{reverse("stock:remove_transfer_item")}?pk={self.instance.pk}&item_idx={idx}"
                             hx-target="#step-container">
                         <span class="material-icons text-sm">delete</span>
                     </button>
@@ -1381,13 +1381,15 @@ class TransferStepReasonForm(forms.ModelForm):
 
         self.fields["reason"].required = True
         self.fields["reason"].label = "Motivo da Baixa"
-        self.fields["reason"].widget = forms.Textarea(attrs={
-            "rows": 4,
-            "placeholder": "Ex: Danificado na montagem, item vencido, uso interno...",
-            "hx-post": reverse("stock:update_transfer_reason", kwargs={"pk": self.instance.pk}),
-            "hx-trigger": "blur",
-            "hx-swap": "none",
-        })
+        self.fields["reason"].widget = forms.Textarea(
+            attrs={
+                "rows": 4,
+                "placeholder": "Ex: Danificado na montagem, item vencido, uso interno...",
+                "hx-post": reverse("stock:update_transfer_reason", kwargs={"pk": self.instance.pk}),
+                "hx-trigger": "blur",
+                "hx-swap": "none",
+            }
+        )
 
         self.helper.layout = Layout(
             Div(
@@ -1396,7 +1398,6 @@ class TransferStepReasonForm(forms.ModelForm):
                 Div(
                     # Coluna da Esquerda: Busca e Seleção
                     Div(HTML(self._render_search_and_list_html()), css_class="col-span-12 lg:col-span-7"),
-
                     # Coluna da Direita: Justificativa
                     Div(
                         HTML('<h3 class="text-sm font-bold uppercase mb-4 opacity-60">Justificativa</h3>'),
@@ -1962,10 +1963,11 @@ class TransferSummaryForm(forms.ModelForm):
 
 # Quick Forms
 
+
 class QuickProductForm(forms.ModelForm):
     class Meta:
         model = Product
-        fields = ["code", "name", "unit", "group", "cost_price", "selling_price", "profit_margin", "origin_cst", "purpose"]
+        fields = ["code", "name", "unit", "group", "cost_price", "selling_price", "profit_margin", "ncm", "origin_cst", "purpose"]
         widgets = {
             "code": TextInput(),
             "name": TextInput(),
@@ -1974,6 +1976,7 @@ class QuickProductForm(forms.ModelForm):
             "cost_price": MoneyInput(),
             "selling_price": MoneyInput(),
             "profit_margin": PercentageInput(),
+            "ncm": TextInput(attrs={"placeholder": "Ex: 87089990"}),
             "origin_cst": SelectInput(),
             "purpose": SelectInput(),
         }
@@ -1984,6 +1987,8 @@ class QuickProductForm(forms.ModelForm):
 
         if workshop:
             self.fields["group"].queryset = self.fields["group"].queryset.filter(workshop=workshop)
+
+        self.fields["ncm"].required = False
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -2014,8 +2019,9 @@ class QuickProductForm(forms.ModelForm):
                         css_class="col-span-12 lg:col-span-4",
                     ),
                     Field("profit_margin", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("origin_cst", wrapper_class="col-span-12 lg:col-span-6"),
-                    Field("purpose", wrapper_class="col-span-12 lg:col-span-6"),
+                    Field("ncm", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("origin_cst", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("purpose", wrapper_class="col-span-12 lg:col-span-4"),
                     css_class="grid grid-cols-12 gap-3",
                 ),
                 **{

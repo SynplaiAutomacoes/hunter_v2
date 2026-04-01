@@ -23,7 +23,7 @@ from apps.collaborators.models import WorkshopMember
 from apps.core.documents.contract import DocumentPayload
 from apps.finance.models.payment_method import PaymentMethod
 from apps.iam.utils import get_or_create_director_role
-from apps.stock.forms import ImportSefazListForm, ImportStep1Form, ImportStepPaymentForm, ImportStepSummaryForm, ImportStepSupplierForm
+from apps.stock.forms import ImportSefazListForm, ImportStep1Form, ImportStepPaymentForm, ImportStepSummaryForm, ImportStepSupplierForm, QuickProductForm
 from apps.stock.models import SefazZipCache, StockImport, StockMovement, StockPaymentMethod, StockProduct, StockTransfer
 from apps.stock.utils import NFParser
 from apps.suppliers.models import Supplier
@@ -387,6 +387,62 @@ class StockTransferFlowTests(TestCase):
         response = self.client.get(reverse("stock:history_edit", kwargs={"record_type": "transfer", "pk": transfer.pk}))
 
         self.assertRedirects(response, reverse("stock:transfer_update", kwargs={"pk": transfer.pk}), fetch_redirect_response=False)
+
+
+class QuickProductFormTests(TestCase):
+    def setUp(self) -> None:
+        self.workshop = Workshop.objects.create(
+            name="Oficina Quick Produto",
+            cnpj="31.222.555/0001-10",
+            phone="+5511988886666",
+            address="Rua Quick, 10",
+            uf="SP",
+        )
+        self.group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo Quick Produto")
+
+    def test_quick_product_form_accepts_optional_ncm(self) -> None:
+        form = QuickProductForm(
+            data={
+                "code": "QP-001",
+                "name": "Produto Quick com NCM",
+                "unit": Product.Unit.UND,
+                "group": str(self.group.pk),
+                "cost_price_0": "10.00",
+                "cost_price_1": "BRL",
+                "selling_price_0": "20.00",
+                "selling_price_1": "BRL",
+                "profit_margin": "50.00",
+                "ncm": "87089990",
+                "origin_cst": str(Product.OriginCST.NACIONAL),
+                "purpose": Product.Purpose.RESALE,
+            },
+            workshop=self.workshop,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        product = form.save(commit=False)
+        self.assertEqual(product.ncm, "87089990")
+
+    def test_quick_product_form_keeps_ncm_optional(self) -> None:
+        form = QuickProductForm(
+            data={
+                "code": "QP-002",
+                "name": "Produto Quick sem NCM",
+                "unit": Product.Unit.UND,
+                "group": str(self.group.pk),
+                "cost_price_0": "10.00",
+                "cost_price_1": "BRL",
+                "selling_price_0": "20.00",
+                "selling_price_1": "BRL",
+                "profit_margin": "50.00",
+                "ncm": "",
+                "origin_cst": str(Product.OriginCST.NACIONAL),
+                "purpose": Product.Purpose.RESALE,
+            },
+            workshop=self.workshop,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors.as_json())
 
 
 class StockReportViewTests(TestCase):

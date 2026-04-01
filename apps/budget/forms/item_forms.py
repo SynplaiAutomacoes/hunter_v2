@@ -137,7 +137,7 @@ class QuickProductForm(forms.ModelForm):
 
     class Meta:
         model = Product
-        fields = ["code", "unit", "name", "group", "cost_price", "selling_price"]
+        fields = ["code", "unit", "name", "group", "cost_price", "selling_price", "ncm"]
         widgets = {
             "code": TextInput(attrs={"placeholder": "Ex: P001"}),
             "name": TextInput(attrs={"placeholder": "Ex: Filtro de Óleo"}),
@@ -145,6 +145,7 @@ class QuickProductForm(forms.ModelForm):
             "group": SelectInput(),
             "cost_price": MoneyInput(),
             "selling_price": MoneyInput(),
+            "ncm": TextInput(attrs={"placeholder": "Ex: 87089990"}),
         }
 
     def __init__(self, *args, workshop=None, **kwargs):
@@ -173,6 +174,8 @@ class QuickProductForm(forms.ModelForm):
         self.fields["group"].label = "Grupo"
         self.fields["cost_price"].label = "Custo"
         self.fields["selling_price"].label = "Valor de Venda"
+        self.fields["ncm"].label = "NCM"
+        self.fields["ncm"].required = False
 
     def clean_name(self):
         name = self.cleaned_data.get("name")

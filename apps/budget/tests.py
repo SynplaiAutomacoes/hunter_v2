@@ -1276,6 +1276,65 @@ class BudgetQuickCreateProductValidationTests(TestCase):
         self.assertContains(response, 'hx-vals="{&quot;quick_name_lookup&quot;: &quot;1&quot;}"')
         self.assertContains(response, 'id="product-name-suggestions"')
 
+    def test_quick_create_product_accepts_optional_ncm(self) -> None:
+        group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo NCM Rapido")
+
+        response = self.client.post(
+            reverse("budget:quick_create_item", args=[self.budget.pk, "product"]),
+            {
+                "code": "P-NCM-99",
+                "unit": Product.Unit.UND,
+                "name": "Produto com NCM Rapido",
+                "group": group.pk,
+                "cost_price_0": "10.00",
+                "cost_price_1": "BRL",
+                "selling_price_0": "20.00",
+                "selling_price_1": "BRL",
+                "ncm": "87089990",
+                "modal_context": "parent",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        product = Product.objects.get(workshop=self.workshop, code="P-NCM-99")
+        self.assertEqual(product.ncm, "87089990")
+
+    def test_register_local_product_accepts_optional_ncm(self) -> None:
+        group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo Registro NCM")
+        local_item = BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            description="Produto local NCM",
+            quantity=1,
+            product_cost_price=Money("10.00", "BRL"),
+            product_selling_price=Money("20.00", "BRL"),
+            shipping=Money("0.00", "BRL"),
+            is_local=True,
+        )
+
+        response = self.client.post(
+            reverse("budget:register_local_item", args=[self.budget.pk, local_item.pk]),
+            {
+                "code": "P-REG-NCM-99",
+                "unit": Product.Unit.UND,
+                "name": "Produto Registro NCM",
+                "group": group.pk,
+                "cost_price_0": "10.00",
+                "cost_price_1": "BRL",
+                "selling_price_0": "20.00",
+                "selling_price_1": "BRL",
+                "ncm": "87089990",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        local_item.refresh_from_db()
+        self.assertFalse(local_item.is_local)
+        assert local_item.product is not None
+        self.assertEqual(local_item.product.ncm, "87089990")
+
     def test_product_name_lookup_returns_similar_products(self) -> None:
         create_product(workshop=self.workshop, suffix=101)
 
