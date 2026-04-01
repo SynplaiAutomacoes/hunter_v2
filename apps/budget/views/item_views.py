@@ -15,6 +15,7 @@ from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.product_issues import annotate_product_issues
+from apps.core.widgets import NumberInput
 from apps.workshops.mixin import WorkshopScopedMixin
 
 from .shared import _calculate_service_prices, _get_budget_for_workshop, _get_budget_item_for_workshop, _get_budget_workshop_cost, _get_current_step_from_referer, _parse_duration_from_string, _step_redirect_response, logger, reset_steps_after_step_4
@@ -339,13 +340,26 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = BudgetItem
     workshop_permission_codename = "change_budgetitem"
 
+    @staticmethod
+    def _build_stock_quantity_html(*, item: BudgetItem) -> str:
+        return NumberInput(attrs={"readonly": "readonly", "disabled": "disabled", "id": "stock-quantity-reference"}).render(
+            name="stock_quantity_reference",
+            value=item.stock_quantity or 0,
+        )
+
     def get(self, request, budget_id, item_id):
         item = _get_budget_item_for_workshop(self.workshop, budget_id, item_id)
         annotate_product_issues(workshop=self.workshop, items=[item])
         form = BudgetItemEditForm(instance=item, budget_id=budget_id)
         in_queue = request.GET.get("in_queue", "false").lower() == "true"
 
-        context = {"form": form, "item": item, "budget_id": budget_id, "in_queue": in_queue}
+        context = {
+            "form": form,
+            "item": item,
+            "budget_id": budget_id,
+            "in_queue": in_queue,
+            "stock_quantity_html": self._build_stock_quantity_html(item=item),
+        }
         return render(request, "budget/partials/modals/modal_edit_item.html", context)
 
     def post(self, request, budget_id, item_id):
@@ -390,7 +404,16 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         )
 
         annotate_product_issues(workshop=self.workshop, items=[item])
-        return render(request, "budget/partials/modals/modal_edit_item.html", {"form": form, "item": item, "budget_id": budget_id})
+        return render(
+            request,
+            "budget/partials/modals/modal_edit_item.html",
+            {
+                "form": form,
+                "item": item,
+                "budget_id": budget_id,
+                "stock_quantity_html": self._build_stock_quantity_html(item=item),
+            },
+        )
 
     @staticmethod
     def _sync_product_ncm(*, item: BudgetItem, form: BudgetItemEditForm) -> None:

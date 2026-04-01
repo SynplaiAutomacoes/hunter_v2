@@ -1375,6 +1375,8 @@ class BudgetQuickCreateProductValidationTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'name="ncm"')
         self.assertContains(response, 'value="87089990"')
+        self.assertContains(response, 'id="stock-quantity-reference"')
+        self.assertNotContains(response, 'type="number"')
 
     def test_quick_edit_product_updates_ncm(self) -> None:
         product = create_product(workshop=self.workshop, suffix=103)
