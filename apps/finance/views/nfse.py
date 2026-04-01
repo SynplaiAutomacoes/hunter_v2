@@ -50,7 +50,7 @@ class NfseRequestListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
     htmx_template_name = "finance/partials/nfse_request_table.html"
 
     def get_queryset(self):
-        return super().get_queryset().select_related("workorder", "workorder__budget", "workorder__budget__customer", "workorder__budget__vehicle").prefetch_related("items")
+        return super().get_queryset().select_related("workorder", "workorder__budget", "workorder__budget__customer", "workorder__budget__vehicle").prefetch_related("items").order_by("-criado_em", "-pk")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
