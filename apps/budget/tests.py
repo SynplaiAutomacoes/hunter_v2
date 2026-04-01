@@ -200,6 +200,29 @@ class BudgetStep1FormTests(TestCase):
         self.assertIn(reverse("budget:vehicle-detail"), rendered_vehicle_field)
         self.assertIn(':disabled="!customerId"', rendered_vehicle_field)
 
+    def test_accepts_current_km_with_thousands_separator(self) -> None:
+        user, workshop = create_director_user_with_workshop(suffix=68)
+        customer = create_customer(workshop=workshop, suffix=68)
+        vehicle = create_vehicle(workshop=workshop, customer=customer, suffix=68, plate="BDG6868")
+
+        request = RequestFactory().post(reverse("budget:budget_create"))
+        request.user = user
+
+        form = BudgetStep1Form(
+            data={
+                "entry_date": timezone.now().date().isoformat(),
+                "customer": str(customer.pk),
+                "vehicle": str(vehicle.pk),
+                "current_km": "15.000",
+                "fuel_level": "5",
+            },
+            workshop=workshop,
+            request=request,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        self.assertEqual(form.cleaned_data["current_km"], 15000)
+
 
 class BudgetCreateViewAppointmentSyncTests(TestCase):
     def setUp(self) -> None:
