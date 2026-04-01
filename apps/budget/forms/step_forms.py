@@ -398,13 +398,6 @@ class BudgetStep1Form(forms.ModelForm):
         self.helper.layout = Layout(
             HTML(r"""
             <script>
-                document.addEventListener('input', function (e) {
-                    if (e.target && e.target.name === 'current_km') {
-                        let value = e.target.value.replace(/\D/g, '');
-                        e.target.value = value.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-                    }
-                });
-                
                 async function updateVehicleList(customerId, selectedVehicleId = null) {
                     const vehicleInput = document.querySelector('[name="vehicle"]');
                     if (!vehicleInput) return;
@@ -616,6 +609,17 @@ class BudgetStep1Form(forms.ModelForm):
 
         return cleaned_data
 
+    def clean_current_km(self) -> int:
+        raw_value = self.data.get("current_km") if self.is_bound else self.cleaned_data.get("current_km")
+        if raw_value in (None, ""):
+            return 0
+
+        digits = "".join(char for char in str(raw_value) if char.isdigit())
+        if not digits:
+            return 0
+
+        return int(digits)
+
 
 class BudgetStep2Form(forms.ModelForm):
     class Meta:
@@ -742,9 +746,6 @@ class BudgetStep3Form(forms.ModelForm):
             self.fields["collaborator"].queryset = WorkshopCollaborator.objects.filter(workshop=self.workshop, is_active=True)
             self.fields["checklist"].queryset = Checklist.objects.filter(workshop=self.workshop).order_by("name")
 
-        # Configurações para o componente de múltiplos colaboradores
-        collaborator_choices = list(self.fields["collaborator"].queryset.values_list("id", "name"))
-        
         initial_collaborators = []
         if self.instance.pk:
             initial_collaborators = [{"id": str(c.id), "name": c.name, "is_new": False} for c in self.instance.collaborators.all()]
@@ -753,10 +754,10 @@ class BudgetStep3Form(forms.ModelForm):
             initial_collaborators = [{"id": "", "is_new": True}]
 
         import json
-        self.initial_collaborators_json = json.dumps(initial_collaborators)
-        
-        checklist_pdf_base_url = reverse("budget:visualizar_pdf_checklist", args=[self.instance.pk]) if self.instance.pk else ""
 
+        self.initial_collaborators_json = json.dumps(initial_collaborators)
+
+        checklist_pdf_base_url = reverse("budget:visualizar_pdf_checklist", args=[self.instance.pk]) if self.instance.pk else ""
 
         slot_placeholder_urls = {slot_type: static(path) for slot_type, path in SLOT_PLACEHOLDER_PATHS.items()}
         slot_placeholder_urls_js = "{" + ", ".join([f"'{slot_type}': '{slot_placeholder_urls[slot_type]}'" for slot_type in SLOT_IMAGE_TYPES]) + "}"
@@ -765,9 +766,8 @@ class BudgetStep3Form(forms.ModelForm):
             slots_initial_html = _build_step3_slot_fallback_html(slot_placeholder_urls)
 
         from django.template.loader import render_to_string
-        collaborator_html = render_to_string(template_name="budget/partials/components/collaborator_field.html",
-            context={"field": self["collaborator"], "initial_collaborators_json": self.initial_collaborators_json},
-            request=self.request)
+
+        collaborator_html = render_to_string(template_name="budget/partials/components/collaborator_field.html", context={"field": self["collaborator"], "initial_collaborators_json": self.initial_collaborators_json}, request=self.request)
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -1508,7 +1508,7 @@ class BudgetStep3Form(forms.ModelForm):
 
         collaborator_ids = [cid for cid in self.request.POST.getlist("collaborators_list") if cid.strip()]
         if not collaborator_ids:
-             self.add_error("collaborator", "Selecione pelo menos um colaborador para continuar.")
+            self.add_error("collaborator", "Selecione pelo menos um colaborador para continuar.")
 
         if not self.files:
             return cleaned_data

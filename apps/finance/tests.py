@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import ANY, Mock, patch
 import time
+from urllib.parse import quote
 
 from django.contrib.messages import get_messages
 from django.core.exceptions import ValidationError
@@ -41,7 +42,7 @@ from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
 from apps.finance.services.emission import NfseEmissionError, _build_taker_payload, _default_service_description, _service_total_value, build_nfse_payload, build_webmania_webhook_token, cancel_nfse_document, emit_nfse_request, sync_emission_response
-from apps.finance.services.nfe_emission import NfeEmissionError, _build_nfe_products_payload, _extract_product_lines, build_nfe_payload, cancel_nfe_document, sync_nfe_emission_response
+from apps.finance.services.nfe_emission import NfeEmissionError, _build_nfe_products_payload, _extract_product_lines, build_nfe_payload, build_nfe_preview_rows, build_nfe_preview_warning_message, build_nfe_preview_warning_messages, cancel_nfe_document, sync_nfe_emission_response
 from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfe_request_number, reserve_nfse_request_rps_number
 from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder, compute_slider_allocation, distribute_total_proportionally
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
@@ -948,6 +949,47 @@ class SliderPricingAllocationTests(TestCase):
         self.assertEqual(rows[0]["description"], "Servico Slider 94")
         self.assertEqual(rows[0]["total_value"], Money("50.00", "BRL"))
         self.assertEqual(description, "1x Servico Slider 94")
+
+    def test_nfe_preview_rows_keep_totals_and_rows_when_product_has_invalid_ncm(self) -> None:
+        workorder, _, _ = self._build_workorder_with_product_and_service(suffix=41)
+        product = Product.objects.get(workshop=workorder.workshop, code="P-SL-41")
+        product.ncm = ""
+        product.save(update_fields=["ncm"])
+
+        rows, allocation = build_nfe_preview_rows(workorder=workorder)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["description"], "Produto Slider 41")
+        self.assertEqual(rows[0]["ncm"], "")
+        self.assertEqual(rows[0]["target_total"], Decimal("20.00"))
+        self.assertEqual(allocation.products_target, Decimal("20.00"))
+        self.assertEqual(allocation.services_target, Decimal("50.00"))
+        self.assertEqual(build_nfe_preview_warning_message(workorder=workorder), "Produto 'Produto Slider 41' sem NCM valido para emissao de NF-e.")
+
+    def test_nfe_emission_payload_still_blocks_when_product_has_invalid_ncm(self) -> None:
+        workorder, _, _ = self._build_workorder_with_product_and_service(suffix=42)
+        product = Product.objects.get(workshop=workorder.workshop, code="P-SL-42")
+        product.ncm = ""
+        product.save(update_fields=["ncm"])
+        nfe_request = NfeRequest.objects.create(workshop=workorder.workshop, workorder=workorder, tax_class="REF000001")
+
+        with self.assertRaisesMessage(NfeEmissionError, "sem NCM valido"):
+            _build_nfe_products_payload(nfe_request=nfe_request)
+
+    def test_nfe_preview_rows_keep_totals_when_product_is_missing_code(self) -> None:
+        workorder, _, _ = self._build_workorder_with_product_and_service(suffix=43)
+        product = Product.objects.get(workshop=workorder.workshop, code="P-SL-43")
+        product.code = ""
+        product.save(update_fields=["code"])
+
+        rows, allocation = build_nfe_preview_rows(workorder=workorder)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["description"], "Produto Slider 43")
+        self.assertEqual(rows[0]["code"], "")
+        self.assertEqual(rows[0]["target_total"], Decimal("20.00"))
+        self.assertEqual(allocation.products_target, Decimal("20.00"))
+        self.assertIn("Produto 'Produto Slider 43' sem codigo para emissao de NF-e.", build_nfe_preview_warning_messages(workorder=workorder))
 
     def test_nfse_request_copies_budget_slider_on_create(self) -> None:
         workorder, budget, _ = self._build_workorder_with_product_and_service(suffix=95)
@@ -2768,6 +2810,47 @@ class UnifiedEmissionWizardTests(TestCase):
         emit_mock.assert_called_once_with(nfe_request=nfe_request, request=ANY)
         sync_mock.assert_called_once()
 
+    def test_unified_wizard_blocks_nfe_emission_when_product_has_invalid_ncm(self) -> None:
+        product = Product.objects.get(workshop=self.workshop, code__startswith="P-UNI-")
+        product.ncm = ""
+        product.save(update_fields=["ncm"])
+        tax_classes = [{"referencia": "REFNFE930", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e"}]
+
+        with (
+            patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.emission.emit_nfe_request") as emit_mock,
+            patch("apps.finance.views.emission.sync_nfe_emission_response") as sync_mock,
+        ):
+            self._advance_to_step_5(pricing_slider="10")
+            allocation = build_slider_allocation_for_workorder(workorder=self.workorder, slider_override=10)
+            expected_nfe_total = f"{allocation.products_target:.2f}".replace(".", ",")
+            expected_nfse_total = f"{allocation.services_target:.2f}".replace(".", ",")
+
+            response = self.client.post(self._wizard_url(step=5), {"note_mode": "nfe"})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=6))
+
+            response = self.client.post(
+                self._wizard_url(step=6),
+                {"tax_class": "REFNFE930"},
+                follow=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "NCM Inválido")
+        self.assertContains(response, f"O produto {product.name} não tem um NCM válido")
+        self.assertContains(response, "Total NF-e")
+        self.assertContains(response, "Saldo NFS-e")
+        self.assertContains(response, product.name)
+        self.assertContains(response, expected_nfe_total)
+        self.assertContains(response, expected_nfse_total)
+        self.assertNotContains(response, "Nenhum produto elegivel encontrado para esta OS.")
+        expected_next_url = f"{reverse('finance:emission_create')}?step=6"
+        self.assertContains(response, f"{reverse('catalog:product_update', kwargs={'pk': product.pk})}?next={quote(expected_next_url, safe='')}")
+        emit_mock.assert_not_called()
+        sync_mock.assert_not_called()
+        self.assertFalse(NfeRequest.objects.filter(workshop=self.workshop).exists())
+
     def test_unified_wizard_creates_nfse_request_with_service_description(self) -> None:
         tax_classes = [{"referencia": "REFNFSE901", "tipo": "nfse", "status": "ativo", "descricao": "Classe NFS-e", "codigo_servico": "01.05"}]
 
@@ -3299,6 +3382,47 @@ class CompatibilityEmissionUpdateFlowTests(TestCase):
         self.assertEqual(response.headers.get("Location"), reverse("finance:nfe_emit"))
         nfe_request.refresh_from_db()
         self.assertEqual(nfe_request.pricing_slider, -100)
+
+    def test_nfe_update_blocks_emission_when_product_has_invalid_ncm(self) -> None:
+        workorder = self._build_workorder_with_product_and_service(suffix=104)
+        product = Product.objects.get(workshop=self.workshop, code="P-UP-104")
+        product.ncm = ""
+        product.save(update_fields=["ncm"])
+
+        nfe_request = NfeRequest.objects.create(
+            workshop=self.workshop,
+            workorder=workorder,
+            current_step=3,
+            status=NfeRequestStatus.CHECKING_PRODUCTS,
+            tax_class="REFNFE951",
+            pricing_slider=0,
+        )
+        tax_classes = [{"referencia": "REFNFE951", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e update"}]
+
+        with (
+            patch("apps.finance.views.request_workflow.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.nfe.emit_nfe_request") as emit_mock,
+            patch("apps.finance.views.nfe.sync_nfe_emission_response") as sync_mock,
+        ):
+            response = self.client.post(
+                f"{reverse('finance:nfe_update', kwargs={'pk': nfe_request.pk})}?step=3",
+                data={"pricing_slider": 0, "tax_class": "REFNFE951"},
+                follow=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "NCM Inválido")
+        self.assertContains(response, f"O produto {product.name} não tem um NCM válido")
+        self.assertContains(response, "Total NF-e (produtos)")
+        self.assertContains(response, "Saldo NFS-e (servicos)")
+        self.assertContains(response, product.name)
+        self.assertContains(response, "20,00")
+        self.assertContains(response, "50,00")
+        self.assertNotContains(response, "Nenhuma peca elegivel encontrada para esta OS.")
+        expected_next_url = f"{reverse('finance:nfe_update', kwargs={'pk': nfe_request.pk})}?step=3"
+        self.assertContains(response, f"{reverse('catalog:product_update', kwargs={'pk': product.pk})}?next={quote(expected_next_url, safe='')}")
+        emit_mock.assert_not_called()
+        sync_mock.assert_not_called()
 
     def test_nfse_update_step_three_preview_and_save_persist_slider(self) -> None:
         workorder = self._build_workorder_with_product_and_service(suffix=103)

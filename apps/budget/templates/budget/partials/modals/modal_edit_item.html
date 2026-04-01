@@ -53,13 +53,7 @@
                             Em estoque
                         </span>
                     </label>
-                    <input
-                        type="number"
-                        id="stock-quantity-reference"
-                        class="input input-bordered"
-                        value="{{ item.stock_quantity|default_if_none:0 }}"
-                        readonly
-                        disabled>
+                    {{ stock_quantity_html }}
                 </div>
             {% endif %}
             {% include "budget/partials/modals/modal_edit_item_form.html" %}

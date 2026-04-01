@@ -15,6 +15,7 @@ from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.product_issues import annotate_product_issues
+from apps.core.widgets import NumberInput
 from apps.workshops.mixin import WorkshopScopedMixin
 
 from .shared import _calculate_service_prices, _get_budget_for_workshop, _get_budget_item_for_workshop, _get_budget_workshop_cost, _get_current_step_from_referer, _parse_duration_from_string, _step_redirect_response, logger, reset_steps_after_step_4
@@ -339,13 +340,26 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = BudgetItem
     workshop_permission_codename = "change_budgetitem"
 
+    @staticmethod
+    def _build_stock_quantity_html(*, item: BudgetItem) -> str:
+        return NumberInput(attrs={"readonly": "readonly", "disabled": "disabled", "id": "stock-quantity-reference"}).render(
+            name="stock_quantity_reference",
+            value=item.stock_quantity or 0,
+        )
+
     def get(self, request, budget_id, item_id):
         item = _get_budget_item_for_workshop(self.workshop, budget_id, item_id)
         annotate_product_issues(workshop=self.workshop, items=[item])
         form = BudgetItemEditForm(instance=item, budget_id=budget_id)
         in_queue = request.GET.get("in_queue", "false").lower() == "true"
 
-        context = {"form": form, "item": item, "budget_id": budget_id, "in_queue": in_queue}
+        context = {
+            "form": form,
+            "item": item,
+            "budget_id": budget_id,
+            "in_queue": in_queue,
+            "stock_quantity_html": self._build_stock_quantity_html(item=item),
+        }
         return render(request, "budget/partials/modals/modal_edit_item.html", context)
 
     def post(self, request, budget_id, item_id):
@@ -356,6 +370,7 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
             action = request.POST.get("action")
             try:
                 item = form.save()
+                self._sync_product_ncm(item=item, form=form)
             except Exception:
                 logger.exception(
                     "Falha ao salvar item do orcamento",
@@ -372,7 +387,7 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
             reset_steps_after_step_4(budget)
 
             if action == "update_master":
-                self.update_master_record(item)
+                self.update_master_record(item=item, form=form)
 
             # Mantém o mesmo comportamento de create/delete: recarrega etapa atual
             # para refletir imediatamente o reset das etapas 5 e 6.
@@ -389,14 +404,38 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         )
 
         annotate_product_issues(workshop=self.workshop, items=[item])
-        return render(request, "budget/partials/modals/modal_edit_item.html", {"form": form, "item": item, "budget_id": budget_id})
+        return render(
+            request,
+            "budget/partials/modals/modal_edit_item.html",
+            {
+                "form": form,
+                "item": item,
+                "budget_id": budget_id,
+                "stock_quantity_html": self._build_stock_quantity_html(item=item),
+            },
+        )
 
-    def update_master_record(self, item):
+    @staticmethod
+    def _sync_product_ncm(*, item: BudgetItem, form: BudgetItemEditForm) -> None:
+        if not item.product or "ncm" not in form.cleaned_data:
+            return
+
+        product = item.product
+        new_ncm = str(form.cleaned_data.get("ncm") or "").strip()
+        if str(product.ncm or "") == new_ncm:
+            return
+
+        product.ncm = new_ncm
+        product.save(update_fields=["ncm"])
+
+    def update_master_record(self, *, item: BudgetItem, form: BudgetItemEditForm):
         if item.product:
             product = item.product
             product.name = item.description
             product.cost_price = item.product_cost_price
             product.selling_price = item.product_selling_price
+            if "ncm" in form.cleaned_data:
+                product.ncm = str(form.cleaned_data.get("ncm") or "").strip()
             product.save()
         elif item.service:
             service = item.service
@@ -640,13 +679,11 @@ class BudgetStep3CollaboratorFieldView(LoginRequiredMixin, WorkshopScopedMixin, 
 
         # Configurações para o componente de múltiplos colaboradores
         import json
+
         initial_collaborators = []
         if budget.pk:
-            initial_collaborators = [
-                {"id": str(c.id), "name": c.name}
-                for c in budget.collaborators.all()
-            ]
-        
+            initial_collaborators = [{"id": str(c.id), "name": c.name} for c in budget.collaborators.all()]
+
         if not initial_collaborators:
             initial_collaborators = [{"id": "", "is_new": True}]
 

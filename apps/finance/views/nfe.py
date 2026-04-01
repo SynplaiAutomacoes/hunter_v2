@@ -19,6 +19,7 @@ from apps.finance.models.finance import NfeItem, NfeRequest, NfeRequestStatus
 from apps.finance.services.nfe_consulta import NfeConsultaError, reconcile_nfe_item
 from apps.finance.services.nfe_emission import NfeEmissionError, cancel_nfe_document, emit_nfe_request, sync_nfe_emission_response
 from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
+from apps.finance.views.ncm_validation import build_invalid_ncm_modal_context, pop_invalid_ncm_modal_context, store_invalid_ncm_modal_context
 from apps.finance.views.navigation import build_detail_url_with_preserved_origin, build_issued_documents_back_url
 from apps.finance.views.request_workflow import SharedEmissionRequestCreateBaseView, SharedEmissionRequestUpdateBaseView
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -246,7 +247,17 @@ class NfeRequestCreateView(SharedEmissionRequestCreateBaseView):
         {"title": "Conferir Produtos", "form_class": NfeRequestStep3Form},
     ]
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["ncm_invalid_modal"] = pop_invalid_ncm_modal_context(request=self.request)
+        return context
+
     def _finalize_emission(self) -> bool:
+        invalid_ncm_modal = build_invalid_ncm_modal_context(workorder=self.object.workorder, return_url=self.request.get_full_path())
+        if invalid_ncm_modal is not None:
+            store_invalid_ncm_modal_context(request=self.request, modal_context=invalid_ncm_modal)
+            return False
+
         try:
             response_payload = emit_nfe_request(nfe_request=self.object, request=self.request)
             sync_nfe_emission_response(nfe_request=self.object, response_payload=response_payload)

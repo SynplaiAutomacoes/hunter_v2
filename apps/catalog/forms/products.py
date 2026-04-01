@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal, ROUND_HALF_UP
+
 from django import forms
 from django.urls import reverse
 
@@ -23,6 +25,7 @@ from apps.workshops.models.workshops import Workshop
 # TODO: Improve equivalent products to use a modal similar to Kits. Probably make a reusable modal for it.
 class ProductForm(forms.ModelForm):
     equivalent_search = forms.CharField(required=False, label="Produtos Equivalentes")
+    profit_margin = forms.DecimalField(required=False, max_digits=9, decimal_places=6, widget=PercentageInput(attrs={"readonly": True}))
 
     class Meta:
         model = Product
@@ -77,9 +80,13 @@ class ProductForm(forms.ModelForm):
             "is_active": CheckboxInput(),
         }
 
-    def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
+    def __init__(self, *args, workshop: Workshop | None = None, next_url: str = "", **kwargs):
         super().__init__(*args, **kwargs)
         self.workshop = workshop
+        self.next_url = str(next_url or "").strip()
+
+        if self.instance.pk and self.instance.profit_margin is not None:
+            self.initial["profit_margin"] = (Decimal(self.instance.profit_margin) / Decimal("100")).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
 
         if workshop:
             self.fields["group"].queryset = self.fields["group"].queryset.filter(workshop=workshop)
@@ -92,8 +99,33 @@ class ProductForm(forms.ModelForm):
         self.helper.form_method = "post"
         self.helper.layout = self.get_layout()
 
+    @staticmethod
+    def _normalize_profit_margin(raw_margin: Decimal | None) -> Decimal:
+        if raw_margin is None:
+            return Decimal("0.00")
+
+        normalized_margin = Decimal(raw_margin)
+        if normalized_margin > Decimal("1"):
+            return normalized_margin.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        return (normalized_margin * Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    def clean_profit_margin(self):
+        cost_price = self.cleaned_data.get("cost_price")
+        selling_price = self.cleaned_data.get("selling_price")
+
+        if cost_price is not None and selling_price is not None:
+            cost_amount = Decimal(getattr(cost_price, "amount", cost_price) or 0)
+            selling_amount = Decimal(getattr(selling_price, "amount", selling_price) or 0)
+            if selling_amount <= 0:
+                return Decimal("0.00")
+
+            margin_percent = ((selling_amount - cost_amount) / selling_amount) * Decimal("100")
+            return margin_percent.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+        return self._normalize_profit_margin(self.cleaned_data.get("profit_margin"))
+
     def get_layout(self):
-        cancel_url = reverse("catalog:product_list")
+        cancel_url = self.next_url or reverse("catalog:product_list")
         search_product_url = reverse("catalog:product_search")
 
         initial_equivalents = []

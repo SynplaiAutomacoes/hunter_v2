@@ -200,6 +200,29 @@ class BudgetStep1FormTests(TestCase):
         self.assertIn(reverse("budget:vehicle-detail"), rendered_vehicle_field)
         self.assertIn(':disabled="!customerId"', rendered_vehicle_field)
 
+    def test_accepts_current_km_with_thousands_separator(self) -> None:
+        user, workshop = create_director_user_with_workshop(suffix=68)
+        customer = create_customer(workshop=workshop, suffix=68)
+        vehicle = create_vehicle(workshop=workshop, customer=customer, suffix=68, plate="BDG6868")
+
+        request = RequestFactory().post(reverse("budget:budget_create"))
+        request.user = user
+
+        form = BudgetStep1Form(
+            data={
+                "entry_date": timezone.now().date().isoformat(),
+                "customer": str(customer.pk),
+                "vehicle": str(vehicle.pk),
+                "current_km": "15.000",
+                "fuel_level": "5",
+            },
+            workshop=workshop,
+            request=request,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        self.assertEqual(form.cleaned_data["current_km"], 15000)
+
 
 class BudgetCreateViewAppointmentSyncTests(TestCase):
     def setUp(self) -> None:
@@ -1275,6 +1298,116 @@ class BudgetQuickCreateProductValidationTests(TestCase):
         self.assertContains(response, 'hx-get="/catalog/products/search/"')
         self.assertContains(response, 'hx-vals="{&quot;quick_name_lookup&quot;: &quot;1&quot;}"')
         self.assertContains(response, 'id="product-name-suggestions"')
+
+    def test_quick_create_product_accepts_optional_ncm(self) -> None:
+        group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo NCM Rapido")
+
+        response = self.client.post(
+            reverse("budget:quick_create_item", args=[self.budget.pk, "product"]),
+            {
+                "code": "P-NCM-99",
+                "unit": Product.Unit.UND,
+                "name": "Produto com NCM Rapido",
+                "group": group.pk,
+                "cost_price_0": "10.00",
+                "cost_price_1": "BRL",
+                "selling_price_0": "20.00",
+                "selling_price_1": "BRL",
+                "ncm": "87089990",
+                "modal_context": "parent",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        product = Product.objects.get(workshop=self.workshop, code="P-NCM-99")
+        self.assertEqual(product.ncm, "87089990")
+
+    def test_register_local_product_accepts_optional_ncm(self) -> None:
+        group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo Registro NCM")
+        local_item = BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            description="Produto local NCM",
+            quantity=1,
+            product_cost_price=Money("10.00", "BRL"),
+            product_selling_price=Money("20.00", "BRL"),
+            shipping=Money("0.00", "BRL"),
+            is_local=True,
+        )
+
+        response = self.client.post(
+            reverse("budget:register_local_item", args=[self.budget.pk, local_item.pk]),
+            {
+                "code": "P-REG-NCM-99",
+                "unit": Product.Unit.UND,
+                "name": "Produto Registro NCM",
+                "group": group.pk,
+                "cost_price_0": "10.00",
+                "cost_price_1": "BRL",
+                "selling_price_0": "20.00",
+                "selling_price_1": "BRL",
+                "ncm": "87089990",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        local_item.refresh_from_db()
+        self.assertFalse(local_item.is_local)
+        assert local_item.product is not None
+        self.assertEqual(local_item.product.ncm, "87089990")
+
+    def test_quick_edit_product_modal_shows_ncm_field(self) -> None:
+        product = create_product(workshop=self.workshop, suffix=102)
+        budget_item = BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            product=product,
+            quantity=1,
+        )
+
+        response = self.client.get(
+            reverse("budget:edit_item", args=[self.budget.pk, budget_item.pk]),
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'name="ncm"')
+        self.assertContains(response, 'value="87089990"')
+        self.assertContains(response, 'id="stock-quantity-reference"')
+        self.assertNotContains(response, 'type="number"')
+
+    def test_quick_edit_product_updates_ncm(self) -> None:
+        product = create_product(workshop=self.workshop, suffix=103)
+        budget_item = BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            product=product,
+            quantity=1,
+        )
+
+        response = self.client.post(
+            reverse("budget:edit_item", args=[self.budget.pk, budget_item.pk]),
+            {
+                "description": budget_item.description,
+                "quantity": "1",
+                "product_cost_price_0": "10.00",
+                "product_cost_price_1": "BRL",
+                "product_selling_price_0": "15.00",
+                "product_selling_price_1": "BRL",
+                "shipping_0": "0.00",
+                "shipping_1": "BRL",
+                "ncm": "12345678",
+                "action": "save_only",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("HX-Redirect", response)
+        product.refresh_from_db()
+        self.assertEqual(product.ncm, "12345678")
 
     def test_product_name_lookup_returns_similar_products(self) -> None:
         create_product(workshop=self.workshop, suffix=101)

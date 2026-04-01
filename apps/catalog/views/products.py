@@ -6,6 +6,7 @@ from django.db.models import Q
 from django.http import HttpResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse_lazy
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
@@ -125,10 +126,20 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
     template_name = "products/product_update.html"
     success_url = reverse_lazy("catalog:product_list")
 
+    def _get_next_url(self) -> str:
+        next_url = str(self.request.GET.get("next") or self.request.POST.get("next") or "").strip()
+        if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={self.request.get_host()}, require_https=self.request.is_secure()):
+            return next_url
+        return ""
+
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["workshop"] = self.workshop
+        kwargs["next_url"] = self._get_next_url()
         return kwargs
+
+    def get_success_url(self):
+        return self._get_next_url() or str(self.success_url)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -172,6 +183,7 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
 
         history_list = sorted(history_dict.values(), key=lambda x: x["date"], reverse=True)
         context["history_list"] = history_list
+        context["back_url"] = self._get_next_url() or reverse_lazy("catalog:product_list")
 
         return context
 

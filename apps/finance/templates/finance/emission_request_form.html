@@ -18,6 +18,10 @@
         <div id="modal-container"></div>
     </dialog>
 
+    {% if ncm_invalid_modal %}
+        {% include 'finance/partials/ncm_invalid_modal.html' %}
+    {% endif %}
+
     <script>
         (function () {
             const formModal = document.getElementById('form_modal');
