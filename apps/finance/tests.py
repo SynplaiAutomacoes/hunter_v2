@@ -3800,6 +3800,62 @@ class IssuedDocumentsViewTests(TestCase):
         self.assertEqual(response.context["issued_nfe_total"], 1)
         self.assertEqual(response.context["issued_nfse_total"], 0)
 
+    def test_issued_documents_list_view_preserves_filters_in_detail_links(self) -> None:
+        january_10 = timezone.make_aware(datetime(2026, 1, 10, 10, 0, 0))
+        january_15 = timezone.make_aware(datetime(2026, 1, 15, 15, 30, 0))
+
+        nfe_request = self._create_nfe_request(customer_name="Cliente Link NF", created_at=january_10, number="1003", xml_url="https://files.test/nfe-1003.xml")
+        nfse_request = self._create_nfse_request(customer_name="Cliente Link NFS", created_at=january_15, number="2003", xml_url="https://files.test/nfse-2003.xml")
+
+        response = self.client.get(
+            reverse("finance:issued_documents_list"),
+            data={"data_inicial": "2026-01-01", "data_final": "2026-01-31", "tipo": "all"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            f"{reverse('finance:nfe_detail', kwargs={'pk': nfe_request.pk})}?origin=issued_documents&amp;tipo=all&amp;data_inicial=2026-01-01&amp;data_final=2026-01-31",
+        )
+        self.assertContains(
+            response,
+            f"{reverse('finance:nfse_detail', kwargs={'pk': nfse_request.pk})}?origin=issued_documents&amp;tipo=all&amp;data_inicial=2026-01-01&amp;data_final=2026-01-31",
+        )
+
+    def test_nfe_detail_view_uses_central_back_url_when_origin_is_central(self) -> None:
+        january_10 = timezone.make_aware(datetime(2026, 1, 10, 10, 0, 0))
+        nfe_request = self._create_nfe_request(customer_name="Cliente Back NF", created_at=january_10, number="1004", xml_url="https://files.test/nfe-1004.xml")
+
+        response = self.client.get(
+            reverse("finance:nfe_detail", kwargs={"pk": nfe_request.pk}),
+            data={"origin": "issued_documents", "data_inicial": "2026-01-01", "data_final": "2026-01-31", "tipo": "nfe"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["back_url"], f"{reverse('finance:issued_documents_list')}?tipo=nfe&data_inicial=2026-01-01&data_final=2026-01-31")
+
+        fallback_response = self.client.get(reverse("finance:nfe_detail", kwargs={"pk": nfe_request.pk}))
+
+        self.assertEqual(fallback_response.status_code, 200)
+        self.assertEqual(fallback_response.context["back_url"], reverse("finance:nfe_list"))
+
+    def test_nfse_detail_view_uses_central_back_url_when_origin_is_central(self) -> None:
+        january_15 = timezone.make_aware(datetime(2026, 1, 15, 15, 30, 0))
+        nfse_request = self._create_nfse_request(customer_name="Cliente Back NFS", created_at=january_15, number="2004", xml_url="https://files.test/nfse-2004.xml")
+
+        response = self.client.get(
+            reverse("finance:nfse_detail", kwargs={"pk": nfse_request.pk}),
+            data={"origin": "issued_documents", "data_inicial": "2026-01-01", "data_final": "2026-01-31", "tipo": "nfse"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["back_url"], f"{reverse('finance:issued_documents_list')}?tipo=nfse&data_inicial=2026-01-01&data_final=2026-01-31")
+
+        fallback_response = self.client.get(reverse("finance:nfse_detail", kwargs={"pk": nfse_request.pk}))
+
+        self.assertEqual(fallback_response.status_code, 200)
+        self.assertEqual(fallback_response.context["back_url"], reverse("finance:nfse_list"))
+
     def test_issued_documents_download_xml_returns_zip_with_nfe_and_nfse_files(self) -> None:
         january_10 = timezone.make_aware(datetime(2026, 1, 10, 10, 0, 0))
         january_15 = timezone.make_aware(datetime(2026, 1, 15, 15, 30, 0))
@@ -3838,12 +3894,12 @@ class IssuedDocumentsViewTests(TestCase):
             self.assertEqual(
                 sorted(archive_file.namelist()),
                 [
-                    "nf-Cliente-XML-NF-2026-01-10-1100.xml",
-                    "nfs-Cliente-XML-NFS-2026-01-15-2100.xml",
+                    "1100.xml",
+                    "2100.xml",
                 ],
             )
-            self.assertEqual(archive_file.read("nf-Cliente-XML-NF-2026-01-10-1100.xml"), b"<nfe />")
-            self.assertEqual(archive_file.read("nfs-Cliente-XML-NFS-2026-01-15-2100.xml"), b"<nfse />")
+            self.assertEqual(archive_file.read("1100.xml"), b"<nfe />")
+            self.assertEqual(archive_file.read("2100.xml"), b"<nfse />")
 
     def test_issued_documents_download_pdfs_returns_only_nfe_documents_for_nfe_filter(self) -> None:
         january_10 = timezone.make_aware(datetime(2026, 1, 10, 10, 0, 0))
@@ -3867,11 +3923,7 @@ class IssuedDocumentsViewTests(TestCase):
 
         with patch(
             "apps.finance.views.issued_documents.download_webmania_document",
-            side_effect=[
-                DownloadedWebmaniaDocument(content=b"danfe", content_type="application/pdf", content_disposition=""),
-                DownloadedWebmaniaDocument(content=b"simples", content_type="application/pdf", content_disposition=""),
-                DownloadedWebmaniaDocument(content=b"etiqueta", content_type="application/pdf", content_disposition=""),
-            ],
+            side_effect=[DownloadedWebmaniaDocument(content=b"danfe", content_type="application/pdf", content_disposition="")],
         ) as download_mock:
             response = self.client.get(
                 reverse("finance:issued_documents_download", kwargs={"document_group": "pdfs"}),
@@ -3879,17 +3931,10 @@ class IssuedDocumentsViewTests(TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(download_mock.call_count, 3)
+        self.assertEqual(download_mock.call_count, 1)
 
         with zipfile.ZipFile(BytesIO(response.content)) as archive_file:
-            self.assertEqual(
-                sorted(archive_file.namelist()),
-                [
-                    "nf-Cliente-PDF-NF-2026-01-10-1200-danfe-etiqueta.pdf",
-                    "nf-Cliente-PDF-NF-2026-01-10-1200-danfe-simples.pdf",
-                    "nf-Cliente-PDF-NF-2026-01-10-1200-danfe.pdf",
-                ],
-            )
+            self.assertEqual(sorted(archive_file.namelist()), ["1200.pdf"])
 
     def test_issued_documents_download_pdfs_returns_nfse_and_rps_pdfs_for_nfse_filter(self) -> None:
         january_15 = timezone.make_aware(datetime(2026, 1, 15, 15, 30, 0))
@@ -3904,10 +3949,7 @@ class IssuedDocumentsViewTests(TestCase):
 
         with patch(
             "apps.finance.views.issued_documents.download_webmania_document",
-            side_effect=[
-                DownloadedWebmaniaDocument(content=b"pdf-nfse", content_type="application/pdf", content_disposition=""),
-                DownloadedWebmaniaDocument(content=b"pdf-rps", content_type="application/pdf", content_disposition=""),
-            ],
+            side_effect=[DownloadedWebmaniaDocument(content=b"pdf-nfse", content_type="application/pdf", content_disposition="")],
         ) as download_mock:
             response = self.client.get(
                 reverse("finance:issued_documents_download", kwargs={"document_group": "pdfs"}),
@@ -3915,27 +3957,31 @@ class IssuedDocumentsViewTests(TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(download_mock.call_count, 2)
+        self.assertEqual(download_mock.call_count, 1)
 
         with zipfile.ZipFile(BytesIO(response.content)) as archive_file:
-            self.assertEqual(
-                sorted(archive_file.namelist()),
-                [
-                    "nfs-Cliente-PDF-NFS-2026-01-15-2300-pdf-da-nfs-e.pdf",
-                    "nfs-Cliente-PDF-NFS-2026-01-15-2300-pdf-do-rps.pdf",
-                ],
-            )
+            self.assertEqual(sorted(archive_file.namelist()), ["2300.pdf"])
 
     def test_issued_documents_download_uses_concurrent_requests(self) -> None:
         january_10 = timezone.make_aware(datetime(2026, 1, 10, 10, 0, 0))
 
         self._create_nfe_request(
-            customer_name="Cliente Concorrencia",
+            customer_name="Cliente Concorrencia 1",
             created_at=january_10,
             number="1300",
             danfe_url="https://files.test/nfe-1300-danfe.pdf",
-            danfe_simple_url="https://files.test/nfe-1300-simples.pdf",
-            danfe_label_url="https://files.test/nfe-1300-etiqueta.pdf",
+        )
+        self._create_nfe_request(
+            customer_name="Cliente Concorrencia 2",
+            created_at=january_10,
+            number="1301",
+            danfe_url="https://files.test/nfe-1301-danfe.pdf",
+        )
+        self._create_nfe_request(
+            customer_name="Cliente Concorrencia 3",
+            created_at=january_10,
+            number="1302",
+            danfe_url="https://files.test/nfe-1302-danfe.pdf",
         )
 
         started_at = time.perf_counter()

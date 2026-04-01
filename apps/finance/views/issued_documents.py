@@ -18,6 +18,7 @@ from django.views.generic import TemplateView
 from apps.core.views import HtmxTemplateResponseMixin
 from apps.finance.models.finance import NfeItem, NfeRequest, NfseItem, NfseRequest
 from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
+from apps.finance.views.navigation import append_query_params, build_issued_documents_origin_params
 from apps.workshops.mixin import WorkshopScopedMixin
 
 
@@ -31,18 +32,11 @@ class IssuedDocumentsFilterMixin:
     DOCUMENT_LABELS_BY_TYPE: dict[str, dict[str, list[tuple[str, str]]]] = {
         "nfe": {
             "xml": [("xml_url", "XML")],
-            "pdfs": [
-                ("danfe_url", "DANFE"),
-                ("danfe_simple_url", "DANFE simples"),
-                ("danfe_label_url", "DANFE etiqueta"),
-            ],
+            "pdfs": [("danfe_url", "DANFE")],
         },
         "nfse": {
             "xml": [("xml_url", "XML")],
-            "pdfs": [
-                ("pdf_nfse_url", "PDF NFS-e"),
-                ("pdf_rps_url", "PDF RPS"),
-            ],
+            "pdfs": [("pdf_nfse_url", "PDF NFS-e")],
         },
     }
 
@@ -60,18 +54,11 @@ class IssuedDocumentsFilterMixin:
     DOCUMENT_SPECS_BY_TYPE: dict[str, dict[str, list[tuple[str, str, str]]]] = {
         "nfe": {
             "xml": [("xml", "xml_url", "xml")],
-            "pdfs": [
-                ("danfe", "danfe_url", "pdf"),
-                ("danfe-simples", "danfe_simple_url", "pdf"),
-                ("danfe-etiqueta", "danfe_label_url", "pdf"),
-            ],
+            "pdfs": [("danfe", "danfe_url", "pdf")],
         },
         "nfse": {
             "xml": [("xml", "xml_url", "xml")],
-            "pdfs": [
-                ("pdf-nfse", "pdf_nfse_url", "pdf"),
-                ("pdf-rps", "pdf_rps_url", "pdf"),
-            ],
+            "pdfs": [("pdf-nfse", "pdf_nfse_url", "pdf")],
         },
     }
 
@@ -129,12 +116,6 @@ class IssuedDocumentsFilterMixin:
         normalized = normalized.strip("-._")
         return normalized or "documento"
 
-    @staticmethod
-    def _format_date_fragment(value: object) -> str:
-        if isinstance(value, date):
-            return value.strftime("%Y-%m-%d")
-        return IssuedDocumentsFilterMixin._sanitize_archive_fragment(value)
-
     def _build_nfe_queryset(self, *, start_date: date, end_date: date):
         return (
             NfeRequest.objects.filter(workshop=self.workshop, criado_em__date__range=(start_date, end_date))
@@ -181,7 +162,17 @@ class IssuedDocumentsFilterMixin:
                     labels.append(label)
         return labels
 
-    def _build_nfe_row(self, request_obj: NfeRequest) -> dict[str, Any]:
+    def _build_detail_url(self, *, view_name: str, pk: int, state: dict[str, Any]) -> str:
+        return append_query_params(
+            url=reverse(view_name, kwargs={"pk": pk}),
+            params=build_issued_documents_origin_params(
+                data_inicial=state["start_raw"],
+                data_final=state["end_raw"],
+                tipo=state["selected_note_type"],
+            ),
+        )
+
+    def _build_nfe_row(self, request_obj: NfeRequest, *, state: dict[str, Any]) -> dict[str, Any]:
         latest_item = self._get_latest_prefetched_item(request_obj)
         available_documents = self._build_available_document_labels(note_type="nfe", item=latest_item)
         latest_series = str(getattr(latest_item, "series", "") or "").strip() if latest_item is not None else ""
@@ -199,10 +190,10 @@ class IssuedDocumentsFilterMixin:
             "created_at": request_obj.criado_em,
             "status_badge": request_obj.nfe_request_status_badge,
             "available_documents": available_documents,
-            "detail_url": reverse("finance:nfe_detail", kwargs={"pk": request_obj.pk}),
+            "detail_url": self._build_detail_url(view_name="finance:nfe_detail", pk=request_obj.pk, state=state),
         }
 
-    def _build_nfse_row(self, request_obj: NfseRequest) -> dict[str, Any]:
+    def _build_nfse_row(self, request_obj: NfseRequest, *, state: dict[str, Any]) -> dict[str, Any]:
         latest_item = self._get_latest_prefetched_item(request_obj)
         available_documents = self._build_available_document_labels(note_type="nfse", item=latest_item)
         note_number = str(getattr(latest_item, "number", "") or "").strip() if latest_item is not None else ""
@@ -226,12 +217,12 @@ class IssuedDocumentsFilterMixin:
             "created_at": request_obj.criado_em,
             "status_badge": request_obj.nfse_request_status_badge,
             "available_documents": available_documents,
-            "detail_url": reverse("finance:nfse_detail", kwargs={"pk": request_obj.pk}),
+            "detail_url": self._build_detail_url(view_name="finance:nfse_detail", pk=request_obj.pk, state=state),
         }
 
-    def _build_rows(self, *, nfe_requests: list[NfeRequest], nfse_requests: list[NfseRequest]) -> list[dict[str, Any]]:
-        rows = [self._build_nfe_row(request_obj) for request_obj in nfe_requests]
-        rows.extend(self._build_nfse_row(request_obj) for request_obj in nfse_requests)
+    def _build_rows(self, *, nfe_requests: list[NfeRequest], nfse_requests: list[NfseRequest], state: dict[str, Any]) -> list[dict[str, Any]]:
+        rows = [self._build_nfe_row(request_obj, state=state) for request_obj in nfe_requests]
+        rows.extend(self._build_nfse_row(request_obj, state=state) for request_obj in nfse_requests)
         rows.sort(key=lambda row: (row["created_at"], row["request_id"]), reverse=True)
         return rows
 
@@ -255,18 +246,14 @@ class IssuedDocumentsFilterMixin:
             if latest_item is None:
                 continue
 
-            for document_name, field_name, extension in self.DOCUMENT_SPECS_BY_TYPE["nfe"][document_group]:
+            for _document_name, field_name, extension in self.DOCUMENT_SPECS_BY_TYPE["nfe"][document_group]:
                 document_url = str(getattr(latest_item, field_name, "") or "").strip()
                 if not document_url:
                     continue
                 entries.append(
                     {
                         "archive_name": self._build_document_filename(
-                            note_type="nfe",
-                            customer_name=request_obj.customer_name,
-                            emitted_at=request_obj.criado_em.date(),
                             identifier=getattr(latest_item, "number", "") or request_obj.number_display,
-                            document_name=document_name,
                             extension=extension,
                         ),
                         "url": document_url,
@@ -278,7 +265,7 @@ class IssuedDocumentsFilterMixin:
             if latest_item is None:
                 continue
 
-            for document_name, field_name, extension in self.DOCUMENT_SPECS_BY_TYPE["nfse"][document_group]:
+            for _document_name, field_name, extension in self.DOCUMENT_SPECS_BY_TYPE["nfse"][document_group]:
                 document_url = str(getattr(latest_item, field_name, "") or "").strip()
                 if not document_url:
                     continue
@@ -286,42 +273,45 @@ class IssuedDocumentsFilterMixin:
                 entries.append(
                     {
                         "archive_name": self._build_document_filename(
-                            note_type="nfse",
-                            customer_name=request_obj.customer_name,
-                            emitted_at=request_obj.criado_em.date(),
                             identifier=identifier,
-                            document_name=document_name,
                             extension=extension,
                         ),
                         "url": document_url,
                     }
                 )
 
-        return entries
+        return self._ensure_unique_archive_names(entries)
 
-    def _build_document_filename(self, *, note_type: str, customer_name: object, emitted_at: date, identifier: object, document_name: str, extension: str) -> str:
-        note_type_label = "nf" if note_type == "nfe" else "nfs"
-        customer_fragment = self._sanitize_archive_fragment(customer_name)
-        date_fragment = self._format_date_fragment(emitted_at)
+    @staticmethod
+    def _ensure_unique_archive_names(entries: list[dict[str, str]]) -> list[dict[str, str]]:
+        seen_names: dict[str, int] = {}
+        unique_entries: list[dict[str, str]] = []
+
+        for entry in entries:
+            archive_name = entry["archive_name"]
+            seen_count = seen_names.get(archive_name, 0) + 1
+            seen_names[archive_name] = seen_count
+
+            if seen_count == 1:
+                unique_entries.append(entry)
+                continue
+
+            base_name, separator, suffix = archive_name.rpartition(".")
+            if not separator:
+                base_name = archive_name
+                suffix = ""
+
+            deduplicated_name = f"{base_name}-{seen_count}"
+            if suffix:
+                deduplicated_name = f"{deduplicated_name}.{suffix}"
+
+            unique_entries.append({**entry, "archive_name": deduplicated_name})
+
+        return unique_entries
+
+    def _build_document_filename(self, *, identifier: object, extension: str) -> str:
         safe_identifier = self._sanitize_archive_fragment(identifier)
-        label_map = {
-            "nfe": {
-                "xml": "",
-                "danfe": "danfe",
-                "danfe-simples": "danfe-simples",
-                "danfe-etiqueta": "danfe-etiqueta",
-            },
-            "nfse": {
-                "xml": "",
-                "pdf-nfse": "pdf-da-nfs-e",
-                "pdf-rps": "pdf-do-rps",
-            },
-        }
-        document_label = label_map[note_type].get(document_name, document_name)
-        base_name = f"{note_type_label}-{customer_fragment}-{date_fragment}-{safe_identifier}"
-        if document_label:
-            return f"{base_name}-{document_label}.{extension}"
-        return f"{base_name}.{extension}"
+        return f"{safe_identifier}.{extension}"
 
 
 class IssuedDocumentsListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, IssuedDocumentsFilterMixin, TemplateView):
@@ -335,7 +325,7 @@ class IssuedDocumentsListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempl
         context = super().get_context_data(**kwargs)
         state = self._get_filter_state()
         nfe_requests, nfse_requests = self._get_filtered_requests(state=state)
-        rows = self._build_rows(nfe_requests=nfe_requests, nfse_requests=nfse_requests)
+        rows = self._build_rows(nfe_requests=nfe_requests, nfse_requests=nfse_requests, state=state)
         download_query_string = self._build_download_query_string(state=state)
         xml_entries = self._collect_document_entries(nfe_requests=nfe_requests, nfse_requests=nfse_requests, document_group="xml") if state["is_valid"] else []
         pdf_entries = self._collect_document_entries(nfe_requests=nfe_requests, nfse_requests=nfse_requests, document_group="pdfs") if state["is_valid"] else []
