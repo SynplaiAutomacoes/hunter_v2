@@ -18,7 +18,7 @@ from apps.finance.forms.emission_ui import (
 )
 from apps.finance.forms.request_steps_shared import SharedEmissionCustomerReviewForm, SharedEmissionWorkorderSelectionForm
 from apps.finance.models.finance import NfeRequest
-from apps.finance.services.nfe_emission import NfeEmissionError, build_nfe_preview_rows
+from apps.finance.services.nfe_emission import build_nfe_preview_rows, build_nfe_preview_warning_messages
 
 
 class NfeRequestStep1Form(SharedEmissionWorkorderSelectionForm):
@@ -88,16 +88,22 @@ class NfeRequestStep3Form(forms.ModelForm):
 
         if self.instance and self.instance.workorder_id:
             panel_data = build_step5_pricing_panel_data(workorder=self.instance.workorder, selected_slider=selected_slider)
-            try:
-                rows, allocation = build_nfe_preview_rows(
+            rows, allocation = build_nfe_preview_rows(
+                workorder=self.instance.workorder,
+                persisted_slider=getattr(self.instance, "pricing_slider", None),
+                slider_override=selected_slider,
+            )
+            total_products_formatted = format_money(allocation.products_target)
+            total_services_formatted = format_money(allocation.services_target)
+
+            warning_html = "".join(
+                f"<div class='alert alert-warning mb-4'>{escape(message)}</div>"
+                for message in build_nfe_preview_warning_messages(
                     workorder=self.instance.workorder,
                     persisted_slider=getattr(self.instance, "pricing_slider", None),
                     slider_override=selected_slider,
                 )
-                total_products_formatted = format_money(allocation.products_target)
-                total_services_formatted = format_money(allocation.services_target)
-            except NfeEmissionError as exc:
-                warning_html = f"<div class='alert alert-warning mb-4'>{escape(str(exc))}</div>"
+            )
 
         rows_html = "".join(
             f"""
