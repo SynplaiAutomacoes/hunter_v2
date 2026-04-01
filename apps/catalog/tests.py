@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from django.db import IntegrityError
 from django.test import TestCase
+from django.urls import reverse
 
 from djmoney.money import Money
 
@@ -14,6 +15,7 @@ from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.kits import Kit, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
+from apps.workshops.tests import create_director_user_with_workshop
 from apps.workshops.models.workshops import Workshop
 
 
@@ -294,3 +296,66 @@ class ProductFormTests(TestCase):
         self.assertTrue(form.is_valid(), form.errors.as_json())
         product = form.save(commit=False)
         self.assertEqual(product.profit_margin, Decimal("50.00"))
+
+
+class ProductUpdateNavigationTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=31)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+        self.group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo Navegacao")
+        self.product = Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-NAV-001",
+            name="Produto Navegacao",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+        )
+
+    def test_product_update_uses_next_url_for_back_and_success(self) -> None:
+        next_url = "/emissao/?step=6"
+
+        response = self.client.get(reverse("catalog:product_update", kwargs={"pk": self.product.pk}), data={"next": next_url})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'href="{next_url}"')
+        self.assertContains(response, f'href="{next_url}" class="btn-form-cancel"')
+
+        response = self.client.post(
+            f"{reverse('catalog:product_update', kwargs={'pk': self.product.pk})}?next=%2Femissao%2F%3Fstep%3D6",
+            data={
+                "code": self.product.code,
+                "name": "Produto Navegacao Atualizado",
+                "description": "",
+                "unit": Product.Unit.UND,
+                "group": str(self.group.pk),
+                "brand": "",
+                "model": "",
+                "sku": "",
+                "barcode": "",
+                "location": "",
+                "cost_price_0": "10.00",
+                "cost_price_1": "BRL",
+                "selling_price_0": "20.00",
+                "selling_price_1": "BRL",
+                "profit_margin": "50.00",
+                "ncm": "87089990",
+                "cest": "",
+                "origin_cst": str(Product.OriginCST.NACIONAL),
+                "purpose": Product.Purpose.RESALE,
+                "application": "",
+                "is_active": "on",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), next_url)

@@ -253,7 +253,7 @@ class NfeRequestCreateView(SharedEmissionRequestCreateBaseView):
         return context
 
     def _finalize_emission(self) -> bool:
-        invalid_ncm_modal = build_invalid_ncm_modal_context(workorder=self.object.workorder)
+        invalid_ncm_modal = build_invalid_ncm_modal_context(workorder=self.object.workorder, return_url=self.request.get_full_path())
         if invalid_ncm_modal is not None:
             store_invalid_ncm_modal_context(request=self.request, modal_context=invalid_ncm_modal)
             return False

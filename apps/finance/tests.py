@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import ANY, Mock, patch
 import time
+from urllib.parse import quote
 
 from django.contrib.messages import get_messages
 from django.core.exceptions import ValidationError
@@ -2792,9 +2793,10 @@ class UnifiedEmissionWizardTests(TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "NCM Invalido")
-        self.assertContains(response, f"O produto {product.name} nao tem um NCM valido")
-        self.assertContains(response, reverse("catalog:product_update", kwargs={"pk": product.pk}))
+        self.assertContains(response, "NCM Inválido")
+        self.assertContains(response, f"O produto {product.name} não tem um NCM válido")
+        expected_next_url = f"{reverse('finance:emission_create')}?step=6"
+        self.assertContains(response, f"{reverse('catalog:product_update', kwargs={'pk': product.pk})}?next={quote(expected_next_url, safe='')}")
         emit_mock.assert_not_called()
         sync_mock.assert_not_called()
         self.assertFalse(NfeRequest.objects.filter(workshop=self.workshop).exists())
@@ -3359,9 +3361,10 @@ class CompatibilityEmissionUpdateFlowTests(TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "NCM Invalido")
-        self.assertContains(response, f"O produto {product.name} nao tem um NCM valido")
-        self.assertContains(response, reverse("catalog:product_update", kwargs={"pk": product.pk}))
+        self.assertContains(response, "NCM Inválido")
+        self.assertContains(response, f"O produto {product.name} não tem um NCM válido")
+        expected_next_url = f"{reverse('finance:nfe_update', kwargs={'pk': nfe_request.pk})}?step=3"
+        self.assertContains(response, f"{reverse('catalog:product_update', kwargs={'pk': product.pk})}?next={quote(expected_next_url, safe='')}")
         emit_mock.assert_not_called()
         sync_mock.assert_not_called()
 

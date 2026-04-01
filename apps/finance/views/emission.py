@@ -479,7 +479,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         return nfse_request
 
     def _emit_nfe(self, *, state: dict[str, Any], workorder: WorkOrder) -> tuple[bool, str | None]:
-        invalid_ncm_modal = build_invalid_ncm_modal_context(workorder=workorder)
+        invalid_ncm_modal = build_invalid_ncm_modal_context(workorder=workorder, return_url=self.request.get_full_path())
         if invalid_ncm_modal is not None:
             store_invalid_ncm_modal_context(request=self.request, modal_context=invalid_ncm_modal)
             return False, NFE_INVALID_NCM_MODAL_ERROR

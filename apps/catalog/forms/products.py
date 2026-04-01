@@ -80,9 +80,10 @@ class ProductForm(forms.ModelForm):
             "is_active": CheckboxInput(),
         }
 
-    def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
+    def __init__(self, *args, workshop: Workshop | None = None, next_url: str = "", **kwargs):
         super().__init__(*args, **kwargs)
         self.workshop = workshop
+        self.next_url = str(next_url or "").strip()
 
         if self.instance.pk and self.instance.profit_margin is not None:
             self.initial["profit_margin"] = (Decimal(self.instance.profit_margin) / Decimal("100")).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
@@ -124,7 +125,7 @@ class ProductForm(forms.ModelForm):
         return self._normalize_profit_margin(self.cleaned_data.get("profit_margin"))
 
     def get_layout(self):
-        cancel_url = reverse("catalog:product_list")
+        cancel_url = self.next_url or reverse("catalog:product_list")
         search_product_url = reverse("catalog:product_search")
 
         initial_equivalents = []

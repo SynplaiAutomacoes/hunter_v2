@@ -2,7 +2,7 @@
 
 {% block crud_title %}Editar Produto{% endblock %}
 {% block crud_subtitle %}Atualização de dados da peça.{% endblock %}
-{% block crud_back_url %}{% url 'catalog:product_list' %}{% endblock %}
+{% block crud_back_url %}{{ back_url }}{% endblock %}
 
 {% block crud_tabs_form %}
         {% include 'products/partials/product_tabs.html' %}
