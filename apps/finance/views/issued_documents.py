@@ -253,7 +253,7 @@ class IssuedDocumentsFilterMixin:
                 entries.append(
                     {
                         "archive_name": self._build_document_filename(
-                            identifier=getattr(latest_item, "number", "") or request_obj.number_display,
+                            identifier=self._build_nfe_archive_identifier(item=latest_item, request_obj=request_obj),
                             extension=extension,
                         ),
                         "url": document_url,
@@ -281,6 +281,13 @@ class IssuedDocumentsFilterMixin:
                 )
 
         return self._ensure_unique_archive_names(entries)
+
+    @staticmethod
+    def _build_nfe_archive_identifier(*, item: object, request_obj: NfeRequest) -> object:
+        access_key = str(getattr(item, "access_key", "") or "").strip()
+        if access_key:
+            return f"NFe{access_key}"
+        return getattr(item, "number", "") or request_obj.number_display
 
     @staticmethod
     def _ensure_unique_archive_names(entries: list[dict[str, str]]) -> list[dict[str, str]]:

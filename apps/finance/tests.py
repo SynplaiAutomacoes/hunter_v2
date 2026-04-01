@@ -3703,6 +3703,7 @@ class IssuedDocumentsViewTests(TestCase):
         customer_name: str,
         created_at: datetime,
         number: str,
+        access_key: str = "",
         xml_url: str = "",
         danfe_url: str = "",
         danfe_simple_url: str = "",
@@ -3717,6 +3718,7 @@ class IssuedDocumentsViewTests(TestCase):
             uuid=f"00000000-0000-0000-0000-{nfe_request.pk:012d}",
             status="aprovado",
             number=number,
+            access_key=access_key,
             series="1",
             xml_url=xml_url,
             danfe_url=danfe_url,
@@ -3864,6 +3866,7 @@ class IssuedDocumentsViewTests(TestCase):
             customer_name="Cliente XML NF",
             created_at=january_10,
             number="1100",
+            access_key="35260353843712000139550010000007211239535289",
             xml_url="https://files.test/nfe-1100.xml",
         )
         self._create_nfse_request(
@@ -3894,11 +3897,11 @@ class IssuedDocumentsViewTests(TestCase):
             self.assertEqual(
                 sorted(archive_file.namelist()),
                 [
-                    "1100.xml",
                     "2100.xml",
+                    "NFe35260353843712000139550010000007211239535289.xml",
                 ],
             )
-            self.assertEqual(archive_file.read("1100.xml"), b"<nfe />")
+            self.assertEqual(archive_file.read("NFe35260353843712000139550010000007211239535289.xml"), b"<nfe />")
             self.assertEqual(archive_file.read("2100.xml"), b"<nfse />")
 
     def test_issued_documents_download_pdfs_returns_only_nfe_documents_for_nfe_filter(self) -> None:
@@ -3909,6 +3912,7 @@ class IssuedDocumentsViewTests(TestCase):
             customer_name="Cliente PDF NF",
             created_at=january_10,
             number="1200",
+            access_key="35260353843712000139550010000007211239535289",
             danfe_url="https://files.test/nfe-1200-danfe.pdf",
             danfe_simple_url="https://files.test/nfe-1200-simples.pdf",
             danfe_label_url="https://files.test/nfe-1200-etiqueta.pdf",
@@ -3934,7 +3938,7 @@ class IssuedDocumentsViewTests(TestCase):
         self.assertEqual(download_mock.call_count, 1)
 
         with zipfile.ZipFile(BytesIO(response.content)) as archive_file:
-            self.assertEqual(sorted(archive_file.namelist()), ["1200.pdf"])
+            self.assertEqual(sorted(archive_file.namelist()), ["NFe35260353843712000139550010000007211239535289.pdf"])
 
     def test_issued_documents_download_pdfs_returns_nfse_and_rps_pdfs_for_nfse_filter(self) -> None:
         january_15 = timezone.make_aware(datetime(2026, 1, 15, 15, 30, 0))
