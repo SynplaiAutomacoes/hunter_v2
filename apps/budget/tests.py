@@ -1358,6 +1358,55 @@ class BudgetQuickCreateProductValidationTests(TestCase):
         assert local_item.product is not None
         self.assertEqual(local_item.product.ncm, "87089990")
 
+    def test_quick_edit_product_modal_shows_ncm_field(self) -> None:
+        product = create_product(workshop=self.workshop, suffix=102)
+        budget_item = BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            product=product,
+            quantity=1,
+        )
+
+        response = self.client.get(
+            reverse("budget:edit_item", args=[self.budget.pk, budget_item.pk]),
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'name="ncm"')
+        self.assertContains(response, 'value="87089990"')
+
+    def test_quick_edit_product_updates_ncm(self) -> None:
+        product = create_product(workshop=self.workshop, suffix=103)
+        budget_item = BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            product=product,
+            quantity=1,
+        )
+
+        response = self.client.post(
+            reverse("budget:edit_item", args=[self.budget.pk, budget_item.pk]),
+            {
+                "description": budget_item.description,
+                "quantity": "1",
+                "product_cost_price_0": "10.00",
+                "product_cost_price_1": "BRL",
+                "product_selling_price_0": "15.00",
+                "product_selling_price_1": "BRL",
+                "shipping_0": "0.00",
+                "shipping_1": "BRL",
+                "ncm": "12345678",
+                "action": "save_only",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("HX-Redirect", response)
+        product.refresh_from_db()
+        self.assertEqual(product.ncm, "12345678")
+
     def test_product_name_lookup_returns_similar_products(self) -> None:
         create_product(workshop=self.workshop, suffix=101)
 

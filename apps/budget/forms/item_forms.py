@@ -12,9 +12,11 @@ from .shared import _budget_item_type
 
 
 class BudgetItemEditForm(forms.ModelForm):
+    ncm = forms.CharField(required=False, widget=TextInput(attrs={"placeholder": "Ex: 87089990"}))
+
     class Meta:
         model = BudgetItem
-        fields = ["description", "quantity", "product_selling_price", "product_cost_price", "shipping", "service_selling_price", "service_cost_price", "duration"]
+        fields = ["description", "quantity", "product_selling_price", "product_cost_price", "shipping", "service_selling_price", "service_cost_price", "duration", "ncm"]
 
         widgets = {
             "description": TextInput(),
@@ -45,10 +47,16 @@ class BudgetItemEditForm(forms.ModelForm):
             self.fields.pop("service_selling_price")
             self.fields.pop("service_cost_price")
             self.fields.pop("duration")
+            if item.product is None:
+                self.fields.pop("ncm")
+            else:
+                self.fields["ncm"].label = "NCM"
+                self.fields["ncm"].initial = str(item.product.ncm or "")
         elif item_type == "service":
             self.fields.pop("product_selling_price")
             self.fields.pop("product_cost_price")
             self.fields.pop("shipping")
+            self.fields.pop("ncm")
 
             if budget_id:
                 self.fields["duration"].widget.attrs.update(
@@ -61,6 +69,8 @@ class BudgetItemEditForm(forms.ModelForm):
                         "hx-indicator": "#calculation-indicator",
                     }
                 )
+        else:
+            self.fields.pop("ncm")
 
 
 class BudgetKitProductEditRowForm(forms.Form):
