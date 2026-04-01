@@ -2,14 +2,14 @@
 
 {% block crud_title %}Detalhes da NF-e{% endblock %}
 {% block crud_subtitle %}Acompanhe o status, identificadores e documentos da NF-e emitida.{% endblock %}
-{% block crud_back_url %}{% url 'finance:nfe_list' %}{% endblock %}
+{% block crud_back_url %}{{ back_url }}{% endblock %}
 
 {% block crud_header_actions %}
     <a href="{% url 'finance:nfe_update' pk=nfe_request.pk %}" class="btn btn-sm btn-primary gap-2">
         <span class="material-icons text-sm">edit</span>
         Editar
     </a>
-    <form method="post" action="{% url 'finance:nfe_reconcile' pk=nfe_request.pk %}">
+    <form method="post" action="{% url 'finance:nfe_reconcile' pk=nfe_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}">
         {% csrf_token %}
         <button type="submit" class="btn btn-sm btn-outline gap-2">
             <span class="material-icons text-sm">sync</span>
@@ -126,7 +126,7 @@
     {% if can_cancel %}
         <dialog id="cancel_nfe_modal" class="modal" onclick="if (event.target === this) this.close()">
             <div class="modal-box w-11/12 max-w-xl border border-base-300 bg-base-100 shadow-2xl">
-                <form method="post" action="{% url 'finance:nfe_cancel' pk=nfe_request.pk %}">
+                <form method="post" action="{% url 'finance:nfe_cancel' pk=nfe_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}">
                     {% csrf_token %}
                     <h3 class="text-base font-semibold text-base-content">Cancelar NF-e</h3>
                     <p class="text-sm text-base-content/70 mt-2">Informe o motivo do cancelamento (entre 15 e 255 caracteres).</p>

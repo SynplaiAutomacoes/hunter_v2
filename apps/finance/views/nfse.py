@@ -7,6 +7,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
+from django.urls import reverse
 from django.views import View
 from django.views.generic import DetailView, ListView
 
@@ -17,6 +18,7 @@ from apps.finance.forms import NfseRequestStep1Form, NfseRequestStep2Form, NfseR
 from apps.finance.models.finance import NfseItem, NfseRequest, NfseRequestStatus
 from apps.finance.services.emission import NfseEmissionError, cancel_nfse_document, emit_nfse_request, sync_emission_response
 from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
+from apps.finance.views.navigation import build_detail_url_with_preserved_origin, build_issued_documents_back_url
 from apps.finance.views.request_workflow import SharedEmissionRequestCreateBaseView, SharedEmissionRequestUpdateBaseView
 from apps.workshops.mixin import WorkshopScopedMixin
 
@@ -103,8 +105,10 @@ class NfseRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView)
         latest_item = self.object.items.order_by("-id").first()
         latest_batch = self.object.batches.order_by("-id").first()
         can_cancel = bool(latest_item and str(getattr(latest_item, "status", "")).strip().lower() in {"aprovado", "agendado", "contingencia"})
+        fallback_back_url = reverse("finance:nfse_list")
         context.update(
             {
+                "back_url": build_issued_documents_back_url(query_params=self.request.GET, fallback_url=fallback_back_url),
                 "latest_item": latest_item,
                 "latest_batch": latest_batch,
                 "can_cancel": can_cancel,
@@ -135,17 +139,17 @@ class NfseRequestCancelView(LoginRequiredMixin, WorkshopScopedMixin, View):
         latest_item = nfse_request.items.order_by("-id").first()
         if latest_item is None:
             messages.error(request, "A NFS-e ainda nao possui item sincronizado para cancelamento.")
-            return redirect("finance:nfse_detail", pk=nfse_request.pk)
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
 
         status = str(getattr(latest_item, "status", "")).strip().lower()
         if status not in {"aprovado", "agendado", "contingencia"}:
             messages.error(request, "Somente NFS-e aprovada, agendada ou em contingencia pode ser cancelada.")
-            return redirect("finance:nfse_detail", pk=nfse_request.pk)
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
 
         form = NfseCancelForm(request.POST)
         if not form.is_valid():
             messages.error(request, "Selecione um motivo para cancelar a NFS-e.")
-            return redirect("finance:nfse_detail", pk=nfse_request.pk)
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
 
         reason_code = int(form.cleaned_data["reason_code"])
         reason_label = dict(NfseCancelForm.REASON_CHOICES).get(str(reason_code), "Cancelamento solicitado")
@@ -158,7 +162,7 @@ class NfseRequestCancelView(LoginRequiredMixin, WorkshopScopedMixin, View):
             )
         except NfseEmissionError as exc:
             messages.error(request, str(exc))
-            return redirect("finance:nfse_detail", pk=nfse_request.pk)
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
 
         latest_item.status = "cancelado"
         latest_item.reason = str(response_payload.get("motivo") or reason_label)
@@ -170,7 +174,7 @@ class NfseRequestCancelView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         nfse_request.set_status(NfseRequestStatus.CANCELED)
         messages.success(request, "NFS-e cancelada com sucesso.")
-        return redirect("finance:nfse_detail", pk=nfse_request.pk)
+        return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
 
 
 class NfseDocumentDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
