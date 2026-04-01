@@ -82,7 +82,7 @@ class Product(TimeStampedModel):
     selling_price = MoneyField(verbose_name="Valor de Venda", max_digits=14, decimal_places=2)
 
     # Margem armazenada para facilidade de consulta, mas calculada no form
-    profit_margin = models.DecimalField(verbose_name="Margem de Lucro", max_digits=7, decimal_places=6, default=0, blank=True)
+    profit_margin = models.DecimalField(verbose_name="Margem de Lucro", max_digits=7, decimal_places=2, default=0, blank=True)
 
     # --- Fiscal ---
     ncm = models.CharField(verbose_name="NCM", max_length=10, validators=[validate_ncm], blank=True)

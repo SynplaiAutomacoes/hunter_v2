@@ -2768,6 +2768,37 @@ class UnifiedEmissionWizardTests(TestCase):
         emit_mock.assert_called_once_with(nfe_request=nfe_request, request=ANY)
         sync_mock.assert_called_once()
 
+    def test_unified_wizard_blocks_nfe_emission_when_product_has_invalid_ncm(self) -> None:
+        product = Product.objects.get(workshop=self.workshop, code__startswith="P-UNI-")
+        product.ncm = ""
+        product.save(update_fields=["ncm"])
+        tax_classes = [{"referencia": "REFNFE930", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e"}]
+
+        with (
+            patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.emission.emit_nfe_request") as emit_mock,
+            patch("apps.finance.views.emission.sync_nfe_emission_response") as sync_mock,
+        ):
+            self._advance_to_step_5(pricing_slider="10")
+
+            response = self.client.post(self._wizard_url(step=5), {"note_mode": "nfe"})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=6))
+
+            response = self.client.post(
+                self._wizard_url(step=6),
+                {"tax_class": "REFNFE930"},
+                follow=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "NCM Invalido")
+        self.assertContains(response, f"O produto {product.name} nao tem um NCM valido")
+        self.assertContains(response, reverse("catalog:product_update", kwargs={"pk": product.pk}))
+        emit_mock.assert_not_called()
+        sync_mock.assert_not_called()
+        self.assertFalse(NfeRequest.objects.filter(workshop=self.workshop).exists())
+
     def test_unified_wizard_creates_nfse_request_with_service_description(self) -> None:
         tax_classes = [{"referencia": "REFNFSE901", "tipo": "nfse", "status": "ativo", "descricao": "Classe NFS-e", "codigo_servico": "01.05"}]
 
@@ -3299,6 +3330,40 @@ class CompatibilityEmissionUpdateFlowTests(TestCase):
         self.assertEqual(response.headers.get("Location"), reverse("finance:nfe_emit"))
         nfe_request.refresh_from_db()
         self.assertEqual(nfe_request.pricing_slider, -100)
+
+    def test_nfe_update_blocks_emission_when_product_has_invalid_ncm(self) -> None:
+        workorder = self._build_workorder_with_product_and_service(suffix=104)
+        product = Product.objects.get(workshop=self.workshop, code="P-UP-104")
+        product.ncm = ""
+        product.save(update_fields=["ncm"])
+
+        nfe_request = NfeRequest.objects.create(
+            workshop=self.workshop,
+            workorder=workorder,
+            current_step=3,
+            status=NfeRequestStatus.CHECKING_PRODUCTS,
+            tax_class="REFNFE951",
+            pricing_slider=0,
+        )
+        tax_classes = [{"referencia": "REFNFE951", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e update"}]
+
+        with (
+            patch("apps.finance.views.request_workflow.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.nfe.emit_nfe_request") as emit_mock,
+            patch("apps.finance.views.nfe.sync_nfe_emission_response") as sync_mock,
+        ):
+            response = self.client.post(
+                f"{reverse('finance:nfe_update', kwargs={'pk': nfe_request.pk})}?step=3",
+                data={"pricing_slider": 0, "tax_class": "REFNFE951"},
+                follow=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "NCM Invalido")
+        self.assertContains(response, f"O produto {product.name} nao tem um NCM valido")
+        self.assertContains(response, reverse("catalog:product_update", kwargs={"pk": product.pk}))
+        emit_mock.assert_not_called()
+        sync_mock.assert_not_called()
 
     def test_nfse_update_step_three_preview_and_save_persist_slider(self) -> None:
         workorder = self._build_workorder_with_product_and_service(suffix=103)

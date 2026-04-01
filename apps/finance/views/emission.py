@@ -29,6 +29,12 @@ from apps.finance.models.finance import NfeRequest, NfeRequestStatus, NfseReques
 from apps.finance.services.emission import NfseEmissionError, emit_nfse_request, sync_emission_response
 from apps.finance.services.nfe_emission import NfeEmissionError, emit_nfe_request, sync_nfe_emission_response
 from apps.finance.services.tax_classes import TaxClassServiceError, list_tax_classes
+from apps.finance.views.ncm_validation import (
+    NFE_INVALID_NCM_MODAL_ERROR,
+    build_invalid_ncm_modal_context,
+    pop_invalid_ncm_modal_context,
+    store_invalid_ncm_modal_context,
+)
 from apps.workorder.forms import WorkOrderItemEditForm
 from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderKitItemOverride
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -371,6 +377,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         context["selected_workorder"] = self._selected_workorder(state)
         context["close_emission_url"] = f"{reverse('finance:emission_create')}?close=1"
         context["created_request_actions"] = self._build_created_request_actions(state=state)
+        context["ncm_invalid_modal"] = pop_invalid_ncm_modal_context(request=self.request)
         return context
 
     def _step_url(self, step: int) -> str:
@@ -472,6 +479,11 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         return nfse_request
 
     def _emit_nfe(self, *, state: dict[str, Any], workorder: WorkOrder) -> tuple[bool, str | None]:
+        invalid_ncm_modal = build_invalid_ncm_modal_context(workorder=workorder)
+        if invalid_ncm_modal is not None:
+            store_invalid_ncm_modal_context(request=self.request, modal_context=invalid_ncm_modal)
+            return False, NFE_INVALID_NCM_MODAL_ERROR
+
         if not self._acquire_submission_lock(state=state, note_key="nfe"):
             existing_request_id = state.get("nfe_request_id")
             if existing_request_id:
@@ -537,6 +549,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
     def _add_note_error_message(self, *, note_key: str, error_message: str | None) -> None:
         label = self._note_label(note_key=note_key)
         details = str(error_message or "").strip()
+        if details == NFE_INVALID_NCM_MODAL_ERROR:
+            return
         if details:
             messages.error(self.request, f"Falha ao enviar {label}: {details}")
             return
