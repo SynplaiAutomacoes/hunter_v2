@@ -1203,6 +1203,14 @@ class UpdateManualItemDataView(LoginRequiredMixin, WorkshopScopedMixin, View):
 def _get_user_transfer_workshops(request) -> models.QuerySet[Workshop]:
     return Workshop.objects.filter(account_id=request.user.account_id, is_active=True, members__user=request.user, members__is_active=True).distinct().order_by("name")
 
+def update_transfer_reason(request, pk):
+    transfer = get_object_or_404(StockTransfer, pk=pk)
+    reason = request.POST.get("reason", "").strip()
+
+    transfer.reason = reason
+    transfer.save(update_fields=["reason"])
+
+    return HttpResponse(status=204)
 
 class StockTransferAccessMixin(LoginRequiredMixin):
     active_workshop: Workshop

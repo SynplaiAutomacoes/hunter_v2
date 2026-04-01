@@ -1250,7 +1250,7 @@ class TransferStepReasonForm(forms.ModelForm):
     class Meta:
         model = StockTransfer
         fields = ["reason"]
-        widgets = {"reason": TextareaInput(attrs={"rows": 4, "placeholder": "Ex: Danificado na montagem, item vencido, uso interno..."})}
+        widgets = {"reason": TextareaInput()}
 
     def _render_search_and_list_html(self) -> str:
         search_query = self.request.GET.get("source_search", "").strip() if self.request is not None else ""
@@ -1381,6 +1381,13 @@ class TransferStepReasonForm(forms.ModelForm):
 
         self.fields["reason"].required = True
         self.fields["reason"].label = "Motivo da Baixa"
+        self.fields["reason"].widget = forms.Textarea(attrs={
+            "rows": 4,
+            "placeholder": "Ex: Danificado na montagem, item vencido, uso interno...",
+            "hx-post": reverse("stock:update_transfer_reason", kwargs={"pk": self.instance.pk}),
+            "hx-trigger": "blur",
+            "hx-swap": "none",
+        })
 
         self.helper.layout = Layout(
             Div(
