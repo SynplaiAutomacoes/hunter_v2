@@ -149,7 +149,7 @@ class AppointmentEventsView(LoginRequiredMixin, WorkshopScopedMixin, View):
             if vehicle_filter.isdigit():
                 queryset = queryset.filter(vehicle_id=vehicle_filter)
             else:
-                queryset = queryset.filter(Q(vehicle__plate__icontains=vehicle_filter) | Q(vehicle__model__icontains=vehicle_filter))
+                queryset = queryset.filter(Q(vehicle__plate__icontains=vehicle_filter) | Q(vehicle__model__icontains=vehicle_filter) | Q(guest_vehicle_plate__icontains=vehicle_filter) | Q(guest_vehicle_brand__icontains=vehicle_filter) | Q(guest_vehicle_model__icontains=vehicle_filter))
 
         status_filter = (request.GET.get("status") or "").strip()
         if status_filter:

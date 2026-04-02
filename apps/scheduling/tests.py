@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
 from django.test import TestCase
@@ -129,7 +130,15 @@ class AppointmentModelValidationTests(TestCase):
             appointment.full_clean()
 
         self.assertIn("guest_customer_name", exc_info.exception.message_dict)
+        self.assertIn("guest_customer_cpf", exc_info.exception.message_dict)
         self.assertIn("guest_customer_phone", exc_info.exception.message_dict)
+        self.assertIn("guest_vehicle_plate", exc_info.exception.message_dict)
+        self.assertIn("guest_vehicle_brand", exc_info.exception.message_dict)
+        self.assertIn("guest_vehicle_model", exc_info.exception.message_dict)
+        self.assertIn("guest_vehicle_year_fabrication", exc_info.exception.message_dict)
+        self.assertIn("guest_vehicle_year_model", exc_info.exception.message_dict)
+        self.assertIn("guest_vehicle_engine", exc_info.exception.message_dict)
+        self.assertIn("guest_vehicle_fuel", exc_info.exception.message_dict)
 
 
 class AppointmentViewsTests(TestCase):
@@ -223,8 +232,16 @@ class AppointmentViewsTests(TestCase):
             reverse("scheduling:appointment_create"),
             {
                 "title": "Agendamento avulso",
-                "guest_customer_name": "Cliente Balcao",
+                "guest_customer_name": "Cliente balcAo",
+                "guest_customer_cpf": "529.982.247-25",
                 "guest_customer_phone": "+5511999990000",
+                "guest_vehicle_plate": "abc1d23",
+                "guest_vehicle_brand": "fiat",
+                "guest_vehicle_model": "argo",
+                "guest_vehicle_year_fabrication": "2023",
+                "guest_vehicle_year_model": "2024",
+                "guest_vehicle_engine": "1.3 flex",
+                "guest_vehicle_fuel": "flex",
                 "starts_at": starts_at.strftime("%Y-%m-%dT%H:%M"),
                 "ends_at": (starts_at + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M"),
                 "block_color": "#0ea5e9",
@@ -237,8 +254,16 @@ class AppointmentViewsTests(TestCase):
         appointment = Appointment.objects.get()
         self.assertIsNone(appointment.customer)
         self.assertIsNone(appointment.vehicle)
-        self.assertEqual(appointment.guest_customer_name, "Cliente Balcao")
+        self.assertEqual(appointment.guest_customer_name, "CLIENTE BALCAO")
+        self.assertEqual(appointment.guest_customer_cpf, "52998224725")
         self.assertEqual(str(appointment.guest_customer_phone), "(11) 99999-0000")
+        self.assertEqual(appointment.guest_vehicle_plate, "ABC1D23")
+        self.assertEqual(appointment.guest_vehicle_brand, "FIAT")
+        self.assertEqual(appointment.guest_vehicle_model, "ARGO")
+        self.assertEqual(appointment.guest_vehicle_year_fabrication, "2023")
+        self.assertEqual(appointment.guest_vehicle_year_model, "2024")
+        self.assertEqual(appointment.guest_vehicle_engine, "1.3 FLEX")
+        self.assertEqual(appointment.guest_vehicle_fuel, "FLEX")
 
     def test_save_and_create_budget_without_vehicle_redirects_with_customer_only(self) -> None:
         starts_at = timezone.now().replace(minute=0, second=0, microsecond=0)
@@ -268,7 +293,15 @@ class AppointmentViewsTests(TestCase):
             {
                 "title": "Agendamento avulso",
                 "guest_customer_name": "Cliente Balcao",
+                "guest_customer_cpf": "529.982.247-25",
                 "guest_customer_phone": "+5511999990000",
+                "guest_vehicle_plate": "ABC1D23",
+                "guest_vehicle_brand": "FIAT",
+                "guest_vehicle_model": "ARGO",
+                "guest_vehicle_year_fabrication": "2023",
+                "guest_vehicle_year_model": "2024",
+                "guest_vehicle_engine": "1.3 FLEX",
+                "guest_vehicle_fuel": "FLEX",
                 "starts_at": starts_at.strftime("%Y-%m-%dT%H:%M"),
                 "ends_at": (starts_at + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M"),
                 "block_color": "#0ea5e9",
@@ -281,6 +314,33 @@ class AppointmentViewsTests(TestCase):
         self.assertEqual(response.status_code, 204)
         appointment = Appointment.objects.get()
         self.assertEqual(response.headers.get("HX-Redirect"), f"{reverse('budget:budget_create')}?appointment_id={appointment.pk}")
+
+    def test_detail_view_shows_guest_vehicle_metadata(self) -> None:
+        starts_at = timezone.now().replace(minute=0, second=0, microsecond=0)
+        appointment = Appointment.objects.create(
+            workshop=self.workshop,
+            title="Agendamento avulso",
+            guest_customer_name="CLIENTE BALCAO",
+            guest_customer_cpf="52998224725",
+            guest_customer_phone="+5511999990000",
+            guest_vehicle_plate="ABC1D23",
+            guest_vehicle_brand="FIAT",
+            guest_vehicle_model="ARGO",
+            guest_vehicle_year_fabrication="2023",
+            guest_vehicle_year_model="2024",
+            guest_vehicle_engine="1.3 FLEX",
+            guest_vehicle_fuel="FLEX",
+            starts_at=starts_at,
+            ends_at=starts_at + timedelta(hours=1),
+        )
+
+        response = self.client.get(reverse("scheduling:appointment_detail", kwargs={"pk": appointment.pk}), HTTP_HX_REQUEST="true")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "529.982.247-25")
+        self.assertContains(response, "ABC1D23 - FIAT ARGO")
+        self.assertContains(response, "Motorizacao: 1.3 FLEX")
+        self.assertContains(response, "Combustivel: FLEX")
 
     def test_move_endpoint_reverts_on_overlap_conflict(self) -> None:
         base_start = timezone.now().replace(minute=0, second=0, microsecond=0)
@@ -314,3 +374,32 @@ class AppointmentViewsTests(TestCase):
         self.assertEqual(second.starts_at, base_start + timedelta(hours=2))
         self.assertEqual(second.ends_at, base_start + timedelta(hours=3))
         self.assertTrue(Appointment.objects.filter(pk=first.pk).exists())
+
+
+class CustomerPlateLookupTests(TestCase):
+    def test_check_plate_endpoint_returns_vehicle_fields_used_in_scheduling(self) -> None:
+        with patch(
+            "apps.customer.views.fetch_vehicle_data",
+            return_value={
+                "brand": "FIAT",
+                "model": "ARGO",
+                "year_fabrication": "2023",
+                "year_model": "2024",
+                "fuel": "FLEX",
+                "engine": "1.3 FLEX",
+            },
+        ):
+            response = self.client.get(reverse("customer:check-plate", kwargs={"plate": "ABC1D23"}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "brand": "FIAT",
+                "model": "ARGO",
+                "year_fabrication": "2023",
+                "year_model": "2024",
+                "fuel": "FLEX",
+                "engine": "1.3 FLEX",
+            },
+        )

@@ -41,12 +41,27 @@
             <div class="rounded-xl border border-base-300 bg-base-100 p-4">
                 <p class="text-xs font-semibold uppercase tracking-wide text-base-content/70">Cliente</p>
                 <p class="mt-1 break-words text-base font-semibold">{{ appointment.display_customer_name }}</p>
+                {% if appointment.display_customer_cpf %}
+                    <p class="mt-1 text-sm text-base-content/70">Documento: {{ appointment.display_customer_cpf }}</p>
+                {% endif %}
                 <p class="mt-1 text-sm text-base-content/70">{{ appointment.display_customer_phone|default:'Telefone nao informado' }}</p>
             </div>
 
             <div class="rounded-xl border border-base-300 bg-base-100 p-4">
                 <p class="text-xs font-semibold uppercase tracking-wide text-base-content/70">Veiculo</p>
                 <p class="mt-1 break-words text-base font-semibold">{{ appointment.display_vehicle_label }}</p>
+                {% if not appointment.vehicle_id and appointment.guest_vehicle_year_fabrication %}
+                    <p class="mt-1 text-sm text-base-content/70">Ano Fabricacao: {{ appointment.guest_vehicle_year_fabrication }}</p>
+                {% endif %}
+                {% if not appointment.vehicle_id and appointment.guest_vehicle_year_model %}
+                    <p class="mt-1 text-sm text-base-content/70">Ano Modelo: {{ appointment.guest_vehicle_year_model }}</p>
+                {% endif %}
+                {% if not appointment.vehicle_id and appointment.guest_vehicle_engine %}
+                    <p class="mt-1 text-sm text-base-content/70">Motorizacao: {{ appointment.guest_vehicle_engine }}</p>
+                {% endif %}
+                {% if not appointment.vehicle_id and appointment.guest_vehicle_fuel %}
+                    <p class="mt-1 text-sm text-base-content/70">Combustivel: {{ appointment.guest_vehicle_fuel }}</p>
+                {% endif %}
             </div>
         </section>
 

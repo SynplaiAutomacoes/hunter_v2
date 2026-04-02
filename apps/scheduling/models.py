@@ -7,6 +7,21 @@ from phonenumber_field.modelfields import PhoneNumberField
 from apps.core.models import TimeStampedModel
 
 
+def _digits_only(value: object) -> str:
+    return "".join(character for character in str(value or "") if character.isdigit())
+
+
+def _normalize_upper_text(value: object) -> str:
+    return str(value or "").strip().upper()
+
+
+def _format_cpf(value: object) -> str:
+    digits = _digits_only(value)
+    if len(digits) != 11:
+        return digits
+    return f"{digits[:3]}.{digits[3:6]}.{digits[6:9]}-{digits[9:]}"
+
+
 class AppointmentStatus(models.TextChoices):
     SCHEDULED = "scheduled", "Agendado"
     COMPLETED = "completed", "Concluido"
@@ -18,7 +33,15 @@ class Appointment(TimeStampedModel):
     customer = models.ForeignKey("customer.Customer", verbose_name="Cliente", on_delete=models.PROTECT, related_name="appointments", null=True, blank=True)
     vehicle = models.ForeignKey("customer.Vehicle", verbose_name="Veiculo", on_delete=models.PROTECT, related_name="appointments", null=True, blank=True)
     guest_customer_name = models.CharField(verbose_name="Nome do cliente", max_length=255, blank=True, default="")
+    guest_customer_cpf = models.CharField(verbose_name="CPF do cliente", max_length=14, blank=True, default="")
     guest_customer_phone = PhoneNumberField(verbose_name="Telefone do cliente", blank=True, default="")
+    guest_vehicle_plate = models.CharField(verbose_name="Placa do veiculo", max_length=20, blank=True, default="")
+    guest_vehicle_brand = models.CharField(verbose_name="Marca do veiculo", max_length=500, blank=True, default="")
+    guest_vehicle_model = models.CharField(verbose_name="Modelo do veiculo", max_length=500, blank=True, default="")
+    guest_vehicle_year_fabrication = models.CharField(verbose_name="Ano de Fabricacao", max_length=4, blank=True, default="")
+    guest_vehicle_year_model = models.CharField(verbose_name="Ano do Modelo", max_length=4, blank=True, default="")
+    guest_vehicle_engine = models.CharField(verbose_name="Motorizacao", max_length=30, blank=True, default="")
+    guest_vehicle_fuel = models.CharField(verbose_name="Combustivel", max_length=30, blank=True, default="")
     title = models.CharField(verbose_name="Titulo", max_length=120)
     starts_at = models.DateTimeField(verbose_name="Data e hora de entrada")
     ends_at = models.DateTimeField(verbose_name="Data e hora de saida")
@@ -43,21 +66,48 @@ class Appointment(TimeStampedModel):
 
     @property
     def display_customer_name(self) -> str:
-        if self.customer_id and self.customer:
+        if getattr(self, "customer_id", None) and self.customer:
             return self.customer.name
         return self.guest_customer_name or "Cliente nao cadastrado"
 
     @property
     def display_customer_phone(self) -> str:
-        if self.customer_id and self.customer:
+        if getattr(self, "customer_id", None) and self.customer:
             return str(self.customer.phone or "")
         return str(self.guest_customer_phone or "")
 
     @property
+    def display_customer_cpf(self) -> str:
+        if getattr(self, "customer_id", None) and self.customer:
+            return str(self.customer.cpf_or_cnpj_formatted or "")
+        return _format_cpf(self.guest_customer_cpf)
+
+    @property
     def display_vehicle_label(self) -> str:
-        return str(self.vehicle) if self.vehicle_id and self.vehicle else "Sem veiculo vinculado"
+        if getattr(self, "vehicle_id", None) and self.vehicle:
+            return str(self.vehicle)
+
+        vehicle_parts = [self.guest_vehicle_plate]
+        brand_model = " ".join(part for part in [self.guest_vehicle_brand, self.guest_vehicle_model] if part)
+        if brand_model:
+            vehicle_parts.append(brand_model)
+
+        return " - ".join(part for part in vehicle_parts if part) or "Sem veiculo vinculado"
+
+    def _normalize_guest_fields(self) -> None:
+        self.guest_customer_name = _normalize_upper_text(self.guest_customer_name)
+        self.guest_customer_cpf = _digits_only(self.guest_customer_cpf)[:11]
+        self.guest_customer_phone = str(self.guest_customer_phone or "").strip()
+        self.guest_vehicle_plate = _normalize_upper_text(self.guest_vehicle_plate)
+        self.guest_vehicle_brand = _normalize_upper_text(self.guest_vehicle_brand)
+        self.guest_vehicle_model = _normalize_upper_text(self.guest_vehicle_model)
+        self.guest_vehicle_year_fabrication = str(self.guest_vehicle_year_fabrication or "").strip()
+        self.guest_vehicle_year_model = str(self.guest_vehicle_year_model or "").strip()
+        self.guest_vehicle_engine = _normalize_upper_text(self.guest_vehicle_engine)
+        self.guest_vehicle_fuel = _normalize_upper_text(self.guest_vehicle_fuel)
 
     def clean(self) -> None:
+        self._normalize_guest_fields()
         errors: dict[str, list[str]] = {}
 
         workshop_id = self.__dict__.get("workshop_id")
@@ -65,6 +115,10 @@ class Appointment(TimeStampedModel):
         vehicle_id = self.__dict__.get("vehicle_id")
         budget_id = self.__dict__.get("budget_id")
         workorder_id = self.__dict__.get("workorder_id")
+        customer = self.customer if customer_id else None
+        vehicle = self.vehicle if vehicle_id else None
+        budget = self.budget if budget_id else None
+        workorder = self.workorder if workorder_id else None
 
         if self.ends_at and self.starts_at and self.ends_at <= self.starts_at:
             errors.setdefault("ends_at", []).append("A data de saida deve ser maior que a data de entrada.")
@@ -72,37 +126,53 @@ class Appointment(TimeStampedModel):
         if not customer_id:
             if not self.guest_customer_name.strip():
                 errors.setdefault("guest_customer_name", []).append("Informe o nome do cliente quando ele nao estiver cadastrado.")
+            if len(_digits_only(self.guest_customer_cpf)) != 11:
+                errors.setdefault("guest_customer_cpf", []).append("Informe o CPF do cliente quando ele nao estiver cadastrado.")
             if not str(self.guest_customer_phone or "").strip():
                 errors.setdefault("guest_customer_phone", []).append("Informe o telefone do cliente quando ele nao estiver cadastrado.")
+            if not self.guest_vehicle_plate.strip():
+                errors.setdefault("guest_vehicle_plate", []).append("Informe a placa do veiculo quando o cliente nao estiver cadastrado.")
+            if not self.guest_vehicle_brand.strip():
+                errors.setdefault("guest_vehicle_brand", []).append("Informe a marca do veiculo quando o cliente nao estiver cadastrado.")
+            if not self.guest_vehicle_model.strip():
+                errors.setdefault("guest_vehicle_model", []).append("Informe o modelo do veiculo quando o cliente nao estiver cadastrado.")
+            if not self.guest_vehicle_year_fabrication.strip():
+                errors.setdefault("guest_vehicle_year_fabrication", []).append("Informe o ano de fabricacao do veiculo quando o cliente nao estiver cadastrado.")
+            if not self.guest_vehicle_year_model.strip():
+                errors.setdefault("guest_vehicle_year_model", []).append("Informe o ano do modelo do veiculo quando o cliente nao estiver cadastrado.")
+            if not self.guest_vehicle_engine.strip():
+                errors.setdefault("guest_vehicle_engine", []).append("Informe a motorizacao do veiculo quando o cliente nao estiver cadastrado.")
+            if not self.guest_vehicle_fuel.strip():
+                errors.setdefault("guest_vehicle_fuel", []).append("Informe o combustivel do veiculo quando o cliente nao estiver cadastrado.")
 
         if vehicle_id and not customer_id:
             errors.setdefault("vehicle", []).append("Selecione um cliente cadastrado para vincular um veiculo.")
 
-        if customer_id and vehicle_id and self.vehicle.customer_id != customer_id:
+        if customer_id and vehicle and vehicle.customer_id != customer_id:
             errors.setdefault("vehicle", []).append("O veiculo deve pertencer ao cliente selecionado.")
 
-        if workshop_id and customer_id and self.customer.workshop_id != workshop_id:
+        if workshop_id and customer and customer.workshop_id != workshop_id:
             errors.setdefault("customer", []).append("Cliente invalido para a oficina ativa.")
 
-        if workshop_id and vehicle_id and self.vehicle.workshop_id != workshop_id:
+        if workshop_id and vehicle and vehicle.workshop_id != workshop_id:
             errors.setdefault("vehicle", []).append("Veiculo invalido para a oficina ativa.")
 
-        if budget_id:
-            if workshop_id and self.budget.workshop_id != workshop_id:
+        if budget:
+            if workshop_id and budget.workshop_id != workshop_id:
                 errors.setdefault("budget", []).append("Orcamento invalido para a oficina ativa.")
 
-            if customer_id and self.budget.customer_id and self.budget.customer_id != customer_id:
+            if customer_id and budget.customer_id and budget.customer_id != customer_id:
                 errors.setdefault("budget", []).append("O orcamento deve pertencer ao cliente selecionado.")
 
-            if vehicle_id and self.budget.vehicle_id and self.budget.vehicle_id != vehicle_id:
+            if vehicle_id and budget.vehicle_id and budget.vehicle_id != vehicle_id:
                 errors.setdefault("budget", []).append("O orcamento deve pertencer ao veiculo selecionado.")
 
-        if workorder_id:
-            if workshop_id and self.workorder.workshop_id != workshop_id:
+        if workorder:
+            if workshop_id and workorder.workshop_id != workshop_id:
                 errors.setdefault("workorder", []).append("Ordem de servico invalida para a oficina ativa.")
 
-            workorder_budget = getattr(self.workorder, "budget", None)
-            if self.budget and workorder_budget and workorder_budget.pk != self.budget.pk:
+            workorder_budget = getattr(workorder, "budget", None)
+            if budget and workorder_budget and workorder_budget.pk != budget.pk:
                 errors.setdefault("workorder", []).append("A ordem de servico deve ser do mesmo orcamento vinculado.")
 
             if customer_id and workorder_budget and workorder_budget.customer_id and workorder_budget.customer_id != customer_id:
@@ -129,3 +199,7 @@ class Appointment(TimeStampedModel):
 
         if errors:
             raise ValidationError(errors)
+
+    def save(self, *args: object, **kwargs: object) -> None:
+        self._normalize_guest_fields()
+        return super().save(*args, **kwargs)
