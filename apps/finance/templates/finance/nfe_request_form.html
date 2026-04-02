@@ -13,4 +13,8 @@
             {% include 'finance/partials/nfe_step_content.html' %}
         </div>
     </div>
+
+    {% if ncm_invalid_modal %}
+        {% include 'finance/partials/ncm_invalid_modal.html' %}
+    {% endif %}
 {% endblock %}

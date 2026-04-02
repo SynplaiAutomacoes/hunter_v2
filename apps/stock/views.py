@@ -21,6 +21,7 @@ from django.db.models import F, ExpressionWrapper, IntegerField, Q
 from djmoney.money import Money
 
 from .forms import (
+    AdditionalChargeSessionForm,
     ImportManualItemsForm,
     ImportSefazListForm,
     ImportStep1Form,
@@ -35,10 +36,14 @@ from .forms import (
     TransferItemsForm,
     TransferStepWorkshopsForm,
     TransferSummaryForm,
+    TransferStepOperationForm,
+    TransferStepReasonForm,
 )
+from .financial_entries import calculate_import_totals, get_next_entry_id
 from .models import StockImport, StockMovement, StockProduct, StockTransfer
 from ..catalog.models.groups import CatalogGroup
 from ..catalog.models.products import Product
+from ..budget.pdf_context import build_workshop_logo_data_uri
 from ..core.documents.http import build_pdf_http_response
 from ..core.forms import MultiStepFormMixin
 from ..core.query_filters import QueryParamFilter, apply_query_param_filters
@@ -290,6 +295,7 @@ class StockReportDataMixin:
             "stock_report_totals": self._get_stock_report_totals(),
             "stock_report_filter_descriptions": self._build_stock_report_filter_descriptions(),
             "stock_report_pdf_title": self.stock_report_pdf_title,
+            "workshop_logo_data_uri": build_workshop_logo_data_uri(workshop=self.workshop),
             "generated_at_label": timezone.localtime().strftime("%d/%m/%Y %H:%M"),
             "auto_print": self.request.GET.get("autoprint") == "1",
         }
@@ -423,19 +429,28 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
         ]
 
         transfers_queryset = StockTransfer.objects.filter(Q(source_workshop=self.workshop) | Q(destination_workshop=self.workshop)).select_related("user", "source_workshop", "destination_workshop").order_by("-criado_em")
-        transfers = [
-            StockHistoryRow(
-                pk=transfer.pk,
-                record_type="transfer",
-                id=transfer.pk,
-                nf_number="TRANSFERENCIA",
-                supplier_name=f"{transfer.source_workshop.name} -> {transfer.destination_workshop.name}",
-                user=transfer.user,
-                criado_em=transfer.criado_em,
-                history_status_badge=transfer.stocktransfer_status_badge,
+        transfers = []
+        for transfer in transfers_queryset:
+            if transfer.operation_type == StockTransfer.OperationType.ADJUSTMENT:
+                if transfer.status == StockTransfer.TransferStatus.DRAFT: continue
+                display_path = f"BAIXA"
+            elif transfer.destination_workshop:
+                display_path = f"{transfer.source_workshop.name} -> {transfer.destination_workshop.name}"
+            else:
+                display_path = f"{transfer.source_workshop.name} -> ---"
+
+            transfers.append(
+                StockHistoryRow(
+                    pk=transfer.pk,
+                    record_type="transfer",
+                    id=transfer.pk,
+                    nf_number="TRANSFERÊNCIA" if transfer.operation_type == StockTransfer.OperationType.TRANSFER else "BAIXA",
+                    supplier_name=display_path,
+                    user=transfer.user,
+                    criado_em=transfer.criado_em,
+                    history_status_badge=transfer.stocktransfer_status_badge,
+                )
             )
-            for transfer in transfers_queryset
-        ]
 
         return sorted([*imports, *transfers], key=lambda row: row.criado_em, reverse=True)
 
@@ -715,39 +730,39 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
         method_code = (request.POST.get("payment_method") or "").strip()
         payment_date = (request.POST.get("payment_date") or "").strip()
         first_amount_str = (request.POST.get("first_amount_0") or "").strip()
-        installments_str = (request.POST.get("installments_count") or "").strip()
 
-        if not all([method_code, payment_date, installments_str, first_amount_str]):
+        if not all([method_code, payment_date, first_amount_str]):
             return self._htmx_payment_response("Preencha todos os campos do pagamento antes de incluir.", level="warning")
 
         try:
             first_amount = Decimal(first_amount_str.replace(",", "."))
-            installments = int(installments_str)
-            if first_amount <= 0 or installments <= 0:
-                return self._htmx_payment_response("Informe valores válidos para o pagamento.", level="warning")
+            if first_amount <= 0:
+                return self._htmx_payment_response("Informe um valor válido para o pagamento.", level="warning")
 
             method_obj = PaymentMethod.objects.filter(id=method_code, workshop=self.workshop, is_active=True).first()
             if not method_obj:
                 return self._htmx_payment_response("A forma de pagamento selecionada é inválida.", level="warning")
 
-            total_paid = first_amount * installments
+            installments = max(int(method_obj.installments_count or 1), 1)
+            total_paid = first_amount
 
-            valor_total_nf = sum(Decimal(str(item.get("valor", 0))) * Decimal(str(item.get("qtd", 0))) for item in obj.items_data)
-            valor_ja_pago = sum(Decimal(str(p.get("total_paid", 0))) for p in obj.payments_data)
-            valor_disponivel = valor_total_nf - valor_ja_pago
+            totals = calculate_import_totals(items=list(obj.items_data or []), entries=list(obj.payments_data or []))
+            valor_disponivel = totals.pending_value
 
-            if total_paid > valor_disponivel:
-                return self._htmx_payment_response(f"O valor informado (R$ {total_paid}) excede o saldo pendente (R$ {valor_disponivel}).", level="warning")
+            if first_amount > valor_disponivel:
+                return self._htmx_payment_response(f"O valor informado (R$ {first_amount}) excede o saldo pendente (R$ {valor_disponivel}).", level="warning")
 
             payments = list(obj.payments_data or [])
             new_payment = {
-                "id": len(payments) + 1,
+                "id": get_next_entry_id(payments),
+                "entry_type": "payment",
                 "method": method_obj.id,
                 "method_display": method_obj.description,
                 "installments": str(installments),
                 "first_amount": str(first_amount),
                 "total_paid": str(total_paid),
                 "payment_date": payment_date,
+                "reason": method_obj.description,
             }
 
             payments.append(new_payment)
@@ -774,6 +789,60 @@ class RemovePaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
         obj.save(update_fields=["payments_data"])
         response = HttpResponse(status=204)
         response["HX-Trigger"] = json.dumps({"productCreated": {}})
+        return response
+
+
+class AdditionalChargeModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = StockImport
+    workshop_permission_codename = "change_stockimport"
+
+    def get(self, request, *args, **kwargs):
+        pk = request.GET.get("pk")
+        stock_import = get_object_or_404(StockImport, id=pk, workshop=self.workshop)
+        context = {
+            "form": AdditionalChargeSessionForm(),
+            "stock_import": stock_import,
+        }
+        return render(request, "stock/partials/modal/add_additional_value_modal.html", context)
+
+
+class AddAdditionalChargeSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = StockImport
+    workshop_permission_codename = "change_stockimport"
+
+    def post(self, request, *args, **kwargs):
+        pk = request.GET.get("pk")
+        stock_import = get_object_or_404(StockImport, id=pk, workshop=self.workshop)
+        form = AdditionalChargeSessionForm(request.POST)
+
+        if not form.is_valid():
+            return render(request, "stock/partials/modal/add_additional_value_modal.html", {"form": form, "stock_import": stock_import}, status=400)
+
+        entries = list(stock_import.payments_data or [])
+        amount = form.cleaned_data["amount"]
+        reason = form.cleaned_data["reason"]
+
+        entries.append(
+            {
+                "id": get_next_entry_id(entries),
+                "entry_type": "additional_charge",
+                "amount": str(amount.amount),
+                "reason": reason,
+            }
+        )
+        stock_import.payments_data = entries
+        stock_import.save(update_fields=["payments_data"])
+
+        response = HttpResponse("")
+        response["HX-Trigger"] = json.dumps(
+            {
+                "showToast": {
+                    "type": "success",
+                    "message": "Valor adicional incluído com sucesso.",
+                },
+                "productCreated": {},
+            }
+        )
         return response
 
 
@@ -1134,6 +1203,14 @@ class UpdateManualItemDataView(LoginRequiredMixin, WorkshopScopedMixin, View):
 def _get_user_transfer_workshops(request) -> models.QuerySet[Workshop]:
     return Workshop.objects.filter(account_id=request.user.account_id, is_active=True, members__user=request.user, members__is_active=True).distinct().order_by("name")
 
+def update_transfer_reason(request, pk):
+    transfer = get_object_or_404(StockTransfer, pk=pk)
+    reason = request.POST.get("reason", "").strip()
+
+    transfer.reason = reason
+    transfer.save(update_fields=["reason"])
+
+    return HttpResponse(status=204)
 
 class StockTransferAccessMixin(LoginRequiredMixin):
     active_workshop: Workshop
@@ -1184,20 +1261,25 @@ class StockTransferCreateView(StockTransferAccessMixin, MultiStepFormMixin, Crea
         kwargs = super().get_form_kwargs()
         obj = self.get_object()
         kwargs.update({"request": self.request, "instance": obj})
+
         if self.get_form_class() is TransferStepWorkshopsForm:
             kwargs["allowed_workshops"] = self.get_allowed_workshops()
+
         return kwargs
 
     def get_steps_definition(self):
-        transfer_object = getattr(self, "object", None) or self.get_object()
-        base_steps = [{"title": "Origem e Destino", "form_class": TransferStepWorkshopsForm}]
-        if transfer_object:
-            base_steps.extend(
-                [
-                    {"title": "Itens da Transferência", "form_class": TransferItemsForm},
-                    {"title": "Revisão e Confirmação", "form_class": TransferSummaryForm},
-                ]
-            )
+        obj = self.get_object()
+        base_steps = [{"title": "Configuração", "form_class": TransferStepOperationForm}]
+
+        if obj:
+            if obj.operation_type == StockTransfer.OperationType.TRANSFER:
+                base_steps.extend([{"title": "Origem e Destino", "form_class": TransferStepWorkshopsForm}, {"title": "Selecionar Itens", "form_class": TransferItemsForm}])
+
+            if obj.operation_type == StockTransfer.OperationType.ADJUSTMENT:
+                base_steps.append({"title": "Motivo", "form_class": TransferStepReasonForm})
+
+        base_steps.append({"title": "Revisão", "form_class": TransferSummaryForm})
+
         return base_steps
 
     def get_success_url(self):
@@ -1211,10 +1293,15 @@ class StockTransferCreateView(StockTransferAccessMixin, MultiStepFormMixin, Crea
         current_step = self.get_current_step()
         total_steps = len(self.get_steps_config())
 
+        if self.object.operation_type == StockTransfer.OperationType.ADJUSTMENT:
+            self.object.source_workshop = get_active_workshop_or_404(self.request)
+            self.object.destination_workshop = None
+
         next_step_value = current_step + 1
         if self.object.current_step < next_step_value:
             self.object.current_step = next_step_value
-            self.object.save(update_fields=["current_step"])
+
+        self.object.save()
 
         if current_step < total_steps:
             success_url = f"{reverse('stock:transfer_update', kwargs={'pk': self.object.pk})}?step={current_step + 1}"
@@ -1254,10 +1341,15 @@ class StockTransferUpdateView(StockTransferCreateView):
         current_step = self.get_current_step()
         total_steps = len(self.get_steps_config())
 
+        if self.object.operation_type == StockTransfer.OperationType.ADJUSTMENT:
+            self.object.source_workshop = get_active_workshop_or_404(self.request)
+            self.object.destination_workshop = None
+
         next_step_value = current_step + 1
         if self.object.current_step < next_step_value:
             self.object.current_step = next_step_value
-            self.object.save(update_fields=["current_step"])
+
+        self.object.save()
 
         if current_step < total_steps:
             success_url = f"{reverse('stock:transfer_update', kwargs={'pk': self.object.pk})}?step={current_step + 1}"
@@ -1306,7 +1398,12 @@ class AddTransferSourceItemView(StockTransferAccessMixin, View):
         raw_quantity = request.POST.get("quantity") or "1"
         transfer = get_object_or_404(StockTransfer, pk=pk)
         source_product = get_object_or_404(Product, id=product_id, workshop=transfer.source_workshop)
-        items = list(transfer.items_data)
+        
+        clear_others = request.POST.get("clear_others") == "true"
+        if clear_others:
+            items = []
+        else:
+            items = list(transfer.items_data)
 
         try:
             quantity = max(1, int(Decimal(str(raw_quantity).replace(",", "."))))

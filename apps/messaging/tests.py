@@ -340,6 +340,40 @@ class CustomerMessageGroupViewTests(TestCase):
         self.customer_one = create_customer_record(workshop=self.workshop, suffix=41, birth_date=date(1990, 4, 5))
         self.customer_two = create_customer_record(workshop=self.workshop, suffix=42, birth_date=date(1987, 9, 18))
 
+    def test_create_form_only_shows_active_message_templates(self) -> None:
+        active_template = create_message_template(workshop=self.workshop, suffix=43, is_active=True)
+        inactive_template = create_message_template(workshop=self.workshop, suffix=44, is_active=False)
+
+        response = self.client.get(reverse("messaging:customer_message_group_create"))
+
+        self.assertEqual(response.status_code, 200)
+        form_queryset = response.context["form"].fields["message_template"].queryset
+        payload_ids = {template_payload["id"] for template_payload in response.context["message_templates_payload"]}
+
+        self.assertIn(active_template, form_queryset)
+        self.assertNotIn(inactive_template, form_queryset)
+        self.assertIn(active_template.pk, payload_ids)
+        self.assertNotIn(inactive_template.pk, payload_ids)
+
+    def test_create_group_rejects_inactive_message_template(self) -> None:
+        inactive_template = create_message_template(workshop=self.workshop, suffix=45, is_active=False)
+
+        response = self.client.post(
+            reverse("messaging:customer_message_group_create"),
+            {
+                "name": "Grupo com mensagem inativa",
+                "description": "Nao deve aceitar mensagens inativas.",
+                "message_template": str(inactive_template.pk),
+                "message": "Ola %%nome%%, mensagem teste.",
+                "is_active": "on",
+                "selected_customers": [str(self.customer_one.pk)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("message_template", response.context["form"].errors)
+        self.assertFalse(CustomerMessageGroup.objects.filter(workshop=self.workshop, name="Grupo com mensagem inativa").exists())
+
     def test_create_group_with_selected_customers_and_message_template(self) -> None:
         template = create_message_template(workshop=self.workshop, suffix=41, is_active=True)
 
@@ -367,6 +401,53 @@ class CustomerMessageGroupViewTests(TestCase):
             set(CustomerMessageGroupMembership.objects.filter(group=group).values_list("customer_id", flat=True)),
             {self.customer_one.pk, self.customer_two.pk},
         )
+
+    def test_update_form_keeps_current_inactive_message_template_visible(self) -> None:
+        active_template = create_message_template(workshop=self.workshop, suffix=46, is_active=True)
+        current_inactive_template = create_message_template(workshop=self.workshop, suffix=47, is_active=False)
+        other_inactive_template = create_message_template(workshop=self.workshop, suffix=48, is_active=False)
+        group = create_customer_message_group(workshop=self.workshop, suffix=49, is_active=True)
+        group.message_template = current_inactive_template
+        group.save(update_fields=["message_template"])
+
+        response = self.client.get(reverse("messaging:customer_message_group_update", kwargs={"pk": group.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        form_queryset = response.context["form"].fields["message_template"].queryset
+        payload_ids = {template_payload["id"] for template_payload in response.context["message_templates_payload"]}
+
+        self.assertIn(active_template, form_queryset)
+        self.assertIn(current_inactive_template, form_queryset)
+        self.assertNotIn(other_inactive_template, form_queryset)
+        self.assertIn(active_template.pk, payload_ids)
+        self.assertIn(current_inactive_template.pk, payload_ids)
+        self.assertNotIn(other_inactive_template.pk, payload_ids)
+
+    def test_update_group_can_keep_current_inactive_message_template(self) -> None:
+        current_inactive_template = create_message_template(workshop=self.workshop, suffix=50, is_active=False)
+        group = create_customer_message_group(workshop=self.workshop, suffix=51, is_active=True)
+        group.message_template = current_inactive_template
+        group.save(update_fields=["message_template"])
+        CustomerMessageGroupMembership.objects.create(group=group, customer=self.customer_one)
+
+        response = self.client.post(
+            reverse("messaging:customer_message_group_update", kwargs={"pk": group.pk}),
+            {
+                "name": group.name,
+                "description": "Grupo ajustado com mensagem inativa existente.",
+                "message_template": str(current_inactive_template.pk),
+                "message": "Ola %%nome%%, mantivemos a mensagem cadastrada atual.",
+                "is_active": "on",
+                "selected_customers": [str(self.customer_one.pk)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        group.refresh_from_db()
+        self.assertEqual(group.message_template, current_inactive_template)
+        self.assertEqual(group.description, "Grupo ajustado com mensagem inativa existente.")
+        self.assertEqual(group.message, "Ola %%nome%%, mantivemos a mensagem cadastrada atual.")
+        self.assertTrue(group.is_active)
 
     def test_update_group_can_remove_customers_and_disable_it(self) -> None:
         group = create_customer_message_group(workshop=self.workshop, suffix=50, is_active=True)
@@ -426,3 +507,22 @@ class CustomerMessageGroupViewTests(TestCase):
         self.assertEqual(trigger_payload["message-template-added"]["id"], str(created_template.pk))
         self.assertEqual(trigger_payload["message-template-added"]["name"], "Mensagem rapida")
         self.assertEqual(trigger_payload["message-template-added"]["message"], "Ola %%nome%%, esta mensagem foi criada no modal.")
+        self.assertTrue(trigger_payload["message-template-added"]["is_active"])
+
+    def test_quick_create_inactive_message_template_returns_inactive_payload(self) -> None:
+        response = self.client.post(
+            reverse("messaging:message_template_quick_create"),
+            {
+                "name": "Mensagem inativa",
+                "message": "Ola %%nome%%, esta mensagem foi criada como inativa.",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        trigger_payload = json.loads(response.headers.get("HX-Trigger", "{}"))
+        self.assertIn("message-template-added", trigger_payload)
+
+        created_template = MessageTemplate.objects.get(workshop=self.workshop, name="Mensagem inativa")
+        self.assertFalse(created_template.is_active)
+        self.assertFalse(trigger_payload["message-template-added"]["is_active"])

@@ -1,0 +1,245 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Central de Notas Emitidas{% endblock %}
+{% block crud_subtitle %}Filtre NF-e e NFS-e por periodo e baixe XMLs ou PDFs em arquivo ZIP.{% endblock %}
+
+{% block crud_header_actions %}
+    <div class="flex w-full flex-col gap-3 lg:items-end">
+        <form method="get" class="flex w-full flex-col gap-3 xl:w-auto xl:flex-row xl:items-end xl:justify-end">
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-3 xl:min-w-[42rem]">
+                <div>
+                    <label for="issued-documents-start-date" class="label pt-0 pb-1">
+                        <span class="label-text text-xs">Data inicial</span>
+                    </label>
+                    <input
+                        type="date"
+                        id="issued-documents-start-date"
+                        name="data_inicial"
+                        value="{{ filter_state.start_raw }}"
+                        class="input input-bordered input-sm w-full"
+                    />
+                </div>
+
+                <div>
+                    <label for="issued-documents-end-date" class="label pt-0 pb-1">
+                        <span class="label-text text-xs">Data final</span>
+                    </label>
+                    <input
+                        type="date"
+                        id="issued-documents-end-date"
+                        name="data_final"
+                        value="{{ filter_state.end_raw }}"
+                        class="input input-bordered input-sm w-full"
+                    />
+                </div>
+
+                <div>
+                    <label for="issued-documents-type" class="label pt-0 pb-1">
+                        <span class="label-text text-xs">Tipo de nota</span>
+                    </label>
+                    <select id="issued-documents-type" name="tipo" class="select select-bordered select-sm w-full">
+                        {% for value, label in note_type_choices %}
+                            <option value="{{ value }}" {% if filter_state.selected_note_type == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div class="flex flex-wrap gap-2 xl:justify-end">
+                <button type="submit" class="btn btn-primary btn-sm">Filtrar</button>
+                <a href="{% url 'finance:issued_documents_list' %}" class="btn btn-ghost btn-sm">Limpar</a>
+            </div>
+        </form>
+
+        <div class="flex flex-wrap gap-2 xl:justify-end">
+            {% if can_download_xml and download_xml_url %}
+                <a href="{{ download_xml_url }}" data-issued-download="true" data-download-label="XML" class="btn btn-primary btn-sm gap-2 shadow-sm">
+                    <span class="material-icons text-sm">folder_zip</span>
+                    Baixar XML
+                </a>
+            {% else %}
+                <span class="btn btn-outline btn-sm btn-disabled">Baixar XML</span>
+            {% endif %}
+
+            {% if can_download_pdfs and download_pdfs_url %}
+                <a href="{{ download_pdfs_url }}" data-issued-download="true" data-download-label="PDF" class="btn btn-secondary btn-sm gap-2 shadow-sm">
+                    <span class="material-icons text-sm">picture_as_pdf</span>
+                    Baixar PDFs
+                </a>
+            {% else %}
+                <span class="btn btn-outline btn-sm btn-disabled">Baixar PDFs</span>
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}
+
+{% block crud_table_wrapper_id %}issued-documents-results-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'finance:issued_documents_list' %}{% endblock %}
+{% block crud_table_hx_trigger %}issued-documents-refresh from:body{% endblock %}
+
+{% block crud_table %}
+    {% include 'finance/partials/issued_documents_results.html' %}
+
+    <dialog id="issued-documents-download-modal" class="modal">
+        <div class="modal-box max-w-md border border-base-300 bg-base-100 shadow-2xl">
+            <div class="flex flex-col items-center text-center">
+                <div id="issued-documents-download-loading" class="flex flex-col items-center gap-4 py-4">
+                    <span class="loading loading-spinner loading-lg text-primary"></span>
+                    <div class="space-y-1">
+                        <h3 class="text-lg font-semibold text-base-content">Preparando download</h3>
+                        <p id="issued-documents-download-loading-text" class="text-sm text-base-content/70">Baixando os arquivos selecionados...</p>
+                    </div>
+                </div>
+
+                <div id="issued-documents-download-success" class="hidden flex-col items-center gap-4 py-4">
+                    <span class="material-icons text-5xl text-success">check_circle</span>
+                    <div class="space-y-1">
+                        <h3 class="text-lg font-semibold text-base-content">Download concluido</h3>
+                        <p id="issued-documents-download-success-text" class="text-sm text-base-content/70">O arquivo foi baixado com sucesso.</p>
+                    </div>
+                </div>
+
+                <div id="issued-documents-download-error" class="hidden flex-col items-center gap-4 py-4">
+                    <span class="material-icons text-5xl text-error">error</span>
+                    <div class="space-y-1">
+                        <h3 class="text-lg font-semibold text-base-content">Falha no download</h3>
+                        <p id="issued-documents-download-error-text" class="text-sm text-base-content/70">Nao foi possivel baixar os arquivos agora.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-action justify-center">
+                <button type="button" id="issued-documents-download-close" class="btn btn-primary hidden">Fechar</button>
+            </div>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+            <button type="submit">close</button>
+        </form>
+    </dialog>
+
+    <script>
+        (function () {
+            const modal = document.getElementById('issued-documents-download-modal');
+            if (!modal || modal.dataset.bound === 'true') {
+                return;
+            }
+
+            modal.dataset.bound = 'true';
+
+            const loadingState = document.getElementById('issued-documents-download-loading');
+            const successState = document.getElementById('issued-documents-download-success');
+            const errorState = document.getElementById('issued-documents-download-error');
+            const loadingText = document.getElementById('issued-documents-download-loading-text');
+            const successText = document.getElementById('issued-documents-download-success-text');
+            const errorText = document.getElementById('issued-documents-download-error-text');
+            const closeButton = document.getElementById('issued-documents-download-close');
+            let currentState = 'loading';
+
+            function setState(state, message) {
+                currentState = state;
+                loadingState.classList.toggle('hidden', state !== 'loading');
+                loadingState.classList.toggle('flex', state === 'loading');
+                successState.classList.toggle('hidden', state !== 'success');
+                successState.classList.toggle('flex', state === 'success');
+                errorState.classList.toggle('hidden', state !== 'error');
+                errorState.classList.toggle('flex', state === 'error');
+                closeButton.classList.toggle('hidden', state === 'loading');
+
+                if (state === 'loading') {
+                    loadingText.textContent = message;
+                } else if (state === 'success') {
+                    successText.textContent = message;
+                } else if (state === 'error') {
+                    errorText.textContent = message;
+                }
+            }
+
+            function getDownloadFilename(response, fallbackUrl) {
+                const contentDisposition = response.headers.get('Content-Disposition') || '';
+                const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+                if (utf8Match && utf8Match[1]) {
+                    return decodeURIComponent(utf8Match[1]);
+                }
+
+                const basicMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
+                if (basicMatch && basicMatch[1]) {
+                    return basicMatch[1];
+                }
+
+                const url = new URL(fallbackUrl, window.location.origin);
+                const segments = url.pathname.split('/').filter(Boolean);
+                return segments[segments.length - 1] || 'download.zip';
+            }
+
+            async function handleDownload(link) {
+                const downloadUrl = link.getAttribute('href');
+                const downloadLabel = link.dataset.downloadLabel || 'arquivo';
+                setState('loading', 'Baixando os arquivos selecionados...');
+                modal.showModal();
+
+                try {
+                    const response = await fetch(downloadUrl, {
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                        credentials: 'same-origin',
+                    });
+
+                    if (!response.ok) {
+                        const errorMessage = await response.text();
+                        throw new Error(errorMessage || 'Nao foi possivel concluir o download.');
+                    }
+
+                    const blob = await response.blob();
+                    const objectUrl = window.URL.createObjectURL(blob);
+                    const filename = getDownloadFilename(response, downloadUrl);
+                    const tempLink = document.createElement('a');
+
+                    tempLink.href = objectUrl;
+                    tempLink.download = filename;
+                    document.body.appendChild(tempLink);
+                    tempLink.click();
+                    tempLink.remove();
+                    window.URL.revokeObjectURL(objectUrl);
+
+                    setState('success', 'O download de ' + downloadLabel + ' terminou com sucesso.');
+                    document.body.dispatchEvent(new CustomEvent('showToast', {
+                        detail: {
+                            message: 'Download concluido com sucesso.',
+                            type: 'success'
+                        }
+                    }));
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : 'Nao foi possivel baixar os arquivos agora.';
+                    setState('error', message);
+                    document.body.dispatchEvent(new CustomEvent('showToast', {
+                        detail: {
+                            message,
+                            type: 'error'
+                        }
+                    }));
+                }
+            }
+
+            closeButton.addEventListener('click', function () {
+                modal.close();
+            });
+
+            modal.addEventListener('cancel', function (event) {
+                if (currentState === 'loading') {
+                    event.preventDefault();
+                }
+            });
+
+            document.addEventListener('click', function (event) {
+                const link = event.target.closest('[data-issued-download="true"]');
+                if (!link) {
+                    return;
+                }
+
+                event.preventDefault();
+                handleDownload(link);
+            });
+        })();
+    </script>
+{% endblock %}

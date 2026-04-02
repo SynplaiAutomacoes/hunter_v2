@@ -63,7 +63,7 @@
                                                 hx-post="{% url 'workorder:remove_item' workorder.pk item.pk %}"
                                                 hx-target="#modal-container"
                                                 hx-swap="innerHTML"
-                                                hx-confirm="Deseja remover esta peça?"
+                                                data-confirm="Deseja remover esta peça?"
                                                 hx-vals='{"active_tab":"products"}'>
                                                 <span class="material-icons text-sm">delete</span>
                                             </button>
@@ -132,7 +132,7 @@
                                                 hx-post="{% url 'workorder:remove_item' workorder.pk item.pk %}"
                                                 hx-target="#modal-container"
                                                 hx-swap="innerHTML"
-                                                hx-confirm="Deseja remover este serviço?"
+                                                data-confirm="Deseja remover este serviço?"
                                                 hx-vals='{"active_tab":"services"}'>
                                                 <span class="material-icons text-sm">delete</span>
                                             </button>
@@ -199,7 +199,7 @@
                                                 hx-post="{% url 'workorder:remove_item' workorder.pk item.pk %}"
                                                 hx-target="#modal-container"
                                                 hx-swap="innerHTML"
-                                                hx-confirm="Deseja remover este kit?"
+                                                data-confirm="Deseja remover este kit?"
                                                 hx-vals='{"active_tab":"kits"}'>
                                                 <span class="material-icons text-sm">delete</span>
                                             </button>

@@ -9,10 +9,10 @@ class BudgetApprovalError(Exception):
     pass
 
 
-def approve_budget_with_stock(*, budget: Budget, user=None) -> None:
-    local_items = budget.items.filter(is_local=True)
-    if local_items.exists():
-        raise BudgetApprovalError("Nao e possivel aprovar. Existem itens sem cadastro (locais).")
+def approve_budget_with_stock(*, budget: Budget, user: object | None = None) -> None:
+    blockers = budget.approval_blockers
+    if blockers:
+        raise BudgetApprovalError(f"Nao e possivel aprovar. {' '.join(blockers)}")
 
     with transaction.atomic():
         budget.status = BudgetStatus.APPROVED

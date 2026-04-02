@@ -15,7 +15,7 @@ class UserLoginView(LoginView):
     redirect_authenticated_user = True
 
     def get_success_url(self):
-        return self.get_redirect_url() or reverse_lazy("workshops:create")
+        return self.get_redirect_url() or reverse_lazy("core:dashboard")
 
 
 class UserSignUpView(FormView):

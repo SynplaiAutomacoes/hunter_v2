@@ -73,7 +73,9 @@
                         detail: {
                             url: '{% url 'workorder:visualizar_pdf' workorder.pk %}',
                             downloadUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?download=1',
-                            showSignatureBtn: true
+                            showSignatureBtn: true,
+                            signatureBlocked: {% if workorder.has_signature_blockers %}true{% else %}false{% endif %},
+                            signatureBlockedReason: '{{ workorder.signature_blockers_display|escapejs }}'
                         }
                     }))">
                     <span class="material-icons mr-2">visibility</span>
@@ -99,8 +101,9 @@
             <button
                 type="submit"
                 form="approval-km-form"
-                class="btn btn-success"
-                {% if workorder.status == 'approved' %}disabled{% endif %}
+                class="btn btn-success {% if workorder.has_completion_blockers %}btn-disabled cursor-not-allowed{% endif %}"
+                {% if workorder.status == 'approved' or workorder.has_completion_blockers %}disabled{% endif %}
+                {% if workorder.has_completion_blockers %}title="{{ workorder.completion_blockers_display }}"{% endif %}
             >
                 Aprovar
             </button>

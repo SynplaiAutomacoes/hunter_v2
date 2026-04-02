@@ -30,7 +30,7 @@ from apps.finance.models.payment_method import PaymentMethod
 from apps.iam.utils import get_or_create_director_role
 from apps.stock.models import StockMovement, StockProduct
 from apps.workorder.forms import WorkOrderPaymentForm
-from apps.workorder.approval import approve_workorder_with_stock
+from apps.workorder.approval import WorkOrderApprovalError, approve_workorder_with_stock
 from apps.workorder.documents.provider import build_workorder_pdf_render_request
 from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
 from apps.workorder.service import (
@@ -41,6 +41,7 @@ from apps.workorder.service import (
     build_signature_preview_url,
     send_workorder_for_signature,
 )
+from apps.workorder.util import trigger_workorder_signature_send_if_needed
 from apps.workorder.views import WORKORDER_LIST_FILTERS, signature_file, signature_preview, visualizar_pdf_workorder
 from apps.workshops.models.workshops import Workshop
 
@@ -369,6 +370,18 @@ class WorkOrderStatusReportPdfTests(TestCase):
         self.assertContains(response, matching_created_at.strftime("%d/%m/%Y"))
         self.assertIsNone(response.headers.get("X-Frame-Options"))
 
+    @patch("apps.workorder.views.build_workshop_logo_data_uri", return_value="data:image/png;base64,bW9uZ28tbG9nbw==")
+    def test_status_report_pdf_preview_includes_workshop_logo_data_uri(self, build_workshop_logo_data_uri_mock) -> None:
+        workshop = self._login_with_active_workshop(suffix=95)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=create_budget(workshop=workshop), status=WorkOrderStatus.APPROVED)
+
+        response = self.client.get(reverse("workorder:status_report_pdf_preview"), {"status": WorkOrderStatus.APPROVED})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'src="data:image/png;base64,bW9uZ28tbG9nbw=="', html=False)
+        build_workshop_logo_data_uri_mock.assert_called_once_with(workshop=workshop)
+        self.assertContains(response, f"#{workorder.pk}")
+
     @patch("apps.workorder.views.render_workorder_status_report_pdf_document")
     def test_status_report_pdf_view_returns_attachment_and_ignores_other_filters(self, render_document_mock) -> None:
         workshop = self._login_with_active_workshop(suffix=92)
@@ -433,6 +446,7 @@ def create_product(*, workshop: Workshop, suffix: int = 1, selling_price: str = 
         code=f"P-{suffix:03d}",
         unit=Product.Unit.UND,
         name=f"Produto Teste {suffix}",
+        ncm="87089990",
         group=group,
         cost_price=Money("10.00", "BRL"),
         selling_price=Money(selling_price, "BRL"),
@@ -504,6 +518,7 @@ class WorkOrderTotalsConsistencyTests(TestCase):
             code="P-001",
             unit=Product.Unit.UND,
             name="Produto Teste",
+            ncm="87089990",
             group=group,
             cost_price=Money("50.00", "BRL"),
             selling_price=Money("100.00", "BRL"),
@@ -546,6 +561,7 @@ class WorkOrderTotalsConsistencyTests(TestCase):
             code="P-002",
             unit=Product.Unit.UND,
             name="Produto Desconto",
+            ncm="87089990",
             group=group,
             cost_price=Money("10.00", "BRL"),
             selling_price=Money("15.00", "BRL"),
@@ -574,6 +590,7 @@ class WorkOrderTotalsConsistencyTests(TestCase):
             code="P-003",
             unit=Product.Unit.UND,
             name="Produto Percentual",
+            ncm="87089990",
             group=group,
             cost_price=Money("20.00", "BRL"),
             selling_price=Money("100.00", "BRL"),
@@ -605,6 +622,7 @@ class WorkOrderTotalsConsistencyTests(TestCase):
             code="P-004",
             unit=Product.Unit.UND,
             name="Produto Display",
+            ncm="87089990",
             group=group,
             cost_price=Money("10.00", "BRL"),
             selling_price=Money("200.00", "BRL"),
@@ -893,6 +911,7 @@ class WorkOrderDuplicateKitProductTests(TestCase):
             code="P-100",
             unit=Product.Unit.UND,
             name="Coxim",
+            ncm="87089990",
             group=CatalogGroup.objects.create(workshop=workshop, name="Grupo 100"),
             cost_price=Money("10.00", "BRL"),
             selling_price=Money("15.00", "BRL"),
@@ -976,6 +995,81 @@ class WorkOrderDuplicateKitProductTests(TestCase):
         self.assertEqual(stock_product.current_quantity, 0)
         self.assertEqual(workorder.status, WorkOrderStatus.APPROVED)
         self.assertEqual(StockMovement.objects.get(stock_product=stock_product).quantity, 3)
+
+    def test_approval_blocks_when_product_has_invalid_ncm(self) -> None:
+        workshop = create_workshop(suffix=13)
+        budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=13)
+        product.ncm = ""
+        product.save(update_fields=["ncm"])
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        workorder.sync_from_budget()
+
+        stock_product = StockProduct.objects.get(workshop=workshop, product=product)
+        stock_product.current_quantity = 5
+        stock_product.save(update_fields=["current_quantity"])
+
+        with self.assertRaisesMessage(WorkOrderApprovalError, "Existem produtos com NCM invalido"):
+            approve_workorder_with_stock(workorder=workorder)
+
+        stock_product.refresh_from_db()
+        workorder.refresh_from_db()
+        self.assertEqual(stock_product.current_quantity, 5)
+        self.assertEqual(workorder.status, WorkOrderStatus.DRAFT)
+
+
+class WorkOrderSignatureWorkflowRuleTests(TestCase):
+    @patch("apps.workorder.util.send_workorder_for_signature")
+    def test_signature_send_blocks_for_stock_issue(self, send_signature_mock) -> None:
+        workshop = create_workshop(suffix=14)
+        budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=14)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=2)
+
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        workorder.sync_from_budget()
+
+        stock_product = StockProduct.objects.get(workshop=workshop, product=product)
+        stock_product.current_quantity = 1
+        stock_product.save(update_fields=["current_quantity"])
+
+        toast_type, toast_message = trigger_workorder_signature_send_if_needed(workorder=workorder)
+
+        self.assertEqual(toast_type, "error")
+        self.assertIn("Existem pecas com quantidade acima do estoque disponivel", toast_message)
+        send_signature_mock.assert_not_called()
+
+    @patch("apps.workorder.util.send_workorder_for_signature")
+    def test_signature_send_allows_invalid_ncm(self, send_signature_mock) -> None:
+        workshop = create_workshop(suffix=15)
+        budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=15)
+        product.ncm = ""
+        product.save(update_fields=["ncm"])
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        workorder.sync_from_budget()
+
+        stock_product = StockProduct.objects.get(workshop=workshop, product=product)
+        stock_product.current_quantity = 3
+        stock_product.save(update_fields=["current_quantity"])
+
+        send_signature_mock.return_value = SignatureDeliveryResult(
+            envelope_id="env-15",
+            document_id="doc-15",
+            provider="supersign",
+            raw_response={"ok": True},
+        )
+
+        toast_type, toast_message = trigger_workorder_signature_send_if_needed(workorder=workorder)
+
+        workorder.refresh_from_db()
+        self.assertEqual(toast_type, "success")
+        self.assertEqual(toast_message, "Ordem de serviço enviada para assinatura do cliente.")
+        self.assertEqual(workorder.signature_request_status, WorkOrderSignatureStatus.SENT)
 
 
 class WorkOrderPaymentFormTests(TestCase):
@@ -1104,6 +1198,8 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Cartão Master/Visa")
         self.assertContains(response, "24/03/2026")
+        self.assertContains(response, "alert_confirm_modal")
+        self.assertContains(response, 'data-confirm="Deseja remover esta forma de pagamento?"', html=False)
 
         payment = WorkOrderPaymentMethod.objects.get(workorder=self.workorder)
         self.assertEqual(payment.installments_count, 4)

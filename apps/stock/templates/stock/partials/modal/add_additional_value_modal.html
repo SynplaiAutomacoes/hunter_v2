@@ -1,0 +1,21 @@
+{% load crispy_forms_tags %}
+
+<div class="modal modal-open">
+    <div class="modal-box w-11/12 max-w-lg">
+        <h3 class="text-lg font-bold">Adicionar Valor</h3>
+        <p class="mt-1 text-sm text-base-content/70">Use este lançamento para custos fora da NF, como frete ou outras despesas.</p>
+
+        <form
+            hx-post="{% url 'stock:add_additional_value_session' %}?pk={{ stock_import.pk }}"
+            hx-target="#modal-container"
+            class="mt-4 space-y-4">
+            {% csrf_token %}
+            {% crispy form %}
+
+            <div class="modal-action">
+                <button type="button" class="btn btn-ghost" onclick="document.getElementById('modal-container').innerHTML=''">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Confirmar</button>
+            </div>
+        </form>
+    </div>
+</div>

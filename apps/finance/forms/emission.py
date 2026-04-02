@@ -21,7 +21,7 @@ from apps.finance.forms.emission_ui import (
     format_money,
 )
 from apps.finance.services.emission import build_default_service_description_for_workorder
-from apps.finance.services.nfe_emission import NfeEmissionError, build_nfe_preview_rows
+from apps.finance.services.nfe_emission import build_nfe_preview_rows, build_nfe_preview_warning_messages
 from apps.finance.services.pricing import build_emission_pricing_snapshot_for_workorder, build_nfse_service_preview_rows, build_slider_allocation_for_workorder
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 
@@ -271,19 +271,18 @@ def _build_summary_preview_html(*, workorder: WorkOrder, selected_slider: int) -
 
 
 def _build_nfe_preview_html(*, workorder: WorkOrder, selected_slider: int) -> tuple[str, str]:
-    warning_html = ""
+    warnings: list[str] = []
     total_products_formatted = format_money(0)
     total_services_formatted = format_money(0)
-    rows: list[dict[str, Any]] = []
+    rows, allocation = build_nfe_preview_rows(workorder=workorder, slider_override=selected_slider)
+    total_products_formatted = format_money(allocation.products_target)
+    total_services_formatted = format_money(allocation.services_target)
 
-    try:
-        rows, allocation = build_nfe_preview_rows(workorder=workorder, slider_override=selected_slider)
-        total_products_formatted = format_money(allocation.products_target)
-        total_services_formatted = format_money(allocation.services_target)
-        if allocation.products_target <= 0:
-            warning_html = "<div class='alert alert-warning'>A configuracao atual do slider nao deixa saldo de produtos para emitir NF-e.</div>"
-    except NfeEmissionError as exc:
-        warning_html = f"<div class='alert alert-warning'>{escape(str(exc))}</div>"
+    warnings.extend(build_nfe_preview_warning_messages(workorder=workorder, slider_override=selected_slider))
+    if allocation.products_target <= 0:
+        warnings.append("A configuracao atual do slider nao deixa saldo de produtos para emitir NF-e.")
+
+    warning_html = "".join(f"<div class='alert alert-warning'>{escape(message)}</div>" for message in warnings)
 
     rows_html = "".join(
         f"""

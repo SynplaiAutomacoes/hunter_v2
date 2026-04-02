@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import json
 from datetime import timedelta
 from decimal import Decimal
 from typing import cast
@@ -11,7 +13,9 @@ from django import forms
 from django.http import QueryDict
 from django.template import Context, Template
 from django.template.loader import render_to_string
+
 from apps.accounts.models import Account, User
+from apps.budget.approval import approve_budget_with_stock
 from django.http import Http404, HttpResponse
 from django.db import connection
 from django.test import RequestFactory, TestCase, override_settings
@@ -32,6 +36,7 @@ from apps.budget.service import (
     build_signature_preview_url,
     send_budget_for_signature,
 )
+from apps.checklist.models import Checklist, ChecklistItem
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.kits import Kit, KitProduct, KitService
 from apps.catalog.models.products import Product
@@ -39,16 +44,18 @@ from apps.catalog.models.services import Service
 from apps.core.documents.contract import DocumentPayload, SignatureDeliveryResult
 from apps.core.documents.signature import normalize_signature_phone_number, parse_document_signature_token
 from apps.core.documents.services import SignatureDeliveryServiceError, get_signed_document_url
-from apps.workorder.models import WorkOrder
-from apps.budget.views.pdf_views import signature_file, signature_preview, visualizar_pdf_assinatura
-from apps.budget.views.workflow_views import BUDGET_LIST_FILTERS, trigger_signature_send_if_needed
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.query_filters import apply_query_param_filters
 from apps.customer.models import Customer, Vehicle
 from apps.collaborators.models import WorkshopMember
 from apps.iam.utils import get_or_create_director_role
+from apps.stock.models import StockProduct
+from apps.workorder.models import WorkOrder
+from apps.budget.views.pdf_views import signature_file, signature_preview, visualizar_pdf_assinatura
+from apps.budget.views.workflow_views import BUDGET_LIST_FILTERS, trigger_signature_send_if_needed
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.models.workshop_costs import WorkshopCost
+from apps.workshops.services.files import StoredWorkshopFile
 from apps.scheduling.models import Appointment
 
 
@@ -140,6 +147,7 @@ def create_product(*, workshop: Workshop, suffix: int = 1, application: str = ""
         unit=Product.Unit.UND,
         name=f"Produto {suffix}",
         description=f"Descricao {suffix}",
+        ncm="87089990",
         application=application,
         group=group,
         cost_price=Money("10.00", "BRL"),
@@ -191,6 +199,29 @@ class BudgetStep1FormTests(TestCase):
         self.assertIn(str(vehicle), rendered_vehicle_field)
         self.assertIn(reverse("budget:vehicle-detail"), rendered_vehicle_field)
         self.assertIn(':disabled="!customerId"', rendered_vehicle_field)
+
+    def test_accepts_current_km_with_thousands_separator(self) -> None:
+        user, workshop = create_director_user_with_workshop(suffix=68)
+        customer = create_customer(workshop=workshop, suffix=68)
+        vehicle = create_vehicle(workshop=workshop, customer=customer, suffix=68, plate="BDG6868")
+
+        request = RequestFactory().post(reverse("budget:budget_create"))
+        request.user = user
+
+        form = BudgetStep1Form(
+            data={
+                "entry_date": timezone.now().date().isoformat(),
+                "customer": str(customer.pk),
+                "vehicle": str(vehicle.pk),
+                "current_km": "15.000",
+                "fuel_level": "5",
+            },
+            workshop=workshop,
+            request=request,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        self.assertEqual(form.cleaned_data["current_km"], 15000)
 
 
 class BudgetCreateViewAppointmentSyncTests(TestCase):
@@ -268,9 +299,9 @@ class BudgetListFiltersTests(TestCase):
         other_budget = create_budget(workshop=workshop)
         other_budget.customer = other_customer
         other_budget.vehicle = other_vehicle
-        other_budget.collaborator = other_collaborator
         other_budget.status = BudgetStatus.CANCELLED
-        other_budget.save(update_fields=["customer", "vehicle", "collaborator", "status"])
+        other_budget.save(update_fields=["customer", "vehicle", "status"])
+        other_budget.collaborators.set([other_collaborator])
         Budget.objects.filter(pk=other_budget.pk).update(criado_em=timezone.now() - timedelta(days=12))
 
         selected_date = matching_created_at.date().isoformat()
@@ -497,9 +528,9 @@ class BudgetStatusReportPdfTests(TestCase):
         approved_budget = create_budget(workshop=workshop)
         approved_budget.customer = customer
         approved_budget.vehicle = vehicle
-        approved_budget.collaborator = collaborator
         approved_budget.status = BudgetStatus.APPROVED
-        approved_budget.save(update_fields=["customer", "vehicle", "collaborator", "status"])
+        approved_budget.save(update_fields=["customer", "vehicle", "status"])
+        approved_budget.collaborators.set([collaborator])
         matching_created_at = timezone.now() - timedelta(days=4)
         Budget.objects.filter(pk=approved_budget.pk).update(criado_em=matching_created_at)
 
@@ -509,9 +540,9 @@ class BudgetStatusReportPdfTests(TestCase):
         out_of_range_budget = create_budget(workshop=workshop)
         out_of_range_budget.customer = other_customer
         out_of_range_budget.vehicle = other_vehicle
-        out_of_range_budget.collaborator = other_collaborator
         out_of_range_budget.status = BudgetStatus.APPROVED
-        out_of_range_budget.save(update_fields=["customer", "vehicle", "collaborator", "status"])
+        out_of_range_budget.save(update_fields=["customer", "vehicle", "status"])
+        out_of_range_budget.collaborators.set([other_collaborator])
         Budget.objects.filter(pk=out_of_range_budget.pk).update(criado_em=timezone.now() - timedelta(days=12))
 
         draft_budget = create_budget(workshop=workshop)
@@ -906,6 +937,127 @@ class BudgetPdfContextTests(TestCase):
         self.assertIn("summary-totals-box", html)
         self.assertIn("preserve-freeform-text", html)
 
+    @patch("apps.budget.pdf_context.get_workshop_logo_file")
+    def test_build_budget_pdf_context_uses_logo_saved_in_mongo(self, get_workshop_logo_file_mock) -> None:
+        workshop = create_workshop(suffix=97)
+        budget = create_budget(workshop=workshop)
+        logo_bytes = b"mongo-logo"
+        get_workshop_logo_file_mock.return_value = StoredWorkshopFile(
+            file_id="mongo-logo-id",
+            filename="logo.png",
+            content_type="image/png",
+            content=logo_bytes,
+            uploaded_at=None,
+        )
+
+        context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste")
+
+        expected_logo_data_uri = f"data:image/png;base64,{base64.b64encode(logo_bytes).decode('ascii')}"
+        self.assertEqual(context["workshop_logo_data_uri"], expected_logo_data_uri)
+
+
+class BudgetPdfViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=97)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def _create_budget_with_customer_and_vehicle(self, *, suffix: int) -> Budget:
+        customer = create_customer(workshop=self.workshop, suffix=suffix)
+        vehicle = create_vehicle(workshop=self.workshop, customer=customer, suffix=suffix, plate=f"BGT{suffix:04d}"[:7])
+        budget = create_budget(workshop=self.workshop)
+        budget.customer = customer
+        budget.vehicle = vehicle
+        budget.save(update_fields=["customer", "vehicle"])
+        return budget
+
+    @staticmethod
+    def _build_logo_file(*, content: bytes) -> StoredWorkshopFile:
+        return StoredWorkshopFile(
+            file_id="mongo-logo-id",
+            filename="logo.png",
+            content_type="image/png",
+            content=content,
+            uploaded_at=None,
+        )
+
+    @patch("apps.budget.pdf_context.get_workshop_logo_file")
+    def test_visualizar_pdf_gestor_renders_workshop_logo(self, get_workshop_logo_file_mock) -> None:
+        budget = self._create_budget_with_customer_and_vehicle(suffix=98)
+        logo_bytes = b"gestor-logo"
+        get_workshop_logo_file_mock.return_value = self._build_logo_file(content=logo_bytes)
+
+        response = self.client.get(reverse("budget:visualizar_pdf_gestor", args=[budget.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        expected_logo_data_uri = f"data:image/png;base64,{base64.b64encode(logo_bytes).decode('ascii')}"
+        self.assertContains(response, f'src="{expected_logo_data_uri}"', html=False)
+
+    @patch("apps.budget.pdf_context.get_workshop_logo_file")
+    def test_visualizar_pdf_mecanico_renders_workshop_logo(self, get_workshop_logo_file_mock) -> None:
+        budget = self._create_budget_with_customer_and_vehicle(suffix=99)
+        logo_bytes = b"mecanico-logo"
+        get_workshop_logo_file_mock.return_value = self._build_logo_file(content=logo_bytes)
+
+        response = self.client.get(reverse("budget:visualizar_pdf_mecanico", args=[budget.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        expected_logo_data_uri = f"data:image/png;base64,{base64.b64encode(logo_bytes).decode('ascii')}"
+        self.assertContains(response, f'src="{expected_logo_data_uri}"', html=False)
+
+    @patch("apps.budget.views.pdf_views.build_workshop_logo_data_uri", return_value="data:image/png;base64,bW9uZ28tbG9nbw==")
+    def test_visualizar_pdf_checklist_renders_workshop_logo(self, build_workshop_logo_data_uri_mock) -> None:
+        budget = self._create_budget_with_customer_and_vehicle(suffix=100)
+        checklist = Checklist.objects.create(workshop=self.workshop, name="Checklist PDF")
+        ChecklistItem.objects.create(checklist=checklist, group="Motor", description="Verificar oleo", response_type="SIM_NAO", order=1)
+
+        response = self.client.get(reverse("budget:visualizar_pdf_checklist", args=[budget.pk]), {"checklist": checklist.pk})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'src="data:image/png;base64,bW9uZ28tbG9nbw=="', html=False)
+        build_workshop_logo_data_uri_mock.assert_called_once_with(workshop=self.workshop)
+
+    def test_visualizar_pdf_uses_budget_observation_only(self) -> None:
+        budget_a = self._create_budget_with_customer_and_vehicle(suffix=101)
+        budget_b = self._create_budget_with_customer_and_vehicle(suffix=102)
+        self.workshop.pdf_observation = "Observacao da oficina"
+        self.workshop.save(update_fields=["pdf_observation"])
+        budget_a.pdf_observation = "Observacao do orcamento A"
+        budget_a.save(update_fields=["pdf_observation"])
+
+        response = self.client.get(reverse("budget:visualizar_pdf", args=[budget_b.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Nenhuma observação técnica adicional.")
+        self.assertNotContains(response, "Observacao da oficina")
+        self.assertNotContains(response, "Observacao do orcamento A")
+
+    def test_save_observation_updates_only_selected_budget(self) -> None:
+        budget_a = create_budget(workshop=self.workshop)
+        budget_b = create_budget(workshop=self.workshop)
+        budget_b.pdf_observation = "Nao alterar"
+        budget_b.save(update_fields=["pdf_observation"])
+        self.workshop.pdf_observation = "Observacao da oficina"
+        self.workshop.save(update_fields=["pdf_observation"])
+
+        response = self.client.post(
+            reverse("budget:save_observation"),
+            data=json.dumps({"budget_id": budget_a.pk, "observation": "Observacao do orcamento A"}),
+            content_type="application/json",
+        )
+
+        budget_a.refresh_from_db()
+        budget_b.refresh_from_db()
+        self.workshop.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(budget_a.pdf_observation, "Observacao do orcamento A")
+        self.assertEqual(budget_b.pdf_observation, "Nao alterar")
+        self.assertEqual(self.workshop.pdf_observation, "Observacao da oficina")
+
 
 class BudgetStep6FormTests(TestCase):
     def test_step6_pdf_modal_uses_resend_label_for_sent_signature(self) -> None:
@@ -939,6 +1091,449 @@ class BudgetStep6FormTests(TestCase):
 
         self.assertIn("showPdfVariantToggle: false", html)
         self.assertIn('x-show="showPdfVariantToggle"', html)
+
+    def test_step6_keeps_approval_and_signature_available_when_stock_is_insufficient(self) -> None:
+        workshop = create_workshop(suffix=97)
+        budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=97)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=3)
+
+        stock_product = StockProduct.objects.get(workshop=workshop, product=product)
+        stock_product.current_quantity = 1
+        stock_product.save(update_fields=["current_quantity"])
+
+        request = RequestFactory().get("/")
+        request.user = User.objects.create_user(username="budget-step6-user-97", password="123")
+        form = BudgetStep6Form(instance=budget, workshop=workshop, request=request)
+        html = Template("{% load crispy_forms_tags %}{% crispy form %}").render(Context({"form": form, "csrf_token": "token"}))
+
+        self.assertNotIn("Existem pecas com quantidade acima do estoque disponivel", html)
+        self.assertIn("signatureBlocked: false", html)
+        self.assertIn(f"onclick=\"updateBudgetStatus({budget.pk}, 'approve')\"", html)
+
+    def test_step6_uses_budget_observation_without_inheriting_workshop_value(self) -> None:
+        workshop = create_workshop(suffix=69)
+        workshop.pdf_observation = "Observacao da oficina"
+        workshop.save(update_fields=["pdf_observation"])
+
+        budget = create_budget(workshop=workshop)
+        budget.pdf_observation = "Observacao do orcamento"
+        budget.save(update_fields=["pdf_observation"])
+
+        request = RequestFactory().get("/")
+        request.user = User.objects.create_user(username="budget-step6-user-69", password="123")
+        form = BudgetStep6Form(instance=budget, workshop=workshop, request=request)
+        html = Template("{% load crispy_forms_tags %}{% crispy form %}").render(Context({"form": form, "csrf_token": "token"}))
+
+        self.assertIn("Observacao do orcamento", html)
+        self.assertNotIn("Observacao da oficina", html)
+
+
+class BudgetProductIssueTests(TestCase):
+    def test_step4_product_rows_render_stock_and_invalid_ncm_warnings(self) -> None:
+        workshop = create_workshop(suffix=98)
+        budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=98)
+        product.ncm = ""
+        product.save(update_fields=["ncm"])
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=3)
+
+        stock_product = StockProduct.objects.get(workshop=workshop, product=product)
+        stock_product.current_quantity = 1
+        stock_product.save(update_fields=["current_quantity"])
+
+        rows = _render_budget_items_rows(budget, step6=False)
+
+        self.assertIn("Excede o estoque em 2 pecas.", rows["product"])
+        self.assertIn("Produto com NCM invalido.", rows["product"])
+
+    def test_approve_budget_allows_stock_issue(self) -> None:
+        workshop = create_workshop(suffix=99)
+        budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=99)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=2)
+
+        stock_product = StockProduct.objects.get(workshop=workshop, product=product)
+        stock_product.current_quantity = 1
+        stock_product.save(update_fields=["current_quantity"])
+
+        approve_budget_with_stock(budget=budget)
+
+        budget.refresh_from_db()
+        self.assertEqual(budget.status, BudgetStatus.APPROVED)
+
+    @patch("apps.budget.views.workflow_views.send_budget_for_signature")
+    def test_trigger_signature_send_if_needed_allows_stock_issue(self, send_signature_mock) -> None:
+        workshop = create_workshop(suffix=67)
+        budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=67)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=2)
+
+        stock_product = StockProduct.objects.get(workshop=workshop, product=product)
+        stock_product.current_quantity = 1
+        stock_product.save(update_fields=["current_quantity"])
+
+        send_signature_mock.return_value = SignatureDeliveryResult(
+            envelope_id="env-67",
+            document_id="doc-67",
+            provider="supersign",
+            raw_response={"ok": True},
+        )
+
+        toast_type, toast_message, redirect_url = trigger_signature_send_if_needed(request=RequestFactory().post("/"), budget=budget)
+
+        budget.refresh_from_db()
+        self.assertEqual(toast_type, "success")
+        self.assertEqual(toast_message, "Orçamento enviado para assinatura do cliente.")
+        self.assertEqual(redirect_url, reverse("budget:budget_list"))
+        self.assertEqual(budget.signature_request_status, SignatureStatus.SENT)
+
+    @patch("apps.budget.views.workflow_views.send_budget_for_signature")
+    def test_trigger_signature_send_if_needed_allows_invalid_ncm(self, send_signature_mock) -> None:
+        workshop = create_workshop(suffix=68)
+        budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=68)
+        product.ncm = ""
+        product.save(update_fields=["ncm"])
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=1)
+
+        stock_product = StockProduct.objects.get(workshop=workshop, product=product)
+        stock_product.current_quantity = 5
+        stock_product.save(update_fields=["current_quantity"])
+
+        send_signature_mock.return_value = SignatureDeliveryResult(
+            envelope_id="env-68",
+            document_id="doc-68",
+            provider="supersign",
+            raw_response={"ok": True},
+        )
+
+        toast_type, toast_message, redirect_url = trigger_signature_send_if_needed(request=RequestFactory().post("/"), budget=budget)
+
+        budget.refresh_from_db()
+        self.assertEqual(toast_type, "success")
+        self.assertEqual(toast_message, "Orçamento enviado para assinatura do cliente.")
+        self.assertEqual(redirect_url, reverse("budget:budget_list"))
+        self.assertEqual(budget.signature_request_status, SignatureStatus.SENT)
+
+
+class BudgetQuickCreateProductValidationTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=99)
+        self.budget = create_budget(workshop=self.workshop)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_quick_create_product_shows_duplicate_name_error(self) -> None:
+        existing_product = create_product(workshop=self.workshop, suffix=99)
+
+        response = self.client.post(
+            reverse("budget:quick_create_item", args=[self.budget.pk, "product"]),
+            {
+                "code": "P-999",
+                "unit": Product.Unit.UND,
+                "name": existing_product.name,
+                "group": existing_product.group.pk,
+                "cost_price_0": "10.00",
+                "cost_price_1": "BRL",
+                "selling_price_0": "20.00",
+                "selling_price_1": "BRL",
+                "modal_context": "parent",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Já existe um produto com este nome.")
+        self.assertEqual(Product.objects.filter(workshop=self.workshop, name=existing_product.name).count(), 1)
+        self.assertFalse(BudgetItem.objects.filter(budget=self.budget, product__name=existing_product.name).exists())
+
+    def test_register_local_product_shows_duplicate_name_error(self) -> None:
+        existing_product = create_product(workshop=self.workshop, suffix=100)
+        local_item = BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            description="Produto local 100",
+            quantity=1,
+            product_cost_price=Money("10.00", "BRL"),
+            product_selling_price=Money("20.00", "BRL"),
+            shipping=Money("0.00", "BRL"),
+            is_local=True,
+        )
+
+        response = self.client.post(
+            reverse("budget:register_local_item", args=[self.budget.pk, local_item.pk]),
+            {
+                "code": "P-1000",
+                "unit": Product.Unit.UND,
+                "name": existing_product.name,
+                "group": existing_product.group.pk,
+                "cost_price_0": "10.00",
+                "cost_price_1": "BRL",
+                "selling_price_0": "20.00",
+                "selling_price_1": "BRL",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        local_item.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["HX-Retarget"], "#modal-container")
+        self.assertContains(response, "Já existe um produto com este nome.")
+        self.assertEqual(Product.objects.filter(workshop=self.workshop, name=existing_product.name).count(), 1)
+        self.assertTrue(local_item.is_local)
+        self.assertIsNone(local_item.product)
+
+    def test_quick_create_product_modal_shows_similar_name_lookup(self) -> None:
+        response = self.client.get(
+            reverse("budget:quick_create_item", args=[self.budget.pk, "product"]),
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'hx-get="/catalog/products/search/"')
+        self.assertContains(response, 'hx-vals="{&quot;quick_name_lookup&quot;: &quot;1&quot;}"')
+        self.assertContains(response, 'id="product-name-suggestions"')
+
+    def test_quick_create_product_accepts_optional_ncm(self) -> None:
+        group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo NCM Rapido")
+
+        response = self.client.post(
+            reverse("budget:quick_create_item", args=[self.budget.pk, "product"]),
+            {
+                "code": "P-NCM-99",
+                "unit": Product.Unit.UND,
+                "name": "Produto com NCM Rapido",
+                "group": group.pk,
+                "cost_price_0": "10.00",
+                "cost_price_1": "BRL",
+                "selling_price_0": "20.00",
+                "selling_price_1": "BRL",
+                "ncm": "87089990",
+                "modal_context": "parent",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        product = Product.objects.get(workshop=self.workshop, code="P-NCM-99")
+        self.assertEqual(product.ncm, "87089990")
+
+    def test_register_local_product_accepts_optional_ncm(self) -> None:
+        group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo Registro NCM")
+        local_item = BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            description="Produto local NCM",
+            quantity=1,
+            product_cost_price=Money("10.00", "BRL"),
+            product_selling_price=Money("20.00", "BRL"),
+            shipping=Money("0.00", "BRL"),
+            is_local=True,
+        )
+
+        response = self.client.post(
+            reverse("budget:register_local_item", args=[self.budget.pk, local_item.pk]),
+            {
+                "code": "P-REG-NCM-99",
+                "unit": Product.Unit.UND,
+                "name": "Produto Registro NCM",
+                "group": group.pk,
+                "cost_price_0": "10.00",
+                "cost_price_1": "BRL",
+                "selling_price_0": "20.00",
+                "selling_price_1": "BRL",
+                "ncm": "87089990",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        local_item.refresh_from_db()
+        self.assertFalse(local_item.is_local)
+        assert local_item.product is not None
+        self.assertEqual(local_item.product.ncm, "87089990")
+
+    def test_quick_edit_product_modal_shows_ncm_field(self) -> None:
+        product = create_product(workshop=self.workshop, suffix=102)
+        budget_item = BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            product=product,
+            quantity=1,
+        )
+
+        response = self.client.get(
+            reverse("budget:edit_item", args=[self.budget.pk, budget_item.pk]),
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'name="ncm"')
+        self.assertContains(response, 'value="87089990"')
+        self.assertContains(response, 'id="stock-quantity-reference"')
+        self.assertNotContains(response, 'type="number"')
+
+    def test_quick_edit_product_updates_ncm(self) -> None:
+        product = create_product(workshop=self.workshop, suffix=103)
+        budget_item = BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            product=product,
+            quantity=1,
+        )
+
+        response = self.client.post(
+            reverse("budget:edit_item", args=[self.budget.pk, budget_item.pk]),
+            {
+                "description": budget_item.description,
+                "quantity": "1",
+                "product_cost_price_0": "10.00",
+                "product_cost_price_1": "BRL",
+                "product_selling_price_0": "15.00",
+                "product_selling_price_1": "BRL",
+                "shipping_0": "0.00",
+                "shipping_1": "BRL",
+                "ncm": "12345678",
+                "action": "save_only",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("HX-Redirect", response)
+        product.refresh_from_db()
+        self.assertEqual(product.ncm, "12345678")
+
+    def test_product_name_lookup_returns_similar_products(self) -> None:
+        create_product(workshop=self.workshop, suffix=101)
+
+        response = self.client.get(
+            reverse("catalog:product_search"),
+            {
+                "quick_name_lookup": "1",
+                "name": "Produto 101",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Encontramos produtos com nome parecido")
+        self.assertContains(response, "Produto 101")
+
+
+class ServiceNameSuggestionTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=12)
+        self.budget = create_budget(workshop=self.workshop)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_service_create_page_shows_similar_name_lookup(self) -> None:
+        response = self.client.get(reverse("catalog:services_create"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'hx-get="/catalog/services/search/"')
+        self.assertContains(response, 'id="name-suggestions"')
+
+    def test_quick_create_service_modal_shows_similar_name_lookup(self) -> None:
+        response = self.client.get(
+            reverse("budget:quick_create_item", args=[self.budget.pk, "service"]),
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'hx-get="/catalog/services/search/"')
+        self.assertContains(response, 'hx-vals="{&quot;target_id&quot;: &quot;service-name-suggestions&quot;}"')
+        self.assertContains(response, 'id="service-name-suggestions"')
+
+    def test_service_name_lookup_returns_similar_services(self) -> None:
+        create_service(workshop=self.workshop, suffix=12)
+
+        response = self.client.get(
+            reverse("catalog:services_search"),
+            {
+                "name": "Servico 12",
+                "target_id": "service-name-suggestions",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Encontramos serviços com nome parecido")
+        self.assertContains(response, "Servico 12")
+        self.assertContains(response, "service-name-suggestions")
+
+
+class BudgetQuickCreateServiceValidationTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=97)
+        self.budget = create_budget(workshop=self.workshop)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_quick_create_service_shows_duplicate_name_error(self) -> None:
+        create_service(workshop=self.workshop, suffix=97)
+
+        response = self.client.post(
+            reverse("budget:quick_create_item", args=[self.budget.pk, "service"]),
+            {
+                "name": "Servico 97",
+                "duration": "01:00",
+                "selling_price_0": "20.00",
+                "selling_price_1": "BRL",
+                "modal_context": "parent",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Já existe um serviço com este nome.")
+        self.assertEqual(Service.objects.filter(workshop=self.workshop, name="Servico 97").count(), 1)
+        self.assertFalse(BudgetItem.objects.filter(budget=self.budget, service__name="Servico 97").exists())
+
+    def test_register_local_service_shows_duplicate_name_error(self) -> None:
+        create_service(workshop=self.workshop, suffix=98)
+        local_item = BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            description="Servico local 98",
+            quantity=1,
+            service_cost_price=Money("10.00", "BRL"),
+            service_selling_price=Money("20.00", "BRL"),
+            duration=timedelta(hours=1),
+            is_local=True,
+        )
+
+        response = self.client.post(
+            reverse("budget:register_local_item", args=[self.budget.pk, local_item.pk]),
+            {
+                "name": "Servico 98",
+                "duration": "01:00",
+                "selling_price_0": "20.00",
+                "selling_price_1": "BRL",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        local_item.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["HX-Retarget"], "#modal-container")
+        self.assertContains(response, "Já existe um serviço com este nome.")
+        self.assertEqual(Service.objects.filter(workshop=self.workshop, name="Servico 98").count(), 1)
+        self.assertTrue(local_item.is_local)
+        self.assertIsNone(local_item.service)
 
 
 class BudgetDuplicateKitProductTests(TestCase):
@@ -1097,9 +1692,11 @@ class BudgetSignaturePublicViewTests(TestCase):
     def test_signature_preview_renders_budget_pdf_template(self, build_context_mock, render_mock) -> None:
         workshop = create_workshop(suffix=78)
         budget = create_budget(workshop=workshop)
+        budget.pdf_observation = "Observacao do orcamento"
+        budget.save(update_fields=["pdf_observation"])
         token = extract_token_from_url(build_signature_preview_url(budget=budget))
 
-        build_context_mock.return_value = {"budget": budget, "observacao": workshop.pdf_observation}
+        build_context_mock.return_value = {"budget": budget, "observacao": budget.pdf_observation}
         render_mock.return_value = HttpResponse("preview")
 
         response = signature_preview(self.factory.get("/"), token)
@@ -1107,7 +1704,7 @@ class BudgetSignaturePublicViewTests(TestCase):
         self.assertEqual(response.content, b"preview")
         render_mock.assert_called_once()
         self.assertEqual(render_mock.call_args.args[1], "budget/partials/pdf/visualizarPDF.html")
-        self.assertEqual(render_mock.call_args.args[2], {"budget": budget, "observacao": workshop.pdf_observation})
+        self.assertEqual(render_mock.call_args.args[2], {"budget": budget, "observacao": budget.pdf_observation})
 
     def test_signature_preview_rejects_inactive_token(self) -> None:
         workshop = create_workshop(suffix=79)

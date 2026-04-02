@@ -27,9 +27,11 @@ from pynfe.processamento import ComunicacaoSefaz
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.core.forms import address_layout, AddressFormMixin
-from apps.core.widgets import TextInput, SelectInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput, PhoneInput, EmailInput
+from apps.core.utils import alert_confirm_layout
+from apps.core.widgets import TextInput, SelectInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput, PhoneInput, EmailInput, TextareaInput
 from apps.finance.models.payment_method import PaymentMethod
 
+from apps.stock.financial_entries import ADDITIONAL_CHARGE_ENTRY_TYPE, PAYMENT_ENTRY_TYPE, calculate_import_totals, get_entry_amount, get_entry_reason, normalize_entry_type
 from apps.stock.models import StockPaymentMethod, StockImport, StockProduct, StockMovement, SefazZipCache
 from apps.stock.models import StockTransfer
 
@@ -41,6 +43,9 @@ from apps.workshops.util.workshops import has_workshop_perm
 
 
 external_calls_logger = logging.getLogger("performance.external")
+
+
+# Stock
 
 
 class ImportStep1Form(forms.ModelForm):
@@ -356,7 +361,7 @@ class ImportStepItemsForm(forms.ModelForm):
 
 class ImportStepPaymentForm(forms.ModelForm):
     payment_method = forms.ModelChoiceField(queryset=PaymentMethod.objects.none(), label="Forma de Pagamento", widget=SelectInput, required=False, empty_label="Selecione uma forma")
-    installments_count = forms.IntegerField(min_value=1, initial=1, label="Número de Parcelas", widget=NumberInput, required=False)
+    installments_count = forms.IntegerField(min_value=1, initial=1, label="Número de Parcelas", widget=forms.HiddenInput, required=False)
     first_amount = MoneyField(max_digits=14, decimal_places=2, label="Valor Pago", widget=MoneyInput, required=False)
     payment_date = forms.DateField(label="Data de Vencimento", widget=CalendarDateInput, required=False)
 
@@ -379,10 +384,10 @@ class ImportStepPaymentForm(forms.ModelForm):
         if self.workshop:
             self.fields["payment_method"].queryset = PaymentMethod.objects.filter(workshop=self.workshop, is_active=True).order_by("description")
 
-        # Cálculos Financeiros
-        valor_total = sum(Decimal(str(item.get("valor", 0))) * Decimal(str(item.get("qtd", 0))) for item in self.import_items)
-        valor_pago = sum(Decimal(str(p.get("total_paid", 0))) for p in self.import_payments)
-        valor_pendente = valor_total - valor_pago
+        totals = calculate_import_totals(items=self.import_items, entries=self.import_payments)
+        valor_total = totals.total_value
+        valor_pago = totals.total_paid
+        valor_pendente = totals.pending_value
 
         resume = {
             "total_nf_display": valor_total,
@@ -403,69 +408,103 @@ class ImportStepPaymentForm(forms.ModelForm):
             self.fields[field_name].widget.attrs.update({"readonly": True, "class": "cursor-not-allowed opacity-75"})
 
         self.fields["payment_method"].label = mark_safe('Forma de Pagamento <span class="text-error">*</span>')
-        self.fields["installments_count"].label = mark_safe('Número de Parcelas <span class="text-error">*</span>')
-        self.fields["first_amount"].label = mark_safe('Valor Pago <span class="text-error">*</span>')
+        self.fields["first_amount"].label = mark_safe('Valor a ser pago <span class="text-error">*</span>')
         self.fields["payment_date"].label = mark_safe('Data de Vencimento <span class="text-error">*</span>')
+        self.fields["total_allocated_display"].label = "Valor Pago"
+        self.fields["pending_display"].label = "Valor Pendente"
+
+        today_iso = timezone.localdate().isoformat()
+        pending_amount_js = format(valor_pendente, "f")
 
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
             HTML(f"""
             <script>
-                document.addEventListener('DOMContentLoaded', function() {{
-                    const checkPaymentLimit = () => {{
-                        const firstAmountHidden = document.getElementById('id_first_amount_0');
-                        const installmentsInput = document.getElementById('id_installments_count');
-                        
-                        const pendingValue = parseFloat("{str(valor_pendente).replace(",", ".")}") || 0;
+                (function() {{
+                    window.initStockPaymentForm = function() {{
+                        const paymentContainer = document.getElementById('import-step-container');
+                        if (paymentContainer && paymentContainer.dataset.paymentInitialized === 'true') return;
 
+                        const paymentMethodInput = document.getElementById('id_payment_method');
+                        const firstAmountInput = document.getElementById('id_first_amount_0');
+                        const firstAmountDisplay = document.getElementById('id_first_amount_0_display');
+                        const dueDateInput = document.getElementById('id_payment_date');
                         const btnAdd = document.querySelector('button[hx-post*="add_payment_session"]');
                         const warningDiv = document.getElementById('payment-warning-js');
+                        const warningMessage = warningDiv ? warningDiv.querySelector('.payment-warning-message') : null;
+                        const pendingValue = parseFloat('{pending_amount_js}') || 0;
+                        const todayValue = '{today_iso}';
 
-                        if (!firstAmountHidden || !installmentsInput || !btnAdd) return;
-                        
-                        const unitAmount = parseFloat(firstAmountHidden.value) || 0;
-                        const qtyInstallments = parseInt(installmentsInput.value) || 1;
-                        const totalProposed = unitAmount * qtyInstallments;
+                        if (!paymentMethodInput || !firstAmountInput || !btnAdd) return;
 
-                        if (totalProposed > pendingValue) {{
-                            btnAdd.disabled = true;
-                            btnAdd.classList.add('btn-disabled', 'opacity-50');
-                            if (warningDiv) {{
-                                warningDiv.classList.remove('hidden');
-                                warningDiv.querySelector('.excess-amount').innerText =
-                                    "R$ " + (totalProposed - pendingValue).toLocaleString('pt-BR', {{minimumFractionDigits: 2}});
-                            }}
-                        }} else {{
-                            btnAdd.disabled = false;
-                            btnAdd.classList.remove('btn-disabled', 'opacity-50');
-                            if (warningDiv) warningDiv.classList.add('hidden');
+                        if (paymentContainer) {{
+                            paymentContainer.dataset.paymentInitialized = 'true';
                         }}
+
+                        const toggleWarning = (show, message) => {{
+                            if (!warningDiv) return;
+                            warningDiv.classList.toggle('hidden', !show);
+                            if (warningMessage) warningMessage.textContent = message || '';
+                        }};
+
+                        const updateDueDate = (force) => {{
+                            if (dueDateInput && paymentMethodInput.value && (force || !dueDateInput.value)) {{
+                                dueDateInput.value = todayValue;
+                            }}
+                        }};
+
+                        const checkPaymentLimit = () => {{
+                            const totalProposed = parseFloat(firstAmountInput.value) || 0;
+
+                            if (pendingValue <= 0) {{
+                                btnAdd.disabled = true;
+                                btnAdd.classList.add('btn-disabled', 'opacity-50');
+                                toggleWarning(true, 'A importação não possui saldo pendente para um novo pagamento.');
+                                return;
+                            }}
+
+                            if (totalProposed > (pendingValue + 0.001)) {{
+                                btnAdd.disabled = true;
+                                btnAdd.classList.add('btn-disabled', 'opacity-50');
+                                const excess = (totalProposed - pendingValue).toLocaleString('pt-BR', {{minimumFractionDigits: 2}});
+                                toggleWarning(true, `O valor a ser pago não pode exceder o saldo disponível de R$ {"{"}pendingValue.toLocaleString('pt-BR', {{minimumFractionDigits: 2}}){"}"}. Excesso de R$ ${{excess}}.`);
+                            }} else {{
+                                btnAdd.disabled = false;
+                                btnAdd.classList.remove('btn-disabled', 'opacity-50');
+                                toggleWarning(false, '');
+                            }}
+                        }};
+
+                        paymentMethodInput.addEventListener('change', function() {{
+                            updateDueDate(true);
+                            checkPaymentLimit();
+                        }});
+                        paymentMethodInput.addEventListener('input', function() {{
+                            updateDueDate(true);
+                            checkPaymentLimit();
+                        }});
+
+                        if (firstAmountDisplay) {{
+                            firstAmountDisplay.addEventListener('input', function() {{
+                                requestAnimationFrame(checkPaymentLimit);
+                            }});
+                            firstAmountDisplay.addEventListener('blur', function() {{
+                                setTimeout(checkPaymentLimit, 0);
+                            }});
+                        }}
+
+                        updateDueDate(false);
+                        setTimeout(checkPaymentLimit, 500);
                     }};
 
-                    document.addEventListener('focusout', function(e) {{
-                        const target = e.target;
-
-                        if (target.id === 'id_first_amount_0_display') {{
-                            checkPaymentLimit();
-                        }}
-
-                        const instHidden = document.getElementById('id_installments_count');
-                        if (instHidden) {{
-                            const container = instHidden.closest('[x-data]');
-                            if (container && container.contains(target)) {{
-                                setTimeout(checkPaymentLimit, 50);
-                            }}
-                        }}
-                    }});
-
-                    setTimeout(checkPaymentLimit, 500);
-                }});
+                    window.setTimeout(window.initStockPaymentForm, 0);
+                }})();
             </script>
             """),
             Div(
                 HTML('<h3 class="font-bold text-2xl pb-2 mb-2">Configuração das Formas de Pagamento</h3>'),
-                HTML('<h5 class="text-lg pb-2 mb-4">Adicione, edite e salve múltiplos planos de pagamentos para esta importação.</h5>'),
+                HTML('<h5 class="text-lg pb-2 mb-4">Adicione e salve múltiplos planos de pagamento para esta importação.</h5>'),
                 #
                 HTML(f"""
                     <div id="payment-warning-js" class="hidden col-span-12 mb-4">
@@ -473,9 +512,8 @@ class ImportStepPaymentForm(forms.ModelForm):
                             <span class="material-icons">error_outline</span>
                             <div>
                                 <h3 class="font-bold text-sm">Valor Não Permitido</h3>
-                                <div class="text-xs">
-                                    O valor excede o saldo disponível de <strong>R$ {valor_pendente:,.2f}</strong>. 
-                                    Excesso de <strong class="excess-amount"></strong>.
+                                <div class="text-xs payment-warning-message">
+                                    O valor a ser pago não pode exceder o saldo disponível de <strong>R$ {valor_pendente:,.2f}</strong>.
                                 </div>
                             </div>
                         </div>
@@ -486,25 +524,30 @@ class ImportStepPaymentForm(forms.ModelForm):
                 #
                 Div(
                     Field("payment_method", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("installments_count", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("first_amount", wrapper_class="col-span-12 lg:col-span-4"),
-                    css_class="grid grid-cols-12 gap-4 mb-2 mt-4 pb-4",
-                ),
-                #
-                Div(
                     Field("payment_date", wrapper_class="col-span-12 lg:col-span-4"),
-                    Div(css_class="col-span-12 lg:col-span-4"),
-                    HTML(f"""<button type="button" hx-post="{reverse("stock:add_payment_session")}?pk={self.instance.pk}"
-                                        hx-target="#import-step-container" 
-                                        hx-include="#import-step-container"
-                                        hx-indicator="#payment-loader"
-                                        class="btn btn-primary col-span-12 lg:col-span-4"> Incluir Pagamento</button>"""),
-                    css_class="grid grid-cols-12 gap-4 mb-2 pb-4",
+                    css_class="grid grid-cols-12 gap-4 mb-2 mt-4",
+                ),
+                Div(
+                    Field("installments_count"),
+                    HTML(f"""<div class="col-span-12 flex justify-end gap-2">
+                        <button type="button"
+                                hx-get="{reverse("stock:add_additional_value_modal")}?pk={self.instance.pk}"
+                                hx-target="#modal-container"
+                                class="btn btn-outline">Adicionar Valor</button>
+                        <button type="button" hx-post="{reverse("stock:add_payment_session")}?pk={self.instance.pk}"
+                                hx-target="#import-step-container"
+                                hx-include="#import-step-container"
+                                hx-indicator="#payment-loader"
+                                class="btn btn-primary">Salvar Plano de Pagamento</button>
+                    </div>"""),
+                    css_class="grid grid-cols-12 gap-4 mb-4 pb-4",
                 ),
                 #
                 HTML('<div class="mt-6 overflow-x-auto">'),
                 HTML(self._generate_payments_table_html()),
                 HTML("</div>"),
+                alert_confirm_layout(title="Deseja remover este lançamento financeiro?"),
                 id="import-step-container",
                 css_class="card-body",
             ),
@@ -512,25 +555,35 @@ class ImportStepPaymentForm(forms.ModelForm):
 
     def _generate_payments_table_html(self):
         rows = ""
-        for p in self.import_payments:
-            payment_date = p.get("payment_date", "")
-            try:
-                date_obj = datetime.strptime(payment_date, "%Y-%m-%d")
-                payment_date = date_obj.strftime("%d/%m/%Y")
-            except ValueError:
-                continue
-            delete_url = reverse("stock:remove_payment_session", kwargs={"payment_id": p["id"]})
+        for entry in self.import_payments:
+            entry_type = normalize_entry_type(entry)
+            payment_date = str(entry.get("payment_date") or "")
+            if entry_type == PAYMENT_ENTRY_TYPE and payment_date:
+                try:
+                    payment_date = datetime.strptime(payment_date, "%Y-%m-%d").strftime("%d/%m/%Y")
+                except ValueError:
+                    payment_date = "-"
+            else:
+                payment_date = "-"
+
+            amount = get_entry_amount(entry)
+            sign = "+" if entry_type == ADDITIONAL_CHARGE_ENTRY_TYPE else "-"
+            entry_type_label = "Valor adicional" if entry_type == ADDITIONAL_CHARGE_ENTRY_TYPE else "Pagamento"
+            reason = get_entry_reason(entry) or "-"
+            description = str(entry.get("method_display") or entry_type_label)
+            delete_url = reverse("stock:remove_payment_session", kwargs={"payment_id": entry["id"]})
             delete_url += f"?pk={self.instance.pk}"
             rows += f"""<tr>
-                    <td>{p["method_display"]}</td>
-                    <td>{p["installments"]}x</td>
+                    <td>{description}</td>
+                    <td>{entry_type_label}</td>
                     <td>{payment_date}</td>
-                    <td class="font-bold">{Money(p["total_paid"], "BRL")}</td>
+                    <td class="font-bold whitespace-nowrap">{sign} {Money(amount, "BRL")}</td>
+                    <td>{reason}</td>
                     <td class="text-center">
                         <button type="button" 
                                 hx-post="{delete_url}" 
                                 hx-target="#import-step-container" 
-                                hx-confirm="Deseja remover este pagamento?"
+                                data-confirm="Deseja remover este lançamento financeiro?"
                                 class="btn btn-ghost btn-xs text-error">
                             <span class="material-icons text-sm">delete</span>
                         </button>
@@ -538,15 +591,16 @@ class ImportStepPaymentForm(forms.ModelForm):
                 </tr>"""
 
         if not rows:
-            rows = '<tr><td colspan="5" class="text-center text-gray-500 italic py-4">Nenhum pagamento registrado.</td></tr>'
+            rows = '<tr><td colspan="6" class="text-center text-gray-500 italic py-4">Nenhum lançamento financeiro registrado.</td></tr>'
 
         return f"""<table class="table table-zebra w-full">
                 <thead>
                     <tr class="bg-base-300">
-                        <th>Forma de Pagamento</th>
-                        <th>Parcelas</th>
-                        <th>Data de Vencimento</th>
-                        <th>Valor Pago</th>
+                        <th>Descrição</th>
+                        <th>Tipo</th>
+                        <th>Vencimento</th>
+                        <th>Valor</th>
+                        <th>Motivo</th>
                         <th class="text-center">Ações</th>
                     </tr>
                 </thead>
@@ -601,18 +655,25 @@ class ImportStepSummaryForm(forms.ModelForm):
                     <tr class="h-5"><td colspan="4"></td></tr>"""
 
         payments_html = ""
-        total_value = Money(0, "BRL")
+        totals = calculate_import_totals(items=list(self.instance.items_data or []), entries=list(self.instance.payments_data or []))
+        total_value = Money(totals.pending_value, "BRL")
         for pay in self.instance.payments_data:
-            raw_value = str(pay.get("total_paid", "0.00"))
-            if "," in raw_value:
-                clean_value = raw_value.replace(".", "").replace(",", ".")
+            value = Money(get_entry_amount(pay), "BRL")
+            entry_type = normalize_entry_type(pay)
+            sign = "+" if entry_type == ADDITIONAL_CHARGE_ENTRY_TYPE else "-"
+            if entry_type == ADDITIONAL_CHARGE_ENTRY_TYPE:
+                details = get_entry_reason(pay) or "Sem motivo informado"
             else:
-                clean_value = raw_value
-            value = Money(Decimal(clean_value), "BRL")
-            total_value += value
-            payments_html += f"""<div class="flex justify-between items-center mb-2">
-                            <span class="text-sm">{pay.get("method_display", "Não encontrado")} ({pay.get("installments", 1)}x)</span>
-                            <span class="font-bold">{value}</span>
+                payment_date = pay.get("payment_date", "")
+                try:
+                    payment_date_display = datetime.strptime(payment_date, "%Y-%m-%d").strftime("%d/%m/%Y") if payment_date else "-"
+                except ValueError:
+                    payment_date_display = "-"
+                details = f"{pay.get('method_display', 'Não encontrado')} - Vencimento {payment_date_display}"
+
+            payments_html += f"""<div class="flex justify-between items-center mb-2 gap-4">
+                            <span class="text-sm">{details}</span>
+                            <span class="font-bold">{sign} {value}</span>
                         </div>"""
 
         supplier_name = self.instance.supplier_name or "Não informado"
@@ -662,7 +723,7 @@ class ImportStepSummaryForm(forms.ModelForm):
                             {payments_html}
                             <div class="divider my-1"></div>
                             <div class="flex justify-between items-center font-black text-xl">
-                                <span>Total Geral</span>
+                                <span>Saldo Pendente</span>
                                 <span>{total_value}</span>
                             </div>
                         </div>
@@ -713,10 +774,13 @@ class ImportStepSummaryForm(forms.ModelForm):
             stock_product.save(update_fields=update_fields)
 
         for pay in instance.payments_data:
+            if normalize_entry_type(pay) != PAYMENT_ENTRY_TYPE:
+                continue
+
             payment_due_date = pay.get("payment_date")
             if isinstance(payment_due_date, str) and payment_due_date:
                 try:
-                    payment_due_date = datetime.strptime(payment_due_date, "%Y-%m-%d")
+                    payment_due_date = timezone.make_aware(datetime.strptime(payment_due_date, "%Y-%m-%d"))
                 except ValueError:
                     payment_due_date = timezone.now()
             else:
@@ -726,8 +790,6 @@ class ImportStepSummaryForm(forms.ModelForm):
             installments = int(pay.get("installments", 1))
             first_amount = Decimal(str(pay.get("first_amount", total_val)))
             remaining_amount = Decimal("0.00")
-            if installments > 1:
-                remaining_amount = (total_val - first_amount) / (installments - 1)
 
             method_id = pay.get("method")
             payment_method_obj = get_object_or_404(PaymentMethod, id=method_id, workshop=workshop)
@@ -744,6 +806,29 @@ class ImportStepSummaryForm(forms.ModelForm):
             if not item.get("linked_product_id"):
                 self.add_error(None, "Existem itens pendentes de vínculo.")
         return cleaned_data
+
+
+class AdditionalChargeSessionForm(forms.Form):
+    amount = MoneyField(max_digits=14, decimal_places=2, label="Valor", widget=MoneyInput)
+    reason = forms.CharField(label="Motivo", max_length=255, widget=TextareaInput(attrs={"rows": 3, "placeholder": "Ex: Frete da transportadora"}))
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout(
+            Div(
+                Field("amount"),
+                Field("reason"),
+                css_class="space-y-4",
+            )
+        )
+
+    def clean_reason(self) -> str:
+        reason = str(self.cleaned_data.get("reason") or "").strip()
+        if not reason:
+            raise forms.ValidationError("Informe o motivo do valor adicional.")
+        return reason
 
 
 class ImportSefazListForm(forms.ModelForm):
@@ -1134,6 +1219,213 @@ class ImportManualItemsForm(forms.ModelForm):
         return cleaned_data
 
 
+# Transfer
+
+
+class TransferStepOperationForm(forms.ModelForm):
+    class Meta:
+        model = StockTransfer
+        fields = ["operation_type"]
+        widgets = {
+            "operation_type": SelectInput(),
+        }
+
+    def __init__(self, *args, **kwargs):
+        self.request = kwargs.pop("request", None)
+        super().__init__(*args, **kwargs)
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout(
+            Div(
+                HTML('<h2 class="text-2xl font-bold mb-6">Tipo de Operação</h2>'),
+                Field("operation_type"),
+            )
+        )
+
+
+class TransferStepReasonForm(forms.ModelForm):
+    selected_product_id = forms.IntegerField(widget=forms.HiddenInput(), required=False)
+
+    class Meta:
+        model = StockTransfer
+        fields = ["reason"]
+        widgets = {"reason": TextareaInput()}
+
+    def _render_search_and_list_html(self) -> str:
+        search_query = self.request.GET.get("source_search", "").strip() if self.request is not None else ""
+        queryset = Product.objects.filter(workshop=self.instance.source_workshop, is_active=True, stock_products__current_quantity__gt=0).select_related("stock_products").order_by("name")
+
+        if search_query:
+            queryset = queryset.filter(Q(code__icontains=search_query) | Q(name__icontains=search_query))
+
+        selected_ids = {str(item.get("source_product_id")) for item in (self.instance.items_data or [])}
+
+        rows = ""
+        for product in queryset[:15]:
+            is_selected = str(product.id) in selected_ids
+            row_class = "bg-primary/10 text-primary" if is_selected else "hover:bg-base-200 cursor-pointer"
+            icon = "check_circle" if is_selected else "add_circle_outline"
+
+            action_url = reverse("stock:remove_transfer_item") if is_selected else reverse("stock:add_transfer_source_item")
+            hx_vals = f'{{"pk": "{self.instance.pk}", "source_product_id": "{product.id}"}}' if is_selected else f'{{"pk": "{self.instance.pk}", "product_id": "{product.id}", "quantity": "1"}}'
+
+            rows += f"""
+            <tr class="{row_class}" 
+                hx-post="{action_url}" 
+                hx-vals='{hx_vals}'
+                hx-target="#step-container">
+                <td class="w-10"><span class="material-icons text-sm">{icon}</span></td>
+                <td>
+                    <div class="font-bold">{product.name}</div>
+                    <div class="text-[10px] opacity-70">{product.code or "S/ Cód"}</div>
+                </td>
+                <td class="text-right font-mono">{product.stock_products.current_quantity if product.stock_products else 0}</td>
+            </tr>"""
+
+        search_url = f"{reverse('stock:transfer_update', kwargs={'pk': self.instance.pk})}?step=2"
+
+        selected_items_html = self._render_selected_items_html()
+
+        return f"""
+        <div class="space-y-4">
+            <input type="text" name="source_search" value="{search_query}" 
+                   class="input input-bordered w-full" 
+                   placeholder="Buscar produto para seleção..."
+                   hx-get="{search_url}"
+                   hx-trigger="keyup changed delay:300ms"
+                   hx-target="#step-container">
+
+            <div class="overflow-x-auto rounded-lg border border-base-300 max-h-60">
+                <table class="table table-sm w-full">
+                    <thead class="bg-base-200 sticky top-0">
+                        <tr>
+                            <th></th>
+                            <th>Produto</th>
+                            <th class="text-right">Estoque Atual</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows or '<tr><td colspan="3" class="text-center py-8">Nenhum produto encontrado.</td></tr>'}
+                    </tbody>
+                </table>
+            </div>
+            {selected_items_html}
+        </div>"""
+
+    def _render_selected_items_html(self) -> str:
+        items = self.instance.items_data or []
+        rows = ""
+        for idx, item in enumerate(items):
+            product = Product.objects.filter(id=item.get("source_product_id"), workshop=self.instance.source_workshop).first()
+            if not product:
+                continue
+
+            quantity = int(str(item.get("qtd", 1) or 1))
+
+            quantity_input = NumberInput(mode="positive").render(
+                name=f"items_qty_{idx}",
+                value=str(quantity),
+                attrs={
+                    "class": "text-center input input-bordered input-sm w-16",
+                    "min": "1",
+                    "hx-post": reverse("stock:update_transfer_item_data", kwargs={"pk": self.instance.pk}),
+                    "hx-trigger": "change delay:300ms",
+                    "hx-vals": f"js:{{item_idx: {idx}}}",
+                    "hx-target": "#step-container",
+                },
+            )
+
+            rows += f"""
+            <tr class="border-b border-base-300">
+                <td>
+                    <div class="font-bold">{product.name}</div>
+                    <div class="text-[10px] opacity-70">{product.code}</div>
+                </td>
+                <td class="text-center">{quantity_input}</td>
+                <td class="text-right">
+                    <button type="button" class="btn btn-ghost btn-xs text-error"
+                            hx-post="{reverse("stock:remove_transfer_item")}?pk={self.instance.pk}&item_idx={idx}"
+                            hx-target="#step-container">
+                        <span class="material-icons text-sm">delete</span>
+                    </button>
+                </td>
+            </tr>"""
+
+        if not rows:
+            return ""
+
+        return f"""
+        <div class="mt-6">
+            <h3 class="text-sm font-bold uppercase mb-3 opacity-60">Itens Selecionados</h3>
+            <div class="overflow-x-auto rounded-lg border border-base-300">
+                <table class="table table-sm w-full">
+                    <thead class="bg-base-200">
+                        <tr>
+                            <th>Produto</th>
+                            <th class="text-center">Qtd</th>
+                            <th class="text-right">Ação</th>
+                        </tr>
+                    </thead>
+                    <tbody>{rows}</tbody>
+                </table>
+            </div>
+        </div>"""
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        self.request = kwargs.pop("request", None)
+        super().__init__(*args, **kwargs)
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+
+        self.fields["reason"].required = True
+        self.fields["reason"].label = "Motivo da Baixa"
+        self.fields["reason"].widget = forms.Textarea(
+            attrs={
+                "rows": 4,
+                "placeholder": "Ex: Danificado na montagem, item vencido, uso interno...",
+                "hx-post": reverse("stock:update_transfer_reason", kwargs={"pk": self.instance.pk}),
+                "hx-trigger": "blur",
+                "hx-swap": "none",
+            }
+        )
+
+        self.helper.layout = Layout(
+            Div(
+                HTML('<h2 class="text-2xl font-bold mb-2 text-base-content">Motivo da Baixa</h2>'),
+                HTML('<p class="text-sm text-base-content/70 mb-6">Selecione o item e explique por que estes item esta saindo do estoque.</p>'),
+                Div(
+                    # Coluna da Esquerda: Busca e Seleção
+                    Div(HTML(self._render_search_and_list_html()), css_class="col-span-12 lg:col-span-7"),
+                    # Coluna da Direita: Justificativa
+                    Div(
+                        HTML('<h3 class="text-sm font-bold uppercase mb-4 opacity-60">Justificativa</h3>'),
+                        Field("reason"),
+                        HTML("""<div class="alert bg-warning/10 text-warning border-none mt-4">
+                            <span class="material-icons">info</span>
+                            <span class="text-xs">A baixa irá alterar a quantidade do item selecionado permanentemente do estoque.</span>
+                        </div> """),
+                        css_class="col-span-12 lg:col-span-5 bg-base-200/30 p-4 rounded-xl border border-base-300",
+                    ),
+                    css_class="grid grid-cols-12 gap-6",
+                ),
+            )
+        )
+
+    def clean(self):
+        cleaned_data = super().clean()
+
+        if not self.instance.items_data:
+            self.add_error(None, "Você precisa selecionar um item da lista para prosseguir com a baixa.")
+
+        reason = self.cleaned_data.get("reason")
+        if len(reason) < 5:
+            raise forms.ValidationError("Por favor, forneça um motivo mais detalhado para a baixa.")
+
+        return cleaned_data
+
+
 class TransferStepWorkshopsForm(forms.ModelForm):
     source_workshop = forms.ModelChoiceField(queryset=Workshop.objects.none(), label="Oficina de Origem", widget=SelectInput())
     destination_workshop = forms.ModelChoiceField(queryset=Workshop.objects.none(), label="Oficina de Destino", widget=SelectInput())
@@ -1261,7 +1553,7 @@ class TransferItemsForm(forms.ModelForm):
                 </td>
             </tr>"""
 
-        search_url = f"{reverse('stock:transfer_update', kwargs={'pk': self.instance.pk})}?step=2"
+        search_url = f"{reverse('stock:transfer_update', kwargs={'pk': self.instance.pk})}?step=3"
         return f"""
         <div class="card bg-base-100 border border-base-300 shadow-sm">
             <div class="card-body p-4 space-y-4">
@@ -1460,66 +1752,108 @@ class TransferSummaryForm(forms.ModelForm):
     def _build_summary_html(self) -> str:
         rows = ""
         total = Decimal("0.00")
+        is_transfer = self.instance.operation_type == StockTransfer.OperationType.TRANSFER
 
-        for item in self.instance.items_data:
+        for item in self.instance.items_data or []:
             source_product = Product.objects.filter(id=item.get("source_product_id"), workshop=self.instance.source_workshop).first()
-            destination_product = Product.objects.filter(id=item.get("destination_product_id"), workshop=self.instance.destination_workshop).first()
-            if source_product is None or destination_product is None:
+            if source_product is None:
                 continue
+
+            destination_product = None
+            if is_transfer:
+                destination_product = Product.objects.filter(id=item.get("destination_product_id"), workshop=self.instance.destination_workshop).first()
+                if destination_product is None:
+                    continue
 
             quantidade = int(str(item.get("qtd", 0) or 0))
             valor = Decimal(str(item.get("valor", "0")).replace(",", "."))
             subtotal = Decimal(quantidade) * valor
             total += subtotal
 
+            if is_transfer:
+                dest_cell = f'<td><div class="font-medium">{destination_product.name}</div><div class="text-xs opacity-50">{destination_product.code}</div></td>'
+            else:
+                dest_cell = ""
+
             rows += f"""
             <tr>
                 <td><div class="font-medium">{source_product.name}</div><div class="text-xs opacity-50">{source_product.code}</div></td>
-                <td><div class="font-medium">{destination_product.name}</div><div class="text-xs opacity-50">{destination_product.code}</div></td>
+                {dest_cell}
                 <td class="text-center">{quantidade}</td>
                 <td class="text-right">{Money(valor, "BRL")}</td>
                 <td class="text-right font-bold">{Money(subtotal, "BRL")}</td>
             </tr>"""
+
+        table_header = (
+            """
+            <th>Origem</th>
+            <th>Destino</th>
+            <th class="text-center">Qtd</th>
+            <th class="text-right">Custo</th>
+            <th class="text-right">Subtotal</th>
+        """
+            if is_transfer
+            else """
+            <th>Produto</th>
+            <th class="text-center">Qtd</th>
+            <th class="text-right">Custo Unitário</th>
+            <th class="text-right">Subtotal</th>
+        """
+        )
+
+        destination_block = ""
+        if is_transfer:
+            dest_name = self.instance.destination_workshop.name if self.instance.destination_workshop else "---"
+            destination_block = f"""
+                <div class="divider my-1"></div>
+                <p class="text-sm opacity-70">Entrando em</p>
+                <p class="text-lg font-bold">{dest_name}</p>
+            """
+
+        reason_block = ""
+        if not is_transfer and self.instance.reason:
+            reason_block = f"""
+                <div class="card bg-warning/5 border border-warning/20 shadow-sm mt-4">
+                    <div class="card-body p-4">
+                        <h3 class="text-xs font-bold uppercase opacity-60">Motivo da Baixa</h3>
+                        <p class="text-sm italic">"{self.instance.reason}"</p>
+                    </div>
+                </div>
+            """
 
         return f"""
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
             <div class="lg:col-span-8">
                 <div class="card bg-base-200 shadow-sm">
                     <div class="card-body p-4">
-                        <h3 class="text-base font-bold uppercase mb-3">Itens da Transferência</h3>
+                        <h3 class="text-base font-bold uppercase mb-3">{"Itens da Transferência" if is_transfer else "Itens para Baixa"}</h3>
                         <div class="overflow-x-auto rounded-xl border border-base-300">
                             <table class="table w-full">
                                 <thead>
                                     <tr class="bg-base-300">
-                                        <th>Origem</th>
-                                        <th>Destino</th>
-                                        <th class="text-center">Qtd</th>
-                                        <th class="text-right">Custo</th>
-                                        <th class="text-right">Subtotal</th>
+                                        {table_header}
                                     </tr>
                                 </thead>
-                                <tbody>{rows or '<tr><td colspan="5" class="text-center italic py-8">Nenhum item adicionado.</td></tr>'}</tbody>
+                                <tbody>{rows or '<tr><td colspan="5" class="text-center italic py-8">Nenhum item selecionado.</td></tr>'}</tbody>
                             </table>
                         </div>
                     </div>
                 </div>
+                {reason_block}
             </div>
             <div class="lg:col-span-4 space-y-6">
                 <div class="card bg-base-200 shadow-sm">
                     <div class="card-body p-4">
-                        <h3 class="text-base font-bold uppercase mb-3">Trajeto</h3>
-                        <p class="text-sm opacity-70">Saindo de</p>
+                        <h3 class="text-base font-bold uppercase mb-3">Detalhes</h3>
+                        <p class="text-sm opacity-70">Oficina de Origem</p>
                         <p class="text-lg font-bold">{self.instance.source_workshop.name}</p>
-                        <div class="divider my-1"></div>
-                        <p class="text-sm opacity-70">Entrando em</p>
-                        <p class="text-lg font-bold">{self.instance.destination_workshop.name}</p>
+                        {destination_block}
                     </div>
                 </div>
                 <div class="card bg-base-200 shadow-sm">
                     <div class="card-body p-4">
-                        <h3 class="text-base font-bold uppercase mb-3">Resumo Financeiro</h3>
+                        <h3 class="text-base font-bold uppercase mb-3">{"Total da Transferência" if is_transfer else "Total da Baixa"}</h3>
                         <div class="flex justify-between items-center font-black text-xl">
-                            <span>Total Transferido</span>
                             <span>{Money(total, "BRL")}</span>
                         </div>
                     </div>
@@ -1532,8 +1866,9 @@ class TransferSummaryForm(forms.ModelForm):
         if not self.instance.items_data:
             self.add_error(None, "Adicione ao menos um item para transferir.")
 
+        is_transfer = self.instance.operation_type == StockTransfer.OperationType.TRANSFER
         for item in self.instance.items_data:
-            if not item.get("destination_product_id"):
+            if is_transfer and not item.get("destination_product_id"):
                 self.add_error(None, "Existem itens sem produto vinculado na oficina de destino.")
                 break
 
@@ -1561,12 +1896,17 @@ class TransferSummaryForm(forms.ModelForm):
         if instance.status == StockTransfer.TransferStatus.COMPLETED:
             return instance
 
+        is_transfer = instance.operation_type == StockTransfer.OperationType.TRANSFER
         source_product_ids = [int(item["source_product_id"]) for item in instance.items_data]
-        destination_product_ids = [int(item["destination_product_id"]) for item in instance.items_data]
         source_entries = StockProduct.objects.select_for_update().select_related("product").filter(workshop=instance.source_workshop, product_id__in=source_product_ids)
-        destination_entries = StockProduct.objects.select_for_update().select_related("product").filter(workshop=instance.destination_workshop, product_id__in=destination_product_ids)
         source_by_product_id = {entry.product_id: entry for entry in source_entries}
-        destination_by_product_id = {entry.product_id: entry for entry in destination_entries}
+
+        if is_transfer:
+            destination_product_ids = [int(item["destination_product_id"]) for item in instance.items_data]
+            destination_entries = StockProduct.objects.select_for_update().select_related("product").filter(workshop=instance.destination_workshop, product_id__in=destination_product_ids)
+            destination_by_product_id = {entry.product_id: entry for entry in destination_entries}
+        else:
+            destination_by_product_id = {}
 
         parsed_items: list[tuple[StockProduct, StockProduct, int]] = []
         for item in instance.items_data:
@@ -1575,11 +1915,11 @@ class TransferSummaryForm(forms.ModelForm):
                 raise forms.ValidationError("Todas as quantidades devem ser maiores que zero.")
 
             source_product_id = int(item["source_product_id"])
-            destination_product_id = int(item["destination_product_id"])
+            destination_product_id = int(item["destination_product_id"]) if is_transfer else None
             source_entry = source_by_product_id.get(source_product_id)
-            destination_entry = destination_by_product_id.get(destination_product_id)
+            destination_entry = destination_by_product_id.get(destination_product_id) if is_transfer else None
 
-            if source_entry is None or destination_entry is None:
+            if source_entry is None or (is_transfer and destination_entry is None):
                 raise forms.ValidationError("Um dos itens da transferência não pôde ser localizado.")
             if source_entry.current_quantity < quantity:
                 raise forms.ValidationError(f"Saldo insuficiente para o produto {source_entry.product.name} na oficina de origem.")
@@ -1589,8 +1929,10 @@ class TransferSummaryForm(forms.ModelForm):
         for source_entry, destination_entry, quantity in parsed_items:
             source_entry.current_quantity -= quantity
             source_entry.save(update_fields=["current_quantity"])
-            destination_entry.current_quantity += quantity
-            destination_entry.save(update_fields=["current_quantity"])
+
+            if is_transfer and destination_entry:
+                destination_entry.current_quantity += quantity
+                destination_entry.save(update_fields=["current_quantity"])
 
             StockMovement.objects.create(
                 workshop=instance.source_workshop,
@@ -1601,15 +1943,17 @@ class TransferSummaryForm(forms.ModelForm):
                 status=StockMovement.MovementStatus.APPROVED,
                 transcation_by=self.request.user if self.request is not None else None,
             )
-            StockMovement.objects.create(
-                workshop=instance.destination_workshop,
-                stock_transfer=instance,
-                stock_product=destination_entry,
-                type=StockMovement.MovementType.ENTRY,
-                quantity=quantity,
-                status=StockMovement.MovementStatus.APPROVED,
-                transcation_by=self.request.user if self.request is not None else None,
-            )
+
+            if is_transfer and instance.destination_workshop and destination_entry:
+                StockMovement.objects.create(
+                    workshop=instance.destination_workshop,
+                    stock_transfer=instance,
+                    stock_product=destination_entry,
+                    type=StockMovement.MovementType.ENTRY,
+                    quantity=quantity,
+                    status=StockMovement.MovementStatus.APPROVED,
+                    transcation_by=self.request.user if self.request is not None else None,
+                )
 
         instance.status = StockTransfer.TransferStatus.COMPLETED
         if commit:
@@ -1617,10 +1961,13 @@ class TransferSummaryForm(forms.ModelForm):
         return instance
 
 
+# Quick Forms
+
+
 class QuickProductForm(forms.ModelForm):
     class Meta:
         model = Product
-        fields = ["code", "name", "unit", "group", "cost_price", "selling_price", "profit_margin", "origin_cst", "purpose"]
+        fields = ["code", "name", "unit", "group", "cost_price", "selling_price", "profit_margin", "ncm", "origin_cst", "purpose"]
         widgets = {
             "code": TextInput(),
             "name": TextInput(),
@@ -1629,6 +1976,7 @@ class QuickProductForm(forms.ModelForm):
             "cost_price": MoneyInput(),
             "selling_price": MoneyInput(),
             "profit_margin": PercentageInput(),
+            "ncm": TextInput(attrs={"placeholder": "Ex: 87089990"}),
             "origin_cst": SelectInput(),
             "purpose": SelectInput(),
         }
@@ -1639,6 +1987,8 @@ class QuickProductForm(forms.ModelForm):
 
         if workshop:
             self.fields["group"].queryset = self.fields["group"].queryset.filter(workshop=workshop)
+
+        self.fields["ncm"].required = False
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -1669,8 +2019,9 @@ class QuickProductForm(forms.ModelForm):
                         css_class="col-span-12 lg:col-span-4",
                     ),
                     Field("profit_margin", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("origin_cst", wrapper_class="col-span-12 lg:col-span-6"),
-                    Field("purpose", wrapper_class="col-span-12 lg:col-span-6"),
+                    Field("ncm", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("origin_cst", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("purpose", wrapper_class="col-span-12 lg:col-span-4"),
                     css_class="grid grid-cols-12 gap-3",
                 ),
                 **{

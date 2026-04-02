@@ -6,6 +6,7 @@ from django.db.models import Q
 from django.http import HttpResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse_lazy
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
@@ -125,10 +126,20 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
     template_name = "products/product_update.html"
     success_url = reverse_lazy("catalog:product_list")
 
+    def _get_next_url(self) -> str:
+        next_url = str(self.request.GET.get("next") or self.request.POST.get("next") or "").strip()
+        if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={self.request.get_host()}, require_https=self.request.is_secure()):
+            return next_url
+        return ""
+
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["workshop"] = self.workshop
+        kwargs["next_url"] = self._get_next_url()
         return kwargs
+
+    def get_success_url(self):
+        return self._get_next_url() or str(self.success_url)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -172,6 +183,7 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
 
         history_list = sorted(history_dict.values(), key=lambda x: x["date"], reverse=True)
         context["history_list"] = history_list
+        context["back_url"] = self._get_next_url() or reverse_lazy("catalog:product_list")
 
         return context
 
@@ -191,11 +203,16 @@ class ProductSearchSelectView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "view_product"
 
     def get(self, request, *args, **kwargs):
-        query = request.GET.get("equivalent_search", "").strip()
+        is_quick_name_lookup = request.GET.get("quick_name_lookup") == "1"
+        query = request.GET.get("name" if is_quick_name_lookup else "equivalent_search", "").strip()
         ignore_id = request.GET.get("ignore_id", "")
 
         if len(query) < 1:
             return HttpResponse("")
+
+        if is_quick_name_lookup:
+            products = Product.objects.filter(workshop=self.workshop, name__icontains=query).only("id", "code", "name", "brand").order_by("name")[:5]
+            return render(request, "products/partials/name_suggestions.html", {"products": products, "query": query})
 
         products = Product.objects.filter(Q(code__icontains=query) | Q(name__icontains=query) | Q(brand__icontains=query), workshop=self.workshop).only("code", "name", "brand")
 

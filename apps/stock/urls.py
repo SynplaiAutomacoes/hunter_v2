@@ -25,12 +25,15 @@ urlpatterns = [
     # Payment
     path("remove_payment_session/<int:payment_id>/", views.RemovePaymentSessionView.as_view(), name="remove_payment_session"),
     path("add_payment_session/", views.AddPaymentSessionView.as_view(), name="add_payment_session"),
+    path("payment/additional/modal/", views.AdditionalChargeModalView.as_view(), name="add_additional_value_modal"),
+    path("payment/additional/add/", views.AddAdditionalChargeSessionView.as_view(), name="add_additional_value_session"),
     # Link / Unlink
     path("link-manual/", views.LinkProductManualView.as_view(), name="link_product_manual"),
     path("unlink-item/", views.UnlinkItemView.as_view(), name="unlink_item"),
     #
     path("supplier_details/", views.SupplierDetailsView.as_view(), name="supplier_details"),
     path("update-manual-item-data/<int:pk>/", views.UpdateManualItemDataView.as_view(), name="update_manual_item_data"),
+    # Transfer
     path("transfer/source-picker/", views.TransferSourceProductPickerView.as_view(), name="transfer_source_item_picker"),
     path("transfer/source-search/", views.TransferSourceProductSearchView.as_view(), name="transfer_source_product_search"),
     path("transfer/add-source-item/", views.AddTransferSourceItemView.as_view(), name="add_transfer_source_item"),
@@ -40,6 +43,7 @@ urlpatterns = [
     path("transfer/unlink-destination/", views.TransferUnlinkDestinationView.as_view(), name="transfer_unlink_destination"),
     path("transfer/remove-item/", views.RemoveTransferItemView.as_view(), name="remove_transfer_item"),
     path("transfer/update-item-data/<int:pk>/", views.UpdateTransferItemDataView.as_view(), name="update_transfer_item_data"),
+    path("transfer/update-transfer-reason/<int:pk>", views.update_transfer_reason, name="update_transfer_reason"),
     # Quick Forms
     path("stock_product_search/", views.StockProductSearchView.as_view(), name="stock_product_search"),
     path("products/quick-create/", views.ProductQuickCreateView.as_view(), name="product_quick_create"),

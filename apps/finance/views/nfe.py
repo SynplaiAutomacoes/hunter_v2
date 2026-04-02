@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import logging
 
+from django import forms
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django import forms
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
+from django.urls import reverse
 from django.views import View
 from django.views.generic import DetailView, ListView
 
@@ -18,6 +19,8 @@ from apps.finance.models.finance import NfeItem, NfeRequest, NfeRequestStatus
 from apps.finance.services.nfe_consulta import NfeConsultaError, reconcile_nfe_item
 from apps.finance.services.nfe_emission import NfeEmissionError, cancel_nfe_document, emit_nfe_request, sync_nfe_emission_response
 from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
+from apps.finance.views.ncm_validation import build_invalid_ncm_modal_context, pop_invalid_ncm_modal_context, store_invalid_ncm_modal_context
+from apps.finance.views.navigation import build_detail_url_with_preserved_origin, build_issued_documents_back_url
 from apps.finance.views.request_workflow import SharedEmissionRequestCreateBaseView, SharedEmissionRequestUpdateBaseView
 from apps.workshops.mixin import WorkshopScopedMixin
 
@@ -38,7 +41,7 @@ class NfeRequestListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRe
     htmx_template_name = "finance/partials/nfe_request_table.html"
 
     def get_queryset(self):
-        return super().get_queryset().select_related("workorder", "workorder__budget", "workorder__budget__customer", "workorder__budget__vehicle").prefetch_related("items")
+        return super().get_queryset().select_related("workorder", "workorder__budget", "workorder__budget__customer", "workorder__budget__vehicle").prefetch_related("items").order_by("-criado_em", "-pk")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -88,8 +91,10 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
         context = super().get_context_data(**kwargs)
         latest_item = self.object.items.order_by("-id").first()
         can_cancel = bool(latest_item and str(getattr(latest_item, "status", "")).strip().lower() in {"aprovado", "contingencia"})
+        fallback_back_url = reverse("finance:nfe_list")
         context.update(
             {
+                "back_url": build_issued_documents_back_url(query_params=self.request.GET, fallback_url=fallback_back_url),
                 "latest_item": latest_item,
                 "can_cancel": can_cancel,
                 "request_fields": [
@@ -118,17 +123,17 @@ class NfeRequestCancelView(LoginRequiredMixin, WorkshopScopedMixin, View):
         latest_item = nfe_request.items.order_by("-id").first()
         if latest_item is None:
             messages.error(request, "A NF-e ainda nao possui item sincronizado para cancelamento.")
-            return redirect("finance:nfe_detail", pk=nfe_request.pk)
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
         status = str(getattr(latest_item, "status", "")).strip().lower()
         if status not in {"aprovado", "contingencia"}:
             messages.error(request, "Somente NF-e aprovada ou em contingencia pode ser cancelada.")
-            return redirect("finance:nfe_detail", pk=nfe_request.pk)
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
         form = NfeCancelForm(request.POST)
         if not form.is_valid():
             messages.error(request, "Informe um motivo de cancelamento entre 15 e 255 caracteres.")
-            return redirect("finance:nfe_detail", pk=nfe_request.pk)
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
         reason = str(form.cleaned_data["reason"]).strip()
 
@@ -141,7 +146,7 @@ class NfeRequestCancelView(LoginRequiredMixin, WorkshopScopedMixin, View):
             )
         except NfeEmissionError as exc:
             messages.error(request, str(exc))
-            return redirect("finance:nfe_detail", pk=nfe_request.pk)
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
         latest_item.status = "cancelado"
         latest_item.reason = str(response_payload.get("motivo") or reason)
@@ -153,7 +158,7 @@ class NfeRequestCancelView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         nfe_request.set_status(NfeRequestStatus.CANCELED)
         messages.success(request, "NF-e cancelada com sucesso.")
-        return redirect("finance:nfe_detail", pk=nfe_request.pk)
+        return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
 
 class NfeRequestReconcileView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -166,7 +171,7 @@ class NfeRequestReconcileView(LoginRequiredMixin, WorkshopScopedMixin, View):
         item = nfe_request.items.order_by("-id").first()
         if item is None:
             messages.error(request, "A NF-e ainda nao possui um item sincronizado para consulta.")
-            return redirect("finance:nfe_detail", pk=nfe_request.pk)
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
         try:
             reconcile_nfe_item(item=item)
@@ -175,7 +180,7 @@ class NfeRequestReconcileView(LoginRequiredMixin, WorkshopScopedMixin, View):
         else:
             messages.success(request, "Status da NF-e atualizado com sucesso.")
 
-        return redirect("finance:nfe_detail", pk=nfe_request.pk)
+        return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
 
 class NfeDocumentDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -242,7 +247,17 @@ class NfeRequestCreateView(SharedEmissionRequestCreateBaseView):
         {"title": "Conferir Produtos", "form_class": NfeRequestStep3Form},
     ]
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["ncm_invalid_modal"] = pop_invalid_ncm_modal_context(request=self.request)
+        return context
+
     def _finalize_emission(self) -> bool:
+        invalid_ncm_modal = build_invalid_ncm_modal_context(workorder=self.object.workorder, return_url=self.request.get_full_path())
+        if invalid_ncm_modal is not None:
+            store_invalid_ncm_modal_context(request=self.request, modal_context=invalid_ncm_modal)
+            return False
+
         try:
             response_payload = emit_nfe_request(nfe_request=self.object, request=self.request)
             sync_nfe_emission_response(nfe_request=self.object, response_payload=response_payload)

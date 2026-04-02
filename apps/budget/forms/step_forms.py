@@ -398,13 +398,6 @@ class BudgetStep1Form(forms.ModelForm):
         self.helper.layout = Layout(
             HTML(r"""
             <script>
-                document.addEventListener('input', function (e) {
-                    if (e.target && e.target.name === 'current_km') {
-                        let value = e.target.value.replace(/\D/g, '');
-                        e.target.value = value.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-                    }
-                });
-                
                 async function updateVehicleList(customerId, selectedVehicleId = null) {
                     const vehicleInput = document.querySelector('[name="vehicle"]');
                     if (!vehicleInput) return;
@@ -616,6 +609,17 @@ class BudgetStep1Form(forms.ModelForm):
 
         return cleaned_data
 
+    def clean_current_km(self) -> int:
+        raw_value = self.data.get("current_km") if self.is_bound else self.cleaned_data.get("current_km")
+        if raw_value in (None, ""):
+            return 0
+
+        digits = "".join(char for char in str(raw_value) if char.isdigit())
+        if not digits:
+            return 0
+
+        return int(digits)
+
 
 class BudgetStep2Form(forms.ModelForm):
     class Meta:
@@ -716,13 +720,12 @@ class BudgetStep2Form(forms.ModelForm):
 
 class BudgetStep3Form(forms.ModelForm):
     new_defect = forms.CharField(label=False, required=False, widget=TextInput(attrs={"id": "id_new_defect", "placeholder": "Digite um defeito e clique em Adicionar", "onkeypress": "if(event.keyCode==13){ event.preventDefault(); addDefectRow(); }"}))
-    checklist = forms.ModelChoiceField(label="Selecione o Checklist", queryset=Checklist.objects.none(), required=False, widget=SelectInput())
-    collaborator = forms.ModelChoiceField(label="Selecione o colaborador que realizará o serviço", required=True, queryset=WorkshopCollaborator.objects.none(), widget=SelectInput())
+    collaborator = forms.ModelMultipleChoiceField(label="Selecione os colaboradores", required=False, queryset=WorkshopCollaborator.objects.none())
     images = MultipleFileField(label=None, required=False, widget=MultipleFileInput(attrs={"class": "file-input file-input-bordered w-full"}))
 
     class Meta:
         model = Budget
-        fields = ["collaborator", "checklist", "technical_diagnosis"]
+        fields = ["checklist", "technical_diagnosis"]
         widgets = {
             "technical_diagnosis": TextareaInput(
                 attrs={
@@ -743,25 +746,28 @@ class BudgetStep3Form(forms.ModelForm):
             self.fields["collaborator"].queryset = WorkshopCollaborator.objects.filter(workshop=self.workshop, is_active=True)
             self.fields["checklist"].queryset = Checklist.objects.filter(workshop=self.workshop).order_by("name")
 
-        self.fields["collaborator"].error_messages["required"] = "Selecione um colaborador para continuar."
+        initial_collaborators = []
+        if self.instance.pk:
+            initial_collaborators = [{"id": str(c.id), "name": c.name, "is_new": False} for c in self.instance.collaborators.all()]
+
+        if not initial_collaborators:
+            initial_collaborators = [{"id": "", "is_new": True}]
+
+        import json
+
+        self.initial_collaborators_json = json.dumps(initial_collaborators)
 
         checklist_pdf_base_url = reverse("budget:visualizar_pdf_checklist", args=[self.instance.pk]) if self.instance.pk else ""
-
-        initial_collab_id = ""
-        if self.instance.pk and self.instance.collaborator:
-            initial_collab_id = self.instance.collaborator.id
-
-        self.fields["collaborator"].widget.attrs.update(
-            {
-                "x-model": "collaboratorId",
-            }
-        )
 
         slot_placeholder_urls = {slot_type: static(path) for slot_type, path in SLOT_PLACEHOLDER_PATHS.items()}
         slot_placeholder_urls_js = "{" + ", ".join([f"'{slot_type}': '{slot_placeholder_urls[slot_type]}'" for slot_type in SLOT_IMAGE_TYPES]) + "}"
         slots_initial_html, additional_initial_html = _build_step3_images_initial_html(self.instance, slot_placeholder_urls)
         if not slots_initial_html:
             slots_initial_html = _build_step3_slot_fallback_html(slot_placeholder_urls)
+
+        from django.template.loader import render_to_string
+
+        collaborator_html = render_to_string(template_name="budget/partials/components/collaborator_field.html", context={"field": self["collaborator"], "initial_collaborators_json": self.initial_collaborators_json}, request=self.request)
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -822,41 +828,32 @@ class BudgetStep3Form(forms.ModelForm):
                         const eventDetail = evt && evt.detail ? evt.detail : null;
                         const createdCollaboratorId = eventDetail && eventDetail.id ? String(eventDetail.id) : '';
 
-                        const selectElement = document.querySelector('#id_collaborator');
-                        const currentValue = selectElement ? selectElement.value : '';
-
-                        const collaboratorIdToSelect = createdCollaboratorId || currentValue;
-                        if (collaboratorIdToSelect) {{
-                            localStorage.setItem('budget_step3_collaborator', collaboratorIdToSelect);
-                        }}
-
                         const budgetId = {self.instance.pk if self.instance.pk else "null"};
-                        if (!budgetId) {{
-                            localStorage.removeItem('budget_step3_collaborator');
-                            return;
+                        const collabIdx = localStorage.getItem('budget_step3_collaborator_idx');
+                        
+                        // Atualiza as opções de todos os selects de colaboradores na página
+                        if (createdCollaboratorId && eventDetail.name) {{
+                             const selects = document.querySelectorAll('select[name="collaborators_list"]');
+                             selects.forEach(select => {{
+                                 const option = document.createElement('option');
+                                 option.value = createdCollaboratorId;
+                                 option.textContent = eventDetail.name;
+                                 select.appendChild(option);
+                             }});
+                             
+                             // Se sabermos qual índice estava sendo editado, selecionamos o novo lá
+                             if (collabIdx !== null) {{
+                                 const container = document.getElementById('collaborator-field-container');
+                                 if (container && typeof Alpine !== 'undefined') {{
+                                     const alpineData = Alpine.$data(container);
+                                     if (alpineData && alpineData.collabs[collabIdx]) {{
+                                         alpineData.collabs[collabIdx].id = createdCollaboratorId;
+                                     }}
+                                 }}
+                             }}
                         }}
-
-                        const savedId = localStorage.getItem('budget_step3_collaborator');
-                        const url = `/budget/${{budgetId}}/collaborator-field/` + (savedId ? `?selected=${{savedId}}` : '');
-
-                        htmx.ajax('GET', url, {{
-                            target: '#collaborator-field-container',
-                            swap: 'outerHTML'
-                        }}).then(() => {{
-                            if (savedId) {{
-                                setTimeout(() => {{
-                                    const alpineContainer = document.querySelector('[x-data*="collaboratorId"]');
-                                    if (alpineContainer && typeof Alpine !== 'undefined') {{
-                                        const alpineData = Alpine.$data(alpineContainer);
-                                        if (alpineData) {{
-                                            alpineData.collaboratorId = savedId;
-                                        }}
-                                    }}
-                                }}, 100);
-                            }}
-
-                            localStorage.removeItem('budget_step3_collaborator');
-                        }});
+                        
+                        localStorage.removeItem('budget_step3_collaborator_idx');
                     }});
                 </script>"""),
             Div(
@@ -865,9 +862,7 @@ class BudgetStep3Form(forms.ModelForm):
                     # Diagnóstico Técnico
                     Div(
                         HTML('<h3 class="text-2xl font-bold mb-4">Diagnóstico Técnico</h3>'),
-                        HTML(f'''
-                            {{% include "budget/partials/components/collaborator_field.html" with field=form.collaborator initial_collab_id="{initial_collab_id}" %}}
-                        '''),
+                        HTML(collaborator_html),
                         #
                         HTML('<label class="block text-gray-700 font-bold mb-2">Adicione os defeitos encontrados durante a inspeção</label>'),
                         Div(id="defect-list-container", css_class="mb-4 p-4 border-2 border-dashed border-gray-200 rounded-lg min-h-[120px] flex flex-wrap content-start"),
@@ -1511,6 +1506,10 @@ class BudgetStep3Form(forms.ModelForm):
     def clean(self):
         cleaned_data = super().clean()
 
+        collaborator_ids = [cid for cid in self.request.POST.getlist("collaborators_list") if cid.strip()]
+        if not collaborator_ids:
+            self.add_error("collaborator", "Selecione pelo menos um colaborador para continuar.")
+
         if not self.files:
             return cleaned_data
 
@@ -1553,6 +1552,14 @@ class BudgetStep3Form(forms.ModelForm):
 
     def save(self, commit=True):
         budget = super().save(commit=commit)
+
+        # Processamento dos Colaboradores
+        if "collaborators_list" in self.request.POST:
+            collaborator_ids = [cid for cid in self.request.POST.getlist("collaborators_list") if cid.strip()]
+            if collaborator_ids:
+                budget.collaborators.set(collaborator_ids)
+            else:
+                budget.collaborators.clear()
 
         # Processamento dos Defeitos (Somente no Save final)
         if "defects_list" in self.request.POST:
@@ -2655,15 +2662,21 @@ class BudgetStep6Form(forms.ModelForm):
         status_class = status_data["class"]
         is_signature_resend = budget.signature_request_status == SignatureStatus.SENT and bool(budget.signature_external_id)
         signature_button_label = "Reenviar Documento" if is_signature_resend else "Enviar para Assinatura"
+        approval_blockers = list(budget.approval_blockers)
+        approval_blockers_display = " ".join(approval_blockers)
+        signature_blockers = list(budget.signature_blockers)
+        signature_blockers_display = " ".join(signature_blockers)
+        approval_button_class = "btn-disabled cursor-not-allowed" if approval_blockers else "btn-success"
+        approval_button_attrs = f'disabled title="{escape(approval_blockers_display)}"' if approval_blockers else f"onclick=\"updateBudgetStatus({budget.pk}, 'approve')\""
+        signature_blocked_json = "true" if signature_blockers else "false"
+        signature_blocked_reason_json = escape(json.dumps(signature_blockers_display))
         can_toggle_signed_pdf = budget.signature_request_status in {SignatureStatus.SENT, SignatureStatus.APPROVED} and bool(budget.signature_external_id or budget.signature_document_id)
         signed_pdf_url = f"{reverse('budget:visualizar_pdf_assinatura', args=[budget.pk])}?variant=signed"
         base_pdf_url = f"{reverse('budget:visualizar_pdf_assinatura', args=[budget.pk])}?variant=base"
         signed_pdf_download_url = f"{reverse('budget:visualizar_pdf_assinatura', args=[budget.pk])}?download=1&variant=signed"
         base_pdf_download_url = f"{reverse('budget:visualizar_pdf_assinatura', args=[budget.pk])}?download=1&variant=base"
 
-        saved_observation = ""
-        if self.workshop:
-            saved_observation = self.workshop.pdf_observation or ""
+        saved_observation = budget.pdf_observation or ""
 
         # Render das linhas (mantido)
         rows = _render_budget_items_rows(budget, step6=True)
@@ -2773,12 +2786,23 @@ class BudgetStep6Form(forms.ModelForm):
                     const confirmed = await customConfirm("Você tem certeza que deseja alterar o status deste orçamento?");
                     if (!confirmed) return;
 
-                    fetch(`/budget/update-status/${budgetId}/${status}`, {
+                    const response = await fetch(`/budget/update-status/${budgetId}/${status}`, {
                         method: 'POST',
-                        headers: { 'X-CSRFToken': '{{ csrf_token }}' }
-                    }).then(() => {
-                        window.location.href = "{% url 'budget:budget_list' %}";
+                        headers: { 'X-CSRFToken': '{{ csrf_token }}', 'X-Requested-With': 'XMLHttpRequest' }
                     });
+
+                    const payload = await response.json().catch(() => ({}));
+                    if (!response.ok || payload.success === false) {
+                        document.body.dispatchEvent(new CustomEvent('showToast', {
+                            detail: {
+                                type: 'error',
+                                message: payload.error || 'Falha ao atualizar o status do orçamento.',
+                            },
+                        }));
+                        return;
+                    }
+
+                    window.location.href = "{% url 'budget:budget_list' %}";
                 }
 
                 async function sendBudgetForSignature(buttonEl) {
@@ -2997,7 +3021,7 @@ class BudgetStep6Form(forms.ModelForm):
                         HTML(f"""
                         <div class="grid grid-cols-12 gap-3 text-center mb-8">
                             <button type="button" class="btn btn-success col-span-4"
-                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{signed_pdf_url}', downloadUrl: '{signed_pdf_download_url}', showSignatureBtn: true, signatureButtonLabel: '{signature_button_label}', isSignatureResend: {"true" if is_signature_resend else "false"}, showPdfVariantToggle: {"true" if can_toggle_signed_pdf else "false"}, pdfVariant: 'signed', signedPdfUrl: '{signed_pdf_url}', basePdfUrl: '{base_pdf_url}', signedDownloadUrl: '{signed_pdf_download_url}', baseDownloadUrl: '{base_pdf_download_url}' }} }}))">
+                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{signed_pdf_url}', downloadUrl: '{signed_pdf_download_url}', showSignatureBtn: true, signatureButtonLabel: '{signature_button_label}', isSignatureResend: {"true" if is_signature_resend else "false"}, signatureBlocked: {signature_blocked_json}, signatureBlockedReason: {signature_blocked_reason_json}, showPdfVariantToggle: {"true" if can_toggle_signed_pdf else "false"}, pdfVariant: 'signed', signedPdfUrl: '{signed_pdf_url}', basePdfUrl: '{base_pdf_url}', signedDownloadUrl: '{signed_pdf_download_url}', baseDownloadUrl: '{base_pdf_download_url}' }} }}))">
                                 Visualizar PDF
                             </button>
 
@@ -3061,19 +3085,8 @@ class BudgetStep6Form(forms.ModelForm):
                             </button>
 
                             <button type="button"
-                                class="btn col-span-4
-                                    {{% if form.instance.has_local_items %}}
-                                        btn-disabled cursor-not-allowed
-                                    {{% else %}}
-                                        btn-success
-                                    {{% endif %}}"
-                                {{% if not form.instance.has_local_items %}}
-                                    onclick="updateBudgetStatus({budget.pk}, 'approve')"
-                                {{% endif %}}
-                                {{% if form.instance.has_local_items %}}
-                                    disabled
-                                    title="Existem itens não cadastrados no sistema"
-                                {{% endif %}}>
+                                class="btn col-span-4 {approval_button_class}"
+                                {approval_button_attrs}>
                                 Aprovar
                             </button>
 
@@ -3095,8 +3108,8 @@ class BudgetStep6Form(forms.ModelForm):
             HTML("""
             <dialog id="pdfModal"
                     class="modal"
-                    x-data="{ pdfUrl: '', pdfDownloadUrl: '', showSignatureBtn: false, signatureButtonLabel: 'Enviar para Assinatura', isSignatureResend: false, showPdfVariantToggle: false, pdfVariant: 'signed', pdfToggleLabel: 'Ver não assinado', signedPdfUrl: '', basePdfUrl: '', signedDownloadUrl: '', baseDownloadUrl: '', togglePdfVariant() { if (!this.showPdfVariantToggle) return; const shouldShowBase = this.pdfVariant === 'signed'; this.pdfVariant = shouldShowBase ? 'base' : 'signed'; this.pdfUrl = shouldShowBase ? this.basePdfUrl : this.signedPdfUrl; this.pdfDownloadUrl = shouldShowBase ? this.baseDownloadUrl : this.signedDownloadUrl; this.pdfToggleLabel = shouldShowBase ? 'Ver assinado' : 'Ver não assinado'; } }"
-                    @open-pdf-modal.window="pdfUrl = $event.detail.url; pdfDownloadUrl = $event.detail.downloadUrl || ''; showSignatureBtn = $event.detail.showSignatureBtn || false; signatureButtonLabel = $event.detail.signatureButtonLabel || 'Enviar para Assinatura'; isSignatureResend = $event.detail.isSignatureResend || false; showPdfVariantToggle = $event.detail.showPdfVariantToggle || false; pdfVariant = $event.detail.pdfVariant || 'signed'; pdfToggleLabel = pdfVariant === 'base' ? 'Ver assinado' : 'Ver não assinado'; signedPdfUrl = $event.detail.signedPdfUrl || ''; basePdfUrl = $event.detail.basePdfUrl || ''; signedDownloadUrl = $event.detail.signedDownloadUrl || ''; baseDownloadUrl = $event.detail.baseDownloadUrl || ''; $el.showModal()">
+                    x-data="{ pdfUrl: '', pdfDownloadUrl: '', showSignatureBtn: false, signatureButtonLabel: 'Enviar para Assinatura', isSignatureResend: false, signatureBlocked: false, signatureBlockedReason: '', showPdfVariantToggle: false, pdfVariant: 'signed', pdfToggleLabel: 'Ver não assinado', signedPdfUrl: '', basePdfUrl: '', signedDownloadUrl: '', baseDownloadUrl: '', togglePdfVariant() { if (!this.showPdfVariantToggle) return; const shouldShowBase = this.pdfVariant === 'signed'; this.pdfVariant = shouldShowBase ? 'base' : 'signed'; this.pdfUrl = shouldShowBase ? this.basePdfUrl : this.signedPdfUrl; this.pdfDownloadUrl = shouldShowBase ? this.baseDownloadUrl : this.signedDownloadUrl; this.pdfToggleLabel = shouldShowBase ? 'Ver assinado' : 'Ver não assinado'; } }"
+                    @open-pdf-modal.window="pdfUrl = $event.detail.url; pdfDownloadUrl = $event.detail.downloadUrl || ''; showSignatureBtn = $event.detail.showSignatureBtn || false; signatureButtonLabel = $event.detail.signatureButtonLabel || 'Enviar para Assinatura'; isSignatureResend = $event.detail.isSignatureResend || false; signatureBlocked = $event.detail.signatureBlocked || false; signatureBlockedReason = $event.detail.signatureBlockedReason || ''; showPdfVariantToggle = $event.detail.showPdfVariantToggle || false; pdfVariant = $event.detail.pdfVariant || 'signed'; pdfToggleLabel = pdfVariant === 'base' ? 'Ver assinado' : 'Ver não assinado'; signedPdfUrl = $event.detail.signedPdfUrl || ''; basePdfUrl = $event.detail.basePdfUrl || ''; signedDownloadUrl = $event.detail.signedDownloadUrl || ''; baseDownloadUrl = $event.detail.baseDownloadUrl || ''; $el.showModal()">
 
               <div class="modal-box max-w-5xl w-full h-[90vh] p-0 flex flex-col">
 
@@ -3108,11 +3121,14 @@ class BudgetStep6Form(forms.ModelForm):
 
                     <div class="flex gap-2">
                         <button type="button"
-                                class="btn btn-sm btn-primary"
+                                class="btn btn-sm"
                                 id="send-signature-btn"
                                 x-show="showSignatureBtn"
                                 data-url="{% url 'budget:send_signature' form.instance.pk %}"
                                 :data-is-resend="isSignatureResend ? 'true' : 'false'"
+                                :class="signatureBlocked ? 'btn-disabled cursor-not-allowed' : 'btn-primary'"
+                                :disabled="signatureBlocked"
+                                :title="signatureBlockedReason"
                                 onclick="sendBudgetForSignature(this)">
                             <span class="loading loading-spinner loading-xs hidden" id="send-signature-spinner"></span>
                             <span id="send-signature-label" x-text="signatureButtonLabel"></span>
