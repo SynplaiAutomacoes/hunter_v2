@@ -119,7 +119,7 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "selling_price": item.service_selling_price,
                 "duration": item.duration,
             }
-            form = QuickServiceForm(initial=initial, workshop=self.workshop)
+            form = QuickServiceForm(initial=initial)
             title = "Cadastrar Serviço no Banco de Dados"
             item_type = "service"
 
@@ -147,19 +147,22 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
             if form.is_valid():
                 product = form.save(commit=False)
                 product.workshop = self.workshop
-                product.save()
+                try:
+                    product.save()
+                except IntegrityError:
+                    form.add_error("code", "Já existe um produto cadastrado com este código.")
+                else:
+                    # Vincular ao budget item
+                    item.product = product
+                    item.is_local = False
+                    item.save()
 
-                # Vincular ao budget item
-                item.product = product
-                item.is_local = False
-                item.save()
+                    # Retornar a linha atualizada com OOB swap
+                    context = {"item": item, "budget": item.budget, "is_full_render": False}
+                    row_html = render_to_string("budget/partials/items/item_product_row.html", context)
 
-                # Retornar a linha atualizada com OOB swap
-                context = {"item": item, "budget": item.budget, "is_full_render": False}
-                row_html = render_to_string("budget/partials/items/item_product_row.html", context)
-
-                response = HtmxResponseHelper.success("Produto cadastrado com sucesso!", close_modal=True, update_summary=True, content=row_html)
-                return response
+                    response = HtmxResponseHelper.success("Produto cadastrado com sucesso!", close_modal=True, update_summary=True, content=row_html)
+                    return response
 
         else:
             # Cadastrar serviço
@@ -288,10 +291,10 @@ class QuickCreateProductView(LoginRequiredMixin, WorkshopScopedMixin, View):
             try:
                 catalog_item.save()
             except IntegrityError:
-                if item_type == "service":
-                    form.add_error("name", "Já existe um serviço com este nome.")
+                if item_type == "product":
+                    form.add_error("code", "Já existe um produto cadastrado com este código.")
                 else:
-                    form.add_error(None, "Não foi possível salvar o item informado.")
+                    form.add_error("name", "Já existe um serviço com este nome.")
             else:
                 if modal_context == "child":
                     item_label = "Produto" if item_type == "product" else "Serviço"

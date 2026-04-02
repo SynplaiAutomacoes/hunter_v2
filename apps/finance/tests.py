@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from io import BytesIO
 from datetime import date, datetime, timedelta
+from io import BytesIO
 import re
-import json
-from datetime import timedelta
+import zipfile
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import ANY, Mock, patch
+import time
+from urllib.parse import quote
 
 from django.contrib.messages import get_messages
 from django.core.exceptions import ValidationError
@@ -27,11 +28,10 @@ from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.collaborators.models import WorkshopMember
 from apps.core.documents.contract import DocumentPayload
+from apps.customer.models import Customer, Vehicle
 from apps.finance.documents.provider import build_dre_excel_document, build_dre_pdf_render_request
 from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm
 from apps.finance.forms.dre import DreForm
-from apps.customer.models import Customer, Vehicle
-from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm
 from apps.finance.forms.emission_ui import build_step5_pricing_panel_data
 from apps.finance.forms.financial_group import FinancialGroupForm
 from apps.finance.forms.payment_method import PaymentMethodForm
@@ -42,8 +42,8 @@ from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
 from apps.finance.services.emission import NfseEmissionError, _build_taker_payload, _default_service_description, _service_total_value, build_nfse_payload, build_webmania_webhook_token, cancel_nfse_document, emit_nfse_request, sync_emission_response
-from apps.finance.services.nfe_emission import NfeEmissionError, _build_nfe_products_payload, _extract_product_lines, build_nfe_payload, cancel_nfe_document, sync_nfe_emission_response
-from apps.finance.services.numbering import reserve_nfe_request_number, reserve_nfse_request_rps_number
+from apps.finance.services.nfe_emission import NfeEmissionError, _build_nfe_products_payload, _extract_product_lines, build_nfe_payload, build_nfe_preview_rows, build_nfe_preview_warning_message, build_nfe_preview_warning_messages, cancel_nfe_document, sync_nfe_emission_response
+from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfe_request_number, reserve_nfse_request_rps_number
 from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder, compute_slider_allocation, distribute_total_proportionally
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
 from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers
@@ -63,12 +63,9 @@ from apps.finance.services.webmania_secrets import decrypt_secret, encrypt_secre
 from apps.finance.views.nfse import NfseRequestCreateView
 from apps.iam.utils import get_or_create_director_role
 from apps.sources.models import Source
-from apps.workorder.models import WorkOrder
-from apps.workorder.models import WorkOrderItem
-from apps.workorder.models import WorkOrderPaymentMethod
+from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderStatus
 from apps.workshops.models.monthly_costs import MonthlyCost
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
-from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderStatus
 from apps.workshops.forms.workshops import WorkshopFiscalSectionForm
 from apps.workshops.models.workshops import Workshop
 
@@ -953,6 +950,47 @@ class SliderPricingAllocationTests(TestCase):
         self.assertEqual(rows[0]["total_value"], Money("50.00", "BRL"))
         self.assertEqual(description, "1x Servico Slider 94")
 
+    def test_nfe_preview_rows_keep_totals_and_rows_when_product_has_invalid_ncm(self) -> None:
+        workorder, _, _ = self._build_workorder_with_product_and_service(suffix=41)
+        product = Product.objects.get(workshop=workorder.workshop, code="P-SL-41")
+        product.ncm = ""
+        product.save(update_fields=["ncm"])
+
+        rows, allocation = build_nfe_preview_rows(workorder=workorder)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["description"], "Produto Slider 41")
+        self.assertEqual(rows[0]["ncm"], "")
+        self.assertEqual(rows[0]["target_total"], Decimal("20.00"))
+        self.assertEqual(allocation.products_target, Decimal("20.00"))
+        self.assertEqual(allocation.services_target, Decimal("50.00"))
+        self.assertEqual(build_nfe_preview_warning_message(workorder=workorder), "Produto 'Produto Slider 41' sem NCM valido para emissao de NF-e.")
+
+    def test_nfe_emission_payload_still_blocks_when_product_has_invalid_ncm(self) -> None:
+        workorder, _, _ = self._build_workorder_with_product_and_service(suffix=42)
+        product = Product.objects.get(workshop=workorder.workshop, code="P-SL-42")
+        product.ncm = ""
+        product.save(update_fields=["ncm"])
+        nfe_request = NfeRequest.objects.create(workshop=workorder.workshop, workorder=workorder, tax_class="REF000001")
+
+        with self.assertRaisesMessage(NfeEmissionError, "sem NCM valido"):
+            _build_nfe_products_payload(nfe_request=nfe_request)
+
+    def test_nfe_preview_rows_keep_totals_when_product_is_missing_code(self) -> None:
+        workorder, _, _ = self._build_workorder_with_product_and_service(suffix=43)
+        product = Product.objects.get(workshop=workorder.workshop, code="P-SL-43")
+        product.code = ""
+        product.save(update_fields=["code"])
+
+        rows, allocation = build_nfe_preview_rows(workorder=workorder)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["description"], "Produto Slider 43")
+        self.assertEqual(rows[0]["code"], "")
+        self.assertEqual(rows[0]["target_total"], Decimal("20.00"))
+        self.assertEqual(allocation.products_target, Decimal("20.00"))
+        self.assertIn("Produto 'Produto Slider 43' sem codigo para emissao de NF-e.", build_nfe_preview_warning_messages(workorder=workorder))
+
     def test_nfse_request_copies_budget_slider_on_create(self) -> None:
         workorder, budget, _ = self._build_workorder_with_product_and_service(suffix=95)
         budget.slider = -35
@@ -1113,6 +1151,15 @@ class EmissionRequestNumberReservationTests(TestCase):
         self.assertEqual(nfe_request.reserved_number, 9000)
         self.assertEqual(nfe_request.reserved_series, 1)
 
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_reserve_nfe_request_number_requires_series_configuration(self) -> None:
+        company, _, nfe_request, _ = self._build_requests(suffix=78)
+        company.nfe_serie = None
+        company.save(update_fields=["nfe_serie"])
+
+        with self.assertRaisesMessage(EmissionNumberReservationError, "Configure a série NF-e da oficina antes de emitir a NF-e."):
+            reserve_nfe_request_number(nfe_request=nfe_request)
+
     @override_settings(WEBMANIA_AMBIENT="1")
     def test_reserve_nfse_request_rps_number_uses_production_counter_and_reuses_same_number(self) -> None:
         company, _, _, nfse_request = self._build_requests(suffix=71)
@@ -1140,6 +1187,25 @@ class EmissionRequestNumberReservationTests(TestCase):
 
         self.assertEqual(payload.get("numero"), 9000)
         self.assertEqual(payload.get("serie"), 1)
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_build_nfe_payload_rounds_unit_price_up_with_two_decimal_places(self) -> None:
+        _, workorder, nfe_request, _ = self._build_requests(suffix=77)
+        reserve_nfe_request_number(nfe_request=nfe_request)
+
+        item = workorder.items.filter(product__isnull=False).first()
+        self.assertIsNotNone(item)
+        assert item is not None
+        item.quantity = 3
+        item.product_selling_price = Money("10.00", "BRL")
+        item.save(update_fields=["quantity", "product_selling_price"])
+
+        payload = build_nfe_payload(nfe_request=nfe_request, slider_override=-100)
+        product_payload = payload["produtos"][0]
+
+        self.assertEqual(product_payload["quantidade"], "3")
+        self.assertEqual(product_payload["total"], "80.00")
+        self.assertEqual(product_payload["subtotal"], "26.67")
 
     @override_settings(WEBMANIA_AMBIENT="2")
     def test_build_nfse_payload_includes_reserved_rps_number_and_series(self) -> None:
@@ -2744,6 +2810,47 @@ class UnifiedEmissionWizardTests(TestCase):
         emit_mock.assert_called_once_with(nfe_request=nfe_request, request=ANY)
         sync_mock.assert_called_once()
 
+    def test_unified_wizard_blocks_nfe_emission_when_product_has_invalid_ncm(self) -> None:
+        product = Product.objects.get(workshop=self.workshop, code__startswith="P-UNI-")
+        product.ncm = ""
+        product.save(update_fields=["ncm"])
+        tax_classes = [{"referencia": "REFNFE930", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e"}]
+
+        with (
+            patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.emission.emit_nfe_request") as emit_mock,
+            patch("apps.finance.views.emission.sync_nfe_emission_response") as sync_mock,
+        ):
+            self._advance_to_step_5(pricing_slider="10")
+            allocation = build_slider_allocation_for_workorder(workorder=self.workorder, slider_override=10)
+            expected_nfe_total = f"{allocation.products_target:.2f}".replace(".", ",")
+            expected_nfse_total = f"{allocation.services_target:.2f}".replace(".", ",")
+
+            response = self.client.post(self._wizard_url(step=5), {"note_mode": "nfe"})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=6))
+
+            response = self.client.post(
+                self._wizard_url(step=6),
+                {"tax_class": "REFNFE930"},
+                follow=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "NCM Inválido")
+        self.assertContains(response, f"O produto {product.name} não tem um NCM válido")
+        self.assertContains(response, "Total NF-e")
+        self.assertContains(response, "Saldo NFS-e")
+        self.assertContains(response, product.name)
+        self.assertContains(response, expected_nfe_total)
+        self.assertContains(response, expected_nfse_total)
+        self.assertNotContains(response, "Nenhum produto elegivel encontrado para esta OS.")
+        expected_next_url = f"{reverse('finance:emission_create')}?step=6"
+        self.assertContains(response, f"{reverse('catalog:product_update', kwargs={'pk': product.pk})}?next={quote(expected_next_url, safe='')}")
+        emit_mock.assert_not_called()
+        sync_mock.assert_not_called()
+        self.assertFalse(NfeRequest.objects.filter(workshop=self.workshop).exists())
+
     def test_unified_wizard_creates_nfse_request_with_service_description(self) -> None:
         tax_classes = [{"referencia": "REFNFSE901", "tipo": "nfse", "status": "ativo", "descricao": "Classe NFS-e", "codigo_servico": "01.05"}]
 
@@ -3276,6 +3383,47 @@ class CompatibilityEmissionUpdateFlowTests(TestCase):
         nfe_request.refresh_from_db()
         self.assertEqual(nfe_request.pricing_slider, -100)
 
+    def test_nfe_update_blocks_emission_when_product_has_invalid_ncm(self) -> None:
+        workorder = self._build_workorder_with_product_and_service(suffix=104)
+        product = Product.objects.get(workshop=self.workshop, code="P-UP-104")
+        product.ncm = ""
+        product.save(update_fields=["ncm"])
+
+        nfe_request = NfeRequest.objects.create(
+            workshop=self.workshop,
+            workorder=workorder,
+            current_step=3,
+            status=NfeRequestStatus.CHECKING_PRODUCTS,
+            tax_class="REFNFE951",
+            pricing_slider=0,
+        )
+        tax_classes = [{"referencia": "REFNFE951", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e update"}]
+
+        with (
+            patch("apps.finance.views.request_workflow.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.nfe.emit_nfe_request") as emit_mock,
+            patch("apps.finance.views.nfe.sync_nfe_emission_response") as sync_mock,
+        ):
+            response = self.client.post(
+                f"{reverse('finance:nfe_update', kwargs={'pk': nfe_request.pk})}?step=3",
+                data={"pricing_slider": 0, "tax_class": "REFNFE951"},
+                follow=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "NCM Inválido")
+        self.assertContains(response, f"O produto {product.name} não tem um NCM válido")
+        self.assertContains(response, "Total NF-e (produtos)")
+        self.assertContains(response, "Saldo NFS-e (servicos)")
+        self.assertContains(response, product.name)
+        self.assertContains(response, "20,00")
+        self.assertContains(response, "50,00")
+        self.assertNotContains(response, "Nenhuma peca elegivel encontrada para esta OS.")
+        expected_next_url = f"{reverse('finance:nfe_update', kwargs={'pk': nfe_request.pk})}?step=3"
+        self.assertContains(response, f"{reverse('catalog:product_update', kwargs={'pk': product.pk})}?next={quote(expected_next_url, safe='')}")
+        emit_mock.assert_not_called()
+        sync_mock.assert_not_called()
+
     def test_nfse_update_step_three_preview_and_save_persist_slider(self) -> None:
         workorder = self._build_workorder_with_product_and_service(suffix=103)
         nfse_request = NfseRequest.objects.create(
@@ -3645,6 +3793,341 @@ class FiscalDocumentDetailFlowTests(TestCase):
         self.assertEqual(response["Content-Type"], "application/pdf")
         self.assertIn("nfse-pdf_nfse-54321.pdf", response["Content-Disposition"])
         self.assertEqual(response.content, b"pdf-content-nfse")
+
+
+class IssuedDocumentsViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=94)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def _create_workorder(self, *, customer_name: str) -> WorkOrder:
+        customer_index = Customer.objects.count() + 1
+        customer = Customer.objects.create(
+            workshop=self.workshop,
+            name=customer_name,
+            cpf_or_cnpj=f"1234567890{customer_index:02d}",
+            email=f"cliente.{customer_index}@example.com",
+        )
+        budget = Budget(workshop=self.workshop, customer=customer, entry_date=timezone.localdate())
+        budget.save()
+        return WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+
+    @staticmethod
+    def _set_request_created_at(request_obj: NfeRequest | NfseRequest, *, created_at: datetime) -> None:
+        request_obj.__class__.objects.filter(pk=request_obj.pk).update(criado_em=created_at, atualizado_em=created_at)
+        request_obj.refresh_from_db()
+
+    def _create_nfe_request(
+        self,
+        *,
+        customer_name: str,
+        created_at: datetime,
+        number: str,
+        access_key: str = "",
+        xml_url: str = "",
+        danfe_url: str = "",
+        danfe_simple_url: str = "",
+        danfe_label_url: str = "",
+    ) -> NfeRequest:
+        workorder = self._create_workorder(customer_name=customer_name)
+        nfe_request = NfeRequest.objects.create(workshop=self.workshop, workorder=workorder, tax_class="REFNFE900")
+        NfeItem.objects.create(
+            workshop=self.workshop,
+            workorder=workorder,
+            request=nfe_request,
+            uuid=f"00000000-0000-0000-0000-{nfe_request.pk:012d}",
+            status="aprovado",
+            number=number,
+            access_key=access_key,
+            series="1",
+            xml_url=xml_url,
+            danfe_url=danfe_url,
+            danfe_simple_url=danfe_simple_url,
+            danfe_label_url=danfe_label_url,
+        )
+        self._set_request_created_at(nfe_request, created_at=created_at)
+        return nfe_request
+
+    def _create_nfse_request(
+        self,
+        *,
+        customer_name: str,
+        created_at: datetime,
+        number: str,
+        xml_url: str = "",
+        pdf_nfse_url: str = "",
+        pdf_rps_url: str = "",
+    ) -> NfseRequest:
+        workorder = self._create_workorder(customer_name=customer_name)
+        nfse_request = NfseRequest.objects.create(
+            workshop=self.workshop,
+            workorder=workorder,
+            tax_class="REFNFSE900",
+            service_description="Servico fiscal",
+        )
+        NfseItem.objects.create(
+            workshop=self.workshop,
+            workorder=workorder,
+            request=nfse_request,
+            uuid=f"11111111-1111-1111-1111-{nfse_request.pk:012d}",
+            status="aprovado",
+            number=number,
+            rps_number=f"RPS-{number}",
+            rps_series="A1",
+            xml_url=xml_url,
+            pdf_nfse_url=pdf_nfse_url,
+            pdf_rps_url=pdf_rps_url,
+        )
+        self._set_request_created_at(nfse_request, created_at=created_at)
+        return nfse_request
+
+    def test_issued_documents_list_view_filters_by_period(self) -> None:
+        january_10 = timezone.make_aware(datetime(2026, 1, 10, 10, 0, 0))
+        january_15 = timezone.make_aware(datetime(2026, 1, 15, 15, 30, 0))
+        february_5 = timezone.make_aware(datetime(2026, 2, 5, 9, 0, 0))
+
+        self._create_nfe_request(customer_name="Cliente NF Janeiro", created_at=january_10, number="1001", xml_url="https://files.test/nfe-1001.xml")
+        self._create_nfse_request(customer_name="Cliente NFS Janeiro", created_at=january_15, number="2001", xml_url="https://files.test/nfse-2001.xml")
+        self._create_nfe_request(customer_name="Cliente Fora Periodo", created_at=february_5, number="3001", xml_url="https://files.test/nfe-3001.xml")
+
+        response = self.client.get(
+            reverse("finance:issued_documents_list"),
+            data={"data_inicial": "2026-01-01", "data_final": "2026-01-31", "tipo": "all"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Cliente NF Janeiro")
+        self.assertContains(response, "Cliente NFS Janeiro")
+        self.assertNotContains(response, "Cliente Fora Periodo")
+        self.assertEqual(response.context["issued_notes_total"], 2)
+        self.assertEqual(response.context["issued_nfe_total"], 1)
+        self.assertEqual(response.context["issued_nfse_total"], 1)
+
+    def test_issued_documents_list_view_filters_by_note_type(self) -> None:
+        january_10 = timezone.make_aware(datetime(2026, 1, 10, 10, 0, 0))
+        january_15 = timezone.make_aware(datetime(2026, 1, 15, 15, 30, 0))
+
+        self._create_nfe_request(customer_name="Cliente So NF", created_at=january_10, number="1002", xml_url="https://files.test/nfe-1002.xml")
+        self._create_nfse_request(customer_name="Cliente Nao Deve Aparecer", created_at=january_15, number="2002", xml_url="https://files.test/nfse-2002.xml")
+
+        response = self.client.get(
+            reverse("finance:issued_documents_list"),
+            data={"data_inicial": "2026-01-01", "data_final": "2026-01-31", "tipo": "nfe"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Cliente So NF")
+        self.assertNotContains(response, "Cliente Nao Deve Aparecer")
+        self.assertEqual(response.context["issued_notes_total"], 1)
+        self.assertEqual(response.context["issued_nfe_total"], 1)
+        self.assertEqual(response.context["issued_nfse_total"], 0)
+
+    def test_issued_documents_list_view_preserves_filters_in_detail_links(self) -> None:
+        january_10 = timezone.make_aware(datetime(2026, 1, 10, 10, 0, 0))
+        january_15 = timezone.make_aware(datetime(2026, 1, 15, 15, 30, 0))
+
+        nfe_request = self._create_nfe_request(customer_name="Cliente Link NF", created_at=january_10, number="1003", xml_url="https://files.test/nfe-1003.xml")
+        nfse_request = self._create_nfse_request(customer_name="Cliente Link NFS", created_at=january_15, number="2003", xml_url="https://files.test/nfse-2003.xml")
+
+        response = self.client.get(
+            reverse("finance:issued_documents_list"),
+            data={"data_inicial": "2026-01-01", "data_final": "2026-01-31", "tipo": "all"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            f"{reverse('finance:nfe_detail', kwargs={'pk': nfe_request.pk})}?origin=issued_documents&amp;tipo=all&amp;data_inicial=2026-01-01&amp;data_final=2026-01-31",
+        )
+        self.assertContains(
+            response,
+            f"{reverse('finance:nfse_detail', kwargs={'pk': nfse_request.pk})}?origin=issued_documents&amp;tipo=all&amp;data_inicial=2026-01-01&amp;data_final=2026-01-31",
+        )
+
+    def test_nfe_detail_view_uses_central_back_url_when_origin_is_central(self) -> None:
+        january_10 = timezone.make_aware(datetime(2026, 1, 10, 10, 0, 0))
+        nfe_request = self._create_nfe_request(customer_name="Cliente Back NF", created_at=january_10, number="1004", xml_url="https://files.test/nfe-1004.xml")
+
+        response = self.client.get(
+            reverse("finance:nfe_detail", kwargs={"pk": nfe_request.pk}),
+            data={"origin": "issued_documents", "data_inicial": "2026-01-01", "data_final": "2026-01-31", "tipo": "nfe"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["back_url"], f"{reverse('finance:issued_documents_list')}?tipo=nfe&data_inicial=2026-01-01&data_final=2026-01-31")
+
+        fallback_response = self.client.get(reverse("finance:nfe_detail", kwargs={"pk": nfe_request.pk}))
+
+        self.assertEqual(fallback_response.status_code, 200)
+        self.assertEqual(fallback_response.context["back_url"], reverse("finance:nfe_list"))
+
+    def test_nfse_detail_view_uses_central_back_url_when_origin_is_central(self) -> None:
+        january_15 = timezone.make_aware(datetime(2026, 1, 15, 15, 30, 0))
+        nfse_request = self._create_nfse_request(customer_name="Cliente Back NFS", created_at=january_15, number="2004", xml_url="https://files.test/nfse-2004.xml")
+
+        response = self.client.get(
+            reverse("finance:nfse_detail", kwargs={"pk": nfse_request.pk}),
+            data={"origin": "issued_documents", "data_inicial": "2026-01-01", "data_final": "2026-01-31", "tipo": "nfse"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["back_url"], f"{reverse('finance:issued_documents_list')}?tipo=nfse&data_inicial=2026-01-01&data_final=2026-01-31")
+
+        fallback_response = self.client.get(reverse("finance:nfse_detail", kwargs={"pk": nfse_request.pk}))
+
+        self.assertEqual(fallback_response.status_code, 200)
+        self.assertEqual(fallback_response.context["back_url"], reverse("finance:nfse_list"))
+
+    def test_issued_documents_download_xml_returns_zip_with_nfe_and_nfse_files(self) -> None:
+        january_10 = timezone.make_aware(datetime(2026, 1, 10, 10, 0, 0))
+        january_15 = timezone.make_aware(datetime(2026, 1, 15, 15, 30, 0))
+
+        self._create_nfe_request(
+            customer_name="Cliente XML NF",
+            created_at=january_10,
+            number="1100",
+            access_key="35260353843712000139550010000007211239535289",
+            xml_url="https://files.test/nfe-1100.xml",
+        )
+        self._create_nfse_request(
+            customer_name="Cliente XML NFS",
+            created_at=january_15,
+            number="2100",
+            xml_url="https://files.test/nfse-2100.xml",
+        )
+
+        with patch(
+            "apps.finance.views.issued_documents.download_webmania_document",
+            side_effect=[
+                DownloadedWebmaniaDocument(content=b"<nfe />", content_type="application/xml", content_disposition=""),
+                DownloadedWebmaniaDocument(content=b"<nfse />", content_type="application/xml", content_disposition=""),
+            ],
+        ) as download_mock:
+            response = self.client.get(
+                reverse("finance:issued_documents_download", kwargs={"document_group": "xml"}),
+                data={"data_inicial": "2026-01-01", "data_final": "2026-01-31", "tipo": "all"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/zip")
+        self.assertIn("todas-xml.zip", response["Content-Disposition"])
+        self.assertEqual(download_mock.call_count, 2)
+
+        with zipfile.ZipFile(BytesIO(response.content)) as archive_file:
+            self.assertEqual(
+                sorted(archive_file.namelist()),
+                [
+                    "2100.xml",
+                    "NFe35260353843712000139550010000007211239535289.xml",
+                ],
+            )
+            self.assertEqual(archive_file.read("NFe35260353843712000139550010000007211239535289.xml"), b"<nfe />")
+            self.assertEqual(archive_file.read("2100.xml"), b"<nfse />")
+
+    def test_issued_documents_download_pdfs_returns_only_nfe_documents_for_nfe_filter(self) -> None:
+        january_10 = timezone.make_aware(datetime(2026, 1, 10, 10, 0, 0))
+        january_15 = timezone.make_aware(datetime(2026, 1, 15, 15, 30, 0))
+
+        self._create_nfe_request(
+            customer_name="Cliente PDF NF",
+            created_at=january_10,
+            number="1200",
+            access_key="35260353843712000139550010000007211239535289",
+            danfe_url="https://files.test/nfe-1200-danfe.pdf",
+            danfe_simple_url="https://files.test/nfe-1200-simples.pdf",
+            danfe_label_url="https://files.test/nfe-1200-etiqueta.pdf",
+        )
+        self._create_nfse_request(
+            customer_name="Cliente PDF NFS",
+            created_at=january_15,
+            number="2200",
+            pdf_nfse_url="https://files.test/nfse-2200.pdf",
+            pdf_rps_url="https://files.test/nfse-2200-rps.pdf",
+        )
+
+        with patch(
+            "apps.finance.views.issued_documents.download_webmania_document",
+            side_effect=[DownloadedWebmaniaDocument(content=b"danfe", content_type="application/pdf", content_disposition="")],
+        ) as download_mock:
+            response = self.client.get(
+                reverse("finance:issued_documents_download", kwargs={"document_group": "pdfs"}),
+                data={"data_inicial": "2026-01-01", "data_final": "2026-01-31", "tipo": "nfe"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(download_mock.call_count, 1)
+
+        with zipfile.ZipFile(BytesIO(response.content)) as archive_file:
+            self.assertEqual(sorted(archive_file.namelist()), ["NFe35260353843712000139550010000007211239535289.pdf"])
+
+    def test_issued_documents_download_pdfs_returns_nfse_and_rps_pdfs_for_nfse_filter(self) -> None:
+        january_15 = timezone.make_aware(datetime(2026, 1, 15, 15, 30, 0))
+
+        self._create_nfse_request(
+            customer_name="Cliente PDF NFS",
+            created_at=january_15,
+            number="2300",
+            pdf_nfse_url="https://files.test/nfse-2300.pdf",
+            pdf_rps_url="https://files.test/nfse-2300-rps.pdf",
+        )
+
+        with patch(
+            "apps.finance.views.issued_documents.download_webmania_document",
+            side_effect=[DownloadedWebmaniaDocument(content=b"pdf-nfse", content_type="application/pdf", content_disposition="")],
+        ) as download_mock:
+            response = self.client.get(
+                reverse("finance:issued_documents_download", kwargs={"document_group": "pdfs"}),
+                data={"data_inicial": "2026-01-01", "data_final": "2026-01-31", "tipo": "nfse"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(download_mock.call_count, 1)
+
+        with zipfile.ZipFile(BytesIO(response.content)) as archive_file:
+            self.assertEqual(sorted(archive_file.namelist()), ["2300.pdf"])
+
+    def test_issued_documents_download_uses_concurrent_requests(self) -> None:
+        january_10 = timezone.make_aware(datetime(2026, 1, 10, 10, 0, 0))
+
+        self._create_nfe_request(
+            customer_name="Cliente Concorrencia 1",
+            created_at=january_10,
+            number="1300",
+            danfe_url="https://files.test/nfe-1300-danfe.pdf",
+        )
+        self._create_nfe_request(
+            customer_name="Cliente Concorrencia 2",
+            created_at=january_10,
+            number="1301",
+            danfe_url="https://files.test/nfe-1301-danfe.pdf",
+        )
+        self._create_nfe_request(
+            customer_name="Cliente Concorrencia 3",
+            created_at=january_10,
+            number="1302",
+            danfe_url="https://files.test/nfe-1302-danfe.pdf",
+        )
+
+        started_at = time.perf_counter()
+
+        def _slow_download(*, workshop, url):
+            time.sleep(0.2)
+            return DownloadedWebmaniaDocument(content=url.encode(), content_type="application/pdf", content_disposition="")
+
+        with patch("apps.finance.views.issued_documents.download_webmania_document", side_effect=_slow_download):
+            response = self.client.get(
+                reverse("finance:issued_documents_download", kwargs={"document_group": "pdfs"}),
+                data={"data_inicial": "2026-01-01", "data_final": "2026-01-31", "tipo": "nfe"},
+            )
+
+        elapsed = time.perf_counter() - started_at
+
+        self.assertEqual(response.status_code, 200)
+        self.assertLess(elapsed, 0.55)
 
 
 class NfeCancelServiceTests(TestCase):
@@ -4041,7 +4524,7 @@ class FinancialReportsHomeViewTests(TestCase):
         today = timezone.localdate()
         previous_month_date = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
 
-        credit_movement = FinancialMovement.objects.create(
+        FinancialMovement.objects.create(
             workshop=self.workshop,
             user=self.user,
             source=self.source,
@@ -4049,7 +4532,7 @@ class FinancialReportsHomeViewTests(TestCase):
             amount=Money("1500.00", "BRL"),
             due_date=today,
         )
-        credit_movement = FinancialMovement.objects.create(
+        FinancialMovement.objects.create(
             workshop=self.workshop,
             user=self.user,
             source=self.source,
@@ -4057,7 +4540,7 @@ class FinancialReportsHomeViewTests(TestCase):
             amount=Money("400.00", "BRL"),
             due_date=today,
         )
-        credit_movement = FinancialMovement.objects.create(
+        FinancialMovement.objects.create(
             workshop=self.workshop,
             user=self.user,
             source=self.source,
@@ -4087,7 +4570,7 @@ class FinancialReportsHomeViewTests(TestCase):
         same_year_other_month = today.replace(month=1, day=15) if today.month != 1 else today.replace(month=2, day=15)
         previous_year_date = today.replace(year=today.year - 1, month=12, day=15)
 
-        credit_movement = FinancialMovement.objects.create(
+        FinancialMovement.objects.create(
             workshop=self.workshop,
             user=self.user,
             source=self.source,
@@ -5087,6 +5570,41 @@ class DreReportViewTests(TestCase):
         self.assertEqual(context["selected_workshop_label"], "Todas as filiais")
         self.assertTrue(context["is_consolidated_workshops"])
         self.assertEqual([workshop.pk for workshop in context["selected_workshops"]], [self.workshop.pk, second_workshop.pk])
+
+    @patch("apps.finance.views.dre.build_workshop_logo_data_uri", return_value="data:image/png;base64,bW9uZ28tbG9nbw==")
+    def test_pdf_preview_renders_selected_workshop_logo(self, build_workshop_logo_data_uri_mock) -> None:
+        response = self.client.get(
+            reverse("finance:dre_pdf_preview"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'src="data:image/png;base64,bW9uZ28tbG9nbw=="', html=False)
+        build_workshop_logo_data_uri_mock.assert_called_once_with(workshop=self.workshop)
+
+    @patch("apps.finance.views.dre.build_workshop_logo_data_uri", return_value="data:image/png;base64,bW9uZ28tbG9nbw==")
+    def test_pdf_preview_hides_logo_for_consolidated_workshops(self, build_workshop_logo_data_uri_mock) -> None:
+        self._create_additional_workshop(suffix=93)
+
+        response = self.client.get(
+            reverse("finance:dre_pdf_preview"),
+            data={
+                "filial": DreForm.ALL_WORKSHOPS_VALUE,
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'src="data:image/png;base64,bW9uZ28tbG9nbw=="', html=False)
+        self.assertContains(response, "Consolidado de 2 filiais")
+        build_workshop_logo_data_uri_mock.assert_not_called()
 
     def test_excel_view_uses_all_workshops_label_in_summary_sheet(self) -> None:
         second_workshop = self._create_additional_workshop(suffix=92)

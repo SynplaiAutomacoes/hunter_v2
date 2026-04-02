@@ -85,7 +85,7 @@
                         </div>
                     </div>
                     {{ form.message_template }}
-                    <p class="mt-2 text-xs text-base-content/60">Selecione uma mensagem ja cadastrada para preencher o campo abaixo ou crie uma nova sem sair desta tela.</p>
+                    <p class="mt-2 text-xs text-base-content/60">Selecione uma mensagem ativa ja cadastrada para preencher o campo abaixo ou crie uma nova sem sair desta tela.</p>
                     {% if form.message_template.errors %}
                         <div class="mt-2 text-sm text-error">{{ form.message_template.errors }}</div>
                     {% endif %}
@@ -210,18 +210,21 @@
                         return;
                     }
 
+                    const isActive = Boolean(detail.is_active);
                     const existingTemplate = this.getTemplateById(detail.id);
-                    if (!existingTemplate) {
-                        this.messageTemplates.push({
-                            id: detail.id,
-                            name: detail.name,
-                            message: detail.message,
-                            is_active: true,
-                        });
+                    if (isActive) {
+                        if (!existingTemplate) {
+                            this.messageTemplates.push({
+                                id: detail.id,
+                                name: detail.name,
+                                message: detail.message,
+                                is_active: true,
+                            });
+                        }
                     }
 
                     const select = this.$refs.messageTemplateSelect;
-                    if (select) {
+                    if (select && isActive) {
                         const normalizedId = String(detail.id);
                         let option = Array.from(select.options).find((currentOption) => currentOption.value === normalizedId);
                         if (!option) {
@@ -233,7 +236,7 @@
                     }
 
                     const messageField = this.$refs.messageField;
-                    if (messageField) {
+                    if (messageField && isActive) {
                         messageField.value = detail.message || '';
                         messageField.dispatchEvent(new Event('input', { bubbles: true }));
                         messageField.dispatchEvent(new Event('change', { bubbles: true }));

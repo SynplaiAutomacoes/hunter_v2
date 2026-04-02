@@ -28,6 +28,7 @@ class ServiceForm(forms.ModelForm):
     def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.workshop = workshop
+        self.similar_name_target_id = "name-suggestions"
 
         if self.workshop:
             self.fields["duration"].widget.attrs.update(
@@ -39,29 +40,30 @@ class ServiceForm(forms.ModelForm):
                 }
             )
 
+        self.fields["name"].widget.attrs.update(
+            {
+                "hx-get": reverse("catalog:services_search"),
+                "hx-trigger": "keyup changed delay:500ms",
+                "hx-target": f"#{self.similar_name_target_id}",
+                "hx-swap": "innerHTML",
+                "autocomplete": "off",
+            }
+        )
+
         self.helper = FormHelper()
         self.helper.form_method = "post"
         self.helper.layout = self.get_layout()
 
     def get_layout(self):
         cancel_url = reverse("catalog:services_list")
-        search_url = reverse("catalog:services_search")
 
         return Layout(
             Div(
                 # Linha 1: Nome e Checkbox Terceiro
                 Div(
-                    Field(
-                        "name",
-                        hx_get=search_url,
-                        hx_trigger="keyup changed delay:500ms",
-                        hx_target="#name-suggestions",  # Onde renderizar o resultado
-                        hx_swap="innerHTML",
-                        autocomplete="off",
-                        wrapper_class="w-full",
-                    ),
+                    Field("name", wrapper_class="w-full"),
                     # Container VAZIO para as sugestões (Preenchido via HTMX)
-                    HTML('<div id="name-suggestions" class="absolute z-50 w-full top-full left-0"></div>'),
+                    HTML(f'<div id="{self.similar_name_target_id}" class="w-full"></div>'),
                     css_class="relative col-span-12 lg:col-span-9",
                 ),
                 Field("is_third_party", wrapper_class="col-span-12 lg:col-span-2 text-nowrap"),

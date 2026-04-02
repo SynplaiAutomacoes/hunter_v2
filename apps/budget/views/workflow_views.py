@@ -42,6 +42,9 @@ from .shared import _get_budget_for_workshop, logger
 def trigger_signature_send_if_needed(*, request, budget: Budget) -> tuple[str, str, str | None]:
     is_resend = False
 
+    if budget.has_signature_blockers:
+        return "error", budget.signature_blockers_display, None
+
     with transaction.atomic():
         locked_budget = Budget.objects.select_for_update().get(pk=budget.pk)
 
@@ -77,7 +80,7 @@ BUDGET_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
     ),
     QueryParamFilter(
         param_name="collaborator",
-        lookup="collaborator__name",
+        lookup="collaborators__name",
         kind="icontains",
     ),
     QueryParamFilter(
@@ -204,7 +207,8 @@ class BudgetStatusReportDataMixin:
     def _get_budget_base_queryset(self):
         return (
             Budget.objects.filter(workshop=self.workshop)
-            .select_related("customer", "vehicle", "collaborator")
+            .select_related("customer", "vehicle")
+            .prefetch_related("collaborators")
             .prefetch_related(
                 Prefetch(
                     "items",
@@ -224,7 +228,6 @@ class BudgetStatusReportDataMixin:
             TableColumn("ID", attr="id"),
             TableColumn(str(Budget.customer.field.verbose_name), attr=Budget.customer.field.name, search_by="customer__name"),
             TableColumn(str(Budget.vehicle.field.verbose_name), attr=Budget.vehicle.field.name, search_by=("vehicle__plate", "vehicle__model", "vehicle__brand")),
-            TableColumn(str(Budget.collaborator.field.verbose_name), attr="collaborator_name", search_by="collaborator__name"),
             TableColumn("Criado em", attr="criado_em"),
             TableColumn("Valor Total", attr="total_budget_value", searchable=False),
             TableColumn(str(Budget.status.field.verbose_name), attr="budget_status_badge", search_by="status", format="status_badge"),
@@ -777,9 +780,11 @@ class SaveObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def post(self, request):
         try:
             data = json.loads(request.body)
+            budget_id = int(data.get("budget_id"))
             observation = data.get("observation", "").strip()
-            self.workshop.pdf_observation = observation
-            self.workshop.save()
+            budget = _get_budget_for_workshop(self.workshop, budget_id)
+            budget.pdf_observation = observation
+            budget.save(update_fields=["pdf_observation"])
             return JsonResponse({"success": True})
-        except (json.JSONDecodeError, AttributeError):
+        except (TypeError, ValueError, json.JSONDecodeError, AttributeError, Http404):
             return JsonResponse({"success": False}, status=400)

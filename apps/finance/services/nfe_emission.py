@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, ROUND_UP
 import logging
 import re
 from typing import Any
@@ -223,6 +223,78 @@ def _extract_product_lines(*, workorder: WorkOrder) -> list[ProductEmissionLine]
     return [line for line in lines if line.quantity > 0 and line.base_total > 0]
 
 
+def _build_snapshot_preview_product_line(line: Any) -> ProductEmissionLine | None:
+    quantity = Decimal(getattr(line, "quantity", 0) or 0)
+    base_total = _quantize_money(Decimal(getattr(getattr(line, "raw_total", None), "amount", 0) or 0))
+    if quantity <= 0 or base_total <= 0:
+        return None
+
+    product = getattr(line, "source_object", None)
+    raw_ncm = getattr(product, "ncm", "") if product is not None else ""
+    raw_code = getattr(product, "code", "") if product is not None else getattr(line, "code", "")
+    raw_unit = getattr(product, "unit", "") if product is not None else ""
+    raw_origin = getattr(product, "origin_cst", 0) if product is not None else 0
+    raw_cest = getattr(product, "cest", "") if product is not None else ""
+    description = str(getattr(line, "description", "") or getattr(product, "name", "") or "Produto")[:120]
+
+    return ProductEmissionLine(
+        description=description,
+        code=str(raw_code or "").strip()[:60],
+        ncm=_normalize_ncm(raw_ncm),
+        cest=str(raw_cest or "").strip(),
+        unit=_unit_for_api(str(raw_unit or "")),
+        origin=int(raw_origin or 0),
+        quantity=quantity,
+        base_total=base_total,
+    )
+
+
+def _build_preview_validation_message(line: Any) -> str | None:
+    quantity = Decimal(getattr(line, "quantity", 0) or 0)
+    base_total = _quantize_money(Decimal(getattr(getattr(line, "raw_total", None), "amount", 0) or 0))
+    if quantity <= 0 or base_total <= 0:
+        return None
+
+    product = getattr(line, "source_object", None)
+    if product is None:
+        return "A OS possui item de peca local sem cadastro fiscal completo. Cadastre o produto para emitir NF-e."
+
+    product_name = str(getattr(product, "name", "") or getattr(line, "description", "") or "Produto").strip() or "Produto"
+    ncm = _normalize_ncm(getattr(product, "ncm", ""))
+    if len(ncm) != 8:
+        return f"Produto '{product_name}' sem NCM valido para emissao de NF-e."
+
+    code = str(getattr(product, "code", "") or "").strip()
+    if not code:
+        return f"Produto '{product_name}' sem codigo para emissao de NF-e."
+
+    return None
+
+
+def build_nfe_preview_warning_messages(*, workorder: WorkOrder, persisted_slider: int | None = None, slider_override: int | None = None) -> list[str]:
+    snapshot = build_emission_pricing_snapshot_for_workorder(
+        workorder=workorder,
+        persisted_slider=persisted_slider,
+        slider_override=slider_override,
+    )
+    warnings: list[str] = []
+    seen_messages: set[str] = set()
+
+    for line in snapshot.product_lines:
+        warning_message = _build_preview_validation_message(line)
+        if not warning_message or warning_message in seen_messages:
+            continue
+        seen_messages.add(warning_message)
+        warnings.append(warning_message)
+
+    return warnings
+
+
+def build_nfe_preview_warning_message(*, workorder: WorkOrder) -> str:
+    preview_warnings = build_nfe_preview_warning_messages(workorder=workorder)
+    return preview_warnings[0] if preview_warnings else ""
+
+
 def _format_decimal(value: Decimal, *, places: int) -> str:
     quant = Decimal("1") if places == 0 else Decimal(f"0.{'0' * (places - 1)}1")
     normalized = value.quantize(quant, rounding=ROUND_HALF_UP)
@@ -233,6 +305,13 @@ def _format_quantity(value: Decimal) -> str:
     if value == value.to_integral_value():
         return str(int(value))
     return _format_decimal(value, places=4)
+
+
+def _build_unit_price_for_api(*, allocated_total: Decimal, quantity: Decimal) -> Decimal:
+    if quantity <= 0:
+        raise NfeEmissionError("Quantidade invalida ao montar item da NF-e.")
+
+    return (allocated_total / quantity).quantize(Decimal("0.01"), rounding=ROUND_UP)
 
 
 def _build_payment_payload(*, workorder: WorkOrder, total_value: Decimal) -> dict[str, Any]:
@@ -293,7 +372,7 @@ def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int
         if line.quantity <= 0:
             continue
 
-        unit_price = (allocated_total / line.quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        unit_price = _build_unit_price_for_api(allocated_total=allocated_total, quantity=line.quantity)
         product_payload: dict[str, Any] = {
             "nome": line.description,
             "codigo": line.code,
@@ -360,9 +439,11 @@ def emit_nfe_request(*, nfe_request: NfeRequest, request: HttpRequest | None = N
         raise NfeEmissionError(str(exc)) from exc
 
     payload = build_nfe_payload(nfe_request=nfe_request, request=request, slider_override=slider_override)
+    print("363 - payload enviado:", payload)
 
     try:
         response = requests.post(emit_url, json=payload, headers=headers, timeout=30)
+        print("367 - response:", response)
         response.raise_for_status()
     except requests.RequestException as exc:
         message = build_webmania_request_exception_message(exc, default="Falha ao emitir NF-e", scope="nfe")
@@ -370,6 +451,7 @@ def emit_nfe_request(*, nfe_request: NfeRequest, request: HttpRequest | None = N
 
     try:
         data = response.json()
+        print("375 - data:", data)
     except ValueError as exc:
         raise NfeEmissionError("Resposta invalida da API de emissao de NF-e.") from exc
 
@@ -515,7 +597,12 @@ def build_nfe_preview_rows(
     persisted_slider: int | None = None,
     slider_override: int | None = None,
 ) -> tuple[list[dict[str, Any]], SliderAllocation]:
-    lines = _extract_product_lines(workorder=workorder)
+    snapshot = build_emission_pricing_snapshot_for_workorder(
+        workorder=workorder,
+        persisted_slider=persisted_slider,
+        slider_override=slider_override,
+    )
+    lines = [preview_line for line in snapshot.product_lines if (preview_line := _build_snapshot_preview_product_line(line)) is not None]
     allocation = build_slider_allocation_for_workorder(
         workorder=workorder,
         persisted_slider=persisted_slider,

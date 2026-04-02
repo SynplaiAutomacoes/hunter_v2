@@ -12,9 +12,11 @@ from .shared import _budget_item_type
 
 
 class BudgetItemEditForm(forms.ModelForm):
+    ncm = forms.CharField(required=False, widget=TextInput(attrs={"placeholder": "Ex: 87089990"}))
+
     class Meta:
         model = BudgetItem
-        fields = ["description", "quantity", "product_selling_price", "product_cost_price", "shipping", "service_selling_price", "service_cost_price", "duration"]
+        fields = ["description", "quantity", "product_selling_price", "product_cost_price", "shipping", "service_selling_price", "service_cost_price", "duration", "ncm"]
 
         widgets = {
             "description": TextInput(),
@@ -45,10 +47,16 @@ class BudgetItemEditForm(forms.ModelForm):
             self.fields.pop("service_selling_price")
             self.fields.pop("service_cost_price")
             self.fields.pop("duration")
+            if item.product is None:
+                self.fields.pop("ncm")
+            else:
+                self.fields["ncm"].label = "NCM"
+                self.fields["ncm"].initial = str(item.product.ncm or "")
         elif item_type == "service":
             self.fields.pop("product_selling_price")
             self.fields.pop("product_cost_price")
             self.fields.pop("shipping")
+            self.fields.pop("ncm")
 
             if budget_id:
                 self.fields["duration"].widget.attrs.update(
@@ -61,6 +69,8 @@ class BudgetItemEditForm(forms.ModelForm):
                         "hx-indicator": "#calculation-indicator",
                     }
                 )
+        else:
+            self.fields.pop("ncm")
 
 
 class BudgetKitProductEditRowForm(forms.Form):
@@ -137,7 +147,7 @@ class QuickProductForm(forms.ModelForm):
 
     class Meta:
         model = Product
-        fields = ["code", "unit", "name", "group", "cost_price", "selling_price"]
+        fields = ["code", "unit", "name", "group", "cost_price", "selling_price", "ncm"]
         widgets = {
             "code": TextInput(attrs={"placeholder": "Ex: P001"}),
             "name": TextInput(attrs={"placeholder": "Ex: Filtro de Óleo"}),
@@ -145,14 +155,27 @@ class QuickProductForm(forms.ModelForm):
             "group": SelectInput(),
             "cost_price": MoneyInput(),
             "selling_price": MoneyInput(),
+            "ncm": TextInput(attrs={"placeholder": "Ex: 87089990"}),
         }
 
     def __init__(self, *args, workshop=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.workshop = workshop
+        self.similar_name_target_id = "product-name-suggestions"
 
         if workshop:
             self.fields["group"].queryset = CatalogGroup.objects.filter(workshop=workshop)
+
+        self.fields["name"].widget.attrs.update(
+            {
+                "autocomplete": "off",
+                "hx-get": reverse("catalog:product_search"),
+                "hx-trigger": "keyup changed delay:400ms",
+                "hx-target": f"#{self.similar_name_target_id}",
+                "hx-swap": "innerHTML",
+                "hx-vals": '{"quick_name_lookup": "1"}',
+            }
+        )
 
         # Labels
         self.fields["code"].label = "Código"
@@ -161,6 +184,28 @@ class QuickProductForm(forms.ModelForm):
         self.fields["group"].label = "Grupo"
         self.fields["cost_price"].label = "Custo"
         self.fields["selling_price"].label = "Valor de Venda"
+        self.fields["ncm"].label = "NCM"
+        self.fields["ncm"].required = False
+
+    def clean_name(self):
+        name = self.cleaned_data.get("name")
+        if name and self.workshop:
+            qs = Product.objects.filter(workshop=self.workshop, name__iexact=name)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise forms.ValidationError("Já existe um produto com este nome.")
+        return name
+
+    def clean_code(self):
+        code = self.cleaned_data.get("code")
+        if code and self.workshop:
+            qs = Product.objects.filter(workshop=self.workshop, code__iexact=code)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise forms.ValidationError("Já existe um produto cadastrado com este código.")
+        return code
 
 
 class QuickServiceForm(forms.ModelForm):
@@ -178,6 +223,18 @@ class QuickServiceForm(forms.ModelForm):
     def __init__(self, *args, workshop=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.workshop = workshop
+        self.similar_name_target_id = "service-name-suggestions"
+
+        self.fields["name"].widget.attrs.update(
+            {
+                "autocomplete": "off",
+                "hx-get": reverse("catalog:services_search"),
+                "hx-trigger": "keyup changed delay:500ms",
+                "hx-target": f"#{self.similar_name_target_id}",
+                "hx-swap": "innerHTML",
+                "hx-vals": '{"target_id": "service-name-suggestions"}',
+            }
+        )
 
         # Labels
         self.fields["name"].label = "Nome do Serviço"

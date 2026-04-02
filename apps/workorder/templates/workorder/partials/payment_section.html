@@ -36,7 +36,7 @@
                             <button class="btn btn-ghost btn-xs text-error"
                                 hx-delete="{% url 'workorder:delete_payment' payment.pk %}"
                                 hx-target="#payment-section"
-                                hx-confirm="Deseja remover esta forma de pagamento?"
+                                data-confirm="Deseja remover esta forma de pagamento?"
                                 hx-indicator="#payment-loader">
                                 <span class="material-icons text-sm">delete</span>
                             </button>

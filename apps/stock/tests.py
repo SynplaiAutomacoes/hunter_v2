@@ -12,16 +12,19 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from django.utils import timezone
+from django.template import Context, Template
 from openpyxl import load_workbook
+from djmoney.money import Money
 
 from apps.accounts.models import Account, User
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.collaborators.models import WorkshopMember
 from apps.core.documents.contract import DocumentPayload
+from apps.finance.models.payment_method import PaymentMethod
 from apps.iam.utils import get_or_create_director_role
-from apps.stock.forms import ImportSefazListForm, ImportStep1Form, ImportStepSummaryForm, ImportStepSupplierForm
-from apps.stock.models import SefazZipCache, StockImport, StockMovement, StockProduct, StockTransfer
+from apps.stock.forms import ImportSefazListForm, ImportStep1Form, ImportStepPaymentForm, ImportStepSummaryForm, ImportStepSupplierForm, QuickProductForm
+from apps.stock.models import SefazZipCache, StockImport, StockMovement, StockPaymentMethod, StockProduct, StockTransfer
 from apps.stock.utils import NFParser
 from apps.suppliers.models import Supplier
 from apps.workshops.models.workshops import Workshop
@@ -386,6 +389,62 @@ class StockTransferFlowTests(TestCase):
         self.assertRedirects(response, reverse("stock:transfer_update", kwargs={"pk": transfer.pk}), fetch_redirect_response=False)
 
 
+class QuickProductFormTests(TestCase):
+    def setUp(self) -> None:
+        self.workshop = Workshop.objects.create(
+            name="Oficina Quick Produto",
+            cnpj="31.222.555/0001-10",
+            phone="+5511988886666",
+            address="Rua Quick, 10",
+            uf="SP",
+        )
+        self.group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo Quick Produto")
+
+    def test_quick_product_form_accepts_optional_ncm(self) -> None:
+        form = QuickProductForm(
+            data={
+                "code": "QP-001",
+                "name": "Produto Quick com NCM",
+                "unit": Product.Unit.UND,
+                "group": str(self.group.pk),
+                "cost_price_0": "10.00",
+                "cost_price_1": "BRL",
+                "selling_price_0": "20.00",
+                "selling_price_1": "BRL",
+                "profit_margin": "50.00",
+                "ncm": "87089990",
+                "origin_cst": str(Product.OriginCST.NACIONAL),
+                "purpose": Product.Purpose.RESALE,
+            },
+            workshop=self.workshop,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        product = form.save(commit=False)
+        self.assertEqual(product.ncm, "87089990")
+
+    def test_quick_product_form_keeps_ncm_optional(self) -> None:
+        form = QuickProductForm(
+            data={
+                "code": "QP-002",
+                "name": "Produto Quick sem NCM",
+                "unit": Product.Unit.UND,
+                "group": str(self.group.pk),
+                "cost_price_0": "10.00",
+                "cost_price_1": "BRL",
+                "selling_price_0": "20.00",
+                "selling_price_1": "BRL",
+                "profit_margin": "50.00",
+                "ncm": "",
+                "origin_cst": str(Product.OriginCST.NACIONAL),
+                "purpose": Product.Purpose.RESALE,
+            },
+            workshop=self.workshop,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+
+
 class StockReportViewTests(TestCase):
     def setUp(self) -> None:
         self.user, self.workshop = create_director_user_with_workshop(suffix=30)
@@ -531,6 +590,17 @@ class StockReportViewTests(TestCase):
         self.assertContains(response, "Custo total do item")
         self.assertIsNone(response.headers.get("X-Frame-Options"))
 
+    @patch("apps.stock.views.build_workshop_logo_data_uri", return_value="data:image/png;base64,bW9uZ28tbG9nbw==")
+    def test_pdf_preview_view_renders_workshop_logo(self, build_workshop_logo_data_uri_mock) -> None:
+        response = self.client.get(
+            reverse("stock:report_pdf_preview"),
+            data={"columns": ["code", "quantity", "item_total_cost"]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'src="data:image/png;base64,bW9uZ28tbG9nbw=="', html=False)
+        build_workshop_logo_data_uri_mock.assert_called_once_with(workshop=self.workshop)
+
     def test_pdf_preview_last_nf_column_shows_friendly_empty_state_text(self) -> None:
         response = self.client.get(
             reverse("stock:report_pdf_preview"),
@@ -660,6 +730,193 @@ class StockImportSupplierSyncTests(TestCase):
         self.assertEqual(self.stock_product.last_nf, "NF-NEW")
         self.assertEqual(self.stock_product.supplier, self.supplier_new)
         self.assertEqual(movement.supplier, self.supplier_new)
+
+
+class StockImportPaymentFlowTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=41)
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_add_payment_session_keeps_entered_amount_as_total_paid(self) -> None:
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Cartao", installments_count=4)
+        stock_import = StockImport.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            nf_key="5" * 44,
+            items_data=[{"valor": "100.00", "qtd": "1"}],
+            payments_data=[],
+        )
+
+        response = self.client.post(
+            f"{reverse('stock:add_payment_session')}?pk={stock_import.pk}",
+            data={
+                "payment_method": str(payment_method.pk),
+                "payment_date": "2026-03-24",
+                "first_amount_0": "40.00",
+            },
+        )
+
+        stock_import.refresh_from_db()
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(len(stock_import.payments_data), 1)
+        self.assertEqual(stock_import.payments_data[0]["installments"], "4")
+        self.assertEqual(stock_import.payments_data[0]["first_amount"], "40.00")
+        self.assertEqual(stock_import.payments_data[0]["total_paid"], "40.00")
+
+    def test_add_additional_value_modal_renders_fields(self) -> None:
+        stock_import = StockImport.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            nf_key="8" * 44,
+            items_data=[{"valor": "100.00", "qtd": "1"}],
+            payments_data=[],
+        )
+
+        response = self.client.get(f"{reverse('stock:add_additional_value_modal')}?pk={stock_import.pk}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Adicionar Valor")
+        self.assertContains(response, "Motivo")
+        self.assertContains(response, "Confirmar")
+
+    def test_add_additional_value_session_appends_positive_entry_and_reason(self) -> None:
+        stock_import = StockImport.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            nf_key="9" * 44,
+            items_data=[{"valor": "100.00", "qtd": "1"}],
+            payments_data=[],
+        )
+
+        response = self.client.post(
+            f"{reverse('stock:add_additional_value_session')}?pk={stock_import.pk}",
+            data={
+                "amount_0": "15.00",
+                "amount_1": "BRL",
+                "reason": "Frete da transportadora",
+            },
+        )
+
+        stock_import.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(stock_import.payments_data), 1)
+        self.assertEqual(stock_import.payments_data[0]["entry_type"], "additional_charge")
+        self.assertEqual(stock_import.payments_data[0]["amount"], "15.00")
+        self.assertEqual(stock_import.payments_data[0]["reason"], "Frete da transportadora")
+
+    def test_add_payment_session_allows_pending_amount_including_additional_values(self) -> None:
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Cartao", installments_count=2)
+        stock_import = StockImport.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            nf_key="1" * 44,
+            items_data=[{"valor": "100.00", "qtd": "1"}],
+            payments_data=[{"id": 1, "entry_type": "additional_charge", "amount": "20.00", "reason": "Frete"}],
+        )
+
+        response = self.client.post(
+            f"{reverse('stock:add_payment_session')}?pk={stock_import.pk}",
+            data={
+                "payment_method": str(payment_method.pk),
+                "payment_date": "2026-03-24",
+                "first_amount_0": "110.00",
+            },
+        )
+
+        stock_import.refresh_from_db()
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(len(stock_import.payments_data), 2)
+        self.assertEqual(stock_import.payments_data[1]["entry_type"], "payment")
+        self.assertEqual(stock_import.payments_data[1]["total_paid"], "110.00")
+
+    def test_payment_form_renders_workorder_style_labels_and_table(self) -> None:
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix", installments_count=1)
+        stock_import = StockImport.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            nf_key="6" * 44,
+            items_data=[{"valor": "100.00", "qtd": "1"}],
+            payments_data=[
+                {
+                    "id": 1,
+                    "method": payment_method.pk,
+                    "method_display": payment_method.description,
+                    "installments": "1",
+                    "first_amount": "30.00",
+                    "total_paid": "30.00",
+                    "payment_date": "2026-03-24",
+                    "reason": "Pix",
+                },
+                {
+                    "id": 2,
+                    "entry_type": "additional_charge",
+                    "amount": "15.00",
+                    "reason": "Frete da transportadora",
+                },
+            ],
+        )
+
+        form = ImportStepPaymentForm(instance=stock_import, workshop=self.workshop, import_items=stock_import.items_data, import_payments=stock_import.payments_data)
+        html = Template("{% load crispy_forms_tags %}{% crispy form %}").render(Context({"form": form}))
+
+        self.assertIn("Valor Pago", html)
+        self.assertIn("Valor Pendente", html)
+        self.assertIn("Salvar Plano de Pagamento", html)
+        self.assertIn("Adicionar Valor", html)
+        self.assertIn("Valor", html)
+        self.assertIn("Vencimento", html)
+        self.assertIn("Motivo", html)
+        self.assertIn("- R$", html)
+        self.assertIn("+ R$", html)
+        self.assertIn("30,00", html)
+        self.assertIn("15,00", html)
+        self.assertIn("Frete da transportadora", html)
+        self.assertIn("alert_confirm_modal", html)
+        self.assertIn('data-confirm="Deseja remover este lançamento financeiro?"', html)
+
+    def test_summary_save_persists_total_without_splitting_installments(self) -> None:
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Cartao", installments_count=4)
+        stock_import = StockImport.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            nf_key="7" * 44,
+            nf_number="NF-700",
+            items_data=[],
+            payments_data=[
+                {
+                    "id": 1,
+                    "method": payment_method.pk,
+                    "method_display": payment_method.description,
+                    "installments": "4",
+                    "first_amount": "40.00",
+                    "total_paid": "40.00",
+                    "payment_date": "2026-03-24",
+                    "reason": "Cartao",
+                },
+                {
+                    "id": 2,
+                    "entry_type": "additional_charge",
+                    "amount": "15.00",
+                    "reason": "Frete",
+                },
+            ],
+            status=StockImport.ImportStatus.DRAFT,
+        )
+
+        form = ImportStepSummaryForm(data={}, instance=stock_import, workshop=self.workshop, request=SimpleNamespace(user=self.user))
+
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+
+        payment = StockPaymentMethod.objects.get(workshop=self.workshop, nf_number="NF-700")
+        self.assertEqual(payment.installments_count, 4)
+        self.assertEqual(payment.first_installment_amount, Money("40.00", "BRL"))
+        self.assertEqual(payment.remaining_installments_amount, Money("0.00", "BRL"))
+        self.assertEqual(payment.total_paid, Money("40.00", "BRL"))
+        self.assertEqual(StockPaymentMethod.objects.filter(workshop=self.workshop).count(), 1)
 
 
 class BackfillStockProductSuppliersCommandTests(TestCase):

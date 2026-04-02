@@ -67,6 +67,12 @@ class ConsolidatedPricingLine:
     third_party: bool = False
     source_object: Any | None = None
     adjusted_total: Money = field(default_factory=zero_money)
+    stock_quantity: int | None = None
+    excess_quantity: int = 0
+    has_invalid_ncm: bool = False
+    product_issue_messages: tuple[str, ...] = field(default_factory=tuple)
+    product_issue_tooltip: str = ""
+    has_product_issues: bool = False
 
     @property
     def id(self) -> int | str:

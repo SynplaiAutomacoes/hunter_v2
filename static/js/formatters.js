@@ -387,6 +387,12 @@
         }));
     }
 
+    function emitNativeInputEvents(ref) {
+        if (!ref || typeof ref.dispatchEvent !== 'function') return;
+        ref.dispatchEvent(new Event('input', { bubbles: true }));
+        ref.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
     function formatValue(kind, raw) {
         const k = (kind ?? '').toString().toLowerCase();
         if (!raw && raw !== 0) return '';
@@ -540,6 +546,11 @@
                     this.$refs.value.value = (n === '-') ? '' : n;
                     // Formata o display durante a digitação
                     e.target.value = number.formatInteger(n);
+                    emitNativeInputEvents(this.$refs.value);
+                    emitFormattedChange(this.$refs.value, {
+                        value: this.$refs.value.value,
+                        displayValue: e.target.value,
+                    });
                 },
             };
         },

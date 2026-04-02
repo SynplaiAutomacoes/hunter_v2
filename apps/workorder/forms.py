@@ -119,6 +119,7 @@ class WorkOrderPaymentForm(forms.ModelForm):
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
+            alert_confirm_layout(title="Deseja remover este registro?"),
             HTML(f"""
                 <div id="payment-warning-workorder-js" class="hidden col-span-12 mb-4">
                     <div class="alert alert-error shadow-lg border-2 border-error">
