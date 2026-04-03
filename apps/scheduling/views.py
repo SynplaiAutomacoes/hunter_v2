@@ -476,6 +476,30 @@ class VehicleByCustomerListView(LoginRequiredMixin, WorkshopScopedMixin, View):
         return JsonResponse(data, safe=False)
 
 
+class VehicleDetailView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Appointment
+    workshop_permission_codename = "view_appointment"
+
+    def get(self, request):
+        vehicle_id = (request.GET.get("vehicle") or "").strip()
+        if not vehicle_id:
+            return JsonResponse({}, status=404)
+
+        vehicle = get_object_or_404(Vehicle, pk=vehicle_id, workshop=self.workshop)
+        return JsonResponse(
+            {
+                "id": vehicle.pk,
+                "plate": str(vehicle.plate or ""),
+                "brand": str(vehicle.brand or ""),
+                "model": str(vehicle.model or ""),
+                "year_fabrication": str(vehicle.year_fabrication or ""),
+                "year_model": str(vehicle.year_model or ""),
+                "engine": str(vehicle.engine or ""),
+                "fuel": str(vehicle.fuel or ""),
+            }
+        )
+
+
 class BudgetByVehicleListView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = Appointment
     workshop_permission_codename = "view_appointment"

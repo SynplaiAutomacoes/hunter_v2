@@ -7,6 +7,7 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import HTML, Div, Field, Layout
 from django import forms
 from django.urls import reverse
+from django.utils.html import escape
 from django.utils import timezone
 
 from apps.budget.models import Budget
@@ -32,6 +33,38 @@ def _normalize_upper_text(value: object) -> str:
 
 def _digits_only(value: object) -> str:
     return "".join(character for character in str(value or "") if character.isdigit())
+
+
+def _serialize_vehicle_details(vehicle: Vehicle | None) -> dict[str, str]:
+    if vehicle is None:
+        return {
+            "plate": "",
+            "brand": "",
+            "model": "",
+            "year_fabrication": "",
+            "year_model": "",
+            "engine": "",
+            "fuel": "",
+        }
+
+    return {
+        "plate": str(vehicle.plate or ""),
+        "brand": str(vehicle.brand or ""),
+        "model": str(vehicle.model or ""),
+        "year_fabrication": str(vehicle.year_fabrication or ""),
+        "year_model": str(vehicle.year_model or ""),
+        "engine": str(vehicle.engine or ""),
+        "fuel": str(vehicle.fuel or ""),
+    }
+
+
+def _build_readonly_vehicle_field(*, field_id: str, label: str, value: str, wrapper_class: str) -> str:
+    return f'''
+        <div class="{wrapper_class}">
+            <label for="{field_id}" class="mb-0 text-sm font-semibold text-base-content">{escape(label)}</label>
+            <input type="text" id="{field_id}" value="{escape(value)}" class="input-theme" disabled>
+        </div>
+    '''
 
 
 class AppointmentForm(forms.ModelForm):
@@ -175,6 +208,12 @@ class AppointmentForm(forms.ModelForm):
         else:
             vehicle_field.queryset = Vehicle.objects.none()
 
+        selected_registered_vehicle: Vehicle | None = None
+        if is_customer_registered and selected_vehicle_id and self.workshop:
+            selected_registered_vehicle = Vehicle.objects.filter(workshop=self.workshop, pk=selected_vehicle_id).first()
+
+        selected_registered_vehicle_details = _serialize_vehicle_details(selected_registered_vehicle)
+
         if self.instance and self.instance.pk:
             if self.instance.starts_at:
                 self.initial["starts_at"] = timezone.localtime(self.instance.starts_at).strftime("%Y-%m-%dT%H:%M")
@@ -185,6 +224,52 @@ class AppointmentForm(forms.ModelForm):
         self.helper.form_tag = False
 
         customer_vehicle_x_data = json.dumps({"customerId": selected_customer_id, "vehicleId": selected_vehicle_id, "isCustomerRegistered": is_customer_registered})
+        registered_vehicle_fields_html = "".join(
+            [
+                _build_readonly_vehicle_field(
+                    field_id="id_registered_vehicle_plate_display",
+                    label="Placa",
+                    value=selected_registered_vehicle_details["plate"],
+                    wrapper_class="col-span-12 lg:col-span-3",
+                ),
+                _build_readonly_vehicle_field(
+                    field_id="id_registered_vehicle_brand_display",
+                    label="Marca",
+                    value=selected_registered_vehicle_details["brand"],
+                    wrapper_class="col-span-12 lg:col-span-3",
+                ),
+                _build_readonly_vehicle_field(
+                    field_id="id_registered_vehicle_model_display",
+                    label="Modelo",
+                    value=selected_registered_vehicle_details["model"],
+                    wrapper_class="col-span-12 lg:col-span-3",
+                ),
+                _build_readonly_vehicle_field(
+                    field_id="id_registered_vehicle_year_fabrication_display",
+                    label="Ano Fabricacao",
+                    value=selected_registered_vehicle_details["year_fabrication"],
+                    wrapper_class="col-span-12 lg:col-span-3",
+                ),
+                _build_readonly_vehicle_field(
+                    field_id="id_registered_vehicle_year_model_display",
+                    label="Ano Modelo",
+                    value=selected_registered_vehicle_details["year_model"],
+                    wrapper_class="col-span-12 lg:col-span-3",
+                ),
+                _build_readonly_vehicle_field(
+                    field_id="id_registered_vehicle_engine_display",
+                    label="Motorizacao",
+                    value=selected_registered_vehicle_details["engine"],
+                    wrapper_class="col-span-12 lg:col-span-3",
+                ),
+                _build_readonly_vehicle_field(
+                    field_id="id_registered_vehicle_fuel_display",
+                    label="Combustivel",
+                    value=selected_registered_vehicle_details["fuel"],
+                    wrapper_class="col-span-12 lg:col-span-3",
+                ),
+            ]
+        )
 
         self.helper.layout = Layout(
             HTML(
@@ -209,16 +294,21 @@ class AppointmentForm(forms.ModelForm):
                             if (!data.isCustomerRegistered) {
                                 data.customerId = '';
                                 data.vehicleId = '';
+                                clearRegisteredVehicleDetails();
                             }
                         }
 
                         if (name === 'customer') {
                             data.customerId = value || '';
                             data.vehicleId = '';
+                            clearRegisteredVehicleDetails();
                         }
 
                         if (name === 'vehicle') {
                             data.vehicleId = value || '';
+                            if (!data.vehicleId) {
+                                clearRegisteredVehicleDetails();
+                            }
                         }
                     }
 
@@ -244,6 +334,52 @@ class AppointmentForm(forms.ModelForm):
                         input.value = normalizedValue;
                         input.dispatchEvent(new Event('input', { bubbles: true }));
                         input.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+
+                    function setReadonlyFieldValue(inputId, value) {
+                        const input = document.getElementById(inputId);
+                        if (!input) return;
+                        input.value = value === null || value === undefined ? '' : String(value);
+                    }
+
+                    function clearRegisteredVehicleDetails() {
+                        setReadonlyFieldValue('id_registered_vehicle_plate_display', '');
+                        setReadonlyFieldValue('id_registered_vehicle_brand_display', '');
+                        setReadonlyFieldValue('id_registered_vehicle_model_display', '');
+                        setReadonlyFieldValue('id_registered_vehicle_year_fabrication_display', '');
+                        setReadonlyFieldValue('id_registered_vehicle_year_model_display', '');
+                        setReadonlyFieldValue('id_registered_vehicle_engine_display', '');
+                        setReadonlyFieldValue('id_registered_vehicle_fuel_display', '');
+                    }
+
+                    function applyRegisteredVehicleDetails(data) {
+                        setReadonlyFieldValue('id_registered_vehicle_plate_display', data && data.plate ? data.plate : '');
+                        setReadonlyFieldValue('id_registered_vehicle_brand_display', data && data.brand ? data.brand : '');
+                        setReadonlyFieldValue('id_registered_vehicle_model_display', data && data.model ? data.model : '');
+                        setReadonlyFieldValue('id_registered_vehicle_year_fabrication_display', data && data.year_fabrication ? data.year_fabrication : '');
+                        setReadonlyFieldValue('id_registered_vehicle_year_model_display', data && data.year_model ? data.year_model : '');
+                        setReadonlyFieldValue('id_registered_vehicle_engine_display', data && data.engine ? data.engine : '');
+                        setReadonlyFieldValue('id_registered_vehicle_fuel_display', data && data.fuel ? data.fuel : '');
+                    }
+
+                    async function updateRegisteredVehicleDetails(vehicleId) {
+                        if (!vehicleId) {
+                            clearRegisteredVehicleDetails();
+                            return;
+                        }
+
+                        try {
+                            const response = await fetch(`/scheduling/get-vehicle-detail/?vehicle=${encodeURIComponent(vehicleId)}`);
+                            if (!response.ok) {
+                                clearRegisteredVehicleDetails();
+                                return;
+                            }
+
+                            applyRegisteredVehicleDetails(await response.json());
+                        } catch (error) {
+                            console.warn('Erro ao carregar detalhes do veiculo:', error);
+                            clearRegisteredVehicleDetails();
+                        }
                     }
 
                     async function updateVehicleList(customerId, selectedVehicleId = null) {
@@ -477,6 +613,14 @@ class AppointmentForm(forms.ModelForm):
                     x_show="isCustomerRegistered",
                     css_class="col-span-12 flex items-end gap-2",
                 ),
+                HTML(
+                    f"""
+                    <div x-show="isCustomerRegistered && vehicleId" class="col-span-12 grid grid-cols-12 gap-4 rounded-xl border border-base-300 bg-base-200/20 p-4">
+                        <div class="col-span-12 mb-1 text-sm font-semibold uppercase tracking-wide text-base-content/70">Dados do Veiculo Selecionado</div>
+                        {registered_vehicle_fields_html}
+                    </div>
+                    """
+                ),
                 HTML('<div class="col-span-12 mb-1 mt-2 text-sm font-semibold uppercase tracking-wide text-base-content/70">Horario e Status</div>'),
                 Field("starts_at", wrapper_class="col-span-12 lg:col-span-6"),
                 Field("ends_at", wrapper_class="col-span-12 lg:col-span-6"),
@@ -497,13 +641,18 @@ class AppointmentForm(forms.ModelForm):
                                 customerId = '';
                                 vehicleId = '';
                                 updateVehicleList('');
+                                clearRegisteredVehicleDetails();
                             }
                         } else if ($event.target && $event.target.name === 'customer') {
                             customerId = $event.target.value || '';
                             vehicleId = '';
                             updateVehicleList(customerId);
+                            clearRegisteredVehicleDetails();
                         } else if ($event.target && $event.target.name === 'vehicle') {
                             vehicleId = $event.target.value || '';
+                            if (isCustomerRegistered) {
+                                updateRegisteredVehicleDetails(vehicleId);
+                            }
                         } else if ($event.target && $event.target.name === 'guest_vehicle_plate' && !isCustomerRegistered) {
                             updateGuestVehicleFields($event.target.value || '');
                         }

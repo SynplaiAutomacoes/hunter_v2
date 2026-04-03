@@ -342,6 +342,55 @@ class AppointmentViewsTests(TestCase):
         self.assertContains(response, "Motorizacao: 1.3 FLEX")
         self.assertContains(response, "Combustivel: FLEX")
 
+    def test_get_vehicle_detail_returns_registered_vehicle_metadata(self) -> None:
+        self.vehicle.engine = "2.0 TURBO"
+        self.vehicle.fuel = "GASOLINA"
+        self.vehicle.save(update_fields=["engine", "fuel", "atualizado_em"])
+
+        response = self.client.get(reverse("scheduling:get_vehicle_detail"), {"vehicle": self.vehicle.pk})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "id": self.vehicle.pk,
+                "plate": self.vehicle.plate,
+                "brand": self.vehicle.brand,
+                "model": self.vehicle.model,
+                "year_fabrication": self.vehicle.year_fabrication,
+                "year_model": self.vehicle.year_model,
+                "engine": "2.0 TURBO",
+                "fuel": "GASOLINA",
+            },
+        )
+
+    def test_update_form_renders_disabled_registered_vehicle_fields(self) -> None:
+        self.vehicle.engine = "2.0 TURBO"
+        self.vehicle.fuel = "GASOLINA"
+        self.vehicle.save(update_fields=["engine", "fuel", "atualizado_em"])
+        starts_at = timezone.now().replace(minute=0, second=0, microsecond=0)
+        appointment = Appointment.objects.create(
+            workshop=self.workshop,
+            customer=self.customer,
+            vehicle=self.vehicle,
+            title="Cliente cadastrado",
+            starts_at=starts_at,
+            ends_at=starts_at + timedelta(hours=1),
+        )
+
+        response = self.client.get(reverse("scheduling:appointment_update", kwargs={"pk": appointment.pk}), HTTP_HX_REQUEST="true")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Dados do Veiculo Selecionado")
+        self.assertContains(response, 'id="id_registered_vehicle_plate_display"')
+        self.assertContains(response, f'value="{self.vehicle.plate}"')
+        self.assertContains(response, 'id="id_registered_vehicle_brand_display"')
+        self.assertContains(response, f'value="{self.vehicle.brand}"')
+        self.assertContains(response, 'id="id_registered_vehicle_engine_display"')
+        self.assertContains(response, 'value="2.0 TURBO"')
+        self.assertContains(response, 'id="id_registered_vehicle_fuel_display"')
+        self.assertContains(response, 'value="GASOLINA"')
+
     def test_move_endpoint_reverts_on_overlap_conflict(self) -> None:
         base_start = timezone.now().replace(minute=0, second=0, microsecond=0)
         first = Appointment.objects.create(
