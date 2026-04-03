@@ -41,12 +41,44 @@
             <div class="rounded-xl border border-base-300 bg-base-100 p-4">
                 <p class="text-xs font-semibold uppercase tracking-wide text-base-content/70">Cliente</p>
                 <p class="mt-1 break-words text-base font-semibold">{{ appointment.display_customer_name }}</p>
+                {% if appointment.display_customer_cpf %}
+                    <p class="mt-1 text-sm text-base-content/70">Documento: {{ appointment.display_customer_cpf }}</p>
+                {% endif %}
                 <p class="mt-1 text-sm text-base-content/70">{{ appointment.display_customer_phone|default:'Telefone nao informado' }}</p>
             </div>
 
             <div class="rounded-xl border border-base-300 bg-base-100 p-4">
                 <p class="text-xs font-semibold uppercase tracking-wide text-base-content/70">Veiculo</p>
-                <p class="mt-1 break-words text-base font-semibold">{{ appointment.display_vehicle_label }}</p>
+                <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div class="rounded-lg border border-base-300 bg-base-200/30 px-3 py-2">
+                        <p class="text-[11px] font-semibold uppercase tracking-wide text-base-content/60">Placa</p>
+                        <p class="mt-1 text-sm font-semibold text-base-content">{% if appointment.vehicle_id %}{{ appointment.vehicle.plate|default:'Nao informado' }}{% else %}{{ appointment.guest_vehicle_plate|default:'Nao informado' }}{% endif %}</p>
+                    </div>
+                    <div class="rounded-lg border border-base-300 bg-base-200/30 px-3 py-2">
+                        <p class="text-[11px] font-semibold uppercase tracking-wide text-base-content/60">Marca</p>
+                        <p class="mt-1 text-sm font-semibold text-base-content">{% if appointment.vehicle_id %}{{ appointment.vehicle.brand|default:'Nao informado' }}{% else %}{{ appointment.guest_vehicle_brand|default:'Nao informado' }}{% endif %}</p>
+                    </div>
+                    <div class="rounded-lg border border-base-300 bg-base-200/30 px-3 py-2 sm:col-span-2">
+                        <p class="text-[11px] font-semibold uppercase tracking-wide text-base-content/60">Modelo</p>
+                        <p class="mt-1 text-sm font-semibold text-base-content">{% if appointment.vehicle_id %}{{ appointment.vehicle.model|default:'Nao informado' }}{% else %}{{ appointment.guest_vehicle_model|default:'Nao informado' }}{% endif %}</p>
+                    </div>
+                    <div class="rounded-lg border border-base-300 bg-base-200/30 px-3 py-2">
+                        <p class="text-[11px] font-semibold uppercase tracking-wide text-base-content/60">Ano Fabricacao</p>
+                        <p class="mt-1 text-sm font-semibold text-base-content">{% if appointment.vehicle_id %}{{ appointment.vehicle.year_fabrication|default:'Nao informado' }}{% else %}{{ appointment.guest_vehicle_year_fabrication|default:'Nao informado' }}{% endif %}</p>
+                    </div>
+                    <div class="rounded-lg border border-base-300 bg-base-200/30 px-3 py-2">
+                        <p class="text-[11px] font-semibold uppercase tracking-wide text-base-content/60">Ano Modelo</p>
+                        <p class="mt-1 text-sm font-semibold text-base-content">{% if appointment.vehicle_id %}{{ appointment.vehicle.year_model|default:'Nao informado' }}{% else %}{{ appointment.guest_vehicle_year_model|default:'Nao informado' }}{% endif %}</p>
+                    </div>
+                    <div class="rounded-lg border border-base-300 bg-base-200/30 px-3 py-2">
+                        <p class="text-[11px] font-semibold uppercase tracking-wide text-base-content/60">Motorizacao</p>
+                        <p class="mt-1 text-sm font-semibold text-base-content">{% if appointment.vehicle_id %}{{ appointment.vehicle.engine|default:'Nao informado' }}{% else %}{{ appointment.guest_vehicle_engine|default:'Nao informado' }}{% endif %}</p>
+                    </div>
+                    <div class="rounded-lg border border-base-300 bg-base-200/30 px-3 py-2">
+                        <p class="text-[11px] font-semibold uppercase tracking-wide text-base-content/60">Combustivel</p>
+                        <p class="mt-1 text-sm font-semibold text-base-content">{% if appointment.vehicle_id %}{{ appointment.vehicle.fuel|default:'Nao informado' }}{% else %}{{ appointment.guest_vehicle_fuel|default:'Nao informado' }}{% endif %}</p>
+                    </div>
+                </div>
             </div>
         </section>
 
