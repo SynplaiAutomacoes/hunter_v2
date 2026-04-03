@@ -338,9 +338,45 @@ class AppointmentViewsTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "529.982.247-25")
-        self.assertContains(response, "ABC1D23 - FIAT ARGO")
-        self.assertContains(response, "Motorizacao: 1.3 FLEX")
-        self.assertContains(response, "Combustivel: FLEX")
+        self.assertContains(response, "Placa")
+        self.assertContains(response, "ABC1D23")
+        self.assertContains(response, "Marca")
+        self.assertContains(response, "FIAT")
+        self.assertContains(response, "Modelo")
+        self.assertContains(response, "ARGO")
+        self.assertContains(response, "Motorizacao")
+        self.assertContains(response, "1.3 FLEX")
+        self.assertContains(response, "Combustivel")
+        self.assertContains(response, "FLEX")
+
+    def test_detail_view_shows_registered_vehicle_metadata(self) -> None:
+        self.vehicle.engine = "2.0 TURBO"
+        self.vehicle.fuel = "GASOLINA"
+        self.vehicle.save(update_fields=["engine", "fuel", "atualizado_em"])
+        starts_at = timezone.now().replace(minute=0, second=0, microsecond=0)
+        appointment = Appointment.objects.create(
+            workshop=self.workshop,
+            customer=self.customer,
+            vehicle=self.vehicle,
+            title="Cliente cadastrado",
+            starts_at=starts_at,
+            ends_at=starts_at + timedelta(hours=1),
+        )
+
+        response = self.client.get(reverse("scheduling:appointment_detail", kwargs={"pk": appointment.pk}), HTTP_HX_REQUEST="true")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.vehicle.plate)
+        self.assertContains(response, self.vehicle.brand)
+        self.assertContains(response, self.vehicle.model)
+        self.assertContains(response, "Ano Fabricacao")
+        self.assertContains(response, self.vehicle.year_fabrication)
+        self.assertContains(response, "Ano Modelo")
+        self.assertContains(response, self.vehicle.year_model)
+        self.assertContains(response, "Motorizacao")
+        self.assertContains(response, "2.0 TURBO")
+        self.assertContains(response, "Combustivel")
+        self.assertContains(response, "GASOLINA")
 
     def test_get_vehicle_detail_returns_registered_vehicle_metadata(self) -> None:
         self.vehicle.engine = "2.0 TURBO"
