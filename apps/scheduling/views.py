@@ -100,6 +100,10 @@ def _parse_request_date(raw_value: str | None) -> date | None:
     return parse_date(value)
 
 
+def _serialize_calendar_datetime(value: datetime) -> str:
+    return timezone.localtime(value, timezone.get_current_timezone()).isoformat()
+
+
 class AppointmentCalendarView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     model = Appointment
     template_name = "scheduling/appointment_calendar.html"
@@ -163,8 +167,8 @@ class AppointmentEventsView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 {
                     "id": str(appointment.pk),
                     "title": title,
-                    "start": appointment.starts_at.isoformat(),
-                    "end": appointment.ends_at.isoformat(),
+                    "start": _serialize_calendar_datetime(appointment.starts_at),
+                    "end": _serialize_calendar_datetime(appointment.ends_at),
                     "color": appointment.block_color,
                     "extendedProps": {
                         "customer_name": customer_name,

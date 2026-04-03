@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
@@ -204,6 +204,35 @@ class AppointmentViewsTests(TestCase):
         payload = response.json()
         self.assertEqual(len(payload), 1)
         self.assertEqual(payload[0]["title"], "Troca de Oleo - Cliente Agenda 30")
+        self.assertEqual(payload[0]["start"], timezone.localtime(base_start).isoformat())
+        self.assertEqual(payload[0]["end"], timezone.localtime(base_start + timedelta(hours=1)).isoformat())
+
+    def test_events_endpoint_serializes_start_and_end_in_local_timezone(self) -> None:
+        local_tz = timezone.get_current_timezone()
+        starts_at = timezone.make_aware(datetime(2026, 4, 3, 9, 0), local_tz)
+        ends_at = timezone.make_aware(datetime(2026, 4, 3, 10, 0), local_tz)
+        Appointment.objects.create(
+            workshop=self.workshop,
+            customer=self.customer,
+            vehicle=self.vehicle,
+            title="Horario Local",
+            starts_at=starts_at,
+            ends_at=ends_at,
+        )
+
+        response = self.client.get(
+            reverse("scheduling:appointment_events"),
+            {
+                "start": starts_at.isoformat(),
+                "end": (ends_at + timedelta(hours=1)).isoformat(),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(len(payload), 1)
+        self.assertEqual(payload[0]["start"], "2026-04-03T09:00:00-03:00")
+        self.assertEqual(payload[0]["end"], "2026-04-03T10:00:00-03:00")
 
     def test_create_allows_registered_customer_without_vehicle(self) -> None:
         starts_at = timezone.now().replace(minute=0, second=0, microsecond=0)
