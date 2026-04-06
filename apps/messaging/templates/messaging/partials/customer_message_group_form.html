@@ -264,7 +264,7 @@
                         return;
                     }
 
-                    Array.from(table.querySelectorAll('input.row-checkbox:checked')).forEach((checkbox) => {
+                    Array.from(table.querySelectorAll('input.row-checkbox:checked, input[aria-label="Selecionar todos"]:checked')).forEach((checkbox) => {
                         checkbox.checked = false;
                     });
                 },
@@ -325,6 +325,8 @@
                         return;
                     }
 
+                    const table = this.getPickerTable();
+
                     this.pickerSelectionIds.forEach((customerId) => {
                         const alreadySelected = this.selectedCustomers.some((selectedCustomer) => Number(selectedCustomer.id) === customerId);
                         if (!alreadySelected) {
@@ -333,6 +335,7 @@
                     });
 
                     this.pickerSelectionIds = [];
+                    this.clearCheckedRows(table);
                     this.refreshCustomerPicker();
                 },
                 removeSelectedCustomersFromTable() {
@@ -340,9 +343,11 @@
                         return;
                     }
 
+                    const table = this.getPickerTable();
                     const idsToRemove = new Set(this.pickerSelectionIds.map((customerId) => String(customerId)));
                     this.selectedCustomers = this.selectedCustomers.filter((customer) => !idsToRemove.has(String(customer.id)));
                     this.pickerSelectionIds = [];
+                    this.clearCheckedRows(table);
                     this.refreshCustomerPicker();
                 },
             };

@@ -20,6 +20,12 @@ class FinancialMovement(TimeStampedModel):
         WORKORDER_PARENT = "WORKORDER_PARENT", "OS Pai"
         WORKORDER_CARD_FEE = "WORKORDER_CARD_FEE", "Taxa da Maquininha"
 
+    class DreTopic(models.TextChoices):
+        RECEITA_BRUTA_VENDAS_E_SERVICOS = "receita_bruta_vendas_e_servicos", "Receita Bruta de Vendas e Serviços"
+        CUSTOS_MERCADORIAS_VENDIDAS = "custos_mercadorias_vendidas", "Custos Mercadorias Vendidas"
+        RECEITAS_FINANCEIRAS = "receitas_financeiras", "Receitas Financeiras"
+        DESPESAS_FINANCEIRAS = "despesas_financeiras", "Despesas Financeiras"
+
     workshop = models.ForeignKey(to="workshops.Workshop", on_delete=models.CASCADE)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
     current_step = models.PositiveSmallIntegerField(default=1)
@@ -38,6 +44,7 @@ class FinancialMovement(TimeStampedModel):
     direction = models.CharField(max_length=15, verbose_name="Tipo", choices=MovementDirection.choices, default=MovementDirection.DEBIT, blank=True, null=True)
     payment_method = models.ForeignKey(PaymentMethod, verbose_name="Forma de Pagamento", on_delete=models.PROTECT, blank=True, null=True)
     nf_number = models.CharField(max_length=50, verbose_name="Número da NF", blank=True, null=True)
+    dre_topic = models.CharField(max_length=50, verbose_name="Tópico DRE", choices=DreTopic.choices, blank=True, null=True)
     amount = MoneyField(verbose_name="Valor", max_digits=14, decimal_places=2, default=0, null=True)
     due_date = models.DateField(verbose_name="Data de Vencimento", blank=True, null=True)
     is_paid = models.BooleanField(verbose_name="Pago", default=False)

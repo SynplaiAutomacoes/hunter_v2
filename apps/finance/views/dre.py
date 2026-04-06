@@ -25,6 +25,12 @@ class DreBaseView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     model = FinancialGroup
     workshop_permission_codename = "view_financialgroup"
 
+    def _get_tipo_data(self) -> str:
+        tipo_data = (self.request.GET.get("tipo_data") or "A").strip().upper() or "A"
+        if tipo_data not in dict(DreForm.TIPO_DATA_CHOICES):
+            return "A"
+        return tipo_data
+
     def _get_workshops_queryset(self):
         user_account_id = getattr(self.request.user, "account_id", None)
         return (
@@ -135,12 +141,13 @@ class DreBaseView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         selected_workshops = self._get_selected_workshops(workshops_qs)
         financial_groups = self._get_financial_groups_queryset(selected_workshops=selected_workshops)
         selected_financial_groups = self._get_selected_financial_groups(financial_groups_qs=financial_groups)
-        tipo_data = (self.request.GET.get("tipo_data") or "A").strip() or "A"
+        tipo_data = self._get_tipo_data()
         tipo_data_label = dict(DreForm.TIPO_DATA_CHOICES).get(tipo_data, "AMBOS")
         dre_calculation = build_dre_calculation(
             workshops=selected_workshops,
             start_date=self._parse_date_param(self.request.GET.get("data_inicial")),
             end_date=self._parse_date_param(self.request.GET.get("data_final")),
+            tipo_data=tipo_data,
             selected_financial_groups=selected_financial_groups,
         )
         workshop_logo_data_uri = build_workshop_logo_data_uri(workshop=selected_workshop) if selected_workshop is not None else ""
