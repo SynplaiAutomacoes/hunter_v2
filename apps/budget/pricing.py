@@ -62,6 +62,7 @@ class ConsolidatedPricingLine:
     application: str = ""
     location: str = ""
     is_local: bool = False
+    is_customer_supplied: bool = False
     has_direct_source: bool = False
     has_kit_source: bool = False
     third_party: bool = False
@@ -197,6 +198,7 @@ class _ProductAggregate:
     application: str = ""
     location: str = ""
     is_local: bool = False
+    is_customer_supplied: bool = False
     source_object: Any | None = None
     direct_quantity: int = 0
     direct_total: Money = field(default_factory=zero_money)
@@ -347,6 +349,7 @@ def build_pricing_snapshot(
             aggregate.direct_total += (_coerce_money(getattr(item, "product_selling_price", None)) * item_quantity) + _coerce_money(getattr(item, "shipping", None))
             aggregate.direct_cost_total += _coerce_money(getattr(item, "product_cost_price", None)) * item_quantity
             aggregate.direct_shipping += _coerce_money(getattr(item, "shipping", None))
+            aggregate.is_customer_supplied = aggregate.is_customer_supplied or bool(getattr(item, "is_customer_supplied", False))
             continue
 
         if service_id is not None or local_service_check(item):
@@ -488,6 +491,7 @@ def build_pricing_snapshot(
                 application=product_aggregate.application,
                 location=product_aggregate.location,
                 is_local=product_aggregate.is_local,
+                is_customer_supplied=product_aggregate.is_customer_supplied,
                 has_direct_source=product_aggregate.direct_quantity > 0,
                 has_kit_source=product_aggregate.kit_quantity > 0,
                 source_object=product_aggregate.source_object,

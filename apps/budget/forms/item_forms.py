@@ -6,7 +6,7 @@ from apps.budget.models import BudgetItem
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
-from apps.core.widgets import DurationInput, MoneyInput, NumberInput, SelectInput, TextInput
+from apps.core.widgets import CheckboxInput, DurationInput, MoneyInput, NumberInput, SelectInput, TextInput
 
 from .shared import _budget_item_type
 
@@ -16,11 +16,12 @@ class BudgetItemEditForm(forms.ModelForm):
 
     class Meta:
         model = BudgetItem
-        fields = ["description", "quantity", "product_selling_price", "product_cost_price", "shipping", "service_selling_price", "service_cost_price", "duration", "ncm"]
+        fields = ["description", "quantity", "is_customer_supplied", "product_selling_price", "product_cost_price", "shipping", "service_selling_price", "service_cost_price", "duration", "ncm"]
 
         widgets = {
             "description": TextInput(),
             "quantity": NumberInput(),
+            "is_customer_supplied": CheckboxInput(),
             "product_selling_price": MoneyInput(),
             "product_cost_price": MoneyInput(),
             "shipping": MoneyInput(),
@@ -35,7 +36,7 @@ class BudgetItemEditForm(forms.ModelForm):
 
         # Se for kit, remover todos os campos de edição (kits usam modal próprio)
         if item.kit:
-            fields_to_remove = ["service_selling_price", "service_cost_price", "duration", "product_selling_price", "product_cost_price", "shipping"]
+            fields_to_remove = ["service_selling_price", "service_cost_price", "duration", "product_selling_price", "product_cost_price", "shipping", "is_customer_supplied"]
             for field in fields_to_remove:
                 if field in self.fields:
                     self.fields.pop(field)
@@ -56,6 +57,7 @@ class BudgetItemEditForm(forms.ModelForm):
             self.fields.pop("product_selling_price")
             self.fields.pop("product_cost_price")
             self.fields.pop("shipping")
+            self.fields.pop("is_customer_supplied")
             self.fields.pop("ncm")
 
             if budget_id:
@@ -70,6 +72,7 @@ class BudgetItemEditForm(forms.ModelForm):
                     }
                 )
         else:
+            self.fields.pop("is_customer_supplied")
             self.fields.pop("ncm")
 
 

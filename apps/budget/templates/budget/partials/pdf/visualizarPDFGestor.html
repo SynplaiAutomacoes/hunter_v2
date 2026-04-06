@@ -109,6 +109,7 @@
                     <tr class="bg-gray-100 border-b-2 border-gray-200">
                         <th class="p-1 font-semibold">Descrição</th>
                         <th class="p-1 font-semibold text-center">Quantidade</th>
+                        <th class="p-1 font-semibold text-center whitespace-normal leading-tight">Trago pelo cliente?</th>
                         <th class="p-1 font-semibold text-right">Valor Unitário</th>
                         <th class="p-1 font-semibold text-right">Frete</th>
                         <th class="p-1 font-semibold text-right">Total</th>
@@ -121,6 +122,7 @@
                     <tr class="border-b border-gray-100">
                         <td class="p-1">{{ p.description }}</td>
                         <td class="p-1 text-center">{{ p.quantity }}</td>
+                        <td class="p-1 text-center">{% if p.is_customer_supplied %}Sim{% else %}Não{% endif %}</td>
                         <td class="p-1 text-right">{{ p.adjusted_unit_price }}</td>
                         <td class="p-1 text-right">{{ p.shipping }}</td>
                         <td class="p-1 text-right font-medium">{{ p.total_price }}</td>

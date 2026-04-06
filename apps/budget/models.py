@@ -681,6 +681,7 @@ class BudgetItem(TimeStampedModel):
     description = models.CharField(verbose_name="Descrição", max_length=100, default="")
     quantity = models.PositiveIntegerField(verbose_name="Quantidade", default=1)
     is_local = models.BooleanField(verbose_name="Item Local", default=False, help_text="Item criado apenas neste orçamento, não cadastrado no banco de dados")
+    is_customer_supplied = models.BooleanField(verbose_name="Peça trazida pelo cliente", default=False)
 
     ## Produto
     shipping = MoneyField(verbose_name="Frete", max_digits=14, decimal_places=2, default=0)

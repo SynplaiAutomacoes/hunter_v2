@@ -106,6 +106,7 @@
                         <th class="p-1 font-semibold w-[20%]">Referência</th>
                         <th class="p-1 font-semibold w-[20%] text-center">Localização</th>
                         <th class="p-1 font-semibold w-[10%] text-center">Quantidade</th>
+                        <th class="p-1 font-semibold w-[14%] text-center whitespace-normal leading-tight">Trago pelo cliente?</th>
                         <th class="p-1 font-semibold">Descrição</th>
                     </tr>
                 </thead>
@@ -115,10 +116,11 @@
                             <td class="p-1">{{ item.code|default:"-" }}</td>
                             <td class="p-1 text-center text-blue-700 font-mono">{{ item.location|default:"-" }}</td>
                             <td class="p-1 text-center font-bold text-[11px]">{{ item.quantity }}</td>
+                            <td class="p-1 text-center">{% if item.is_customer_supplied %}Sim{% else %}Não{% endif %}</td>
                             <td class="p-1 uppercase">{{ item.description }}</td>
                         </tr>
                     {% empty %}
-                        <tr><td colspan="4" class="p-2 text-center text-gray-400 italic">Nenhum produto listado.</td></tr>
+                        <tr><td colspan="5" class="p-2 text-center text-gray-400 italic">Nenhum produto listado.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>

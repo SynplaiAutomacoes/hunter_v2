@@ -327,6 +327,22 @@ class CustomerMessageGroupCustomerPickerViewTests(TestCase):
         self.assertContains(latest_os_response, recent_customer.name)
         self.assertNotContains(latest_os_response, older_customer.name)
 
+    def test_customer_picker_highlights_customers_already_in_group(self) -> None:
+        selected_customer = create_customer_record(workshop=self.workshop, suffix=36, is_active=True)
+        create_customer_record(workshop=self.workshop, suffix=37, is_active=True)
+
+        response = self.client.get(
+            reverse("messaging:customer_message_group_customer_picker"),
+            {
+                "selected_customers": [str(selected_customer.pk)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode()
+        self.assertEqual(html.count("bg-success/10 hover:bg-success/20 transition-colors"), 1)
+        self.assertEqual(html.count("border-success/30 bg-success/10"), 1)
+
 
 class CustomerMessageGroupViewTests(TestCase):
     def setUp(self) -> None:

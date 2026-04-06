@@ -379,6 +379,7 @@ class CustomerMessageGroupCustomerPickerView(LoginRequiredMixin, WorkshopScopedM
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         selected_customer_ids = set(_parse_selected_customer_ids(self.request.GET.getlist("selected_customers")))
+        context["highlighted_row_ids"] = sorted(selected_customer_ids)
         context["fields"] = [
             TableColumn(
                 str(Customer.name.field.verbose_name),

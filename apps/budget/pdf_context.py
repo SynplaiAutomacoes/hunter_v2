@@ -40,6 +40,7 @@ def build_budget_pdf_context(*, budget, observacao: str | None = None, request=N
             "id": line.entity_id,
             "description": line.description,
             "quantity": line.quantity,
+            "is_customer_supplied": line.is_customer_supplied,
             "application": line.application or "-",
             "code": line.code or "-",
             "location": line.location or "-",

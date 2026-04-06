@@ -39,6 +39,13 @@
         <span class="break-words whitespace-normal leading-snug">{{ item.product.application|default:"-" }}</span>
     </td>
     <td class="text-center">
+        {% if item.is_customer_supplied %}
+            <span class="badge badge-success badge-outline shrink-0">Sim</span>
+        {% else %}
+            <span class="badge badge-ghost badge-outline shrink-0">Não</span>
+        {% endif %}
+    </td>
+    <td class="text-center">
         <span class="inline-flex items-center justify-center gap-1">
             <span>{{ item.quantity }}</span>
             {% if item.has_product_issues %}
