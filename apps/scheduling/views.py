@@ -100,6 +100,10 @@ def _parse_request_date(raw_value: str | None) -> date | None:
     return parse_date(value)
 
 
+def _serialize_calendar_datetime(value: datetime) -> str:
+    return timezone.localtime(value, timezone.get_current_timezone()).isoformat()
+
+
 class AppointmentCalendarView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     model = Appointment
     template_name = "scheduling/appointment_calendar.html"
@@ -149,7 +153,7 @@ class AppointmentEventsView(LoginRequiredMixin, WorkshopScopedMixin, View):
             if vehicle_filter.isdigit():
                 queryset = queryset.filter(vehicle_id=vehicle_filter)
             else:
-                queryset = queryset.filter(Q(vehicle__plate__icontains=vehicle_filter) | Q(vehicle__model__icontains=vehicle_filter))
+                queryset = queryset.filter(Q(vehicle__plate__icontains=vehicle_filter) | Q(vehicle__model__icontains=vehicle_filter) | Q(guest_vehicle_plate__icontains=vehicle_filter) | Q(guest_vehicle_brand__icontains=vehicle_filter) | Q(guest_vehicle_model__icontains=vehicle_filter))
 
         status_filter = (request.GET.get("status") or "").strip()
         if status_filter:
@@ -163,8 +167,8 @@ class AppointmentEventsView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 {
                     "id": str(appointment.pk),
                     "title": title,
-                    "start": appointment.starts_at.isoformat(),
-                    "end": appointment.ends_at.isoformat(),
+                    "start": _serialize_calendar_datetime(appointment.starts_at),
+                    "end": _serialize_calendar_datetime(appointment.ends_at),
                     "color": appointment.block_color,
                     "extendedProps": {
                         "customer_name": customer_name,
@@ -474,6 +478,30 @@ class VehicleByCustomerListView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         data = [{"id": vehicle.pk, "label": str(vehicle)} for vehicle in vehicles]
         return JsonResponse(data, safe=False)
+
+
+class VehicleDetailView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Appointment
+    workshop_permission_codename = "view_appointment"
+
+    def get(self, request):
+        vehicle_id = (request.GET.get("vehicle") or "").strip()
+        if not vehicle_id:
+            return JsonResponse({}, status=404)
+
+        vehicle = get_object_or_404(Vehicle, pk=vehicle_id, workshop=self.workshop)
+        return JsonResponse(
+            {
+                "id": vehicle.pk,
+                "plate": str(vehicle.plate or ""),
+                "brand": str(vehicle.brand or ""),
+                "model": str(vehicle.model or ""),
+                "year_fabrication": str(vehicle.year_fabrication or ""),
+                "year_model": str(vehicle.year_model or ""),
+                "engine": str(vehicle.engine or ""),
+                "fuel": str(vehicle.fuel or ""),
+            }
+        )
 
 
 class BudgetByVehicleListView(LoginRequiredMixin, WorkshopScopedMixin, View):
