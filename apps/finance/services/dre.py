@@ -33,6 +33,7 @@ _SOURCE_ROW_COMPONENTS = (
     _ROW_COMPONENT_RECEITAS_FINANCEIRAS,
     _ROW_COMPONENT_DESPESAS_FINANCEIRAS,
 )
+_VALID_TIPO_DATA_VALUES = {"PG", "NPG", "A"}
 
 
 def build_dre_calculation(
@@ -40,12 +41,18 @@ def build_dre_calculation(
     workshops: Sequence[Workshop],
     start_date: date | None,
     end_date: date | None,
+    tipo_data: str = "A",
     selected_financial_groups: list[FinancialGroup] | None = None,
 ) -> DreCalculationResult:
     if not workshops or start_date is None or end_date is None or start_date > end_date:
         return DreCalculationResult(rows=_build_rows(), summary_cards=_build_summary_cards())
 
-    financial_movements = _get_financial_movements(workshops=workshops, start_date=start_date, end_date=end_date)
+    financial_movements = _get_financial_movements(
+        workshops=workshops,
+        start_date=start_date,
+        end_date=end_date,
+        tipo_data=_normalize_tipo_data(tipo_data),
+    )
     movements_by_topic = _group_financial_movements_by_topic(financial_movements=financial_movements)
     all_amounts = {component: _sum_movement_amounts(movements_by_topic.get(component, [])) for component in _SOURCE_ROW_COMPONENTS}
 
@@ -77,17 +84,27 @@ def build_dre_calculation(
     )
 
 
-def _get_financial_movements(*, workshops: Sequence[Workshop], start_date: date, end_date: date) -> list[FinancialMovement]:
-    return list(
-        FinancialMovement.objects.filter(
-            workshop__in=workshops,
-            due_date__gte=start_date,
-            due_date__lte=end_date,
-            dre_topic__in=_SOURCE_ROW_COMPONENTS,
-        )
-        .select_related("payment_method", "source", "workshop")
-        .order_by("due_date", "pk")
+def _normalize_tipo_data(tipo_data: str | None) -> str:
+    normalized_tipo_data = str(tipo_data or "A").strip().upper() or "A"
+    if normalized_tipo_data not in _VALID_TIPO_DATA_VALUES:
+        return "A"
+    return normalized_tipo_data
+
+
+def _get_financial_movements(*, workshops: Sequence[Workshop], start_date: date, end_date: date, tipo_data: str) -> list[FinancialMovement]:
+    queryset = FinancialMovement.objects.filter(
+        workshop__in=workshops,
+        due_date__gte=start_date,
+        due_date__lte=end_date,
+        dre_topic__in=_SOURCE_ROW_COMPONENTS,
     )
+
+    if tipo_data == "PG":
+        queryset = queryset.filter(is_paid=True)
+    elif tipo_data == "NPG":
+        queryset = queryset.filter(is_paid=False)
+
+    return list(queryset.select_related("payment_method", "source", "workshop").order_by("due_date", "pk"))
 
 
 def _group_financial_movements_by_topic(*, financial_movements: list[FinancialMovement]) -> dict[str, list[FinancialMovement]]:
@@ -189,7 +206,7 @@ def _build_summary_cards(
 
 
 def _resolve_visible_components(*, selected_financial_groups: list[FinancialGroup] | None) -> set[str]:
-    all_components = set(_SOURCE_ROW_COMPONENTS)
+    all_components = {str(component) for component in _SOURCE_ROW_COMPONENTS}
     if not selected_financial_groups:
         return all_components
 

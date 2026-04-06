@@ -5442,6 +5442,7 @@ class DreReportViewTests(TestCase):
         source_name: str = "Origem DRE",
         nf_number: str | None = None,
         payment_method_description: str | None = None,
+        is_paid: bool = False,
     ) -> FinancialMovement:
         selected_workshop = workshop or self.workshop
         source = Source.objects.create(workshop=selected_workshop, name=f"{source_name} {FinancialMovement.objects.count() + 1}")
@@ -5467,6 +5468,7 @@ class DreReportViewTests(TestCase):
             amount=Money(amount, "BRL"),
             due_date=due_date,
             description=description,
+            is_paid=is_paid,
         )
 
     def _create_workorder_with_values(
@@ -6015,6 +6017,289 @@ class DreReportViewTests(TestCase):
         content = response.content.decode("utf-8")
         self.assertIn("(Receita Bruta de Vendas e Serviços - Custos Mercadorias Vendidas)", content)
         self.assertIn("(Receitas Financeiras - Despesas Financeiras)", content)
+
+    def test_results_page_filters_paid_movements_when_tipo_data_is_pg(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+
+        self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.RECEITA_BRUTA_VENDAS_E_SERVICOS,
+            amount="300.00",
+            due_date=date(2026, 1, 15),
+            description="Receita paga",
+            is_paid=True,
+        )
+        self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.RECEITA_BRUTA_VENDAS_E_SERVICOS,
+            amount="200.00",
+            due_date=date(2026, 1, 16),
+            description="Receita em aberto",
+            is_paid=False,
+        )
+        self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.CUSTOS_MERCADORIAS_VENDIDAS,
+            amount="120.00",
+            due_date=date(2026, 1, 15),
+            description="Custo pago",
+            is_paid=True,
+        )
+        self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.CUSTOS_MERCADORIAS_VENDIDAS,
+            amount="50.00",
+            due_date=date(2026, 1, 16),
+            description="Custo em aberto",
+            is_paid=False,
+        )
+        self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.RECEITAS_FINANCEIRAS,
+            amount="40.00",
+            due_date=date(2026, 1, 17),
+            description="Receita financeira paga",
+            is_paid=True,
+        )
+        self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.RECEITAS_FINANCEIRAS,
+            amount="15.00",
+            due_date=date(2026, 1, 18),
+            description="Receita financeira em aberto",
+            is_paid=False,
+        )
+        self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.DESPESAS_FINANCEIRAS,
+            amount="70.00",
+            due_date=date(2026, 1, 19),
+            description="Despesa paga",
+            is_paid=True,
+        )
+        self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.DESPESAS_FINANCEIRAS,
+            amount="30.00",
+            due_date=date(2026, 1, 20),
+            description="Despesa em aberto",
+            is_paid=False,
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "PG",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        rows = {row["label"]: row for row in response.context["dre_rows"]}
+        self.assertEqual(rows["(+) Receita Bruta de Vendas e Serviços"]["amount"], Money("300.00", "BRL"))
+        self.assertEqual(rows["(-) Custos Mercadorias Vendidas"]["amount"], Money("120.00", "BRL"))
+        self.assertEqual(rows["(=) Receita Bruta de Vendas"]["amount"], Money("180.00", "BRL"))
+        self.assertEqual(rows["(+) Receitas Financeiras"]["amount"], Money("40.00", "BRL"))
+        self.assertEqual(rows["(-) Despesas Financeiras"]["amount"], Money("70.00", "BRL"))
+        self.assertEqual(rows["(=) Resultado Operacional"]["amount"], Money("-30.00", "BRL"))
+        self.assertEqual([detail["summary"] for detail in rows["(+) Receita Bruta de Vendas e Serviços"]["details"]], ["Receita paga"])
+        self.assertEqual([detail["summary"] for detail in rows["(+) Receitas Financeiras"]["details"]], ["Receita financeira paga"])
+        self.assertEqual([detail["summary"] for detail in rows["(-) Despesas Financeiras"]["details"]], ["Despesa paga"])
+
+    def test_results_page_filters_unpaid_movements_when_tipo_data_is_npg(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+
+        self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.RECEITA_BRUTA_VENDAS_E_SERVICOS,
+            amount="300.00",
+            due_date=date(2026, 1, 15),
+            description="Receita paga",
+            is_paid=True,
+        )
+        self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.RECEITA_BRUTA_VENDAS_E_SERVICOS,
+            amount="200.00",
+            due_date=date(2026, 1, 16),
+            description="Receita em aberto",
+            is_paid=False,
+        )
+        self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.CUSTOS_MERCADORIAS_VENDIDAS,
+            amount="120.00",
+            due_date=date(2026, 1, 15),
+            description="Custo pago",
+            is_paid=True,
+        )
+        self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.CUSTOS_MERCADORIAS_VENDIDAS,
+            amount="50.00",
+            due_date=date(2026, 1, 16),
+            description="Custo em aberto",
+            is_paid=False,
+        )
+        self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.RECEITAS_FINANCEIRAS,
+            amount="40.00",
+            due_date=date(2026, 1, 17),
+            description="Receita financeira paga",
+            is_paid=True,
+        )
+        self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.RECEITAS_FINANCEIRAS,
+            amount="15.00",
+            due_date=date(2026, 1, 18),
+            description="Receita financeira em aberto",
+            is_paid=False,
+        )
+        self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.DESPESAS_FINANCEIRAS,
+            amount="70.00",
+            due_date=date(2026, 1, 19),
+            description="Despesa paga",
+            is_paid=True,
+        )
+        self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.DESPESAS_FINANCEIRAS,
+            amount="30.00",
+            due_date=date(2026, 1, 20),
+            description="Despesa em aberto",
+            is_paid=False,
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "NPG",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        rows = {row["label"]: row for row in response.context["dre_rows"]}
+        self.assertEqual(rows["(+) Receita Bruta de Vendas e Serviços"]["amount"], Money("200.00", "BRL"))
+        self.assertEqual(rows["(-) Custos Mercadorias Vendidas"]["amount"], Money("50.00", "BRL"))
+        self.assertEqual(rows["(=) Receita Bruta de Vendas"]["amount"], Money("150.00", "BRL"))
+        self.assertEqual(rows["(+) Receitas Financeiras"]["amount"], Money("15.00", "BRL"))
+        self.assertEqual(rows["(-) Despesas Financeiras"]["amount"], Money("30.00", "BRL"))
+        self.assertEqual(rows["(=) Resultado Operacional"]["amount"], Money("-15.00", "BRL"))
+        self.assertEqual([detail["summary"] for detail in rows["(+) Receita Bruta de Vendas e Serviços"]["details"]], ["Receita em aberto"])
+        self.assertEqual([detail["summary"] for detail in rows["(+) Receitas Financeiras"]["details"]], ["Receita financeira em aberto"])
+        self.assertEqual([detail["summary"] for detail in rows["(-) Despesas Financeiras"]["details"]], ["Despesa em aberto"])
+
+    def test_results_page_treats_invalid_tipo_data_as_ambos(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+
+        self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.RECEITA_BRUTA_VENDAS_E_SERVICOS,
+            amount="300.00",
+            due_date=date(2026, 1, 15),
+            description="Receita paga",
+            is_paid=True,
+        )
+        self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.RECEITA_BRUTA_VENDAS_E_SERVICOS,
+            amount="200.00",
+            due_date=date(2026, 1, 16),
+            description="Receita em aberto",
+            is_paid=False,
+        )
+        self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.DESPESAS_FINANCEIRAS,
+            amount="70.00",
+            due_date=date(2026, 1, 19),
+            description="Despesa paga",
+            is_paid=True,
+        )
+        self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.DESPESAS_FINANCEIRAS,
+            amount="30.00",
+            due_date=date(2026, 1, 20),
+            description="Despesa em aberto",
+            is_paid=False,
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "qualquer-coisa",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        rows = {row["label"]: row["amount"] for row in response.context["dre_rows"]}
+        self.assertEqual(response.context["tipo_data_label"], "AMBOS")
+        self.assertEqual(rows["(+) Receita Bruta de Vendas e Serviços"], Money("500.00", "BRL"))
+        self.assertEqual(rows["(-) Despesas Financeiras"], Money("100.00", "BRL"))
+
+    def test_results_page_filters_consolidated_values_by_tipo_data(self) -> None:
+        second_workshop = self._create_additional_workshop(suffix=94)
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas")
+        FinancialGroup.objects.create(workshop=second_workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=second_workshop, name="Custos")
+        FinancialGroup.objects.create(workshop=second_workshop, name="Despesas")
+
+        self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.RECEITA_BRUTA_VENDAS_E_SERVICOS,
+            amount="300.00",
+            due_date=date(2026, 1, 15),
+            description="Receita paga matriz",
+            workshop=self.workshop,
+            is_paid=True,
+        )
+        self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.RECEITA_BRUTA_VENDAS_E_SERVICOS,
+            amount="200.00",
+            due_date=date(2026, 1, 16),
+            description="Receita aberta matriz",
+            workshop=self.workshop,
+            is_paid=False,
+        )
+        self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.RECEITA_BRUTA_VENDAS_E_SERVICOS,
+            amount="180.00",
+            due_date=date(2026, 1, 17),
+            description="Receita paga filial",
+            workshop=second_workshop,
+            is_paid=True,
+        )
+        self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.DESPESAS_FINANCEIRAS,
+            amount="40.00",
+            due_date=date(2026, 1, 18),
+            description="Despesa paga filial",
+            workshop=second_workshop,
+            is_paid=True,
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": DreForm.ALL_WORKSHOPS_VALUE,
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "PG",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        rows = {row["label"]: row for row in response.context["dre_rows"]}
+        self.assertEqual(rows["(+) Receita Bruta de Vendas e Serviços"]["amount"], Money("480.00", "BRL"))
+        self.assertEqual(rows["(-) Despesas Financeiras"]["amount"], Money("40.00", "BRL"))
+        revenue_references = [detail["reference"] for detail in rows["(+) Receita Bruta de Vendas e Serviços"]["details"]]
+        self.assertEqual(len(revenue_references), 2)
+        self.assertTrue(any(f"Filial: {self.workshop.name}" in reference for reference in revenue_references))
+        self.assertTrue(any(f"Filial: {second_workshop.name}" in reference for reference in revenue_references))
 
     def test_results_page_uses_only_selected_financial_groups_in_calculation(self) -> None:
         revenue_group = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
