@@ -309,6 +309,19 @@
                 openModalFromUrl(`{{ create_url }}?${params.toString()}`);
             }
 
+            function formatWallDateTime(date) {
+                if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+                    return '';
+                }
+
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                const hours = String(date.getHours()).padStart(2, '0');
+                const minutes = String(date.getMinutes()).padStart(2, '0');
+                return `${year}-${month}-${day}T${hours}:${minutes}`;
+            }
+
             const calendar = new FullCalendar.Calendar(calendarEl, {
                 locale: 'pt-br',
                 timeZone: 'America/Sao_Paulo',
@@ -355,12 +368,12 @@
                     if (calendar.view.type.startsWith('dayGrid')) {
                         const startDate = new Date(info.date);
                         const endDate = new Date(startDate.getTime() + (60 * 60 * 1000));
-                        openCreateFromRange(startDate.toISOString(), endDate.toISOString());
+                        openCreateFromRange(formatWallDateTime(startDate), formatWallDateTime(endDate));
                     } else if (calendar.view.type.startsWith('timeGrid')) {
                         const start = info.dateStr;
                         const startDate = new Date(info.date);
                         const endDate = new Date(startDate.getTime() + (60 * 60 * 1000));
-                        const end = endDate.toISOString();
+                        const end = formatWallDateTime(endDate);
                         openCreateFromRange(start, end);
                     }
                 },
@@ -382,7 +395,7 @@
                     formData.append('ends_at', info.event.endStr);
                 } else {
                     const plusOneHour = new Date(info.event.start.getTime() + (60 * 60 * 1000));
-                    formData.append('ends_at', plusOneHour.toISOString());
+                    formData.append('ends_at', formatWallDateTime(plusOneHour));
                 }
 
                 fetch(`/scheduling/${info.event.id}/move/`, {
