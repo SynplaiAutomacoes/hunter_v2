@@ -43,6 +43,8 @@ from apps.finance.views import (
     DreReportView,
     DreResultsView,
 )
+
+from apps.finance.views.cash_flow import CashFlowView
 from apps.finance.views.bank_account import BankAccountListView, BankAccountUpdateView, BankAccountCreateView
 from apps.finance.views.financial_movement import FinancialMovementCreateView, FinancialMovementDeleteView, FinancialMovementListView, FinancialMovementUpdateView, SourceDetailView
 from apps.finance.views.payment_method import PaymentMethodListView, PaymentMethodCreateView, PaymentMethodUpdateView
@@ -110,6 +112,9 @@ urlpatterns = [
     path("webmania/requisicoes/", RedirectView.as_view(pattern_name="workshops:emission_history", permanent=False), name="webmania_requests"),
     path("webmania/webhook/ping/", WebhookView.as_view(), name="webhook_ping"),
     path("webmania/webhook/", WebhookView.as_view(), name="webhook"),
+    # Fluxo de Contas
+    path("fluxo-de-contas/", CashFlowView.as_view(), name="cash_flow"),
+    
     # DRE
     path("dre/", DreReportView.as_view(), name="dre_report"),
     path("dre/resultados/", DreResultsView.as_view(), name="dre_results"),
