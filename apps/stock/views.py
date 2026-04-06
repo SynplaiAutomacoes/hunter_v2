@@ -783,7 +783,7 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
             tax_value = getattr(method_obj.tax_value, "amount", None) if method_obj.tax_value else None
             fee_amount = Decimal("0.00")
             if tax_percentage:
-                fee_amount = (total_paid * Decimal(str(tax_percentage)) / Decimal("100.00")).quantize(Decimal("0.01"))
+                fee_amount = (total_paid * Decimal(str(tax_percentage))).quantize(Decimal("0.01"))
             elif tax_value is not None:
                 fee_amount = Decimal(str(tax_value or "0.00")).quantize(Decimal("0.01"))
 
