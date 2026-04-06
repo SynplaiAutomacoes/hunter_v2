@@ -26,7 +26,7 @@ def _resolve_fee_amount(*, payment: WorkOrderPaymentMethod) -> Decimal:
     payment_amount = Decimal(str(getattr(payment.total_paid, "amount", _ZERO) or _ZERO))
     tax_percentage = getattr(payment_method, "tax_percentage", None)
     if tax_percentage:
-        return (payment_amount * Decimal(str(tax_percentage)) / Decimal("100.00")).quantize(Decimal("0.01"))
+        return (payment_amount * Decimal(str(tax_percentage))).quantize(Decimal("0.01"))
 
     tax_value = getattr(getattr(payment_method, "tax_value", None), "amount", None)
     if tax_value is not None:
