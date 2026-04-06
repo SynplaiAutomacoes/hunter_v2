@@ -124,8 +124,18 @@ class MovementStep3Form(FinancialMovementBaseForm):
 
     class Meta:
         model = FinancialMovement
-        fields = ["direction", "payment_method", "is_paid", "amount", "due_date", "nf_number", "budget_plan", "bank_account", "attachment", "financial_observation"]
-        widgets = {"direction": SelectInput(), "payment_method": SearchableSelectInput(), "amount": MoneyInput(), "due_date": CalendarDateInput(), "nf_number": NumberInput(), "budget_plan": SearchableSelectInput(), "bank_account": SearchableSelectInput(), "financial_observation": TextareaInput(attrs={"rows": 4})}
+        fields = ["direction", "payment_method", "is_paid", "amount", "due_date", "nf_number", "dre_topic", "budget_plan", "bank_account", "attachment", "financial_observation"]
+        widgets = {
+            "direction": SelectInput(),
+            "payment_method": SearchableSelectInput(),
+            "amount": MoneyInput(),
+            "due_date": CalendarDateInput(),
+            "nf_number": NumberInput(),
+            "dre_topic": SelectInput(),
+            "budget_plan": SearchableSelectInput(),
+            "bank_account": SearchableSelectInput(),
+            "financial_observation": TextareaInput(attrs={"rows": 4}),
+        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -134,6 +144,7 @@ class MovementStep3Form(FinancialMovementBaseForm):
         self.fields["direction"].required = True
         self.fields["amount"].required = True
         self.fields["payment_method"].required = True
+        self.fields["dre_topic"].required = True
         self.fields["is_paid"].initial = bool(self.instance.is_paid) if self.instance.pk else False
 
         if self.workshop:
@@ -152,9 +163,10 @@ class MovementStep3Form(FinancialMovementBaseForm):
                 Div("budget_plan", css_class="col-span-6"),
                 Div("bank_account", css_class="col-span-6"),
                 #
-                Div("payment_method", css_class="col-span-4"),
-                Div("is_paid", css_class="col-span-4"),
-                Div("nf_number", css_class="col-span-4"),
+                Div("payment_method", css_class="col-span-3"),
+                Div("is_paid", css_class="col-span-3"),
+                Div("nf_number", css_class="col-span-3"),
+                Div("dre_topic", css_class="col-span-3"),
                 Div("attachment", css_class="col-span-12"),
                 #
                 Div("financial_observation", css_class="col-span-12"),
