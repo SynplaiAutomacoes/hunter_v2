@@ -769,6 +769,33 @@ class TestRenderTableTag(TestCase):
         # Card básico
         self.assertIn('class="card', html)
 
+    def test_can_highlight_rows_from_context(self):
+        highlighted_workshop = create_workshop(name="Oficina destaque", is_active=True, cnpj="11.111.111/0001-11")
+        create_workshop(name="Oficina normal", is_active=True, cnpj="22.222.222/0001-22")
+
+        request = self.factory.get("/workshops/")
+        template = Template(
+            """
+            {% load table_tags %}
+            {% render_table workshops fields table_id='t' per_page=10 %}
+            """
+        )
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "workshops": Workshop.objects.order_by("pk"),
+                    "fields": [
+                        {"label": "Nome", "attr": "name"},
+                    ],
+                    "highlighted_row_ids": [highlighted_workshop.pk],
+                }
+            )
+        )
+
+        self.assertEqual(html.count("bg-success/10 hover:bg-success/20 transition-colors"), 1)
+        self.assertEqual(html.count("border-success/30 bg-success/10"), 1)
+
     def test_renders_mobile_sort_dropdown_and_hidden_sort_input(self):
         create_workshop(name="Oficina 01", is_active=True)
 

@@ -1,4 +1,5 @@
 {% extends 'crud/page.html' %}
+{% load l10n %}
 
 {% block crud_content %}
     <div class="space-y-6">
@@ -118,7 +119,7 @@
                                                 <select name="bank_account" id="reports-filter-bank-account" class="select select-bordered w-full">
                                                     <option value="">Todas</option>
                                                     {% for bank_account in bank_account_filters %}
-                                                        <option value="{{ bank_account.pk }}" {% if selected_bank_account_id == bank_account.pk %}selected{% endif %}>{{ bank_account }}</option>
+                                                        <option value="{{ bank_account.pk|unlocalize }}" {% if selected_bank_account_id == bank_account.pk %}selected{% endif %}>{{ bank_account }}</option>
                                                     {% endfor %}
                                                 </select>
                                             </div>
@@ -231,9 +232,9 @@
                                                             type="checkbox"
                                                             class="checkbox checkbox-sm row-checkbox"
                                                             name="financial_groups"
-                                                            value="{{ financial_group.pk }}"
-                                                            data-row-id="{{ financial_group.pk }}"
-                                                            {% if financial_group.parent_id %}data-parent-id="{{ financial_group.parent_id }}"{% endif %}
+                                                            value="{{ financial_group.pk|unlocalize }}"
+                                                            data-row-id="{{ financial_group.pk|unlocalize }}"
+                                                            {% if financial_group.parent_id %}data-parent-id="{{ financial_group.parent_id|unlocalize }}"{% endif %}
                                                             {% if financial_group.pk in selected_financial_group_ids %}checked{% endif %}
                                                             @change="handleRowCheckboxChange($event)"
                                                             aria-label="Selecionar grupo financeiro"
@@ -257,98 +258,102 @@
                     </div>
                 </div>
 
-                {% if financial_movement_report_rows %}
-                    <div class="overflow-hidden rounded-xl border border-base-300 bg-base-100">
-                        <div class="overflow-x-auto">
-                            <table id="financial-reports-movements-table" class="table table-sm md:table-md">
-                                <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
-                                    <tr>
-                                        <th>Pago</th>
-                                        <th>Tipo</th>
-                                        <th>Vencimento</th>
-                                        <th>Agente</th>
-                                        <th>Origem</th>
-                                        <th>Descrição</th>
-                                        <th>Plano Orçamentário</th>
-                                        <th>Conta</th>
-                                        <th>Tipo Pagamento</th>
-                                        <th class="text-center">Editar</th>
-                                        <th class="text-right">Total</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for row in financial_movement_report_rows %}
-                                        <tr class="bg-base-100">
-                                            <td class="{% if row.is_expandable %}cursor-pointer{% endif %}"{% if row.is_expandable %} @click="openRow = openRow === '{{ row.component }}' ? null : '{{ row.component }}'"{% endif %}>
-                                                <div class="flex items-center gap-2">
-                                                    {% if row.is_expandable %}
-                                                        <span class="material-icons text-base leading-none text-base-content/55" x-text="openRow === '{{ row.component }}' ? 'expand_more' : 'chevron_right'"></span>
-                                                    {% endif %}
-                                                    {% if row.paid_status.icon %}
-                                                        <span class="inline-flex items-center gap-1 {{ row.paid_status.class }}" title="{{ row.paid_status.label }}" aria-label="{{ row.paid_status.label }}">
-                                                            <span class="material-icons text-base leading-none">{{ row.paid_status.icon }}</span>
-                                                            <span class="font-medium">{{ row.paid_status.label }}</span>
-                                                        </span>
-                                                    {% else %}
-                                                        <span class="font-medium text-base-content/70">{{ row.paid_status }}</span>
-                                                    {% endif %}
-                                                </div>
-                                            </td>
-                                            <td><span class="badge {{ row.type_badge.class }} badge-sm whitespace-nowrap">{{ row.type_badge.text }}</span></td>
-                                            <td>{{ row.due_date|date:"d/m/Y"|default:"-" }}</td>
-                                            <td>{{ row.agent }}</td>
-                                            <td>{{ row.origin }}</td>
-                                            <td>{{ row.description }}</td>
-                                            <td>{{ row.budget_plan }}</td>
-                                            <td>{{ row.account }}</td>
-                                            <td>{{ row.payment_type }}</td>
-                                            <td class="text-center">
-                                                <a href="{{ row.edit_url }}" class="btn btn-ghost btn-xs" title="Editar Movimentação Financeira" aria-label="Editar Movimentação Financeira">
-                                                    <span class="material-icons text-sm">edit</span>
-                                                </a>
-                                            </td>
-                                            <td class="text-right"><span class="{{ row.total.class }}">{{ row.total.text }}</span></td>
+                <div id="financial-reports-movements-section">
+                    {% if financial_movement_report_rows %}
+                        <div class="overflow-hidden rounded-xl border border-base-300 bg-base-100">
+                            <div class="overflow-x-auto">
+                                <table id="financial-reports-movements-table" class="table table-sm md:table-md">
+                                    <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
+                                        <tr>
+                                            <th>Pago</th>
+                                            <th>Tipo</th>
+                                            <th>Vencimento</th>
+                                            <th>Agente</th>
+                                            <th>Origem</th>
+                                            <th>Descrição</th>
+                                            <th>Plano Orçamentário</th>
+                                            <th>Conta</th>
+                                            <th>Tipo Pagamento</th>
+                                            <th class="text-center">Editar</th>
+                                            <th class="text-right">Total</th>
                                         </tr>
-                                        {% if row.is_expandable %}
-                                            <tr class="bg-base-200/40" x-cloak x-show="openRow === '{{ row.component }}'">
-                                                <td colspan="11" class="p-0">
-                                                    <div class="border-t border-base-300 px-4 py-4 md:px-6">
-                                                        <div class="overflow-hidden rounded-xl border border-base-300 bg-base-100">
-                                                            <table class="table table-sm">
-                                                                <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
-                                                                    <tr>
-                                                                        <th>Data do Pagamento</th>
-                                                                        <th>Tipo Pagamento</th>
-                                                                        <th class="text-right">Valor</th>
-                                                                        <th class="text-right">Pendente</th>
-                                                                    </tr>
-                                                                </thead>
-                                                                <tbody>
-                                                                    {% for detail in row.details %}
-                                                                        <tr>
-                                                                            <td>{{ detail.payment_date|date:"d/m/Y"|default:"-" }}</td>
-                                                                            <td>{{ detail.payment_type }}</td>
-                                                                            <td class="text-right font-semibold text-success">+ {{ detail.amount }}</td>
-                                                                            <td class="text-right font-semibold {{ detail.pending_class }}">{{ detail.pending_amount }}</td>
-                                                                        </tr>
-                                                                    {% endfor %}
-                                                                </tbody>
-                                                            </table>
-                                                        </div>
+                                    </thead>
+                                    <tbody>
+                                        {% for row in financial_movement_report_rows %}
+                                            <tr class="bg-base-100">
+                                                <td class="{% if row.is_expandable %}cursor-pointer{% endif %}"{% if row.is_expandable %} @click="openRow = openRow === '{{ row.component }}' ? null : '{{ row.component }}'"{% endif %}>
+                                                    <div class="flex items-center gap-2">
+                                                        {% if row.is_expandable %}
+                                                            <span class="material-icons text-base leading-none text-base-content/55" x-text="openRow === '{{ row.component }}' ? 'expand_more' : 'chevron_right'"></span>
+                                                        {% endif %}
+                                                        {% if row.paid_status.icon %}
+                                                            <span class="inline-flex items-center gap-1 {{ row.paid_status.class }}" title="{{ row.paid_status.label }}" aria-label="{{ row.paid_status.label }}">
+                                                                <span class="material-icons text-base leading-none">{{ row.paid_status.icon }}</span>
+                                                                <span class="font-medium">{{ row.paid_status.label }}</span>
+                                                            </span>
+                                                        {% else %}
+                                                            <span class="font-medium text-base-content/70">{{ row.paid_status }}</span>
+                                                        {% endif %}
                                                     </div>
                                                 </td>
+                                                <td><span class="badge {{ row.type_badge.class }} badge-sm whitespace-nowrap">{{ row.type_badge.text }}</span></td>
+                                                <td>{{ row.due_date|date:"d/m/Y"|default:"-" }}</td>
+                                                <td>{{ row.agent }}</td>
+                                                <td>{{ row.origin }}</td>
+                                                <td>{{ row.description }}</td>
+                                                <td>{{ row.budget_plan }}</td>
+                                                <td>{{ row.account }}</td>
+                                                <td>{{ row.payment_type }}</td>
+                                                <td class="text-center">
+                                                    <a href="{{ row.edit_url }}" class="btn btn-ghost btn-xs" title="Editar Movimentação Financeira" aria-label="Editar Movimentação Financeira">
+                                                        <span class="material-icons text-sm">edit</span>
+                                                    </a>
+                                                </td>
+                                                <td class="text-right"><span class="{{ row.total.class }}">{{ row.total.text }}</span></td>
                                             </tr>
-                                        {% endif %}
-                                    {% endfor %}
-                                </tbody>
-                            </table>
+                                            {% if row.is_expandable %}
+                                                <tr class="bg-base-200/40" x-cloak x-show="openRow === '{{ row.component }}'">
+                                                    <td colspan="11" class="p-0">
+                                                        <div class="border-t border-base-300 px-4 py-4 md:px-6">
+                                                            <div class="overflow-hidden rounded-xl border border-base-300 bg-base-100">
+                                                                <table class="table table-sm">
+                                                                    <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
+                                                                        <tr>
+                                                                            <th>Data do Pagamento</th>
+                                                                            <th>Tipo Pagamento</th>
+                                                                            <th class="text-right">Valor</th>
+                                                                            <th class="text-right">Pendente</th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody>
+                                                                        {% for detail in row.details %}
+                                                                            <tr>
+                                                                                <td>{{ detail.payment_date|date:"d/m/Y"|default:"-" }}</td>
+                                                                                <td>{{ detail.payment_type }}</td>
+                                                                                <td class="text-right font-semibold text-success">+ {{ detail.amount }}</td>
+                                                                                <td class="text-right font-semibold {{ detail.pending_class }}">{{ detail.pending_amount }}</td>
+                                                                            </tr>
+                                                                        {% endfor %}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
-                    </div>
-                {% else %}
-                    <div class="rounded-xl border border-dashed border-base-300 px-6 py-10 text-center text-sm text-base-content/60">
-                        Nenhuma movimentação financeira encontrada.
-                    </div>
-                {% endif %}
+                    {% else %}
+                        <div class="rounded-xl border border-dashed border-base-300 px-6 py-10 text-center text-sm text-base-content/60">
+                            Nenhuma movimentação financeira encontrada.
+                        </div>
+                    {% endif %}
+
+                    {% include "tables/partials/_pagination.html" %}
+                </div>
             </div>
         </div>
     </div>

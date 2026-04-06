@@ -4916,6 +4916,84 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertContains(response, "Total")
         self.assertContains(response, "Data do Pagamento")
 
+    def test_reports_home_view_paginates_financial_movements_with_10_rows_per_page(self) -> None:
+        for index in range(1, 13):
+            FinancialMovement.objects.create(
+                workshop=self.workshop,
+                user=self.user,
+                source=self.source,
+                direction=FinancialMovement.MovementDirection.CREDIT,
+                amount=Money(f"{index}.00", "BRL"),
+                due_date=timezone.localdate(),
+                description=f"Movimento {index:02d}",
+            )
+
+        response = self.client.get(reverse("finance:reports_home"))
+        rows = response.context["financial_movement_report_rows"]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(rows), 10)
+        self.assertEqual(response.context["page_obj"].number, 1)
+        self.assertContains(response, "Movimento 12")
+        self.assertContains(response, "Movimento 03")
+        self.assertNotContains(response, "Movimento 02")
+        self.assertNotContains(response, "Movimento 01")
+        self.assertContains(response, "Página 1 de 2")
+        self.assertContains(response, f'hx-get="{reverse("finance:reports_home")}?page=2"', html=False)
+
+        second_page_response = self.client.get(reverse("finance:reports_home"), data={"page": 2})
+        second_page_rows = second_page_response.context["financial_movement_report_rows"]
+
+        self.assertEqual(second_page_response.status_code, 200)
+        self.assertEqual(len(second_page_rows), 2)
+        self.assertEqual(second_page_response.context["page_obj"].number, 2)
+        self.assertContains(second_page_response, "Movimento 02")
+        self.assertContains(second_page_response, "Movimento 01")
+        self.assertNotContains(second_page_response, "Movimento 03")
+        self.assertContains(second_page_response, "Página 2 de 2")
+        self.assertContains(second_page_response, f'hx-get="{reverse("finance:reports_home")}?page=1"', html=False)
+
+    def test_reports_home_view_pagination_links_preserve_active_filters(self) -> None:
+        selected_account = self._create_bank_account(suffix="7")
+        other_account = self._create_bank_account(suffix="8")
+
+        for index in range(1, 12):
+            FinancialMovement.objects.create(
+                workshop=self.workshop,
+                user=self.user,
+                source=self.source,
+                direction=FinancialMovement.MovementDirection.DEBIT,
+                amount=Money(f"{index}.00", "BRL"),
+                due_date=timezone.localdate(),
+                description=f"Despesa filtrada {index:02d}",
+                bank_account=selected_account,
+            )
+
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("99.00", "BRL"),
+            due_date=timezone.localdate(),
+            description="Despesa fora do filtro",
+            bank_account=other_account,
+        )
+
+        response = self.client.get(
+            reverse("finance:reports_home"),
+            data={"bank_account": str(selected_account.pk), "direction": FinancialMovement.MovementDirection.DEBIT},
+        )
+        compact_html = "".join(response.content.decode("utf-8").split())
+        next_page_url = f"{reverse('finance:reports_home')}?bank_account={selected_account.pk}&amp;direction={FinancialMovement.MovementDirection.DEBIT}&amp;page=2"
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context["financial_movement_report_rows"]), 10)
+        self.assertEqual(response.context["page_obj"].number, 1)
+        self.assertContains(response, "Despesa filtrada 11")
+        self.assertNotContains(response, "Despesa fora do filtro")
+        self.assertIn(f'hx-get="{next_page_url}"', compact_html)
+
     def test_reports_home_view_displays_mixed_financial_movements_and_os_payment_statuses(self) -> None:
         unpaid_workorder = self._create_report_workorder(
             customer_name="Cliente Sem Pagamento",
