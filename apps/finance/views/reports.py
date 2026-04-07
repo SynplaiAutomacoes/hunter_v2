@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import Any
 
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.paginator import Paginator
 from django.urls import reverse
 from django.utils import timezone
 from django.views.generic import TemplateView
@@ -22,6 +23,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
     model = FinancialMovement
     template_name = "finance/reports/reports_home.html"
     workshop_permission_codename = "view_financialmovement"
+    MOVEMENTS_PER_PAGE = 10
     FILTER_DIRECTION_CHOICES = (
         ("", "Todos"),
         (FinancialMovement.MovementDirection.CREDIT, "Contas a receber"),
@@ -253,22 +255,34 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "details": details,
         }
 
-    def _get_financial_movement_report_rows(self) -> list[dict[str, object]]:
-        return [self._build_financial_movement_row(movement) for movement in self._get_financial_movements_queryset()]
+    def _build_pagination_url(self, *, page_number: int) -> str:
+        params = self.request.GET.copy()
+        params["page"] = str(page_number)
+        querystring = params.urlencode()
+        return f"{self.request.path}?{querystring}" if querystring else self.request.path
 
-    def get_context_data(self, **kwargs):
+    def _get_financial_movements_page(self) -> tuple[Any, Paginator]:
+        paginator = Paginator(self._get_financial_movements_queryset(), self.MOVEMENTS_PER_PAGE)
+        page_obj = paginator.get_page(self.request.GET.get("page") or "1")
+        return page_obj, paginator
+
+    def _get_financial_movement_report_rows(self, *, movements: Any) -> list[dict[str, object]]:
+        return [self._build_financial_movement_row(movement) for movement in movements]
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         reference_date = timezone.localdate()
         monthly_overview = build_monthly_financial_overview(workshop=self.workshop, reference_date=reference_date)
         yearly_overview = build_yearly_financial_overview(workshop=self.workshop, reference_date=reference_date)
         filter_params = self._get_filter_params()
+        page_obj, paginator = self._get_financial_movements_page()
 
         context["top_summary_cards"] = [
             self._build_summary_card(title="Créditos e Débitos deste Mês", overview=monthly_overview),
             self._build_summary_card(title=f"Balanço Geral {reference_date.year}", overview=yearly_overview),
             self._build_selection_summary_card(),
         ]
-        context["financial_movement_report_rows"] = self._get_financial_movement_report_rows()
+        context["financial_movement_report_rows"] = self._get_financial_movement_report_rows(movements=page_obj.object_list)
         context["financial_group_filters"] = self._get_financial_groups_queryset()
         context["bank_account_filters"] = self._get_bank_accounts_queryset()
         context["direction_filter_choices"] = self.FILTER_DIRECTION_CHOICES
@@ -277,4 +291,13 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         context["selected_direction"] = filter_params["direction"]
         context["has_active_filters"] = self._has_active_filters()
         context["clear_filters_url"] = reverse("finance:reports_home")
+        context["page_obj"] = page_obj
+        context["paginator"] = paginator
+        context["is_paginated"] = paginator.num_pages > 1
+        context["prev_url"] = self._build_pagination_url(page_number=page_obj.previous_page_number()) if page_obj.has_previous() else None
+        context["next_url"] = self._build_pagination_url(page_number=page_obj.next_page_number()) if page_obj.has_next() else None
+        context["htmx_target"] = "#financial-reports-movements-section"
+        context["htmx_select"] = "#financial-reports-movements-section"
+        context["htmx_swap"] = "outerHTML"
+        context["htmx_push_url"] = "true"
         return context

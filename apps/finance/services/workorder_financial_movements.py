@@ -26,7 +26,7 @@ def _resolve_fee_amount(*, payment: WorkOrderPaymentMethod) -> Decimal:
     payment_amount = Decimal(str(getattr(payment.total_paid, "amount", _ZERO) or _ZERO))
     tax_percentage = getattr(payment_method, "tax_percentage", None)
     if tax_percentage:
-        return (payment_amount * Decimal(str(tax_percentage)) / Decimal("100.00")).quantize(Decimal("0.01"))
+        return (payment_amount * Decimal(str(tax_percentage))).quantize(Decimal("0.01"))
 
     tax_value = getattr(getattr(payment_method, "tax_value", None), "amount", None)
     if tax_value is not None:
@@ -63,6 +63,7 @@ def _sync_workorder_card_fee_movements(*, workorder: WorkOrder) -> None:
                 "amount": fee_amount,
                 "due_date": payment.due_date,
                 "is_paid": True,
+                "dre_topic": FinancialMovement.DreTopic.DESPESAS_FINANCEIRAS,
             },
         )
 
@@ -90,6 +91,7 @@ def sync_workorder_financial_movement(*, workorder: WorkOrder) -> FinancialMovem
         "amount": workorder.total_budget_value,
         "due_date": workorder.criado_em.date() if workorder.criado_em else None,
         "movement_kind": FinancialMovement.MovementKind.WORKORDER_PARENT,
+        "dre_topic": FinancialMovement.DreTopic.RECEITA_BRUTA_VENDAS_E_SERVICOS,
     }
 
     movement = FinancialMovement.objects.filter(workorder=workorder, movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT).order_by("pk").first()

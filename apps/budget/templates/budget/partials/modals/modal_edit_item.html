@@ -55,6 +55,28 @@
                     </label>
                     {{ stock_quantity_html }}
                 </div>
+
+                {% if form.is_customer_supplied %}
+                    <div class="form-control w-full" id="div_id_is_customer_supplied">
+                        <label class="label">
+                            <span class="label-text font-semibold flex items-center gap-2">
+                                <span class="material-icons text-sm">person</span>
+                                {{ form.is_customer_supplied.label }}
+                            </span>
+                        </label>
+
+                        {{ form.is_customer_supplied }}
+
+                        {% if form.is_customer_supplied.errors %}
+                            <label class="label">
+                                <span class="label-text-alt text-error flex items-center gap-1 animate-fade-in">
+                                    <span class="material-icons text-xs">error</span>
+                                    {{ form.is_customer_supplied.errors.0 }}
+                                </span>
+                            </label>
+                        {% endif %}
+                    </div>
+                {% endif %}
             {% endif %}
             {% include "budget/partials/modals/modal_edit_item_form.html" %}
         </div>

@@ -753,8 +753,59 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 return self._htmx_payment_response(f"O valor informado (R$ {first_amount}) excede o saldo pendente (R$ {valor_disponivel}).", level="warning")
 
             payments = list(obj.payments_data or [])
+
+            from apps.finance.models.financial_movement import FinancialMovement
+            from apps.sources.models import Source
+            
+            resolved_nf_number = obj.nf_number_display or "S/N" if hasattr(obj, "nf_number_display") else (obj.nf_number or "S/N")
+            source_name = obj.supplier_name or "Fornecedor da Importação"
+            source_cnpj = obj.supplier_cnpj or ""
+            source, _ = Source.objects.get_or_create(
+                workshop=self.workshop,
+                name=source_name,
+                defaults={"cnpj": source_cnpj}
+            )
+            
+            fm = FinancialMovement.objects.create(
+                workshop=self.workshop,
+                user=self.request.user,
+                source=source,
+                direction=FinancialMovement.MovementDirection.DEBIT,
+                description=f"Pagamento Importação de Estoque - NF: {resolved_nf_number}",
+                payment_method=method_obj,
+                nf_number=obj.nf_number,
+                amount=Money(total_paid, "BRL"),
+                due_date=payment_date,
+                is_paid=False,
+            )
+
+            tax_percentage = method_obj.tax_percentage
+            tax_value = getattr(method_obj.tax_value, "amount", None) if method_obj.tax_value else None
+            fee_amount = Decimal("0.00")
+            if tax_percentage:
+                fee_amount = (total_paid * Decimal(str(tax_percentage))).quantize(Decimal("0.01"))
+            elif tax_value is not None:
+                fee_amount = Decimal(str(tax_value or "0.00")).quantize(Decimal("0.01"))
+
+            fm_fee = None
+            if fee_amount > 0:
+                fm_fee = FinancialMovement.objects.create(
+                    workshop=self.workshop,
+                    user=self.request.user,
+                    source=source,
+                    direction=FinancialMovement.MovementDirection.DEBIT,
+                    description="Pagamento da taxa da maquininha",
+                    payment_method=method_obj,
+                    nf_number=obj.nf_number,
+                    amount=Money(fee_amount, "BRL"),
+                    due_date=payment_date,
+                    is_paid=False,
+                )
+
             new_payment = {
                 "id": get_next_entry_id(payments),
+                "financial_movement_id": fm.pk,
+                "fee_financial_movement_id": fm_fee.pk if fm_fee else None,
                 "entry_type": "payment",
                 "method": method_obj.id,
                 "method_display": method_obj.description,
@@ -783,6 +834,14 @@ class RemovePaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def post(self, request, payment_id, *args, **kwargs):
         pk = request.GET.get("pk")
         obj = get_object_or_404(StockImport, id=pk, workshop=self.workshop)
+        removed_payment = next((p for p in obj.payments_data if p["id"] == int(payment_id)), None)
+        if removed_payment:
+            from apps.finance.models.financial_movement import FinancialMovement
+            if "financial_movement_id" in removed_payment and removed_payment["financial_movement_id"]:
+                FinancialMovement.objects.filter(pk=removed_payment["financial_movement_id"], workshop=self.workshop).delete()
+            if "fee_financial_movement_id" in removed_payment and removed_payment["fee_financial_movement_id"]:
+                FinancialMovement.objects.filter(pk=removed_payment["fee_financial_movement_id"], workshop=self.workshop).delete()
+
         payments = [p for p in obj.payments_data if p["id"] != int(payment_id)]
 
         obj.payments_data = payments

@@ -49,7 +49,7 @@
             <tbody>
             {% if rows %}
                 {% for row in rows %}
-                    <tr>
+                    <tr{% if highlighted_row_ids and row.pk in highlighted_row_ids %} class="bg-success/10 hover:bg-success/20 transition-colors"{% endif %}>
                         {% if selectable %}
                             <td class="w-10">
                                 <input

@@ -23,7 +23,7 @@ from django.urls import reverse
 from django.utils import timezone
 from djmoney.money import Money
 
-from apps.budget.forms import BudgetStep1Form, BudgetStep6Form
+from apps.budget.forms import BudgetStep1Form, BudgetStep4Form, BudgetStep6Form
 from apps.budget.forms.shared import _render_budget_items_rows
 from apps.budget.models import Budget, BudgetItem, BudgetStatus, SignatureStatus
 from apps.budget.pdf_context import build_budget_pdf_context
@@ -913,6 +913,23 @@ class BudgetPdfContextTests(TestCase):
 
         self.assertEqual(context["produtos"][0]["application"], "Fiat Uno")
 
+    def test_build_budget_pdf_context_includes_customer_supplied_flag(self) -> None:
+        workshop = create_workshop(suffix=83)
+        budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=83)
+
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            product=product,
+            quantity=1,
+            is_customer_supplied=True,
+        )
+
+        context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste")
+
+        self.assertTrue(context["produtos"][0]["is_customer_supplied"])
+
     def test_budget_pdf_template_allows_long_freeform_text_to_wrap(self) -> None:
         workshop = create_workshop(suffix=94)
         customer = create_customer(workshop=workshop, suffix=94)
@@ -1019,6 +1036,34 @@ class BudgetPdfViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'src="data:image/png;base64,bW9uZ28tbG9nbw=="', html=False)
         build_workshop_logo_data_uri_mock.assert_called_once_with(workshop=self.workshop)
+
+    def test_pdf_views_render_customer_supplied_product_info(self) -> None:
+        budget = self._create_budget_with_customer_and_vehicle(suffix=103)
+        supplied_product = create_product(workshop=self.workshop, suffix=103)
+        regular_product = create_product(workshop=self.workshop, suffix=104)
+
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            product=supplied_product,
+            quantity=1,
+            is_customer_supplied=True,
+        )
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            product=regular_product,
+            quantity=1,
+            is_customer_supplied=False,
+        )
+
+        for url_name in ["budget:visualizar_pdf", "budget:visualizar_pdf_gestor", "budget:visualizar_pdf_mecanico"]:
+            response = self.client.get(reverse(url_name, args=[budget.pk]))
+
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, "Trago pelo cliente?")
+            self.assertRegex(response.content.decode(), r">\s*Sim\s*<")
+            self.assertRegex(response.content.decode(), r">\s*Não\s*<")
 
     def test_visualizar_pdf_uses_budget_observation_only(self) -> None:
         budget_a = self._create_budget_with_customer_and_vehicle(suffix=101)
@@ -1371,12 +1416,15 @@ class BudgetQuickCreateProductValidationTests(TestCase):
             reverse("budget:edit_item", args=[self.budget.pk, budget_item.pk]),
             HTTP_HX_REQUEST="true",
         )
+        content = response.content.decode()
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'name="ncm"')
         self.assertContains(response, 'value="87089990"')
+        self.assertContains(response, 'name="is_customer_supplied"')
         self.assertContains(response, 'id="stock-quantity-reference"')
         self.assertNotContains(response, 'type="number"')
+        self.assertLess(content.index('id="stock-quantity-reference"'), content.index('name="is_customer_supplied"'))
 
     def test_quick_edit_product_updates_ncm(self) -> None:
         product = create_product(workshop=self.workshop, suffix=103)
@@ -1398,6 +1446,7 @@ class BudgetQuickCreateProductValidationTests(TestCase):
                 "product_selling_price_1": "BRL",
                 "shipping_0": "0.00",
                 "shipping_1": "BRL",
+                "is_customer_supplied": "on",
                 "ncm": "12345678",
                 "action": "save_only",
             },
@@ -1406,8 +1455,85 @@ class BudgetQuickCreateProductValidationTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("HX-Redirect", response)
+        budget_item.refresh_from_db()
         product.refresh_from_db()
+        self.assertTrue(budget_item.is_customer_supplied)
         self.assertEqual(product.ncm, "12345678")
+
+    def test_quick_edit_service_modal_hides_customer_supplied_field(self) -> None:
+        service = create_service(workshop=self.workshop, suffix=104)
+        budget_item = BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            service=service,
+            quantity=1,
+        )
+
+        response = self.client.get(
+            reverse("budget:edit_item", args=[self.budget.pk, budget_item.pk]),
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'name="is_customer_supplied"')
+
+    def test_product_row_shows_customer_supplied_badge(self) -> None:
+        product = create_product(workshop=self.workshop, suffix=105)
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            product=product,
+            quantity=1,
+            is_customer_supplied=True,
+        )
+
+        rows = _render_budget_items_rows(self.budget, step6=False)
+
+        self.assertIn("badge-success", rows["product"])
+        self.assertIn(">Sim<", rows["product"])
+        self.assertIn('<td class="text-center">', rows["product"])
+
+    def test_product_row_shows_customer_supplied_badge_on_step6(self) -> None:
+        product = create_product(workshop=self.workshop, suffix=106)
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            product=product,
+            quantity=1,
+            is_customer_supplied=True,
+        )
+
+        rows = _render_budget_items_rows(self.budget, step6=True)
+
+        self.assertIn("badge-success", rows["product"])
+        self.assertIn(">Sim<", rows["product"])
+        self.assertIn('<td class="text-center">', rows["product"])
+
+    def test_product_row_shows_not_customer_supplied_badge_by_default(self) -> None:
+        product = create_product(workshop=self.workshop, suffix=107)
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            product=product,
+            quantity=1,
+        )
+
+        rows = _render_budget_items_rows(self.budget, step6=False)
+
+        self.assertIn("badge-ghost", rows["product"])
+        self.assertIn(">Não<", rows["product"])
+
+    def test_step4_and_step6_product_tables_show_customer_column_header(self) -> None:
+        request = RequestFactory().get("/")
+        request.user = self.user
+        step4_form = BudgetStep4Form(instance=self.budget, workshop=self.workshop, request=request)
+        step4_html = Template("{% load crispy_forms_tags %}{% crispy form %}").render(Context({"form": step4_form, "csrf_token": "token"}))
+
+        step6_form = BudgetStep6Form(instance=self.budget, workshop=self.workshop, request=request)
+        step6_html = Template("{% load crispy_forms_tags %}{% crispy form %}").render(Context({"form": step6_form, "csrf_token": "token"}))
+
+        self.assertIn("Trago pelo cliente?", step4_html)
+        self.assertIn("Trago pelo cliente?", step6_html)
 
     def test_product_name_lookup_returns_similar_products(self) -> None:
         create_product(workshop=self.workshop, suffix=101)
