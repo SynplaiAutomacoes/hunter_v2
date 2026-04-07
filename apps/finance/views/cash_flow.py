@@ -127,7 +127,10 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             
         # Bank Account Filter
         if filter_params["bank_account_id"]:
-            queryset = queryset.filter(bank_account_id=filter_params["bank_account_id"])
+            if filter_params["bank_account_id"] == "none":
+                queryset = queryset.filter(bank_account__isnull=True)
+            else:
+                queryset = queryset.filter(bank_account_id=filter_params["bank_account_id"])
             
         # Global Search
         if filter_params["search"]:
@@ -230,25 +233,29 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         filter_params = self._get_filter_params()
         
         bank_account_id = filter_params.get("bank_account_id")
-        selected_account = None
+        selected_account_name = None
         if bank_account_id:
-            try:
-                selected_account = BankAccount.objects.get(pk=bank_account_id, workshop=self.workshop)
-            except (BankAccount.DoesNotExist, ValueError):
-                selected_account = None
+            if bank_account_id == "none":
+                selected_account_name = "Sem Vínculo"
+            else:
+                try:
+                    selected_account = BankAccount.objects.get(pk=bank_account_id, workshop=self.workshop)
+                    selected_account_name = str(selected_account)
+                except (BankAccount.DoesNotExist, ValueError):
+                    selected_account_name = None
 
         # Saldo geral ou da conta específica, do inicio até o dia atual
         general_overview = build_financial_overview(
             workshop=self.workshop,
             start_date=self.workshop.criado_em.date() if self.workshop.criado_em else date(2000, 1, 1),
             end_date=None,
-            bank_account_id=int(bank_account_id) if bank_account_id and bank_account_id.isdigit() else None
+            bank_account_id=bank_account_id if bank_account_id else None
         )
 
         context["saldo_atual"] = {
             "value": format_money(general_overview.confirmed_result),
             "tone": self._resolve_result_tone(general_overview.confirmed_result),
-            "account_name": str(selected_account) if selected_account else None,
+            "account_name": selected_account_name,
         }
         context["filter_start_date"] = filter_params["start_date"]
         context["filter_end_date"] = filter_params["end_date"]

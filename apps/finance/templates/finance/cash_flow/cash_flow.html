@@ -108,6 +108,7 @@
                                                 <label for="cashflow-filter-conta-bancaria" class="label text-xs font-semibold uppercase tracking-wider text-base-content/60">Conta Bancária</label>
                                                 <select name="conta_bancaria" id="cashflow-filter-conta-bancaria" class="select select-bordered w-full">
                                                     <option value="">Todas</option>
+                                                    <option value="none" {% if request.GET.conta_bancaria == 'none' %}selected{% endif %}>Sem Vínculo</option>
                                                     {% for account in bank_accounts %}
                                                         <option value="{{ account.pk }}" {% if request.GET.conta_bancaria == account.pk|stringformat:"s" %}selected{% endif %}>{{ account }}</option>
                                                     {% endfor %}
