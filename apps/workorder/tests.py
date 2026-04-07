@@ -510,7 +510,7 @@ class WorkOrderItemPriceTrackingTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Insira um valor maior que")
+        self.assertContains(response, "Último valor usado: R$ 40,00")
         item.refresh_from_db()
         product.refresh_from_db()
         self.assertEqual(item.product_selling_price, Money("40.00", "BRL"))
