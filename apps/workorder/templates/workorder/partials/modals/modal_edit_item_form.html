@@ -29,6 +29,12 @@
 
             {{ field }}
 
+            {% if field.name == "product_selling_price" %}
+                <label class="label hidden" id="lower-price-help-label">
+                    <span class="label-text-alt text-warning" id="lower-price-help-text"></span>
+                </label>
+            {% endif %}
+
             {% if field.errors %}
                 <label class="label">
                     <span class="label-text-alt text-error flex items-center gap-1">

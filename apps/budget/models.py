@@ -9,6 +9,7 @@ from djmoney.money import Money
 from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
+from apps.catalog.price_tracking import record_product_last_used_price
 from apps.catalog.product_issues import ProductIssueSummary, annotate_product_issues
 from apps.core.models import TimeStampedModel
 from djmoney.models.fields import MoneyField
@@ -717,6 +718,9 @@ class BudgetItem(TimeStampedModel):
                 self.description = self.kit.name
 
         super().save(*args, **kwargs)
+
+        if self.product_id:
+            record_product_last_used_price(product=self.product, price=self.product_selling_price)
 
     @property
     def duration_display(self):

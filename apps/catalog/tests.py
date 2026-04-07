@@ -297,6 +297,96 @@ class ProductFormTests(TestCase):
         product = form.save(commit=False)
         self.assertEqual(product.profit_margin, Decimal("50.00"))
 
+    def test_product_form_requires_confirmation_for_price_below_last_used_price(self) -> None:
+        product = Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-003",
+            name="Produto Historico",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("40.00", "BRL"),
+            last_used_price=Money("30.00", "BRL"),
+            ncm="87089990",
+        )
+
+        form = ProductForm(
+            instance=product,
+            data={
+                "code": product.code,
+                "name": product.name,
+                "description": "",
+                "unit": Product.Unit.UND,
+                "group": str(self.group.pk),
+                "brand": "",
+                "model": "",
+                "sku": "",
+                "barcode": "",
+                "location": "",
+                "cost_price_0": "10.00",
+                "cost_price_1": "BRL",
+                "selling_price_0": "20.00",
+                "selling_price_1": "BRL",
+                "profit_margin": "50.00",
+                "ncm": "87089990",
+                "cest": "",
+                "origin_cst": str(Product.OriginCST.NACIONAL),
+                "purpose": Product.Purpose.RESALE,
+                "application": "",
+                "is_active": "on",
+            },
+            workshop=self.workshop,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("Insira um valor maior que", str(form.errors["selling_price"][0]))
+
+    def test_product_form_allows_confirmed_price_below_last_used_price(self) -> None:
+        product = Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-004",
+            name="Produto Historico Confirmado",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("40.00", "BRL"),
+            last_used_price=Money("30.00", "BRL"),
+            ncm="87089990",
+        )
+
+        form = ProductForm(
+            instance=product,
+            data={
+                "code": product.code,
+                "name": product.name,
+                "description": "",
+                "unit": Product.Unit.UND,
+                "group": str(self.group.pk),
+                "brand": "",
+                "model": "",
+                "sku": "",
+                "barcode": "",
+                "location": "",
+                "cost_price_0": "10.00",
+                "cost_price_1": "BRL",
+                "selling_price_0": "20.00",
+                "selling_price_1": "BRL",
+                "profit_margin": "50.00",
+                "ncm": "87089990",
+                "cest": "",
+                "origin_cst": str(Product.OriginCST.NACIONAL),
+                "purpose": Product.Purpose.RESALE,
+                "application": "",
+                "is_active": "on",
+                "confirm_lower_price": "1",
+            },
+            workshop=self.workshop,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+
 
 class ProductUpdateNavigationTests(TestCase):
     def setUp(self) -> None:

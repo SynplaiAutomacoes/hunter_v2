@@ -10,6 +10,7 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 
 from apps.catalog.models.products import Product
+from apps.catalog.price_tracking import build_product_price_warning
 from apps.core.widgets import (
     TextInput,
     MoneyInput,
@@ -84,6 +85,7 @@ class ProductForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.workshop = workshop
         self.next_url = str(next_url or "").strip()
+        self.last_used_price = getattr(self.instance, "last_used_price", None)
 
         if self.instance.pk and self.instance.profit_margin is not None:
             self.initial["profit_margin"] = (Decimal(self.instance.profit_margin) / Decimal("100")).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
@@ -97,7 +99,95 @@ class ProductForm(forms.ModelForm):
 
         self.helper = FormHelper()
         self.helper.form_method = "post"
+        self.helper.attrs = {
+            "x-data": self._build_form_alpine_data(),
+            "@submit": "handleSubmit($event)",
+        }
         self.helper.layout = self.get_layout()
+
+    def _build_form_alpine_data(self) -> str:
+        last_used_amount = ""
+        if self.last_used_price is not None:
+            last_used_amount = str(self.last_used_price.amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+        return f"""{{
+            lastUsedPrice: {json.dumps(last_used_amount)},
+            priceError: false,
+            lowerPriceConfirmed: false,
+            lowerPriceWarning: false,
+            priceHelpMessage: '',
+            getRawMoneyValue(fieldId) {{
+                const field = document.getElementById(fieldId);
+                if (!field) return 0;
+                return Number.parseFloat(field.value || '0') || 0;
+            }},
+            formatCurrency(value) {{
+                const numericValue = Number.parseFloat(value || '0');
+                return numericValue.toLocaleString('pt-BR', {{ style: 'currency', currency: 'BRL' }});
+            }},
+            calculateMargin() {{
+                const cost = this.getRawMoneyValue('id_cost_price_0');
+                const sell = this.getRawMoneyValue('id_selling_price_0');
+                this.priceError = sell > 0 && sell < cost;
+                this.lowerPriceConfirmed = false;
+                this.lowerPriceWarning = false;
+
+                const marginEl = document.getElementById('id_profit_margin_display');
+                if (sell > 0) {{
+                    const margin = ((sell - cost) / sell) * 100;
+                    if (marginEl) {{
+                        marginEl.value = margin.toFixed(2).replace('.', ',');
+                        marginEl.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    }}
+                }} else if (marginEl) {{
+                    marginEl.value = '0,00';
+                    marginEl.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                }}
+
+                if (sell > 0) {{
+                    this.priceHelpMessage = '';
+                }}
+            }},
+            shouldWarnForLowerPrice() {{
+                if (!this.lastUsedPrice) return false;
+                const sell = this.getRawMoneyValue('id_selling_price_0');
+                if (sell <= 0) return false;
+                return sell < (Number.parseFloat(this.lastUsedPrice) || 0);
+            }},
+            handleSubmit(event) {{
+                this.calculateMargin();
+                if (this.shouldWarnForLowerPrice() && !this.lowerPriceConfirmed) {{
+                    event.preventDefault();
+                    this.lowerPriceWarning = true;
+                    this.priceHelpMessage = '';
+                }}
+            }},
+            continueWithLowerPrice() {{
+                this.lowerPriceConfirmed = true;
+                this.lowerPriceWarning = false;
+                this.priceHelpMessage = '';
+                this.$nextTick(() => this.$root.requestSubmit());
+            }},
+            cancelLowerPrice() {{
+                const amountField = document.getElementById('id_selling_price_0');
+                const displayField = document.getElementById('id_selling_price_0_display');
+                if (amountField) {{
+                    amountField.value = '';
+                    amountField.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    amountField.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                }}
+                if (displayField) {{
+                    displayField.value = '';
+                    displayField.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    displayField.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                }}
+
+                this.lowerPriceConfirmed = false;
+                this.lowerPriceWarning = false;
+                this.priceHelpMessage = `Insira um valor maior que ${{this.formatCurrency(this.lastUsedPrice)}}`;
+                this.calculateMargin();
+            }}
+        }}"""
 
     @staticmethod
     def _normalize_profit_margin(raw_margin: Decimal | None) -> Decimal:
@@ -151,6 +241,7 @@ class ProductForm(forms.ModelForm):
                     # --- FINANCEIRO ---
                     HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Financeiro</h3>'),
                     Div(
+                        HTML('<input type="hidden" name="confirm_lower_price" :value="lowerPriceConfirmed ? \'1\' : \'\'">'),
                         Field("cost_price", wrapper_class="col-span-12 lg:col-span-4"),
                         Div(
                             Field("selling_price", wrapper_class="w-full"),
@@ -161,6 +252,18 @@ class ProductForm(forms.ModelForm):
                                      x-transition>
                                     ⚠️ O preço de venda está menor que o custo!
                                 </div>
+                                <div class="alert alert-warning mt-3" x-show="lowerPriceWarning" x-cloak x-transition>
+                                    <span class="material-icons">warning</span>
+                                    <div class="flex-1">
+                                        <div class="font-semibold">O valor informado está abaixo do ultimo valor utilizado.</div>
+                                        <div class="text-sm">Revise o preço ou confirme para continuar mesmo assim.</div>
+                                        <div class="mt-3 flex flex-wrap gap-2">
+                                            <button type="button" class="btn btn-ghost btn-sm" @click="cancelLowerPrice()">Cancelar</button>
+                                            <button type="button" class="btn btn-warning btn-sm" @click="continueWithLowerPrice()">Continuar mesmo assim</button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="text-warning text-xs mt-2" x-show="priceHelpMessage" x-text="priceHelpMessage" x-cloak></div>
                             """),
                             css_class="col-span-12 lg:col-span-4",
                         ),
@@ -250,41 +353,6 @@ class ProductForm(forms.ModelForm):
                     Field("application", wrapper_class="col-span-12"),
                     css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
                 ),
-                **{
-                    "x-data": """{
-                        priceError: false,
-                        calculateMargin() {
-                            const getRawValue = (fieldId) => {
-                                const el = document.getElementById(fieldId);
-                                return el ? parseFloat(el.value) || 0 : 0;
-                            }
-
-                            let cost = getRawValue("id_cost_price_0");
-                            let sell = getRawValue("id_selling_price_0");
-
-                            if (sell > 0 && sell < cost) {
-                                this.priceError = true;
-                            } else {
-                                this.priceError = false;
-                            }
-
-                            let marginEl = document.getElementById("id_profit_margin_display");
-
-                            if (sell > 0) {
-                                let margin = ((sell - cost) / sell) * 100;
-                                if (marginEl) {
-                                    marginEl.value = margin.toFixed(2).replace(".", ",");
-                                    marginEl.dispatchEvent(new Event('input', { bubbles: true }));
-                                }
-                            } else {
-                                if (marginEl) {
-                                    marginEl.value = "0,00";
-                                    marginEl.dispatchEvent(new Event('input', { bubbles: true }));
-                                }
-                            }
-                        }
-                    }"""
-                },
             ),
             HTML('<div class="divider"></div>'),
             Div(
@@ -321,12 +389,16 @@ class ProductForm(forms.ModelForm):
         return name
 
     def clean(self):
-        cleaned_data = super().clean()
+        cleaned_data = super().clean() or {}
         cost_price = cleaned_data.get("cost_price")
         selling_price = cleaned_data.get("selling_price")
 
         if cost_price and selling_price:
             if selling_price < cost_price:
                 self.add_error("selling_price", "O preço de venda não pode ser menor que o valor de custo.")
+
+        price_warning = build_product_price_warning(product=self.instance, attempted_price=selling_price)
+        if price_warning and self.data.get("confirm_lower_price") != "1":
+            self.add_error("selling_price", price_warning.message)
 
         return cleaned_data
