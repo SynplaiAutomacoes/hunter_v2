@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from datetime import date
+
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.shortcuts import redirect, get_object_or_404, render
 from django.urls import reverse, reverse_lazy
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView
 
@@ -12,6 +15,7 @@ from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.finance.forms.financial_movement import MovementStep1Form, MovementStep2Form, MovementStep3Form, MovementStep4Form
 from apps.finance.models.financial_movement import FinancialMovement
+from apps.finance.views.navigation import append_query_params
 from apps.sources.models import Source
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import get_active_workshop_or_404
@@ -24,8 +28,41 @@ class FinancialMovementListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTem
     htmx_template_name = "finance/partials/financial_movement/financial_movement_table.html"
     workshop_permission_codename = "view_financialmovement"
 
+    def _parse_date_param(self, raw_value: str | None) -> date | None:
+        value = str(raw_value or "").strip()
+        if not value:
+            return None
+
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            return None
+
+    def _get_selected_source_id(self) -> int | None:
+        raw_value = str(self.request.GET.get("source") or "").strip()
+        if not raw_value:
+            return None
+
+        try:
+            return int(raw_value)
+        except (TypeError, ValueError):
+            return None
+
     def get_queryset(self):
-        return super().get_queryset().order_by("-criado_em")
+        queryset = super().get_queryset().select_related("source")
+
+        start_date = self._parse_date_param(self.request.GET.get("data_inicial"))
+        end_date = self._parse_date_param(self.request.GET.get("data_final"))
+        source_id = self._get_selected_source_id()
+
+        if start_date is not None:
+            queryset = queryset.filter(due_date__gte=start_date)
+        if end_date is not None:
+            queryset = queryset.filter(due_date__lte=end_date)
+        if source_id is not None:
+            queryset = queryset.filter(source_id=source_id)
+
+        return queryset.order_by("-criado_em")
 
     def get_context_data(self, **kw):
         context = super().get_context_data(**kw)
@@ -37,9 +74,11 @@ class FinancialMovementListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTem
             TableColumn(FinancialMovement.due_date.field.verbose_name, attr=FinancialMovement.due_date.field.name),
         ]
         context["actions"] = [
-            TableActionDefaults.edit("finance:financial_movement_update"),
+            TableActionDefaults.edit("finance:financial_movement_update", preserve_current_url_as_next=True),
             TableActionDefaults.delete("finance:financial_movement_delete"),
         ]
+        context["source_filters"] = Source.objects.filter(workshop=self.workshop).order_by("name", "id")
+        context["selected_source_id"] = self._get_selected_source_id()
         return context
 
 
@@ -68,6 +107,23 @@ class FinancialMovementCreateView(LoginRequiredMixin, WorkshopScopedMixin, Multi
         kwargs.update({"request": self.request, "workshop": self.workshop, "instance": obj})
         return kwargs
 
+    def _get_next_url(self) -> str:
+        next_url = str(self.request.GET.get("next") or self.request.POST.get("next") or "").strip()
+        if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={self.request.get_host()}, require_https=self.request.is_secure()):
+            return next_url
+        return ""
+
+    def _build_step_url(self, *, step: int, obj: FinancialMovement | None = None) -> str:
+        params: dict[str, int | str] = {"step": step}
+        if obj is not None and getattr(obj, "pk", None) and not self.kwargs.get("pk"):
+            params["pk"] = obj.pk
+
+        next_url = self._get_next_url()
+        if next_url:
+            params["next"] = next_url
+
+        return append_query_params(url=self.request.path, params=params)
+
     def get_steps_definition(self):
         return [
             {"title": "Origem", "form_class": MovementStep1Form},
@@ -77,7 +133,13 @@ class FinancialMovementCreateView(LoginRequiredMixin, WorkshopScopedMixin, Multi
         ]
 
     def get_success_url(self):
-        return reverse("finance:financial_movement_list")
+        return self._get_next_url() or reverse("finance:financial_movement_list")
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["back_url"] = self.get_success_url()
+        context["next_url"] = self._get_next_url()
+        return context
 
     def form_valid(self, form):
         form.instance.workshop = self.workshop
@@ -97,7 +159,7 @@ class FinancialMovementCreateView(LoginRequiredMixin, WorkshopScopedMixin, Multi
 
         if current_step < total_steps:
             next_step = current_step + 1
-            success_url = f"{self.request.path}?step={next_step}&pk={self.object.pk}"
+            success_url = self._build_step_url(step=next_step, obj=self.object)
         else:
             success_url = self.get_success_url()
 
@@ -116,7 +178,7 @@ class FinancialMovementUpdateView(FinancialMovementCreateView):
 
         if not step_na_url:
             target_step = self.object.current_step
-            return redirect(f"{reverse('finance:financial_movement_update', kwargs={'pk': self.object.pk})}?step={target_step}")
+            return redirect(self._build_step_url(step=target_step, obj=self.object))
 
         return super().get(request, *args, **kwargs)
 
@@ -155,7 +217,7 @@ class FinancialMovementUpdateView(FinancialMovementCreateView):
 
         if current_step < total_steps:
             next_step = current_step + 1
-            success_url = f"{reverse('finance:financial_movement_update', kwargs={'pk': self.object.pk})}?step={next_step}"
+            success_url = self._build_step_url(step=next_step, obj=self.object)
         else:
             success_url = self.get_success_url()
 
