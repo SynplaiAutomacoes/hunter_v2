@@ -135,7 +135,7 @@
                 pendingLowerPriceButton = null;
                 closeConfirmModal();
                 clearSellingPriceField();
-                setHelpMessage(`Insira um valor maior que ${lastUsedPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`);
+                setHelpMessage(`Último valor usado: ${lastUsedPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`);
             });
 
             document.getElementById('wo-lower-price-continue-btn')?.addEventListener('click', () => {

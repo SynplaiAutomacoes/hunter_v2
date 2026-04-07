@@ -184,7 +184,7 @@ class ProductForm(forms.ModelForm):
 
                 this.lowerPriceConfirmed = false;
                 this.lowerPriceWarning = false;
-                this.priceHelpMessage = `Insira um valor maior que ${{this.formatCurrency(this.lastUsedPrice)}}`;
+                this.priceHelpMessage = `Último valor usado: ${{this.formatCurrency(this.lastUsedPrice)}}`;
                 this.calculateMargin();
             }}
         }}"""

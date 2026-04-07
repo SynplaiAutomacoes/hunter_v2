@@ -340,7 +340,7 @@ class ProductFormTests(TestCase):
         )
 
         self.assertFalse(form.is_valid())
-        self.assertIn("Insira um valor maior que", str(form.errors["selling_price"][0]))
+        self.assertIn("Último valor usado: R$ 30,00", str(form.errors["selling_price"][0]))
 
     def test_product_form_allows_confirmed_price_below_last_used_price(self) -> None:
         product = Product.objects.create(

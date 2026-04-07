@@ -32,8 +32,8 @@
             {{ field }}
 
             {% if field.name == "product_selling_price" %}
-                <label class="label" x-show="priceHelpMessage" x-cloak>
-                    <span class="label-text-alt text-warning" x-text="priceHelpMessage"></span>
+                <label class="label hidden" id="lower-price-help-label">
+                    <span class="label-text-alt text-warning" id="lower-price-help-text"></span>
                 </label>
             {% endif %}
 

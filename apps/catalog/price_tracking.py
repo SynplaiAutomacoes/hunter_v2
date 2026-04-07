@@ -1,10 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 
 from djmoney.money import Money
 
 from apps.catalog.models.products import Product
+
+
+def _format_money(value: Money) -> str:
+    amount = Decimal(getattr(value, "amount", Decimal("0.00")) or Decimal("0.00")).quantize(Decimal("0.01"))
+    integer_part, decimal_part = f"{amount:.2f}".split(".")
+    grouped_integer = f"{int(integer_part):,}".replace(",", ".")
+    return f"R$ {grouped_integer},{decimal_part}"
 
 
 @dataclass(frozen=True)
@@ -14,7 +22,7 @@ class ProductPriceWarning:
 
     @property
     def message(self) -> str:
-        return f"Insira um valor maior que {self.last_used_price}"
+        return f"Último valor usado: {_format_money(self.last_used_price)}"
 
 
 def build_product_price_warning(*, product: Product, attempted_price: Money | None) -> ProductPriceWarning | None:

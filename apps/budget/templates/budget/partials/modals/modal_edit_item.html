@@ -42,6 +42,7 @@
           hx-target="#current-item-form"
           hx-swap="none"
           id="edit-item-form"
+          data-last-used-price="{{ item.product.last_used_price.amount|default_if_none:'' }}"
           class="space-y-4 js-save-form">
         {% csrf_token %}
         <input type="hidden" name="confirm_lower_price" id="confirm-lower-price-input" value="">
@@ -178,24 +179,18 @@
                 const confirmLowerPriceInput = document.getElementById('confirm-lower-price-input');
                 const sellingPriceAmountInput = document.getElementById('id_product_selling_price_0');
                 const sellingPriceDisplayInput = document.getElementById('id_product_selling_price_0_display');
-                const sellingPriceHelpMessages = document.querySelectorAll('[x-text="priceHelpMessage"]');
+                const helpLabel = document.getElementById('lower-price-help-label');
+                const helpText = document.getElementById('lower-price-help-text');
                 const updateButton = document.querySelector('.js-update-master');
-                const lastUsedPrice = Number.parseFloat((updateButton?.dataset.lastUsedPrice || button.dataset.lastUsedPrice || '0')) || 0;
+                const lastUsedPrice = Number.parseFloat((form?.dataset.lastUsedPrice || updateButton?.dataset.lastUsedPrice || button.dataset.lastUsedPrice || '0')) || 0;
 
                 const setPriceHelpMessage = (message) => {
-                    sellingPriceHelpMessages.forEach((element) => {
-                        element.textContent = message;
-                        const label = element.closest('label');
-                        if (!label) {
-                            return;
-                        }
-                        if (message) {
-                            label.classList.remove('hidden');
-                            label.removeAttribute('x-cloak');
-                        } else {
-                            label.classList.add('hidden');
-                        }
-                    });
+                    if (!helpLabel || !helpText) {
+                        return;
+                    }
+
+                    helpText.textContent = message;
+                    helpLabel.classList.toggle('hidden', !message);
                 };
 
                 const clearSellingPriceField = () => {
@@ -254,7 +249,7 @@
                         this.pendingLowerPriceButton = null;
                         closeLowerPriceModal();
                         clearSellingPriceField();
-                        setPriceHelpMessage(`Insira um valor maior que ${lastUsedPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`);
+                        setPriceHelpMessage(`Último valor usado: ${lastUsedPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`);
                     });
 
                     continueLowerPriceButton?.addEventListener('click', () => {
