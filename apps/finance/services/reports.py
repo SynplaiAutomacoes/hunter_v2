@@ -31,7 +31,7 @@ def build_financial_overview(
     end_date: date | None,
     direction: str | None = None,
     budget_plan_ids: Iterable[int] | None = None,
-    bank_account_id: int | None = None,
+    bank_account_id: int | str | None = None,
 ) -> FinancialOverview:
     total_credits = _ZERO_DECIMAL
     paid_credits = _ZERO_DECIMAL
@@ -50,7 +50,10 @@ def build_financial_overview(
     if normalized_budget_plan_ids:
         movements = movements.filter(budget_plan_id__in=normalized_budget_plan_ids)
     if bank_account_id is not None:
-        movements = movements.filter(bank_account_id=bank_account_id)
+        if bank_account_id == "none":
+            movements = movements.filter(bank_account__isnull=True)
+        else:
+            movements = movements.filter(bank_account_id=bank_account_id)
 
     movements = movements.only("direction", "amount", "amount_currency", "is_paid", "workorder", "movement_kind")
 
@@ -65,7 +68,10 @@ def build_financial_overview(
         if normalized_budget_plan_ids:
             paid_credit_movements = paid_credit_movements.filter(budget_plan_id__in=normalized_budget_plan_ids)
         if bank_account_id is not None:
-            paid_credit_movements = paid_credit_movements.filter(bank_account_id=bank_account_id)
+            if bank_account_id == "none":
+                paid_credit_movements = paid_credit_movements.filter(bank_account__isnull=True)
+            else:
+                paid_credit_movements = paid_credit_movements.filter(bank_account_id=bank_account_id)
 
         paid_credit_movements = paid_credit_movements.select_related("workorder").prefetch_related("workorder__payments").only("workorder")
 
