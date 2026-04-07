@@ -28,7 +28,7 @@ def _budget_item_type(item):
 
 
 def _empty_rows(step6=False):
-    product_colspan = 7 if step6 else 9
+    product_colspan = 8 if step6 else 10
     service_colspan = 5 if step6 else 6
     kit_colspan = 5 if step6 else 7
     return {
@@ -61,7 +61,7 @@ def _get_budget_with_prefetched_items(budget):
                     "kit__kit_services__service",
                 )
                 .order_by("id"),
-            )
+            ),
         )
         .first()
     )

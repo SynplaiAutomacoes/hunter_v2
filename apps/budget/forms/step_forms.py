@@ -1704,14 +1704,15 @@ class BudgetStep4Form(forms.ModelForm):
                                             <th class="budget-step4-select-col text-center">
                                                 <input type="checkbox" id="select-all-products" class="checkbox checkbox-primary checkbox-sm" aria-label="Selecionar todas as peças">
                                             </th>
-                                            <th class="w-[18%] text-left">DESCRIÇÃO</th>
-                                            <th class="w-[18%] text-left">APLICAÇÃO</th>
+                                            <th class="w-[16%] text-left">DESCRIÇÃO</th>
+                                            <th class="w-[16%] text-left">APLICAÇÃO</th>
+                                            <th class="w-[10%] text-center whitespace-normal break-words leading-tight">Trago pelo cliente?</th>
                                             <th class="w-[8%] text-center">QTD.</th>
                                             <th class="w-[10%] text-right">CUSTO</th>
                                             <th class="w-[12%] text-right">VALOR VENDA</th>
-                                            <th class="w-[10%] text-right">FRETE</th>
-                                            <th class="w-[12%] text-right">TOTAL</th>
-                                            <th class="w-[12%] text-center budget-step4-actions">AÇÕES</th>
+                                            <th class="w-[8%] text-right">FRETE</th>
+                                            <th class="w-[10%] text-right">TOTAL</th>
+                                            <th class="w-[10%] text-center budget-step4-actions">AÇÕES</th>
                                         </tr>
                                     </thead>
                                     <tbody id="product-list-body">
@@ -2902,13 +2903,14 @@ class BudgetStep6Form(forms.ModelForm):
                             <table class="table table-zebra table-fixed w-full">
                               <thead class="bg-primary text-primary-content">
                                 <tr>
-                                  <th class="w-[22%]">NOME</th>
-                                  <th class="w-[22%]">APLICAÇÃO</th>
+                                  <th class="w-[20%]">NOME</th>
+                                  <th class="w-[18%]">APLICAÇÃO</th>
+                                  <th class="w-[10%] text-center whitespace-normal break-words leading-tight">Trago pelo cliente?</th>
                                   <th class="w-[8%] text-center">QTD.</th>
                                   <th class="w-[12%]">CUSTO</th>
                                   <th class="w-[14%]">VALOR</th>
-                                  <th class="w-[10%]">FRETE</th>
-                                  <th class="w-[12%]">TOTAL</th>
+                                  <th class="w-[8%]">FRETE</th>
+                                  <th class="w-[10%]">TOTAL</th>
                                 </tr>
                               </thead>
                               <tbody id="product-list-body">

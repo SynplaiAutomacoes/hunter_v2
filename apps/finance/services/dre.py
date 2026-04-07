@@ -2,35 +2,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal, ROUND_HALF_UP
 import unicodedata
 from typing import Any, Sequence
 
-from django.db.models import Prefetch
 from djmoney.money import Money
 
 from apps.finance.models import FinancialGroup
-from apps.workorder.models import WorkOrder, WorkOrderStatus
-from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
+from apps.finance.models.financial_movement import FinancialMovement
 from apps.workshops.models.workshops import Workshop
 
 
 _ZERO_MONEY = Money("0.00", "BRL")
-_MONEY_QUANTIZER = Decimal("0.01")
-_MONTH_LABELS = {
-    1: "Janeiro",
-    2: "Fevereiro",
-    3: "Marco",
-    4: "Abril",
-    5: "Maio",
-    6: "Junho",
-    7: "Julho",
-    8: "Agosto",
-    9: "Setembro",
-    10: "Outubro",
-    11: "Novembro",
-    12: "Dezembro",
-}
 
 
 @dataclass(frozen=True)
@@ -45,6 +27,13 @@ _ROW_COMPONENT_RECEITA_BRUTA_DE_VENDAS = "receita_bruta_de_vendas"
 _ROW_COMPONENT_RECEITAS_FINANCEIRAS = "receitas_financeiras"
 _ROW_COMPONENT_DESPESAS_FINANCEIRAS = "despesas_financeiras"
 _ROW_COMPONENT_RESULTADO_OPERACIONAL = "resultado_operacional"
+_SOURCE_ROW_COMPONENTS = (
+    _ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS,
+    _ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS,
+    _ROW_COMPONENT_RECEITAS_FINANCEIRAS,
+    _ROW_COMPONENT_DESPESAS_FINANCEIRAS,
+)
+_VALID_TIPO_DATA_VALUES = {"PG", "NPG", "A"}
 
 
 def build_dre_calculation(
@@ -52,53 +41,36 @@ def build_dre_calculation(
     workshops: Sequence[Workshop],
     start_date: date | None,
     end_date: date | None,
+    tipo_data: str = "A",
     selected_financial_groups: list[FinancialGroup] | None = None,
 ) -> DreCalculationResult:
     if not workshops or start_date is None or end_date is None or start_date > end_date:
         return DreCalculationResult(rows=_build_rows(), summary_cards=_build_summary_cards())
 
-    workorders = _get_workorders(workshops=workshops, start_date=start_date, end_date=end_date)
-    workshop_costs = _get_workshop_costs(workshops=workshops, start_date=start_date, end_date=end_date)
-    receita_bruta_vendas_e_servicos = _ZERO_MONEY
-    custos_mercadorias_vendidas = _ZERO_MONEY
-
-    for workorder in workorders:
-        receita_bruta_vendas_e_servicos += workorder.total_services_value + workorder.total_products_value
-        custos_mercadorias_vendidas += workorder.total_costs_products_value + workorder.total_costs_services_value
-
-    receitas_financeiras = _ZERO_MONEY
-    financial_expense_details = _build_financial_expense_details(workshop_costs=workshop_costs)
-    despesas_financeiras = _ZERO_MONEY
-    for detail in financial_expense_details:
-        amount = detail.get("amount")
-        if isinstance(amount, Money):
-            despesas_financeiras += amount
-
-    all_amounts = {
-        "receita_bruta_vendas_e_servicos": receita_bruta_vendas_e_servicos,
-        "custos_mercadorias_vendidas": custos_mercadorias_vendidas,
-        "receitas_financeiras": receitas_financeiras,
-        "despesas_financeiras": despesas_financeiras,
-    }
+    financial_movements = _get_financial_movements(
+        workshops=workshops,
+        start_date=start_date,
+        end_date=end_date,
+        tipo_data=_normalize_tipo_data(tipo_data),
+    )
+    movements_by_topic = _group_financial_movements_by_topic(financial_movements=financial_movements)
+    all_amounts = {component: _sum_movement_amounts(movements_by_topic.get(component, [])) for component in _SOURCE_ROW_COMPONENTS}
 
     visible_components = _resolve_visible_components(selected_financial_groups=selected_financial_groups)
     visible_amounts = {key: amount if key in visible_components else _ZERO_MONEY for key, amount in all_amounts.items()}
-    receita_bruta_de_vendas = visible_amounts["receita_bruta_vendas_e_servicos"] - visible_amounts["custos_mercadorias_vendidas"]
-    resultado_operacional = visible_amounts["receitas_financeiras"] - visible_amounts["despesas_financeiras"]
+    receita_bruta_de_vendas = visible_amounts[_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS] - visible_amounts[_ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS]
+    resultado_operacional = visible_amounts[_ROW_COMPONENT_RECEITAS_FINANCEIRAS] - visible_amounts[_ROW_COMPONENT_DESPESAS_FINANCEIRAS]
     row_details = _build_row_details(
-        workorders=workorders,
+        movements_by_topic=movements_by_topic,
         visible_components=visible_components,
-        all_amounts=visible_amounts,
-        receita_bruta_de_vendas=receita_bruta_de_vendas,
-        resultado_operacional=resultado_operacional,
-        financial_expense_details=financial_expense_details,
+        include_workshop_reference=len(workshops) > 1,
     )
     rows = _build_rows(
-        receita_bruta_vendas_e_servicos=visible_amounts["receita_bruta_vendas_e_servicos"],
-        custos_mercadorias_vendidas=visible_amounts["custos_mercadorias_vendidas"],
+        receita_bruta_vendas_e_servicos=visible_amounts[_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS],
+        custos_mercadorias_vendidas=visible_amounts[_ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS],
         receita_bruta_de_vendas=receita_bruta_de_vendas,
-        receitas_financeiras=visible_amounts["receitas_financeiras"],
-        despesas_financeiras=visible_amounts["despesas_financeiras"],
+        receitas_financeiras=visible_amounts[_ROW_COMPONENT_RECEITAS_FINANCEIRAS],
+        despesas_financeiras=visible_amounts[_ROW_COMPONENT_DESPESAS_FINANCEIRAS],
         resultado_operacional=resultado_operacional,
         row_details=row_details,
     )
@@ -112,41 +84,45 @@ def build_dre_calculation(
     )
 
 
-def _get_workorders(*, workshops: Sequence[Workshop], start_date: date, end_date: date) -> list[WorkOrder]:
-    return list(
-        WorkOrder.objects.filter(
-            workshop__in=workshops,
-            criado_em__date__gte=start_date,
-            criado_em__date__lte=end_date,
-        )
-        .exclude(status__in=[WorkOrderStatus.REJECTED, WorkOrderStatus.CANCELLED])
-        .select_related("budget", "budget__customer")
-        .prefetch_related(
-            "payments",
-            "items",
-            "items__product",
-            "items__service",
-            "items__kit",
-            "items__kit_overrides",
-            "items__kit__kit_products__product",
-            "items__kit__kit_services__service",
-        )
-        .order_by("criado_em", "pk")
+def _normalize_tipo_data(tipo_data: str | None) -> str:
+    normalized_tipo_data = str(tipo_data or "A").strip().upper() or "A"
+    if normalized_tipo_data not in _VALID_TIPO_DATA_VALUES:
+        return "A"
+    return normalized_tipo_data
+
+
+def _get_financial_movements(*, workshops: Sequence[Workshop], start_date: date, end_date: date, tipo_data: str) -> list[FinancialMovement]:
+    queryset = FinancialMovement.objects.filter(
+        workshop__in=workshops,
+        due_date__gte=start_date,
+        due_date__lte=end_date,
+        dre_topic__in=_SOURCE_ROW_COMPONENTS,
     )
 
+    if tipo_data == "PG":
+        queryset = queryset.filter(is_paid=True)
+    elif tipo_data == "NPG":
+        queryset = queryset.filter(is_paid=False)
 
-def _get_workshop_costs(*, workshops: Sequence[Workshop], start_date: date, end_date: date) -> list[WorkshopCost]:
-    workshop_costs = WorkshopCost.objects.filter(workshop__in=workshops, year__gte=start_date.year, year__lte=end_date.year).prefetch_related(Prefetch("items", queryset=WorkshopCostItem.objects.select_related("monthly_cost"))).order_by("year", "month", "pk")
-    return [workshop_cost for workshop_cost in workshop_costs if _month_overlaps_range(workshop_cost=workshop_cost, start_date=start_date, end_date=end_date)]
+    return list(queryset.select_related("payment_method", "source", "workshop").order_by("due_date", "pk"))
 
 
-def _month_overlaps_range(*, workshop_cost: WorkshopCost, start_date: date, end_date: date) -> bool:
-    month_start = date(workshop_cost.year, workshop_cost.month, 1)
-    if workshop_cost.month == 12:
-        month_end = date(workshop_cost.year + 1, 1, 1)
-    else:
-        month_end = date(workshop_cost.year, workshop_cost.month + 1, 1)
-    return month_start <= end_date and month_end > start_date
+def _group_financial_movements_by_topic(*, financial_movements: list[FinancialMovement]) -> dict[str, list[FinancialMovement]]:
+    grouped_movements: dict[str, list[FinancialMovement]] = {component: [] for component in _SOURCE_ROW_COMPONENTS}
+    for movement in financial_movements:
+        dre_topic = str(getattr(movement, "dre_topic", "") or "")
+        if dre_topic in grouped_movements:
+            grouped_movements[dre_topic].append(movement)
+    return grouped_movements
+
+
+def _sum_movement_amounts(movements: list[FinancialMovement]) -> Money:
+    total = _ZERO_MONEY
+    for movement in movements:
+        amount = getattr(movement, "amount", None)
+        if isinstance(amount, Money):
+            total += amount
+    return total
 
 
 def _build_rows(
@@ -166,7 +142,7 @@ def _build_rows(
             amount=receita_bruta_vendas_e_servicos,
             tone="positive",
             component=_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS,
-            detail_kind="workorders",
+            detail_kind="financial_entries",
             is_expandable=True,
             details=details.get(_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS, []),
         ),
@@ -175,7 +151,7 @@ def _build_rows(
             amount=custos_mercadorias_vendidas,
             tone="negative",
             component=_ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS,
-            detail_kind="workorders",
+            detail_kind="financial_entries",
             is_expandable=True,
             details=details.get(_ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS, []),
         ),
@@ -230,12 +206,7 @@ def _build_summary_cards(
 
 
 def _resolve_visible_components(*, selected_financial_groups: list[FinancialGroup] | None) -> set[str]:
-    all_components = {
-        "receita_bruta_vendas_e_servicos",
-        "custos_mercadorias_vendidas",
-        "receitas_financeiras",
-        "despesas_financeiras",
-    }
+    all_components = {str(component) for component in _SOURCE_ROW_COMPONENTS}
     if not selected_financial_groups:
         return all_components
 
@@ -243,13 +214,13 @@ def _resolve_visible_components(*, selected_financial_groups: list[FinancialGrou
     visible_components: set[str] = set()
 
     if {"receitas", "receitas de servicos", "receitas de pecas", "receita bruta de vendas e servicos", "receita bruta de vendas e serviços"} & selected_names:
-        visible_components.add("receita_bruta_vendas_e_servicos")
+        visible_components.add(_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS)
     if {"custos", "custos de pecas", "custos de servicos", "custos mercadorias vendidas"} & selected_names:
-        visible_components.add("custos_mercadorias_vendidas")
+        visible_components.add(_ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS)
     if {"receitas financeiras", "receitas outras", "receitas"} & selected_names:
-        visible_components.add("receitas_financeiras")
+        visible_components.add(_ROW_COMPONENT_RECEITAS_FINANCEIRAS)
     if {"despesas", "despesas financeiras"} & selected_names:
-        visible_components.add("despesas_financeiras")
+        visible_components.add(_ROW_COMPONENT_DESPESAS_FINANCEIRAS)
 
     return visible_components
 
@@ -259,78 +230,71 @@ def _normalize_label(value: str) -> str:
     return "".join(character for character in normalized if not unicodedata.combining(character)).casefold().strip()
 
 
-def _quantize_money(value: Decimal) -> Money:
-    return Money(value.quantize(_MONEY_QUANTIZER, rounding=ROUND_HALF_UP), "BRL")
-
-
 def _build_row_details(
     *,
-    workorders: list[WorkOrder],
+    movements_by_topic: dict[str, list[FinancialMovement]],
     visible_components: set[str],
-    all_amounts: dict[str, Money],
-    receita_bruta_de_vendas: Money,
-    resultado_operacional: Money,
-    financial_expense_details: list[dict[str, object]],
+    include_workshop_reference: bool,
 ) -> dict[str, list[dict[str, object]]]:
     details: dict[str, list[dict[str, object]]] = {}
 
-    if _ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS in visible_components:
-        revenue_details = [_build_workorder_detail(workorder=workorder, amount=workorder.total_services_value + workorder.total_products_value) for workorder in workorders]
-        if revenue_details:
-            details[_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS] = revenue_details
-
-    if _ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS in visible_components:
-        cost_details = [_build_workorder_detail(workorder=workorder, amount=workorder.total_costs_products_value + workorder.total_costs_services_value) for workorder in workorders]
-        if cost_details:
-            details[_ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS] = cost_details
-
-    if _ROW_COMPONENT_DESPESAS_FINANCEIRAS in visible_components and financial_expense_details:
-        details[_ROW_COMPONENT_DESPESAS_FINANCEIRAS] = financial_expense_details
+    for component in _SOURCE_ROW_COMPONENTS:
+        if component not in visible_components:
+            continue
+        topic_movements = movements_by_topic.get(component, [])
+        if not topic_movements:
+            continue
+        details[component] = [_build_financial_movement_detail(movement=movement, include_workshop_reference=include_workshop_reference) for movement in topic_movements]
 
     return details
 
 
-def _build_workorder_detail(*, workorder: WorkOrder, amount: Money) -> dict[str, object]:
-    customer_name = getattr(getattr(workorder, "budget", None), "customer", None)
-    latest_payment_date = _get_latest_payment_due_date(workorder=workorder)
+def _build_financial_movement_detail(*, movement: FinancialMovement, include_workshop_reference: bool) -> dict[str, object]:
+    created_at = getattr(movement, "criado_em", None)
     return {
-        "workorder_id": workorder.pk,
-        "summary": f"OS/PEDIDO Nº {workorder.pk} - {customer_name or '-'}",
-        "entry_date": getattr(workorder.budget, "entry_date", None),
-        "payment_date": latest_payment_date,
-        "amount": amount,
+        "summary": _build_financial_movement_summary(movement=movement),
+        "reference": _build_financial_movement_reference(movement=movement, include_workshop_reference=include_workshop_reference),
+        "entry_date": created_at.date() if created_at is not None else None,
+        "payment_date": movement.due_date,
+        "amount": movement.amount,
     }
 
 
-def _build_financial_expense_details(*, workshop_costs: list[WorkshopCost]) -> list[dict[str, object]]:
-    details: list[dict[str, object]] = []
-    for workshop_cost in workshop_costs:
-        for item in getattr(workshop_cost, "items").all():
-            if not _has_non_zero_amount(item.amount):
-                continue
-            details.append(
-                {
-                    "summary": item.monthly_cost.name,
-                    "reference": f"{_MONTH_LABELS.get(workshop_cost.month, str(workshop_cost.month))}/{workshop_cost.year}",
-                    "amount": item.amount,
-                }
-            )
-    return details
+def _build_financial_movement_summary(*, movement: FinancialMovement) -> str:
+    description = str(getattr(movement, "description", "") or "").strip()
+    if description:
+        return description
+
+    source = getattr(movement, "source", None)
+    if source is not None:
+        return str(source.name)
+
+    return "-"
 
 
-def _has_non_zero_amount(value: object) -> bool:
-    amount = getattr(value, "amount", value)
-    if isinstance(amount, Decimal):
-        return amount != Decimal("0")
-    if isinstance(amount, (int, float)):
-        return amount != 0
-    return bool(amount)
+def _build_financial_movement_reference(*, movement: FinancialMovement, include_workshop_reference: bool) -> str:
+    reference_parts: list[str] = []
 
+    if include_workshop_reference:
+        workshop = getattr(movement, "workshop", None)
+        workshop_name = getattr(workshop, "name", None)
+        if workshop_name:
+            reference_parts.append(f"Filial: {workshop_name}")
 
-def _get_latest_payment_due_date(*, workorder: WorkOrder) -> date | None:
-    payments = list(getattr(workorder, "payments").all())
-    payment_dates = [payment.due_date for payment in payments if payment.due_date]
-    return max(payment_dates, default=None)
+    source = getattr(movement, "source", None)
+    source_name = getattr(source, "name", None)
+    if source_name:
+        reference_parts.append(f"Origem: {source_name}")
+
+    nf_number = str(getattr(movement, "nf_number", "") or "").strip()
+    if nf_number:
+        reference_parts.append(f"NF: {nf_number}")
+
+    payment_method = getattr(movement, "payment_method", None)
+    if payment_method is not None:
+        reference_parts.append(f"Pagamento: {payment_method}")
+
+    return " | ".join(reference_parts) or "-"
 
 
 def _build_row(

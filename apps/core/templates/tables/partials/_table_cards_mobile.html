@@ -1,7 +1,7 @@
 <div class="md:hidden space-y-3">
     {% if rows %}
         {% for row in rows %}
-            <div class="card bg-base-100 border border-base-300">
+            <div class="card border transition-colors {% if highlighted_row_ids and row.pk in highlighted_row_ids %}border-success/30 bg-success/10{% else %}border-base-300 bg-base-100{% endif %}">
                 <div class="card-body p-4">
                     <div class="flex items-start justify-between gap-3">
                         {% if selectable %}
