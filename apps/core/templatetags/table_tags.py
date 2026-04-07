@@ -3,13 +3,14 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, date
+from urllib.parse import urlsplit, urlunsplit
 from typing import Any
 
 from django.core.exceptions import FieldDoesNotExist, FieldError
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
 from django.db.models import Field, Q, QuerySet
 from django.db.models.expressions import BaseExpression
-from django.http import HttpRequest
+from django.http import HttpRequest, QueryDict
 from django.template import Library
 from django.urls import NoReverseMatch, reverse
 from django.utils.http import urlencode
@@ -82,6 +83,7 @@ class TableAction:
     hx_swap: str | None = None
     hx_select: str | None = None
     hx_push_url: str | None = None
+    preserve_current_url_as_next: bool = False
     visible: bool | Callable[[Any], bool] = True
 
 
@@ -592,11 +594,24 @@ def _resolve_action_href(obj: Any, action: TableAction) -> str | None:
     return None
 
 
+def _append_query_param(url: str, *, param_name: str, value: str) -> str:
+    normalized_value = str(value or "").strip()
+    if not normalized_value:
+        return url
+
+    parsed_url = urlsplit(url)
+    query_params = QueryDict(parsed_url.query, mutable=True)
+    query_params[param_name] = normalized_value
+    encoded_query = query_params.urlencode()
+    return urlunsplit((parsed_url.scheme, parsed_url.netloc, parsed_url.path, encoded_query, parsed_url.fragment))
+
+
 def _render_rows(
     *,
     page_obj: Any,
     columns: Sequence[TableColumn],
     actions: Sequence[TableAction],
+    request: HttpRequest,
     selected_values: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """
@@ -635,6 +650,9 @@ def _render_rows(
                 href = _resolve_action_href(obj, action)
                 if not href:
                     continue
+
+                if action.preserve_current_url_as_next:
+                    href = _append_query_param(href, param_name="next", value=request.get_full_path())
 
                 hx_get = action.hx_get
                 if hx_get in (None, "") and action.hx_target:
@@ -842,7 +860,7 @@ def render_table(
     if selectable and preserve_selection:
         selected_values = {str(raw_value) for raw_value in request.GET.getlist(checkbox_name) if str(raw_value).strip() != ""}
 
-    rows = _render_rows(page_obj=page_obj, columns=columns, actions=action_list, selected_values=selected_values)
+    rows = _render_rows(page_obj=page_obj, columns=columns, actions=action_list, request=request, selected_values=selected_values)
 
     prev_url = _build_url(request, updates={"page": page_obj.previous_page_number()}) if page_obj.has_previous() else None
     next_url = _build_url(request, updates={"page": page_obj.next_page_number()}) if page_obj.has_next() else None

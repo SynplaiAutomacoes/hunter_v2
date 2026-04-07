@@ -4422,6 +4422,35 @@ class FinancialMovementViewsTests(TestCase):
         self.assertContains(response, delete_url)
         self.assertContains(response, f'hx-get="{delete_url}"', html=False)
 
+    def test_list_view_renders_date_and_origin_filter_controls(self) -> None:
+        self._create_movement()
+        second_source = Source.objects.create(workshop=self.workshop, name="Fornecedor Alternativo")
+
+        response = self.client.get(reverse("finance:financial_movement_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'name="data_inicial"', html=False)
+        self.assertContains(response, 'name="data_final"', html=False)
+        self.assertContains(response, 'name="source"', html=False)
+        self.assertContains(response, self.source.name)
+        self.assertContains(response, second_source.name)
+
+    def test_list_view_preserves_current_filters_in_edit_action(self) -> None:
+        movement = self._create_movement()
+        expected_next_url = f"{reverse('finance:financial_movement_list')}?q=Fornecedor&source={self.source.pk}&data_inicial=2026-03-01"
+
+        response = self.client.get(
+            reverse("finance:financial_movement_list"),
+            data={"q": "Fornecedor", "source": str(self.source.pk), "data_inicial": "2026-03-01"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            f"{reverse('finance:financial_movement_update', kwargs={'pk': movement.pk})}?next={quote(expected_next_url, safe='')}",
+            html=False,
+        )
+
     def test_delete_view_htmx_get_renders_modal(self) -> None:
         movement = self._create_movement(description="Troca de oleo")
 
@@ -4454,6 +4483,58 @@ class FinancialMovementViewsTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.headers.get("Location"), reverse("finance:financial_movement_list"))
         self.assertFalse(FinancialMovement.objects.filter(pk=movement.pk).exists())
+
+    def test_update_view_renders_header_back_link_to_list(self) -> None:
+        movement = self._create_movement()
+
+        response = self.client.get(
+            reverse("finance:financial_movement_update", kwargs={"pk": movement.pk}),
+            data={"step": "1"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'href="{reverse("finance:financial_movement_list")}"', html=False)
+        self.assertContains(response, 'aria-label="Voltar para movimentacoes financeiras"', html=False)
+
+    def test_update_view_redirect_without_step_preserves_next_url(self) -> None:
+        movement = self._create_movement()
+        next_url = f"{reverse('finance:financial_movement_list')}?q=Fornecedor&source={self.source.pk}"
+
+        response = self.client.get(
+            reverse("finance:financial_movement_update", kwargs={"pk": movement.pk}),
+            data={"next": next_url},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.headers.get("Location"),
+            f"{reverse('finance:financial_movement_update', kwargs={'pk': movement.pk})}?step={movement.current_step}&next={quote(next_url, safe='')}",
+        )
+
+    def test_update_view_renders_header_back_link_with_preserved_next_url(self) -> None:
+        movement = self._create_movement()
+        next_url = f"{reverse('finance:financial_movement_list')}?q=Fornecedor&source={self.source.pk}"
+
+        response = self.client.get(
+            reverse("finance:financial_movement_update", kwargs={"pk": movement.pk}),
+            data={"step": "1", "next": next_url},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'href="{next_url.replace("&", "&amp;")}"', html=False)
+        self.assertContains(response, 'aria-label="Voltar para movimentacoes financeiras"', html=False)
+
+    def test_update_final_step_redirects_to_preserved_next_url(self) -> None:
+        movement = self._create_movement()
+        next_url = f"{reverse('finance:financial_movement_list')}?q=Fornecedor&source={self.source.pk}"
+
+        response = self.client.post(
+            f"{reverse('finance:financial_movement_update', kwargs={'pk': movement.pk})}?step=4&next={quote(next_url, safe='')}",
+            data={},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), next_url)
 
     def test_update_step3_renders_dre_topic_select_after_nf_number(self) -> None:
         movement = self._create_movement()
