@@ -14,6 +14,7 @@ from apps.budget.models import Budget, BudgetItem
 from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
+from apps.catalog.price_tracking import build_product_price_warning
 from apps.catalog.product_issues import annotate_product_issues
 from apps.core.widgets import NumberInput
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -368,6 +369,21 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         form = BudgetItemEditForm(request.POST, instance=item, budget_id=budget_id)
         if form.is_valid():
             action = request.POST.get("action")
+            if action in {"save_only", "update_master"} and item.product:
+                price_warning = build_product_price_warning(product=item.product, attempted_price=form.cleaned_data.get("product_selling_price"))
+                if price_warning and request.POST.get("confirm_lower_price") != "1":
+                    form.add_error("product_selling_price", price_warning.message)
+                    annotate_product_issues(workshop=self.workshop, items=[item])
+                    return render(
+                        request,
+                        "budget/partials/modals/modal_edit_item.html",
+                        {
+                            "form": form,
+                            "item": item,
+                            "budget_id": budget_id,
+                            "stock_quantity_html": self._build_stock_quantity_html(item=item),
+                        },
+                    )
             try:
                 item = form.save()
                 self._sync_product_ncm(item=item, form=form)

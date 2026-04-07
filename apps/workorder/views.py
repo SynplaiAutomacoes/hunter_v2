@@ -20,6 +20,8 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.generic import DetailView, ListView, TemplateView
 from djmoney.money import Money
 
+from apps.catalog.price_tracking import build_product_price_warning
+from apps.catalog.price_tracking import record_product_last_used_price
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.models.kits import Kit
@@ -374,7 +376,9 @@ class WorkOrderResumeSectionView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def get(self, request, pk):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
         context = _build_edit_items_context(workorder)
-        return render(request, "workorder/partials/resume_section.html", context)
+        response = render(request, "workorder/partials/resume_section.html", context)
+        response["Cache-Control"] = "no-store"
+        return response
 
 
 class WorkOrderPaymentSectionView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -387,7 +391,9 @@ class WorkOrderPaymentSectionView(LoginRequiredMixin, WorkshopScopedMixin, View)
             "workorder": workorder,
             "payment_form": WorkOrderPaymentForm(workorder=workorder),
         }
-        return render(request, "workorder/partials/payment_section.html", context)
+        response = render(request, "workorder/partials/payment_section.html", context)
+        response["Cache-Control"] = "no-store"
+        return response
 
 
 class UpdateWorkOrderDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -566,7 +572,20 @@ class WorkOrderItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         form = WorkOrderItemEditForm(request.POST, instance=item)
         if form.is_valid():
+            if item.product:
+                price_warning = build_product_price_warning(product=item.product, attempted_price=form.cleaned_data.get("product_selling_price"))
+                if price_warning and request.POST.get("confirm_lower_price") != "1":
+                    form.add_error("product_selling_price", price_warning.message)
+                    context = {
+                        "form": form,
+                        "item": item,
+                        "workorder": workorder,
+                        "active_tab": active_tab,
+                    }
+                    return render(request, "workorder/partials/modals/modal_edit_item.html", context)
+
             form.save()
+            workorder = _get_workorder_for_workshop(self.workshop, pk)
             return _render_edit_items_modal(
                 request,
                 workorder,
@@ -696,6 +715,7 @@ class WorkOrderKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     "shipping": Money(_parse_decimal_value(product_data.get("shipping")).quantize(Decimal("0.01")), "BRL"),
                 },
             )
+            record_product_last_used_price(product=product, price=Money(_parse_decimal_value(product_data.get("price")).quantize(Decimal("0.01")), "BRL"))
 
         workshop_cost = _get_workorder_workshop_cost(workorder, self.workshop)
         for service_data in services_data:

@@ -22,6 +22,7 @@
                     class="btn btn-accent btn-sm gap-2 js-update-master flex-shrink-0 whitespace-nowrap"
                     data-url="{% url 'budget:edit_item' budget_id item.pk %}"
                     data-action="update_master"
+                    data-last-used-price="{{ item.product.last_used_price.amount|default_if_none:'' }}"
                     data-keep-modal-open="true">
                 <span class="material-icons text-sm">cloud_upload</span>
                 <span class="hidden sm:inline">Atualizar Cadastro</span>
@@ -43,6 +44,7 @@
           id="edit-item-form"
           class="space-y-4 js-save-form">
         {% csrf_token %}
+        <input type="hidden" name="confirm_lower_price" id="confirm-lower-price-input" value="">
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="item-fields-container">
             {% if item.product %}
@@ -90,6 +92,7 @@
                     A quantidade solicitada excede o estoque em {{ item.excess_quantity }} peça{{ item.excess_quantity|pluralize }}.
                 </span>
             </div>
+
         {% endif %}
     </form>
 
@@ -119,6 +122,8 @@
         'use strict';
 
         const ModalItemEditor = {
+            pendingLowerPriceButton: null,
+
             // Auto-focus first input field
             focusFirstInput() {
                 const firstInput = document.querySelector(
@@ -145,52 +150,7 @@
 
                 updateButton.dataset.initialized = 'true';
 
-                const icon = updateButton.querySelector('.material-icons');
-                const originalIconContent = icon ? icon.textContent : '';
-                const form = document.getElementById('edit-item-form');
-
-                updateButton.addEventListener('click', function(e) {
-                    e.preventDefault();
-
-                    if (!form) {
-                        console.error('Form not found');
-                        return;
-                    }
-
-                    // Prevent double-click
-                    if (this.disabled) return;
-
-                    const url = this.dataset.url;
-                    const action = this.dataset.action;
-
-                    // Show loading state
-                    if (icon) {
-                        icon.textContent = 'hourglass_empty';
-                        icon.classList.add('animate-spin');
-                    }
-
-                    this.disabled = true;
-
-                    // Get form data including CSRF token
-                    const formData = new FormData(form);
-                    formData.set('action', action);
-
-                    // Trigger HTMX request with form data
-                    htmx.ajax('POST', url, {
-                        target: 'body',
-                        swap: 'none',
-                        values: Object.fromEntries(formData)
-                    }).finally(() => {
-                        // Reset button state after a short delay
-                        setTimeout(() => {
-                            if (icon) {
-                                icon.textContent = originalIconContent;
-                                icon.classList.remove('animate-spin');
-                            }
-                            updateButton.disabled = false;
-                        }, 500);
-                    });
-                });
+                this.setupLowerPriceButton(updateButton);
             },
 
             // Handle save local button with loading state
@@ -206,11 +166,117 @@
 
                 saveButton.dataset.initialized = 'true';
 
-                const icon = saveButton.querySelector('.material-icons');
+                this.setupLowerPriceButton(saveButton);
+            },
+
+            setupLowerPriceButton(button) {
+                if (!button) return;
+
+                const icon = button.querySelector('.material-icons');
                 const originalIconContent = icon ? icon.textContent : '';
                 const form = document.getElementById('edit-item-form');
+                const confirmLowerPriceInput = document.getElementById('confirm-lower-price-input');
+                const sellingPriceAmountInput = document.getElementById('id_product_selling_price_0');
+                const sellingPriceDisplayInput = document.getElementById('id_product_selling_price_0_display');
+                const sellingPriceHelpMessages = document.querySelectorAll('[x-text="priceHelpMessage"]');
+                const updateButton = document.querySelector('.js-update-master');
+                const lastUsedPrice = Number.parseFloat((updateButton?.dataset.lastUsedPrice || button.dataset.lastUsedPrice || '0')) || 0;
 
-                saveButton.addEventListener('click', function(e) {
+                const setPriceHelpMessage = (message) => {
+                    sellingPriceHelpMessages.forEach((element) => {
+                        element.textContent = message;
+                        const label = element.closest('label');
+                        if (!label) {
+                            return;
+                        }
+                        if (message) {
+                            label.classList.remove('hidden');
+                            label.removeAttribute('x-cloak');
+                        } else {
+                            label.classList.add('hidden');
+                        }
+                    });
+                };
+
+                const clearSellingPriceField = () => {
+                    if (sellingPriceAmountInput) {
+                        sellingPriceAmountInput.value = '';
+                        sellingPriceAmountInput.dispatchEvent(new Event('input', { bubbles: true }));
+                        sellingPriceAmountInput.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                    if (sellingPriceDisplayInput) {
+                        sellingPriceDisplayInput.value = '';
+                        sellingPriceDisplayInput.dispatchEvent(new Event('input', { bubbles: true }));
+                        sellingPriceDisplayInput.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                };
+
+                const closeLowerPriceModal = () => {
+                    if (window.closeBudgetChildModal) {
+                        window.closeBudgetChildModal();
+                    }
+                    const childModalContainer = document.getElementById('child-modal-container');
+                    if (childModalContainer) {
+                        childModalContainer.innerHTML = '';
+                    }
+                };
+
+                const openLowerPriceModal = () => {
+                    const childModalContainer = document.getElementById('child-modal-container');
+                    if (!childModalContainer) {
+                        return false;
+                    }
+
+                    childModalContainer.innerHTML = `
+                        <div class="modal-content-wrapper bg-base-100 p-6 rounded-lg max-w-md w-full">
+                            <div class="flex items-start gap-3">
+                                <span class="material-icons text-warning text-3xl">warning</span>
+                                <div>
+                                    <h3 class="font-bold text-xl text-base-content">Confirmar valor abaixo do ultimo uso</h3>
+                                    <p class="text-sm text-base-content/80 mt-2">O valor informado esta abaixo do ultimo valor utilizado para este produto.</p>
+                                    <p class="text-sm text-base-content/80 mt-1">Deseja continuar mesmo assim?</p>
+                                </div>
+                            </div>
+                            <div class="mt-6 flex justify-end gap-3">
+                                <button type="button" class="btn btn-ghost" id="lower-price-cancel-btn">Cancelar</button>
+                                <button type="button" class="btn btn-warning" id="lower-price-continue-btn">Continuar mesmo assim</button>
+                            </div>
+                        </div>
+                    `;
+
+                    const cancelLowerPriceButton = document.getElementById('lower-price-cancel-btn');
+                    const continueLowerPriceButton = document.getElementById('lower-price-continue-btn');
+
+                    cancelLowerPriceButton?.addEventListener('click', () => {
+                        if (confirmLowerPriceInput) {
+                            confirmLowerPriceInput.value = '';
+                        }
+                        this.pendingLowerPriceButton = null;
+                        closeLowerPriceModal();
+                        clearSellingPriceField();
+                        setPriceHelpMessage(`Insira um valor maior que ${lastUsedPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`);
+                    });
+
+                    continueLowerPriceButton?.addEventListener('click', () => {
+                        if (confirmLowerPriceInput) {
+                            confirmLowerPriceInput.value = '1';
+                        }
+                        closeLowerPriceModal();
+                        setPriceHelpMessage('');
+                        const pendingButton = this.pendingLowerPriceButton;
+                        this.pendingLowerPriceButton = null;
+                        pendingButton?.click();
+                    });
+
+                    if (window.openBudgetChildModal) {
+                        window.openBudgetChildModal();
+                        return true;
+                    }
+
+                    return false;
+                };
+
+                button.addEventListener('click', (e) => {
                     e.preventDefault();
 
                     if (!form) {
@@ -218,37 +284,46 @@
                         return;
                     }
 
-                    // Prevent double-click
-                    if (this.disabled) return;
+                    if (button.disabled) return;
 
-                    const url = this.dataset.url;
-                    const action = this.dataset.action;
+                    const url = button.dataset.url;
+                    const action = button.dataset.action;
+                    const sellingPrice = Number.parseFloat(sellingPriceAmountInput?.value || '0') || 0;
 
-                    // Show loading state
+                    if (confirmLowerPriceInput && sellingPrice >= lastUsedPrice) {
+                        confirmLowerPriceInput.value = '';
+                    }
+
+                    if (lastUsedPrice > 0 && sellingPrice > 0 && sellingPrice < lastUsedPrice && confirmLowerPriceInput?.value !== '1') {
+                        this.pendingLowerPriceButton = button;
+                        setPriceHelpMessage('');
+                        if (!openLowerPriceModal()) {
+                            this.pendingLowerPriceButton = null;
+                        }
+                        return;
+                    }
+
                     if (icon) {
                         icon.textContent = 'hourglass_empty';
                         icon.classList.add('animate-spin');
                     }
 
-                    this.disabled = true;
+                    button.disabled = true;
 
-                    // Get form data including CSRF token
                     const formData = new FormData(form);
                     formData.set('action', action);
 
-                    // Trigger HTMX request with form data - let HTMX handle the response
                     htmx.ajax('POST', url, {
                         target: 'body',
                         swap: 'none',
                         values: Object.fromEntries(formData)
                     }).finally(() => {
-                        // Reset button state after a short delay
                         setTimeout(() => {
                             if (icon) {
                                 icon.textContent = originalIconContent;
                                 icon.classList.remove('animate-spin');
                             }
-                            saveButton.disabled = false;
+                            button.disabled = false;
                         }, 500);
                     });
                 });

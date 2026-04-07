@@ -13,6 +13,7 @@ from apps.budget.forms.item_forms import BudgetKitProductEditRowForm, BudgetKitS
 from apps.budget.models import BudgetItem, BudgetKitItemOverride
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
+from apps.catalog.price_tracking import record_product_last_used_price
 from apps.workshops.mixin import WorkshopScopedMixin
 
 from .shared import _calculate_service_prices, _get_budget_for_workshop, _get_budget_item_for_workshop, _get_budget_workshop_cost, _parse_duration_from_string, reset_steps_after_step_4
@@ -161,6 +162,7 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                         "shipping": Money(Decimal(str(product_data.get("shipping", 0))), "BRL"),
                     },
                 )
+                record_product_last_used_price(product=product, price=Money(Decimal(str(product_data.get("price", 0))), "BRL"))
             except Exception:
                 logger.exception(
                     "Falha ao salvar produto do kit no orcamento",
@@ -307,6 +309,7 @@ class BudgetKitProductCalculateView(LoginRequiredMixin, WorkshopScopedMixin, Vie
                 "shipping": Money(parsed_shipping, "BRL"),
             },
         )
+        record_product_last_used_price(product=product, price=Money(parsed_price, "BRL"))
         reset_steps_after_step_4(budget)
 
         return JsonResponse(

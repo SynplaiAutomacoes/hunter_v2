@@ -47,6 +47,10 @@
     <dialog id="item_form_modal" class="modal">
         <div id="item-modal-container"></div>
     </dialog>
+
+    <dialog id="item_confirm_modal" class="modal">
+        <div id="item-confirm-modal-container"></div>
+    </dialog>
 </div>
 
 <dialog id="pdfModal" class="modal" x-data="{u:'', d:'', s:false, sb:false, sr:''}"
@@ -90,6 +94,13 @@
         const formModal = document.getElementById('form_modal');
         const itemFormModal = document.getElementById('item_form_modal');
         const itemModalContainer = document.getElementById('item-modal-container');
+        const itemConfirmModal = document.getElementById('item_confirm_modal');
+        const itemConfirmModalContainer = document.getElementById('item-confirm-modal-container');
+
+        function buildUncachedUrl(url) {
+            const separator = url.includes('?') ? '&' : '?';
+            return `${url}${separator}_ts=${Date.now()}`;
+        }
 
         function clearItemModalContainer() {
             if (!itemModalContainer) {
@@ -110,8 +121,34 @@
             clearItemModalContainer();
         };
 
+        window.openWorkorderItemConfirmModal = function () {
+            if (!itemConfirmModal) {
+                return;
+            }
+            if (!itemConfirmModal.open) {
+                itemConfirmModal.showModal();
+            }
+        };
+
+        window.closeWorkorderItemConfirmModal = function () {
+            if (!itemConfirmModal) {
+                return;
+            }
+
+            if (itemConfirmModal.open) {
+                itemConfirmModal.close();
+            }
+
+            if (itemConfirmModalContainer) {
+                itemConfirmModalContainer.innerHTML = '';
+            }
+        };
+
         if (itemFormModal && itemModalContainer) {
             itemFormModal.addEventListener('close', clearItemModalContainer);
+            itemFormModal.addEventListener('close', function () {
+                window.closeWorkorderItemConfirmModal();
+            });
 
             document.body.addEventListener('htmx:afterSwap', function (event) {
                 const target = event.detail ? event.detail.target : null;
@@ -135,6 +172,12 @@
             });
         }
 
+        if (itemConfirmModal && itemConfirmModalContainer) {
+            itemConfirmModal.addEventListener('close', function () {
+                itemConfirmModalContainer.innerHTML = '';
+            });
+        }
+
         if (formModal) {
             formModal.addEventListener('close', function () {
                 window.closeWorkorderItemModal();
@@ -142,15 +185,24 @@
         }
 
         document.body.addEventListener('workorderItemsUpdated', function () {
-            htmx.ajax('GET', '{% url "workorder:resume_section" workorder.pk %}', {
+            htmx.ajax('GET', buildUncachedUrl('{% url "workorder:resume_section" workorder.pk %}'), {
                 target: '#resume-section',
                 swap: 'innerHTML'
             });
 
-            htmx.ajax('GET', '{% url "workorder:payment_section" workorder.pk %}', {
+            htmx.ajax('GET', buildUncachedUrl('{% url "workorder:payment_section" workorder.pk %}'), {
                 target: '#payment-section',
                 swap: 'innerHTML'
             });
+
+            if (formModal && formModal.open) {
+                const activeTab = document.querySelector('#modal-container [data-active-tab]')?.dataset.activeTab || 'products';
+                const editItemsUrl = `{% url "workorder:edit_items_modal" workorder.pk %}?tab=${encodeURIComponent(activeTab)}`;
+                htmx.ajax('GET', buildUncachedUrl(editItemsUrl), {
+                    target: '#modal-container',
+                    swap: 'innerHTML'
+                });
+            }
         });
 
         document.body.addEventListener('htmx:afterSwap', function (event) {
