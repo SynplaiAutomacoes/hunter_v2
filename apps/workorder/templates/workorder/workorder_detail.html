@@ -97,11 +97,6 @@
         const itemConfirmModal = document.getElementById('item_confirm_modal');
         const itemConfirmModalContainer = document.getElementById('item-confirm-modal-container');
 
-        function buildUncachedUrl(url) {
-            const separator = url.includes('?') ? '&' : '?';
-            return `${url}${separator}_ts=${Date.now()}`;
-        }
-
         function clearItemModalContainer() {
             if (!itemModalContainer) {
                 return;
@@ -183,27 +178,6 @@
                 window.closeWorkorderItemModal();
             });
         }
-
-        document.body.addEventListener('workorderItemsUpdated', function () {
-            htmx.ajax('GET', buildUncachedUrl('{% url "workorder:resume_section" workorder.pk %}'), {
-                target: '#resume-section',
-                swap: 'innerHTML'
-            });
-
-            htmx.ajax('GET', buildUncachedUrl('{% url "workorder:payment_section" workorder.pk %}'), {
-                target: '#payment-section',
-                swap: 'innerHTML'
-            });
-
-            if (formModal && formModal.open) {
-                const activeTab = document.querySelector('#modal-container [data-active-tab]')?.dataset.activeTab || 'products';
-                const editItemsUrl = `{% url "workorder:edit_items_modal" workorder.pk %}?tab=${encodeURIComponent(activeTab)}`;
-                htmx.ajax('GET', buildUncachedUrl(editItemsUrl), {
-                    target: '#modal-container',
-                    swap: 'innerHTML'
-                });
-            }
-        });
 
         document.body.addEventListener('htmx:afterSwap', function (event) {
             const target = event.detail ? event.detail.target : null;
