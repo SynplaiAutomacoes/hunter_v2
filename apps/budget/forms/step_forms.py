@@ -2905,10 +2905,10 @@ class BudgetStep6Form(forms.ModelForm):
                                 <tr>
                                   <th class="w-[20%]">NOME</th>
                                   <th class="w-[18%]">APLICAÇÃO</th>
-                                  <th class="w-[10%] text-sm text-center whitespace-normal break-words leading-tight">Fornecido pelo cliente</th>
+                                  <th class="w-[14%] text-center whitespace-normal break-words leading-tight" title="Fornecido pelo Cliente">FORNECIDO</th>
                                   <th class="w-[8%] text-center">QTD.</th>
-                                  <th class="w-[12%]">CUSTO</th>
-                                  <th class="w-[14%]">VALOR</th>
+                                  <th class="w-[10%]">CUSTO</th>
+                                  <th class="w-[12%]">VALOR</th>
                                   <th class="w-[8%]">FRETE</th>
                                   <th class="w-[10%]">TOTAL</th>
                                 </tr>
