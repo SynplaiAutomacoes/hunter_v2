@@ -1530,6 +1530,45 @@ class BudgetQuickCreateProductValidationTests(TestCase):
         self.assertEqual(product.selling_price, Money("40.00", "BRL"))
         self.assertEqual(product.last_used_price, Money("40.00", "BRL"))
 
+    def test_queue_save_only_requires_confirmation_for_price_below_last_used_price_and_preserves_queue_mode(self) -> None:
+        product = create_product(workshop=self.workshop, suffix=10131)
+        product.last_used_price = Money("30.00", "BRL")
+        product.selling_price = Money("40.00", "BRL")
+        product.save(update_fields=["last_used_price", "selling_price"])
+        budget_item = BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            product=product,
+            quantity=1,
+        )
+
+        response = self.client.post(
+            reverse("budget:edit_item", args=[self.budget.pk, budget_item.pk]),
+            {
+                "description": budget_item.description,
+                "quantity": "1",
+                "product_cost_price_0": "10.00",
+                "product_cost_price_1": "BRL",
+                "product_selling_price_0": "20.00",
+                "product_selling_price_1": "BRL",
+                "shipping_0": "0.00",
+                "shipping_1": "BRL",
+                "ncm": product.ncm,
+                "action": "save_only",
+                "in_queue": "true",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Último valor usado: R$ 40,00")
+        self.assertContains(response, 'name="in_queue" value="true"')
+        self.assertNotContains(response, 'class="btn btn-primary gap-2 js-save-local"')
+        budget_item.refresh_from_db()
+        product.refresh_from_db()
+        self.assertEqual(budget_item.product_selling_price, Money("40.00", "BRL"))
+        self.assertEqual(product.last_used_price, Money("40.00", "BRL"))
+
     def test_save_only_allows_confirmed_price_below_last_used_price(self) -> None:
         product = create_product(workshop=self.workshop, suffix=1014)
         product.last_used_price = Money("30.00", "BRL")
@@ -1567,6 +1606,67 @@ class BudgetQuickCreateProductValidationTests(TestCase):
         self.assertEqual(budget_item.product_selling_price, Money("20.00", "BRL"))
         self.assertEqual(product.selling_price, Money("40.00", "BRL"))
         self.assertEqual(product.last_used_price, Money("20.00", "BRL"))
+
+    def test_queue_save_only_allows_confirmed_price_below_last_used_price(self) -> None:
+        product = create_product(workshop=self.workshop, suffix=10141)
+        product.last_used_price = Money("30.00", "BRL")
+        product.selling_price = Money("40.00", "BRL")
+        product.save(update_fields=["last_used_price", "selling_price"])
+        budget_item = BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            product=product,
+            quantity=1,
+        )
+
+        response = self.client.post(
+            reverse("budget:edit_item", args=[self.budget.pk, budget_item.pk]),
+            {
+                "description": budget_item.description,
+                "quantity": "1",
+                "product_cost_price_0": "10.00",
+                "product_cost_price_1": "BRL",
+                "product_selling_price_0": "20.00",
+                "product_selling_price_1": "BRL",
+                "shipping_0": "0.00",
+                "shipping_1": "BRL",
+                "ncm": product.ncm,
+                "action": "save_only",
+                "confirm_lower_price": "1",
+                "in_queue": "true",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("HX-Redirect", response)
+        budget_item.refresh_from_db()
+        product.refresh_from_db()
+        self.assertEqual(budget_item.product_selling_price, Money("20.00", "BRL"))
+        self.assertEqual(product.selling_price, Money("40.00", "BRL"))
+        self.assertEqual(product.last_used_price, Money("20.00", "BRL"))
+
+    def test_queue_quick_edit_product_modal_renders_queue_save_trigger_and_full_title(self) -> None:
+        product = create_product(workshop=self.workshop, suffix=10142)
+        product.name = "Produto com nome muito grande para aparecer inteiro na fila"
+        product.save(update_fields=["name"])
+        budget_item = BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            product=product,
+            quantity=1,
+        )
+
+        response = self.client.get(
+            reverse("budget:edit_item", args=[self.budget.pk, budget_item.pk]),
+            {"in_queue": "true"},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'class="hidden js-save-local js-queue-save-trigger"')
+        self.assertContains(response, 'class="font-bold text-xl text-base-content flex-1 min-w-0 truncate"')
+        self.assertContains(response, "Produto com nome muito grande para aparecer inteiro na fila")
 
     def test_quick_edit_product_modal_shows_ncm_field(self) -> None:
         product = create_product(workshop=self.workshop, suffix=102)

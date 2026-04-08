@@ -342,6 +342,24 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "change_budgetitem"
 
     @staticmethod
+    def _is_queue_request(request) -> bool:
+        raw_in_queue = request.POST.get("in_queue") or request.GET.get("in_queue") or "false"
+        return str(raw_in_queue).lower() == "true"
+
+    def _render_edit_modal(self, request, *, form: BudgetItemEditForm, item: BudgetItem, budget_id: int, in_queue: bool) -> HttpResponse:
+        return render(
+            request,
+            "budget/partials/modals/modal_edit_item.html",
+            {
+                "form": form,
+                "item": item,
+                "budget_id": budget_id,
+                "in_queue": in_queue,
+                "stock_quantity_html": self._build_stock_quantity_html(item=item),
+            },
+        )
+
+    @staticmethod
     def _build_stock_quantity_html(*, item: BudgetItem) -> str:
         return NumberInput(attrs={"readonly": "readonly", "disabled": "disabled", "id": "stock-quantity-reference"}).render(
             name="stock_quantity_reference",
@@ -352,21 +370,14 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         item = _get_budget_item_for_workshop(self.workshop, budget_id, item_id)
         annotate_product_issues(workshop=self.workshop, items=[item])
         form = BudgetItemEditForm(instance=item, budget_id=budget_id)
-        in_queue = request.GET.get("in_queue", "false").lower() == "true"
-
-        context = {
-            "form": form,
-            "item": item,
-            "budget_id": budget_id,
-            "in_queue": in_queue,
-            "stock_quantity_html": self._build_stock_quantity_html(item=item),
-        }
-        return render(request, "budget/partials/modals/modal_edit_item.html", context)
+        in_queue = self._is_queue_request(request)
+        return self._render_edit_modal(request, form=form, item=item, budget_id=budget_id, in_queue=in_queue)
 
     def post(self, request, budget_id, item_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
         item = _get_budget_item_for_workshop(self.workshop, budget_id, item_id)
         form = BudgetItemEditForm(request.POST, instance=item, budget_id=budget_id)
+        in_queue = self._is_queue_request(request)
         if form.is_valid():
             action = request.POST.get("action")
             if action in {"save_only", "update_master"} and item.product:
@@ -374,16 +385,7 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 if price_warning and request.POST.get("confirm_lower_price") != "1":
                     form.add_error("product_selling_price", price_warning.message)
                     annotate_product_issues(workshop=self.workshop, items=[item])
-                    return render(
-                        request,
-                        "budget/partials/modals/modal_edit_item.html",
-                        {
-                            "form": form,
-                            "item": item,
-                            "budget_id": budget_id,
-                            "stock_quantity_html": self._build_stock_quantity_html(item=item),
-                        },
-                    )
+                    return self._render_edit_modal(request, form=form, item=item, budget_id=budget_id, in_queue=in_queue)
             try:
                 item = form.save()
                 self._sync_product_ncm(item=item, form=form)
@@ -420,16 +422,7 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         )
 
         annotate_product_issues(workshop=self.workshop, items=[item])
-        return render(
-            request,
-            "budget/partials/modals/modal_edit_item.html",
-            {
-                "form": form,
-                "item": item,
-                "budget_id": budget_id,
-                "stock_quantity_html": self._build_stock_quantity_html(item=item),
-            },
-        )
+        return self._render_edit_modal(request, form=form, item=item, budget_id=budget_id, in_queue=in_queue)
 
     @staticmethod
     def _sync_product_ncm(*, item: BudgetItem, form: BudgetItemEditForm) -> None:
