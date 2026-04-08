@@ -1,8 +1,18 @@
 {% extends 'crud/page.html' %}
 {% block crud_content %}
 <div class="mb-6">
-    <h1 class="text-3xl font-bold">Movimentação Financeira</h1>
-    <p class="text-base-content/70">Custos indiretos e entradas financeiras não produtivas.</p>
+    <div class="flex items-start gap-3">
+        {% if is_update %}
+            <a href="{{ back_url }}" class="btn btn-ghost btn-circle shrink-0 text-base-content/70" aria-label="Voltar para movimentacoes financeiras">
+                <span class="material-icons text-xl">arrow_back</span>
+            </a>
+        {% endif %}
+
+        <div>
+            <h1 class="text-3xl font-bold text-base-content">Movimentação Financeira</h1>
+            <p class="text-base-content/70">Custos indiretos e entradas financeiras não produtivas.</p>
+        </div>
+    </div>
 </div>
 
 <div class="card bg-base-100 shadow-xl">

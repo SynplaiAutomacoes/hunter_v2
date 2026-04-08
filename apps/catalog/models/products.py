@@ -80,6 +80,7 @@ class Product(TimeStampedModel):
     # --- Financeiro ---
     cost_price = MoneyField(verbose_name="Valor de Custo", max_digits=14, decimal_places=2)
     selling_price = MoneyField(verbose_name="Valor de Venda", max_digits=14, decimal_places=2)
+    last_used_price = MoneyField(verbose_name="Ultimo Valor Utilizado", max_digits=14, decimal_places=2, null=True, blank=True)
 
     # Margem armazenada para facilidade de consulta, mas calculada no form
     profit_margin = models.DecimalField(verbose_name="Margem de Lucro", max_digits=7, decimal_places=2, default=0, blank=True)
@@ -98,7 +99,7 @@ class Product(TimeStampedModel):
 
     @property
     def current_stock(self):
-        stock = getattr(self, 'stock_products', None)
+        stock = getattr(self, "stock_products", None)
         return stock.current_quantity if stock else 0
 
     class Meta:
@@ -118,7 +119,4 @@ class Product(TimeStampedModel):
 @receiver(post_save, sender=Product)
 def create_stock_product(sender, instance, created, **kwargs):
     if created:
-        StockProduct.objects.get_or_create(
-            workshop=instance.workshop,
-            product=instance
-        )
+        StockProduct.objects.get_or_create(workshop=instance.workshop, product=instance)

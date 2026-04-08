@@ -1,0 +1,33 @@
+<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+    <div>
+        <label for="{{ table_id }}-filter-data-inicial">Data inicial</label>
+        <input
+            type="date"
+            name="data_inicial"
+            id="{{ table_id }}-filter-data-inicial"
+            value="{{ request.GET.data_inicial|default:'' }}"
+            class="input-theme"
+        />
+    </div>
+
+    <div>
+        <label for="{{ table_id }}-filter-data-final">Data final</label>
+        <input
+            type="date"
+            name="data_final"
+            id="{{ table_id }}-filter-data-final"
+            value="{{ request.GET.data_final|default:'' }}"
+            class="input-theme"
+        />
+    </div>
+
+    <div class="sm:col-span-2">
+        <label for="{{ table_id }}-filter-source">Origem</label>
+        <select name="source" id="{{ table_id }}-filter-source" class="select select-bordered w-full">
+            <option value="">Todas</option>
+            {% for source in source_filters %}
+                <option value="{{ source.pk }}" {% if selected_source_id == source.pk %}selected{% endif %}>{{ source.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+</div>

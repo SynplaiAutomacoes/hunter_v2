@@ -460,6 +460,125 @@ def create_kit(*, workshop: Workshop, suffix: int, products: list[tuple[Product,
     return kit
 
 
+class WorkOrderItemPriceTrackingTests(TestCase):
+    def test_workorder_item_updates_product_last_used_price(self) -> None:
+        workshop = create_workshop(suffix=21)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        product = create_product(workshop=workshop, suffix=210, selling_price="125.00")
+        product.last_used_price = None
+        product.save(update_fields=["last_used_price"])
+
+        item = WorkOrderItem.objects.create(workshop=workshop, workorder=workorder, product=product, quantity=1)
+
+        product.refresh_from_db()
+        self.assertEqual(item.product_selling_price, Money("125.00", "BRL"))
+        self.assertEqual(product.last_used_price, Money("125.00", "BRL"))
+
+    def _login_with_active_workshop(self, *, suffix: int) -> Workshop:
+        user, workshop = create_director_user_with_workshop(suffix=suffix)
+        self.client.force_login(user)
+
+        session = self.client.session
+        session["active_workshop_id"] = workshop.pk
+        session.save()
+        return workshop
+
+    def test_edit_item_requires_confirmation_for_price_below_last_used_price(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=22)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        product = create_product(workshop=workshop, suffix=220, selling_price="40.00")
+        product.last_used_price = Money("30.00", "BRL")
+        product.save(update_fields=["last_used_price", "selling_price"])
+        item = WorkOrderItem.objects.create(workshop=workshop, workorder=workorder, product=product, quantity=1)
+
+        response = self.client.post(
+            reverse("workorder:edit_item", args=[workorder.pk, item.pk]),
+            {
+                "description": item.description,
+                "quantity": "1",
+                "product_cost_price_0": "10.00",
+                "product_cost_price_1": "BRL",
+                "product_selling_price_0": "20.00",
+                "product_selling_price_1": "BRL",
+                "shipping_0": "0.00",
+                "shipping_1": "BRL",
+                "active_tab": "products",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Último valor usado: R$ 40,00")
+        item.refresh_from_db()
+        product.refresh_from_db()
+        self.assertEqual(item.product_selling_price, Money("40.00", "BRL"))
+        self.assertEqual(product.last_used_price, Money("40.00", "BRL"))
+
+    def test_edit_item_allows_confirmed_price_below_last_used_price(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=23)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        product = create_product(workshop=workshop, suffix=230, selling_price="40.00")
+        product.last_used_price = Money("30.00", "BRL")
+        product.save(update_fields=["last_used_price", "selling_price"])
+        item = WorkOrderItem.objects.create(workshop=workshop, workorder=workorder, product=product, quantity=1)
+
+        response = self.client.post(
+            reverse("workorder:edit_item", args=[workorder.pk, item.pk]),
+            {
+                "description": item.description,
+                "quantity": "1",
+                "product_cost_price_0": "10.00",
+                "product_cost_price_1": "BRL",
+                "product_selling_price_0": "20.00",
+                "product_selling_price_1": "BRL",
+                "shipping_0": "0.00",
+                "shipping_1": "BRL",
+                "active_tab": "products",
+                "confirm_lower_price": "1",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("HX-Retarget"), "#modal-container")
+        self.assertIn("workorderCloseItemModal", response.headers.get("HX-Trigger-After-Swap", ""))
+        self.assertContains(response, 'id="resume-section" hx-swap-oob="innerHTML"', html=False)
+        item.refresh_from_db()
+        product.refresh_from_db()
+        self.assertEqual(item.product_selling_price, Money("20.00", "BRL"))
+        self.assertEqual(product.last_used_price, Money("20.00", "BRL"))
+
+    def test_edit_item_success_response_renders_updated_modal_table_value(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=24)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        product = create_product(workshop=workshop, suffix=240, selling_price="40.00")
+        item = WorkOrderItem.objects.create(workshop=workshop, workorder=workorder, product=product, quantity=1)
+
+        response = self.client.post(
+            reverse("workorder:edit_item", args=[workorder.pk, item.pk]),
+            {
+                "description": item.description,
+                "quantity": "1",
+                "product_cost_price_0": "10.00",
+                "product_cost_price_1": "BRL",
+                "product_selling_price_0": "55.00",
+                "product_selling_price_1": "BRL",
+                "shipping_0": "0.00",
+                "shipping_1": "BRL",
+                "active_tab": "products",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "55,00")
+        self.assertContains(response, 'id="resume-section" hx-swap-oob="innerHTML"', html=False)
+
+
 class WorkOrderDetailViewTests(TestCase):
     def _login_with_active_workshop(self, *, suffix: int) -> Workshop:
         user, workshop = create_director_user_with_workshop(suffix=suffix)
@@ -504,6 +623,43 @@ class WorkOrderDetailViewTests(TestCase):
         self.assertContains(response, direct_service.name)
         self.assertContains(response, kit_service.name)
         self.assertContains(response, kit.name)
+
+    def test_resume_section_reflects_updated_item_value_and_disables_cache(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=96)
+        customer = create_customer(workshop=workshop, suffix=96)
+        vehicle = create_vehicle(workshop=workshop, customer=customer, suffix=96, plate="OSR9696")
+        budget = create_budget(workshop=workshop)
+        budget.customer = customer
+        budget.vehicle = vehicle
+        budget.save(update_fields=["customer", "vehicle"])
+
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        product = create_product(workshop=workshop, suffix=960, selling_price="40.00")
+        item = WorkOrderItem.objects.create(workshop=workshop, workorder=workorder, product=product, quantity=1)
+
+        edit_response = self.client.post(
+            reverse("workorder:edit_item", args=[workorder.pk, item.pk]),
+            {
+                "description": item.description,
+                "quantity": "1",
+                "product_cost_price_0": "10.00",
+                "product_cost_price_1": "BRL",
+                "product_selling_price_0": "55.00",
+                "product_selling_price_1": "BRL",
+                "shipping_0": "0.00",
+                "shipping_1": "BRL",
+                "active_tab": "products",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(edit_response.status_code, 200)
+
+        response = self.client.get(reverse("workorder:resume_section", args=[workorder.pk]), {"_ts": "123"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("Cache-Control"), "no-store")
+        self.assertContains(response, "55,00")
 
 
 class WorkOrderTotalsConsistencyTests(TestCase):
@@ -757,24 +913,57 @@ class WorkOrderSignaturePublicViewTests(TestCase):
         self.assertEqual(render_mock.call_args.args[1], "budget/partials/pdf/visualizarPDF.html")
         self.assertEqual(render_mock.call_args.args[2]["budget"], budget)
 
+    def test_signature_preview_renders_workorder_price_when_it_differs_from_budget(self) -> None:
+        workshop = create_workshop(suffix=16)
+        customer = create_customer(workshop=workshop, suffix=16)
+        vehicle = create_vehicle(workshop=workshop, customer=customer, suffix=16, plate="OSP1600")
+        budget = create_budget(workshop=workshop)
+        budget.customer = customer
+        budget.vehicle = vehicle
+        budget.save(update_fields=["customer", "vehicle"])
+
+        product = create_product(workshop=workshop, suffix=160, selling_price="60.00")
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        workorder.sync_from_budget()
+        workorder_item = workorder.items.get()
+        workorder_item.product_selling_price = Money("50.00", "BRL")
+        workorder_item.save(update_fields=["product_selling_price"])
+
+        token = extract_token_from_url(build_signature_preview_url(workorder=workorder))
+        response = self.client.get(reverse("workorder:signature_preview", args=[token]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "50,00")
+        self.assertNotContains(response, "60,00")
+
 
 class WorkOrderPdfParityTests(TestCase):
     def setUp(self) -> None:
         self.factory = RequestFactory()
 
-    def test_build_workorder_pdf_render_request_reuses_budget_render_request_shape(self) -> None:
+    def test_build_workorder_pdf_render_request_uses_workorder_values_in_pdf_context(self) -> None:
         workshop = create_workshop(suffix=99)
         budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=999, selling_price="60.00")
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=1)
         workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        workorder.sync_from_budget()
+        workorder_item = workorder.items.get()
+        workorder_item.product_selling_price = Money("50.00", "BRL")
+        workorder_item.save(update_fields=["product_selling_price"])
         filename = "documento.pdf"
 
         workorder_render_request = build_workorder_pdf_render_request(workorder=workorder, filename=filename)
-        budget_render_request = build_budget_pdf_render_request(budget=budget, filename=filename)
 
-        self.assertEqual(workorder_render_request.template_name, budget_render_request.template_name)
-        self.assertEqual(workorder_render_request.filename, budget_render_request.filename)
-        self.assertEqual(workorder_render_request.context["budget"], budget)
-        self.assertEqual(workorder_render_request.context["pages"], budget_render_request.context["pages"])
+        self.assertEqual(workorder_render_request.template_name, "workorder/partials/pdf/visualizarPDF.html")
+        self.assertEqual(workorder_render_request.filename, filename)
+        self.assertEqual(workorder_render_request.context["workorder"], workorder)
+        self.assertEqual(workorder_render_request.context["budget"].id, workorder.id)
+        self.assertEqual(workorder_render_request.context["budget"].resolved_discount_value, workorder.pricing_snapshot.resolved_discount_value)
+        self.assertEqual(workorder_render_request.context["pages"][0]["produtos"][0]["unit_price"], Money("50.00", "BRL"))
+        self.assertEqual(workorder_render_request.context["pages"][0]["produtos"][0]["total_price"], Money("50.00", "BRL"))
 
     def test_build_workorder_pdf_render_request_uses_workorder_filename_by_default(self) -> None:
         workshop = create_workshop(suffix=89)

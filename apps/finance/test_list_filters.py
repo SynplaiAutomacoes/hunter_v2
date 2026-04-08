@@ -1,15 +1,21 @@
 from __future__ import annotations
 
+from datetime import date
+
 from django.test import RequestFactory, TestCase
+from djmoney.money import Money
 
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.finance import TaxClassPreset, TaxClassPresetKind
 from apps.finance.models.financial_group import FinancialGroup
+from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.views.bank_account import BankAccountListView
 from apps.finance.views.financial_group import FinancialGroupListView
+from apps.finance.views.financial_movement import FinancialMovementListView
 from apps.finance.views.payment_method import PaymentMethodListView
 from apps.finance.views.tax_class import TaxClassPresetListView
+from apps.sources.models import Source
 from apps.workshops.models.workshops import Workshop
 
 
@@ -26,6 +32,19 @@ class FinanceListViewFilterTests(TestCase):
     def setUp(self) -> None:
         self.factory = RequestFactory()
         self.workshop = create_workshop(suffix=1)
+
+    def _create_source(self, *, name: str) -> Source:
+        return Source.objects.create(workshop=self.workshop, name=name)
+
+    def _create_financial_movement(self, *, source: Source, due_date: date, description: str) -> FinancialMovement:
+        return FinancialMovement.objects.create(
+            workshop=self.workshop,
+            source=source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("150.00", "BRL"),
+            due_date=due_date,
+            description=description,
+        )
 
     def test_payment_method_list_hides_inactive_by_default_but_allows_explicit_filters(self) -> None:
         active_payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix", is_active=True)
@@ -130,3 +149,61 @@ class FinanceListViewFilterTests(TestCase):
         self.assertIn(inactive_preset, inactive_queryset)
         self.assertIn(active_preset, all_queryset)
         self.assertIn(inactive_preset, all_queryset)
+
+    def test_financial_movement_list_filters_by_due_date_range(self) -> None:
+        selected_source = self._create_source(name="Fornecedor Alpha")
+        self._create_financial_movement(source=selected_source, due_date=date(2026, 3, 15), description="Movimento dentro do periodo")
+        movement_before = self._create_financial_movement(source=selected_source, due_date=date(2026, 3, 5), description="Movimento antes do periodo")
+        movement_after = self._create_financial_movement(source=selected_source, due_date=date(2026, 3, 25), description="Movimento depois do periodo")
+
+        view = FinancialMovementListView()
+        view.request = self.factory.get(
+            "/finance/financial-movement/",
+            {"data_inicial": "2026-03-10", "data_final": "2026-03-20"},
+        )
+        view.workshop = self.workshop
+
+        queryset = view.get_queryset()
+
+        self.assertEqual(list(queryset.values_list("description", flat=True)), ["Movimento dentro do periodo"])
+        self.assertNotIn(movement_before, queryset)
+        self.assertNotIn(movement_after, queryset)
+
+    def test_financial_movement_list_filters_by_source(self) -> None:
+        selected_source = self._create_source(name="Fornecedor Alpha")
+        other_source = self._create_source(name="Fornecedor Beta")
+        selected_movement = self._create_financial_movement(source=selected_source, due_date=date(2026, 3, 15), description="Movimento origem selecionada")
+        other_movement = self._create_financial_movement(source=other_source, due_date=date(2026, 3, 15), description="Movimento outra origem")
+
+        view = FinancialMovementListView()
+        view.request = self.factory.get("/finance/financial-movement/", {"source": str(selected_source.pk)})
+        view.workshop = self.workshop
+
+        queryset = view.get_queryset()
+
+        self.assertIn(selected_movement, queryset)
+        self.assertNotIn(other_movement, queryset)
+
+    def test_financial_movement_list_combines_due_date_range_and_source_filters(self) -> None:
+        selected_source = self._create_source(name="Fornecedor Alpha")
+        other_source = self._create_source(name="Fornecedor Beta")
+        expected_movement = self._create_financial_movement(source=selected_source, due_date=date(2026, 3, 15), description="Movimento filtrado")
+        wrong_source = self._create_financial_movement(source=other_source, due_date=date(2026, 3, 15), description="Movimento de outra origem")
+        wrong_date = self._create_financial_movement(source=selected_source, due_date=date(2026, 3, 25), description="Movimento fora do periodo")
+
+        view = FinancialMovementListView()
+        view.request = self.factory.get(
+            "/finance/financial-movement/",
+            {
+                "data_inicial": "2026-03-10",
+                "data_final": "2026-03-20",
+                "source": str(selected_source.pk),
+            },
+        )
+        view.workshop = self.workshop
+
+        queryset = view.get_queryset()
+
+        self.assertIn(expected_movement, queryset)
+        self.assertNotIn(wrong_source, queryset)
+        self.assertNotIn(wrong_date, queryset)

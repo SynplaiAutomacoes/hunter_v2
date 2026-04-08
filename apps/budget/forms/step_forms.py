@@ -2905,7 +2905,7 @@ class BudgetStep6Form(forms.ModelForm):
                                 <tr>
                                   <th class="w-[20%]">NOME</th>
                                   <th class="w-[18%]">APLICAÇÃO</th>
-                                  <th class="w-[10%] text-center whitespace-normal break-words leading-tight">Trago pelo cliente?</th>
+                                  <th class="w-[10%] text-sm text-center whitespace-normal break-words leading-tight">Fornecido pelo cliente</th>
                                   <th class="w-[8%] text-center">QTD.</th>
                                   <th class="w-[12%]">CUSTO</th>
                                   <th class="w-[14%]">VALOR</th>
@@ -3004,9 +3004,9 @@ class BudgetStep6Form(forms.ModelForm):
                         </div>
                         """),
                     ),
-                    css_class="col-span-12 lg:col-span-5",
+                    css_class="col-span-12 lg:col-span-7",
                 ),
-                Div(css_class="hidden lg:block lg:col-span-1"),
+                # Div(css_class="hidden lg:block lg:col-span-0"),
                 # ===== COLUNA DIREITA =====
                 Div(
                     Div(
@@ -3100,7 +3100,7 @@ class BudgetStep6Form(forms.ModelForm):
                         """),
                         css_class="p-4 bg-base-200/50 rounded-lg",
                     ),
-                    css_class="col-span-12 lg:col-span-6 sticky top-4",
+                    css_class="col-span-12 lg:col-span-5 sticky top-4",
                 ),
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-8",
             ),

@@ -15,7 +15,7 @@ from apps.budget.fields import DurationField
 from apps.core.documents.contract import DocumentPayload
 from apps.core.documents.http import build_pdf_http_response
 from apps.core.documents.signature import SignatureTokenError, parse_document_signature_token
-from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderCustomerApprovalForm
+from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderCustomerApprovalForm, WorkOrderPaymentForm
 from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderItem, WorkOrderSignatureStatus
 from apps.workorder.service import (
     WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
@@ -147,6 +147,13 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
     }
 
 
+def _build_payment_section_context(workorder: WorkOrder) -> dict[str, object]:
+    return {
+        "workorder": workorder,
+        "payment_form": WorkOrderPaymentForm(workorder=workorder),
+    }
+
+
 def _render_edit_items_modal(
     request,
     workorder: WorkOrder,
@@ -155,15 +162,22 @@ def _render_edit_items_modal(
     extra_triggers: list[str] | None = None,
     retarget: str | None = None,
 ):
-    response = render(request, "workorder/partials/modals/modal_edit_items.html", _build_edit_items_context(workorder, active_tab))
+    context = _build_edit_items_context(workorder, active_tab)
+    template_name = "workorder/partials/modals/modal_edit_items.html"
+
+    if trigger_refresh:
+        context.update(_build_payment_section_context(workorder))
+        context.update(_build_customer_approvement_context(workorder))
+        template_name = "workorder/partials/modals/modal_edit_items_response.html"
+
+    response = render(request, template_name, context)
 
     triggers: list[str] = list(extra_triggers or [])
-    if trigger_refresh:
-        triggers.insert(0, "workorderItemsUpdated")
 
     if triggers:
         unique_triggers = list(dict.fromkeys(triggers))
-        response["HX-Trigger"] = ",".join(unique_triggers)
+        header_name = "HX-Trigger-After-Swap" if trigger_refresh else "HX-Trigger"
+        response[header_name] = ",".join(unique_triggers)
 
     if retarget:
         response["HX-Retarget"] = retarget
