@@ -1403,6 +1403,171 @@ class BudgetQuickCreateProductValidationTests(TestCase):
         assert local_item.product is not None
         self.assertEqual(local_item.product.ncm, "87089990")
 
+    def test_budget_item_updates_product_last_used_price(self) -> None:
+        product = create_product(workshop=self.workshop, suffix=1010)
+        product.last_used_price = None
+        product.save(update_fields=["last_used_price"])
+
+        budget_item = BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            product=product,
+            quantity=1,
+        )
+
+        product.refresh_from_db()
+        self.assertEqual(budget_item.product_selling_price, Money("15.00", "BRL"))
+        self.assertEqual(product.last_used_price, Money("15.00", "BRL"))
+
+    def test_update_master_requires_confirmation_for_price_below_last_used_price(self) -> None:
+        product = create_product(workshop=self.workshop, suffix=1011)
+        product.last_used_price = Money("30.00", "BRL")
+        product.selling_price = Money("40.00", "BRL")
+        product.save(update_fields=["last_used_price", "selling_price"])
+        budget_item = BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            product=product,
+            quantity=1,
+        )
+
+        response = self.client.post(
+            reverse("budget:edit_item", args=[self.budget.pk, budget_item.pk]),
+            {
+                "description": budget_item.description,
+                "quantity": "1",
+                "product_cost_price_0": "10.00",
+                "product_cost_price_1": "BRL",
+                "product_selling_price_0": "20.00",
+                "product_selling_price_1": "BRL",
+                "shipping_0": "0.00",
+                "shipping_1": "BRL",
+                "ncm": product.ncm,
+                "action": "update_master",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Último valor usado: R$ 40,00")
+        budget_item.refresh_from_db()
+        product.refresh_from_db()
+        self.assertEqual(budget_item.product_selling_price, Money("40.00", "BRL"))
+        self.assertEqual(product.selling_price, Money("40.00", "BRL"))
+
+    def test_update_master_allows_confirmed_price_below_last_used_price(self) -> None:
+        product = create_product(workshop=self.workshop, suffix=1012)
+        product.last_used_price = Money("30.00", "BRL")
+        product.selling_price = Money("40.00", "BRL")
+        product.save(update_fields=["last_used_price", "selling_price"])
+        budget_item = BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            product=product,
+            quantity=1,
+        )
+
+        response = self.client.post(
+            reverse("budget:edit_item", args=[self.budget.pk, budget_item.pk]),
+            {
+                "description": budget_item.description,
+                "quantity": "1",
+                "product_cost_price_0": "10.00",
+                "product_cost_price_1": "BRL",
+                "product_selling_price_0": "20.00",
+                "product_selling_price_1": "BRL",
+                "shipping_0": "0.00",
+                "shipping_1": "BRL",
+                "ncm": product.ncm,
+                "action": "update_master",
+                "confirm_lower_price": "1",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("HX-Redirect", response)
+        budget_item.refresh_from_db()
+        product.refresh_from_db()
+        self.assertEqual(budget_item.product_selling_price, Money("20.00", "BRL"))
+        self.assertEqual(product.selling_price, Money("20.00", "BRL"))
+        self.assertEqual(product.last_used_price, Money("20.00", "BRL"))
+
+    def test_save_only_requires_confirmation_for_price_below_last_used_price(self) -> None:
+        product = create_product(workshop=self.workshop, suffix=1013)
+        product.last_used_price = Money("30.00", "BRL")
+        product.selling_price = Money("40.00", "BRL")
+        product.save(update_fields=["last_used_price", "selling_price"])
+        budget_item = BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            product=product,
+            quantity=1,
+        )
+
+        response = self.client.post(
+            reverse("budget:edit_item", args=[self.budget.pk, budget_item.pk]),
+            {
+                "description": budget_item.description,
+                "quantity": "1",
+                "product_cost_price_0": "10.00",
+                "product_cost_price_1": "BRL",
+                "product_selling_price_0": "20.00",
+                "product_selling_price_1": "BRL",
+                "shipping_0": "0.00",
+                "shipping_1": "BRL",
+                "ncm": product.ncm,
+                "action": "save_only",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Último valor usado: R$ 40,00")
+        budget_item.refresh_from_db()
+        product.refresh_from_db()
+        self.assertEqual(budget_item.product_selling_price, Money("40.00", "BRL"))
+        self.assertEqual(product.selling_price, Money("40.00", "BRL"))
+        self.assertEqual(product.last_used_price, Money("40.00", "BRL"))
+
+    def test_save_only_allows_confirmed_price_below_last_used_price(self) -> None:
+        product = create_product(workshop=self.workshop, suffix=1014)
+        product.last_used_price = Money("30.00", "BRL")
+        product.selling_price = Money("40.00", "BRL")
+        product.save(update_fields=["last_used_price", "selling_price"])
+        budget_item = BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            product=product,
+            quantity=1,
+        )
+
+        response = self.client.post(
+            reverse("budget:edit_item", args=[self.budget.pk, budget_item.pk]),
+            {
+                "description": budget_item.description,
+                "quantity": "1",
+                "product_cost_price_0": "10.00",
+                "product_cost_price_1": "BRL",
+                "product_selling_price_0": "20.00",
+                "product_selling_price_1": "BRL",
+                "shipping_0": "0.00",
+                "shipping_1": "BRL",
+                "ncm": product.ncm,
+                "action": "save_only",
+                "confirm_lower_price": "1",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("HX-Redirect", response)
+        budget_item.refresh_from_db()
+        product.refresh_from_db()
+        self.assertEqual(budget_item.product_selling_price, Money("20.00", "BRL"))
+        self.assertEqual(product.selling_price, Money("40.00", "BRL"))
+        self.assertEqual(product.last_used_price, Money("20.00", "BRL"))
+
     def test_quick_edit_product_modal_shows_ncm_field(self) -> None:
         product = create_product(workshop=self.workshop, suffix=102)
         budget_item = BudgetItem.objects.create(

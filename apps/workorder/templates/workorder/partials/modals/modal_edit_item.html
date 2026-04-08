@@ -14,9 +14,12 @@
         hx-post="{% url 'workorder:edit_item' workorder.pk item.pk %}?tab={{ active_tab }}"
         hx-target="#item-modal-container"
         hx-swap="innerHTML"
+        id="workorder-edit-item-form"
+        data-last-used-price="{{ item.product.last_used_price.amount|default_if_none:'' }}"
         class="p-6 space-y-4">
         {% csrf_token %}
         <input type="hidden" name="active_tab" value="{{ active_tab }}">
+        <input type="hidden" name="confirm_lower_price" id="confirm-lower-price-input" value="">
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             {% include "workorder/partials/modals/modal_edit_item_form.html" %}
@@ -27,7 +30,167 @@
                 type="button"
                 class="btn btn-ghost"
                 onclick="window.closeWorkorderItemModal && window.closeWorkorderItemModal()">Cancelar</button>
-            <button type="submit" class="btn btn-primary">Salvar</button>
+            <button type="submit" class="btn btn-primary js-save-item" data-url="{% url 'workorder:edit_item' workorder.pk item.pk %}">Salvar</button>
         </div>
     </form>
 </div>
+
+<script>
+    (function() {
+        const form = document.getElementById('workorder-edit-item-form');
+        if (!form || form.dataset.lowerPriceInitialized === 'true') {
+            return;
+        }
+        form.dataset.lowerPriceInitialized = 'true';
+
+        let pendingLowerPriceButton = null;
+
+        const saveButton = form.querySelector('.js-save-item');
+        const confirmLowerPriceInput = document.getElementById('confirm-lower-price-input');
+        const sellingPriceAmountInput = document.getElementById('id_product_selling_price_0');
+        const sellingPriceDisplayInput = document.getElementById('id_product_selling_price_0_display');
+        const helpLabel = document.getElementById('lower-price-help-label');
+        const helpText = document.getElementById('lower-price-help-text');
+        const confirmModal = document.getElementById('item_confirm_modal');
+        const confirmModalContainer = document.getElementById('item-confirm-modal-container');
+        const lastUsedPrice = Number.parseFloat(form.dataset.lastUsedPrice || '0') || 0;
+
+        if (!sellingPriceAmountInput || !confirmLowerPriceInput || !confirmModal || !confirmModalContainer || lastUsedPrice <= 0) {
+            return;
+        }
+
+        const setHelpMessage = (message) => {
+            if (!helpLabel || !helpText) {
+                return;
+            }
+            helpText.textContent = message;
+            helpLabel.classList.toggle('hidden', !message);
+        };
+
+        const clearSellingPriceField = () => {
+            sellingPriceAmountInput.value = '';
+            sellingPriceAmountInput.dispatchEvent(new Event('input', { bubbles: true }));
+            sellingPriceAmountInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+            if (sellingPriceDisplayInput) {
+                sellingPriceDisplayInput.value = '';
+                sellingPriceDisplayInput.dispatchEvent(new Event('input', { bubbles: true }));
+                sellingPriceDisplayInput.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        };
+
+        const closeConfirmModal = () => {
+            if (window.closeWorkorderItemConfirmModal) {
+                window.closeWorkorderItemConfirmModal();
+                return;
+            }
+            if (confirmModal.open) {
+                confirmModal.close();
+            }
+            confirmModalContainer.innerHTML = '';
+        };
+
+        const submitForm = (button) => {
+            const url = button?.dataset.url || form.getAttribute('hx-post');
+            if (!url) {
+                return;
+            }
+
+            if (button) {
+                button.disabled = true;
+            }
+
+            const formData = new FormData(form);
+            htmx.ajax('POST', url, {
+                target: '#item-modal-container',
+                swap: 'innerHTML',
+                values: Object.fromEntries(formData),
+            }).finally(() => {
+                if (button) {
+                    button.disabled = false;
+                }
+            });
+        };
+
+        const openConfirmModal = () => {
+            confirmModalContainer.innerHTML = `
+                <div class="modal-box wo-item-modal-box w-11/12 max-w-md bg-base-100 p-0 overflow-hidden">
+                    <div class="p-6 border-b border-base-200 flex items-start gap-3 bg-base-50">
+                        <span class="material-icons text-warning text-3xl">warning</span>
+                        <div>
+                            <h3 class="font-bold text-xl">Confirmar valor abaixo do ultimo uso</h3>
+                            <p class="text-sm text-base-content/80 mt-2">O valor informado esta abaixo do ultimo valor utilizado para este produto.</p>
+                            <p class="text-sm text-base-content/80 mt-1">Deseja continuar mesmo assim?</p>
+                        </div>
+                    </div>
+                    <div class="p-6 flex justify-end gap-3">
+                        <button type="button" class="btn btn-ghost" id="wo-lower-price-cancel-btn">Cancelar</button>
+                        <button type="button" class="btn btn-warning" id="wo-lower-price-continue-btn">Continuar mesmo assim</button>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('wo-lower-price-cancel-btn')?.addEventListener('click', () => {
+                confirmLowerPriceInput.value = '';
+                pendingLowerPriceButton = null;
+                closeConfirmModal();
+                clearSellingPriceField();
+                setHelpMessage(`Último valor usado: ${lastUsedPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`);
+            });
+
+            document.getElementById('wo-lower-price-continue-btn')?.addEventListener('click', () => {
+                confirmLowerPriceInput.value = '1';
+                closeConfirmModal();
+                setHelpMessage('');
+                const pendingButton = pendingLowerPriceButton;
+                pendingLowerPriceButton = null;
+                pendingButton?.click();
+            });
+
+            if (window.openWorkorderItemConfirmModal) {
+                window.openWorkorderItemConfirmModal();
+            } else {
+                confirmModal.showModal();
+            }
+        };
+
+        const handleSave = (button) => {
+            if (!sellingPriceAmountInput || !confirmLowerPriceInput) {
+                submitForm(button);
+                return;
+            }
+
+            const sellingPrice = Number.parseFloat(sellingPriceAmountInput.value || '0') || 0;
+            if (sellingPrice >= lastUsedPrice) {
+                confirmLowerPriceInput.value = '';
+            }
+
+            if (sellingPrice > 0 && sellingPrice < lastUsedPrice && confirmLowerPriceInput.value !== '1') {
+                pendingLowerPriceButton = button;
+                setHelpMessage('');
+                openConfirmModal();
+                return;
+            }
+
+            setHelpMessage('');
+            submitForm(button);
+        };
+
+        saveButton?.addEventListener('click', (event) => {
+            event.preventDefault();
+
+            if (saveButton.disabled) {
+                return;
+            }
+
+            handleSave(saveButton);
+        });
+
+        form.addEventListener('submit', (event) => {
+            event.preventDefault();
+            if (saveButton && !saveButton.disabled) {
+                saveButton.click();
+            }
+        });
+    })();
+</script>
