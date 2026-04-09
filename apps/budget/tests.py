@@ -38,7 +38,7 @@ from apps.budget.service import (
 )
 from apps.checklist.models import Checklist, ChecklistItem
 from apps.catalog.models.groups import CatalogGroup
-from apps.catalog.models.kits import Kit, KitProduct, KitService
+from apps.catalog.models.kits import Kit, KitApplication, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.core.documents.contract import DocumentPayload, SignatureDeliveryResult
@@ -114,16 +114,30 @@ def create_customer(*, workshop: Workshop, suffix: int = 1, phone: str = "+55119
     )
 
 
-def create_vehicle(*, workshop: Workshop, customer: Customer, suffix: int = 1, plate: str | None = None) -> Vehicle:
+def create_vehicle(
+    *,
+    workshop: Workshop,
+    customer: Customer,
+    suffix: int = 1,
+    plate: str | None = None,
+    brand: str | None = None,
+    model: str | None = None,
+    year_fabrication: str = "2024",
+    year_model: str = "2024",
+    engine: str = "2.0",
+    fuel: str = "Diesel",
+) -> Vehicle:
     return Vehicle.objects.create(
         workshop=workshop,
         customer=customer,
         plate=plate or f"ABC1D{suffix:02d}",
-        brand=f"Marca {suffix}",
-        model=f"Modelo {suffix}",
-        year_fabrication="2024",
-        year_model="2024",
+        brand=brand or f"Marca {suffix}",
+        model=model or f"Modelo {suffix}",
+        year_fabrication=year_fabrication,
+        year_model=year_model,
         color="Prata",
+        engine=engine,
+        fuel=fuel,
     )
 
 
@@ -165,10 +179,20 @@ def create_service(*, workshop: Workshop, suffix: int = 1) -> Service:
     )
 
 
-def create_kit(*, workshop: Workshop, suffix: int, products: list[tuple[Product, int]]) -> Kit:
+def create_kit(*, workshop: Workshop, suffix: int, products: list[tuple[Product, int]], applications: list[dict[str, str | int]] | None = None) -> Kit:
     kit = Kit.objects.create(workshop=workshop, name=f"Kit {suffix}")
     for product, quantity in products:
         KitProduct.objects.create(kit=kit, product=product, quantity=quantity)
+    for application in applications or []:
+        KitApplication.objects.create(
+            kit=kit,
+            brand=str(application.get("brand", "")),
+            model=str(application.get("model", "")),
+            engine=str(application.get("engine", "")),
+            fuel=str(application.get("fuel", "")),
+            year_start=int(application.get("year_start", 0)),
+            year_end=int(application.get("year_end", 0)),
+        )
     return kit
 
 
@@ -222,6 +246,97 @@ class BudgetStep1FormTests(TestCase):
 
         self.assertTrue(form.is_valid(), form.errors.as_json())
         self.assertEqual(form.cleaned_data["current_km"], 15000)
+
+
+class BudgetKitSelectionCompatibilityTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=50)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+        self.customer = create_customer(workshop=self.workshop, suffix=50)
+        self.vehicle = create_vehicle(
+            workshop=self.workshop,
+            customer=self.customer,
+            suffix=50,
+            plate="KIT0A50",
+            brand="Jeep",
+            model="Renegade",
+            year_fabrication="2020",
+            year_model="2020",
+            engine="2.0",
+            fuel="Diesel",
+        )
+        self.budget = create_budget(workshop=self.workshop)
+        self.budget.customer = self.customer
+        self.budget.vehicle = self.vehicle
+        self.budget.save(update_fields=["customer", "vehicle"])
+
+        self.compatible_kit = create_kit(
+            workshop=self.workshop,
+            suffix=501,
+            products=[],
+            applications=[
+                {
+                    "brand": "Jeep",
+                    "model": "Renegade",
+                    "engine": "2.0",
+                    "fuel": "Diesel",
+                    "year_start": 2015,
+                    "year_end": 2021,
+                }
+            ],
+        )
+        self.no_application_kit = create_kit(workshop=self.workshop, suffix=502, products=[])
+        self.incompatible_kit = create_kit(
+            workshop=self.workshop,
+            suffix=503,
+            products=[],
+            applications=[
+                {
+                    "brand": "Jeep",
+                    "model": "Compass",
+                    "engine": "2.0",
+                    "fuel": "Diesel",
+                    "year_start": 2015,
+                    "year_end": 2021,
+                }
+            ],
+        )
+
+    def test_item_selection_modal_marks_hidden_kits_outside_vehicle_filter(self) -> None:
+        response = self.client.get(reverse("budget:item_selection", kwargs={"budget_id": self.budget.pk, "item_type": "kit"}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.compatible_kit.name)
+        self.assertContains(response, self.no_application_kit.name)
+        self.assertContains(response, self.incompatible_kit.name)
+        self.assertContains(response, "Compativel")
+        self.assertContains(response, "Sem aplicacao")
+        self.assertContains(response, "Incompativel")
+        self.assertContains(response, "Exibir kits fora do filtro (2)")
+
+    def test_add_items_batch_rejects_incompatible_kit_for_vehicle(self) -> None:
+        response = self.client.post(
+            reverse("budget:add_items_batch", kwargs={"budget_id": self.budget.pk, "item_type": "kit"}),
+            {"selected_items": [str(self.incompatible_kit.pk)]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Kit indisponivel para este veiculo")
+        self.assertFalse(BudgetItem.objects.filter(budget=self.budget, kit=self.incompatible_kit).exists())
+
+    def test_add_items_batch_allows_kit_without_applications_as_fallback(self) -> None:
+        response = self.client.post(
+            reverse("budget:add_items_batch", kwargs={"budget_id": self.budget.pk, "item_type": "kit"}),
+            {"selected_items": [str(self.no_application_kit.pk)]},
+        )
+
+        self.assertIn(response.status_code, {200, 302})
+        self.assertTrue(BudgetItem.objects.filter(budget=self.budget, kit=self.no_application_kit).exists())
 
 
 class BudgetCreateViewAppointmentSyncTests(TestCase):

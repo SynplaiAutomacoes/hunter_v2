@@ -472,11 +472,13 @@ class QuickCustomerForm(AddressFormMixin, forms.ModelForm):
 class QuickVehicleForm(forms.ModelForm):
     class Meta:
         model = Vehicle
-        fields = ["plate", "brand", "model", "year_fabrication", "year_model", "color"]
+        fields = ["plate", "brand", "model", "engine", "fuel", "year_fabrication", "year_model", "color"]
         widgets = {
             "plate": PlateInput(),
             "brand": TextInput(),
             "model": TextInput(),
+            "engine": TextInput(),
+            "fuel": TextInput(),
             "year_fabrication": TextInput(),
             "year_model": TextInput(),
             "color": TextInput(),
@@ -552,9 +554,11 @@ class QuickVehicleForm(forms.ModelForm):
                 Field("plate", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("brand", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("model", wrapper_class="col-span-12 lg:col-span-4"),
-                Field("year_fabrication", wrapper_class="col-span-12 lg:col-span-3"),
-                Field("year_model", wrapper_class="col-span-12 lg:col-span-3"),
-                Field("color", wrapper_class="col-span-12 lg:col-span-6"),
+                Field("engine", wrapper_class="col-span-12 lg:col-span-3"),
+                Field("fuel", wrapper_class="col-span-12 lg:col-span-3"),
+                Field("year_fabrication", wrapper_class="col-span-12 lg:col-span-2"),
+                Field("year_model", wrapper_class="col-span-12 lg:col-span-2"),
+                Field("color", wrapper_class="col-span-12 lg:col-span-2"),
                 css_class="grid grid-cols-12 gap-2",
             ),
         )
