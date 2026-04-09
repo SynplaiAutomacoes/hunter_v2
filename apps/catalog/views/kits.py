@@ -52,7 +52,7 @@ class KitListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseM
         context["fields"] = [
             TableColumn(Kit.name.field.verbose_name, attr="name"),
             TableColumn(
-                "Aplicacoes",
+                "Aplicações",
                 attr=lambda kit: kit.applications_summary,
                 sortable=False,
                 search_by=("applications__brand", "applications__model", "applications__engine", "applications__fuel"),

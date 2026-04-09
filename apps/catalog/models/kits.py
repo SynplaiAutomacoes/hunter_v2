@@ -72,13 +72,13 @@ class KitApplication(TimeStampedModel):
     brand = models.CharField(verbose_name="Marca", max_length=100)
     model = models.CharField(verbose_name="Modelo", max_length=120)
     engine = models.CharField(verbose_name="Motor", max_length=60)
-    fuel = models.CharField(verbose_name="Combustivel", max_length=30)
+    fuel = models.CharField(verbose_name="Combustível", max_length=30)
     year_start = models.PositiveSmallIntegerField(verbose_name="Ano inicial", validators=[MinValueValidator(1900), MaxValueValidator(2100)])
     year_end = models.PositiveSmallIntegerField(verbose_name="Ano final", validators=[MinValueValidator(1900), MaxValueValidator(2100)])
 
     class Meta:
-        verbose_name = "Aplicacao do Kit"
-        verbose_name_plural = "Aplicacoes do Kit"
+        verbose_name = "Aplicação do Kit"
+        verbose_name_plural = "Aplicações do Kit"
         constraints = [
             models.UniqueConstraint(
                 fields=("kit", "brand", "model", "engine", "fuel", "year_start", "year_end"),

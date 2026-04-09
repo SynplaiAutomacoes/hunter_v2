@@ -265,10 +265,10 @@ class KitForm(forms.ModelForm):
                             <div class="p-4 bg-base-300 rounded-box mb-4">
                                 <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
                                     <div>
-                                        <div class="font-semibold">Aplicacoes do Kit</div>
-                                        <div class="text-sm text-base-content/70">Informe os veiculos, motorizacoes e anos compativeis com este kit.</div>
+                                        <div class="font-semibold">Aplicações do Kit</div>
+                                        <div class="text-sm text-base-content/70">Informe os veículos, motorizações e anos compatíveis com este kit.</div>
                                     </div>
-                                    <button type="button" class="btn btn-sm btn-primary" @click="addApplication()">Adicionar aplicacao</button>
+                                    <button type="button" class="btn btn-sm btn-primary" @click="addApplication()">Adicionar aplicação</button>
                                 </div>
 
                                 <div class="space-y-3">
@@ -295,7 +295,7 @@ class KitForm(forms.ModelForm):
                                                 </div>
                                                 <div class="lg:col-span-2">
                                                     <label class="label p-0 mb-1">
-                                                        <span class="label-text">Combustivel</span>
+                                                        <span class="label-text">Combustível</span>
                                                     </label>
                                                     <input type="text" name="kit_application_fuel" class="input-theme w-full" x-model="application.fuel" placeholder="Ex: Diesel" />
                                                 </div>
@@ -320,13 +320,13 @@ class KitForm(forms.ModelForm):
 
                                             <div class="mt-3 flex items-center justify-between gap-2 text-sm text-base-content/70">
                                                 <span x-text="formatApplicationPreview(application)"></span>
-                                                <span class="badge badge-ghost" x-text="`Aplicacao ${{index + 1}}`"></span>
+                                                <span class="badge badge-ghost" x-text="`Aplicação ${{index + 1}}`"></span>
                                             </div>
                                         </div>
                                     </template>
 
                                     <div x-show="applications.length === 0" class="rounded-box border border-dashed border-base-300 p-4 text-sm text-base-content/70">
-                                        Nenhuma aplicacao adicionada. Cadastre ao menos uma aplicacao para salvar o kit.
+                                        Nenhuma aplicação adicionada. Cadastre ao menos uma aplicação para salvar o kit.
                                     </div>
                                 </div>
                             </div>
@@ -643,7 +643,7 @@ class KitForm(forms.ModelForm):
                                         const yearEnd = (application.year_end || '').toString().trim();
                                         const years = yearStart && yearEnd ? `${{yearStart}}${{yearStart === yearEnd ? '' : ` a ${{yearEnd}}`}}` : '';
                                         const parts = [vehicle, powertrain, years].filter(Boolean);
-                                        return parts.length > 0 ? parts.join(' - ') : 'Aplicacao em branco';
+                                        return parts.length > 0 ? parts.join(' - ') : 'Aplicação em branco';
                                     }},
 
                                     openProductsModal() {{
@@ -941,7 +941,7 @@ class KitForm(forms.ModelForm):
 
         raw_applications = self._extract_application_rows_from_post()
         if not raw_applications:
-            self.add_error(None, "Cadastre ao menos uma aplicacao para o kit.")
+            self.add_error(None, "Cadastre ao menos uma aplicação para o kit.")
 
         normalized_applications: list[dict[str, int | str]] = []
         seen_applications: set[tuple[str, str, str, str, int, int]] = set()
@@ -949,7 +949,7 @@ class KitForm(forms.ModelForm):
             "brand": "marca",
             "model": "modelo",
             "engine": "motor",
-            "fuel": "combustivel",
+            "fuel": "combustível",
             "year_start": "ano inicial",
             "year_end": "ano final",
         }
@@ -957,22 +957,22 @@ class KitForm(forms.ModelForm):
         for application in raw_applications:
             missing_fields = [label for field_name, label in required_application_fields.items() if not str(application.get(field_name, "")).strip()]
             if missing_fields:
-                self.add_error(None, "Preencha marca, modelo, motor, combustivel, ano inicial e ano final em todas as aplicacoes do kit.")
+                self.add_error(None, "Preencha marca, modelo, motor, combustível, ano inicial e ano final em todas as aplicações do kit.")
                 continue
 
             try:
                 year_start = int(str(application.get("year_start", "")).strip())
                 year_end = int(str(application.get("year_end", "")).strip())
             except (TypeError, ValueError):
-                self.add_error(None, "Informe anos validos em todas as aplicacoes do kit.")
+                self.add_error(None, "Informe anos válidos em todas as aplicações do kit.")
                 continue
 
             if year_start > year_end:
-                self.add_error(None, "O ano inicial da aplicacao nao pode ser maior que o ano final.")
+                self.add_error(None, "O ano inicial da aplicação não pode ser maior que o ano final.")
                 continue
 
             if year_start < 1900 or year_end > 2100:
-                self.add_error(None, "Os anos de aplicacao do kit devem estar entre 1900 e 2100.")
+                self.add_error(None, "Os anos de aplicação do kit devem estar entre 1900 e 2100.")
                 continue
 
             normalized_key = (
@@ -985,7 +985,7 @@ class KitForm(forms.ModelForm):
             )
 
             if normalized_key in seen_applications:
-                self.add_error(None, "Existem aplicacoes repetidas no kit.")
+                self.add_error(None, "Existem aplicações repetidas no kit.")
                 continue
 
             seen_applications.add(normalized_key)
@@ -1093,7 +1093,7 @@ class KitForm(forms.ModelForm):
             )
         except Exception:
             logger.exception(
-                "Falha ao persistir aplicacoes do kit",
+                "Falha ao persistir aplicações do kit",
                 extra={"kit_id": instance.pk, "applications_count": len(applications)},
             )
             raise

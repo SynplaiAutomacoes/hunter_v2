@@ -215,7 +215,7 @@ class KitTests(TestCase):
     def test_kit_form_requires_at_least_one_application(self):
         form = KitForm(
             data={
-                "name": "Kit Sem Aplicacao",
+                "name": "Kit Sem Aplicação",
                 "description": "",
                 "is_active": "on",
             },
@@ -223,7 +223,7 @@ class KitTests(TestCase):
         )
 
         self.assertFalse(form.is_valid())
-        self.assertIn("Cadastre ao menos uma aplicacao para o kit.", form.non_field_errors())
+        self.assertIn("Cadastre ao menos uma aplicação para o kit.", form.non_field_errors())
 
     def test_kit_form_persists_multiple_applications(self):
         form = KitForm(
@@ -265,7 +265,7 @@ class KitTests(TestCase):
         )
 
         self.assertFalse(form.is_valid())
-        self.assertIn("O ano inicial da aplicacao nao pode ser maior que o ano final.", form.non_field_errors())
+        self.assertIn("O ano inicial da aplicação não pode ser maior que o ano final.", form.non_field_errors())
 
     def test_service_money_fields_work_with_only_including_currency_fields(self):
         """Regressão: `djmoney` precisa do campo `*_currency` junto com o valor.
