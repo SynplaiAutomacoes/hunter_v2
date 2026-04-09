@@ -12,7 +12,7 @@ from djmoney.money import Money
 from apps.catalog.forms.kits import KitForm
 from apps.catalog.forms.products import ProductForm
 from apps.catalog.models.groups import CatalogGroup
-from apps.catalog.models.kits import Kit, KitService
+from apps.catalog.models.kits import Kit, KitApplication, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.workshops.tests import create_director_user_with_workshop
@@ -22,6 +22,17 @@ from apps.workshops.models.workshops import Workshop
 class KitTests(TestCase):
     def setUp(self):
         self.workshop = Workshop.objects.create(name="Oficina Teste", phone="+5511999999999", address="Rua Teste, 123")
+
+    @staticmethod
+    def build_application_payload(*, brand: str = "Jeep", model: str = "Renegade", engine: str = "2.0", fuel: str = "Diesel", year_start: str = "2015", year_end: str = "2021") -> dict[str, list[str] | str]:
+        return {
+            "kit_application_brand": [brand],
+            "kit_application_model": [model],
+            "kit_application_engine": [engine],
+            "kit_application_fuel": [fuel],
+            "kit_application_year_start": [year_start],
+            "kit_application_year_end": [year_end],
+        }
 
     def test_unique_service_per_kit_constraint(self):
         kit = Kit.objects.create(workshop=self.workshop, name="Kit A", description="", is_active=True)
@@ -58,6 +69,7 @@ class KitTests(TestCase):
                 "description": "",
                 "is_active": "on",
                 "kit_services": [str(service.id), str(service.id)],
+                **self.build_application_payload(),
             },
             workshop=self.workshop,
         )
@@ -73,6 +85,7 @@ class KitTests(TestCase):
                 "name": "Kit Revisao",
                 "description": "",
                 "is_active": "on",
+                **self.build_application_payload(),
             },
             workshop=self.workshop,
         )
@@ -101,6 +114,7 @@ class KitTests(TestCase):
                 "is_active": "on",
                 "kit_services": [str(service.id)],
                 f"kit_service_qty_{service.id}": "2",
+                **self.build_application_payload(),
             },
             workshop=self.workshop,
         )
@@ -133,6 +147,7 @@ class KitTests(TestCase):
                 "kit_services": [str(service.id)],
                 f"kit_service_qty_{service.id}": "2",
                 f"kit_service_duration_{service.id}": "01:20:00",
+                **self.build_application_payload(),
             },
             workshop=self.workshop,
         )
@@ -162,6 +177,7 @@ class KitTests(TestCase):
                 "is_active": "on",
                 "kit_services": [str(service.id)],
                 f"kit_service_qty_{service.id}": "0",
+                **self.build_application_payload(),
             },
             workshop=self.workshop,
         )
@@ -188,12 +204,68 @@ class KitTests(TestCase):
                 "is_active": "on",
                 "kit_services": [str(service.id)],
                 f"kit_service_duration_{service.id}": "01:75:00",
+                **self.build_application_payload(),
             },
             workshop=self.workshop,
         )
 
         self.assertFalse(form.is_valid())
         self.assertIn("Duração inválida para serviço.", form.non_field_errors())
+
+    def test_kit_form_requires_at_least_one_application(self):
+        form = KitForm(
+            data={
+                "name": "Kit Sem Aplicacao",
+                "description": "",
+                "is_active": "on",
+            },
+            workshop=self.workshop,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("Cadastre ao menos uma aplicacao para o kit.", form.non_field_errors())
+
+    def test_kit_form_persists_multiple_applications(self):
+        form = KitForm(
+            data={
+                "name": "Kit Correia",
+                "description": "",
+                "is_active": "on",
+                "kit_application_brand": ["Jeep", "Fiat"],
+                "kit_application_model": ["Renegade", "Toro"],
+                "kit_application_engine": ["2.0", "2.0"],
+                "kit_application_fuel": ["Diesel", "Diesel"],
+                "kit_application_year_start": ["2015", "2015"],
+                "kit_application_year_end": ["2021", "2021"],
+            },
+            workshop=self.workshop,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        form.instance.workshop = self.workshop
+        kit = form.save()
+
+        self.assertEqual(KitApplication.objects.filter(kit=kit).count(), 2)
+        self.assertEqual(kit.applications_summary, "Jeep Renegade 2.0 Diesel 2015 a 2021; +1")
+
+    def test_kit_form_rejects_invalid_application_year_range(self):
+        form = KitForm(
+            data={
+                "name": "Kit Invalido",
+                "description": "",
+                "is_active": "on",
+                "kit_application_brand": ["Jeep"],
+                "kit_application_model": ["Compass"],
+                "kit_application_engine": ["2.0"],
+                "kit_application_fuel": ["Diesel"],
+                "kit_application_year_start": ["2022"],
+                "kit_application_year_end": ["2021"],
+            },
+            workshop=self.workshop,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("O ano inicial da aplicacao nao pode ser maior que o ano final.", form.non_field_errors())
 
     def test_service_money_fields_work_with_only_including_currency_fields(self):
         """Regressão: `djmoney` precisa do campo `*_currency` junto com o valor.
