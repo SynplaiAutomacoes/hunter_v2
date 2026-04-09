@@ -6,30 +6,29 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('catalog', '0018_alter_product_last_used_price_currency'),
+        ("catalog", "0018_alter_product_last_used_price_currency"),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='KitApplication',
+            name="KitApplication",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('criado_em', models.DateTimeField(auto_now_add=True, verbose_name='Data de Criação')),
-                ('atualizado_em', models.DateTimeField(auto_now=True, verbose_name='Data de Atualização')),
-                ('brand', models.CharField(max_length=100, verbose_name='Marca')),
-                ('model', models.CharField(max_length=120, verbose_name='Modelo')),
-                ('engine', models.CharField(max_length=60, verbose_name='Motor')),
-                ('fuel', models.CharField(max_length=30, verbose_name='Combustivel')),
-                ('year_start', models.PositiveSmallIntegerField(validators=[django.core.validators.MinValueValidator(1900), django.core.validators.MaxValueValidator(2100)], verbose_name='Ano inicial')),
-                ('year_end', models.PositiveSmallIntegerField(validators=[django.core.validators.MinValueValidator(1900), django.core.validators.MaxValueValidator(2100)], verbose_name='Ano final')),
-                ('kit', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='applications', to='catalog.kit')),
+                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                ("criado_em", models.DateTimeField(auto_now_add=True, verbose_name="Data de Criação")),
+                ("atualizado_em", models.DateTimeField(auto_now=True, verbose_name="Data de Atualização")),
+                ("brand", models.CharField(max_length=100, verbose_name="Marca")),
+                ("model", models.CharField(max_length=120, verbose_name="Modelo")),
+                ("engine", models.CharField(max_length=60, verbose_name="Motor")),
+                ("fuel", models.CharField(max_length=30, verbose_name="Combustível")),
+                ("year_start", models.PositiveSmallIntegerField(validators=[django.core.validators.MinValueValidator(1900), django.core.validators.MaxValueValidator(2100)], verbose_name="Ano inicial")),
+                ("year_end", models.PositiveSmallIntegerField(validators=[django.core.validators.MinValueValidator(1900), django.core.validators.MaxValueValidator(2100)], verbose_name="Ano final")),
+                ("kit", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="applications", to="catalog.kit")),
             ],
             options={
-                'verbose_name': 'Aplicacao do Kit',
-                'verbose_name_plural': 'Aplicacoes do Kit',
-                'constraints': [models.UniqueConstraint(fields=('kit', 'brand', 'model', 'engine', 'fuel', 'year_start', 'year_end'), name='unique_kit_application_per_kit'), models.CheckConstraint(condition=models.Q(('year_end__gte', models.F('year_start'))), name='kit_application_valid_year_range')],
+                "verbose_name": "Aplicação do Kit",
+                "verbose_name_plural": "Aplicações do Kit",
+                "constraints": [models.UniqueConstraint(fields=("kit", "brand", "model", "engine", "fuel", "year_start", "year_end"), name="unique_kit_application_per_kit"), models.CheckConstraint(condition=models.Q(("year_end__gte", models.F("year_start"))), name="kit_application_valid_year_range")],
             },
         ),
     ]

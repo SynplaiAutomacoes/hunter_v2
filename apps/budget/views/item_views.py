@@ -710,8 +710,8 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     if len(incompatible_kits) > 3:
                         incompatible_names = f"{incompatible_names} e mais {len(incompatible_kits) - 3} kit(s)"
                     return _render_modal_error(
-                        title="Kit indisponivel para este veiculo",
-                        message=f"Os kits selecionados nao correspondem a aplicacao do veiculo atual: {incompatible_names}.",
+                        title="Kit indisponível para este veículo",
+                        message=f"Os kits selecionados não correspondem à aplicação do veículo atual: {incompatible_names}.",
                         icon="error",
                     )
 

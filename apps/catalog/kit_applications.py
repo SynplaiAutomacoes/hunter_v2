@@ -51,7 +51,7 @@ def build_kit_application_label(application: Any) -> str:
 def build_kit_applications_summary(applications: Iterable[Any], *, limit: int = 1) -> str:
     labels = [build_kit_application_label(application) for application in applications if build_kit_application_label(application)]
     if not labels:
-        return "Sem aplicacao cadastrada"
+        return "Sem aplicação cadastrada"
 
     visible_labels = labels[:limit]
     remaining = len(labels) - len(visible_labels)
@@ -64,13 +64,14 @@ def build_kit_applications_summary(applications: Iterable[Any], *, limit: int = 
 def build_kit_application_preview_lines(applications: Iterable[Any], *, limit: int = 3) -> list[str]:
     labels = [build_kit_application_label(application) for application in applications if build_kit_application_label(application)]
     if not labels:
-        return ["Sem aplicacao cadastrada"]
+        return ["Sem aplicação cadastrada"]
 
     if len(labels) <= limit:
         return labels
 
     hidden_count = len(labels) - limit
-    return [*labels[:limit], f"+{hidden_count} aplicacao(oes) adicional(is)"]
+    suffix = "aplicação adicional" if hidden_count == 1 else "aplicações adicionais"
+    return [*labels[:limit], f"+{hidden_count} {suffix}"]
 
 
 def parse_vehicle_year(vehicle: Vehicle | None) -> int | None:
@@ -86,7 +87,7 @@ def parse_vehicle_year(vehicle: Vehicle | None) -> int | None:
 
 def get_missing_vehicle_application_fields(vehicle: Vehicle | None) -> list[str]:
     if vehicle is None:
-        return ["veiculo", "marca", "modelo", "motor", "combustivel", "ano"]
+        return ["veículo", "marca", "modelo", "motor", "combustível", "ano"]
 
     missing_fields: list[str] = []
     if not normalize_vehicle_text(getattr(vehicle, "brand", "")):
@@ -96,7 +97,7 @@ def get_missing_vehicle_application_fields(vehicle: Vehicle | None) -> list[str]
     if not normalize_vehicle_text(getattr(vehicle, "engine", "")):
         missing_fields.append("motor")
     if not normalize_vehicle_text(getattr(vehicle, "fuel", "")):
-        missing_fields.append("combustivel")
+        missing_fields.append("combustível")
     if parse_vehicle_year(vehicle) is None:
         missing_fields.append("ano")
     return missing_fields
@@ -122,13 +123,13 @@ def build_vehicle_application_filter_warning(vehicle: Vehicle | None) -> str:
         return ""
 
     if vehicle is None:
-        return "Selecione um veiculo com modelo, motorizacao e ano para filtrar os kits por aplicacao."
+        return "Selecione um veículo com modelo, motorização e ano para filtrar os kits por aplicação."
 
     if missing_fields == ["ano"]:
-        return "Preencha o ano do veiculo para filtrar os kits por aplicacao."
+        return "Preencha o ano do veículo para filtrar os kits por aplicação."
 
     missing_labels = ", ".join(missing_fields)
-    return f"Nao foi possivel filtrar os kits automaticamente. Faltam os dados de: {missing_labels}."
+    return f"Não foi possível filtrar os kits automaticamente. Faltam os dados de: {missing_labels}."
 
 
 def _matches_text(expected: str | None, actual: str | None) -> bool:
@@ -146,8 +147,8 @@ def evaluate_kit_vehicle_compatibility(*, kit: Any, vehicle: Vehicle | None) -> 
     if not applications:
         return KitCompatibilityResult(
             status="no_applications",
-            label="Sem aplicacao",
-            description="Kit sem aplicacao cadastrada. Pode ser usado como excecao durante a transicao.",
+            label="Sem aplicação",
+            description="Kit sem aplicação cadastrada. Pode ser usado como exceção durante a transição.",
             selectable=True,
             visible_by_default=not vehicle_has_complete_application_context(vehicle),
         )
@@ -155,7 +156,7 @@ def evaluate_kit_vehicle_compatibility(*, kit: Any, vehicle: Vehicle | None) -> 
     if not vehicle_has_complete_application_context(vehicle):
         return KitCompatibilityResult(
             status="missing_vehicle_data",
-            label="Filtro indisponivel",
+            label="Filtro indisponível",
             description=build_vehicle_application_filter_warning(vehicle),
             selectable=True,
             visible_by_default=True,
@@ -165,7 +166,7 @@ def evaluate_kit_vehicle_compatibility(*, kit: Any, vehicle: Vehicle | None) -> 
     if vehicle_year is None:
         return KitCompatibilityResult(
             status="missing_vehicle_data",
-            label="Filtro indisponivel",
+            label="Filtro indisponível",
             description=build_vehicle_application_filter_warning(vehicle),
             selectable=True,
             visible_by_default=True,
@@ -186,16 +187,16 @@ def evaluate_kit_vehicle_compatibility(*, kit: Any, vehicle: Vehicle | None) -> 
         if brand_matches and model_matches and engine_matches and fuel_matches and year_matches:
             return KitCompatibilityResult(
                 status="compatible",
-                label="Compativel",
-                description="Kit compativel com o veiculo selecionado.",
+                label="Compatível",
+                description="Kit compatível com o veículo selecionado.",
                 selectable=True,
                 visible_by_default=True,
             )
 
     return KitCompatibilityResult(
         status="incompatible",
-        label="Incompativel",
-        description="Kit fora da aplicacao configurada para o veiculo selecionado.",
+        label="Incompatível",
+        description="Kit fora da aplicação configurada para o veículo selecionado.",
         selectable=False,
         visible_by_default=False,
     )

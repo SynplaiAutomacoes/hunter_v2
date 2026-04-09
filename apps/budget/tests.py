@@ -314,9 +314,9 @@ class BudgetKitSelectionCompatibilityTests(TestCase):
         self.assertContains(response, self.compatible_kit.name)
         self.assertContains(response, self.no_application_kit.name)
         self.assertContains(response, self.incompatible_kit.name)
-        self.assertContains(response, "Compativel")
-        self.assertContains(response, "Sem aplicacao")
-        self.assertContains(response, "Incompativel")
+        self.assertContains(response, "Compatível")
+        self.assertContains(response, "Sem aplicação")
+        self.assertContains(response, "Incompatível")
         self.assertContains(response, "Exibir kits fora do filtro (2)")
 
     def test_add_items_batch_rejects_incompatible_kit_for_vehicle(self) -> None:
@@ -326,7 +326,7 @@ class BudgetKitSelectionCompatibilityTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Kit indisponivel para este veiculo")
+        self.assertContains(response, "Kit indisponível para este veículo")
         self.assertFalse(BudgetItem.objects.filter(budget=self.budget, kit=self.incompatible_kit).exists())
 
     def test_add_items_batch_allows_kit_without_applications_as_fallback(self) -> None:
