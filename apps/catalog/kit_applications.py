@@ -123,13 +123,10 @@ def build_vehicle_application_filter_warning(vehicle: Vehicle | None) -> str:
         return ""
 
     if vehicle is None:
-        return "Selecione um veículo com modelo, motorização e ano para filtrar os kits por aplicação."
-
-    if missing_fields == ["ano"]:
-        return "Preencha o ano do veículo para filtrar os kits por aplicação."
+        return "Compatibilidade indeterminada: selecione um veículo para confirmar a aplicação completa dos kits exibidos."
 
     missing_labels = ", ".join(missing_fields)
-    return f"Não foi possível filtrar os kits automaticamente. Faltam os dados de: {missing_labels}."
+    return f"Compatibilidade indeterminada: os kits exibidos coincidem com os dados disponíveis do veículo, mas faltam estas informações para confirmar a aplicação completa: {missing_labels}."
 
 
 def _matches_text(expected: str | None, actual: str | None) -> bool:
@@ -140,9 +137,39 @@ def _matches_text(expected: str | None, actual: str | None) -> bool:
     return normalized_expected == normalized_actual or normalized_expected in normalized_actual or normalized_actual in normalized_expected
 
 
+def _matches_year_range(application: Any, vehicle_year: int) -> bool:
+    return int(getattr(application, "year_start", 0) or 0) <= vehicle_year <= int(getattr(application, "year_end", 0) or 0)
+
+
+def _application_matches_available_vehicle_context(*, application: Any, vehicle: Vehicle | None) -> bool:
+    if vehicle is None:
+        return False
+
+    compared_any = False
+    field_pairs = (("brand", "brand"), ("model", "model"), ("engine", "engine"), ("fuel", "fuel"))
+
+    for application_field, vehicle_field in field_pairs:
+        vehicle_value = getattr(vehicle, vehicle_field, "")
+        if not normalize_vehicle_text(vehicle_value):
+            continue
+
+        compared_any = True
+        if not _matches_text(getattr(application, application_field, ""), vehicle_value):
+            return False
+
+    vehicle_year = parse_vehicle_year(vehicle)
+    if vehicle_year is not None:
+        compared_any = True
+        if not _matches_year_range(application, vehicle_year):
+            return False
+
+    return compared_any
+
+
 def evaluate_kit_vehicle_compatibility(*, kit: Any, vehicle: Vehicle | None) -> KitCompatibilityResult:
     applications_manager = getattr(kit, "applications", None)
     applications = list(applications_manager.all()) if applications_manager is not None else []
+    has_complete_vehicle_context = vehicle_has_complete_application_context(vehicle)
 
     if not applications:
         return KitCompatibilityResult(
@@ -150,45 +177,24 @@ def evaluate_kit_vehicle_compatibility(*, kit: Any, vehicle: Vehicle | None) -> 
             label="Sem aplicação",
             description="Kit sem aplicação cadastrada. Pode ser usado como exceção durante a transição.",
             selectable=True,
-            visible_by_default=not vehicle_has_complete_application_context(vehicle),
+            visible_by_default=not has_complete_vehicle_context,
         )
-
-    if not vehicle_has_complete_application_context(vehicle):
-        return KitCompatibilityResult(
-            status="missing_vehicle_data",
-            label="Filtro indisponível",
-            description=build_vehicle_application_filter_warning(vehicle),
-            selectable=True,
-            visible_by_default=True,
-        )
-
-    vehicle_year = parse_vehicle_year(vehicle)
-    if vehicle_year is None:
-        return KitCompatibilityResult(
-            status="missing_vehicle_data",
-            label="Filtro indisponível",
-            description=build_vehicle_application_filter_warning(vehicle),
-            selectable=True,
-            visible_by_default=True,
-        )
-
-    vehicle_brand = getattr(vehicle, "brand", "")
-    vehicle_model = getattr(vehicle, "model", "")
-    vehicle_engine = getattr(vehicle, "engine", "")
-    vehicle_fuel = getattr(vehicle, "fuel", "")
 
     for application in applications:
-        brand_matches = _matches_text(getattr(application, "brand", ""), vehicle_brand)
-        model_matches = _matches_text(getattr(application, "model", ""), vehicle_model)
-        engine_matches = _matches_text(getattr(application, "engine", ""), vehicle_engine)
-        fuel_matches = _matches_text(getattr(application, "fuel", ""), vehicle_fuel)
-        year_matches = int(getattr(application, "year_start", 0) or 0) <= vehicle_year <= int(getattr(application, "year_end", 0) or 0)
+        if _application_matches_available_vehicle_context(application=application, vehicle=vehicle):
+            if has_complete_vehicle_context:
+                return KitCompatibilityResult(
+                    status="compatible",
+                    label="Compatível",
+                    description="Kit compatível com o veículo selecionado.",
+                    selectable=True,
+                    visible_by_default=True,
+                )
 
-        if brand_matches and model_matches and engine_matches and fuel_matches and year_matches:
             return KitCompatibilityResult(
-                status="compatible",
-                label="Compatível",
-                description="Kit compatível com o veículo selecionado.",
+                status="missing_vehicle_data",
+                label="Compatibilidade indeterminada",
+                description=build_vehicle_application_filter_warning(vehicle),
                 selectable=True,
                 visible_by_default=True,
             )

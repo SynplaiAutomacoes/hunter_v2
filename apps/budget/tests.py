@@ -317,7 +317,75 @@ class BudgetKitSelectionCompatibilityTests(TestCase):
         self.assertContains(response, "Compatível")
         self.assertContains(response, "Sem aplicação")
         self.assertContains(response, "Incompatível")
-        self.assertContains(response, "Exibir kits fora do filtro (2)")
+        self.assertContains(response, "Exibir kits ocultos (2)")
+        self.assertContains(response, 'data-hidden-by-kit-filter="true" style="display: none;"', count=2)
+        self.assertNotContains(response, "Compatibilidade indeterminada: os kits exibidos coincidem")
+        self.assertNotContains(response, "Compatibilidade indeterminada")
+
+    def test_item_selection_modal_shows_indeterminate_badge_when_vehicle_data_is_incomplete(self) -> None:
+        incomplete_vehicle = create_vehicle(
+            workshop=self.workshop,
+            customer=self.customer,
+            suffix=51,
+            plate="KIT0A51",
+            brand="Jeep",
+            model="Renegade",
+            year_fabrication="2020",
+            year_model="2020",
+            engine="",
+            fuel="Diesel",
+        )
+        incomplete_budget = create_budget(workshop=self.workshop)
+        incomplete_budget.customer = self.customer
+        incomplete_budget.vehicle = incomplete_vehicle
+        incomplete_budget.save(update_fields=["customer", "vehicle"])
+
+        response = self.client.get(reverse("budget:item_selection", kwargs={"budget_id": incomplete_budget.pk, "item_type": "kit"}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.compatible_kit.name)
+        self.assertContains(response, self.incompatible_kit.name)
+        self.assertContains(response, self.no_application_kit.name)
+        self.assertContains(response, '<span class="badge badge-info">Compatibilidade indeterminada</span>', count=1, html=True)
+        self.assertContains(
+            response,
+            "Compatibilidade indeterminada: os kits exibidos coincidem com os dados disponíveis do veículo, mas faltam estas informações para confirmar a aplicação completa: motor.",
+        )
+        self.assertContains(response, "Nenhum kit compatível encontrado")
+        self.assertContains(response, "Sem aplicação")
+        self.assertContains(response, "Exibir kits ocultos (2)")
+        self.assertContains(response, 'data-hidden-by-kit-filter="true" style="display: none;"', count=2)
+        self.assertNotContains(response, "Filtro indisponível")
+
+    def test_item_selection_modal_shows_warning_when_no_compatible_kits_exist(self) -> None:
+        no_match_vehicle = create_vehicle(
+            workshop=self.workshop,
+            customer=self.customer,
+            suffix=52,
+            plate="KIT0A52",
+            brand="Jeep",
+            model="Wrangler",
+            year_fabrication="2020",
+            year_model="2020",
+            engine="2.0",
+            fuel="Diesel",
+        )
+        no_match_budget = create_budget(workshop=self.workshop)
+        no_match_budget.customer = self.customer
+        no_match_budget.vehicle = no_match_vehicle
+        no_match_budget.save(update_fields=["customer", "vehicle"])
+
+        response = self.client.get(reverse("budget:item_selection", kwargs={"budget_id": no_match_budget.pk, "item_type": "kit"}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.compatible_kit.name)
+        self.assertContains(response, self.incompatible_kit.name)
+        self.assertContains(response, self.no_application_kit.name)
+        self.assertContains(response, "Exibir kits ocultos (3)")
+        self.assertContains(response, "Nenhum kit compatível encontrado")
+        self.assertContains(response, 'data-hidden-by-kit-filter="true" style="display: none;"', count=3)
+        self.assertNotContains(response, "Compatibilidade indeterminada: os kits exibidos coincidem")
+        self.assertNotContains(response, "Compatível")
 
     def test_add_items_batch_rejects_incompatible_kit_for_vehicle(self) -> None:
         response = self.client.post(
