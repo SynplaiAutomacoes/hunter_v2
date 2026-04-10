@@ -305,9 +305,12 @@
                                                 <td>{{ row.account }}</td>
                                                 <td>{{ row.payment_type }}</td>
                                                 <td class="text-center">
-                                                    <a href="{{ row.edit_url }}" class="btn btn-ghost btn-xs" title="Editar Movimentação Financeira" aria-label="Editar Movimentação Financeira">
+                                                    <button type="button" class="btn btn-ghost btn-xs" title="Editar Movimentação Financeira" aria-label="Editar Movimentação Financeira"
+                                                            hx-get="{{ row.edit_modal_url }}"
+                                                            hx-target="#edit-modal-container"
+                                                            hx-swap="innerHTML">
                                                         <span class="material-icons text-sm">edit</span>
-                                                    </a>
+                                                    </button>
                                                 </td>
                                                 <td class="text-right"><span class="{{ row.total.class }}">{{ row.total.text }}</span></td>
                                             </tr>
@@ -357,4 +360,6 @@
             </div>
         </div>
     </div>
+
+    <div id="edit-modal-container"></div>
 {% endblock %}
