@@ -384,16 +384,16 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
             HTML('<h3 class="text-base font-semibold text-base-content flex items-center gap-2 mb-3">'
                  '<span class="material-icons text-sm">payments</span> Sobre o Pagamento</h3>'),
             Div(
-                Div("due_date", css_class="col-span-12 sm:col-span-4"),
-                Div("direction", css_class="col-span-12 sm:col-span-4"),
-                Div("amount", css_class="col-span-12 sm:col-span-4"),
+                Div("due_date", css_class="col-span-12 lg:col-span-4"),
+                Div("direction", css_class="col-span-12 lg:col-span-4"),
+                Div("amount", css_class="col-span-12 lg:col-span-4"),
                 #
-                Div("budget_plan", css_class="col-span-12 sm:col-span-6"),
-                Div("bank_account", css_class="col-span-12 sm:col-span-6"),
+                Div("budget_plan", css_class="col-span-12 lg:col-span-6"),
+                Div("bank_account", css_class="col-span-12 lg:col-span-6"),
                 #
-                Div("payment_method", css_class="col-span-12 sm:col-span-4"),
-                Div("is_paid", css_class="col-span-12 sm:col-span-4"),
-                Div("nf_number", css_class="col-span-12 sm:col-span-4"),
+                Div("payment_method", css_class="col-span-12 lg:col-span-4"),
+                Div("is_paid", css_class="col-span-12 lg:col-span-4"),
+                Div("nf_number", css_class="col-span-12 lg:col-span-4"),
                 #
                 Div("financial_observation", css_class="col-span-12"),
                 Div("attachment", css_class="col-span-12"),
