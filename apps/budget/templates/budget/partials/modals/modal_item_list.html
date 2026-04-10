@@ -24,7 +24,7 @@
                     {% if item_type == 'kit' and kit_hidden_count %}
                     <label class="inline-flex items-center gap-3 cursor-pointer text-sm font-medium whitespace-nowrap">
                         <input type="checkbox" id="toggle-hidden-kits" class="toggle toggle-primary toggle-sm" />
-                        <span>Exibir kits fora do filtro ({{ kit_hidden_count }})</span>
+                        <span>Exibir kits ocultos ({{ kit_hidden_count }})</span>
                     </label>
                     {% elif item_type != 'kit' %}
                     <div class="flex gap-2">
@@ -52,13 +52,19 @@
                 </div>
 
                 {% if item_type == 'kit' %}
-                <div>
-                    {% if not kit_visible_count and kit_hidden_count %}
+                <div class="space-y-3">
+                    {% if kit_vehicle_filter_warning and kit_indeterminate_count %}
+                    <div class="alert alert-info py-3">
+                        <span class="material-icons">info</span>
+                        <div class="text-sm">{{ kit_vehicle_filter_warning }}</div>
+                    </div>
+                    {% endif %}
+                    {% if not kit_compatible_count and kit_hidden_count %}
                     <div class="alert alert-warning py-3">
                         <span class="material-icons">warning</span>
                         <div>
                             <div class="font-semibold">Nenhum kit compatível encontrado</div>
-                            <div class="text-sm">Use a opção acima para revisar kits sem aplicação cadastrada ou fora do filtro deste veículo.</div>
+                            <div class="text-sm">Use a opção acima para revisar os kits ocultos para este veículo.</div>
                         </div>
                     </div>
                     {% endif %}
@@ -95,7 +101,7 @@
                 <tr
                     data-row-item="true"
                     class="{% if item.id in existing_items %}bg-success/10 hover:bg-success/20{% else %}hover:bg-base-200/50{% endif %} transition-colors{% if item_type == 'kit' and item.hidden_by_compatibility_filter %} hidden-by-filter{% endif %}"
-                    {% if item_type == 'kit' and item.hidden_by_compatibility_filter %}data-hidden-by-kit-filter="true"{% endif %}
+                    {% if item_type == 'kit' and item.hidden_by_compatibility_filter %}data-hidden-by-kit-filter="true" style="display: none;"{% endif %}
                 >
                     <td class="text-center">
                         {% if item.id in existing_items %}
@@ -243,7 +249,9 @@
         function updateKitFilterVisibility() {
             const shouldShowHiddenRows = !!toggleHiddenKits?.checked;
             modal.querySelectorAll('tbody tr[data-hidden-by-kit-filter="true"]').forEach(row => {
-                row.classList.toggle('hidden-by-filter', !shouldShowHiddenRows);
+                const shouldHideRow = !shouldShowHiddenRows;
+                row.classList.toggle('hidden-by-filter', shouldHideRow);
+                row.style.display = shouldHideRow ? 'none' : '';
             });
         }
 

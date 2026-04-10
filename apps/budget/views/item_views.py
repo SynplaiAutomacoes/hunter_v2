@@ -110,7 +110,8 @@ def _prepare_kit_selection_items(*, kits: list[Kit], budget: Budget, existing_it
     filter_active = vehicle_has_complete_application_context(vehicle)
 
     hidden_count = 0
-    visible_count = 0
+    compatible_count = 0
+    indeterminate_count = 0
     incompatible_count = 0
     no_application_count = 0
 
@@ -122,16 +123,18 @@ def _prepare_kit_selection_items(*, kits: list[Kit], budget: Budget, existing_it
         kit.compatibility_badge_class = KIT_COMPATIBILITY_BADGE_CLASSES.get(compatibility.status, "badge-ghost")
         kit.application_lines = kit.application_preview_lines(limit=3)
 
-        hidden_by_default = filter_active and not compatibility.visible_by_default and kit.pk not in existing_items
+        hidden_by_default = compatibility.status in {"incompatible", "no_applications"} and kit.pk not in existing_items
         kit.hidden_by_compatibility_filter = hidden_by_default
-        kit.selection_disabled = compatibility.status == "incompatible" and kit.pk not in existing_items
+        kit.selection_disabled = not compatibility.selectable and kit.pk not in existing_items
 
         if hidden_by_default:
             hidden_count += 1
-        else:
-            visible_count += 1
 
-        if compatibility.status == "incompatible":
+        if compatibility.status == "compatible":
+            compatible_count += 1
+        elif compatibility.status == "missing_vehicle_data":
+            indeterminate_count += 1
+        elif compatibility.status == "incompatible":
             incompatible_count += 1
         elif compatibility.status == "no_applications":
             no_application_count += 1
@@ -148,9 +151,10 @@ def _prepare_kit_selection_items(*, kits: list[Kit], budget: Budget, existing_it
     return ordered_kits, {
         "kit_vehicle_filter_active": filter_active,
         "kit_vehicle_filter_context": build_vehicle_context_label(vehicle),
-        "kit_vehicle_filter_warning": build_vehicle_application_filter_warning(vehicle) if not filter_active else "",
+        "kit_vehicle_filter_warning": build_vehicle_application_filter_warning(vehicle) if indeterminate_count else "",
         "kit_hidden_count": hidden_count,
-        "kit_visible_count": visible_count,
+        "kit_compatible_count": compatible_count,
+        "kit_indeterminate_count": indeterminate_count,
         "kit_incompatible_count": incompatible_count,
         "kit_no_application_count": no_application_count,
     }
