@@ -7,7 +7,7 @@
             <!-- Left side - Icon and Title -->
             <div class="flex items-center gap-3 flex-1 min-w-0">
                 <span class="material-icons text-primary text-3xl flex-shrink-0">edit</span>
-                <h3 class="font-bold text-xl text-base-content truncate">{{ item.description|truncatewords:6 }}</h3>
+                <h3 class="font-bold text-xl text-base-content {% if in_queue %}flex-1 min-w-0 truncate{% else %}truncate{% endif %}">{% if in_queue %}{{ item.description }}{% else %}{{ item.description|truncatewords:6 }}{% endif %}</h3>
 
                 <!-- Calculation Indicator -->
                 <div id="calculation-indicator" class="htmx-indicator flex items-center gap-2 px-3 py-1 bg-info/10 text-info rounded-full text-sm animate-pulse flex-shrink-0">
@@ -46,6 +46,7 @@
           class="space-y-4 js-save-form">
         {% csrf_token %}
         <input type="hidden" name="confirm_lower_price" id="confirm-lower-price-input" value="">
+        <input type="hidden" name="in_queue" value="{% if in_queue %}true{% else %}false{% endif %}">
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="item-fields-container">
             {% if item.product %}
@@ -96,6 +97,15 @@
 
         {% endif %}
     </form>
+
+    {% if in_queue %}
+    <button type="button"
+            class="hidden js-save-local js-queue-save-trigger"
+            data-url="{% url 'budget:edit_item' budget_id item.pk %}"
+            data-action="save_only"
+            data-queue-save="true">
+    </button>
+    {% endif %}
 
     <!-- Action buttons (only if NOT in queue) -->
     {% if not in_queue %}
@@ -182,7 +192,21 @@
                 const helpLabel = document.getElementById('lower-price-help-label');
                 const helpText = document.getElementById('lower-price-help-text');
                 const updateButton = document.querySelector('.js-update-master');
+                const inQueueMode = (form?.querySelector('input[name="in_queue"]')?.value || '').toLowerCase() === 'true';
                 const lastUsedPrice = Number.parseFloat((form?.dataset.lastUsedPrice || updateButton?.dataset.lastUsedPrice || button.dataset.lastUsedPrice || '0')) || 0;
+                const lowerPriceModalHost = inQueueMode
+                    ? {
+                        dialogId: 'grandchild_form_modal',
+                        containerId: 'grandchild-modal-container',
+                        open: window.openBudgetGrandchildModal,
+                        close: window.closeBudgetGrandchildModal,
+                    }
+                    : {
+                        dialogId: 'child_form_modal',
+                        containerId: 'child-modal-container',
+                        open: window.openBudgetChildModal,
+                        close: window.closeBudgetChildModal,
+                    };
 
                 const setPriceHelpMessage = (message) => {
                     if (!helpLabel || !helpText) {
@@ -207,22 +231,42 @@
                 };
 
                 const closeLowerPriceModal = () => {
-                    if (window.closeBudgetChildModal) {
-                        window.closeBudgetChildModal();
+                    if (typeof lowerPriceModalHost.close === 'function') {
+                        lowerPriceModalHost.close();
                     }
-                    const childModalContainer = document.getElementById('child-modal-container');
-                    if (childModalContainer) {
-                        childModalContainer.innerHTML = '';
+                    const modalContainer = document.getElementById(lowerPriceModalHost.containerId);
+                    if (modalContainer) {
+                        modalContainer.innerHTML = '';
                     }
                 };
 
                 const openLowerPriceModal = () => {
-                    const childModalContainer = document.getElementById('child-modal-container');
-                    if (!childModalContainer) {
-                        return false;
+                    const modalContainer = document.getElementById(lowerPriceModalHost.containerId);
+                    const modalElement = document.getElementById(lowerPriceModalHost.dialogId);
+
+                    if (!modalContainer || typeof lowerPriceModalHost.open !== 'function') {
+                        const confirmed = window.confirm('O valor informado esta abaixo do ultimo valor utilizado para este produto. Deseja continuar mesmo assim?');
+                        if (!confirmed) {
+                            if (confirmLowerPriceInput) {
+                                confirmLowerPriceInput.value = '';
+                            }
+                            this.pendingLowerPriceButton = null;
+                            clearSellingPriceField();
+                            setPriceHelpMessage(`Último valor usado: ${lastUsedPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`);
+                            return true;
+                        }
+
+                        if (confirmLowerPriceInput) {
+                            confirmLowerPriceInput.value = '1';
+                        }
+                        setPriceHelpMessage('');
+                        const pendingButton = this.pendingLowerPriceButton;
+                        this.pendingLowerPriceButton = null;
+                        pendingButton?.click();
+                        return true;
                     }
 
-                    childModalContainer.innerHTML = `
+                    modalContainer.innerHTML = `
                         <div class="modal-content-wrapper bg-base-100 p-6 rounded-lg max-w-md w-full">
                             <div class="flex items-start gap-3">
                                 <span class="material-icons text-warning text-3xl">warning</span>
@@ -238,6 +282,13 @@
                             </div>
                         </div>
                     `;
+
+                    modalElement?.addEventListener('close', () => {
+                        modalContainer.innerHTML = '';
+                        if (confirmLowerPriceInput?.value !== '1') {
+                            this.pendingLowerPriceButton = null;
+                        }
+                    }, { once: true });
 
                     const cancelLowerPriceButton = document.getElementById('lower-price-cancel-btn');
                     const continueLowerPriceButton = document.getElementById('lower-price-continue-btn');
@@ -263,12 +314,8 @@
                         pendingButton?.click();
                     });
 
-                    if (window.openBudgetChildModal) {
-                        window.openBudgetChildModal();
-                        return true;
-                    }
-
-                    return false;
+                    lowerPriceModalHost.open();
+                    return true;
                 };
 
                 button.addEventListener('click', (e) => {
@@ -294,6 +341,15 @@
                         setPriceHelpMessage('');
                         if (!openLowerPriceModal()) {
                             this.pendingLowerPriceButton = null;
+                        }
+                        return;
+                    }
+
+                    if (button.dataset.queueSave === 'true') {
+                        if (window.queueEditor?.submitCurrentForm) {
+                            window.queueEditor.submitCurrentForm({ form, action });
+                        } else {
+                            console.error('Queue editor not available for queue save');
                         }
                         return;
                     }

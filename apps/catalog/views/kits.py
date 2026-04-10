@@ -44,13 +44,19 @@ class KitListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseM
             params=self.request.GET,
             filter_configs=KIT_LIST_FILTERS,
         )
-        return queryset.order_by("-criado_em")
+        return queryset.prefetch_related("applications").distinct().order_by("-criado_em")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
 
         context["fields"] = [
             TableColumn(Kit.name.field.verbose_name, attr="name"),
+            TableColumn(
+                "Aplicações",
+                attr=lambda kit: kit.applications_summary,
+                sortable=False,
+                search_by=("applications__brand", "applications__model", "applications__engine", "applications__fuel"),
+            ),
             TableColumn(Kit.is_active.field.verbose_name, attr="is_active"),
             TableColumn(Kit.total_price.field.verbose_name, attr="total_price"),
             TableColumn(Kit.total_duration.field.verbose_name, attr="total_duration"),

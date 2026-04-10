@@ -22,6 +22,10 @@
         <div id="child-modal-container"></div>
     </dialog>
 
+    <dialog id="grandchild_form_modal" class="modal">
+        <div id="grandchild-modal-container"></div>
+    </dialog>
+
     <script>
         (function() {
             function getModal(id) {
@@ -35,10 +39,24 @@
                 }
             };
 
+            window.openBudgetGrandchildModal = function() {
+                const grandchildModal = getModal('grandchild_form_modal');
+                if (grandchildModal && !grandchildModal.open) {
+                    grandchildModal.showModal();
+                }
+            };
+
             window.closeBudgetChildModal = function() {
                 const childModal = getModal('child_form_modal');
                 if (childModal && childModal.open) {
                     childModal.close();
+                }
+            };
+
+            window.closeBudgetGrandchildModal = function() {
+                const grandchildModal = getModal('grandchild_form_modal');
+                if (grandchildModal && grandchildModal.open) {
+                    grandchildModal.close();
                 }
             };
 
@@ -50,6 +68,11 @@
             };
 
             window.getTopBudgetModal = function() {
+                const grandchildModal = getModal('grandchild_form_modal');
+                if (grandchildModal && grandchildModal.open) {
+                    return grandchildModal;
+                }
+
                 const childModal = getModal('child_form_modal');
                 if (childModal && childModal.open) {
                     return childModal;
