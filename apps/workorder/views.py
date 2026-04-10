@@ -13,8 +13,10 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Prefetch
 from django.http import Http404, HttpResponse, JsonResponse
+from django.urls import reverse
 from django.shortcuts import get_object_or_404, render
 from django.utils.decorators import method_decorator
+from django.utils.html import escape
 from django.views import View
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.generic import DetailView, ListView, TemplateView
@@ -22,6 +24,7 @@ from djmoney.money import Money
 
 from apps.catalog.price_tracking import build_product_price_warning
 from apps.catalog.price_tracking import record_product_last_used_price
+from apps.catalog.kit_applications import build_vehicle_application_filter_warning, build_vehicle_context_label, evaluate_kit_vehicle_compatibility, vehicle_has_complete_application_context
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.models.kits import Kit
@@ -131,6 +134,12 @@ WORKORDER_STATUS_BADGE_CLASSES = {
     WorkOrderStatus.REJECTED: "badge-error min-w-sm",
     WorkOrderStatus.CANCELLED: "badge-warning min-w-sm",
 }
+KIT_COMPATIBILITY_BADGE_CLASSES = {
+    "compatible": "badge-success",
+    "no_applications": "badge-warning",
+    "missing_vehicle_data": "badge-info",
+    "incompatible": "badge-error",
+}
 WORKORDER_STATUS_REPORT_PDF_TITLE = "Relatorio de Ordens de Servico por Status"
 
 
@@ -153,6 +162,96 @@ def _build_period_label(*, start_date: date | None, end_date: date | None) -> st
     if end_date:
         return f"Ate {end_date.strftime('%d/%m/%Y')}"
     return "Todo o periodo"
+
+
+def _render_modal_error(*, workorder: WorkOrder, title: str, message: str, icon: str = "warning", active_tab: str = "kits") -> HttpResponse:
+    icon_class = "text-warning" if icon == "warning" else "text-error"
+    safe_title = escape(title)
+    safe_message = escape(message)
+    back_url = f"{reverse('workorder:edit_items_modal', args=[workorder.pk])}?tab={active_tab}"
+    html = f"""
+    <div class="modal-box w-11/12 max-w-md bg-base-100">
+        <button
+            type="button"
+            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+            hx-get="{back_url}"
+            hx-target="#modal-container"
+            hx-swap="innerHTML">✕</button>
+        <div class="flex flex-col items-center justify-center py-8 text-center">
+            <span class="material-icons {icon_class} text-6xl mb-4">{icon}</span>
+            <h3 class="font-bold text-xl mb-2">{safe_title}</h3>
+            <p class="text-base-content/70 mb-6">{safe_message}</p>
+            <button
+                type="button"
+                class="btn btn-primary"
+                hx-get="{back_url}"
+                hx-target="#modal-container"
+                hx-swap="innerHTML">Voltar</button>
+        </div>
+    </div>
+    """
+    return HttpResponse(html)
+
+
+def _prepare_kit_selection_items(*, kits: list[Kit], workorder: WorkOrder, existing_items: set[int]) -> tuple[list[Kit], dict[str, object]]:
+    vehicle = workorder.budget.vehicle
+    filter_active = vehicle_has_complete_application_context(vehicle)
+
+    hidden_count = 0
+    compatible_count = 0
+    indeterminate_count = 0
+    incompatible_count = 0
+    no_application_count = 0
+
+    for kit in kits:
+        compatibility = evaluate_kit_vehicle_compatibility(kit=kit, vehicle=vehicle)
+        kit.compatibility_status = compatibility.status
+        kit.compatibility_label = compatibility.label
+        kit.compatibility_description = compatibility.description
+        kit.compatibility_badge_class = KIT_COMPATIBILITY_BADGE_CLASSES.get(compatibility.status, "badge-ghost")
+        kit.application_lines = kit.application_preview_lines(limit=3)
+
+        hidden_by_default = compatibility.status in {"incompatible", "no_applications"} and kit.pk not in existing_items
+        kit.hidden_by_compatibility_filter = hidden_by_default
+        kit.selection_disabled = not compatibility.selectable and kit.pk not in existing_items
+
+        if hidden_by_default:
+            hidden_count += 1
+
+        if compatibility.status == "compatible":
+            compatible_count += 1
+        elif compatibility.status == "missing_vehicle_data":
+            indeterminate_count += 1
+        elif compatibility.status == "incompatible":
+            incompatible_count += 1
+        elif compatibility.status == "no_applications":
+            no_application_count += 1
+
+    ordered_kits = sorted(
+        kits,
+        key=lambda kit: (
+            kit.pk not in existing_items,
+            0 if getattr(kit, "compatibility_status", "") == "compatible" else 1 if getattr(kit, "compatibility_status", "") == "missing_vehicle_data" else 2 if getattr(kit, "compatibility_status", "") == "no_applications" else 3,
+            kit.name.lower(),
+        ),
+    )
+
+    return ordered_kits, {
+        "kit_vehicle_filter_active": filter_active,
+        "kit_vehicle_filter_context": build_vehicle_context_label(vehicle),
+        "kit_vehicle_filter_warning": build_vehicle_application_filter_warning(vehicle) if indeterminate_count else "",
+        "kit_hidden_count": hidden_count,
+        "kit_compatible_count": compatible_count,
+        "kit_indeterminate_count": indeterminate_count,
+        "kit_incompatible_count": incompatible_count,
+        "kit_no_application_count": no_application_count,
+    }
+
+
+def _get_incompatible_workorder_kits(*, workshop, workorder: WorkOrder, selected_ids: list[int]) -> list[Kit]:
+    kits = list(Kit.objects.filter(workshop=workshop, id__in=selected_ids).prefetch_related("applications"))
+    incompatible_kits = [kit for kit in kits if evaluate_kit_vehicle_compatibility(kit=kit, vehicle=workorder.budget.vehicle).status == "incompatible"]
+    return incompatible_kits
 
 
 class WorkOrderStatusReportDataMixin:
@@ -457,6 +556,8 @@ class WorkOrderItemSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, T
 
         model_class, title, active_tab = map_config.get(item_type, (Product, "Selecionar Item", "products"))
         queryset = model_class.objects.filter(workshop=self.workshop, is_active=True)
+        if item_type == "kit":
+            queryset = queryset.prefetch_related("applications")
 
         existing_items: set[int] = set()
         if item_type == "product":
@@ -466,14 +567,20 @@ class WorkOrderItemSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, T
         elif item_type == "kit":
             existing_items = set(workorder.items.filter(kit__isnull=False).values_list("kit_id", flat=True))
 
+        ordered_items = list(queryset)
+        kit_context: dict[str, object] = {}
+        if item_type == "kit":
+            ordered_items, kit_context = _prepare_kit_selection_items(kits=ordered_items, workorder=workorder, existing_items=existing_items)
+
         context = {
-            "items": queryset,
+            "items": ordered_items,
             "workorder": workorder,
             "item_type": item_type,
             "modal_title": title,
             "existing_items": existing_items,
             "active_tab": active_tab,
         }
+        context.update(kit_context)
         return render(request, "workorder/partials/modals/modal_item_list.html", context)
 
 
@@ -499,6 +606,20 @@ class WorkOrderAddItemsBatchView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     "invalid_ids": invalid_ids[:10],
                 },
             )
+
+        if item_type == "kit":
+            incompatible_kits = _get_incompatible_workorder_kits(workshop=self.workshop, workorder=workorder, selected_ids=selected_ids)
+            if incompatible_kits:
+                incompatible_names = ", ".join(kit.name for kit in incompatible_kits[:3])
+                if len(incompatible_kits) > 3:
+                    incompatible_names = f"{incompatible_names} e mais {len(incompatible_kits) - 3} kit(s)"
+                return _render_modal_error(
+                    workorder=workorder,
+                    title="Kit indisponível para este veículo",
+                    message=f"Os kits selecionados não correspondem à aplicação do veículo atual: {incompatible_names}.",
+                    icon="error",
+                    active_tab="kits",
+                )
 
         try:
             for item_id in selected_ids:
