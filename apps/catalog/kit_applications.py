@@ -166,6 +166,17 @@ def _application_matches_available_vehicle_context(*, application: Any, vehicle:
     return compared_any
 
 
+def _application_matches_vehicle_identity(*, application: Any, vehicle: Vehicle | None) -> bool:
+    if vehicle is None:
+        return False
+
+    vehicle_year = parse_vehicle_year(vehicle)
+    if vehicle_year is None:
+        return False
+
+    return _matches_text(getattr(application, "brand", ""), getattr(vehicle, "brand", "")) and _matches_text(getattr(application, "model", ""), getattr(vehicle, "model", "")) and _matches_year_range(application, vehicle_year)
+
+
 def evaluate_kit_vehicle_compatibility(*, kit: Any, vehicle: Vehicle | None) -> KitCompatibilityResult:
     applications_manager = getattr(kit, "applications", None)
     applications = list(applications_manager.all()) if applications_manager is not None else []
@@ -180,6 +191,7 @@ def evaluate_kit_vehicle_compatibility(*, kit: Any, vehicle: Vehicle | None) -> 
             visible_by_default=not has_complete_vehicle_context,
         )
 
+    has_partial_match = False
     for application in applications:
         if _application_matches_available_vehicle_context(application=application, vehicle=vehicle):
             if has_complete_vehicle_context:
@@ -198,6 +210,18 @@ def evaluate_kit_vehicle_compatibility(*, kit: Any, vehicle: Vehicle | None) -> 
                 selectable=True,
                 visible_by_default=True,
             )
+
+        if has_complete_vehicle_context and _application_matches_vehicle_identity(application=application, vehicle=vehicle):
+            has_partial_match = True
+
+    if has_partial_match:
+        return KitCompatibilityResult(
+            status="partially_compatible",
+            label="Compatibilidade Parcial",
+            description="Kit com marca, modelo e ano compatíveis, mas com diferenças de motor ou combustível.",
+            selectable=True,
+            visible_by_default=True,
+        )
 
     return KitCompatibilityResult(
         status="incompatible",

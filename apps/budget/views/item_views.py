@@ -80,9 +80,17 @@ def _is_kit_budget_item(item: BudgetItem) -> bool:
 
 KIT_COMPATIBILITY_BADGE_CLASSES = {
     "compatible": "badge-success",
+    "partially_compatible": "badge-accent",
     "no_applications": "badge-warning",
     "missing_vehicle_data": "badge-info",
     "incompatible": "badge-error",
+}
+KIT_COMPATIBILITY_SORT_ORDER = {
+    "compatible": 0,
+    "partially_compatible": 1,
+    "missing_vehicle_data": 2,
+    "no_applications": 3,
+    "incompatible": 4,
 }
 
 
@@ -143,7 +151,7 @@ def _prepare_kit_selection_items(*, kits: list[Kit], budget: Budget, existing_it
         kits,
         key=lambda kit: (
             kit.pk not in existing_items,
-            0 if getattr(kit, "compatibility_status", "") == "compatible" else 1 if getattr(kit, "compatibility_status", "") == "missing_vehicle_data" else 2 if getattr(kit, "compatibility_status", "") == "no_applications" else 3,
+            KIT_COMPATIBILITY_SORT_ORDER.get(getattr(kit, "compatibility_status", ""), len(KIT_COMPATIBILITY_SORT_ORDER)),
             kit.name.lower(),
         ),
     )
