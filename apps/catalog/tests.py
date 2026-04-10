@@ -9,12 +9,14 @@ from django.urls import reverse
 
 from djmoney.money import Money
 
+from apps.catalog.kit_applications import evaluate_kit_vehicle_compatibility
 from apps.catalog.forms.kits import KitForm
 from apps.catalog.forms.products import ProductForm
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.kits import Kit, KitApplication, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
+from apps.customer.models import Customer, Vehicle
 from apps.workshops.tests import create_director_user_with_workshop
 from apps.workshops.models.workshops import Workshop
 
@@ -298,6 +300,117 @@ class KitTests(TestCase):
         # Não deve levantar exceção
         self.assertEqual(str(s.suggested_cost), "R$\xa05,00")
         self.assertEqual(str(s.selling_price), "R$\xa010,00")
+
+
+class KitCompatibilityEvaluationTests(TestCase):
+    def setUp(self) -> None:
+        self.workshop = Workshop.objects.create(name="Oficina Compatibilidade", phone="+5511999999999", address="Rua Compatibilidade, 123")
+        self.customer = Customer.objects.create(
+            workshop=self.workshop,
+            name="Cliente Compatibilidade",
+            cpf_or_cnpj="123.456.789-10",
+            email="compatibilidade@example.com",
+            phone="+5511888888888",
+        )
+
+    def _create_vehicle(
+        self,
+        *,
+        brand: str = "Jeep",
+        model: str = "Renegade",
+        year_fabrication: str = "2020",
+        year_model: str = "2020",
+        engine: str = "2.0",
+        fuel: str = "Diesel",
+    ) -> Vehicle:
+        return Vehicle.objects.create(
+            workshop=self.workshop,
+            customer=self.customer,
+            plate="KIT1234",
+            brand=brand,
+            model=model,
+            year_fabrication=year_fabrication,
+            year_model=year_model,
+            color="Prata",
+            engine=engine,
+            fuel=fuel,
+        )
+
+    def _create_kit(
+        self,
+        *,
+        brand: str = "Jeep",
+        model: str = "Renegade",
+        engine: str = "2.0",
+        fuel: str = "Diesel",
+        year_start: int = 2015,
+        year_end: int = 2021,
+    ) -> Kit:
+        kit = Kit.objects.create(workshop=self.workshop, name=f"Kit Compatibilidade {Kit.objects.count() + 1}")
+        KitApplication.objects.create(
+            kit=kit,
+            brand=brand,
+            model=model,
+            engine=engine,
+            fuel=fuel,
+            year_start=year_start,
+            year_end=year_end,
+        )
+        return kit
+
+    def test_evaluate_returns_compatible_for_full_match(self) -> None:
+        vehicle = self._create_vehicle()
+        kit = self._create_kit()
+
+        result = evaluate_kit_vehicle_compatibility(kit=kit, vehicle=vehicle)
+
+        self.assertEqual(result.status, "compatible")
+        self.assertEqual(result.label, "Compatível")
+        self.assertTrue(result.selectable)
+        self.assertTrue(result.visible_by_default)
+
+    def test_evaluate_returns_partial_when_brand_model_and_year_match_via_fabrication_year_fallback(self) -> None:
+        vehicle = self._create_vehicle(year_fabrication="2020", year_model="")
+        kit = self._create_kit(engine="1.8")
+
+        result = evaluate_kit_vehicle_compatibility(kit=kit, vehicle=vehicle)
+
+        self.assertEqual(result.status, "partially_compatible")
+        self.assertEqual(result.label, "Compatibilidade Parcial")
+        self.assertEqual(result.description, "Kit com marca, modelo e ano compatíveis, mas com diferenças de motor ou combustível.")
+        self.assertTrue(result.selectable)
+        self.assertTrue(result.visible_by_default)
+
+    def test_evaluate_returns_partial_when_fuel_differs(self) -> None:
+        vehicle = self._create_vehicle()
+        kit = self._create_kit(fuel="Flex")
+
+        result = evaluate_kit_vehicle_compatibility(kit=kit, vehicle=vehicle)
+
+        self.assertEqual(result.status, "partially_compatible")
+        self.assertEqual(result.label, "Compatibilidade Parcial")
+
+    def test_evaluate_returns_missing_vehicle_data_when_context_is_incomplete(self) -> None:
+        vehicle = self._create_vehicle(engine="")
+        kit = self._create_kit()
+
+        result = evaluate_kit_vehicle_compatibility(kit=kit, vehicle=vehicle)
+
+        self.assertEqual(result.status, "missing_vehicle_data")
+        self.assertEqual(result.label, "Compatibilidade indeterminada")
+        self.assertTrue(result.selectable)
+        self.assertTrue(result.visible_by_default)
+
+    def test_evaluate_returns_incompatible_when_brand_model_or_year_do_not_match(self) -> None:
+        vehicle = self._create_vehicle(model="Wrangler")
+        kit = self._create_kit()
+
+        result = evaluate_kit_vehicle_compatibility(kit=kit, vehicle=vehicle)
+
+        self.assertEqual(result.status, "incompatible")
+        self.assertEqual(result.label, "Incompatível")
+        self.assertFalse(result.selectable)
+        self.assertFalse(result.visible_by_default)
 
 
 class ProductFormTests(TestCase):
