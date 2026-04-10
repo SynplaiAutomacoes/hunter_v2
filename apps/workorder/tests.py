@@ -16,7 +16,7 @@ from djmoney.money import Money
 
 from apps.budget.documents.provider import build_budget_pdf_render_request
 from apps.budget.models import Budget, BudgetItem
-from apps.catalog.models.kits import Kit, KitProduct, KitService
+from apps.catalog.models.kits import Kit, KitApplication, KitProduct, KitService
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
@@ -101,16 +101,30 @@ def create_customer(*, workshop: Workshop, suffix: int = 1, phone: str = "+55119
     )
 
 
-def create_vehicle(*, workshop: Workshop, customer: Customer, suffix: int = 1, plate: str | None = None) -> Vehicle:
+def create_vehicle(
+    *,
+    workshop: Workshop,
+    customer: Customer,
+    suffix: int = 1,
+    plate: str | None = None,
+    brand: str | None = None,
+    model: str | None = None,
+    year_fabrication: str = "2024",
+    year_model: str = "2024",
+    engine: str = "2.0",
+    fuel: str = "Diesel",
+) -> Vehicle:
     return Vehicle.objects.create(
         workshop=workshop,
         customer=customer,
         plate=plate or f"OSP123{suffix}",
-        brand=f"Marca OS {suffix}",
-        model=f"Modelo OS {suffix}",
-        year_fabrication="2024",
-        year_model="2024",
+        brand=brand or f"Marca OS {suffix}",
+        model=model or f"Modelo OS {suffix}",
+        year_fabrication=year_fabrication,
+        year_model=year_model,
         color="Branco",
+        engine=engine,
+        fuel=fuel,
     )
 
 
@@ -453,10 +467,20 @@ def create_product(*, workshop: Workshop, suffix: int = 1, selling_price: str = 
     )
 
 
-def create_kit(*, workshop: Workshop, suffix: int, products: list[tuple[Product, int]]) -> Kit:
+def create_kit(*, workshop: Workshop, suffix: int, products: list[tuple[Product, int]], applications: list[dict[str, str | int]] | None = None) -> Kit:
     kit = Kit.objects.create(workshop=workshop, name=f"Kit {suffix}")
     for product, quantity in products:
         KitProduct.objects.create(kit=kit, product=product, quantity=quantity)
+    for application in applications or []:
+        KitApplication.objects.create(
+            kit=kit,
+            brand=str(application.get("brand", "")),
+            model=str(application.get("model", "")),
+            engine=str(application.get("engine", "")),
+            fuel=str(application.get("fuel", "")),
+            year_start=int(application.get("year_start", 0)),
+            year_end=int(application.get("year_end", 0)),
+        )
     return kit
 
 
@@ -660,6 +684,222 @@ class WorkOrderDetailViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers.get("Cache-Control"), "no-store")
         self.assertContains(response, "55,00")
+
+
+class WorkOrderKitSelectionCompatibilityTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=97)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+        self.customer = create_customer(workshop=self.workshop, suffix=97)
+        self.vehicle = create_vehicle(
+            workshop=self.workshop,
+            customer=self.customer,
+            suffix=97,
+            plate="OSK9797",
+            brand="Jeep",
+            model="Renegade",
+            year_fabrication="2020",
+            year_model="2020",
+            engine="2.0",
+            fuel="Diesel",
+        )
+        self.budget = create_budget(workshop=self.workshop)
+        self.budget.customer = self.customer
+        self.budget.vehicle = self.vehicle
+        self.budget.save(update_fields=["customer", "vehicle"])
+        self.workorder = WorkOrder.objects.create(workshop=self.workshop, budget=self.budget)
+
+        self.compatible_kit = create_kit(
+            workshop=self.workshop,
+            suffix=9701,
+            products=[],
+            applications=[
+                {
+                    "brand": "Jeep",
+                    "model": "Renegade",
+                    "engine": "2.0",
+                    "fuel": "Diesel",
+                    "year_start": 2015,
+                    "year_end": 2021,
+                }
+            ],
+        )
+        self.no_application_kit = create_kit(workshop=self.workshop, suffix=9702, products=[])
+        self.incompatible_kit = create_kit(
+            workshop=self.workshop,
+            suffix=9703,
+            products=[],
+            applications=[
+                {
+                    "brand": "Jeep",
+                    "model": "Compass",
+                    "engine": "2.0",
+                    "fuel": "Diesel",
+                    "year_start": 2015,
+                    "year_end": 2021,
+                }
+            ],
+        )
+
+    def test_item_selection_modal_marks_hidden_kits_outside_vehicle_filter(self) -> None:
+        response = self.client.get(reverse("workorder:item_selection", args=[self.workorder.pk, "kit"]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.compatible_kit.name)
+        self.assertContains(response, self.no_application_kit.name)
+        self.assertContains(response, self.incompatible_kit.name)
+        self.assertContains(response, "Compatível")
+        self.assertContains(response, "Sem aplicação")
+        self.assertContains(response, "Incompatível")
+        self.assertContains(response, "Exibir kits ocultos (2)")
+        self.assertContains(response, 'data-hidden-by-kit-filter="true" style="display: none;"', count=2)
+        self.assertNotContains(response, "Compatibilidade indeterminada: os kits exibidos coincidem")
+        self.assertNotContains(response, "Compatibilidade indeterminada")
+
+    def test_item_selection_modal_shows_partial_compatibility_badge_on_first_page(self) -> None:
+        partial_kit = create_kit(
+            workshop=self.workshop,
+            suffix=9704,
+            products=[],
+            applications=[
+                {
+                    "brand": "Jeep",
+                    "model": "Renegade",
+                    "engine": "1.8",
+                    "fuel": "Diesel",
+                    "year_start": 2015,
+                    "year_end": 2021,
+                }
+            ],
+        )
+
+        response = self.client.get(reverse("workorder:item_selection", args=[self.workorder.pk, "kit"]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, partial_kit.name)
+        self.assertContains(response, '<span class="badge badge-accent">Compatibilidade Parcial</span>', count=1, html=True)
+        self.assertContains(response, "Exibir kits ocultos (2)")
+        self.assertContains(response, 'data-hidden-by-kit-filter="true" style="display: none;"', count=2)
+        self.assertNotContains(response, "Compatibilidade indeterminada: os kits exibidos coincidem")
+
+    def test_item_selection_modal_shows_indeterminate_badge_when_vehicle_data_is_incomplete(self) -> None:
+        incomplete_vehicle = create_vehicle(
+            workshop=self.workshop,
+            customer=self.customer,
+            suffix=98,
+            plate="OSK9898",
+            brand="Jeep",
+            model="Renegade",
+            year_fabrication="2020",
+            year_model="2020",
+            engine="",
+            fuel="Diesel",
+        )
+        incomplete_budget = create_budget(workshop=self.workshop)
+        incomplete_budget.customer = self.customer
+        incomplete_budget.vehicle = incomplete_vehicle
+        incomplete_budget.save(update_fields=["customer", "vehicle"])
+        incomplete_workorder = WorkOrder.objects.create(workshop=self.workshop, budget=incomplete_budget)
+
+        response = self.client.get(reverse("workorder:item_selection", args=[incomplete_workorder.pk, "kit"]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.compatible_kit.name)
+        self.assertContains(response, self.incompatible_kit.name)
+        self.assertContains(response, self.no_application_kit.name)
+        self.assertContains(response, '<span class="badge badge-info">Compatibilidade indeterminada</span>', count=1, html=True)
+        self.assertContains(
+            response,
+            "Compatibilidade indeterminada: os kits exibidos coincidem com os dados disponíveis do veículo, mas faltam estas informações para confirmar a aplicação completa: motor.",
+        )
+        self.assertContains(response, "Nenhum kit compatível encontrado")
+        self.assertContains(response, "Sem aplicação")
+        self.assertContains(response, "Exibir kits ocultos (2)")
+        self.assertContains(response, 'data-hidden-by-kit-filter="true" style="display: none;"', count=2)
+        self.assertNotContains(response, "Filtro indisponível")
+
+    def test_item_selection_modal_shows_warning_when_no_compatible_kits_exist(self) -> None:
+        no_match_vehicle = create_vehicle(
+            workshop=self.workshop,
+            customer=self.customer,
+            suffix=99,
+            plate="OSK9999",
+            brand="Jeep",
+            model="Wrangler",
+            year_fabrication="2020",
+            year_model="2020",
+            engine="2.0",
+            fuel="Diesel",
+        )
+        no_match_budget = create_budget(workshop=self.workshop)
+        no_match_budget.customer = self.customer
+        no_match_budget.vehicle = no_match_vehicle
+        no_match_budget.save(update_fields=["customer", "vehicle"])
+        no_match_workorder = WorkOrder.objects.create(workshop=self.workshop, budget=no_match_budget)
+
+        response = self.client.get(reverse("workorder:item_selection", args=[no_match_workorder.pk, "kit"]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.compatible_kit.name)
+        self.assertContains(response, self.incompatible_kit.name)
+        self.assertContains(response, self.no_application_kit.name)
+        self.assertContains(response, "Exibir kits ocultos (3)")
+        self.assertContains(response, "Nenhum kit compatível encontrado")
+        self.assertContains(response, 'data-hidden-by-kit-filter="true" style="display: none;"', count=3)
+        self.assertNotContains(response, "Compatibilidade indeterminada: os kits exibidos coincidem")
+        self.assertNotContains(response, "Compatível")
+
+    def test_add_items_batch_rejects_incompatible_kit_for_vehicle(self) -> None:
+        response = self.client.post(
+            reverse("workorder:add_items_batch", args=[self.workorder.pk, "kit"]),
+            {"selected_items": [str(self.incompatible_kit.pk)], "active_tab": "kits"},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Kit indisponível para este veículo")
+        self.assertFalse(WorkOrderItem.objects.filter(workorder=self.workorder, kit=self.incompatible_kit).exists())
+
+    def test_add_items_batch_allows_kit_without_applications_as_fallback(self) -> None:
+        response = self.client.post(
+            reverse("workorder:add_items_batch", args=[self.workorder.pk, "kit"]),
+            {"selected_items": [str(self.no_application_kit.pk)], "active_tab": "kits"},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(WorkOrderItem.objects.filter(workorder=self.workorder, kit=self.no_application_kit).exists())
+
+    def test_add_items_batch_allows_partially_compatible_kit_for_vehicle(self) -> None:
+        partial_kit = create_kit(
+            workshop=self.workshop,
+            suffix=9704,
+            products=[],
+            applications=[
+                {
+                    "brand": "Jeep",
+                    "model": "Renegade",
+                    "engine": "1.8",
+                    "fuel": "Diesel",
+                    "year_start": 2015,
+                    "year_end": 2021,
+                }
+            ],
+        )
+
+        response = self.client.post(
+            reverse("workorder:add_items_batch", args=[self.workorder.pk, "kit"]),
+            {"selected_items": [str(partial_kit.pk)], "active_tab": "kits"},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(WorkOrderItem.objects.filter(workorder=self.workorder, kit=partial_kit).exists())
 
 
 class WorkOrderTotalsConsistencyTests(TestCase):

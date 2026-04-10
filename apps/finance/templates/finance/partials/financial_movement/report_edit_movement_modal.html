@@ -1,0 +1,77 @@
+{% load crispy_forms_tags %}
+
+<dialog
+    id="report-edit-movement-modal"
+    class="modal"
+    x-data
+    x-ref="editMovementModal"
+    x-init="$nextTick(() => $el.showModal())"
+    @click="if ($event.target === $el) $el.close()"
+    @close="$el.remove()"
+>
+    <div class="modal-box w-11/12 max-w-4xl border border-base-300 bg-base-100 shadow-2xl">
+        <div class="flex items-center justify-between mb-2">
+            <h3 class="text-lg font-semibold text-base-content flex items-center gap-2">
+                <span class="material-icons text-base">edit</span>
+                Editar Movimentação Financeira
+            </h3>
+            <button type="button" class="btn btn-ghost btn-sm btn-circle" @click="$refs.editMovementModal.close()" aria-label="Fechar">
+                <span class="material-icons text-lg">close</span>
+            </button>
+        </div>
+
+        <form
+            id="report-edit-movement-form"
+            method="post"
+            enctype="multipart/form-data"
+            hx-post="{% url 'finance:report_movement_edit' pk=movement.pk %}"
+            hx-target="#edit-modal-container"
+            hx-swap="innerHTML"
+            hx-encoding="multipart/form-data"
+        >
+            {% csrf_token %}
+
+            <div class="max-h-[65vh] overflow-y-auto pr-1 space-y-2 py-3">
+                {% crispy form %}
+            </div>
+
+            <div class="modal-action mt-4 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
+                <button type="button" class="btn-form-cancel" @click="$refs.editMovementModal.close()">Cancelar</button>
+                <button type="submit" class="btn btn-primary">
+                    <span class="material-icons text-sm">save</span>
+                    Salvar
+                </button>
+            </div>
+        </form>
+    </div>
+</dialog>
+
+<script>
+(function() {
+    const modal = document.getElementById('report-edit-movement-modal');
+    if (!modal) return;
+
+    const sourceInput = modal.querySelector('input[name="source"]');
+    const detailsContainer = modal.querySelector('#report-edit-source-details');
+
+    if (sourceInput && detailsContainer) {
+        sourceInput.addEventListener('change', function() {
+            const sourceId = this.value;
+
+            if (!sourceId) {
+                detailsContainer.innerHTML = "<p class='italic opacity-50 text-center py-4'>Selecione uma origem para ver os detalhes.</p>";
+                return;
+            }
+
+            const url = `{% url 'finance:source_details' %}?source=${sourceId}`;
+
+            fetch(url, {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            })
+            .then(response => response.text())
+            .then(html => { detailsContainer.innerHTML = html; })
+            .catch(error => console.error('Erro ao buscar detalhes:', error));
+        });
+    }
+})();
+</script>

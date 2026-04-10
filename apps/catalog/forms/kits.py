@@ -13,7 +13,8 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 from djmoney.money import Money
 
-from apps.catalog.models.kits import Kit, KitProduct, KitService
+from apps.catalog.kit_applications import normalize_vehicle_text
+from apps.catalog.models.kits import Kit, KitApplication, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.core.widgets import CheckboxInput, TextInput, TextareaInput, SelectInput, MoneyInput, PercentageInput, ImageInput, DurationInput
@@ -57,6 +58,53 @@ class KitForm(forms.ModelForm):
             raise forms.ValidationError("Já existe um kit com este nome na oficina ativa.")
 
         return name
+
+    @staticmethod
+    def _empty_application_row() -> dict[str, str]:
+        return {
+            "brand": "",
+            "model": "",
+            "engine": "",
+            "fuel": "",
+            "year_start": "",
+            "year_end": "",
+        }
+
+    def _extract_application_rows_from_post(self) -> list[dict[str, str]]:
+        field_names = ("brand", "model", "engine", "fuel", "year_start", "year_end")
+        field_values = {field_name: self._getlist_from_data(f"kit_application_{field_name}") for field_name in field_names}
+        row_count = max((len(values) for values in field_values.values()), default=0)
+
+        applications: list[dict[str, str]] = []
+        for index in range(row_count):
+            row = {field_name: str(field_values[field_name][index] if index < len(field_values[field_name]) else "").strip() for field_name in field_names}
+            if not any(row.values()):
+                continue
+            applications.append(row)
+
+        return applications
+
+    def _build_initial_applications(self) -> list[dict[str, str]]:
+        if self.is_bound:
+            posted_applications = self._extract_application_rows_from_post()
+            return posted_applications or [self._empty_application_row()]
+
+        if self.instance.pk:
+            applications = [
+                {
+                    "brand": application.brand,
+                    "model": application.model,
+                    "engine": application.engine,
+                    "fuel": application.fuel,
+                    "year_start": str(application.year_start),
+                    "year_end": str(application.year_end),
+                }
+                for application in self.instance.ordered_applications()
+            ]
+            if applications:
+                return applications
+
+        return [self._empty_application_row()]
 
     def get_layout(self):
         cancel_url = reverse("catalog:kits_list")
@@ -199,6 +247,7 @@ class KitForm(forms.ModelForm):
 
         products_json = json.dumps(initial_products)
         services_json = json.dumps(initial_services)
+        applications_json = json.dumps(self._build_initial_applications())
 
         return Layout(
             Div(
@@ -213,6 +262,75 @@ class KitForm(forms.ModelForm):
                             class="col-span-12"
                             x-data="kitItemsManager()"
                         >
+                            <div class="p-4 bg-base-300 rounded-box mb-4">
+                                <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                                    <div>
+                                        <div class="font-semibold">Aplicações do Kit</div>
+                                        <div class="text-sm text-base-content/70">Informe os veículos, motorizações e anos compatíveis com este kit.</div>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-primary" @click="addApplication()">Adicionar aplicação</button>
+                                </div>
+
+                                <div class="space-y-3">
+                                    <template x-for="(application, index) in applications" :key="`application-${{index}}`">
+                                        <div class="p-4 border border-base-200 rounded-box bg-base-100">
+                                            <div class="grid grid-cols-1 lg:grid-cols-12 gap-3 items-start">
+                                                <div class="lg:col-span-2">
+                                                    <label class="label p-0 mb-1">
+                                                        <span class="label-text">Marca</span>
+                                                    </label>
+                                                    <input type="text" name="kit_application_brand" class="input-theme w-full" x-model="application.brand" placeholder="Ex: Jeep" />
+                                                </div>
+                                                <div class="lg:col-span-3">
+                                                    <label class="label p-0 mb-1">
+                                                        <span class="label-text">Modelo</span>
+                                                    </label>
+                                                    <input type="text" name="kit_application_model" class="input-theme w-full" x-model="application.model" placeholder="Ex: Renegade" />
+                                                </div>
+                                                <div class="lg:col-span-2">
+                                                    <label class="label p-0 mb-1">
+                                                        <span class="label-text">Motor</span>
+                                                    </label>
+                                                    <input type="text" name="kit_application_engine" class="input-theme w-full" x-model="application.engine" placeholder="Ex: 2.0" />
+                                                </div>
+                                                <div class="lg:col-span-2">
+                                                    <label class="label p-0 mb-1">
+                                                        <span class="label-text">Combustível</span>
+                                                    </label>
+                                                    <input type="text" name="kit_application_fuel" class="input-theme w-full" x-model="application.fuel" placeholder="Ex: Diesel" />
+                                                </div>
+                                                <div class="lg:col-span-1">
+                                                    <label class="label p-0 mb-1">
+                                                        <span class="label-text">Ano inicial</span>
+                                                    </label>
+                                                    <input type="number" name="kit_application_year_start" class="input-theme w-full" min="1900" max="2100" x-model="application.year_start" placeholder="2015" />
+                                                </div>
+                                                <div class="lg:col-span-1">
+                                                    <label class="label p-0 mb-1">
+                                                        <span class="label-text">Ano final</span>
+                                                    </label>
+                                                    <input type="number" name="kit_application_year_end" class="input-theme w-full" min="1900" max="2100" x-model="application.year_end" placeholder="2021" />
+                                                </div>
+                                                <div class="lg:col-span-1 flex justify-end lg:pt-7">
+                                                    <button type="button" class="btn btn-ghost btn-sm text-error" @click="removeApplication(index)">
+                                                        <span class="material-icons text-base">delete</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            <div class="mt-3 flex items-center justify-between gap-2 text-sm text-base-content/70">
+                                                <span x-text="formatApplicationPreview(application)"></span>
+                                                <span class="badge badge-ghost" x-text="`Aplicação ${{index + 1}}`"></span>
+                                            </div>
+                                        </div>
+                                    </template>
+
+                                    <div x-show="applications.length === 0" class="rounded-box border border-dashed border-base-300 p-4 text-sm text-base-content/70">
+                                        Nenhuma aplicação adicionada. Cadastre ao menos uma aplicação para salvar o kit.
+                                    </div>
+                                </div>
+                            </div>
+
                             <div class="p-4 bg-base-300 rounded-box mb-3">
                                 <div class="text-sm text-base-content/70">Duração Total</div>
                                 <div class="text-xl font-semibold" x-text="totalDurationDisplay"></div>
@@ -471,6 +589,7 @@ class KitForm(forms.ModelForm):
                                 return {{
                                     selectedProducts: {products_json},
                                     selectedServices: {services_json},
+                                    applications: {applications_json},
                                     modalSelectedProducts: [],
                                     modalSelectedServices: [],
                                     totalDurationDisplay: '00:00',
@@ -500,6 +619,31 @@ class KitForm(forms.ModelForm):
                                             return sum + this.parseDurationToSeconds(service.duration);
                                         }}, 0);
                                         this.totalDurationDisplay = this.formatSecondsToHHMM(totalSeconds);
+                                    }},
+                                    buildEmptyApplication() {{
+                                        return {{
+                                            brand: '',
+                                            model: '',
+                                            engine: '',
+                                            fuel: '',
+                                            year_start: '',
+                                            year_end: '',
+                                        }};
+                                    }},
+                                    addApplication() {{
+                                        this.applications.push(this.buildEmptyApplication());
+                                    }},
+                                    removeApplication(index) {{
+                                        this.applications.splice(index, 1);
+                                    }},
+                                    formatApplicationPreview(application) {{
+                                        const vehicle = [application.brand, application.model].filter(Boolean).join(' ').trim();
+                                        const powertrain = [application.engine, application.fuel].filter(Boolean).join(' ').trim();
+                                        const yearStart = (application.year_start || '').toString().trim();
+                                        const yearEnd = (application.year_end || '').toString().trim();
+                                        const years = yearStart && yearEnd ? `${{yearStart}}${{yearStart === yearEnd ? '' : ` a ${{yearEnd}}`}}` : '';
+                                        const parts = [vehicle, powertrain, years].filter(Boolean);
+                                        return parts.length > 0 ? parts.join(' - ') : 'Aplicação em branco';
                                     }},
 
                                     openProductsModal() {{
@@ -795,6 +939,69 @@ class KitForm(forms.ModelForm):
         cleaned_data["_kit_services_qty"] = service_qty
         cleaned_data["_kit_services_duration"] = service_duration
 
+        raw_applications = self._extract_application_rows_from_post()
+        if not raw_applications:
+            self.add_error(None, "Cadastre ao menos uma aplicação para o kit.")
+
+        normalized_applications: list[dict[str, int | str]] = []
+        seen_applications: set[tuple[str, str, str, str, int, int]] = set()
+        required_application_fields = {
+            "brand": "marca",
+            "model": "modelo",
+            "engine": "motor",
+            "fuel": "combustível",
+            "year_start": "ano inicial",
+            "year_end": "ano final",
+        }
+
+        for application in raw_applications:
+            missing_fields = [label for field_name, label in required_application_fields.items() if not str(application.get(field_name, "")).strip()]
+            if missing_fields:
+                self.add_error(None, "Preencha marca, modelo, motor, combustível, ano inicial e ano final em todas as aplicações do kit.")
+                continue
+
+            try:
+                year_start = int(str(application.get("year_start", "")).strip())
+                year_end = int(str(application.get("year_end", "")).strip())
+            except (TypeError, ValueError):
+                self.add_error(None, "Informe anos válidos em todas as aplicações do kit.")
+                continue
+
+            if year_start > year_end:
+                self.add_error(None, "O ano inicial da aplicação não pode ser maior que o ano final.")
+                continue
+
+            if year_start < 1900 or year_end > 2100:
+                self.add_error(None, "Os anos de aplicação do kit devem estar entre 1900 e 2100.")
+                continue
+
+            normalized_key = (
+                normalize_vehicle_text(str(application.get("brand", ""))),
+                normalize_vehicle_text(str(application.get("model", ""))),
+                normalize_vehicle_text(str(application.get("engine", ""))),
+                normalize_vehicle_text(str(application.get("fuel", ""))),
+                year_start,
+                year_end,
+            )
+
+            if normalized_key in seen_applications:
+                self.add_error(None, "Existem aplicações repetidas no kit.")
+                continue
+
+            seen_applications.add(normalized_key)
+            normalized_applications.append(
+                {
+                    "brand": str(application.get("brand", "")).strip(),
+                    "model": str(application.get("model", "")).strip(),
+                    "engine": str(application.get("engine", "")).strip(),
+                    "fuel": str(application.get("fuel", "")).strip(),
+                    "year_start": year_start,
+                    "year_end": year_end,
+                }
+            )
+
+        cleaned_data["_kit_applications"] = normalized_applications
+
         if self.workshop:
             if unique_product_ids:
                 valid_products = set(Product.objects.filter(workshop=self.workshop, id__in=unique_product_ids).values_list("id", flat=True))
@@ -827,6 +1034,7 @@ class KitForm(forms.ModelForm):
         product_qty: dict[str, int] = self.cleaned_data.get("_kit_products_qty", {})
         service_qty: dict[str, int] = self.cleaned_data.get("_kit_services_qty", {})
         service_duration: dict[str, timedelta] = self.cleaned_data.get("_kit_services_duration", {})
+        applications: list[dict[str, int | str]] = self.cleaned_data.get("_kit_applications", [])
 
         KitProduct.objects.filter(kit=instance).exclude(product_id__in=product_ids).delete()
         KitService.objects.filter(kit=instance).exclude(service_id__in=service_ids).delete()
@@ -866,6 +1074,33 @@ class KitForm(forms.ModelForm):
                     },
                 )
                 raise
+
+        try:
+            KitApplication.objects.filter(kit=instance).delete()
+            KitApplication.objects.bulk_create(
+                [
+                    KitApplication(
+                        kit=instance,
+                        brand=str(application["brand"]),
+                        model=str(application["model"]),
+                        engine=str(application["engine"]),
+                        fuel=str(application["fuel"]),
+                        year_start=int(application["year_start"]),
+                        year_end=int(application["year_end"]),
+                    )
+                    for application in applications
+                ]
+            )
+        except Exception:
+            logger.exception(
+                "Falha ao persistir aplicações do kit",
+                extra={"kit_id": instance.pk, "applications_count": len(applications)},
+            )
+            raise
+
+        prefetched_cache = getattr(instance, "_prefetched_objects_cache", None)
+        if isinstance(prefetched_cache, dict):
+            prefetched_cache.pop("applications", None)
 
         totals = self._calculate_total_kits(
             service_ids=service_ids,
@@ -939,27 +1174,10 @@ class KitForm(forms.ModelForm):
             return [str(v) for v in value]
         return [str(value)]
 
-    def _calculate_total_kits(self,
-                              service_ids: list[str],
-                              service_qty: list[str, int],
-                              service_duration: dict[str, timedelta],
-                              product_ids: list[str],
-                              product_qty: list[str, int]
-                              ) -> dict[str, timedelta | Any]:
+    def _calculate_total_kits(self, service_ids: list[str], service_qty: dict[str, int], service_duration: dict[str, timedelta], product_ids: list[str], product_qty: dict[str, int]) -> dict[str, timedelta | Any]:
+        products_map = {str(p.id): p for p in Product.objects.filter(workshop=self.workshop, id__in=product_ids).only("id", "selling_price", "selling_price_currency")}
 
-        products_map = {
-            str(p.id): p
-            for p in Product.objects.filter(workshop=self.workshop, id__in=product_ids).only(
-                "id", "selling_price", "selling_price_currency"
-            )
-        }
-
-        services_map = {
-            str(s.id): s
-            for s in Service.objects.filter(workshop=self.workshop, id__in=service_ids).only(
-                "id", "selling_price", "selling_price_currency", "duration"
-            )
-        }
+        services_map = {str(s.id): s for s in Service.objects.filter(workshop=self.workshop, id__in=service_ids).only("id", "selling_price", "selling_price_currency", "duration")}
 
         products_sell = Decimal(0)
         services_sell = Decimal(0)
@@ -1280,7 +1498,6 @@ class QuickServiceEditForm(forms.ModelForm):
         self.helper.layout = self.get_layout()
 
     def get_layout(self):
-        cancel_url = reverse("catalog:services_list")
         search_url = reverse("catalog:services_search")
 
         return Layout(

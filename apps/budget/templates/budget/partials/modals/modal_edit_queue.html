@@ -1,4 +1,4 @@
-<div class="modal-box w-11/12 max-w-6xl bg-base-100 p-0 overflow-hidden relative"
+<div class="modal-box w-11/12 max-w-7xl bg-base-100 p-0 overflow-hidden relative"
      data-item-ids="{{ item_ids|join:',' }}"
      data-current-index="0"
      data-budget-id="{{ budget.id }}"
@@ -127,6 +127,7 @@
                 this.currentStep = this.container.dataset.currentStep || '4';
                 this.currentIndex = 0;
                 this.isSaving = false;
+                this.dialog = this.container.closest('dialog');
 
                 this.initElements();
                 this.setupKeyboardShortcuts();
@@ -149,6 +150,11 @@
 
             setupKeyboardShortcuts() {
                 document.addEventListener('keydown', (e) => {
+                    const topModal = window.getTopBudgetModal ? window.getTopBudgetModal() : null;
+                    if (topModal && this.dialog && topModal !== this.dialog) {
+                        return;
+                    }
+
                     // Don't trigger if user is typing in an input
                     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
                         // Allow Enter in form to save
@@ -268,11 +274,60 @@
                 });
             }
 
-            async saveAndNext() {
+            getCurrentForm() {
+                return this.formContainer?.querySelector('#edit-item-form');
+            }
+
+            getQueueSaveTrigger() {
+                return this.formContainer?.querySelector('.js-queue-save-trigger');
+            }
+
+            swapCurrentFormHtml(html) {
+                if (!this.formContainer) {
+                    return;
+                }
+
+                const template = document.createElement('template');
+                template.innerHTML = html.trim();
+
+                for (const script of template.content.querySelectorAll('script')) {
+                    const executableScript = document.createElement('script');
+                    for (const { name, value } of script.attributes) {
+                        executableScript.setAttribute(name, value);
+                    }
+                    executableScript.textContent = script.textContent;
+                    script.replaceWith(executableScript);
+                }
+
+                this.formContainer.innerHTML = '';
+                this.formContainer.appendChild(template.content);
+                this.animateFormEntry();
+                this.updateCurrentItemName();
+            }
+
+            triggerQueueSave() {
                 if (this.isSaving) return;
 
-                const form = this.formContainer?.querySelector('#edit-item-form');
-                if (!form) {
+                const saveTrigger = this.getQueueSaveTrigger();
+                if (!saveTrigger) {
+                    this.showToast('Ação de salvar não encontrada', 'warning');
+                    return;
+                }
+
+                saveTrigger.click();
+            }
+
+            saveAndNext() {
+                this.triggerQueueSave();
+            }
+
+            async submitCurrentForm({ form = null, action = 'save_only' } = {}) {
+                if (this.isSaving) {
+                    return;
+                }
+
+                const currentForm = form || this.getCurrentForm();
+                if (!currentForm) {
                     this.showToast('Formulário não encontrado', 'warning');
                     this.skipCurrentItem();
                     return;
@@ -281,10 +336,10 @@
                 this.isSaving = true;
                 this.setLoadingState(true);
 
-                const formData = new FormData(form);
-                formData.set('action', 'save_only');
+                const formData = new FormData(currentForm);
+                formData.set('action', action);
 
-                const url = form.getAttribute('hx-post');
+                const url = currentForm.getAttribute('hx-post');
 
                 try {
                     const response = await fetch(url, {
@@ -301,16 +356,30 @@
                         throw new Error(`HTTP error! status: ${response.status}`);
                     }
 
-                    await response.text();
+                    const responseHtml = await response.text();
+                    const redirectUrl = response.headers.get('HX-Redirect');
+
+                    if (!redirectUrl) {
+                        this.swapCurrentFormHtml(responseHtml);
+                        this.isSaving = false;
+                        this.setLoadingState(false);
+                        return;
+                    }
 
                     // Small delay to ensure database commit
                     await new Promise(resolve => setTimeout(resolve, 200));
 
                     this.isSaving = false;
                     this.setLoadingState(false);
-                    this.showToast('Item salvo com sucesso!', 'success');
 
                     this.currentIndex++;
+
+                    if (this.currentIndex >= this.itemIds.length) {
+                        this.finishQueue();
+                        return;
+                    }
+
+                    this.showToast('Item salvo com sucesso!', 'success');
                     this.loadNextItem();
 
                 } catch (error) {
@@ -337,11 +406,8 @@
             }
 
 
-            async saveAndFinish() {
-                // Save the current (last) item first
-                await this.saveAndNext();
-
-                // loadNextItem will call finishQueue automatically
+            saveAndFinish() {
+                this.triggerQueueSave();
             }
 
             finishQueue(message = 'Edição em fila concluída! 🎉', type = 'success') {

@@ -273,3 +273,130 @@ class MovementStep4Form(FinancialMovementBaseForm):
                     </div>
                     """)
         )
+
+
+class ReportMovementEditForm(FinancialMovementBaseForm):
+    """Formulário unificado para edição de movimentação financeira via modal no relatório."""
+
+    is_paid = forms.TypedChoiceField(
+        label="Pago",
+        required=True,
+        coerce=lambda value: str(value).lower() == "true",
+        choices=((False, "Não"), (True, "Sim")),
+        widget=SelectInput(choices=[(False, "Não"), (True, "Sim")]),
+        initial=False,
+    )
+
+    class Meta:
+        model = FinancialMovement
+        fields = [
+            # Origem
+            "source",
+            # Itens
+            "description",
+            "items_observation",
+            # Pagamento
+            "due_date",
+            "direction",
+            "amount",
+            "budget_plan",
+            "bank_account",
+            "payment_method",
+            "is_paid",
+            "nf_number",
+            "financial_observation",
+            "attachment",
+        ]
+        widgets = {
+            "source": SearchableSelectInput(),
+            "description": TextInput(),
+            "items_observation": TextareaInput(attrs={"rows": 3}),
+            "due_date": CalendarDateInput(),
+            "direction": SelectInput(),
+            "amount": MoneyInput(),
+            "budget_plan": SearchableSelectInput(),
+            "bank_account": SearchableSelectInput(),
+            "payment_method": SearchableSelectInput(),
+            "nf_number": NumberInput(),
+            "financial_observation": TextareaInput(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.fields["source"].required = True
+        self.fields["description"].required = True
+        self.fields["due_date"].required = True
+        self.fields["direction"].required = True
+        self.fields["amount"].required = True
+        self.fields["payment_method"].required = True
+        self.fields["is_paid"].initial = bool(self.instance.is_paid) if self.instance.pk else False
+
+        if self.workshop:
+            source_qs = Source.objects.filter(workshop=self.workshop)
+            self.fields["source"].queryset = source_qs
+            self.fields["source"].widget.choices = [(s.id, s.name) for s in source_qs]
+
+            self.fields["payment_method"].widget.choices = [
+                (pm.id, str(pm)) for pm in PaymentMethod.objects.filter(workshop=self.workshop)
+            ]
+            self.fields["budget_plan"].widget.choices = [
+                (bp.id, str(bp)) for bp in FinancialGroup.objects.filter(workshop=self.workshop)
+            ]
+            self.fields["bank_account"].widget.choices = [
+                (ba.id, str(ba)) for ba in BankAccount.objects.filter(workshop=self.workshop)
+            ]
+
+        # Resolve source object for inline display
+        source_id = self.data.get("source") or (self.instance.source_id if self.instance.pk else None)
+        source_obj = None
+        if source_id:
+            source_obj = Source.objects.filter(id=source_id, workshop=self.workshop).first() if self.workshop else None
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout(
+            # ── Seção 1: Fornecedor (Origem) ──
+            HTML('<h3 class="text-base font-semibold text-base-content flex items-center gap-2 mb-3">'
+                 '<span class="material-icons text-sm">store</span> Sobre o Fornecedor</h3>'),
+            Div(
+                Div("source", css_class="col-span-12"),
+                Div(
+                    HTML(render_to_string("finance/partials/source_resume.html", {"source_obj": source_obj})),
+                    id="report-edit-source-details",
+                    css_class="col-span-12",
+                ),
+                css_class="grid grid-cols-12 gap-4",
+            ),
+            HTML('<div class="divider my-4"></div>'),
+
+            # ── Seção 2: Item ──
+            HTML('<h3 class="text-base font-semibold text-base-content flex items-center gap-2 mb-3">'
+                 '<span class="material-icons text-sm">inventory_2</span> Sobre o Item</h3>'),
+            Div(
+                Div("description", css_class="col-span-12"),
+                Div("items_observation", css_class="col-span-12"),
+                css_class="grid grid-cols-12 gap-4",
+            ),
+            HTML('<div class="divider my-4"></div>'),
+
+            # ── Seção 3: Pagamento ──
+            HTML('<h3 class="text-base font-semibold text-base-content flex items-center gap-2 mb-3">'
+                 '<span class="material-icons text-sm">payments</span> Sobre o Pagamento</h3>'),
+            Div(
+                Div("due_date", css_class="col-span-12 lg:col-span-4"),
+                Div("direction", css_class="col-span-12 lg:col-span-4"),
+                Div("amount", css_class="col-span-12 lg:col-span-4"),
+                #
+                Div("budget_plan", css_class="col-span-12 lg:col-span-6"),
+                Div("bank_account", css_class="col-span-12 lg:col-span-6"),
+                #
+                Div("payment_method", css_class="col-span-12 lg:col-span-4"),
+                Div("is_paid", css_class="col-span-12 lg:col-span-4"),
+                Div("nf_number", css_class="col-span-12 lg:col-span-4"),
+                #
+                Div("financial_observation", css_class="col-span-12"),
+                Div("attachment", css_class="col-span-12"),
+                css_class="grid grid-cols-12 gap-4",
+            ),
+        )
