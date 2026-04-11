@@ -5,12 +5,14 @@ from decimal import ROUND_HALF_UP, Decimal
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, render
+from django.utils.html import escape
 from django.views import View
 from django.views.generic import TemplateView
 from djmoney.money import Money
 
 from apps.budget.forms import BudgetItemEditForm, BudgetStep3Form
 from apps.budget.models import Budget, BudgetItem
+from apps.catalog.kit_applications import build_vehicle_context_label, evaluate_kit_vehicle_compatibility, vehicle_has_complete_application_context
 from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
@@ -76,6 +78,97 @@ def _is_kit_budget_item(item: BudgetItem) -> bool:
     return bool(item.kit is not None)
 
 
+KIT_COMPATIBILITY_BADGE_CLASSES = {
+    "compatible": "badge-success",
+    "partially_compatible": "badge-accent",
+    "no_applications": "badge-warning",
+    "missing_vehicle_data": "badge-warning",
+    "incompatible": "badge-error",
+}
+KIT_COMPATIBILITY_SORT_ORDER = {
+    "compatible": 0,
+    "partially_compatible": 1,
+    "missing_vehicle_data": 2,
+    "no_applications": 3,
+    "incompatible": 4,
+}
+
+
+def _render_modal_error(*, title: str, message: str, icon: str = "warning") -> HttpResponse:
+    icon_class = "text-warning" if icon == "warning" else "text-error"
+    button_label = "Entendi" if icon == "warning" else "Fechar"
+    safe_title = escape(title)
+    safe_message = escape(message)
+    html = f"""
+    <div class="modal-box w-11/12 max-w-md bg-base-100">
+        <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick="form_modal.close()">✕</button>
+        <div class="flex flex-col items-center justify-center py-8 text-center">
+            <span class="material-icons {icon_class} text-6xl mb-4">{icon}</span>
+            <h3 class="font-bold text-xl mb-2">{safe_title}</h3>
+            <p class="text-base-content/70 mb-6">{safe_message}</p>
+            <button class="btn btn-primary" onclick="form_modal.close()">{button_label}</button>
+        </div>
+    </div>
+    """
+    return HttpResponse(html)
+
+
+def _prepare_kit_selection_items(*, kits: list[Kit], budget: Budget, existing_items: set[int]) -> tuple[list[Kit], dict[str, object]]:
+    vehicle = budget.vehicle
+    filter_active = vehicle_has_complete_application_context(vehicle)
+
+    hidden_count = 0
+    compatible_count = 0
+    incompatible_count = 0
+    no_application_count = 0
+
+    for kit in kits:
+        compatibility = evaluate_kit_vehicle_compatibility(kit=kit, vehicle=vehicle)
+        kit.compatibility_status = compatibility.status
+        kit.compatibility_label = compatibility.label
+        kit.compatibility_description = compatibility.description
+        kit.compatibility_badge_class = KIT_COMPATIBILITY_BADGE_CLASSES.get(compatibility.status, "badge-ghost")
+        kit.application_lines = kit.application_preview_lines(limit=3)
+
+        hidden_by_default = compatibility.status in {"incompatible", "no_applications"} and kit.pk not in existing_items
+        kit.hidden_by_compatibility_filter = hidden_by_default
+        kit.selection_disabled = not compatibility.selectable and kit.pk not in existing_items
+
+        if hidden_by_default:
+            hidden_count += 1
+
+        if compatibility.status == "compatible":
+            compatible_count += 1
+        elif compatibility.status == "incompatible":
+            incompatible_count += 1
+        elif compatibility.status == "no_applications":
+            no_application_count += 1
+
+    ordered_kits = sorted(
+        kits,
+        key=lambda kit: (
+            kit.pk not in existing_items,
+            KIT_COMPATIBILITY_SORT_ORDER.get(getattr(kit, "compatibility_status", ""), len(KIT_COMPATIBILITY_SORT_ORDER)),
+            kit.name.lower(),
+        ),
+    )
+
+    return ordered_kits, {
+        "kit_vehicle_filter_active": filter_active,
+        "kit_vehicle_filter_context": build_vehicle_context_label(vehicle),
+        "kit_hidden_count": hidden_count,
+        "kit_compatible_count": compatible_count,
+        "kit_incompatible_count": incompatible_count,
+        "kit_no_application_count": no_application_count,
+    }
+
+
+def _get_incompatible_budget_kits(*, workshop, budget: Budget, selected_ids: list[int]) -> list[Kit]:
+    kits = list(Kit.objects.filter(workshop=workshop, id__in=selected_ids).prefetch_related("applications"))
+    incompatible_kits = [kit for kit in kits if evaluate_kit_vehicle_compatibility(kit=kit, vehicle=budget.vehicle).status == "incompatible"]
+    return incompatible_kits
+
+
 class ItemSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     model = Budget
     template_name = "budget/partials/modals/modal_item_list.html"
@@ -98,6 +191,8 @@ class ItemSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, TemplateVi
         queryset = model_class.objects.filter(workshop=self.workshop, is_active=True)
         if item_type == "product":
             queryset = queryset.select_related("stock_products")
+        elif item_type == "kit":
+            queryset = queryset.prefetch_related("applications")
 
         # Get already added items to mark them as selected
         existing_items = set()
@@ -109,7 +204,10 @@ class ItemSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, TemplateVi
             existing_items = set(budget.items.filter(kit__isnull=False).values_list("kit_id", flat=True))
 
         ordered_items = list(queryset)
-        if existing_items:
+        kit_context: dict[str, object] = {}
+        if item_type == "kit":
+            ordered_items, kit_context = _prepare_kit_selection_items(kits=ordered_items, budget=budget, existing_items=existing_items)
+        elif existing_items:
             ordered_items.sort(key=lambda item: item.pk not in existing_items)
 
         raw_selected_ids = self.request.GET.getlist("selected_ids")
@@ -136,6 +234,7 @@ class ItemSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, TemplateVi
                 "newly_created_id": newly_created_id,
             }
         )
+        context.update(kit_context)
         return context
 
 
@@ -145,6 +244,11 @@ class AddItemToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, *args, **kwargs):
         budget = _get_budget_for_workshop(self.workshop, kwargs["budget_id"])
+
+        if kwargs["item_type"] == "kit":
+            incompatible_kits = _get_incompatible_budget_kits(workshop=self.workshop, budget=budget, selected_ids=[kwargs["item_id"]])
+            if incompatible_kits:
+                return HttpResponse("Kit incompatível com o veículo selecionado.", status=400)
 
         item_filter = {f"{kwargs['item_type']}_id": kwargs["item_id"]}
 
@@ -607,6 +711,17 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         try:
             if item_type == "kit":
+                incompatible_kits = _get_incompatible_budget_kits(workshop=self.workshop, budget=budget, selected_ids=selected_ids)
+                if incompatible_kits:
+                    incompatible_names = ", ".join(kit.name for kit in incompatible_kits[:3])
+                    if len(incompatible_kits) > 3:
+                        incompatible_names = f"{incompatible_names} e mais {len(incompatible_kits) - 3} kit(s)"
+                    return _render_modal_error(
+                        title="Kit indisponível para este veículo",
+                        message=f"Os kits selecionados não correspondem à aplicação do veículo atual: {incompatible_names}.",
+                        icon="error",
+                    )
+
                 for item_id in selected_ids:
                     BudgetItem.objects.get_or_create(workshop=self.workshop, budget=budget, kit_id=item_id, defaults={"quantity": 1})
 

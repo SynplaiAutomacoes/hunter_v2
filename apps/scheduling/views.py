@@ -18,6 +18,8 @@ from django.views.generic import CreateView, DeleteView, TemplateView, UpdateVie
 
 from apps.budget.models import Budget
 from apps.customer.models import Vehicle
+from apps.customer.vehicle_engine import normalize_vehicle_engine_choice
+from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice
 from apps.scheduling.forms import AppointmentCalendarFilterForm, AppointmentForm, AppointmentMoveForm, build_budget_create_url
 from apps.scheduling.models import Appointment
 from apps.workorder.models import WorkOrder
@@ -498,8 +500,8 @@ class VehicleDetailView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "model": str(vehicle.model or ""),
                 "year_fabrication": str(vehicle.year_fabrication or ""),
                 "year_model": str(vehicle.year_model or ""),
-                "engine": str(vehicle.engine or ""),
-                "fuel": str(vehicle.fuel or ""),
+                "engine": normalize_vehicle_engine_choice(vehicle.engine),
+                "fuel": normalize_vehicle_fuel_choice(vehicle.fuel),
             }
         )
 

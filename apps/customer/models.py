@@ -3,6 +3,9 @@ from phonenumber_field.modelfields import PhoneNumberField
 
 from apps.core.models import TimeStampedModel, Address
 
+from .vehicle_engine import VehicleEngine, normalize_vehicle_engine_choice
+from .vehicle_fuel import VehicleFuel, normalize_vehicle_fuel_choice
+
 
 class Customer(TimeStampedModel, Address):
     SEX_CHOICES = [("M", "Masculino"), ("F", "Feminino"), ("O", "Outro")]
@@ -71,9 +74,9 @@ class Vehicle(TimeStampedModel):
     year_fabrication = models.CharField(verbose_name="Ano de Fabricação", max_length=4)
     year_model = models.CharField(verbose_name="Ano do Modelo", max_length=4)
     color = models.CharField(verbose_name="Cor", max_length=30)
-    fuel = models.CharField(verbose_name="Combustível", max_length=30, null=True, blank=True)
+    fuel = models.CharField(verbose_name="Combustível", max_length=30, choices=VehicleFuel.choices, null=True, blank=True)
     km = models.PositiveIntegerField(verbose_name="Quilometragem", null=True, blank=True)
-    engine = models.CharField(verbose_name="Motor", max_length=30, null=True, blank=True)
+    engine = models.CharField(verbose_name="Motor", max_length=30, choices=VehicleEngine.choices, null=True, blank=True)
     type = models.CharField(verbose_name="Tipo", max_length=50, null=True, blank=True)
     renavam = models.CharField(verbose_name="Renavam", max_length=500, null=True, blank=True)
     chassi = models.CharField(verbose_name="Chassi", max_length=500, null=True, blank=True)
@@ -86,6 +89,13 @@ class Vehicle(TimeStampedModel):
     def save(self, *args, **kwargs):
         if self.plate:
             self.plate = self.plate.strip().upper()
+        if self.engine is not None:
+            raw_engine = str(self.engine).strip()
+            normalized_engine = normalize_vehicle_engine_choice(raw_engine)
+            if not raw_engine or normalized_engine:
+                self.engine = normalized_engine
+        if self.fuel is not None:
+            self.fuel = normalize_vehicle_fuel_choice(self.fuel) or ""
         return super().save(*args, **kwargs)
 
     def __str__(self):

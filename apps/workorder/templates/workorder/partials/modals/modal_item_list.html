@@ -16,11 +16,34 @@
 
     <div class="relative overflow-auto max-h-[70vh]">
         <div class="sticky top-0 z-30 bg-base-100 p-4 border-b border-base-200">
-            <label class="input input-bordered flex items-center gap-2 w-full max-w-md">
-                <span class="material-icons">search</span>
-                <input type="text" id="item-search" class="grow" placeholder="Pesquisar..." />
-                <button type="button" id="clear-search" class="btn btn-ghost btn-xs" title="Limpar">✕</button>
-            </label>
+            <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <label class="input input-bordered flex items-center gap-2 w-full max-w-md">
+                    <span class="material-icons">search</span>
+                    <input type="text" id="item-search" class="grow" placeholder="Pesquisar..." />
+                    <button type="button" id="clear-search" class="btn btn-ghost btn-xs" title="Limpar">✕</button>
+                </label>
+
+                {% if item_type == 'kit' and kit_hidden_count %}
+                <label class="inline-flex items-center gap-3 cursor-pointer text-sm font-medium whitespace-nowrap">
+                    <input type="checkbox" id="toggle-hidden-kits" class="toggle toggle-primary toggle-sm" />
+                    <span>Exibir kits ocultos ({{ kit_hidden_count }})</span>
+                </label>
+                {% endif %}
+            </div>
+
+            {% if item_type == 'kit' %}
+            <div class="space-y-3">
+                {% if not kit_compatible_count and kit_hidden_count %}
+                <div class="alert alert-warning py-3">
+                    <span class="material-icons">warning</span>
+                    <div>
+                        <div class="font-semibold">Nenhum kit compatível encontrado</div>
+                        <div class="text-sm">Use a opção acima para revisar os kits ocultos para este veículo.</div>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
         </div>
 
         <table class="table table-zebra w-full border-separate border-spacing-0">
@@ -33,12 +56,17 @@
                         <th class="rounded-none">Código</th>
                     {% elif item_type == 'service' %}
                         <th class="text-center">Duração</th>
+                    {% elif item_type == 'kit' %}
+                        <th class="rounded-none">Kit</th>
+                        <th class="min-w-[360px]">Aplicações</th>
+                        <th class="whitespace-nowrap text-center">Compatibilidade</th>
                     {% else %}
                         <th class="text-center">Nome</th>
                     {% endif %}
-                    <th class="w-full">Descrição</th>
                     {% if item_type == 'product' %}
                         <th class="min-w-[300px]">Aplicação</th>
+                    {% elif item_type != 'kit' %}
+                        <th class="w-full">Descrição</th>
                     {% endif %}
                     {% if item_type != 'kit' %}
                         <th class="whitespace-nowrap">Preço Venda</th>
@@ -47,30 +75,66 @@
             </thead>
             <tbody class="text-base">
                 {% for item in items %}
-                    {% if item.id in existing_items %}
-                    <tr class="bg-success/10 hover:bg-success/20 transition-colors">
+                    <tr
+                        data-row-item="true"
+                        class="{% if item.id in existing_items %}bg-success/10 hover:bg-success/20{% else %}hover:bg-base-200/50{% endif %} transition-colors{% if item_type == 'kit' and item.hidden_by_compatibility_filter %} hidden-by-filter{% endif %}"
+                        {% if item_type == 'kit' and item.hidden_by_compatibility_filter %}data-hidden-by-kit-filter="true" style="display: none;"{% endif %}>
                         <td class="text-center">
-                            <input type="checkbox" name="selected_items" value="{{ item.id|stringformat:'d' }}" class="checkbox checkbox-success item-checkbox" checked disabled title="Item já adicionado à O.S.">
+                            {% if item.id in existing_items %}
+                            <input
+                                type="checkbox"
+                                name="selected_items"
+                                value="{{ item.id|stringformat:'d' }}"
+                                class="checkbox checkbox-success item-checkbox"
+                                checked
+                                disabled
+                                title="Item já adicionado à O.S.">
+                            {% else %}
+                            <input
+                                type="checkbox"
+                                name="selected_items"
+                                value="{{ item.id|stringformat:'d' }}"
+                                class="checkbox checkbox-primary item-checkbox"
+                                {% if item_type == 'kit' and item.selection_disabled %}disabled title="{{ item.compatibility_description }}"{% endif %}>
+                            {% endif %}
                         </td>
-                    {% else %}
-                    <tr class="hover:bg-base-200/50 transition-colors">
-                        <td class="text-center">
-                            <input type="checkbox" name="selected_items" value="{{ item.id|stringformat:'d' }}" class="checkbox checkbox-primary item-checkbox">
-                        </td>
-                    {% endif %}
 
                         {% if item_type == 'product' %}
                             <td class="font-mono text-sm whitespace-nowrap">{{ item.code }}</td>
                         {% elif item_type == 'service' %}
                             <td class="text-center whitespace-nowrap"><span class="badge badge-ghost">{{ item.duration_display }}</span></td>
+                        {% elif item_type == 'kit' %}
+                            <td class="font-mono text-sm whitespace-nowrap">
+                                {{ item.name }}
+                                {% if item.id in existing_items %}
+                                    <span class="badge badge-success badge-xs ml-2">✓ Adicionado</span>
+                                {% endif %}
+                            </td>
+                            <td class="min-w-[360px] whitespace-normal break-words">
+                                <div class="flex flex-col gap-2">
+                                    {% for application_line in item.application_lines %}
+                                    <div class="text-sm {% if forloop.last and '+' in application_line %}text-base-content/60{% endif %}">{{ application_line }}</div>
+                                    {% endfor %}
+                                </div>
+                            </td>
+                            <td class="text-center whitespace-nowrap">
+                                <span class="badge {{ item.compatibility_badge_class }}{% if item.compatibility_status == 'missing_vehicle_data' or item.compatibility_status == 'partially_compatible' %} inline-flex items-center gap-1{% endif %}">
+                                    {% if item.compatibility_status == 'missing_vehicle_data' or item.compatibility_status == 'partially_compatible' %}
+                                    <span class="tooltip tooltip-left z-50 shrink-0 cursor-help" data-tip="{{ item.compatibility_description }}" title="{{ item.compatibility_description }}" tabindex="0">
+                                        <span class="material-icons" style="font-size: 14px; line-height: 1;">info</span>
+                                    </span>
+                                    {% endif %}
+                                    {{ item.compatibility_label }}
+                                </span>
+                            </td>
                         {% else %}
                             <td class="font-mono text-sm whitespace-nowrap">{{ item.name }}</td>
                         {% endif %}
 
-                        <td class="min-w-[300px]"><div class="font-bold">{{ item.name|default:item.description }}</div></td>
-
                         {% if item_type == 'product' %}
                             <td class="min-w-[300px] whitespace-normal break-words">{{ item.application|default:"-" }}</td>
+                        {% elif item_type != 'kit' %}
+                            <td class="min-w-[300px]"><div class="font-bold">{{ item.name|default:item.description }}</div></td>
                         {% endif %}
 
                         {% if item_type != 'kit' %}
@@ -118,21 +182,40 @@
     </div>
 </div>
 
+<style>
+    #modal-item-list-container .hidden-by-search,
+    #modal-item-list-container .hidden-by-filter {
+        display: none;
+    }
+</style>
+
 <script>
     (function () {
         const modal = document.getElementById('modal-item-list-container');
+        if (!modal) return;
+
         const selectAll = modal.querySelector('#select-all');
         const counter = modal.querySelector('#selection-counter');
         const addBtn = modal.querySelector('#add-selected-btn');
         const searchInput = modal.querySelector('#item-search');
         const clearBtn = modal.querySelector('#clear-search');
+        const toggleHiddenKits = modal.querySelector('#toggle-hidden-kits');
 
         function visibleItemCheckboxes() {
-            return modal.querySelectorAll('tbody tr:not(.hidden) .item-checkbox:not([disabled])');
+            return modal.querySelectorAll('tbody tr[data-row-item="true"]:not(.hidden-by-search):not(.hidden-by-filter) .item-checkbox:not([disabled])');
         }
 
         function allItemCheckboxes() {
             return modal.querySelectorAll('.item-checkbox:not([disabled])');
+        }
+
+        function updateKitFilterVisibility() {
+            const shouldShowHiddenRows = !!toggleHiddenKits?.checked;
+            modal.querySelectorAll('tbody tr[data-hidden-by-kit-filter="true"]').forEach(row => {
+                const shouldHideRow = !shouldShowHiddenRows;
+                row.classList.toggle('hidden-by-filter', shouldHideRow);
+                row.style.display = shouldHideRow ? 'none' : '';
+            });
         }
 
         function updateCounter() {
@@ -172,11 +255,11 @@
 
         function filterRows(query) {
             const q = normalize(query);
-            const rows = modal.querySelectorAll('tbody tr');
+            const rows = modal.querySelectorAll('tbody tr[data-row-item="true"]');
             rows.forEach(row => {
                 const text = normalize(row.textContent);
                 const match = q === '' || text.includes(q);
-                row.classList.toggle('hidden', !match);
+                row.classList.toggle('hidden-by-search', !match);
             });
             updateSelectAllState();
         }
@@ -191,6 +274,13 @@
             searchInput?.focus();
         });
 
+        toggleHiddenKits?.addEventListener('change', () => {
+            updateKitFilterVisibility();
+            updateCounter();
+            updateSelectAllState();
+        });
+
+        updateKitFilterVisibility();
         updateCounter();
         updateSelectAllState();
     })();

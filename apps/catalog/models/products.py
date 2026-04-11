@@ -35,6 +35,10 @@ class Product(TimeStampedModel):
         GR = "GR", "GR"
         LT = "LT", "LT"
         KG = "KG", "KG"
+        BIS = "BIS", "BIS"
+        CX = "CX", "CX"
+        KIT = "KIT", "KIT"
+        TB = "TB", "TB"
 
     class OriginCST(models.IntegerChoices):
         NACIONAL = 0, "0 - Nacional"
