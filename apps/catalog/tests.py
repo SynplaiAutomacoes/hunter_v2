@@ -412,6 +412,24 @@ class KitCompatibilityEvaluationTests(TestCase):
         self.assertFalse(result.selectable)
         self.assertFalse(result.visible_by_default)
 
+    def test_evaluate_returns_incompatible_when_model_is_only_prefix_match(self) -> None:
+        vehicle = self._create_vehicle(brand="Toyota", model="Corolla")
+        kit = self._create_kit(brand="Toyota", model="Corolla Cross")
+
+        result = evaluate_kit_vehicle_compatibility(kit=kit, vehicle=vehicle)
+
+        self.assertEqual(result.status, "incompatible")
+        self.assertEqual(result.label, "Incompatível")
+
+    def test_evaluate_returns_incompatible_when_brand_is_only_prefix_match(self) -> None:
+        vehicle = self._create_vehicle(brand="Land Rover", model="Defender")
+        kit = self._create_kit(brand="Rover", model="Defender")
+
+        result = evaluate_kit_vehicle_compatibility(kit=kit, vehicle=vehicle)
+
+        self.assertEqual(result.status, "incompatible")
+        self.assertEqual(result.label, "Incompatível")
+
 
 class ProductFormTests(TestCase):
     def setUp(self) -> None:

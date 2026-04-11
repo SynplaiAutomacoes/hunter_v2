@@ -15,7 +15,7 @@ class PaymentMethod(TimeStampedModel):
 
     workshop = models.ForeignKey(Workshop, on_delete=models.CASCADE, related_name="payment_methods")
     description = models.CharField(verbose_name="Descrição", max_length=100)
-    payment_type = models.CharField(verbose_name="Tipo", max_length=10, choices=PaymentType.choices, default=PaymentType.BOTH)
+    payment_type = models.CharField(verbose_name="Natureza da Transação", max_length=10, choices=PaymentType.choices, default=PaymentType.BOTH)
     installments_count = models.PositiveIntegerField(verbose_name="Número de Parcelas", default=1)
     tax_percentage = models.DecimalField(verbose_name="Taxa (%)", max_digits=5, decimal_places=2, null=True, blank=True)
     tax_value = MoneyField(verbose_name="Taxa (R$)", max_digits=14, decimal_places=2, null=True, blank=True)

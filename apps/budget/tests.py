@@ -424,6 +424,51 @@ class BudgetKitSelectionCompatibilityTests(TestCase):
         self.assertNotContains(response, "Compatibilidade indeterminada: os kits exibidos coincidem")
         self.assertNotContains(response, "Compatível")
 
+    def test_item_selection_modal_treats_multiword_model_as_different_vehicle(self) -> None:
+        self.vehicle.brand = "Toyota"
+        self.vehicle.model = "Corolla"
+        self.vehicle.save(update_fields=["brand", "model"])
+
+        corolla_kit = create_kit(
+            workshop=self.workshop,
+            suffix=505,
+            products=[],
+            applications=[
+                {
+                    "brand": "Toyota",
+                    "model": "Corolla",
+                    "engine": "2.0",
+                    "fuel": "Diesel",
+                    "year_start": 2015,
+                    "year_end": 2021,
+                }
+            ],
+        )
+        corolla_cross_kit = create_kit(
+            workshop=self.workshop,
+            suffix=506,
+            products=[],
+            applications=[
+                {
+                    "brand": "Toyota",
+                    "model": "Corolla Cross",
+                    "engine": "2.0",
+                    "fuel": "Diesel",
+                    "year_start": 2015,
+                    "year_end": 2021,
+                }
+            ],
+        )
+
+        response = self.client.get(reverse("budget:item_selection", kwargs={"budget_id": self.budget.pk, "item_type": "kit"}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, corolla_kit.name)
+        self.assertContains(response, corolla_cross_kit.name)
+        self.assertContains(response, '<span class="badge badge-success">Compatível</span>', count=1, html=True)
+        self.assertContains(response, "Exibir kits ocultos (4)")
+        self.assertContains(response, 'data-hidden-by-kit-filter="true" style="display: none;"', count=4)
+
     def test_add_items_batch_rejects_incompatible_kit_for_vehicle(self) -> None:
         response = self.client.post(
             reverse("budget:add_items_batch", kwargs={"budget_id": self.budget.pk, "item_type": "kit"}),
