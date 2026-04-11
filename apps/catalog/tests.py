@@ -323,6 +323,61 @@ class KitFormPageTests(TestCase):
         self.assertNotContains(response, "window.htmx.trigger(list, 'load');", html=False)
 
 
+class KitSearchPartialTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=78)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+        self.group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo Kit Search")
+
+    def test_product_search_partial_renders_unlocalized_ids(self) -> None:
+        product = Product.objects.create(
+            id=1296,
+            workshop=self.workshop,
+            code="PROD-KIT-1296",
+            name="Produto Modal",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+            is_active=True,
+        )
+
+        response = self.client.get(reverse("catalog:kits_product_search"), data={"product_search": product.name})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, ":checked=\"modalSelectedProducts.some(i => i.id == '1296')\"", html=False)
+        self.assertContains(response, "id: '1296'", html=False)
+        self.assertNotContains(response, "id: '1.296'", html=False)
+
+    def test_service_search_partial_renders_unlocalized_ids(self) -> None:
+        service = Service.objects.create(
+            id=1296,
+            workshop=self.workshop,
+            name="Servico Modal",
+            description="",
+            duration=datetime.timedelta(minutes=30),
+            selling_price=Money(10, "BRL"),
+            suggested_cost=Money(5, "BRL"),
+            is_third_party=False,
+            is_active=True,
+        )
+
+        response = self.client.get(reverse("catalog:kits_service_search"), data={"service_search": service.name})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, ":checked=\"modalSelectedServices.some(i => i.id == '1296')\"", html=False)
+        self.assertContains(response, "id: '1296'", html=False)
+        self.assertNotContains(response, "id: '1.296'", html=False)
+
+
 class KitCompatibilityEvaluationTests(TestCase):
     def setUp(self) -> None:
         self.workshop = Workshop.objects.create(name="Oficina Compatibilidade", phone="+5511999999999", address="Rua Compatibilidade, 123")

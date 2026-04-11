@@ -4,9 +4,9 @@
         <input
             type="checkbox"
             class="checkbox checkbox-sm"
-            :checked="modalSelectedServices.some(i => i.id == '{{ service.id }}')"
+            :checked="modalSelectedServices.some(i => i.id == '{{ service.id|stringformat:'d' }}')"
             @change="toggleModalService({
-                id: '{{ service.id }}',
+                id: '{{ service.id|stringformat:'d' }}',
                 name: '{{ service.name|escapejs }}',
                 cost: '{% if service.suggested_cost %}{{ service.suggested_cost }}{% else %}-{% endif %}',
                 sell: '{{ service.selling_price }}',
