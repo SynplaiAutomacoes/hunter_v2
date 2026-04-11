@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import logging
 import mimetypes
+import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -10,19 +11,17 @@ from functools import lru_cache
 from tempfile import NamedTemporaryFile
 from typing import Iterator, Literal
 
-from bson import ObjectId
-from bson.errors import InvalidId
-from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
+from django.urls import reverse
 from django.utils import timezone
-from gridfs import GridFSBucket
-from gridfs.errors import NoFile
-from pymongo import MongoClient
+from django.utils.text import get_valid_filename
 
+from apps.core.documents.signature import build_absolute_app_url
+from apps.core.services.storage_service import StorageConfigurationError, StorageServiceError, get_storage_service
 from apps.finance.models.finance import WebmaniaCompany
 from apps.finance.services.webmania_b2b import update_webmania_company
-from apps.finance.services.webmania_secrets import decrypt_secret, encrypt_secret
+from apps.finance.services.webmania_secrets import encrypt_secret
 from apps.workshops.models.workshops import Workshop
 
 
@@ -55,29 +54,7 @@ class _BufferedUpload:
     content: bytes
 
 
-class WorkshopMongoFileService:
-    def __init__(
-        self,
-        *,
-        mongo_uri: str,
-        database_name: str,
-        certificate_bucket: str,
-        logo_bucket: str,
-    ) -> None:
-        normalized_uri = str(mongo_uri or "").strip()
-        if not normalized_uri:
-            raise WorkshopFileStorageError("Configure MONGODB_URI para salvar arquivos da oficina no MongoDB.")
-
-        self.client = MongoClient(normalized_uri)
-        self.database = self.client[database_name]
-        self.bucket_names = {
-            "certificate": certificate_bucket,
-            "logo": logo_bucket,
-        }
-
-    def _get_bucket(self, *, kind: StoredFileKind) -> GridFSBucket:
-        return GridFSBucket(self.database, bucket_name=self.bucket_names[kind])
-
+class WorkshopS3FileService:
     def save_file(
         self,
         *,
@@ -87,16 +64,28 @@ class WorkshopMongoFileService:
         content_type: str,
         workshop_id: int,
     ) -> StoredWorkshopFile:
+        if workshop_id <= 0:
+            raise WorkshopFileStorageError("Oficina invalida para salvar arquivo no bucket.")
+
         uploaded_at = timezone.now()
-        metadata = {
-            "workshop_id": workshop_id,
-            "content_type": content_type,
-            "uploaded_at": uploaded_at.isoformat(),
-            "kind": kind,
-        }
-        file_id = self._get_bucket(kind=kind).upload_from_stream(filename, content, metadata=metadata)
+        file_id = _build_storage_key(kind=kind, workshop_id=workshop_id, filename=filename)
+
+        try:
+            get_storage_service().upload_file(
+                content,
+                file_id,
+                content_type=content_type,
+                metadata={
+                    "filename": filename,
+                    "uploaded_at": uploaded_at.isoformat(),
+                    "kind": kind,
+                },
+            )
+        except (StorageConfigurationError, StorageServiceError) as exc:
+            raise WorkshopFileStorageError(str(exc)) from exc
+
         return StoredWorkshopFile(
-            file_id=str(file_id),
+            file_id=file_id,
             filename=filename,
             content_type=content_type,
             content=content,
@@ -104,31 +93,29 @@ class WorkshopMongoFileService:
         )
 
     def read_file(self, *, kind: StoredFileKind, file_id: str) -> StoredWorkshopFile:
-        bucket = self._get_bucket(kind=kind)
-        try:
-            object_id = ObjectId(str(file_id or "").strip())
-        except (InvalidId, TypeError) as exc:
-            raise WorkshopFileStorageError("Identificador invalido do arquivo salvo no MongoDB.") from exc
+        normalized_file_id = str(file_id or "").strip()
+        if not normalized_file_id:
+            raise WorkshopFileStorageError("Identificador invalido do arquivo salvo no bucket.")
 
         try:
-            download_stream = bucket.open_download_stream(object_id)
-        except NoFile as exc:
-            raise WorkshopFileStorageError("Arquivo nao encontrado no MongoDB. Envie o arquivo novamente na gestao da oficina.") from exc
+            stored_object = get_storage_service().read_file(normalized_file_id)
+        except (StorageConfigurationError, StorageServiceError) as exc:
+            raise WorkshopFileStorageError("Arquivo nao encontrado no bucket configurado. Envie o arquivo novamente na gestao da oficina.") from exc
 
-        metadata = download_stream.metadata or {}
+        metadata = stored_object.metadata
+        filename = _normalize_filename(metadata.get("filename"), fallback_name=_fallback_filename(kind=kind))
         uploaded_at = _parse_datetime(metadata.get("uploaded_at"))
-        filename = str(download_stream.filename or "arquivo.bin")
         content_type = _normalize_content_type(
             filename=filename,
-            content_type=metadata.get("content_type"),
+            content_type=stored_object.content_type,
             default_content_type=_default_content_type(kind=kind, filename=filename),
         )
 
         return StoredWorkshopFile(
-            file_id=str(object_id),
+            file_id=normalized_file_id,
             filename=filename,
             content_type=content_type,
-            content=download_stream.read(),
+            content=stored_object.content,
             uploaded_at=uploaded_at,
         )
 
@@ -138,9 +125,19 @@ class WorkshopMongoFileService:
             return
 
         try:
-            self._get_bucket(kind=kind).delete(ObjectId(normalized_file_id))
-        except (InvalidId, NoFile):
-            return
+            get_storage_service().delete_file(normalized_file_id)
+        except (StorageConfigurationError, StorageServiceError) as exc:
+            raise WorkshopFileStorageError(str(exc)) from exc
+
+    def generate_presigned_url(self, *, file_id: str, expires_in: int = 3600) -> str:
+        normalized_file_id = str(file_id or "").strip()
+        if not normalized_file_id:
+            raise WorkshopFileStorageError("Identificador invalido do arquivo salvo no bucket.")
+
+        try:
+            return get_storage_service().generate_presigned_url(normalized_file_id, expires_in=expires_in)
+        except (StorageConfigurationError, StorageServiceError) as exc:
+            raise WorkshopFileStorageError(str(exc)) from exc
 
 
 def _parse_datetime(value: object) -> datetime | None:
@@ -152,6 +149,12 @@ def _parse_datetime(value: object) -> datetime | None:
         return datetime.fromisoformat(raw_value)
     except ValueError:
         return None
+
+
+def _fallback_filename(*, kind: StoredFileKind) -> str:
+    if kind == "certificate":
+        return "certificado.pfx"
+    return "logo.png"
 
 
 def _default_content_type(*, kind: StoredFileKind, filename: str) -> str:
@@ -175,13 +178,20 @@ def _normalize_content_type(*, filename: str, content_type: object, default_cont
 
 def _normalize_filename(raw_name: object, *, fallback_name: str) -> str:
     normalized_name = str(raw_name or "").replace("\\", "/").split("/")[-1].strip()
-    return normalized_name or fallback_name
+    candidate_name = normalized_name or fallback_name
+    valid_name = get_valid_filename(candidate_name)
+    return valid_name or fallback_name
+
+
+def _build_storage_key(*, kind: StoredFileKind, workshop_id: int, filename: str) -> str:
+    folder = "logos" if kind == "logo" else "certificates"
+    return f"workshops/{workshop_id}/{folder}/{uuid.uuid4().hex}/{filename}"
 
 
 def _read_uploaded_file(uploaded_file: UploadedFile, *, kind: StoredFileKind) -> _BufferedUpload:
     filename = _normalize_filename(
         getattr(uploaded_file, "name", ""),
-        fallback_name="certificado.pfx" if kind == "certificate" else "arquivo.bin",
+        fallback_name=_fallback_filename(kind=kind),
     )
     content = uploaded_file.read()
     if not content:
@@ -195,98 +205,42 @@ def _read_uploaded_file(uploaded_file: UploadedFile, *, kind: StoredFileKind) ->
     return _BufferedUpload(filename=filename, content_type=content_type, content=content)
 
 
-@lru_cache(maxsize=8)
-def _build_workshop_file_service(
-    mongo_uri: str,
-    database_name: str,
-    certificate_bucket: str,
-    logo_bucket: str,
-) -> WorkshopMongoFileService:
-    return WorkshopMongoFileService(
-        mongo_uri=mongo_uri,
-        database_name=database_name,
-        certificate_bucket=certificate_bucket,
-        logo_bucket=logo_bucket,
-    )
-
-
-def get_workshop_file_service() -> WorkshopMongoFileService:
-    return _build_workshop_file_service(
-        str(getattr(settings, "MONGODB_URI", "") or ""),
-        str(getattr(settings, "MONGODB_DB_NAME", "hunter") or "hunter"),
-        str(getattr(settings, "MONGODB_CERT_BUCKET", "certificado") or "certificado"),
-        str(getattr(settings, "MONGODB_LOGO_BUCKET", "logo") or "logo"),
-    )
+@lru_cache(maxsize=1)
+def get_workshop_file_service() -> WorkshopS3FileService:
+    try:
+        get_storage_service()
+    except StorageConfigurationError as exc:
+        raise WorkshopFileStorageError(str(exc)) from exc
+    return WorkshopS3FileService()
 
 
 def workshop_has_certificate(workshop: Workshop) -> bool:
-    return bool(getattr(workshop, "certificate_mongo_file_id", "") or getattr(workshop, "pfx_certificate", None))
+    return bool(getattr(workshop, "certificate_file_key", ""))
 
 
 def workshop_has_logo(workshop: Workshop) -> bool:
-    return bool(getattr(workshop, "logo_mongo_file_id", "") or getattr(workshop, "logo", None))
+    return bool(getattr(workshop, "logo_file_key", ""))
+
+
+def build_workshop_logo_public_url(*, workshop: Workshop, request=None) -> str:
+    path = reverse("workshops:logo_public", kwargs={"token": workshop.logo_public_token})
+    return build_absolute_app_url(path=path, request=request)
 
 
 def get_workshop_certificate_file(workshop: Workshop) -> StoredWorkshopFile | None:
-    mongo_file_id = str(getattr(workshop, "certificate_mongo_file_id", "") or "").strip()
-    if mongo_file_id:
-        return get_workshop_file_service().read_file(kind="certificate", file_id=mongo_file_id)
-
-    field_file = getattr(workshop, "pfx_certificate", None)
-    if not field_file:
+    file_id = str(getattr(workshop, "certificate_file_key", "") or "").strip()
+    if not file_id:
         return None
 
-    filename = _normalize_filename(getattr(field_file, "name", ""), fallback_name="certificado.pfx")
-    try:
-        field_file.open("rb")
-        try:
-            content = field_file.read()
-        finally:
-            field_file.close()
-    except OSError as exc:
-        raise WorkshopFileStorageError("O certificado da oficina nao esta disponivel. Envie novamente o arquivo na gestao da oficina.") from exc
-
-    if not content:
-        raise WorkshopFileStorageError("O certificado da oficina esta vazio. Envie novamente o arquivo na gestao da oficina.")
-
-    return StoredWorkshopFile(
-        file_id="",
-        filename=filename,
-        content_type=_default_content_type(kind="certificate", filename=filename),
-        content=content,
-        uploaded_at=None,
-    )
+    return get_workshop_file_service().read_file(kind="certificate", file_id=file_id)
 
 
 def get_workshop_logo_file(workshop: Workshop) -> StoredWorkshopFile | None:
-    mongo_file_id = str(getattr(workshop, "logo_mongo_file_id", "") or "").strip()
-    if mongo_file_id:
-        return get_workshop_file_service().read_file(kind="logo", file_id=mongo_file_id)
-
-    field_file = getattr(workshop, "logo", None)
-    if not field_file:
+    file_id = str(getattr(workshop, "logo_file_key", "") or "").strip()
+    if not file_id:
         return None
 
-    filename = _normalize_filename(getattr(field_file, "name", ""), fallback_name="logo.png")
-    try:
-        field_file.open("rb")
-        try:
-            content = field_file.read()
-        finally:
-            field_file.close()
-    except OSError:
-        return None
-
-    if not content:
-        return None
-
-    return StoredWorkshopFile(
-        file_id="",
-        filename=filename,
-        content_type=_default_content_type(kind="logo", filename=filename),
-        content=content,
-        uploaded_at=None,
-    )
+    return get_workshop_file_service().read_file(kind="logo", file_id=file_id)
 
 
 def encode_workshop_certificate(workshop: Workshop) -> str:
@@ -316,9 +270,15 @@ def workshop_certificate_temp_path(workshop: Workshop) -> Iterator[str]:
         _safe_delete_temporary_file(temporary_path)
 
 
-def save_workshop_logo(*, workshop: Workshop, uploaded_file: UploadedFile) -> None:
+def save_workshop_logo_atomic(
+    *,
+    workshop: Workshop,
+    company: WebmaniaCompany,
+    uploaded_file: UploadedFile,
+    request=None,
+) -> str:
     buffered_file = _read_uploaded_file(uploaded_file, kind="logo")
-    stored_file = get_workshop_file_service().save_file(
+    staged_file = get_workshop_file_service().save_file(
         kind="logo",
         content=buffered_file.content,
         filename=buffered_file.filename,
@@ -326,50 +286,72 @@ def save_workshop_logo(*, workshop: Workshop, uploaded_file: UploadedFile) -> No
         workshop_id=workshop.pk,
     )
 
-    previous_mongo_file_id = str(getattr(workshop, "logo_mongo_file_id", "") or "").strip()
-    previous_local_name = str(getattr(workshop.logo, "name", "") or "")
+    previous_file_id = str(getattr(workshop, "logo_file_key", "") or "").strip()
+    previous_company_logo_url = str(company.logomarca or "").strip()
+    public_logo_url = build_workshop_logo_public_url(workshop=workshop, request=request)
 
-    update_fields = [
-        "logo_mongo_file_id",
-        "logo_file_name",
-        "logo_content_type",
-        "logo_uploaded_at",
-    ]
+    try:
+        update_webmania_company(company=company, payload={"logomarca": public_logo_url})
+    except Exception:
+        _safe_delete_file(kind="logo", file_id=staged_file.file_id)
+        raise
 
-    workshop.logo_mongo_file_id = stored_file.file_id
-    workshop.logo_file_name = stored_file.filename
-    workshop.logo_content_type = stored_file.content_type
-    workshop.logo_uploaded_at = stored_file.uploaded_at
-    if workshop.logo:
-        workshop.logo = None
-        update_fields.append("logo")
+    try:
+        with transaction.atomic():
+            workshop.logo_file_key = staged_file.file_id
+            workshop.logo_file_name = staged_file.filename
+            workshop.logo_content_type = staged_file.content_type
+            workshop.logo_uploaded_at = staged_file.uploaded_at
+            workshop.save(update_fields=["logo_file_key", "logo_file_name", "logo_content_type", "logo_uploaded_at"])
 
-    with transaction.atomic():
-        workshop.save(update_fields=update_fields)
-        transaction.on_commit(lambda: _cleanup_replaced_file(kind="logo", previous_mongo_file_id=previous_mongo_file_id, previous_local_name=previous_local_name, field_name="logo", new_mongo_file_id=stored_file.file_id))
+            if company.logomarca != public_logo_url:
+                company.logomarca = public_logo_url
+                company.save(update_fields=["logomarca"])
+
+            transaction.on_commit(lambda: _cleanup_replaced_file(kind="logo", previous_file_id=previous_file_id, new_file_id=staged_file.file_id))
+    except Exception as exc:
+        _safe_delete_file(kind="logo", file_id=staged_file.file_id)
+        if previous_company_logo_url != public_logo_url:
+            try:
+                update_webmania_company(company=company, payload={"logomarca": previous_company_logo_url})
+            except Exception as restore_exc:
+                raise WorkshopFileSyncError("Falha ao salvar a logo localmente e ao restaurar a logo anterior na Webmania.") from restore_exc
+        raise WorkshopFileSyncError("Falha ao concluir o salvamento da logo. Nenhuma alteracao foi mantida.") from exc
+
+    return public_logo_url
 
 
-def clear_workshop_logo(*, workshop: Workshop) -> None:
-    previous_mongo_file_id = str(getattr(workshop, "logo_mongo_file_id", "") or "").strip()
-    previous_local_name = str(getattr(workshop.logo, "name", "") or "")
+def clear_workshop_logo_atomic(*, workshop: Workshop, company: WebmaniaCompany, request=None) -> None:
+    previous_file_id = str(getattr(workshop, "logo_file_key", "") or "").strip()
+    previous_company_logo_url = str(company.logomarca or "").strip()
+    previous_public_url = build_workshop_logo_public_url(workshop=workshop, request=request)
 
-    update_fields = [
-        "logo_mongo_file_id",
-        "logo_file_name",
-        "logo_content_type",
-        "logo_uploaded_at",
-    ]
-    workshop.logo_mongo_file_id = ""
-    workshop.logo_file_name = ""
-    workshop.logo_content_type = ""
-    workshop.logo_uploaded_at = None
-    if workshop.logo:
-        workshop.logo = None
-        update_fields.append("logo")
+    try:
+        update_webmania_company(company=company, payload={"logomarca": ""})
+    except Exception:
+        raise
 
-    with transaction.atomic():
-        workshop.save(update_fields=update_fields)
-        transaction.on_commit(lambda: _cleanup_replaced_file(kind="logo", previous_mongo_file_id=previous_mongo_file_id, previous_local_name=previous_local_name, field_name="logo", new_mongo_file_id=""))
+    try:
+        with transaction.atomic():
+            workshop.logo_file_key = ""
+            workshop.logo_file_name = ""
+            workshop.logo_content_type = ""
+            workshop.logo_uploaded_at = None
+            workshop.save(update_fields=["logo_file_key", "logo_file_name", "logo_content_type", "logo_uploaded_at"])
+
+            if company.logomarca:
+                company.logomarca = ""
+                company.save(update_fields=["logomarca"])
+
+            transaction.on_commit(lambda: _safe_delete_file(kind="logo", file_id=previous_file_id))
+    except Exception as exc:
+        restore_url = previous_company_logo_url or previous_public_url
+        if restore_url:
+            try:
+                update_webmania_company(company=company, payload={"logomarca": restore_url})
+            except Exception as restore_exc:
+                raise WorkshopFileSyncError("Falha ao remover a logo localmente e ao restaurar a URL anterior na Webmania.") from restore_exc
+        raise WorkshopFileSyncError("Falha ao concluir a remocao da logo. Nenhuma alteracao foi mantida.") from exc
 
 
 def save_workshop_certificate_atomic(
@@ -383,10 +365,12 @@ def save_workshop_certificate_atomic(
     resolved_password = str(certificate_password or "").strip() or current_password
     password_changed = resolved_password != current_password
 
-    previous_company_certificate = decrypt_secret(company.certificado)
-    previous_company_password = decrypt_secret(company.certificado_senha)
-    previous_mongo_file_id = str(getattr(workshop, "certificate_mongo_file_id", "") or "").strip()
-    previous_local_name = str(getattr(workshop.pfx_certificate, "name", "") or "")
+    previous_file_id = str(getattr(workshop, "certificate_file_key", "") or "").strip()
+    previous_remote_password = current_password
+    try:
+        previous_remote_certificate = encode_workshop_certificate(workshop) if previous_file_id else ""
+    except WorkshopFileStorageError:
+        previous_remote_certificate = ""
 
     staged_file: StoredWorkshopFile | None = None
     encoded_certificate: str | None = None
@@ -412,7 +396,7 @@ def save_workshop_certificate_atomic(
             update_webmania_company(company=company, payload=payload)
     except Exception:
         if staged_file is not None:
-            _safe_delete_mongo_file(kind="certificate", file_id=staged_file.file_id)
+            _safe_delete_file(kind="certificate", file_id=staged_file.file_id)
         raise
 
     try:
@@ -421,48 +405,33 @@ def save_workshop_certificate_atomic(
             workshop.certificate_password = resolved_password
 
             if staged_file is not None:
-                workshop.certificate_mongo_file_id = staged_file.file_id
+                workshop.certificate_file_key = staged_file.file_id
                 workshop.certificate_file_name = staged_file.filename
                 workshop.certificate_content_type = staged_file.content_type
                 workshop.certificate_uploaded_at = staged_file.uploaded_at
                 workshop_update_fields.extend(
                     [
-                        "certificate_mongo_file_id",
+                        "certificate_file_key",
                         "certificate_file_name",
                         "certificate_content_type",
                         "certificate_uploaded_at",
                     ]
                 )
-                if workshop.pfx_certificate:
-                    workshop.pfx_certificate = None
-                    workshop_update_fields.append("pfx_certificate")
 
             workshop.save(update_fields=workshop_update_fields)
-            update_company_certificate_snapshot(
-                company,
-                encoded_certificate=encoded_certificate,
-                certificate_password=resolved_password if payload else None,
-            )
+            update_company_certificate_snapshot(company, certificate_password=resolved_password if payload else None)
             if staged_file is not None:
-                transaction.on_commit(
-                    lambda: _cleanup_replaced_file(
-                        kind="certificate",
-                        previous_mongo_file_id=previous_mongo_file_id,
-                        previous_local_name=previous_local_name,
-                        field_name="pfx_certificate",
-                        new_mongo_file_id=staged_file.file_id,
-                    )
-                )
+                transaction.on_commit(lambda: _cleanup_replaced_file(kind="certificate", previous_file_id=previous_file_id, new_file_id=staged_file.file_id))
     except Exception as exc:
         if staged_file is not None:
-            _safe_delete_mongo_file(kind="certificate", file_id=staged_file.file_id)
+            _safe_delete_file(kind="certificate", file_id=staged_file.file_id)
 
         restore_payload: dict[str, str] = {}
         if staged_file is not None:
-            restore_payload["certificado"] = previous_company_certificate
-            restore_payload["certificado_senha"] = previous_company_password
+            restore_payload["certificado"] = previous_remote_certificate
+            restore_payload["certificado_senha"] = previous_remote_password
         elif password_changed:
-            restore_payload["certificado_senha"] = previous_company_password
+            restore_payload["certificado_senha"] = previous_remote_password
 
         if restore_payload:
             try:
@@ -476,16 +445,13 @@ def save_workshop_certificate_atomic(
 def update_company_certificate_snapshot(
     company: WebmaniaCompany,
     *,
-    encoded_certificate: str | None,
     certificate_password: str | None,
 ) -> None:
     update_fields: list[str] = []
 
-    if encoded_certificate is not None:
-        new_certificate_value = encrypt_secret(encoded_certificate) if encoded_certificate else ""
-        if company.certificado != new_certificate_value:
-            company.certificado = new_certificate_value
-            update_fields.append("certificado")
+    if company.certificado:
+        company.certificado = ""
+        update_fields.append("certificado")
 
     if certificate_password is not None:
         new_password_value = encrypt_secret(certificate_password) if certificate_password else ""
@@ -498,57 +464,29 @@ def update_company_certificate_snapshot(
 
 
 def schedule_workshop_files_cleanup(workshop: Workshop) -> None:
-    certificate_mongo_file_id = str(getattr(workshop, "certificate_mongo_file_id", "") or "").strip()
-    certificate_local_name = str(getattr(workshop.pfx_certificate, "name", "") or "")
-    logo_mongo_file_id = str(getattr(workshop, "logo_mongo_file_id", "") or "").strip()
-    logo_local_name = str(getattr(workshop.logo, "name", "") or "")
+    certificate_file_id = str(getattr(workshop, "certificate_file_key", "") or "").strip()
+    logo_file_id = str(getattr(workshop, "logo_file_key", "") or "").strip()
 
     def _cleanup() -> None:
-        _safe_delete_mongo_file(kind="certificate", file_id=certificate_mongo_file_id)
-        _safe_delete_mongo_file(kind="logo", file_id=logo_mongo_file_id)
-        _safe_delete_legacy_file(Workshop, field_name="pfx_certificate", file_name=certificate_local_name)
-        _safe_delete_legacy_file(Workshop, field_name="logo", file_name=logo_local_name)
+        _safe_delete_file(kind="certificate", file_id=certificate_file_id)
+        _safe_delete_file(kind="logo", file_id=logo_file_id)
 
     transaction.on_commit(_cleanup)
 
 
-def _cleanup_replaced_file(
-    *,
-    kind: StoredFileKind,
-    previous_mongo_file_id: str,
-    previous_local_name: str,
-    field_name: str,
-    new_mongo_file_id: str,
-) -> None:
-    if previous_mongo_file_id and previous_mongo_file_id != new_mongo_file_id:
-        _safe_delete_mongo_file(kind=kind, file_id=previous_mongo_file_id)
-    if previous_local_name:
-        _safe_delete_legacy_file(Workshop, field_name=field_name, file_name=previous_local_name)
+def _cleanup_replaced_file(*, kind: StoredFileKind, previous_file_id: str, new_file_id: str) -> None:
+    if previous_file_id and previous_file_id != new_file_id:
+        _safe_delete_file(kind=kind, file_id=previous_file_id)
 
 
-def _safe_delete_mongo_file(*, kind: StoredFileKind, file_id: str) -> None:
+def _safe_delete_file(*, kind: StoredFileKind, file_id: str) -> None:
     if not str(file_id or "").strip():
         return
 
     try:
         get_workshop_file_service().delete_file(kind=kind, file_id=file_id)
     except WorkshopFileStorageError:
-        logger.warning("workshop_mongo_file_cleanup_failed kind=%s file_id=%s", kind, file_id)
-
-
-def _safe_delete_legacy_file(model_class: type[Workshop], *, field_name: str, file_name: str) -> None:
-    normalized_name = str(file_name or "").strip()
-    if not normalized_name:
-        return
-
-    try:
-        field = model_class._meta.get_field(field_name)
-        storage = getattr(field, "storage", None)
-        if storage is None:
-            return
-        storage.delete(normalized_name)
-    except OSError:
-        logger.warning("workshop_legacy_file_cleanup_failed field=%s file=%s", field_name, normalized_name)
+        logger.warning("workshop_file_cleanup_failed kind=%s file_id=%s", kind, file_id)
 
 
 def _safe_delete_temporary_file(file_path: str) -> None:

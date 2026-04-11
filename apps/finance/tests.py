@@ -1924,7 +1924,7 @@ class WebmaniaB2BServiceTests(TestCase):
 
         self.assertEqual(filtered_ids, {"ACC-A-001"})
 
-    def test_sync_b2b_companies_encrypts_nfse_sensitive_fields(self) -> None:
+    def test_sync_b2b_companies_encrypts_nfse_sensitive_fields_without_storing_certificate_blob(self) -> None:
         response_payload = [
             {
                 "id": "9999",
@@ -1949,11 +1949,10 @@ class WebmaniaB2BServiceTests(TestCase):
         company = WebmaniaCompany.objects.get(webmania_company_id="9999")
         self.assertTrue(is_encrypted_secret(company.nfse_password))
         self.assertTrue(is_encrypted_secret(company.nfse_token))
-        self.assertTrue(is_encrypted_secret(company.certificado))
         self.assertTrue(is_encrypted_secret(company.certificado_senha))
         self.assertEqual(decrypt_secret(company.nfse_password), "senha_nfse")
         self.assertEqual(decrypt_secret(company.nfse_token), "token_nfse")
-        self.assertEqual(decrypt_secret(company.certificado), "certificado-base64")
+        self.assertEqual(company.certificado, "")
         self.assertEqual(decrypt_secret(company.certificado_senha), "senha_certificado")
 
     def test_encrypt_secret_roundtrip(self) -> None:

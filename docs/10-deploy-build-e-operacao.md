@@ -110,7 +110,7 @@ Antes de considerar o ambiente saudavel, confira:
 ### Fiscal quebra so em deploy
 
 - revise credenciais Webmania no ambiente remoto
-- revise acesso ao MongoDB e certificado da oficina
+- revise credenciais do bucket S3 compativel e certificado da oficina
 
 ### Static quebrado
 

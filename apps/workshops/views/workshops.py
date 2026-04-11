@@ -48,12 +48,10 @@ from apps.workshops.models.workshops import Workshop
 from apps.workshops.services.files import (
     WorkshopFileStorageError,
     WorkshopFileSyncError,
-    clear_workshop_logo,
     get_workshop_logo_file,
-    save_workshop_certificate_atomic,
-    save_workshop_logo,
     schedule_workshop_files_cleanup,
 )
+from apps.workshops.usecases.upload_file_usecase import UploadWorkshopFileUseCase
 from apps.workshops.util.monthly_costs import create_default_monthly_costs
 from apps.workshops.util.workshops import has_workshop_perm, is_workshop_director, is_workshop_manager
 
@@ -456,7 +454,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
         )
 
         try:
-            save_workshop_certificate_atomic(
+            UploadWorkshopFileUseCase(request=self.request).upload_certificate(
                 workshop=self.object,
                 company=self.company,
                 uploaded_file=form.cleaned_data.get("pfx_certificate"),
@@ -508,19 +506,21 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             if not logo_form.changed_data:
                 return JsonResponse({"ok": True, "message": "Nenhuma alteracao na logo."})
 
+            upload_usecase = UploadWorkshopFileUseCase(request=request)
             try:
                 if logo_form.should_clear():
-                    clear_workshop_logo(workshop=self.object)
+                    upload_usecase.clear_logo(workshop=self.object, company=self.company)
                     return JsonResponse({"ok": True, "message": "Logo da oficina removida."})
 
                 if logo_form.has_new_upload():
                     uploaded_logo = logo_form.cleaned_data.get("logo")
                     if uploaded_logo is None or uploaded_logo is False:
                         return JsonResponse({"ok": True, "message": "Nenhuma alteracao na logo."})
-                    save_workshop_logo(workshop=self.object, uploaded_file=uploaded_logo)
+                    upload_usecase.upload_logo(workshop=self.object, company=self.company, uploaded_file=uploaded_logo)
                     return JsonResponse({"ok": True, "message": "Logo da oficina atualizada."})
-            except WorkshopFileStorageError as exc:
-                return JsonResponse({"ok": False, "message": str(exc)}, status=400)
+            except (WebmaniaB2BServiceError, WorkshopFileStorageError, WorkshopFileSyncError) as exc:
+                message = to_public_integration_message(str(exc)) if isinstance(exc, WebmaniaB2BServiceError) else str(exc)
+                return JsonResponse({"ok": False, "message": message}, status=400)
 
             return JsonResponse({"ok": True, "message": "Nenhuma alteracao na logo."})
 
@@ -589,6 +589,24 @@ class WorkshopLogoView(LoginRequiredMixin, View):
 
         response = HttpResponse(stored_logo.content, content_type=stored_logo.content_type)
         response["Content-Disposition"] = f'inline; filename="{stored_logo.filename}"'
+        return response
+
+
+class PublicWorkshopLogoView(View):
+    def get(self, request, *args, **kwargs):
+        workshop = get_object_or_404(Workshop.objects.only("id", "logo_file_key", "logo_file_name", "logo_content_type", "logo_uploaded_at"), logo_public_token=self.kwargs.get("token"))
+
+        try:
+            stored_logo = get_workshop_logo_file(workshop)
+        except WorkshopFileStorageError as exc:
+            raise Http404(str(exc)) from exc
+
+        if stored_logo is None:
+            raise Http404("Logo nao encontrada.")
+
+        response = HttpResponse(stored_logo.content, content_type=stored_logo.content_type)
+        response["Content-Disposition"] = f'inline; filename="{stored_logo.filename}"'
+        response["Cache-Control"] = "public, max-age=300"
         return response
 
 

@@ -232,6 +232,8 @@ class WorkshopCompanySectionForm(BaseWebmaniaCompanySectionForm):
     def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
         super().__init__(*args, workshop=workshop, **kwargs)
         self.fields["email"].required = True
+        self.fields["logomarca"].disabled = True
+        self.fields["logomarca"].help_text = "A URL da logomarca e sincronizada automaticamente com o upload da logo da oficina."
         if self.workshop is not None:
             self.initial["workshop_is_active"] = bool(self.workshop.is_active)
 

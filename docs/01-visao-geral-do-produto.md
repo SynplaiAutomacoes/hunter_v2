@@ -88,7 +88,7 @@ Existe uma estrutura de custo da oficina que participa de calculos importantes d
 
 ### Integracoes fazem parte do core
 
-Webmania, SuperSign e MongoDB nao sao anexos isolados. Eles fazem parte do caminho feliz de varias funcionalidades.
+Webmania, SuperSign e o bucket S3 compativel nao sao anexos isolados. Eles fazem parte do caminho feliz de varias funcionalidades.
 
 ## O que um dev precisa entender cedo
 

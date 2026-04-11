@@ -54,7 +54,7 @@ Item criado rapidamente dentro do fluxo de orcamento sem necessariamente nascer 
 
 Combinacao predefinida de produtos e/ou servicos.
 
-## MongoDB/GridFS
+## Bucket S3 compativel
 
 Armazenamento usado no projeto para arquivos como certificado e logo de oficina.
 
