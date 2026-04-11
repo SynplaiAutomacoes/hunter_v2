@@ -53,12 +53,6 @@
 
                 {% if item_type == 'kit' %}
                 <div class="space-y-3">
-                    {% if kit_vehicle_filter_warning and kit_indeterminate_count %}
-                    <div class="alert alert-info py-3">
-                        <span class="material-icons">info</span>
-                        <div class="text-sm">{{ kit_vehicle_filter_warning }}</div>
-                    </div>
-                    {% endif %}
                     {% if not kit_compatible_count and kit_hidden_count %}
                     <div class="alert alert-warning py-3">
                         <span class="material-icons">warning</span>
@@ -155,7 +149,14 @@
                             </div>
                         </td>
                         <td class="text-center whitespace-nowrap">
-                            <span class="badge {{ item.compatibility_badge_class }}">{{ item.compatibility_label }}</span>
+                            <span class="badge {{ item.compatibility_badge_class }}{% if item.compatibility_status == 'missing_vehicle_data' or item.compatibility_status == 'partially_compatible' %} inline-flex items-center gap-1{% endif %}">
+                                {% if item.compatibility_status == 'missing_vehicle_data' or item.compatibility_status == 'partially_compatible' %}
+                                <span class="tooltip tooltip-left z-50 shrink-0 cursor-help" data-tip="{{ item.compatibility_description }}" title="{{ item.compatibility_description }}" tabindex="0">
+                                    <span class="material-icons" style="font-size: 14px; line-height: 1;">info</span>
+                                </span>
+                                {% endif %}
+                                {{ item.compatibility_label }}
+                            </span>
                         </td>
                     {% else %}
                     <td class="min-w-[300px]">

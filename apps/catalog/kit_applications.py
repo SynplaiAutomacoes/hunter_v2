@@ -137,6 +137,14 @@ def _matches_text(expected: str | None, actual: str | None) -> bool:
     return normalized_expected == normalized_actual or normalized_expected in normalized_actual or normalized_actual in normalized_expected
 
 
+def _matches_exact_text(expected: str | None, actual: str | None) -> bool:
+    normalized_expected = normalize_vehicle_text(expected)
+    normalized_actual = normalize_vehicle_text(actual)
+    if not normalized_expected or not normalized_actual:
+        return False
+    return normalized_expected == normalized_actual
+
+
 def _matches_year_range(application: Any, vehicle_year: int) -> bool:
     return int(getattr(application, "year_start", 0) or 0) <= vehicle_year <= int(getattr(application, "year_end", 0) or 0)
 
@@ -146,15 +154,20 @@ def _application_matches_available_vehicle_context(*, application: Any, vehicle:
         return False
 
     compared_any = False
-    field_pairs = (("brand", "brand"), ("model", "model"), ("engine", "engine"), ("fuel", "fuel"))
+    field_matchers = (
+        ("brand", "brand", _matches_exact_text),
+        ("model", "model", _matches_exact_text),
+        ("engine", "engine", _matches_text),
+        ("fuel", "fuel", _matches_text),
+    )
 
-    for application_field, vehicle_field in field_pairs:
+    for application_field, vehicle_field, matcher in field_matchers:
         vehicle_value = getattr(vehicle, vehicle_field, "")
         if not normalize_vehicle_text(vehicle_value):
             continue
 
         compared_any = True
-        if not _matches_text(getattr(application, application_field, ""), vehicle_value):
+        if not matcher(getattr(application, application_field, ""), vehicle_value):
             return False
 
     vehicle_year = parse_vehicle_year(vehicle)
@@ -174,7 +187,7 @@ def _application_matches_vehicle_identity(*, application: Any, vehicle: Vehicle 
     if vehicle_year is None:
         return False
 
-    return _matches_text(getattr(application, "brand", ""), getattr(vehicle, "brand", "")) and _matches_text(getattr(application, "model", ""), getattr(vehicle, "model", "")) and _matches_year_range(application, vehicle_year)
+    return _matches_exact_text(getattr(application, "brand", ""), getattr(vehicle, "brand", "")) and _matches_exact_text(getattr(application, "model", ""), getattr(vehicle, "model", "")) and _matches_year_range(application, vehicle_year)
 
 
 def evaluate_kit_vehicle_compatibility(*, kit: Any, vehicle: Vehicle | None) -> KitCompatibilityResult:

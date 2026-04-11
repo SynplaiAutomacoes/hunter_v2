@@ -6912,11 +6912,23 @@ class DreReportViewTests(TestCase):
 
 
 class PaymentMethodFormTests(TestCase):
+    def test_infer_payment_type_maps_credit_debit_and_other_descriptions(self) -> None:
+        self.assertEqual(PaymentMethod.infer_payment_type("Cartão de Crédito"), PaymentMethod.PaymentType.CREDIT)
+        self.assertEqual(PaymentMethod.infer_payment_type("Cartao de Debito"), PaymentMethod.PaymentType.DEBIT)
+        self.assertEqual(PaymentMethod.infer_payment_type("Pix"), PaymentMethod.PaymentType.BOTH)
+
+    def test_new_form_defaults_payment_type_to_both(self) -> None:
+        workshop = create_workshop(suffix=86)
+
+        form = PaymentMethodForm(workshop=workshop)
+
+        self.assertEqual(form["payment_type"].value(), PaymentMethod.PaymentType.BOTH)
+
     def test_form_saves_installments_count(self) -> None:
         workshop = create_workshop(suffix=86)
 
         form = PaymentMethodForm(
-            data={"description": "Cartão de Crédito", "installments_count": "4", "is_active": "on"},
+            data={"description": "Cartão de Crédito", "payment_type": PaymentMethod.PaymentType.CREDIT, "installments_count": "4", "is_active": "on"},
             workshop=workshop,
         )
 
@@ -6927,6 +6939,7 @@ class PaymentMethodFormTests(TestCase):
         payment_method.save()
 
         self.assertEqual(payment_method.installments_count, 4)
+        self.assertEqual(payment_method.payment_type, PaymentMethod.PaymentType.CREDIT)
 
 
 class PaymentMethodViewsTests(TestCase):
@@ -6941,7 +6954,7 @@ class PaymentMethodViewsTests(TestCase):
     def test_create_view_persists_installments_count(self) -> None:
         response = self.client.post(
             reverse("finance:payment_methods_create"),
-            data={"description": "Cartão de Crédito", "installments_count": "4", "is_active": "on"},
+            data={"description": "Cartão de Crédito", "payment_type": PaymentMethod.PaymentType.CREDIT, "installments_count": "4", "is_active": "on"},
         )
 
         self.assertEqual(response.status_code, 302)
@@ -6949,12 +6962,20 @@ class PaymentMethodViewsTests(TestCase):
 
         payment_method = PaymentMethod.objects.get(workshop=self.workshop, description="Cartão de Crédito")
         self.assertEqual(payment_method.installments_count, 4)
+        self.assertEqual(payment_method.payment_type, PaymentMethod.PaymentType.CREDIT)
 
-    def test_list_view_displays_installments_count_column(self) -> None:
-        PaymentMethod.objects.create(workshop=self.workshop, description="Pix Parcelado", installments_count=3)
+    def test_list_view_displays_payment_type_and_installments_columns(self) -> None:
+        PaymentMethod.objects.create(
+            workshop=self.workshop,
+            description="Pix Parcelado",
+            payment_type=PaymentMethod.PaymentType.DEBIT,
+            installments_count=3,
+        )
 
         response = self.client.get(reverse("finance:payment_methods_list"))
 
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Tipo")
+        self.assertContains(response, "Débito")
         self.assertContains(response, "Parcelas")
         self.assertContains(response, "3")

@@ -12,7 +12,7 @@ from djmoney.money import Money
 
 from apps.budget.forms import BudgetItemEditForm, BudgetStep3Form
 from apps.budget.models import Budget, BudgetItem
-from apps.catalog.kit_applications import build_vehicle_application_filter_warning, build_vehicle_context_label, evaluate_kit_vehicle_compatibility, vehicle_has_complete_application_context
+from apps.catalog.kit_applications import build_vehicle_context_label, evaluate_kit_vehicle_compatibility, vehicle_has_complete_application_context
 from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
@@ -82,7 +82,7 @@ KIT_COMPATIBILITY_BADGE_CLASSES = {
     "compatible": "badge-success",
     "partially_compatible": "badge-accent",
     "no_applications": "badge-warning",
-    "missing_vehicle_data": "badge-info",
+    "missing_vehicle_data": "badge-warning",
     "incompatible": "badge-error",
 }
 KIT_COMPATIBILITY_SORT_ORDER = {
@@ -119,7 +119,6 @@ def _prepare_kit_selection_items(*, kits: list[Kit], budget: Budget, existing_it
 
     hidden_count = 0
     compatible_count = 0
-    indeterminate_count = 0
     incompatible_count = 0
     no_application_count = 0
 
@@ -140,8 +139,6 @@ def _prepare_kit_selection_items(*, kits: list[Kit], budget: Budget, existing_it
 
         if compatibility.status == "compatible":
             compatible_count += 1
-        elif compatibility.status == "missing_vehicle_data":
-            indeterminate_count += 1
         elif compatibility.status == "incompatible":
             incompatible_count += 1
         elif compatibility.status == "no_applications":
@@ -159,10 +156,8 @@ def _prepare_kit_selection_items(*, kits: list[Kit], budget: Budget, existing_it
     return ordered_kits, {
         "kit_vehicle_filter_active": filter_active,
         "kit_vehicle_filter_context": build_vehicle_context_label(vehicle),
-        "kit_vehicle_filter_warning": build_vehicle_application_filter_warning(vehicle) if indeterminate_count else "",
         "kit_hidden_count": hidden_count,
         "kit_compatible_count": compatible_count,
-        "kit_indeterminate_count": indeterminate_count,
         "kit_incompatible_count": incompatible_count,
         "kit_no_application_count": no_application_count,
     }

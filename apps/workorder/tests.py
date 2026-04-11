@@ -782,7 +782,12 @@ class WorkOrderKitSelectionCompatibilityTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, partial_kit.name)
-        self.assertContains(response, '<span class="badge badge-accent">Compatibilidade Parcial</span>', count=1, html=True)
+        self.assertContains(
+            response,
+            '<span class="badge badge-accent inline-flex items-center gap-1"><span class="tooltip tooltip-left z-50 shrink-0 cursor-help" data-tip="Kit com marca, modelo e ano compatíveis, mas com diferenças de motor ou combustível." title="Kit com marca, modelo e ano compatíveis, mas com diferenças de motor ou combustível." tabindex="0"><span class="material-icons" style="font-size: 14px; line-height: 1;">info</span></span>Compatibilidade Parcial</span>',
+            count=1,
+            html=True,
+        )
         self.assertContains(response, "Exibir kits ocultos (2)")
         self.assertContains(response, 'data-hidden-by-kit-filter="true" style="display: none;"', count=2)
         self.assertNotContains(response, "Compatibilidade indeterminada: os kits exibidos coincidem")
@@ -812,7 +817,13 @@ class WorkOrderKitSelectionCompatibilityTests(TestCase):
         self.assertContains(response, self.compatible_kit.name)
         self.assertContains(response, self.incompatible_kit.name)
         self.assertContains(response, self.no_application_kit.name)
-        self.assertContains(response, '<span class="badge badge-info">Compatibilidade indeterminada</span>', count=1, html=True)
+        self.assertContains(
+            response,
+            '<span class="badge badge-warning inline-flex items-center gap-1"><span class="tooltip tooltip-left z-50 shrink-0 cursor-help" data-tip="Compatibilidade indeterminada: os kits exibidos coincidem com os dados disponíveis do veículo, mas faltam estas informações para confirmar a aplicação completa: motor." title="Compatibilidade indeterminada: os kits exibidos coincidem com os dados disponíveis do veículo, mas faltam estas informações para confirmar a aplicação completa: motor." tabindex="0"><span class="material-icons" style="font-size: 14px; line-height: 1;">info</span></span>Compatibilidade indeterminada</span>',
+            count=1,
+            html=True,
+        )
+        self.assertNotContains(response, 'class="alert alert-info py-3"')
         self.assertContains(
             response,
             "Compatibilidade indeterminada: os kits exibidos coincidem com os dados disponíveis do veículo, mas faltam estas informações para confirmar a aplicação completa: motor.",
@@ -853,6 +864,51 @@ class WorkOrderKitSelectionCompatibilityTests(TestCase):
         self.assertContains(response, 'data-hidden-by-kit-filter="true" style="display: none;"', count=3)
         self.assertNotContains(response, "Compatibilidade indeterminada: os kits exibidos coincidem")
         self.assertNotContains(response, "Compatível")
+
+    def test_item_selection_modal_treats_multiword_model_as_different_vehicle(self) -> None:
+        self.vehicle.brand = "Toyota"
+        self.vehicle.model = "Corolla"
+        self.vehicle.save(update_fields=["brand", "model"])
+
+        corolla_kit = create_kit(
+            workshop=self.workshop,
+            suffix=9705,
+            products=[],
+            applications=[
+                {
+                    "brand": "Toyota",
+                    "model": "Corolla",
+                    "engine": "2.0",
+                    "fuel": "Diesel",
+                    "year_start": 2015,
+                    "year_end": 2021,
+                }
+            ],
+        )
+        corolla_cross_kit = create_kit(
+            workshop=self.workshop,
+            suffix=9706,
+            products=[],
+            applications=[
+                {
+                    "brand": "Toyota",
+                    "model": "Corolla Cross",
+                    "engine": "2.0",
+                    "fuel": "Diesel",
+                    "year_start": 2015,
+                    "year_end": 2021,
+                }
+            ],
+        )
+
+        response = self.client.get(reverse("workorder:item_selection", args=[self.workorder.pk, "kit"]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, corolla_kit.name)
+        self.assertContains(response, corolla_cross_kit.name)
+        self.assertContains(response, '<span class="badge badge-success">Compatível</span>', count=1, html=True)
+        self.assertContains(response, "Exibir kits ocultos (4)")
+        self.assertContains(response, 'data-hidden-by-kit-filter="true" style="display: none;"', count=4)
 
     def test_add_items_batch_rejects_incompatible_kit_for_vehicle(self) -> None:
         response = self.client.post(
