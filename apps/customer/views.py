@@ -10,6 +10,8 @@ from apps.workshops.mixin import WorkshopScopedMixin
 from apps.core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin, BaseModalFormView
 from .forms import QuickCustomerForm, QuickVehicleForm
 from .util import fetch_vehicle_data, build_vehicle_saved_trigger, build_customer_saved_trigger
+from .vehicle_engine import normalize_vehicle_engine_choice
+from .vehicle_fuel import normalize_vehicle_fuel_choice
 
 from ..core.tables import TableActionDefaults
 from ..core.templatetags.table_tags import TableColumn
@@ -112,6 +114,8 @@ class CustomerCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
 def api_check_plate(request, plate):
     data = fetch_vehicle_data(plate)
     if data:
+        data["engine"] = normalize_vehicle_engine_choice(data.get("engine"))
+        data["fuel"] = normalize_vehicle_fuel_choice(data.get("fuel"))
         return JsonResponse(data)
     return JsonResponse({"error": "Veículo não encontrado"}, status=404)
 
