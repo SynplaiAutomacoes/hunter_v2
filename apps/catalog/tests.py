@@ -214,7 +214,7 @@ class KitTests(TestCase):
         self.assertFalse(form.is_valid())
         self.assertIn("Duração inválida para serviço.", form.non_field_errors())
 
-    def test_kit_form_requires_at_least_one_application(self):
+    def test_kit_form_allows_save_without_applications(self):
         form = KitForm(
             data={
                 "name": "Kit Sem Aplicação",
@@ -224,8 +224,12 @@ class KitTests(TestCase):
             workshop=self.workshop,
         )
 
-        self.assertFalse(form.is_valid())
-        self.assertIn("Cadastre ao menos uma aplicação para o kit.", form.non_field_errors())
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        form.instance.workshop = self.workshop
+        kit = form.save()
+
+        self.assertEqual(KitApplication.objects.filter(kit=kit).count(), 0)
+        self.assertEqual(kit.applications_summary, "Sem aplicação cadastrada")
 
     def test_kit_form_persists_multiple_applications(self):
         form = KitForm(
@@ -315,6 +319,8 @@ class KitFormPageTests(TestCase):
         response = self.client.get(reverse("catalog:kits_create"))
 
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Opcional: informe os veículos, motorizações e anos compatíveis com este kit.")
+        self.assertContains(response, "Nenhuma aplicação adicionada.")
         self.assertContains(response, "this.reloadProductSuggestions();", html=False)
         self.assertContains(response, "this.reloadServiceSuggestions();", html=False)
         self.assertContains(response, "Carregando produto...", html=False)
@@ -728,3 +734,14 @@ class ProductUpdateNavigationTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.headers.get("Location"), next_url)
+
+    def test_product_update_renders_lower_price_confirmation_modal(self) -> None:
+        self.product.last_used_price = Money("30.00", "BRL")
+        self.product.save(update_fields=["last_used_price"])
+
+        response = self.client.get(reverse("catalog:product_update", kwargs={"pk": self.product.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="product-lower-price-modal"', html=False)
+        self.assertContains(response, '@click="continueWithLowerPrice()"', html=False)
+        self.assertNotContains(response, 'x-show="lowerPriceWarning"', html=False)
