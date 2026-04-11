@@ -564,6 +564,18 @@ class KitForm(forms.ModelForm):
                                 </div>
                                 <label class="modal-backdrop" for="kit-distribute-time-modal">Close</label>
                             </div>
+
+                            <input type="checkbox" id="edit-item-modal" class="modal-toggle" @change="if (!$event.target.checked) resetEditModalContent()" />
+                            <div class="modal" role="dialog">
+                                <div class="modal-box w-11/12 max-w-5xl relative bg-base-100">
+                                    <label for="edit-item-modal" class="btn btn-sm btn-circle absolute right-2 top-2" @click="resetEditModalContent()">✕</label>
+
+                                    <div id="edit-modal-content">
+                                        <div class="p-6 text-sm text-base-content/70">Selecione um item para editar.</div>
+                                    </div>
+                                </div>
+                                <label class="modal-backdrop" for="edit-item-modal" @click="resetEditModalContent()">Close</label>
+                            </div>
                         </div>
 
                         <script>
@@ -874,17 +886,6 @@ class KitForm(forms.ModelForm):
                             }}
                         </script>
                         
-                        <input type="checkbox" id="edit-item-modal" class="modal-toggle" @change="if (!$event.target.checked) resetEditModalContent()" />
-                        <div class="modal" role="dialog">
-                            <div class="modal-box w-11/12 max-w-5xl relative bg-base-100">
-                                <label for="edit-item-modal" class="btn btn-sm btn-circle absolute right-2 top-2" @click="resetEditModalContent()">✕</label>
-                                
-                                <div id="edit-modal-content">
-                                    <div class="p-6 text-sm text-base-content/70">Selecione um item para editar.</div>
-                                </div>
-                            </div>
-                            <label class="modal-backdrop" for="edit-item-modal" @click="resetEditModalContent()">Close</label>
-                        </div>
                         """
                     ),
                     css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
