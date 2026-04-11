@@ -3,9 +3,15 @@
 
 {% block crud_content %}
     <div class="space-y-6">
-        <div class="flex flex-col gap-2">
-            <h1 class="text-3xl font-bold text-base-content">Relatorios Financeiros</h1>
-            <p class="text-base-content/70">Acompanhe os principais indicadores financeiros da oficina a partir deste painel.</p>
+        <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+                <h1 class="text-3xl font-bold text-base-content">Movimentações Financeiras</h1>
+                <p class="text-base-content/70">Acompanhe os principais indicadores financeiros da oficina a partir deste painel.</p>
+            </div>
+
+            <a href="{% url 'finance:financial_movement_create' %}" class="btn btn-primary">
+                Nova Movimentação Financeira
+            </a>
         </div>
 
         <div class="grid items-start gap-4 lg:grid-cols-3">
@@ -61,10 +67,13 @@
 
         <div class="card border border-base-300 bg-base-100 shadow-xl" x-data="{ openRow: null }">
             <div class="card-body gap-6 p-5 md:p-6">
-                <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div class="flex flex-col gap-2">
-                        <h2 class="text-xl font-semibold text-base-content">Movimentações Financeiras</h2>
-                        <p class="text-sm text-base-content/70">Acompanhe as movimentações financeiras e expanda as linhas vinculadas a OS para ver os pagamentos realizados.</p>
+                <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div class="flex w-full flex-col gap-2">
+                        <form method="get" action="{% url 'finance:reports_home' %}" class="flex flex-col gap-2 sm:flex-row sm:items-center">
+                            <input type="text" name="search" value="{{ request.GET.search|default:'' }}"
+                                placeholder="Pesquisar movimentações..." class="input input-bordered w-full sm:max-w-xs"/>
+                            <button type="submit" class="btn btn-primary">Buscar</button>
+                        </form>
                     </div>
 
                     <div class="flex w-full items-center gap-2 sm:w-auto" x-data>
