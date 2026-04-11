@@ -174,6 +174,20 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         if direction:
             queryset = queryset.filter(direction=direction)
 
+        from django.db.models import Q
+        search = str(self.request.GET.get("search") or "").strip()
+        if search:
+            queryset = queryset.filter(
+                Q(description__icontains=search) |
+                Q(items_observation__icontains=search) |
+                Q(financial_observation__icontains=search) |
+                Q(nf_number__icontains=search) |
+                Q(source__name__icontains=search) |
+                Q(budget_plan__name__icontains=search) |
+                Q(bank_account__bank_name__icontains=search) |
+                Q(workorder__id__icontains=search)
+            )
+
         return queryset
 
     def _get_financial_groups_queryset(self):
