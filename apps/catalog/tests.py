@@ -302,6 +302,27 @@ class KitTests(TestCase):
         self.assertEqual(str(s.selling_price), "R$\xa010,00")
 
 
+class KitFormPageTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=77)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_kit_create_page_resets_modal_results_and_edit_modal_state(self) -> None:
+        response = self.client.get(reverse("catalog:kits_create"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "this.reloadProductSuggestions();", html=False)
+        self.assertContains(response, "this.reloadServiceSuggestions();", html=False)
+        self.assertContains(response, "Carregando produto...", html=False)
+        self.assertContains(response, "Carregando serviço...", html=False)
+        self.assertContains(response, "Selecione um item para editar.", html=False)
+        self.assertNotContains(response, "window.htmx.trigger(list, 'load');", html=False)
+
+
 class KitCompatibilityEvaluationTests(TestCase):
     def setUp(self) -> None:
         self.workshop = Workshop.objects.create(name="Oficina Compatibilidade", phone="+5511999999999", address="Rua Compatibilidade, 123")
