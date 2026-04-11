@@ -812,7 +812,7 @@ class WorkOrderKitSelectionCompatibilityTests(TestCase):
         self.assertContains(response, self.compatible_kit.name)
         self.assertContains(response, self.incompatible_kit.name)
         self.assertContains(response, self.no_application_kit.name)
-        self.assertContains(response, '<span class="badge badge-info">Compatibilidade indeterminada</span>', count=1, html=True)
+        self.assertContains(response, '<span class="badge badge-warning">Compatibilidade indeterminada</span>', count=1, html=True)
         self.assertContains(
             response,
             "Compatibilidade indeterminada: os kits exibidos coincidem com os dados disponíveis do veículo, mas faltam estas informações para confirmar a aplicação completa: motor.",

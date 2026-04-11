@@ -3,16 +3,17 @@ from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 from django import forms
 from django.urls import reverse
 
-from apps.core.widgets import CheckboxInput, NumberInput, TextInput, MoneyInput, PercentageInput
+from apps.core.widgets import CheckboxInput, MoneyInput, NumberInput, PercentageInput, SelectInput, TextInput
 from apps.finance.models.payment_method import PaymentMethod
 
 
 class PaymentMethodForm(forms.ModelForm):
     class Meta:
         model = PaymentMethod
-        fields = ["description", "installments_count", "tax_percentage", "tax_value", "is_active"]
+        fields = ["description", "payment_type", "installments_count", "tax_percentage", "tax_value", "is_active"]
         widgets = {
             "description": TextInput(attrs={"placeholder": "Ex: Cartão de Crédito, Pix..."}),
+            "payment_type": SelectInput(),
             "installments_count": NumberInput(),
             "tax_percentage": PercentageInput(),
             "tax_value": MoneyInput(),
@@ -27,15 +28,14 @@ class PaymentMethodForm(forms.ModelForm):
         self.helper.layout = Layout(
             Div(
                 Field("description", wrapper_class="col-span-12 lg:col-span-12"),
+                Field("payment_type", wrapper_class="col-span-12 lg:col-span-3"),
                 Field("installments_count", wrapper_class="col-span-12 lg:col-span-3"),
-
                 Div(
                     Div(Field("tax_percentage"), css_class="flex-1"),
                     HTML('<div class="flex items-center justify-center font-bold text-xs opacity-50 px-2 mt-10">OU</div>'),
                     Div(Field("tax_value"), css_class="flex-1"),
-                    css_class="col-span-12 lg:col-span-9 flex items-start gap-1",
+                    css_class="col-span-12 lg:col-span-6 flex items-start gap-1",
                 ),
-
                 Field("is_active", wrapper_class="col-span-12"),
                 css_class="grid grid-cols-12 gap-4",
             ),
@@ -95,8 +95,11 @@ class PaymentMethodForm(forms.ModelForm):
             </script>"""),
         )
 
-    def clean(self):
+    def clean(self) -> dict[str, object]:
         cleaned_data = super().clean()
+        if cleaned_data is None:
+            return {}
+
         description = cleaned_data.get("description")
         tax_percentage = cleaned_data.get("tax_percentage")
         tax_value = cleaned_data.get("tax_value")

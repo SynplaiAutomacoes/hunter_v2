@@ -82,7 +82,7 @@ KIT_COMPATIBILITY_BADGE_CLASSES = {
     "compatible": "badge-success",
     "partially_compatible": "badge-accent",
     "no_applications": "badge-warning",
-    "missing_vehicle_data": "badge-info",
+    "missing_vehicle_data": "badge-warning",
     "incompatible": "badge-error",
 }
 KIT_COMPATIBILITY_SORT_ORDER = {
