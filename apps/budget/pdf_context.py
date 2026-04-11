@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import base64
+from decimal import Decimal, ROUND_HALF_UP
 
 from djmoney.money import Money
 
 from apps.workshops.services.files import WorkshopFileStorageError, get_workshop_logo_file
+
+
+_ZERO_DECIMAL = Decimal("0.00")
+_TWO_DECIMAL_PLACES = Decimal("0.01")
 
 
 def _build_pdf_pages(produtos: list[dict], servicos: list[dict]) -> list[dict]:
@@ -16,6 +21,23 @@ def _build_pdf_pages(produtos: list[dict], servicos: list[dict]) -> list[dict]:
             "total_pages": 1,
         }
     ]
+
+
+def _calculate_soma_markup(*, total_budget_value: Money, total_costs_products_value: Money, total_costs_services_value: Money) -> Decimal:
+    total_cost_amount = total_costs_products_value.amount + total_costs_services_value.amount
+    if total_cost_amount <= _ZERO_DECIMAL:
+        return _ZERO_DECIMAL
+
+    return (total_budget_value.amount / total_cost_amount).quantize(_TWO_DECIMAL_PLACES, rounding=ROUND_HALF_UP)
+
+
+def _format_decimal_multiplier(value: Decimal) -> str:
+    quantized_value = value.quantize(_TWO_DECIMAL_PLACES, rounding=ROUND_HALF_UP)
+    sign = "-" if quantized_value < _ZERO_DECIMAL else ""
+    absolute_value = abs(quantized_value)
+    integer_part, decimal_part = f"{absolute_value:.2f}".split(".")
+    grouped_integer = f"{int(integer_part):,}".replace(",", ".")
+    return f"{sign}{grouped_integer},{decimal_part}x"
 
 
 def build_workshop_logo_data_uri(*, workshop) -> str:
@@ -34,6 +56,11 @@ def build_workshop_logo_data_uri(*, workshop) -> str:
 def build_budget_pdf_context(*, budget, observacao: str | None = None, request=None) -> dict:
     snapshot = budget.pricing_snapshot
     resolved_observation = observacao if observacao is not None else budget.pdf_observation
+    soma_markup = _calculate_soma_markup(
+        total_budget_value=snapshot.total_budget_value,
+        total_costs_products_value=snapshot.total_costs_products_value,
+        total_costs_services_value=snapshot.total_costs_services_value,
+    )
 
     produtos = [
         {
@@ -80,6 +107,8 @@ def build_budget_pdf_context(*, budget, observacao: str | None = None, request=N
         "total_servicos": budget.get_total_services_by_slider,
         "desconto": budget.resolved_discount_value,
         "total_geral": budget.total_budget_value,
+        "soma_markup": soma_markup,
+        "soma_markup_display": _format_decimal_multiplier(soma_markup),
         "observacao": resolved_observation,
         "total_profit_product_value": sum((line.profit_value for line in snapshot.product_lines), Money(0, "BRL")),
         "total_profit_service_value": sum((line.profit_value for line in snapshot.service_lines), Money(0, "BRL")),

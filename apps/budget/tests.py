@@ -1220,6 +1220,30 @@ class BudgetPdfContextTests(TestCase):
 
         self.assertTrue(context["produtos"][0]["is_customer_supplied"])
 
+    def test_build_budget_pdf_context_includes_soma_markup(self) -> None:
+        workshop = create_workshop(suffix=95)
+        budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=95)
+        service = create_service(workshop=workshop, suffix=95)
+
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            product=product,
+            quantity=1,
+        )
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            service=service,
+            quantity=1,
+        )
+
+        context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste")
+
+        self.assertEqual(context["soma_markup"], Decimal("2.33"))
+        self.assertEqual(context["soma_markup_display"], "2,33x")
+
     def test_budget_pdf_template_allows_long_freeform_text_to_wrap(self) -> None:
         workshop = create_workshop(suffix=94)
         customer = create_customer(workshop=workshop, suffix=94)
@@ -1302,6 +1326,30 @@ class BudgetPdfViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         expected_logo_data_uri = f"data:image/png;base64,{base64.b64encode(logo_bytes).decode('ascii')}"
         self.assertContains(response, f'src="{expected_logo_data_uri}"', html=False)
+
+    def test_visualizar_pdf_gestor_renders_soma_markup(self) -> None:
+        budget = self._create_budget_with_customer_and_vehicle(suffix=105)
+        product = create_product(workshop=self.workshop, suffix=105)
+        service = create_service(workshop=self.workshop, suffix=105)
+
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            product=product,
+            quantity=1,
+        )
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            service=service,
+            quantity=1,
+        )
+
+        response = self.client.get(reverse("budget:visualizar_pdf_gestor", args=[budget.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "SOMA MARKUP")
+        self.assertContains(response, "2,33x")
 
     @patch("apps.budget.pdf_context.get_workshop_logo_file")
     def test_visualizar_pdf_mecanico_renders_workshop_logo(self, get_workshop_logo_file_mock) -> None:

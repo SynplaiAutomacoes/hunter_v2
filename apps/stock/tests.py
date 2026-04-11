@@ -23,7 +23,7 @@ from apps.collaborators.models import WorkshopMember
 from apps.core.documents.contract import DocumentPayload
 from apps.finance.models.payment_method import PaymentMethod
 from apps.iam.utils import get_or_create_director_role
-from apps.stock.forms import ImportSefazListForm, ImportStep1Form, ImportStepPaymentForm, ImportStepSummaryForm, ImportStepSupplierForm, QuickProductForm
+from apps.stock.forms import ImportManualItemsForm, ImportSefazListForm, ImportStep1Form, ImportStepPaymentForm, ImportStepSummaryForm, ImportStepSupplierForm, QuickProductForm
 from apps.stock.models import SefazZipCache, StockImport, StockMovement, StockPaymentMethod, StockProduct, StockTransfer
 from apps.stock.utils import NFParser
 from apps.suppliers.models import Supplier
@@ -443,6 +443,155 @@ class QuickProductFormTests(TestCase):
         )
 
         self.assertTrue(form.is_valid(), form.errors.as_json())
+
+
+class ManualStockImportPricingTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=31)
+        self.group = CatalogGroup.objects.create(workshop=self.workshop, name="Frutas")
+        self.product = Product.objects.create(
+            workshop=self.workshop,
+            code="BAN-001",
+            name="Banana",
+            unit=Product.Unit.UND,
+            group=self.group,
+            cost_price=Money("7.00", "BRL"),
+            selling_price=Money("12.00", "BRL"),
+            last_purchase_price=Money("6.50", "BRL"),
+            last_used_price=Money("15.00", "BRL"),
+            origin_cst=Product.OriginCST.NACIONAL,
+            purpose=Product.Purpose.RESALE,
+        )
+        self.stock_product = StockProduct.objects.get(workshop=self.workshop, product=self.product)
+        self.stock_product.current_quantity = 4
+        self.stock_product.save(update_fields=["current_quantity"])
+        self.stock_import = StockImport.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            method=StockImport.ImportMethods.MANUAL,
+            current_step=3,
+            nf_key="3" * 44,
+            supplier_name="Fornecedor Banana",
+            supplier_cnpj="12.345.678/0001-31",
+            items_data=[
+                {
+                    "ref": self.product.code,
+                    "desc": self.product.name,
+                    "qtd": "2",
+                    "valor": "7.00",
+                    "selling_price": "12.00",
+                    "linked_product_id": str(self.product.pk),
+                }
+            ],
+            payments_data=[],
+        )
+
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_manual_items_form_renders_selling_and_last_price_columns(self) -> None:
+        form = ImportManualItemsForm(instance=self.stock_import, workshop=self.workshop, request=SimpleNamespace(user=self.user))
+
+        html = Template("{% load crispy_forms_tags %}{% crispy form %}").render(Context({"form": form}))
+        html = html.replace("\xa0", " ")
+
+        self.assertIn("Valor de Venda", html)
+        self.assertIn("Último valor de compra", html)
+        self.assertIn("Último valor de venda", html)
+        self.assertIn("R$ 6,50", html)
+        self.assertIn("R$ 15,00", html)
+        self.assertIn("manual-confirm-lower-price-input", html)
+
+    def test_update_manual_item_data_persists_selling_price(self) -> None:
+        response = self.client.post(
+            reverse("stock:update_manual_item_data", kwargs={"pk": self.stock_import.pk}),
+            data={
+                "item_idx": "0",
+                "items_selling_price_0_0": "18.50",
+            },
+        )
+
+        self.stock_import.refresh_from_db()
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(self.stock_import.items_data[0]["selling_price"], "18.50")
+
+    def test_manual_items_form_requires_confirmation_for_price_below_last_used_price(self) -> None:
+        form = ImportManualItemsForm(
+            data={
+                "items_qty_0": "2",
+                "items_price_0_0": "7.00",
+                "items_price_0_1": "BRL",
+                "items_selling_price_0_0": "10.00",
+                "items_selling_price_0_1": "BRL",
+            },
+            instance=self.stock_import,
+            workshop=self.workshop,
+            request=SimpleNamespace(user=self.user),
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("Banana: Último valor usado: R$ 15,00", str(form.non_field_errors()))
+        self.assertEqual(form.instance.items_data[0]["selling_price"], "10.00")
+
+    def test_manual_items_form_allows_confirmed_price_below_last_used_price(self) -> None:
+        form = ImportManualItemsForm(
+            data={
+                "confirm_lower_price": "1",
+                "items_qty_0": "2",
+                "items_price_0_0": "7.00",
+                "items_price_0_1": "BRL",
+                "items_selling_price_0_0": "10.00",
+                "items_selling_price_0_1": "BRL",
+            },
+            instance=self.stock_import,
+            workshop=self.workshop,
+            request=SimpleNamespace(user=self.user),
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.instance.items_data[0]["selling_price"], "10.00")
+
+    def test_summary_save_updates_product_last_purchase_and_last_used_prices(self) -> None:
+        self.product.last_purchase_price = Money("6.50", "BRL")
+        self.product.last_used_price = Money("15.00", "BRL")
+        self.product.save(update_fields=["last_purchase_price", "last_purchase_price_currency", "last_used_price", "last_used_price_currency"])
+
+        stock_import = StockImport.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            method=StockImport.ImportMethods.MANUAL,
+            nf_key="4" * 44,
+            nf_number="NF-BANANA",
+            supplier_name="Fornecedor Banana",
+            supplier_cnpj="12.345.678/0001-31",
+            items_data=[
+                {
+                    "ref": self.product.code,
+                    "desc": self.product.name,
+                    "qtd": "3",
+                    "valor": "8.00",
+                    "selling_price": "13.50",
+                    "linked_product_id": str(self.product.pk),
+                }
+            ],
+            payments_data=[],
+        )
+        form = ImportStepSummaryForm(data={}, instance=stock_import, workshop=self.workshop, request=SimpleNamespace(user=self.user))
+
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+
+        self.product.refresh_from_db()
+        self.stock_product.refresh_from_db()
+        stock_import.refresh_from_db()
+
+        self.assertEqual(stock_import.status, StockImport.ImportStatus.COMPLETED)
+        self.assertEqual(self.product.last_purchase_price, Money("8.00", "BRL"))
+        self.assertEqual(self.product.last_used_price, Money("13.50", "BRL"))
+        self.assertEqual(self.stock_product.current_quantity, 7)
 
 
 class StockReportViewTests(TestCase):

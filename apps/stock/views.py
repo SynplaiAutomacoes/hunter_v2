@@ -432,8 +432,9 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
         transfers = []
         for transfer in transfers_queryset:
             if transfer.operation_type == StockTransfer.OperationType.ADJUSTMENT:
-                if transfer.status == StockTransfer.TransferStatus.DRAFT: continue
-                display_path = f"BAIXA"
+                if transfer.status == StockTransfer.TransferStatus.DRAFT:
+                    continue
+                display_path = "BAIXA"
             elif transfer.destination_workshop:
                 display_path = f"{transfer.source_workshop.name} -> {transfer.destination_workshop.name}"
             else:
@@ -756,16 +757,12 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
             from apps.finance.models.financial_movement import FinancialMovement
             from apps.sources.models import Source
-            
+
             resolved_nf_number = obj.nf_number_display or "S/N" if hasattr(obj, "nf_number_display") else (obj.nf_number or "S/N")
             source_name = obj.supplier_name or "Fornecedor da Importação"
             source_cnpj = obj.supplier_cnpj or ""
-            source, _ = Source.objects.get_or_create(
-                workshop=self.workshop,
-                name=source_name,
-                defaults={"cnpj": source_cnpj}
-            )
-            
+            source, _ = Source.objects.get_or_create(workshop=self.workshop, name=source_name, defaults={"cnpj": source_cnpj})
+
             fm = FinancialMovement.objects.create(
                 workshop=self.workshop,
                 user=self.request.user,
@@ -837,6 +834,7 @@ class RemovePaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
         removed_payment = next((p for p in obj.payments_data if p["id"] == int(payment_id)), None)
         if removed_payment:
             from apps.finance.models.financial_movement import FinancialMovement
+
             if "financial_movement_id" in removed_payment and removed_payment["financial_movement_id"]:
                 FinancialMovement.objects.filter(pk=removed_payment["financial_movement_id"], workshop=self.workshop).delete()
             if "fee_financial_movement_id" in removed_payment and removed_payment["fee_financial_movement_id"]:
@@ -929,13 +927,22 @@ class LinkProductManualView(LoginRequiredMixin, WorkshopScopedMixin, View):
         import_items = list(obj.items_data)
 
         if is_manual:
-            new_item = {"ref": product.code, "desc": product.name, "qtd": 1, "valor": str(product.cost_price.amount), "linked_product_id": str(product_id)}
+            new_item = {
+                "ref": product.code,
+                "desc": product.name,
+                "qtd": 1,
+                "valor": str(product.cost_price.amount),
+                "selling_price": str(product.selling_price.amount),
+                "linked_product_id": str(product_id),
+            }
             import_items.append(new_item)
         else:
             try:
                 item_idx = int(raw_item_idx)
                 if 0 <= item_idx < len(import_items):
                     import_items[item_idx]["linked_product_id"] = product_id
+                    if import_items[item_idx].get("selling_price") in (None, ""):
+                        import_items[item_idx]["selling_price"] = str(product.selling_price.amount)
             except (ValueError, TypeError):
                 return HttpResponse("Índice de item inválido", status=400)
 
@@ -1063,6 +1070,8 @@ class ProductQuickCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView
 
                 if 0 <= idx < len(items):
                     items[idx]["linked_product_id"] = str(self.object.id)
+                    if items[idx].get("selling_price") in (None, ""):
+                        items[idx]["selling_price"] = str(self.object.selling_price.amount)
                     stock_import.items_data = items
                     stock_import.save(update_fields=["items_data"])
             except (ValueError, IndexError):
@@ -1251,6 +1260,13 @@ class UpdateManualItemDataView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 except (InvalidOperation, ValueError):
                     pass
 
+            new_selling_price = request.POST.get(f"items_selling_price_{idx}_0")
+            if new_selling_price is not None:
+                try:
+                    items[idx]["selling_price"] = str(Decimal(new_selling_price.replace(",", ".")))
+                except (InvalidOperation, ValueError):
+                    pass
+
             obj.items_data = items
             obj.save(update_fields=["items_data"])
 
@@ -1262,6 +1278,7 @@ class UpdateManualItemDataView(LoginRequiredMixin, WorkshopScopedMixin, View):
 def _get_user_transfer_workshops(request) -> models.QuerySet[Workshop]:
     return Workshop.objects.filter(account_id=request.user.account_id, is_active=True, members__user=request.user, members__is_active=True).distinct().order_by("name")
 
+
 def update_transfer_reason(request, pk):
     transfer = get_object_or_404(StockTransfer, pk=pk)
     reason = request.POST.get("reason", "").strip()
@@ -1270,6 +1287,7 @@ def update_transfer_reason(request, pk):
     transfer.save(update_fields=["reason"])
 
     return HttpResponse(status=204)
+
 
 class StockTransferAccessMixin(LoginRequiredMixin):
     active_workshop: Workshop
@@ -1457,7 +1475,7 @@ class AddTransferSourceItemView(StockTransferAccessMixin, View):
         raw_quantity = request.POST.get("quantity") or "1"
         transfer = get_object_or_404(StockTransfer, pk=pk)
         source_product = get_object_or_404(Product, id=product_id, workshop=transfer.source_workshop)
-        
+
         clear_others = request.POST.get("clear_others") == "true"
         if clear_others:
             items = []
