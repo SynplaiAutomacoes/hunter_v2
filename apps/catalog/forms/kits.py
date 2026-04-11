@@ -86,8 +86,7 @@ class KitForm(forms.ModelForm):
 
     def _build_initial_applications(self) -> list[dict[str, str]]:
         if self.is_bound:
-            posted_applications = self._extract_application_rows_from_post()
-            return posted_applications or [self._empty_application_row()]
+            return self._extract_application_rows_from_post()
 
         if self.instance.pk:
             applications = [
@@ -104,7 +103,7 @@ class KitForm(forms.ModelForm):
             if applications:
                 return applications
 
-        return [self._empty_application_row()]
+        return []
 
     def get_layout(self):
         cancel_url = reverse("catalog:kits_list")
@@ -266,7 +265,7 @@ class KitForm(forms.ModelForm):
                                 <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
                                     <div>
                                         <div class="font-semibold">Aplicações do Kit</div>
-                                        <div class="text-sm text-base-content/70">Informe os veículos, motorizações e anos compatíveis com este kit.</div>
+                                        <div class="text-sm text-base-content/70">Opcional: informe os veículos, motorizações e anos compatíveis com este kit.</div>
                                     </div>
                                     <button type="button" class="btn btn-sm btn-primary" @click="addApplication()">Adicionar aplicação</button>
                                 </div>
@@ -325,9 +324,10 @@ class KitForm(forms.ModelForm):
                                         </div>
                                     </template>
 
-                                    <div x-show="applications.length === 0" class="rounded-box border border-dashed border-base-300 p-4 text-sm text-base-content/70">
-                                        Nenhuma aplicação adicionada. Cadastre ao menos uma aplicação para salvar o kit.
+                                    <div x-show="applications.length === 0" class="min-h-28 rounded-box border border-dashed border-base-300 bg-base-100 flex items-center justify-center p-4 text-center text-sm text-base-content/70">
+                                        Nenhuma aplicação adicionada.
                                     </div>
+
                                 </div>
                             </div>
 
@@ -982,9 +982,6 @@ class KitForm(forms.ModelForm):
         cleaned_data["_kit_services_duration"] = service_duration
 
         raw_applications = self._extract_application_rows_from_post()
-        if not raw_applications:
-            self.add_error(None, "Cadastre ao menos uma aplicação para o kit.")
-
         normalized_applications: list[dict[str, int | str]] = []
         seen_applications: set[tuple[str, str, str, str, int, int]] = set()
         required_application_fields = {
