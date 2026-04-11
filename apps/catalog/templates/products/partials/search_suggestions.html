@@ -7,9 +7,7 @@
                 @click="$dispatch('add-equivalent', {
                     id: '{{ product.id }}',
                     name: '{{ product.code }} - {{ product.name|escapejs }}'
-                });
-                document.getElementById('id_equivalent_search').value = '';
-                document.getElementById('product-suggestions').innerHTML = '';">
+                });">
 
             <div class="flex flex-col items-start text-left w-full">
                 <span class="font-bold text-sm">{{ product.name }}</span>
