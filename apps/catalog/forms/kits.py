@@ -86,8 +86,7 @@ class KitForm(forms.ModelForm):
 
     def _build_initial_applications(self) -> list[dict[str, str]]:
         if self.is_bound:
-            posted_applications = self._extract_application_rows_from_post()
-            return posted_applications or [self._empty_application_row()]
+            return self._extract_application_rows_from_post()
 
         if self.instance.pk:
             applications = [
@@ -104,7 +103,7 @@ class KitForm(forms.ModelForm):
             if applications:
                 return applications
 
-        return [self._empty_application_row()]
+        return []
 
     def get_layout(self):
         cancel_url = reverse("catalog:kits_list")
@@ -266,7 +265,7 @@ class KitForm(forms.ModelForm):
                                 <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
                                     <div>
                                         <div class="font-semibold">Aplicações do Kit</div>
-                                        <div class="text-sm text-base-content/70">Informe os veículos, motorizações e anos compatíveis com este kit.</div>
+                                        <div class="text-sm text-base-content/70">Opcional: informe os veículos, motorizações e anos compatíveis com este kit.</div>
                                     </div>
                                     <button type="button" class="btn btn-sm btn-primary" @click="addApplication()">Adicionar aplicação</button>
                                 </div>
@@ -325,9 +324,10 @@ class KitForm(forms.ModelForm):
                                         </div>
                                     </template>
 
-                                    <div x-show="applications.length === 0" class="rounded-box border border-dashed border-base-300 p-4 text-sm text-base-content/70">
-                                        Nenhuma aplicação adicionada. Cadastre ao menos uma aplicação para salvar o kit.
+                                    <div x-show="applications.length === 0" class="min-h-28 rounded-box border border-dashed border-base-300 bg-base-100 flex items-center justify-center p-4 text-center text-sm text-base-content/70">
+                                        Nenhuma aplicação adicionada.
                                     </div>
+
                                 </div>
                             </div>
 
@@ -372,10 +372,7 @@ class KitForm(forms.ModelForm):
                                                     <td class="text-right">
                                                         <button type="button" 
                                                                 class="btn-table-edit mx-1"
-                                                                @click="
-                                                                    document.getElementById('edit-item-modal').checked = true;
-                                                                    htmx.ajax('GET', `/catalog/edit_product_modal_form/${{item.id}}/`, {{target:'#edit-modal-content', swap:'innerHTML'}})
-                                                                "
+                                                                @click="openProductEditModal(item.id)"
                                                                 title="Editar Produto">
                                                             <span class="material-icons text-base">edit</span>
                                                         </button>
@@ -431,10 +428,7 @@ class KitForm(forms.ModelForm):
                                                     <td class="text-right">
                                                         <button type="button" 
                                                                 class="btn-table-edit mx-1"
-                                                                @click="
-                                                                    document.getElementById('edit-item-modal').checked = true;
-                                                                    htmx.ajax('GET', `/catalog/edit_service_modal_form/${{item.id}}/`, {{target:'#edit-modal-content', swap:'innerHTML'}})
-                                                                "
+                                                                @click="openServiceEditModal(item.id)"
                                                                 title="Editar Serviço">
                                                             <span class="material-icons text-base">edit</span>
                                                         </button>
@@ -492,13 +486,7 @@ class KitForm(forms.ModelForm):
                                                         <th class="text-right">Venda</th>
                                                     </tr>
                                                 </thead>
-                                                <tbody
-                                                    id="kit-product-items"
-                                                    hx-get="{product_search_url}"
-                                                    hx-trigger="load"
-                                                    hx-target="this"
-                                                    hx-swap="innerHTML"
-                                                ></tbody>
+                                                <tbody id="kit-product-items"></tbody>
                                             </table>
                                         </div>
                                     </div>
@@ -538,13 +526,7 @@ class KitForm(forms.ModelForm):
                                                         <th class="text-right">Venda</th>
                                                     </tr>
                                                 </thead>
-                                                <tbody
-                                                    id="kit-service-items"
-                                                    hx-get="{service_search_url}"
-                                                    hx-trigger="load"
-                                                    hx-target="this"
-                                                    hx-swap="innerHTML"
-                                                ></tbody>
+                                                <tbody id="kit-service-items"></tbody>
                                             </table>
                                         </div>
                                     </div>
@@ -582,6 +564,18 @@ class KitForm(forms.ModelForm):
                                 </div>
                                 <label class="modal-backdrop" for="kit-distribute-time-modal">Close</label>
                             </div>
+
+                            <input type="checkbox" id="edit-item-modal" class="modal-toggle" @change="if (!$event.target.checked) resetEditModalContent()" />
+                            <div class="modal" role="dialog">
+                                <div class="modal-box w-11/12 max-w-5xl relative bg-base-100">
+                                    <label for="edit-item-modal" class="btn btn-sm btn-circle absolute right-2 top-2" @click="resetEditModalContent()">✕</label>
+
+                                    <div id="edit-modal-content">
+                                        <div class="p-6 text-sm text-base-content/70">Selecione um item para editar.</div>
+                                    </div>
+                                </div>
+                                <label class="modal-backdrop" for="edit-item-modal" @click="resetEditModalContent()">Close</label>
+                            </div>
                         </div>
 
                         <script>
@@ -596,6 +590,67 @@ class KitForm(forms.ModelForm):
 
                                     init() {{
                                         this.refreshTotalDurationDisplay();
+                                        this.resetEditModalContent();
+                                    }},
+
+                                    buildSearchUrl(baseUrl, paramName, query) {{
+                                        const params = new URLSearchParams();
+                                        const normalizedQuery = (query || '').toString().trim();
+                                        if (normalizedQuery) {{
+                                            params.set(paramName, normalizedQuery);
+                                        }}
+                                        const queryString = params.toString();
+                                        return queryString ? `${{baseUrl}}?${{queryString}}` : baseUrl;
+                                    }},
+                                    reloadProductSuggestions(query = '') {{
+                                        if (!window.htmx) return;
+                                        window.htmx.ajax('GET', this.buildSearchUrl('{product_search_url}', 'product_search', query), {{
+                                            target: '#kit-product-items',
+                                            swap: 'innerHTML',
+                                        }});
+                                    }},
+                                    reloadServiceSuggestions(query = '') {{
+                                        if (!window.htmx) return;
+                                        window.htmx.ajax('GET', this.buildSearchUrl('{service_search_url}', 'service_search', query), {{
+                                            target: '#kit-service-items',
+                                            swap: 'innerHTML',
+                                        }});
+                                    }},
+                                    resetProductSearch() {{
+                                        const input = document.getElementById('kit-product-search-input');
+                                        if (input) input.value = '';
+                                    }},
+                                    resetServiceSearch() {{
+                                        const input = document.getElementById('kit-service-search-input');
+                                        if (input) input.value = '';
+                                    }},
+                                    setEditModalMessage(message) {{
+                                        const content = document.getElementById('edit-modal-content');
+                                        if (!content) return;
+                                        content.innerHTML = `<div class="p-6 text-sm text-base-content/70">${{message}}</div>`;
+                                    }},
+                                    resetEditModalContent() {{
+                                        this.setEditModalMessage('Selecione um item para editar.');
+                                    }},
+                                    openProductEditModal(productId) {{
+                                        this.setEditModalMessage('Carregando produto...');
+                                        const modalToggle = document.getElementById('edit-item-modal');
+                                        if (modalToggle) modalToggle.checked = true;
+                                        if (!window.htmx) return;
+                                        window.htmx.ajax('GET', `/catalog/edit_product_modal_form/${{productId}}/`, {{
+                                            target: '#edit-modal-content',
+                                            swap: 'innerHTML',
+                                        }});
+                                    }},
+                                    openServiceEditModal(serviceId) {{
+                                        this.setEditModalMessage('Carregando serviço...');
+                                        const modalToggle = document.getElementById('edit-item-modal');
+                                        if (modalToggle) modalToggle.checked = true;
+                                        if (!window.htmx) return;
+                                        window.htmx.ajax('GET', `/catalog/edit_service_modal_form/${{serviceId}}/`, {{
+                                            target: '#edit-modal-content',
+                                            swap: 'innerHTML',
+                                        }});
                                     }},
 
                                     parseDurationToSeconds(value) {{
@@ -654,6 +709,8 @@ class KitForm(forms.ModelForm):
                                             sell: p.sell,
                                             qty: p.qty,
                                         }}));
+                                        this.resetProductSearch();
+                                        this.reloadProductSuggestions();
                                     }},
                                     openServicesModal() {{
                                         this.modalSelectedServices = this.selectedServices.map(s => ({{
@@ -664,6 +721,8 @@ class KitForm(forms.ModelForm):
                                             qty: s.qty,
                                             duration: s.duration || '00:00:00',
                                         }}));
+                                        this.resetServiceSearch();
+                                        this.reloadServiceSuggestions();
                                     }},
                                     openDistributeTimeModal() {{
                                         this.distributionTotalTime = '';
@@ -806,12 +865,8 @@ class KitForm(forms.ModelForm):
                                         const modalToggle = document.getElementById('kit-products-modal');
                                         if (modalToggle) modalToggle.checked = false;
 
-                                        const input = document.getElementById('kit-product-search-input');
-                                        if (input) input.value = '';
-
-                                        const list = document.getElementById('kit-product-items');
-                                        if (list) list.innerHTML = '';
-                                        if (list && window.htmx) window.htmx.trigger(list, 'load');
+                                        this.resetProductSearch();
+                                        this.reloadProductSuggestions();
                                     }},
                                     applySelectedServices() {{
                                         this.modalSelectedServices.forEach(s => this.addService(s));
@@ -819,12 +874,8 @@ class KitForm(forms.ModelForm):
                                         const modalToggle = document.getElementById('kit-services-modal');
                                         if (modalToggle) modalToggle.checked = false;
 
-                                        const input = document.getElementById('kit-service-search-input');
-                                        if (input) input.value = '';
-
-                                        const list = document.getElementById('kit-service-items');
-                                        if (list) list.innerHTML = '';
-                                        if (list && window.htmx) window.htmx.trigger(list, 'load');
+                                        this.resetServiceSearch();
+                                        this.reloadServiceSuggestions();
                                     }},
                                     removeProduct(index) {{ this.selectedProducts.splice(index, 1); }},
                                     removeService(index) {{
@@ -835,15 +886,6 @@ class KitForm(forms.ModelForm):
                             }}
                         </script>
                         
-                        <input type="checkbox" id="edit-item-modal" class="modal-toggle" />
-                        <div class="modal" role="dialog">
-                            <div class="modal-box w-11/12 max-w-5xl relative bg-base-100">
-                                <label for="edit-item-modal" class="btn btn-sm btn-circle absolute right-2 top-2">✕</label>
-                                
-                                <div id="edit-modal-content">
-                                    </div>
-                            </div>
-                        </div>
                         """
                     ),
                     css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
@@ -940,9 +982,6 @@ class KitForm(forms.ModelForm):
         cleaned_data["_kit_services_duration"] = service_duration
 
         raw_applications = self._extract_application_rows_from_post()
-        if not raw_applications:
-            self.add_error(None, "Cadastre ao menos uma aplicação para o kit.")
-
         normalized_applications: list[dict[str, int | str]] = []
         seen_applications: set[tuple[str, str, str, str, int, int]] = set()
         required_application_fields = {

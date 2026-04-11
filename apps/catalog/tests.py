@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 from decimal import Decimal
 
+from crispy_forms.utils import render_crispy_form
 from django.db import IntegrityError
 from django.test import TestCase
 from django.urls import reverse
@@ -214,7 +215,7 @@ class KitTests(TestCase):
         self.assertFalse(form.is_valid())
         self.assertIn("Duração inválida para serviço.", form.non_field_errors())
 
-    def test_kit_form_requires_at_least_one_application(self):
+    def test_kit_form_allows_save_without_applications(self):
         form = KitForm(
             data={
                 "name": "Kit Sem Aplicação",
@@ -224,8 +225,12 @@ class KitTests(TestCase):
             workshop=self.workshop,
         )
 
-        self.assertFalse(form.is_valid())
-        self.assertIn("Cadastre ao menos uma aplicação para o kit.", form.non_field_errors())
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        form.instance.workshop = self.workshop
+        kit = form.save()
+
+        self.assertEqual(KitApplication.objects.filter(kit=kit).count(), 0)
+        self.assertEqual(kit.applications_summary, "Sem aplicação cadastrada")
 
     def test_kit_form_persists_multiple_applications(self):
         form = KitForm(
@@ -300,6 +305,84 @@ class KitTests(TestCase):
         # Não deve levantar exceção
         self.assertEqual(str(s.suggested_cost), "R$\xa05,00")
         self.assertEqual(str(s.selling_price), "R$\xa010,00")
+
+
+class KitFormPageTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=77)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_kit_create_page_resets_modal_results_and_edit_modal_state(self) -> None:
+        response = self.client.get(reverse("catalog:kits_create"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Opcional: informe os veículos, motorizações e anos compatíveis com este kit.")
+        self.assertContains(response, "Nenhuma aplicação adicionada.")
+        self.assertContains(response, "this.reloadProductSuggestions();", html=False)
+        self.assertContains(response, "this.reloadServiceSuggestions();", html=False)
+        self.assertContains(response, "Carregando produto...", html=False)
+        self.assertContains(response, "Carregando serviço...", html=False)
+        self.assertContains(response, "Selecione um item para editar.", html=False)
+        self.assertNotContains(response, "window.htmx.trigger(list, 'load');", html=False)
+
+
+class KitSearchPartialTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=78)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+        self.group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo Kit Search")
+
+    def test_product_search_partial_renders_unlocalized_ids(self) -> None:
+        product = Product.objects.create(
+            id=1296,
+            workshop=self.workshop,
+            code="PROD-KIT-1296",
+            name="Produto Modal",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+            is_active=True,
+        )
+
+        response = self.client.get(reverse("catalog:kits_product_search"), data={"product_search": product.name})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, ":checked=\"modalSelectedProducts.some(i => i.id == '1296')\"", html=False)
+        self.assertContains(response, "id: '1296'", html=False)
+        self.assertNotContains(response, "id: '1.296'", html=False)
+
+    def test_service_search_partial_renders_unlocalized_ids(self) -> None:
+        service = Service.objects.create(
+            id=1296,
+            workshop=self.workshop,
+            name="Servico Modal",
+            description="",
+            duration=datetime.timedelta(minutes=30),
+            selling_price=Money(10, "BRL"),
+            suggested_cost=Money(5, "BRL"),
+            is_third_party=False,
+            is_active=True,
+        )
+
+        response = self.client.get(reverse("catalog:kits_service_search"), data={"service_search": service.name})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, ":checked=\"modalSelectedServices.some(i => i.id == '1296')\"", html=False)
+        self.assertContains(response, "id: '1296'", html=False)
+        self.assertNotContains(response, "id: '1.296'", html=False)
 
 
 class KitCompatibilityEvaluationTests(TestCase):
@@ -590,6 +673,13 @@ class ProductFormTests(TestCase):
 
         self.assertTrue(form.is_valid(), form.errors.as_json())
 
+    def test_product_form_modal_does_not_render_nested_form(self) -> None:
+        html = render_crispy_form(ProductForm(workshop=self.workshop))
+
+        self.assertEqual(html.count("<form"), 1)
+        self.assertNotIn('method="dialog"', html)
+        self.assertIn('id="submit-id-submit"', html)
+
 
 class ProductUpdateNavigationTests(TestCase):
     def setUp(self) -> None:
@@ -652,3 +742,14 @@ class ProductUpdateNavigationTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.headers.get("Location"), next_url)
+
+    def test_product_update_renders_lower_price_confirmation_modal(self) -> None:
+        self.product.last_used_price = Money("30.00", "BRL")
+        self.product.save(update_fields=["last_used_price"])
+
+        response = self.client.get(reverse("catalog:product_update", kwargs={"pk": self.product.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="product-lower-price-modal"', html=False)
+        self.assertContains(response, '@click="continueWithLowerPrice()"', html=False)
+        self.assertNotContains(response, 'x-show="lowerPriceWarning"', html=False)

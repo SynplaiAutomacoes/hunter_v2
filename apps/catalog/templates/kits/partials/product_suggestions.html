@@ -4,9 +4,9 @@
         <input
             type="checkbox"
             class="checkbox checkbox-sm"
-            :checked="modalSelectedProducts.some(i => i.id == '{{ product.id }}')"
+            :checked="modalSelectedProducts.some(i => i.id == '{{ product.id|stringformat:'d' }}')"
             @change="toggleModalProduct({
-                id: '{{ product.id }}',
+                id: '{{ product.id|stringformat:'d' }}',
                 name: '{{ product.code }} - {{ product.name|escapejs }}',
                 cost: '{{ product.cost_price }}',
                 sell: '{{ product.selling_price }}'
