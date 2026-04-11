@@ -13,7 +13,9 @@ from django.utils import timezone
 from apps.budget.models import Budget
 from apps.core.widgets import CPForCNPJInput, CheckboxInput, PhoneInput, PlateInput, SearchableSelectInput, SelectInput, TextInput, TextareaInput
 from apps.customer.cpf_cnpj_validator import is_valid_cpf
+from apps.customer.vehicle_engine import normalize_vehicle_engine_choice, vehicle_engine_form_choices
 from apps.customer.models import Customer, Vehicle
+from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice, vehicle_fuel_form_choices
 from apps.scheduling.models import Appointment, AppointmentStatus
 from apps.workorder.models import WorkOrder
 from apps.workshops.models.workshops import Workshop
@@ -53,8 +55,8 @@ def _serialize_vehicle_details(vehicle: Vehicle | None) -> dict[str, str]:
         "model": str(vehicle.model or ""),
         "year_fabrication": str(vehicle.year_fabrication or ""),
         "year_model": str(vehicle.year_model or ""),
-        "engine": str(vehicle.engine or ""),
-        "fuel": str(vehicle.fuel or ""),
+        "engine": normalize_vehicle_engine_choice(vehicle.engine),
+        "fuel": normalize_vehicle_fuel_choice(vehicle.fuel),
     }
 
 
@@ -79,8 +81,8 @@ class AppointmentForm(forms.ModelForm):
     guest_vehicle_model = forms.CharField(label="Modelo", required=False, widget=_uppercase_text_input())
     guest_vehicle_year_fabrication = forms.CharField(label="Ano Fabricacao", required=False, widget=_year_text_input())
     guest_vehicle_year_model = forms.CharField(label="Ano Modelo", required=False, widget=_year_text_input())
-    guest_vehicle_engine = forms.CharField(label="Motorizacao", required=False, widget=_uppercase_text_input())
-    guest_vehicle_fuel = forms.CharField(label="Combustivel", required=False, widget=_uppercase_text_input())
+    guest_vehicle_engine = forms.CharField(label="Motorizacao", required=False, widget=SelectInput(choices=vehicle_engine_form_choices()))
+    guest_vehicle_fuel = forms.CharField(label="Combustivel", required=False, widget=SelectInput(choices=vehicle_fuel_form_choices()))
     budget = forms.ModelChoiceField(label="Orcamento vinculado", queryset=Budget.objects.none(), widget=SearchableSelectInput(), required=False)
     workorder = forms.ModelChoiceField(label="Ordem de servico vinculada", queryset=WorkOrder.objects.none(), widget=SearchableSelectInput(), required=False)
 
@@ -119,8 +121,8 @@ class AppointmentForm(forms.ModelForm):
             "guest_vehicle_model": _uppercase_text_input(),
             "guest_vehicle_year_fabrication": _year_text_input(),
             "guest_vehicle_year_model": _year_text_input(),
-            "guest_vehicle_engine": _uppercase_text_input(),
-            "guest_vehicle_fuel": _uppercase_text_input(),
+            "guest_vehicle_engine": SelectInput(choices=vehicle_engine_form_choices()),
+            "guest_vehicle_fuel": SelectInput(choices=vehicle_fuel_form_choices()),
             "starts_at": forms.DateTimeInput(format="%Y-%m-%dT%H:%M", attrs={"type": "datetime-local", "class": "input-theme h-12"}),
             "ends_at": forms.DateTimeInput(format="%Y-%m-%dT%H:%M", attrs={"type": "datetime-local", "class": "input-theme h-12"}),
             "block_color": forms.HiddenInput(),
@@ -213,6 +215,14 @@ class AppointmentForm(forms.ModelForm):
             selected_registered_vehicle = Vehicle.objects.filter(workshop=self.workshop, pk=selected_vehicle_id).first()
 
         selected_registered_vehicle_details = _serialize_vehicle_details(selected_registered_vehicle)
+
+        if not self.is_bound:
+            normalized_guest_vehicle_engine = normalize_vehicle_engine_choice(self.initial.get("guest_vehicle_engine") or getattr(self.instance, "guest_vehicle_engine", ""))
+            self.initial["guest_vehicle_engine"] = normalized_guest_vehicle_engine
+            self.fields["guest_vehicle_engine"].initial = normalized_guest_vehicle_engine
+            normalized_guest_vehicle_fuel = normalize_vehicle_fuel_choice(self.initial.get("guest_vehicle_fuel") or getattr(self.instance, "guest_vehicle_fuel", ""))
+            self.initial["guest_vehicle_fuel"] = normalized_guest_vehicle_fuel
+            self.fields["guest_vehicle_fuel"].initial = normalized_guest_vehicle_fuel
 
         if self.instance and self.instance.pk:
             if self.instance.starts_at:
@@ -332,6 +342,22 @@ class AppointmentForm(forms.ModelForm):
 
                         const normalizedValue = options.uppercase ? String(value).toUpperCase() : String(value);
                         input.value = normalizedValue;
+
+                        const widgetContainer = input.closest('[x-data]');
+                        if (widgetContainer && window.Alpine) {
+                            try {
+                                const widgetData = Alpine.$data(widgetContainer);
+                                if (widgetData && Object.prototype.hasOwnProperty.call(widgetData, 'value')) {
+                                    widgetData.value = normalizedValue;
+                                    if (typeof widgetData.updateLabelFromValue === 'function') {
+                                        widgetData.updateLabelFromValue();
+                                    }
+                                }
+                            } catch (syncError) {
+                                console.warn('Erro ao sincronizar campo com select customizado:', syncError);
+                            }
+                        }
+
                         input.dispatchEvent(new Event('input', { bubbles: true }));
                         input.dispatchEvent(new Event('change', { bubbles: true }));
                     }
@@ -458,7 +484,7 @@ class AppointmentForm(forms.ModelForm):
                             };
 
                             Object.entries(fieldsMap).forEach(([inputId, value]) => {
-                                setInputValue(inputId, value, { uppercase: inputId !== 'id_guest_vehicle_year_fabrication' && inputId !== 'id_guest_vehicle_year_model' });
+                                setInputValue(inputId, value, { uppercase: !['id_guest_vehicle_year_fabrication', 'id_guest_vehicle_year_model', 'id_guest_vehicle_engine', 'id_guest_vehicle_fuel'].includes(inputId) });
                             });
                         } catch (error) {
                             console.warn('Erro ao buscar placa do agendamento:', error);
@@ -662,6 +688,19 @@ class AppointmentForm(forms.ModelForm):
             ),
         )
 
+    def clean_guest_vehicle_engine(self) -> str:
+        guest_vehicle_engine = self.cleaned_data.get("guest_vehicle_engine")
+        normalized_guest_vehicle_engine = normalize_vehicle_engine_choice(guest_vehicle_engine)
+        if guest_vehicle_engine and not normalized_guest_vehicle_engine:
+            self.instance._skip_guest_vehicle_engine_required_validation = True
+            raise forms.ValidationError("Selecione um motor válido.")
+        self.instance._skip_guest_vehicle_engine_required_validation = False
+        return normalized_guest_vehicle_engine
+
+    def clean_guest_vehicle_fuel(self) -> str:
+        guest_vehicle_fuel = self.cleaned_data.get("guest_vehicle_fuel")
+        return normalize_vehicle_fuel_choice(guest_vehicle_fuel)
+
     def clean(self) -> dict[str, Any]:
         cleaned_data = super().clean()
         if cleaned_data is None:
@@ -678,8 +717,8 @@ class AppointmentForm(forms.ModelForm):
         guest_vehicle_model = _normalize_upper_text(cleaned_data.get("guest_vehicle_model"))
         guest_vehicle_year_fabrication = str(cleaned_data.get("guest_vehicle_year_fabrication") or "").strip()
         guest_vehicle_year_model = str(cleaned_data.get("guest_vehicle_year_model") or "").strip()
-        guest_vehicle_engine = _normalize_upper_text(cleaned_data.get("guest_vehicle_engine"))
-        guest_vehicle_fuel = _normalize_upper_text(cleaned_data.get("guest_vehicle_fuel"))
+        guest_vehicle_engine = normalize_vehicle_engine_choice(cleaned_data.get("guest_vehicle_engine"))
+        guest_vehicle_fuel = normalize_vehicle_fuel_choice(cleaned_data.get("guest_vehicle_fuel"))
 
         cleaned_data["guest_customer_name"] = guest_customer_name
         cleaned_data["guest_customer_cpf"] = guest_customer_cpf
@@ -724,11 +763,8 @@ class AppointmentForm(forms.ModelForm):
                 self.add_error("guest_vehicle_year_fabrication", "Informe o ano de fabricacao.")
             if not guest_vehicle_year_model:
                 self.add_error("guest_vehicle_year_model", "Informe o ano do modelo.")
-            if not guest_vehicle_engine:
+            if not guest_vehicle_engine and "guest_vehicle_engine" not in self.errors:
                 self.add_error("guest_vehicle_engine", "Informe a motorizacao.")
-            if not guest_vehicle_fuel:
-                self.add_error("guest_vehicle_fuel", "Informe o combustivel.")
-
             cleaned_data["customer"] = None
             cleaned_data["vehicle"] = None
             cleaned_data["budget"] = None
