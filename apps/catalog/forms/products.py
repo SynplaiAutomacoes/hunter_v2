@@ -278,7 +278,7 @@ class ProductForm(forms.ModelForm):
                                     ⚠️ O preço de venda está menor que o custo!
                                 </div>
                                 <div class="text-warning text-xs mt-2" x-show="priceHelpMessage" x-text="priceHelpMessage" x-cloak></div>
-                                <dialog id="product-lower-price-modal" class="modal" x-ref="lowerPriceModal">
+                                <dialog id="product-lower-price-modal" class="modal" x-ref="lowerPriceModal" @click="if ($event.target === $el) cancelLowerPrice()">
                                     <div class="modal-box max-w-md bg-base-100 p-0 overflow-hidden">
                                         <div class="p-6 border-b border-base-200 flex items-start gap-3 bg-base-50">
                                             <span class="material-icons text-warning text-3xl">warning</span>
@@ -293,9 +293,6 @@ class ProductForm(forms.ModelForm):
                                             <button type="button" class="btn btn-warning" @click="continueWithLowerPrice()">Continuar mesmo assim</button>
                                         </div>
                                     </div>
-                                    <form method="dialog" class="modal-backdrop">
-                                        <button type="button" @click="cancelLowerPrice()">Fechar</button>
-                                    </form>
                                 </dialog>
                             """),
                             css_class="col-span-12 lg:col-span-4",

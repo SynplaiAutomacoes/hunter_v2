@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 from decimal import Decimal
 
+from crispy_forms.utils import render_crispy_form
 from django.db import IntegrityError
 from django.test import TestCase
 from django.urls import reverse
@@ -671,6 +672,13 @@ class ProductFormTests(TestCase):
         )
 
         self.assertTrue(form.is_valid(), form.errors.as_json())
+
+    def test_product_form_modal_does_not_render_nested_form(self) -> None:
+        html = render_crispy_form(ProductForm(workshop=self.workshop))
+
+        self.assertEqual(html.count("<form"), 1)
+        self.assertNotIn('method="dialog"', html)
+        self.assertIn('id="submit-id-submit"', html)
 
 
 class ProductUpdateNavigationTests(TestCase):
