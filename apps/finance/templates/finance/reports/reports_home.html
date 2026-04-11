@@ -73,197 +73,195 @@
                             <input type="text" name="search" value="{{ request.GET.search|default:'' }}"
                                 placeholder="Pesquisar movimentações..." class="input input-bordered w-full sm:max-w-xs"/>
                             <button type="submit" class="btn btn-primary">Buscar</button>
-                        </form>
-                    </div>
 
-                    <div class="flex w-full items-center gap-2 sm:w-auto" x-data>
-                        <button
-                            type="button"
-                            class="btn btn-primary flex-1 sm:w-auto sm:flex-none"
-                            aria-controls="financial-reports-filter-modal"
-                            aria-haspopup="dialog"
-                            @click="$refs.filterModal.showModal()"
-                        >
-                            <span class="material-icons text-[18px]" aria-hidden="true">filter_list</span>
-                            Filtro
-                        </button>
+                            <button
+                                type="button"
+                                class="btn btn-primary flex-1 sm:w-auto sm:flex-none"
+                                aria-controls="financial-reports-filter-modal"
+                                aria-haspopup="dialog"
+                                @click="$refs.filterModal.showModal()"
+                            >
+                                <span class="material-icons text-[18px]" aria-hidden="true">filter_list</span>
+                                Filtro
+                            </button>
 
-                        {% if has_active_filters %}
-                            <a href="{{ clear_filters_url }}" class="btn btn-error flex-1 text-white sm:w-auto sm:flex-none">Limpar Filtro</a>
-                        {% endif %}
+                            {% if has_active_filters %}
+                                <a href="{{ clear_filters_url }}" class="btn btn-error flex-1 text-white sm:w-auto sm:flex-none">Limpar Filtro</a>
+                            {% endif %}
 
-                        <dialog
-                            id="financial-reports-filter-modal"
-                            class="modal"
-                            x-ref="filterModal"
-                            @click="if ($event.target === $el) $el.close()"
-                        >
-                            <div class="modal-box w-11/12 max-w-3xl border border-base-300 bg-base-100 shadow-2xl">
-                                <form method="get" action="{% url 'finance:reports_home' %}">
-                                    <h3 class="text-base font-semibold text-base-content">Filtrar relatórios</h3>
+                            <dialog
+                                id="financial-reports-filter-modal"
+                                class="modal"
+                                x-ref="filterModal"
+                                @click="if ($event.target === $el) $el.close()"
+                            >
+                                <div class="modal-box w-11/12 max-w-3xl border border-base-300 bg-base-100 shadow-2xl">
+                                    <form method="get" action="{% url 'finance:reports_home' %}">
+                                        <h3 class="text-base font-semibold text-base-content">Filtrar relatórios</h3>
 
-                                    <div class="mt-4 max-h-[65vh] space-y-5 overflow-y-auto pr-1">
-                                        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                            <div>
-                                                <label for="reports-filter-data-inicial">Data inicial</label>
-                                                <input type="date" name="data_inicial" id="reports-filter-data-inicial" value="{{ request.GET.data_inicial|default:'' }}" class="input input-bordered w-full" />
-                                            </div>
-
-                                            <div>
-                                                <label for="reports-filter-data-final">Data final</label>
-                                                <input type="date" name="data_final" id="reports-filter-data-final" value="{{ request.GET.data_final|default:'' }}" class="input input-bordered w-full" />
-                                            </div>
-
-                                            <div>
-                                                <label for="reports-filter-direction">Tipo de conta</label>
-                                                <select name="direction" id="reports-filter-direction" class="select select-bordered w-full">
-                                                    {% for value, label in direction_filter_choices %}
-                                                        <option value="{{ value }}" {% if selected_direction == value %}selected{% endif %}>{{ label }}</option>
-                                                    {% endfor %}
-                                                </select>
-                                            </div>
-
-                                            <div>
-                                                <label for="reports-filter-bank-account">Conta bancária</label>
-                                                <select name="bank_account" id="reports-filter-bank-account" class="select select-bordered w-full">
-                                                    <option value="">Todas</option>
-                                                    {% for bank_account in bank_account_filters %}
-                                                        <option value="{{ bank_account.pk|unlocalize }}" {% if selected_bank_account_id == bank_account.pk %}selected{% endif %}>{{ bank_account }}</option>
-                                                    {% endfor %}
-                                                </select>
-                                            </div>
-                                        </div>
-
-                                        <div
-                                            class="space-y-3 rounded-xl border border-base-300 bg-base-200/40 p-4"
-                                            x-data="{
-                                                all: false,
-                                                hierarchicalSelection: true,
-                                                getRowCheckboxes() {
-                                                    return Array.from($el.querySelectorAll('input.row-checkbox[data-row-id]'))
-                                                },
-                                                getUniqueRowIds() {
-                                                    return [...new Set(this.getRowCheckboxes().map((checkbox) => checkbox.dataset.rowId).filter(Boolean))]
-                                                },
-                                                getCheckboxesForRow(rowId) {
-                                                    return this.getRowCheckboxes().filter((checkbox) => checkbox.dataset.rowId === String(rowId))
-                                                },
-                                                getFirstCheckboxForRow(rowId) {
-                                                    return this.getCheckboxesForRow(rowId)[0] || null
-                                                },
-                                                setRowChecked(rowId, checked) {
-                                                    this.getCheckboxesForRow(rowId).forEach((checkbox) => {
-                                                        checkbox.checked = checked
-                                                    })
-                                                },
-                                                isRowChecked(rowId) {
-                                                    return this.getCheckboxesForRow(rowId).some((checkbox) => checkbox.checked)
-                                                },
-                                                getDirectChildIds(parentId) {
-                                                    return [...new Set(this.getRowCheckboxes().filter((checkbox) => (checkbox.dataset.parentId || '') === String(parentId)).map((checkbox) => checkbox.dataset.rowId).filter(Boolean))]
-                                                },
-                                                getDescendantIds(parentId) {
-                                                    const descendants = []
-                                                    const pendingIds = [...this.getDirectChildIds(parentId)]
-                                                    const visited = new Set()
-
-                                                    while (pendingIds.length > 0) {
-                                                        const currentId = pendingIds.shift()
-                                                        if (!currentId || visited.has(currentId)) {
-                                                            continue
-                                                        }
-
-                                                        visited.add(currentId)
-                                                        descendants.push(currentId)
-                                                        pendingIds.push(...this.getDirectChildIds(currentId))
-                                                    }
-
-                                                    return descendants
-                                                },
-                                                getParentId(rowId) {
-                                                    const checkbox = this.getFirstCheckboxForRow(rowId)
-                                                    return checkbox ? (checkbox.dataset.parentId || '') : ''
-                                                },
-                                                updateAncestorState(rowId) {
-                                                    let parentId = this.getParentId(rowId)
-
-                                                    while (parentId) {
-                                                        const childIds = this.getDirectChildIds(parentId)
-                                                        const shouldCheckParent = childIds.length > 0 && childIds.every((childId) => this.isRowChecked(childId))
-                                                        this.setRowChecked(parentId, shouldCheckParent)
-                                                        parentId = this.getParentId(parentId)
-                                                    }
-                                                },
-                                                syncMasterCheckbox() {
-                                                    const rowIds = this.getUniqueRowIds()
-                                                    this.all = rowIds.length > 0 && rowIds.every((rowId) => this.isRowChecked(rowId))
-                                                },
-                                                toggleAll() {
-                                                    this.getUniqueRowIds().forEach((rowId) => {
-                                                        this.setRowChecked(rowId, this.all)
-                                                    })
-                                                    this.syncMasterCheckbox()
-                                                },
-                                                handleRowCheckboxChange(event) {
-                                                    const checkbox = event.target
-                                                    const rowId = checkbox.dataset.rowId || checkbox.value
-                                                    if (!rowId) {
-                                                        this.syncMasterCheckbox()
-                                                        return
-                                                    }
-
-                                                    this.setRowChecked(rowId, checkbox.checked)
-                                                    this.getDescendantIds(rowId).forEach((descendantId) => {
-                                                        this.setRowChecked(descendantId, checkbox.checked)
-                                                    })
-                                                    this.updateAncestorState(rowId)
-                                                    this.syncMasterCheckbox()
-                                                }
-                                            }"
-                                            x-init="syncMasterCheckbox()"
-                                        >
-                                            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                                                <div class="space-y-1">
-                                                    <h3 class="text-sm font-semibold text-base-content">Grupos e subgrupos do plano orçamentário</h3>
-                                                    <p class="text-xs text-base-content/60">Selecione um ou mais grupos para filtrar as movimentações.</p>
+                                        <div class="mt-4 max-h-[65vh] space-y-5 overflow-y-auto pr-1">
+                                            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                                <div>
+                                                    <label for="reports-filter-data-inicial">Data inicial</label>
+                                                    <input type="date" name="data_inicial" id="reports-filter-data-inicial" value="{{ request.GET.data_inicial|default:'' }}" class="input input-bordered w-full" />
                                                 </div>
 
-                                                <label class="label cursor-pointer gap-3 self-start py-0 sm:self-auto">
-                                                    <span class="label-text text-sm font-medium text-base-content">Selecionar todos</span>
-                                                    <input type="checkbox" class="checkbox checkbox-sm" x-model="all" @change="toggleAll" aria-label="Selecionar todos" />
-                                                </label>
+                                                <div>
+                                                    <label for="reports-filter-data-final">Data final</label>
+                                                    <input type="date" name="data_final" id="reports-filter-data-final" value="{{ request.GET.data_final|default:'' }}" class="input input-bordered w-full" />
+                                                </div>
+
+                                                <div>
+                                                    <label for="reports-filter-direction">Tipo de conta</label>
+                                                    <select name="direction" id="reports-filter-direction" class="select select-bordered w-full">
+                                                        {% for value, label in direction_filter_choices %}
+                                                            <option value="{{ value }}" {% if selected_direction == value %}selected{% endif %}>{{ label }}</option>
+                                                        {% endfor %}
+                                                    </select>
+                                                </div>
+
+                                                <div>
+                                                    <label for="reports-filter-bank-account">Conta bancária</label>
+                                                    <select name="bank_account" id="reports-filter-bank-account" class="select select-bordered w-full">
+                                                        <option value="">Todas</option>
+                                                        {% for bank_account in bank_account_filters %}
+                                                            <option value="{{ bank_account.pk|unlocalize }}" {% if selected_bank_account_id == bank_account.pk %}selected{% endif %}>{{ bank_account }}</option>
+                                                        {% endfor %}
+                                                    </select>
+                                                </div>
                                             </div>
 
-                                            <div class="max-h-64 space-y-2 overflow-y-auto pr-1">
-                                                {% for financial_group in financial_group_filters %}
-                                                    <label class="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition hover:bg-base-100/70">
-                                                        <input
-                                                            type="checkbox"
-                                                            class="checkbox checkbox-sm row-checkbox"
-                                                            name="financial_groups"
-                                                            value="{{ financial_group.pk|unlocalize }}"
-                                                            data-row-id="{{ financial_group.pk|unlocalize }}"
-                                                            {% if financial_group.parent_id %}data-parent-id="{{ financial_group.parent_id|unlocalize }}"{% endif %}
-                                                            {% if financial_group.pk in selected_financial_group_ids %}checked{% endif %}
-                                                            @change="handleRowCheckboxChange($event)"
-                                                            aria-label="Selecionar grupo financeiro"
-                                                        />
-                                                        <span class="text-sm text-base-content">{{ financial_group.dre_hierarchy_label }}</span>
+                                            <div
+                                                class="space-y-3 rounded-xl border border-base-300 bg-base-200/40 p-4"
+                                                x-data="{
+                                                    all: false,
+                                                    hierarchicalSelection: true,
+                                                    getRowCheckboxes() {
+                                                        return Array.from($el.querySelectorAll('input.row-checkbox[data-row-id]'))
+                                                    },
+                                                    getUniqueRowIds() {
+                                                        return [...new Set(this.getRowCheckboxes().map((checkbox) => checkbox.dataset.rowId).filter(Boolean))]
+                                                    },
+                                                    getCheckboxesForRow(rowId) {
+                                                        return this.getRowCheckboxes().filter((checkbox) => checkbox.dataset.rowId === String(rowId))
+                                                    },
+                                                    getFirstCheckboxForRow(rowId) {
+                                                        return this.getCheckboxesForRow(rowId)[0] || null
+                                                    },
+                                                    setRowChecked(rowId, checked) {
+                                                        this.getCheckboxesForRow(rowId).forEach((checkbox) => {
+                                                            checkbox.checked = checked
+                                                        })
+                                                    },
+                                                    isRowChecked(rowId) {
+                                                        return this.getCheckboxesForRow(rowId).some((checkbox) => checkbox.checked)
+                                                    },
+                                                    getDirectChildIds(parentId) {
+                                                        return [...new Set(this.getRowCheckboxes().filter((checkbox) => (checkbox.dataset.parentId || '') === String(parentId)).map((checkbox) => checkbox.dataset.rowId).filter(Boolean))]
+                                                    },
+                                                    getDescendantIds(parentId) {
+                                                        const descendants = []
+                                                        const pendingIds = [...this.getDirectChildIds(parentId)]
+                                                        const visited = new Set()
+
+                                                        while (pendingIds.length > 0) {
+                                                            const currentId = pendingIds.shift()
+                                                            if (!currentId || visited.has(currentId)) {
+                                                                continue
+                                                            }
+
+                                                            visited.add(currentId)
+                                                            descendants.push(currentId)
+                                                            pendingIds.push(...this.getDirectChildIds(currentId))
+                                                        }
+
+                                                        return descendants
+                                                    },
+                                                    getParentId(rowId) {
+                                                        const checkbox = this.getFirstCheckboxForRow(rowId)
+                                                        return checkbox ? (checkbox.dataset.parentId || '') : ''
+                                                    },
+                                                    updateAncestorState(rowId) {
+                                                        let parentId = this.getParentId(rowId)
+
+                                                        while (parentId) {
+                                                            const childIds = this.getDirectChildIds(parentId)
+                                                            const shouldCheckParent = childIds.length > 0 && childIds.every((childId) => this.isRowChecked(childId))
+                                                            this.setRowChecked(parentId, shouldCheckParent)
+                                                            parentId = this.getParentId(parentId)
+                                                        }
+                                                    },
+                                                    syncMasterCheckbox() {
+                                                        const rowIds = this.getUniqueRowIds()
+                                                        this.all = rowIds.length > 0 && rowIds.every((rowId) => this.isRowChecked(rowId))
+                                                    },
+                                                    toggleAll() {
+                                                        this.getUniqueRowIds().forEach((rowId) => {
+                                                            this.setRowChecked(rowId, this.all)
+                                                        })
+                                                        this.syncMasterCheckbox()
+                                                    },
+                                                    handleRowCheckboxChange(event) {
+                                                        const checkbox = event.target
+                                                        const rowId = checkbox.dataset.rowId || checkbox.value
+                                                        if (!rowId) {
+                                                            this.syncMasterCheckbox()
+                                                            return
+                                                        }
+
+                                                        this.setRowChecked(rowId, checkbox.checked)
+                                                        this.getDescendantIds(rowId).forEach((descendantId) => {
+                                                            this.setRowChecked(descendantId, checkbox.checked)
+                                                        })
+                                                        this.updateAncestorState(rowId)
+                                                        this.syncMasterCheckbox()
+                                                    }
+                                                }"
+                                                x-init="syncMasterCheckbox()"
+                                            >
+                                                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                                    <div class="space-y-1">
+                                                        <h3 class="text-sm font-semibold text-base-content">Grupos e subgrupos do plano orçamentário</h3>
+                                                        <p class="text-xs text-base-content/60">Selecione um ou mais grupos para filtrar as movimentações.</p>
+                                                    </div>
+
+                                                    <label class="label cursor-pointer gap-3 self-start py-0 sm:self-auto">
+                                                        <span class="label-text text-sm font-medium text-base-content">Selecionar todos</span>
+                                                        <input type="checkbox" class="checkbox checkbox-sm" x-model="all" @change="toggleAll" aria-label="Selecionar todos" />
                                                     </label>
-                                                {% empty %}
-                                                    <p class="text-sm text-base-content/60">Nenhum grupo financeiro cadastrado.</p>
-                                                {% endfor %}
+                                                </div>
+
+                                                <div class="max-h-64 space-y-2 overflow-y-auto pr-1">
+                                                    {% for financial_group in financial_group_filters %}
+                                                        <label class="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition hover:bg-base-100/70">
+                                                            <input
+                                                                type="checkbox"
+                                                                class="checkbox checkbox-sm row-checkbox"
+                                                                name="financial_groups"
+                                                                value="{{ financial_group.pk|unlocalize }}"
+                                                                data-row-id="{{ financial_group.pk|unlocalize }}"
+                                                                {% if financial_group.parent_id %}data-parent-id="{{ financial_group.parent_id|unlocalize }}"{% endif %}
+                                                                {% if financial_group.pk in selected_financial_group_ids %}checked{% endif %}
+                                                                @change="handleRowCheckboxChange($event)"
+                                                                aria-label="Selecionar grupo financeiro"
+                                                            />
+                                                            <span class="text-sm text-base-content">{{ financial_group.dre_hierarchy_label }}</span>
+                                                        </label>
+                                                    {% empty %}
+                                                        <p class="text-sm text-base-content/60">Nenhum grupo financeiro cadastrado.</p>
+                                                    {% endfor %}
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
 
-                                    <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
-                                        <button type="button" class="btn-form-cancel" @click="$refs.filterModal.close()">Cancelar</button>
-                                        <button type="submit" class="btn btn-primary">Filtrar</button>
-                                    </div>
-                                </form>
-                            </div>
-                        </dialog>
+                                        <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
+                                            <button type="button" class="btn-form-cancel" @click="$refs.filterModal.close()">Cancelar</button>
+                                            <button type="submit" class="btn btn-primary">Filtrar</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </dialog>
+                        </form>
                     </div>
                 </div>
 
