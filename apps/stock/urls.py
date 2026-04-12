@@ -29,6 +29,7 @@ urlpatterns = [
     path("payment/additional/add/", views.AddAdditionalChargeSessionView.as_view(), name="add_additional_value_session"),
     # Link / Unlink
     path("link-manual/", views.LinkProductManualView.as_view(), name="link_product_manual"),
+    path("link-manual/item-editor/", views.ManualLinkItemEditorView.as_view(), name="manual_link_item_editor"),
     path("unlink-item/", views.UnlinkItemView.as_view(), name="unlink_item"),
     #
     path("supplier_details/", views.SupplierDetailsView.as_view(), name="supplier_details"),

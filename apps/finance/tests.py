@@ -2706,7 +2706,7 @@ class UnifiedEmissionWizardTests(TestCase):
         workorder.sync_from_budget()
         return workorder
 
-    def _build_workorder_with_kit(self, *, suffix: int) -> tuple[WorkOrder, WorkOrderItem, Product, Service]:
+    def _build_workorder_with_kit(self, *, suffix: int, kit_service_selling_price: str | None = None) -> tuple[WorkOrder, WorkOrderItem, Product, Service]:
         budget = Budget(workshop=self.workshop, entry_date=timezone.now().date())
         budget.save()
 
@@ -2731,7 +2731,12 @@ class UnifiedEmissionWizardTests(TestCase):
         )
         kit = Kit.objects.create(workshop=self.workshop, name=f"Kit Emissao {suffix}")
         KitProduct.objects.create(kit=kit, product=product, quantity=1)
-        KitService.objects.create(kit=kit, service=service, quantity=1)
+        KitService.objects.create(
+            kit=kit,
+            service=service,
+            quantity=1,
+            selling_price=Money(kit_service_selling_price, "BRL") if kit_service_selling_price is not None else None,
+        )
         BudgetItem.objects.create(workshop=self.workshop, budget=budget, kit=kit, quantity=1)
 
         workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
@@ -3085,6 +3090,28 @@ class UnifiedEmissionWizardTests(TestCase):
         self.assertEqual(override.product_cost_price, Money("9.00", "BRL"))
         self.assertEqual(override.product_selling_price, Money("19.00", "BRL"))
         self.assertEqual(override.shipping, Money("4.00", "BRL"))
+
+    def test_unified_items_step_uses_kit_service_custom_selling_price_in_component_modal(self) -> None:
+        workorder, kit_item, _, service = self._build_workorder_with_kit(suffix=90, kit_service_selling_price="44.00")
+        self.client.post(self._wizard_url(step=1), {"workorder": workorder.pk})
+        self.client.post(self._wizard_url(step=2), {})
+
+        response = self.client.get(
+            reverse(
+                "finance:emission_workorder_kit_component_edit",
+                kwargs={
+                    "workorder_pk": workorder.pk,
+                    "item_id": kit_item.pk,
+                    "component_type": "service",
+                    "component_id": service.pk,
+                },
+            ),
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'name="price_0"')
+        self.assertContains(response, 'value="44.00"')
 
     def test_emission_preview_returns_summary_body_with_slider_values(self) -> None:
         self._advance_to_step_4()

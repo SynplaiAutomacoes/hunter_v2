@@ -161,6 +161,42 @@ class KitTests(TestCase):
         item = KitService.objects.get(kit=kit, service=service)
         self.assertEqual(item.duration, datetime.timedelta(hours=1, minutes=20))
 
+    def test_kit_form_persists_service_selling_price_and_updates_kit_total(self):
+        kit = Kit.objects.create(workshop=self.workshop, name="Kit A", description="", is_active=True)
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name="Serviço 1",
+            description="",
+            duration=datetime.timedelta(minutes=30),
+            selling_price=Money(10, "BRL"),
+            suggested_cost=None,
+            is_third_party=False,
+            is_active=True,
+        )
+
+        form = KitForm(
+            instance=kit,
+            data={
+                "name": "Kit A",
+                "description": "",
+                "is_active": "on",
+                "kit_services": [str(service.id)],
+                f"kit_service_qty_{service.id}": "2",
+                f"kit_service_sell_{service.id}": "32.50",
+                **self.build_application_payload(),
+            },
+            workshop=self.workshop,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        form.save()
+
+        item = KitService.objects.get(kit=kit, service=service)
+        kit.refresh_from_db()
+
+        self.assertEqual(item.selling_price, Money("32.50", "BRL"))
+        self.assertEqual(kit.total_price, Money("65.00", "BRL"))
+
     def test_kit_form_rejects_invalid_service_quantity(self):
         service = Service.objects.create(
             workshop=self.workshop,
@@ -214,6 +250,33 @@ class KitTests(TestCase):
 
         self.assertFalse(form.is_valid())
         self.assertIn("Duração inválida para serviço.", form.non_field_errors())
+
+    def test_kit_form_rejects_invalid_service_selling_price(self):
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name="Serviço 1",
+            description="",
+            duration=datetime.timedelta(minutes=30),
+            selling_price=Money(10, "BRL"),
+            suggested_cost=None,
+            is_third_party=False,
+            is_active=True,
+        )
+
+        form = KitForm(
+            data={
+                "name": "Kit A",
+                "description": "",
+                "is_active": "on",
+                "kit_services": [str(service.id)],
+                f"kit_service_sell_{service.id}": "invalido",
+                **self.build_application_payload(),
+            },
+            workshop=self.workshop,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("Valor de venda inválido para serviço.", form.non_field_errors())
 
     def test_kit_form_allows_save_without_applications(self):
         form = KitForm(
@@ -322,6 +385,11 @@ class KitFormPageTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Opcional: informe os veículos, motorizações e anos compatíveis com este kit.")
         self.assertContains(response, "Nenhuma aplicação adicionada.")
+        self.assertContains(response, "Inserir tempo total do Kit")
+        self.assertContains(response, "Inserir Valor Total Venda Serviços")
+        self.assertNotContains(response, "Distribuir Tempos")
+        self.assertContains(response, "Total dos produtos")
+        self.assertContains(response, "Total dos serviços")
         self.assertContains(response, "this.reloadProductSuggestions();", html=False)
         self.assertContains(response, "this.reloadServiceSuggestions();", html=False)
         self.assertContains(response, "Carregando produto...", html=False)

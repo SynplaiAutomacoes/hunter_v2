@@ -6,6 +6,7 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import F, Q
 from djmoney.models.fields import MoneyField
+from djmoney.money import Money
 
 from apps.catalog.kit_applications import build_kit_application_label, build_kit_applications_summary, build_kit_application_preview_lines, build_powertrain_display
 from apps.catalog.models.products import Product
@@ -122,6 +123,7 @@ class KitService(TimeStampedModel):
     service = models.ForeignKey(Service, on_delete=models.CASCADE, related_name="service_kits")
     quantity = models.PositiveIntegerField(verbose_name="Quantidade", default=1)
     duration = models.DurationField(verbose_name="Duração", default=timedelta)
+    selling_price = MoneyField(verbose_name="Valor de Venda", max_digits=14, decimal_places=2, null=True, blank=True, default_currency="BRL")
 
     class Meta:
         verbose_name = "Item de Kit (Serviço)"
@@ -135,3 +137,7 @@ class KitService(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.kit} - {self.service}"
+
+    @property
+    def resolved_selling_price(self) -> Money:
+        return self.selling_price if self.selling_price is not None else self.service.selling_price

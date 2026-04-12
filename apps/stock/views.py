@@ -6,7 +6,7 @@ from django import forms
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
-from django.http import HttpRequest, HttpResponse
+from django.http import Http404, HttpRequest, HttpResponse
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -22,6 +22,7 @@ from djmoney.money import Money
 
 from .forms import (
     AdditionalChargeSessionForm,
+    ManualLinkItemEditForm,
     ImportManualItemsForm,
     ImportSefazListForm,
     ImportStep1Form,
@@ -432,8 +433,9 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
         transfers = []
         for transfer in transfers_queryset:
             if transfer.operation_type == StockTransfer.OperationType.ADJUSTMENT:
-                if transfer.status == StockTransfer.TransferStatus.DRAFT: continue
-                display_path = f"BAIXA"
+                if transfer.status == StockTransfer.TransferStatus.DRAFT:
+                    continue
+                display_path = "BAIXA"
             elif transfer.destination_workshop:
                 display_path = f"{transfer.source_workshop.name} -> {transfer.destination_workshop.name}"
             else:
@@ -756,16 +758,12 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
             from apps.finance.models.financial_movement import FinancialMovement
             from apps.sources.models import Source
-            
+
             resolved_nf_number = obj.nf_number_display or "S/N" if hasattr(obj, "nf_number_display") else (obj.nf_number or "S/N")
             source_name = obj.supplier_name or "Fornecedor da Importação"
             source_cnpj = obj.supplier_cnpj or ""
-            source, _ = Source.objects.get_or_create(
-                workshop=self.workshop,
-                name=source_name,
-                defaults={"cnpj": source_cnpj}
-            )
-            
+            source, _ = Source.objects.get_or_create(workshop=self.workshop, name=source_name, defaults={"cnpj": source_cnpj})
+
             fm = FinancialMovement.objects.create(
                 workshop=self.workshop,
                 user=self.request.user,
@@ -837,6 +835,7 @@ class RemovePaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
         removed_payment = next((p for p in obj.payments_data if p["id"] == int(payment_id)), None)
         if removed_payment:
             from apps.finance.models.financial_movement import FinancialMovement
+
             if "financial_movement_id" in removed_payment and removed_payment["financial_movement_id"]:
                 FinancialMovement.objects.filter(pk=removed_payment["financial_movement_id"], workshop=self.workshop).delete()
             if "fee_financial_movement_id" in removed_payment and removed_payment["fee_financial_movement_id"]:
@@ -929,13 +928,22 @@ class LinkProductManualView(LoginRequiredMixin, WorkshopScopedMixin, View):
         import_items = list(obj.items_data)
 
         if is_manual:
-            new_item = {"ref": product.code, "desc": product.name, "qtd": 1, "valor": str(product.cost_price.amount), "linked_product_id": str(product_id)}
+            new_item = {
+                "ref": product.code,
+                "desc": product.name,
+                "qtd": 1,
+                "valor": str(product.cost_price.amount),
+                "selling_price": str(product.selling_price.amount),
+                "linked_product_id": str(product_id),
+            }
             import_items.append(new_item)
         else:
             try:
                 item_idx = int(raw_item_idx)
                 if 0 <= item_idx < len(import_items):
                     import_items[item_idx]["linked_product_id"] = product_id
+                    if import_items[item_idx].get("selling_price") in (None, ""):
+                        import_items[item_idx]["selling_price"] = str(product.selling_price.amount)
             except (ValueError, TypeError):
                 return HttpResponse("Índice de item inválido", status=400)
 
@@ -944,6 +952,105 @@ class LinkProductManualView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         response = HttpResponse("")
         response["HX-Trigger"] = "productCreated"
+        return response
+
+
+class ManualLinkItemEditorView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = StockImport
+    workshop_permission_codename = "change_stockimport"
+
+    @staticmethod
+    def _parse_item_idx(raw_item_idx: int | str | None) -> int | None:
+        cleaned_value = clean_id(raw_item_idx)
+        if cleaned_value in (None, ""):
+            return None
+        return int(cleaned_value)
+
+    def _get_stock_import(self, pk: int | str | None) -> StockImport:
+        return get_object_or_404(StockImport, id=clean_id(pk), workshop=self.workshop, method=StockImport.ImportMethods.MANUAL)
+
+    @staticmethod
+    def _get_item_data(stock_import: StockImport, item_idx: int | None) -> dict[str, str] | None:
+        if item_idx is None:
+            return None
+
+        items = list(stock_import.items_data or [])
+        if item_idx < 0 or item_idx >= len(items):
+            raise Http404("Índice do item inválido.")
+
+        return dict(items[item_idx])
+
+    def _get_product(self, product_id: int | str | None, *, item_data: dict[str, str] | None = None) -> Product:
+        resolved_product_id = clean_id(product_id)
+        if resolved_product_id in (None, "") and item_data is not None:
+            resolved_product_id = clean_id(item_data.get("linked_product_id"))
+
+        return get_object_or_404(Product.objects.filter(workshop=self.workshop).select_related("stock_products"), id=resolved_product_id)
+
+    def _build_form(self, request: HttpRequest, *, stock_import: StockImport, product: Product, item_idx: int | None) -> ManualLinkItemEditForm:
+        form_kwargs: dict[str, object] = {
+            "product": product,
+            "stock_import": stock_import,
+            "item_idx": item_idx,
+        }
+        if request.method == "POST":
+            form_kwargs["data"] = request.POST
+        return ManualLinkItemEditForm(**form_kwargs)
+
+    def _render_modal(self, request: HttpRequest, *, stock_import: StockImport, product: Product, form: ManualLinkItemEditForm, item_idx: int | None) -> HttpResponse:
+        query_params = f"?pk={stock_import.pk}&product_id={product.pk}"
+        if item_idx is not None:
+            query_params += f"&item_idx={item_idx}"
+
+        return render(
+            request,
+            "stock/partials/modal/manual_link_item_editor_modal.html",
+            {
+                "form": form,
+                "product": product,
+                "stock_import": stock_import,
+                "submit_url": f"{reverse('stock:manual_link_item_editor')}{query_params}",
+            },
+        )
+
+    def get(self, request: HttpRequest) -> HttpResponse:
+        stock_import = self._get_stock_import(request.GET.get("pk"))
+        item_idx = self._parse_item_idx(request.GET.get("item_idx"))
+        item_data = self._get_item_data(stock_import, item_idx)
+        product = self._get_product(request.GET.get("product_id"), item_data=item_data)
+        form = self._build_form(request, stock_import=stock_import, product=product, item_idx=item_idx)
+        return self._render_modal(request, stock_import=stock_import, product=product, form=form, item_idx=item_idx)
+
+    @transaction.atomic
+    def post(self, request: HttpRequest) -> HttpResponse:
+        stock_import = self._get_stock_import(request.GET.get("pk") or request.POST.get("pk"))
+        item_idx = self._parse_item_idx(request.GET.get("item_idx") or request.POST.get("item_idx"))
+        item_data = self._get_item_data(stock_import, item_idx)
+        product = self._get_product(request.GET.get("product_id") or request.POST.get("product_id"), item_data=item_data)
+        form = self._build_form(request, stock_import=stock_import, product=product, item_idx=item_idx)
+
+        if not form.is_valid():
+            return self._render_modal(request, stock_import=stock_import, product=product, form=form, item_idx=item_idx)
+
+        items = list(stock_import.items_data or [])
+        if item_idx is not None:
+            items[item_idx] = form.build_item_data()
+        else:
+            items.append(form.build_item_data())
+        stock_import.items_data = items
+        stock_import.save(update_fields=["items_data"])
+
+        success_message = f"{product.name} atualizado na importacao manual." if item_idx is not None else f"{product.name} adicionado a importacao manual."
+        response = HttpResponse("")
+        response["HX-Trigger"] = json.dumps(
+            {
+                "productCreated": {},
+                "showToast": {
+                    "type": "success",
+                    "message": success_message,
+                },
+            }
+        )
         return response
 
 
@@ -1063,6 +1170,8 @@ class ProductQuickCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView
 
                 if 0 <= idx < len(items):
                     items[idx]["linked_product_id"] = str(self.object.id)
+                    if items[idx].get("selling_price") in (None, ""):
+                        items[idx]["selling_price"] = str(self.object.selling_price.amount)
                     stock_import.items_data = items
                     stock_import.save(update_fields=["items_data"])
             except (ValueError, IndexError):
@@ -1251,6 +1360,13 @@ class UpdateManualItemDataView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 except (InvalidOperation, ValueError):
                     pass
 
+            new_selling_price = request.POST.get(f"items_selling_price_{idx}_0")
+            if new_selling_price is not None:
+                try:
+                    items[idx]["selling_price"] = str(Decimal(new_selling_price.replace(",", ".")))
+                except (InvalidOperation, ValueError):
+                    pass
+
             obj.items_data = items
             obj.save(update_fields=["items_data"])
 
@@ -1262,6 +1378,7 @@ class UpdateManualItemDataView(LoginRequiredMixin, WorkshopScopedMixin, View):
 def _get_user_transfer_workshops(request) -> models.QuerySet[Workshop]:
     return Workshop.objects.filter(account_id=request.user.account_id, is_active=True, members__user=request.user, members__is_active=True).distinct().order_by("name")
 
+
 def update_transfer_reason(request, pk):
     transfer = get_object_or_404(StockTransfer, pk=pk)
     reason = request.POST.get("reason", "").strip()
@@ -1270,6 +1387,7 @@ def update_transfer_reason(request, pk):
     transfer.save(update_fields=["reason"])
 
     return HttpResponse(status=204)
+
 
 class StockTransferAccessMixin(LoginRequiredMixin):
     active_workshop: Workshop
@@ -1457,7 +1575,7 @@ class AddTransferSourceItemView(StockTransferAccessMixin, View):
         raw_quantity = request.POST.get("quantity") or "1"
         transfer = get_object_or_404(StockTransfer, pk=pk)
         source_product = get_object_or_404(Product, id=product_id, workshop=transfer.source_workshop)
-        
+
         clear_others = request.POST.get("clear_others") == "true"
         if clear_others:
             items = []

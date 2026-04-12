@@ -86,7 +86,7 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
             quantity = override.quantity if override else kit_service.quantity
             cost = override.service_cost_price if override else service.suggested_cost
-            price = override.service_selling_price if override else service.selling_price
+            price = override.service_selling_price if override else kit_service.resolved_selling_price
 
             row_form = BudgetKitServiceEditRowForm(
                 initial={
@@ -150,6 +150,8 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
             product_id = str(product_data.get("id"))
             try:
                 product = get_object_or_404(Product, id=str(product_id), workshop=self.workshop)
+                existing_override = BudgetKitItemOverride.objects.filter(workshop=self.workshop, budget_item=item, product=product).first()
+                product_selling_price = (existing_override.product_selling_price if existing_override else product.selling_price) if budget.is_warranty_budget else Money(Decimal(str(product_data.get("price", 0))), "BRL")
 
                 BudgetKitItemOverride.objects.update_or_create(
                     workshop=self.workshop,
@@ -158,11 +160,11 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     defaults={
                         "quantity": max(0, int(product_data.get("quantity", 1))),
                         "product_cost_price": Money(Decimal(str(product_data.get("cost", 0))), "BRL"),
-                        "product_selling_price": Money(Decimal(str(product_data.get("price", 0))), "BRL"),
+                        "product_selling_price": product_selling_price,
                         "shipping": Money(Decimal(str(product_data.get("shipping", 0))), "BRL"),
                     },
                 )
-                record_product_last_used_price(product=product, price=Money(Decimal(str(product_data.get("price", 0))), "BRL"))
+                record_product_last_used_price(product=product, price=product_selling_price)
             except Exception:
                 logger.exception(
                     "Falha ao salvar produto do kit no orcamento",
@@ -179,6 +181,7 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
             service_id = str(service_data.get("id"))
             try:
                 service = get_object_or_404(Service, id=str(service_id), workshop=self.workshop)
+                existing_override = BudgetKitItemOverride.objects.filter(workshop=self.workshop, budget_item=item, service=service).first()
 
                 duration_str = service_data.get("duration", "00:00:00")
                 duration = None
@@ -201,6 +204,8 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                         )
                         duration = timedelta(0)
 
+                service_selling_price = (existing_override.service_selling_price if existing_override else service.selling_price) if budget.is_warranty_budget else Money(Decimal(str(service_data.get("price", 0))), "BRL")
+
                 override, created = BudgetKitItemOverride.objects.update_or_create(
                     workshop=self.workshop,
                     budget_item=item,
@@ -208,7 +213,7 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     defaults={
                         "quantity": max(0, int(service_data.get("quantity", 1))),
                         "service_cost_price": Money(Decimal(str(service_data.get("cost", 0))), "BRL"),
-                        "service_selling_price": Money(Decimal(str(service_data.get("price", 0))), "BRL"),
+                        "service_selling_price": service_selling_price,
                         "duration": duration,
                     },
                 )
@@ -295,7 +300,7 @@ class BudgetKitProductCalculateView(LoginRequiredMixin, WorkshopScopedMixin, Vie
         shipping_default = existing_override.shipping.amount if existing_override else Decimal("0")
 
         parsed_cost = _parse_decimal_value(request.POST.get("cost"), cost_default).quantize(Decimal("0.01"))
-        parsed_price = _parse_decimal_value(request.POST.get("price"), price_default).quantize(Decimal("0.01"))
+        parsed_price = _parse_decimal_value(request.POST.get("price"), price_default).quantize(Decimal("0.01")) if not budget.is_warranty_budget else price_default.quantize(Decimal("0.01"))
         parsed_shipping = _parse_decimal_value(request.POST.get("shipping"), shipping_default).quantize(Decimal("0.01"))
 
         BudgetKitItemOverride.objects.update_or_create(
@@ -336,6 +341,7 @@ class BudgetKitServiceCalculateView(LoginRequiredMixin, WorkshopScopedMixin, Vie
         if not service_in_kit:
             return JsonResponse({"error": "service_not_in_kit"}, status=400)
 
+        kit_service = get_object_or_404(item.kit.kit_services.select_related("service"), service_id=service_id)
         service = get_object_or_404(Service, id=service_id, workshop=self.workshop)
         existing_override = BudgetKitItemOverride.objects.filter(workshop=self.workshop, budget_item=item, service=service).first()
 
@@ -350,12 +356,12 @@ class BudgetKitServiceCalculateView(LoginRequiredMixin, WorkshopScopedMixin, Vie
         if changed_field == "duration":
             service_cost_price, service_selling_price = _calculate_service_prices(duration, workshop_cost)
             service_cost_price_amount = service_cost_price.amount.quantize(Decimal("0.01"))
-            service_selling_price_amount = service_selling_price.amount.quantize(Decimal("0.01"))
+            service_selling_price_amount = (existing_override.service_selling_price.amount if existing_override else kit_service.resolved_selling_price.amount).quantize(Decimal("0.01")) if budget.is_warranty_budget else service_selling_price.amount.quantize(Decimal("0.01"))
         else:
             cost_default = existing_override.service_cost_price.amount if existing_override and existing_override.service_cost_price else (service.suggested_cost.amount if service.suggested_cost else Decimal("0"))
-            price_default = existing_override.service_selling_price.amount if existing_override else service.selling_price.amount
+            price_default = existing_override.service_selling_price.amount if existing_override else kit_service.resolved_selling_price.amount
             service_cost_price_amount = _parse_decimal_value(request.POST.get("cost"), cost_default).quantize(Decimal("0.01"))
-            service_selling_price_amount = _parse_decimal_value(request.POST.get("price"), price_default).quantize(Decimal("0.01"))
+            service_selling_price_amount = price_default.quantize(Decimal("0.01")) if budget.is_warranty_budget else _parse_decimal_value(request.POST.get("price"), price_default).quantize(Decimal("0.01"))
 
         quantity = request.POST.get("quantity")
         try:
