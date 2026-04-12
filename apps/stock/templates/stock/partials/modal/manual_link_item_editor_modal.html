@@ -16,7 +16,7 @@
               hx-target="#child-modal-container"
               hx-swap="innerHTML"
               x-data="{{ form.alpine_data|escape }}"
-              @submit="handleSubmit($event)">
+              @submit.prevent="handleSubmit($event)">
             {% csrf_token %}
             {{ form.product_id }}
             {{ form.item_idx }}
@@ -111,7 +111,7 @@
 
             <div class="modal-action mt-8">
                 <button type="button" class="btn btn-ghost" onclick="window.closeStockChildModal ? window.closeStockChildModal() : document.getElementById('child-modal-container').innerHTML=''">Cancelar</button>
-                <button type="submit" class="btn btn-primary gap-2">
+                <button type="submit" class="btn btn-primary gap-2" :disabled="isSubmitting">
                     <span class="material-icons">{{ form.submit_icon }}</span>
                     {{ form.submit_label }}
                 </button>

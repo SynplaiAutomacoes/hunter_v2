@@ -1744,7 +1744,7 @@ class BudgetStep4Form(forms.ModelForm):
                                             </th>
                                             <th class="w-[16%] text-left">DESCRIÇÃO</th>
                                             <th class="w-[16%] text-left">APLICAÇÃO</th>
-                                            <th class="w-[10%] text-center whitespace-normal break-words leading-tight">Trago pelo cliente?</th>
+                                            <th class="w-[10%] text-center whitespace-normal break-words leading-tight">Fornecido pelo cliente?</th>
                                             <th class="w-[8%] text-center">QTD.</th>
                                             <th class="w-[10%] text-right">CUSTO</th>
                                             <th class="w-[12%] text-right">VALOR VENDA</th>
@@ -2943,7 +2943,7 @@ class BudgetStep6Form(forms.ModelForm):
                                 <tr>
                                   <th class="w-[20%]">NOME</th>
                                   <th class="w-[18%]">APLICAÇÃO</th>
-                                  <th class="w-[14%] text-center whitespace-normal break-words leading-tight" title="Trago pelo cliente?">Trago pelo cliente?</th>
+                                  <th class="w-[14%] text-center whitespace-normal break-words leading-tight" title="Fornecido pelo cliente?">Fornecido pelo cliente?</th>
                                   <th class="w-[8%] text-center">QTD.</th>
                                   <th class="w-[10%]">CUSTO</th>
                                   <th class="w-[12%]">VALOR</th>
