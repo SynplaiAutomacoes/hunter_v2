@@ -2042,14 +2042,14 @@ class BudgetStep5Form(forms.ModelForm):
         custo_total_mao_obra = custo_hora_mecanico * duracao_em_horas
 
         # Valores de venda baseados sempre nos itens do orçamento
-        venda_servico_terceiros = budget.total_third_party_services_selling
-        venda_pecas = budget.get_total_products_by_slider
-        venda_mao_obra = budget.get_total_labor_by_slider
+        venda_servico_terceiros = Money(0, "BRL") if budget.is_warranty_budget else budget.total_third_party_services_selling
+        venda_pecas = Money(0, "BRL") if budget.is_warranty_budget else budget.get_total_products_by_slider
+        venda_mao_obra = Money(0, "BRL") if budget.is_warranty_budget else budget.get_total_labor_by_slider
 
         # Extra
-        metodo_precificacao = dados.get("method_name") or ""
-        lucro_operacional = dados.get("lucro_operacional") or zerado
-        rentabilidade = dados.get("rentabilidade") or 0
+        metodo_precificacao = "Garantia" if budget.is_warranty_budget else (dados.get("method_name") or "")
+        lucro_operacional = zerado if budget.is_warranty_budget else (dados.get("lucro_operacional") or zerado)
+        rentabilidade = Decimal("0") if budget.is_warranty_budget else (dados.get("rentabilidade") or 0)
         mlr = budget.get_mlr
         mlo = budget.get_mlo
 
@@ -2066,10 +2066,10 @@ class BudgetStep5Form(forms.ModelForm):
             rentabilidade_class = "rentabilidade-medio"
             rentabilidade_bg = "bg-rentabilidade-medio"
 
-        discount_amount = budget.resolved_discount_value.amount if budget.resolved_discount_value else Decimal("0")
-        discount_display = budget.resolved_discount_value if discount_amount != Decimal("0") else Money(0, "BRL")
-        self.initial["discount_percentage"] = budget.resolved_discount_percentage
-        self.initial["discount_value"] = budget.resolved_discount_value
+        discount_amount = budget.display_resolved_discount_value.amount if budget.display_resolved_discount_value else Decimal("0")
+        discount_display = budget.display_resolved_discount_value if discount_amount != Decimal("0") else Money(0, "BRL")
+        self.initial["discount_percentage"] = budget.display_resolved_discount_percentage
+        self.initial["discount_value"] = budget.display_resolved_discount_value
         step5_calculation_done = bool(budget.pk and (budget.step5_calculation_viewed or budget.current_step > 5))
         step5_loading_hidden_class = "hidden" if step5_calculation_done else ""
         step5_method_hidden_class = "" if step5_calculation_done else "hidden"
@@ -2585,7 +2585,7 @@ class BudgetStep5Form(forms.ModelForm):
                         Div(
                             HTML(f"""<div class="text-center text-base-content mt-6">
                                     <p class="text-2xl font-bold">Valor do Orçamento</p>
-                                    <p class="text-3xl font-black step5-accent-text">{budget.total_base_value}</p>
+                                    <p class="text-3xl font-black step5-accent-text">{budget.display_total_base_value}</p>
                                 </div>""")
                         ),
                         id="step5-method-card",
@@ -2626,7 +2626,7 @@ class BudgetStep5Form(forms.ModelForm):
                             HTML(f"""<div class="space-y-3">
                                         <div class="flex justify-between text-xl font-semibold">
                                             <span>Subtotal:</span>
-                                            <span id="step5-subtotal-display" data-base-total="{budget.total_base_value.amount}">{budget.total_base_value}</span>
+                                            <span id="step5-subtotal-display" data-base-total="{budget.display_total_base_value.amount}">{budget.display_total_base_value}</span>
                                         </div>
                                         <div class="flex justify-between text-xl font-semibold">
                                             <span>Desconto:</span>
@@ -2634,7 +2634,7 @@ class BudgetStep5Form(forms.ModelForm):
                                         </div>
                                         <div class="flex justify-between text-xl font-black">
                                             <span>Valor Final:</span>
-                                            <span id="valor-final-display">{budget.total_budget_value}</span>
+                                            <span id="valor-final-display">{budget.display_total_budget_value}</span>
                                         </div>
                                     </div>"""),
                             css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
@@ -2670,7 +2670,7 @@ class BudgetStep5Form(forms.ModelForm):
         budget = super().save(commit=False)
         budget.invalidate_pricing_snapshot_cache()
         resolved_discount_value, resolved_discount_percentage = resolve_discount_fields(
-            total_base_value=budget.total_base_value,
+            total_base_value=budget.display_total_base_value,
             discount_value=budget.discount_value,
             discount_percentage=budget.discount_percentage,
         )
@@ -2943,7 +2943,7 @@ class BudgetStep6Form(forms.ModelForm):
                                 <tr>
                                   <th class="w-[20%]">NOME</th>
                                   <th class="w-[18%]">APLICAÇÃO</th>
-                                  <th class="w-[14%] text-center whitespace-normal break-words leading-tight" title="Fornecido pelo Cliente">FORNECIDO</th>
+                                  <th class="w-[14%] text-center whitespace-normal break-words leading-tight" title="Trago pelo cliente?">Trago pelo cliente?</th>
                                   <th class="w-[8%] text-center">QTD.</th>
                                   <th class="w-[10%]">CUSTO</th>
                                   <th class="w-[12%]">VALOR</th>

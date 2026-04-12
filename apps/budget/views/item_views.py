@@ -609,8 +609,9 @@ class BudgetItemCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         # No Django, campos MoneyField costumam usar o sufixo _0 para o valor numérico no POST
         data["service_cost_price_0"] = str(service_cost_price_amount)
         data["service_cost_price_1"] = "BRL"
-        data["service_selling_price_0"] = str(service_selling_price_amount)
-        data["service_selling_price_1"] = "BRL"
+        if not budget.is_warranty_budget:
+            data["service_selling_price_0"] = str(service_selling_price_amount)
+            data["service_selling_price_1"] = "BRL"
 
         # Garante que o valor da duração formatado também vá para o POST do novo form
         if duration:
@@ -623,7 +624,7 @@ class BudgetItemCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         form = BudgetItemEditForm(data, instance=item, budget_id=budget_id)
 
         # Apenas o campo de venda vai por OOB, o de custo é o target principal
-        oob_fields = ["service_selling_price"]
+        oob_fields = [] if budget.is_warranty_budget else ["service_selling_price"]
 
         # Se houver erros no form (especialmente na duração), incluímos nos campos OOB
         # para que as mensagens de erro sejam exibidas no modal.

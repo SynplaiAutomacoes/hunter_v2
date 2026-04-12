@@ -56,8 +56,13 @@ def build_workshop_logo_data_uri(*, workshop) -> str:
 def build_budget_pdf_context(*, budget, observacao: str | None = None, request=None) -> dict:
     snapshot = budget.pricing_snapshot
     resolved_observation = observacao if observacao is not None else budget.pdf_observation
+    is_warranty_budget = budget.is_warranty_budget
+    total_produtos = budget.display_total_products_by_slider
+    total_servicos = budget.display_total_services_by_slider
+    desconto = budget.display_resolved_discount_value
+    total_geral = budget.display_total_budget_value
     soma_markup = _calculate_soma_markup(
-        total_budget_value=snapshot.total_budget_value,
+        total_budget_value=total_geral,
         total_costs_products_value=snapshot.total_costs_products_value,
         total_costs_services_value=snapshot.total_costs_services_value,
     )
@@ -71,12 +76,12 @@ def build_budget_pdf_context(*, budget, observacao: str | None = None, request=N
             "application": line.application or "-",
             "code": line.code or "-",
             "location": line.location or "-",
-            "unit_price": line.unit_price,
-            "adjusted_unit_price": line.adjusted_unit_price,
+            "unit_price": (Money(0, "BRL") if is_warranty_budget else line.unit_price),
+            "adjusted_unit_price": (Money(0, "BRL") if is_warranty_budget else line.adjusted_unit_price),
             "shipping": line.shipping,
-            "total_price": line.total_price,
+            "total_price": (line.cost_total + line.shipping if is_warranty_budget else line.total_price),
             "product_cost_price": line.cost_total,
-            "profit_value": line.profit_value,
+            "profit_value": (Money(0, "BRL") if is_warranty_budget else line.profit_value),
             "show_kit_duplicate_warning": line.show_kit_duplicate_warning,
         }
         for line in snapshot.product_lines
@@ -87,10 +92,10 @@ def build_budget_pdf_context(*, budget, observacao: str | None = None, request=N
             "id": line.entity_id,
             "description": line.description,
             "quantity": line.quantity,
-            "unit_price": line.adjusted_unit_price,
-            "total_price": line.total_price,
+            "unit_price": (Money(0, "BRL") if is_warranty_budget else line.adjusted_unit_price),
+            "total_price": (line.cost_total if is_warranty_budget else line.total_price),
             "service_cost_price": line.cost_total,
-            "profit_value": line.profit_value,
+            "profit_value": (Money(0, "BRL") if is_warranty_budget else line.profit_value),
             "duration_display": line.duration_display,
         }
         for line in snapshot.service_lines
@@ -103,15 +108,15 @@ def build_budget_pdf_context(*, budget, observacao: str | None = None, request=N
         "produtos": produtos,
         "servicos": servicos,
         "pages": _build_pdf_pages(produtos, servicos),
-        "total_produtos": budget.get_total_products_by_slider,
-        "total_servicos": budget.get_total_services_by_slider,
-        "desconto": budget.resolved_discount_value,
-        "total_geral": budget.total_budget_value,
+        "total_produtos": total_produtos,
+        "total_servicos": total_servicos,
+        "desconto": desconto,
+        "total_geral": total_geral,
         "soma_markup": soma_markup,
         "soma_markup_display": _format_decimal_multiplier(soma_markup),
         "observacao": resolved_observation,
-        "total_profit_product_value": sum((line.profit_value for line in snapshot.product_lines), Money(0, "BRL")),
-        "total_profit_service_value": sum((line.profit_value for line in snapshot.service_lines), Money(0, "BRL")),
+        "total_profit_product_value": (Money(0, "BRL") if is_warranty_budget else sum((line.profit_value for line in snapshot.product_lines), Money(0, "BRL"))),
+        "total_profit_service_value": (Money(0, "BRL") if is_warranty_budget else sum((line.profit_value for line in snapshot.service_lines), Money(0, "BRL"))),
         "workshop_logo_data_uri": workshop_logo_data_uri,
         "request": request,
     }

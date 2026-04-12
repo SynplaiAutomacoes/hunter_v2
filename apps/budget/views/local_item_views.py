@@ -23,13 +23,13 @@ class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "add_budget"
 
     def get(self, request, budget_id, item_type):
-        _get_budget_for_workshop(self.workshop, budget_id)
+        budget = _get_budget_for_workshop(self.workshop, budget_id)
 
         if item_type == "product":
-            form = LocalProductForm()
+            form = LocalProductForm(is_warranty_budget=budget.is_warranty_budget)
             title = "Incluir Novo Produto Local"
         elif item_type == "service":
-            form = LocalServiceForm(budget_id=budget_id)
+            form = LocalServiceForm(budget_id=budget_id, is_warranty_budget=budget.is_warranty_budget)
             title = "Incluir Novo Serviço Local"
         else:
             return HttpResponse("Tipo inválido", status=400)
@@ -46,9 +46,9 @@ class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
 
         if item_type == "product":
-            form = LocalProductForm(request.POST)
+            form = LocalProductForm(request.POST, is_warranty_budget=budget.is_warranty_budget)
         elif item_type == "service":
-            form = LocalServiceForm(request.POST, budget_id=budget_id)
+            form = LocalServiceForm(request.POST, budget_id=budget_id, is_warranty_budget=budget.is_warranty_budget)
         else:
             return HttpResponse("Tipo inválido", status=400)
 
@@ -220,15 +220,16 @@ class CalculateLocalServiceView(LoginRequiredMixin, WorkshopScopedMixin, View):
         data = request.POST.copy()
         data["service_cost_price_0"] = str(service_cost_price.amount.quantize(Decimal("0.01"), ROUND_HALF_UP))
         data["service_cost_price_1"] = "BRL"
-        data["service_selling_price_0"] = str(service_selling_price.amount.quantize(Decimal("0.01"), ROUND_HALF_UP))
-        data["service_selling_price_1"] = "BRL"
+        if not budget.is_warranty_budget:
+            data["service_selling_price_0"] = str(service_selling_price.amount.quantize(Decimal("0.01"), ROUND_HALF_UP))
+            data["service_selling_price_1"] = "BRL"
 
-        form = LocalServiceForm(data, budget_id=budget_id)
+        form = LocalServiceForm(data, budget_id=budget_id, is_warranty_budget=budget.is_warranty_budget)
 
         context = {
             "form": form,
             "budget_id": budget_id,
-            "oob_fields": ["service_selling_price"],
+            "oob_fields": ([] if budget.is_warranty_budget else ["service_selling_price"]),
         }
 
         response = render(request, "budget/partials/modals/modal_local_service_fields.html", context)

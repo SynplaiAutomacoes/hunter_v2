@@ -178,7 +178,7 @@
                     <p class="text-[10px] text-gray-500 mt-2">Total do orçamento dividido pelo custo de peças e serviços.</p>
                 </div>
 
-                {% if budget.rentability < 60 %}
+                {% if not budget.is_warranty_budget and budget.rentability < 60 %}
                 <div class="bg-red-50 border border-red-200 text-red-700 p-3 rounded-md">
                     <p class="font-bold uppercase text-[10px]">⚠️ Alerta de Baixa Rentabilidade</p>
                     <p>O orçamento está com lucratividade baixa. Rever valor de venda de peças e serviços.</p>
@@ -197,13 +197,15 @@
                 </div>
                 <div class="flex justify-between mb-1 text-red-500">
                     <span>Desconto Concedido:</span>
-                    <span>- {{ budget.resolved_discount_value }}</span>
+                    <span>- {{ desconto }}</span>
                 </div>
 
                 <hr class="my-2 border-gray-300">
 
                 <div class="flex justify-between mb-1 font-bold
-                    {% if budget.rentability < 60 %}
+                    {% if budget.is_warranty_budget %}
+                        text-gray-600
+                    {% elif budget.rentability < 60 %}
                         text-red-600
                     {% elif budget.rentability >= 60 and budget.rentability < 70 %}
                         text-orange-500
@@ -212,11 +214,11 @@
                     {% endif %}">
 
                     <span>Rentabilidade:</span>
-                    <span>{{ budget.rentability }}%</span>
+                    <span>{% if budget.is_warranty_budget %}0%{% else %}{{ budget.rentability }}%{% endif %}</span>
                 </div>
                 <div class="flex justify-between font-bold text-[18px] mt-2 pt-2 border-t-2 border-gray-400 text-gray-900">
                     <span>TOTAL GERAL:</span>
-                    <span>{{ budget.total_budget_value }}</span>
+                    <span>{{ total_geral }}</span>
                 </div>
             </div>
         </div>

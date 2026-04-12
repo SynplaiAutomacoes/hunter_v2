@@ -1090,6 +1090,44 @@ class BudgetTotalsConsistencyTests(TestCase):
         self.assertEqual(budget.discount_percentage, Decimal("0.200000"))
         self.assertEqual(budget.total_budget_value, Money("200.00", "BRL"))
 
+    def test_warranty_budget_display_totals_use_costs_without_changing_stored_sales(self) -> None:
+        workshop = create_workshop(suffix=41)
+        budget = create_budget(workshop=workshop)
+        budget.is_warranty_budget = True
+        budget.save(update_fields=["is_warranty_budget"])
+
+        product_item = BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            is_local=True,
+            description="Peca garantia",
+            quantity=2,
+            product_cost_price=Money("50.00", "BRL"),
+            product_selling_price=Money("100.00", "BRL"),
+            shipping=Money("5.00", "BRL"),
+        )
+        service_item = BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            is_local=True,
+            description="Servico garantia",
+            quantity=1,
+            service_cost_price=Money("30.00", "BRL"),
+            service_selling_price=Money("90.00", "BRL"),
+        )
+        budget.discount_value = Money("5.00", "BRL")
+
+        product_item.refresh_from_db()
+        service_item.refresh_from_db()
+
+        self.assertEqual(product_item.product_selling_price, Money("100.00", "BRL"))
+        self.assertEqual(service_item.service_selling_price, Money("90.00", "BRL"))
+        self.assertEqual(budget.display_total_products_by_slider_without_shipping, Money("100.00", "BRL"))
+        self.assertEqual(budget.display_total_services_by_slider, Money("30.00", "BRL"))
+        self.assertEqual(budget.display_total_base_value, Money("135.00", "BRL"))
+        self.assertEqual(budget.display_resolved_discount_value, Money("5.00", "BRL"))
+        self.assertEqual(budget.display_total_budget_value, Money("130.00", "BRL"))
+
 
 class BudgetDiscountUpdateViewTests(TestCase):
     def setUp(self) -> None:
@@ -1315,6 +1353,44 @@ class BudgetPdfContextTests(TestCase):
 
         self.assertEqual(context["soma_markup"], Decimal("2.33"))
         self.assertEqual(context["soma_markup_display"], "2,33x")
+
+    def test_build_budget_pdf_context_uses_cost_only_display_for_warranty_budget(self) -> None:
+        workshop = create_workshop(suffix=51)
+        budget = create_budget(workshop=workshop)
+        budget.is_warranty_budget = True
+        budget.save(update_fields=["is_warranty_budget"])
+
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            is_local=True,
+            description="Produto garantia",
+            quantity=2,
+            product_cost_price=Money("50.00", "BRL"),
+            product_selling_price=Money("100.00", "BRL"),
+            shipping=Money("5.00", "BRL"),
+        )
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            is_local=True,
+            description="Servico garantia",
+            quantity=1,
+            service_cost_price=Money("30.00", "BRL"),
+            service_selling_price=Money("90.00", "BRL"),
+        )
+        budget.discount_value = Money("5.00", "BRL")
+
+        context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste")
+
+        self.assertEqual(context["produtos"][0]["unit_price"], Money("0.00", "BRL"))
+        self.assertEqual(context["produtos"][0]["total_price"], Money("105.00", "BRL"))
+        self.assertEqual(context["servicos"][0]["unit_price"], Money("0.00", "BRL"))
+        self.assertEqual(context["servicos"][0]["total_price"], Money("30.00", "BRL"))
+        self.assertEqual(context["desconto"], Money("5.00", "BRL"))
+        self.assertEqual(context["total_geral"], Money("130.00", "BRL"))
+        self.assertEqual(context["total_profit_product_value"], Money("0.00", "BRL"))
+        self.assertEqual(context["total_profit_service_value"], Money("0.00", "BRL"))
 
     def test_budget_pdf_template_allows_long_freeform_text_to_wrap(self) -> None:
         workshop = create_workshop(suffix=94)
@@ -2183,6 +2259,37 @@ class BudgetQuickCreateProductValidationTests(TestCase):
         self.assertIn("badge-success", rows["product"])
         self.assertIn(">Sim<", rows["product"])
         self.assertIn('<td class="text-center">', rows["product"])
+
+    def test_warranty_budget_rows_show_zero_sale_and_cost_based_totals(self) -> None:
+        self.budget.is_warranty_budget = True
+        self.budget.save(update_fields=["is_warranty_budget"])
+
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            is_local=True,
+            description="Produto garantia",
+            quantity=2,
+            product_cost_price=Money("10.00", "BRL"),
+            product_selling_price=Money("40.00", "BRL"),
+            shipping=Money("5.00", "BRL"),
+        )
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            is_local=True,
+            description="Servico garantia",
+            quantity=1,
+            service_cost_price=Money("30.00", "BRL"),
+            service_selling_price=Money("80.00", "BRL"),
+        )
+
+        rows = _render_budget_items_rows(self.budget, step6=False)
+
+        self.assertIn("R$\xa00,00", rows["product"])
+        self.assertIn("R$\xa025,00", rows["product"])
+        self.assertIn("R$\xa00,00", rows["service"])
+        self.assertIn("R$\xa030,00", rows["service"])
 
     def test_product_row_shows_not_customer_supplied_badge_by_default(self) -> None:
         product = create_product(workshop=self.workshop, suffix=107)

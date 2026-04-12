@@ -743,20 +743,20 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
             budget.save(update_fields=["slider"])
 
         html = f"""
-                <span id="display-venda-pecas" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300 whitespace-nowrap step5-accent-text" data-base-val="{budget.get_total_products_by_slider.amount}" data-cost-val="{budget.total_costs_products_value.amount}" data-frete-val="{budget.total_products_shipping.amount}">
-                    {budget.get_total_products_by_slider}
+                <span id="display-venda-pecas" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300 whitespace-nowrap step5-accent-text" data-base-val="{0 if budget.is_warranty_budget else budget.get_total_products_by_slider.amount}" data-cost-val="{budget.total_costs_products_value.amount}" data-frete-val="{budget.total_products_shipping.amount}">
+                    {Money(0, "BRL") if budget.is_warranty_budget else budget.get_total_products_by_slider}
                 </span>
-                <span id="display-venda-mo" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300 step5-accent-text" data-base-val="{budget.get_total_labor_by_slider.amount}" data-cost-val="{budget.total_labor_cost_value.amount}">
-                    {budget.get_total_labor_by_slider}
+                <span id="display-venda-mo" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300 step5-accent-text" data-base-val="{0 if budget.is_warranty_budget else budget.get_total_labor_by_slider.amount}" data-cost-val="{budget.total_labor_cost_value.amount}">
+                    {Money(0, "BRL") if budget.is_warranty_budget else budget.get_total_labor_by_slider}
                 </span>
-                <span id="step5-subtotal-display" hx-swap-oob="true" data-base-total="{budget.total_base_value.amount}">
-                    {budget.total_base_value}
+                <span id="step5-subtotal-display" hx-swap-oob="true" data-base-total="{budget.display_total_base_value.amount}">
+                    {budget.display_total_base_value}
                 </span>
                 <span id="step5-discount-display" hx-swap-oob="true">
-                    {budget.resolved_discount_value}
+                    {budget.display_resolved_discount_value}
                 </span>
                 <span id="valor-final-display" hx-swap-oob="true">
-                    {budget.total_budget_value}
+                    {budget.display_total_budget_value}
                 </span>
                 """
         return HttpResponse(html)

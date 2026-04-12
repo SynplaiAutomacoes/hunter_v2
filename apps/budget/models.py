@@ -14,7 +14,7 @@ from apps.catalog.product_issues import ProductIssueSummary, annotate_product_is
 from apps.core.models import TimeStampedModel
 from djmoney.models.fields import MoneyField
 
-from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot
+from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot, resolve_discount_fields
 from apps.workorder.models import WorkOrder
 
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
@@ -487,17 +487,13 @@ class Budget(TimeStampedModel):
 
     def sync_discount_fields(self) -> None:
         self.invalidate_pricing_snapshot_cache()
-        snapshot = build_pricing_snapshot(
-            items=list(self._iter_items()),
-            slider=int(self.slider or 0),
+        resolved_discount_value, resolved_discount_percentage = resolve_discount_fields(
+            total_base_value=self.display_total_base_value if self.is_warranty_budget else self.total_base_value,
             discount_value=self.discount_value,
             discount_percentage=self.discount_percentage,
-            labor_cost_value=self.total_labor_cost_value,
-            is_local_product_item=self._is_local_product_item,
-            is_local_service_item=self._is_local_service_item,
         )
-        self.discount_value = snapshot.resolved_discount_value
-        self.discount_percentage = snapshot.resolved_discount_percentage
+        self.discount_value = resolved_discount_value
+        self.discount_percentage = resolved_discount_percentage
         self.invalidate_pricing_snapshot_cache()
 
     ## Products
@@ -563,6 +559,46 @@ class Budget(TimeStampedModel):
         return self.pricing_snapshot.total_base_value
 
     @property
+    def warranty_total_products_value(self) -> Money:
+        return self.total_costs_products_value + self.total_products_shipping
+
+    @property
+    def warranty_total_products_value_without_shipping(self) -> Money:
+        return self.total_costs_products_value
+
+    @property
+    def warranty_total_services_value(self) -> Money:
+        return self.total_costs_services_value
+
+    @property
+    def warranty_total_base_value(self) -> Money:
+        return self.warranty_total_products_value + self.warranty_total_services_value
+
+    @property
+    def display_total_products_by_slider(self) -> Money:
+        if self.is_warranty_budget:
+            return self.warranty_total_products_value
+        return self.get_total_products_by_slider
+
+    @property
+    def display_total_products_by_slider_without_shipping(self) -> Money:
+        if self.is_warranty_budget:
+            return self.warranty_total_products_value_without_shipping
+        return self.get_total_products_by_slider_without_shipping
+
+    @property
+    def display_total_services_by_slider(self) -> Money:
+        if self.is_warranty_budget:
+            return self.warranty_total_services_value
+        return self.get_total_services_by_slider
+
+    @property
+    def display_total_base_value(self) -> Money:
+        if self.is_warranty_budget:
+            return self.warranty_total_base_value
+        return self.total_base_value
+
+    @property
     def total_budget_value(self) -> Money:
         return self.pricing_snapshot.total_budget_value
 
@@ -573,6 +609,36 @@ class Budget(TimeStampedModel):
     @property
     def resolved_discount_percentage(self) -> Decimal:
         return self.pricing_snapshot.resolved_discount_percentage
+
+    @property
+    def display_resolved_discount_value(self) -> Money:
+        if not self.is_warranty_budget:
+            return self.resolved_discount_value
+
+        resolved_discount_value, _ = resolve_discount_fields(
+            total_base_value=self.display_total_base_value,
+            discount_value=self.discount_value,
+            discount_percentage=self.discount_percentage,
+        )
+        return resolved_discount_value
+
+    @property
+    def display_total_budget_value(self) -> Money:
+        if self.is_warranty_budget:
+            return self.display_total_base_value - self.display_resolved_discount_value
+        return self.total_budget_value
+
+    @property
+    def display_resolved_discount_percentage(self) -> Decimal:
+        if not self.is_warranty_budget:
+            return self.resolved_discount_percentage
+
+        _, resolved_discount_percentage = resolve_discount_fields(
+            total_base_value=self.display_total_base_value,
+            discount_value=self.discount_value,
+            discount_percentage=self.discount_percentage,
+        )
+        return resolved_discount_percentage
 
     @property
     def has_local_items(self):
@@ -829,6 +895,46 @@ class BudgetItem(TimeStampedModel):
         if self.kit:
             return self.get_kit_total_with_overrides()
         return ((self.product_selling_price + self.service_selling_price) * self.quantity) + self.shipping
+
+    @property
+    def display_product_selling_price(self) -> Money:
+        if self.budget.is_warranty_budget:
+            return Money(0, "BRL")
+        return self.product_selling_price
+
+    @property
+    def display_service_selling_price(self) -> Money:
+        if self.budget.is_warranty_budget:
+            return Money(0, "BRL")
+        return self.service_selling_price
+
+    @property
+    def display_total_price(self) -> Money:
+        if not self.budget.is_warranty_budget:
+            return self.total_price
+        if self.kit:
+            return self.get_kit_products_cost_total() + self.get_kit_products_shipping_total() + self.get_kit_services_cost_total()
+        if self.product_id or self.is_local and ((self.product_cost_price and self.product_cost_price.amount > 0) or (self.shipping and self.shipping.amount > 0)):
+            return (self.product_cost_price * self.quantity) + self.shipping
+        return self.service_cost_price * self.quantity
+
+    @property
+    def display_unit_price(self) -> Money:
+        if not self.budget.is_warranty_budget:
+            return self.unit_price
+        if self.quantity <= 0:
+            return Money(0, "BRL")
+        if self.kit:
+            return self.kit_unit_cost
+        if self.product_id or self.is_local and ((self.product_cost_price and self.product_cost_price.amount > 0) or (self.shipping and self.shipping.amount > 0)):
+            return self.product_cost_price
+        return self.service_cost_price
+
+    @property
+    def display_kit_unit_price(self) -> Money:
+        if self.budget.is_warranty_budget:
+            return Money(0, "BRL")
+        return self.kit_unit_price
 
     def _get_kit_unit_cost_and_price(self) -> tuple[Money, Money]:
         cache = getattr(self, "_kit_unit_totals_cache", None)
