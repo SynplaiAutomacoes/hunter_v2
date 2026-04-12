@@ -967,7 +967,12 @@ class ManualLinkItemEditorView(LoginRequiredMixin, WorkshopScopedMixin, View):
         return int(cleaned_value)
 
     def _get_stock_import(self, pk: int | str | None) -> StockImport:
-        return get_object_or_404(StockImport, id=clean_id(pk), workshop=self.workshop, method=StockImport.ImportMethods.MANUAL)
+        return get_object_or_404(StockImport, id=clean_id(pk), workshop=self.workshop)
+
+    @staticmethod
+    def _validate_item_context(stock_import: StockImport, item_idx: int | None) -> None:
+        if stock_import.method != StockImport.ImportMethods.MANUAL and item_idx is None:
+            raise Http404("Indice do item obrigatorio para esta importacao.")
 
     @staticmethod
     def _get_item_data(stock_import: StockImport, item_idx: int | None) -> dict[str, str] | None:
@@ -1016,6 +1021,7 @@ class ManualLinkItemEditorView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def get(self, request: HttpRequest) -> HttpResponse:
         stock_import = self._get_stock_import(request.GET.get("pk"))
         item_idx = self._parse_item_idx(request.GET.get("item_idx"))
+        self._validate_item_context(stock_import, item_idx)
         item_data = self._get_item_data(stock_import, item_idx)
         product = self._get_product(request.GET.get("product_id"), item_data=item_data)
         form = self._build_form(request, stock_import=stock_import, product=product, item_idx=item_idx)
@@ -1025,6 +1031,7 @@ class ManualLinkItemEditorView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def post(self, request: HttpRequest) -> HttpResponse:
         stock_import = self._get_stock_import(request.GET.get("pk") or request.POST.get("pk"))
         item_idx = self._parse_item_idx(request.GET.get("item_idx") or request.POST.get("item_idx"))
+        self._validate_item_context(stock_import, item_idx)
         item_data = self._get_item_data(stock_import, item_idx)
         product = self._get_product(request.GET.get("product_id") or request.POST.get("product_id"), item_data=item_data)
         form = self._build_form(request, stock_import=stock_import, product=product, item_idx=item_idx)
@@ -1032,15 +1039,15 @@ class ManualLinkItemEditorView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if not form.is_valid():
             return self._render_modal(request, stock_import=stock_import, product=product, form=form, item_idx=item_idx)
 
+        success_message = form.success_message
         items = list(stock_import.items_data or [])
         if item_idx is not None:
-            items[item_idx] = form.build_item_data()
+            items[item_idx] = form.build_item_data(existing_item=items[item_idx])
         else:
             items.append(form.build_item_data())
         stock_import.items_data = items
         stock_import.save(update_fields=["items_data"])
 
-        success_message = f"{product.name} atualizado na importacao manual." if item_idx is not None else f"{product.name} adicionado a importacao manual."
         response = HttpResponse("")
         response["HX-Trigger"] = json.dumps(
             {

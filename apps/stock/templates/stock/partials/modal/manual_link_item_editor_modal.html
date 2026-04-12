@@ -12,10 +12,13 @@
 
         <form id="manual-link-editor-form"
               method="post"
+              action="{{ submit_url }}"
               hx-post="{{ submit_url }}"
+              hx-trigger="manual-link-editor-submit"
               hx-target="#child-modal-container"
               hx-swap="innerHTML"
               x-data="{{ form.alpine_data|escape }}"
+              x-init="init()"
               @submit.prevent="handleSubmit($event)">
             {% csrf_token %}
             {{ form.product_id }}
@@ -80,11 +83,7 @@
                     </div>
 
                     <div class="rounded-xl border border-base-300 bg-base-200/60 p-4 text-sm text-base-content/80">
-                        {% if form.is_editing %}
-                            <p>Ao salvar, este item será atualizado na tabela da etapa 3.</p>
-                        {% else %}
-                            <p>Ao salvar, este item será adicionado à tabela da etapa 3 e continuará editável depois.</p>
-                        {% endif %}
+                        <p>{{ form.save_help_text }}</p>
                     </div>
                 </div>
             </div>
