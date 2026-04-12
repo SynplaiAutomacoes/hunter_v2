@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import datetime
+import json
 from decimal import Decimal
 
 from crispy_forms.utils import render_crispy_form
 from django.db import IntegrityError
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from djmoney.money import Money
 
@@ -18,6 +20,7 @@ from apps.catalog.models.kits import Kit, KitApplication, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.customer.models import Customer, Vehicle
+from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.tests import create_director_user_with_workshop
 from apps.workshops.models.workshops import Workshop
 
@@ -395,7 +398,127 @@ class KitFormPageTests(TestCase):
         self.assertContains(response, "Carregando produto...", html=False)
         self.assertContains(response, "Carregando serviço...", html=False)
         self.assertContains(response, "Selecione um item para editar.", html=False)
+        self.assertContains(response, '@kit-service-updated.window="applyUpdatedService($event.detail)"', html=False)
         self.assertNotContains(response, "window.htmx.trigger(list, 'load');", html=False)
+
+
+class ServiceQuickUpdateViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=79)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+        self.service = Service.objects.create(
+            workshop=self.workshop,
+            name="Servico Original",
+            description="",
+            duration=datetime.timedelta(minutes=30),
+            selling_price=Money("50.00", "BRL"),
+            suggested_cost=Money("20.00", "BRL"),
+            is_third_party=False,
+            is_active=True,
+        )
+
+    def test_service_quick_update_triggers_kit_service_updated_event(self) -> None:
+        response = self.client.post(
+            reverse("catalog:edit_service_modal_form", args=[self.service.pk]),
+            data={
+                "name": "Servico Atualizado",
+                "is_third_party": "",
+                "duration": "01:15:00",
+                "selling_price_0": "80.00",
+                "selling_price_1": "BRL",
+                "suggested_cost_0": "35.00",
+                "suggested_cost_1": "BRL",
+                "description": "Atualizado",
+                "is_active": "on",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertIn("HX-Trigger", response.headers)
+
+        trigger_payload = json.loads(response.headers["HX-Trigger"])
+        self.assertIn("kit-service-updated", trigger_payload)
+        self.assertEqual(
+            trigger_payload["kit-service-updated"],
+            {
+                "id": self.service.pk,
+                "name": "Servico Atualizado",
+                "cost": str(Money("35.00", "BRL")),
+                "sell": str(Money("80.00", "BRL")),
+                "duration": "01:15:00",
+            },
+        )
+
+
+class KitServiceBulkPricingViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=80)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+        self.service = Service.objects.create(
+            workshop=self.workshop,
+            name="Servico Rateado",
+            description="",
+            duration=datetime.timedelta(minutes=30),
+            selling_price=Money("50.00", "BRL"),
+            suggested_cost=Money("20.00", "BRL"),
+            is_third_party=False,
+            is_active=True,
+        )
+
+    def test_bulk_pricing_returns_recalculated_selling_prices(self) -> None:
+        today = timezone.now()
+        WorkshopCost.objects.create(
+            workshop=self.workshop,
+            month=today.month,
+            year=today.year,
+            mechanic_quantity=1,
+            minimum_hourly_cost=Money("30.00", "BRL"),
+            hourly_cost_value=Money("80.00", "BRL"),
+        )
+
+        response = self.client.post(
+            reverse("catalog:kits_service_bulk_pricing"),
+            data=json.dumps({"services": [{"id": self.service.pk, "duration": "01:30:00"}]}),
+            content_type="application/json",
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertJSONEqual(
+            response.content,
+            {
+                "services": [{"id": self.service.pk, "sell": str(Money("120.00", "BRL"))}],
+                "workshop_cost_missing": False,
+            },
+        )
+
+    def test_bulk_pricing_warns_when_workshop_cost_is_missing(self) -> None:
+        response = self.client.post(
+            reverse("catalog:kits_service_bulk_pricing"),
+            data=json.dumps({"services": [{"id": self.service.pk, "duration": "01:30:00"}]}),
+            content_type="application/json",
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertJSONEqual(
+            response.content,
+            {
+                "services": [],
+                "workshop_cost_missing": True,
+            },
+        )
 
 
 class KitSearchPartialTests(TestCase):
