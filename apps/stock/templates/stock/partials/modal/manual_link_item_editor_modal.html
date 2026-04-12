@@ -12,10 +12,13 @@
 
         <form id="manual-link-editor-form"
               method="post"
+              action="{{ submit_url }}"
               hx-post="{{ submit_url }}"
+              hx-trigger="manual-link-editor-submit"
               hx-target="#child-modal-container"
               hx-swap="innerHTML"
               x-data="{{ form.alpine_data|escape }}"
+              x-init="init()"
               @submit.prevent="handleSubmit($event)">
             {% csrf_token %}
             {{ form.product_id }}

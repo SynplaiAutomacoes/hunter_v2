@@ -1198,6 +1198,19 @@ class ManualLinkItemEditForm(forms.Form):
             lastUsedPrice: {last_used_amount!r},
             priceHelpMessage: '',
             isSubmitting: false,
+            init() {{
+                const form = this.getForm();
+                if (!form || form.dataset.manualLinkEditorReady === '1') return;
+
+                form.dataset.manualLinkEditorReady = '1';
+                const stopSubmitting = () => {{
+                    this.isSubmitting = false;
+                }};
+
+                form.addEventListener('htmx:afterRequest', stopSubmitting);
+                form.addEventListener('htmx:responseError', stopSubmitting);
+                form.addEventListener('htmx:sendError', stopSubmitting);
+            }},
             getRawMoneyValue(fieldId) {{
                 const field = document.getElementById(fieldId);
                 if (!field) return 0;
@@ -1208,15 +1221,6 @@ class ManualLinkItemEditForm(forms.Form):
             }},
             getLowerPriceModal() {{
                 return this.$refs.lowerPriceModal || document.getElementById('manual-link-lower-price-modal');
-            }},
-            getSubmitUrl() {{
-                const form = this.getForm();
-                if (!form) return '';
-                return form.getAttribute('hx-post') || form.getAttribute('action') || '';
-            }},
-            getSubmitTarget() {{
-                const form = this.getForm();
-                return form?.getAttribute('hx-target') || '#child-modal-container';
             }},
             openLowerPriceModal() {{
                 const modal = this.getLowerPriceModal();
@@ -1254,20 +1258,11 @@ class ManualLinkItemEditForm(forms.Form):
                 if (this.isSubmitting) return;
 
                 const form = this.getForm();
-                const submitUrl = this.getSubmitUrl();
-                if (!form || !submitUrl) return;
+                if (!form) return;
 
                 this.isSubmitting = true;
                 this.priceHelpMessage = '';
-
-                const values = Object.fromEntries(new FormData(form));
-                htmx.ajax('POST', submitUrl, {{
-                    target: this.getSubmitTarget(),
-                    swap: form.getAttribute('hx-swap') || 'innerHTML',
-                    values,
-                }}).finally(() => {{
-                    this.isSubmitting = false;
-                }});
+                htmx.trigger(form, 'manual-link-editor-submit');
             }},
             handleSubmit(event) {{
                 event.preventDefault();
@@ -1517,49 +1512,9 @@ class ImportManualItemsForm(forms.ModelForm):
             estoque_atual = product.stock_products.current_quantity if hasattr(product, "stock_products") else 0
             last_used_price = getattr(product, "last_used_price", None)
 
-            quantity_html = NumberInput(mode="positive").render(
-                name=f"items_qty_{idx}",
-                value=str(quantidade),
-                attrs={
-                    "id": f"id_items_qty_{idx}",
-                    "class": "text-center",
-                    "hx-post": reverse("stock:update_manual_item_data", kwargs={"pk": self.instance.pk}),
-                    "hx-trigger": "change delay:500ms",
-                    "hx-vals": f"js:{{item_idx: {idx}}}",
-                    "hx-target": "this",
-                    "hx-swap": "none",
-                },
-            )
-
-            unit_cost_html = MoneyInput().render(
-                name=f"items_price_{idx}",
-                value=Money(valor, "BRL"),
-                attrs={
-                    "id": f"id_items_price_{idx}",
-                    "class": "text-right",
-                    "hx-post": reverse("stock:update_manual_item_data", kwargs={"pk": self.instance.pk}),
-                    "hx-trigger": "change delay:500ms",
-                    "hx-vals": f"js:{{item_idx: {idx}}}",
-                    "hx-target": "this",
-                    "hx-swap": "none",
-                },
-            )
-
-            selling_price_html = MoneyInput().render(
-                name=f"items_selling_price_{idx}",
-                value=Money(selling_price, "BRL"),
-                attrs={
-                    "id": f"id_items_selling_price_{idx}",
-                    "class": "text-right js-manual-selling-price-input",
-                    "data-product-name": product.name,
-                    "data-last-used-price": str(last_used_price.amount.quantize(MONEY_QUANTIZER)) if last_used_price is not None else "",
-                    "hx-post": reverse("stock:update_manual_item_data", kwargs={"pk": self.instance.pk}),
-                    "hx-trigger": "change delay:500ms",
-                    "hx-vals": f"js:{{item_idx: {idx}}}",
-                    "hx-target": "this",
-                    "hx-swap": "none",
-                },
-            )
+            quantity_html = f'<div class="w-full text-center font-medium">{escape(str(quantidade))}</div>'
+            unit_cost_html = f'<div class="w-full text-right whitespace-nowrap">{_format_money_display(Money(valor, "BRL"))}</div>'
+            selling_price_html = f'<div class="w-full text-right whitespace-nowrap">{_format_money_display(Money(selling_price, "BRL"))}</div>'
 
             rows += f"""
                 <tr class="h-16 border-b border-base-300">

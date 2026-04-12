@@ -503,6 +503,10 @@ class ManualStockImportPricingTests(TestCase):
         self.assertIn("R$ 6,50", html)
         self.assertIn("R$ 15,00", html)
         self.assertIn("manual-confirm-lower-price-input", html)
+        self.assertNotIn('name="items_qty_0"', html)
+        self.assertNotIn('name="items_price_0_0"', html)
+        self.assertNotIn('name="items_selling_price_0_0"', html)
+        self.assertNotIn(reverse("stock:update_manual_item_data", kwargs={"pk": self.stock_import.pk}), html)
 
     def test_manual_items_form_renders_edit_action_for_existing_row(self) -> None:
         form = ImportManualItemsForm(instance=self.stock_import, workshop=self.workshop, request=SimpleNamespace(user=self.user))
@@ -658,6 +662,7 @@ class ManualStockImportLinkEditorTests(TestCase):
         self.assertContains(response, 'name="quantity"')
         self.assertContains(response, 'name="unit_cost_0"')
         self.assertContains(response, 'name="selling_price_0"')
+        self.assertContains(response, 'hx-trigger="manual-link-editor-submit"')
         self.assertContains(response, '@submit.prevent="handleSubmit($event)"')
         self.assertContains(response, "submitForm()")
 
