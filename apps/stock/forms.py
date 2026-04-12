@@ -1197,13 +1197,26 @@ class ManualLinkItemEditForm(forms.Form):
             lowerPriceConfirmed: {str(bool(confirm_lower_price_initial)).lower()},
             lastUsedPrice: {last_used_amount!r},
             priceHelpMessage: '',
+            isSubmitting: false,
             getRawMoneyValue(fieldId) {{
                 const field = document.getElementById(fieldId);
                 if (!field) return 0;
                 return Number.parseFloat(field.value || '0') || 0;
             }},
+            getForm() {{
+                return this.$root;
+            }},
             getLowerPriceModal() {{
                 return this.$refs.lowerPriceModal || document.getElementById('manual-link-lower-price-modal');
+            }},
+            getSubmitUrl() {{
+                const form = this.getForm();
+                if (!form) return '';
+                return form.getAttribute('hx-post') || form.getAttribute('action') || '';
+            }},
+            getSubmitTarget() {{
+                const form = this.getForm();
+                return form?.getAttribute('hx-target') || '#child-modal-container';
             }},
             openLowerPriceModal() {{
                 const modal = this.getLowerPriceModal();
@@ -1237,19 +1250,43 @@ class ManualLinkItemEditForm(forms.Form):
                 if (sellingPrice <= 0) return false;
                 return sellingPrice < (Number.parseFloat(this.lastUsedPrice) || 0);
             }},
+            submitForm() {{
+                if (this.isSubmitting) return;
+
+                const form = this.getForm();
+                const submitUrl = this.getSubmitUrl();
+                if (!form || !submitUrl) return;
+
+                this.isSubmitting = true;
+                this.priceHelpMessage = '';
+
+                const values = Object.fromEntries(new FormData(form));
+                htmx.ajax('POST', submitUrl, {{
+                    target: this.getSubmitTarget(),
+                    swap: form.getAttribute('hx-swap') || 'innerHTML',
+                    values,
+                }}).finally(() => {{
+                    this.isSubmitting = false;
+                }});
+            }},
             handleSubmit(event) {{
+                event.preventDefault();
+                if (this.isSubmitting) return;
+
                 if (this.shouldWarnForLowerPrice() && !this.lowerPriceConfirmed) {{
-                    event.preventDefault();
                     this.priceHelpMessage = '';
                     this.openLowerPriceModal();
+                    return;
                 }}
+
+                this.submitForm();
             }},
             continueWithLowerPrice() {{
                 this.lowerPriceConfirmed = true;
                 this.confirmLowerPriceValue = '1';
                 this.priceHelpMessage = '';
                 this.closeLowerPriceModal();
-                this.$nextTick(() => this.$root.requestSubmit());
+                this.$nextTick(() => this.submitForm());
             }},
             cancelLowerPrice() {{
                 const amountField = document.getElementById('id_selling_price_0');

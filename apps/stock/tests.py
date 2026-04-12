@@ -658,6 +658,8 @@ class ManualStockImportLinkEditorTests(TestCase):
         self.assertContains(response, 'name="quantity"')
         self.assertContains(response, 'name="unit_cost_0"')
         self.assertContains(response, 'name="selling_price_0"')
+        self.assertContains(response, '@submit.prevent="handleSubmit($event)"')
+        self.assertContains(response, "submitForm()")
 
     def test_manual_link_item_editor_get_with_item_idx_prefills_existing_row(self) -> None:
         self.stock_import.items_data = [

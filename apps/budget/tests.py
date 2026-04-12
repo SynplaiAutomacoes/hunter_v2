@@ -1551,6 +1551,26 @@ class BudgetPdfViewTests(TestCase):
             self.assertRegex(response.content.decode(), r">\s*Sim\s*<")
             self.assertRegex(response.content.decode(), r">\s*Não\s*<")
 
+    def test_pdf_views_display_warranty_label_for_warranty_budget(self) -> None:
+        budget = self._create_budget_with_customer_and_vehicle(suffix=106)
+        budget.is_warranty_budget = True
+        budget.save(update_fields=["is_warranty_budget"])
+
+        for url_name in ["budget:visualizar_pdf", "budget:visualizar_pdf_gestor", "budget:visualizar_pdf_mecanico"]:
+            response = self.client.get(reverse(url_name, args=[budget.pk]))
+
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, "Orçamento de Garantia")
+
+    def test_pdf_views_hide_warranty_label_for_regular_budget(self) -> None:
+        budget = self._create_budget_with_customer_and_vehicle(suffix=107)
+
+        for url_name in ["budget:visualizar_pdf", "budget:visualizar_pdf_gestor", "budget:visualizar_pdf_mecanico"]:
+            response = self.client.get(reverse(url_name, args=[budget.pk]))
+
+            self.assertEqual(response.status_code, 200)
+            self.assertNotContains(response, "Orçamento de Garantia")
+
     def test_visualizar_pdf_uses_budget_observation_only(self) -> None:
         budget_a = self._create_budget_with_customer_and_vehicle(suffix=101)
         budget_b = self._create_budget_with_customer_and_vehicle(suffix=102)
