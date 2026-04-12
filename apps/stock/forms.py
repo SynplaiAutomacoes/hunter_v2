@@ -356,7 +356,7 @@ class ImportStepItemsForm(forms.ModelForm):
                             <tr class="bg-base-300">
                                 <th>Descrição</th>
                                 <th class="text-center">Quantidade</th>
-                                <th class="text-right">Valor Unitário</th>
+                                <th class="text-right">Valor de Custo</th>
                                 <th class="text-right">Valor Total</th>
                             </tr>
                         </thead>
@@ -730,7 +730,7 @@ class ImportStepSummaryForm(forms.ModelForm):
                                         <th>Código</th>
                                         <th>Descrição</th>
                                         <th class="text-right">Quantidade</th>
-                                        <th class="text-right">Valor Unitário</th>
+                                        <th class="text-right">Valor de Custo</th>
                                     </tr>
                                 </thead>
                                 <tbody class="gap-2 bg-base-200">
@@ -1104,6 +1104,227 @@ class ImportStepSupplierManualForm(forms.ModelForm):
         return super().save(commit=commit)
 
 
+class ManualLinkItemEditForm(forms.Form):
+    product_id = forms.IntegerField(widget=forms.HiddenInput())
+    item_idx = forms.IntegerField(required=False, widget=forms.HiddenInput())
+    confirm_lower_price = forms.CharField(required=False, widget=forms.HiddenInput())
+    quantity = forms.DecimalField(label="Quantidade", max_digits=10, decimal_places=2, min_value=Decimal("0.01"), widget=NumberInput(mode="positive"))
+    unit_cost = MoneyField(label="Valor de Custo", max_digits=14, decimal_places=2, widget=MoneyInput())
+    selling_price = MoneyField(label="Valor de Venda", max_digits=14, decimal_places=2, widget=MoneyInput())
+
+    def __init__(self, *args: Any, product: Product, stock_import: StockImport, item_idx: int | None = None, **kwargs: Any):
+        self.product = product
+        self.stock_import = stock_import
+        self.item_idx = item_idx
+        super().__init__(*args, **kwargs)
+
+        confirm_lower_price_initial = ""
+        if self.is_bound and self.data is not None:
+            confirm_lower_price_initial = "1" if str(self.data.get("confirm_lower_price") or "").strip() == "1" else ""
+
+        self.fields["product_id"].initial = getattr(self.product, "pk", None)
+        self.fields["item_idx"].initial = self.item_idx
+        self.fields["confirm_lower_price"].initial = confirm_lower_price_initial
+        self.fields["confirm_lower_price"].widget.attrs["x-model"] = "confirmLowerPriceValue"
+        self.fields["selling_price"].widget.attrs["x-on:input.capture"] = "resetLowerPriceConfirmation()"
+
+        if not self.is_bound:
+            if self.is_editing and self.item_data is not None:
+                self.initial.setdefault("quantity", _parse_decimal_or(self.item_data.get("qtd"), Decimal("1")))
+                self.initial.setdefault("unit_cost", _money_from_value(self.item_data.get("valor")) or self.product.cost_price)
+                self.initial.setdefault("selling_price", _money_from_value(self.item_data.get("selling_price")) or self.product.selling_price)
+            else:
+                self.initial.setdefault("quantity", Decimal("1"))
+                self.initial.setdefault("unit_cost", self.product.cost_price)
+                self.initial.setdefault("selling_price", self.product.selling_price)
+
+    @property
+    def item_data(self) -> dict[str, Any] | None:
+        if self.item_idx is None:
+            return None
+
+        items = list(self.stock_import.items_data or [])
+        if 0 <= self.item_idx < len(items):
+            return dict(items[self.item_idx])
+        return None
+
+    @property
+    def is_editing(self) -> bool:
+        return self.item_idx is not None
+
+    @property
+    def modal_title(self) -> str:
+        return "Editar item vinculado" if self.is_editing else "Configurar item antes de inserir"
+
+    @property
+    def modal_description(self) -> str:
+        if self.is_editing:
+            return "Revise quantidade e preços antes de atualizar o item na tabela da importação manual."
+        return "Revise quantidade e preços antes de adicionar o produto na tabela da importação manual."
+
+    @property
+    def submit_label(self) -> str:
+        return "Salvar alterações" if self.is_editing else "Salvar e Inserir"
+
+    @property
+    def submit_icon(self) -> str:
+        return "edit" if self.is_editing else "playlist_add"
+
+    @property
+    def current_quantity(self) -> int:
+        if hasattr(self.product, "stock_products"):
+            return self.product.stock_products.current_quantity
+        return 0
+
+    @property
+    def last_purchase_price_display(self) -> str:
+        return _format_money_display(getattr(self.product, "last_purchase_price", None))
+
+    @property
+    def last_used_price_display(self) -> str:
+        return _format_money_display(getattr(self.product, "last_used_price", None))
+
+    @property
+    def alpine_data(self) -> str:
+        confirm_lower_price_initial = str(self.fields["confirm_lower_price"].initial or "")
+        last_used_amount = ""
+        last_used_price = getattr(self.product, "last_used_price", None)
+        if last_used_price is not None:
+            last_used_amount = str(last_used_price.amount.quantize(MONEY_QUANTIZER))
+
+        return f"""{{
+            confirmLowerPriceValue: {confirm_lower_price_initial!r},
+            lowerPriceConfirmed: {str(bool(confirm_lower_price_initial)).lower()},
+            lastUsedPrice: {last_used_amount!r},
+            priceHelpMessage: '',
+            getRawMoneyValue(fieldId) {{
+                const field = document.getElementById(fieldId);
+                if (!field) return 0;
+                return Number.parseFloat(field.value || '0') || 0;
+            }},
+            getLowerPriceModal() {{
+                return this.$refs.lowerPriceModal || document.getElementById('manual-link-lower-price-modal');
+            }},
+            openLowerPriceModal() {{
+                const modal = this.getLowerPriceModal();
+                if (modal && typeof modal.showModal === 'function') {{
+                    if (!modal.open) {{
+                        modal.showModal();
+                    }}
+                    return;
+                }}
+
+                if (window.confirm('O valor informado está abaixo do último valor utilizado para este produto. Deseja continuar mesmo assim?')) {{
+                    this.continueWithLowerPrice();
+                    return;
+                }}
+
+                this.cancelLowerPrice();
+            }},
+            closeLowerPriceModal() {{
+                const modal = this.getLowerPriceModal();
+                if (modal && modal.open) {{
+                    modal.close();
+                }}
+            }},
+            formatCurrency(value) {{
+                const numericValue = Number.parseFloat(value || '0');
+                return numericValue.toLocaleString('pt-BR', {{ style: 'currency', currency: 'BRL' }});
+            }},
+            shouldWarnForLowerPrice() {{
+                if (!this.lastUsedPrice) return false;
+                const sellingPrice = this.getRawMoneyValue('id_selling_price_0');
+                if (sellingPrice <= 0) return false;
+                return sellingPrice < (Number.parseFloat(this.lastUsedPrice) || 0);
+            }},
+            handleSubmit(event) {{
+                if (this.shouldWarnForLowerPrice() && !this.lowerPriceConfirmed) {{
+                    event.preventDefault();
+                    this.priceHelpMessage = '';
+                    this.openLowerPriceModal();
+                }}
+            }},
+            continueWithLowerPrice() {{
+                this.lowerPriceConfirmed = true;
+                this.confirmLowerPriceValue = '1';
+                this.priceHelpMessage = '';
+                this.closeLowerPriceModal();
+                this.$nextTick(() => this.$root.requestSubmit());
+            }},
+            cancelLowerPrice() {{
+                const amountField = document.getElementById('id_selling_price_0');
+                const displayField = document.getElementById('id_selling_price_0_display');
+                this.closeLowerPriceModal();
+                if (amountField) {{
+                    amountField.value = '';
+                    amountField.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    amountField.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                }}
+                if (displayField) {{
+                    displayField.value = '';
+                    displayField.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    displayField.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                }}
+
+                this.confirmLowerPriceValue = '';
+                this.lowerPriceConfirmed = false;
+                this.priceHelpMessage = `Último valor usado: ${{this.formatCurrency(this.lastUsedPrice)}}`;
+            }},
+            resetLowerPriceConfirmation() {{
+                this.confirmLowerPriceValue = '';
+                this.lowerPriceConfirmed = false;
+                this.priceHelpMessage = '';
+            }}
+        }}"""
+
+    def build_item_data(self) -> dict[str, str]:
+        quantity = Decimal(str(self.cleaned_data["quantity"] or 0))
+        unit_cost = self.cleaned_data["unit_cost"]
+        selling_price = self.cleaned_data["selling_price"]
+
+        return {
+            "ref": str(self.product.code),
+            "desc": str(self.product.name),
+            "qtd": str(quantity),
+            "valor": str(unit_cost.amount.quantize(MONEY_QUANTIZER)),
+            "selling_price": str(selling_price.amount.quantize(MONEY_QUANTIZER)),
+            "linked_product_id": str(self.product.pk),
+        }
+
+    def clean_product_id(self) -> int:
+        product_id = int(self.cleaned_data["product_id"])
+        if not self.product.pk or product_id != self.product.pk:
+            raise forms.ValidationError("Produto inválido para vinculação.")
+        return product_id
+
+    def clean_item_idx(self) -> int | None:
+        raw_item_idx = self.cleaned_data.get("item_idx")
+        if raw_item_idx in (None, ""):
+            return None
+
+        item_idx = int(raw_item_idx)
+        if item_idx < 0:
+            raise forms.ValidationError("Índice do item inválido.")
+
+        if self.is_editing:
+            items = list(self.stock_import.items_data or [])
+            if item_idx >= len(items):
+                raise forms.ValidationError("Índice do item inválido.")
+
+        return item_idx
+
+    def clean(self) -> dict[str, Any]:
+        cleaned_data = super().clean() or {}
+        selling_price = cleaned_data.get("selling_price")
+        confirm_lower_price = str(cleaned_data.get("confirm_lower_price") or "").strip() == "1"
+
+        warning = build_product_price_warning(product=self.product, attempted_price=selling_price)
+        if warning and not confirm_lower_price:
+            self.add_error(None, warning.message)
+
+        return cleaned_data
+
+
 class ImportManualItemsForm(forms.ModelForm):
     class Meta:
         model = StockImport
@@ -1319,11 +1540,19 @@ class ImportManualItemsForm(forms.ModelForm):
                     <td class="text-right whitespace-nowrap">{_format_money_display(last_used_price)}</td>
                     <td class="text-right font-bold whitespace-nowrap">{Money(subtotal, "BRL")}</td>
                     <td class="text-center">
-                        <button type="button" class="btn btn-ghost btn-circle btn-sm text-error" title="Desvincular Item"
-                                hx-post="{reverse("stock:unlink_item")}?item_idx={idx}&pk={self.instance.pk}"
-                                hx-target="#step-container">
-                            <span class="material-icons text-sm">link_off</span>
-                        </button>
+                        <div class="flex items-center justify-center gap-1">
+                            <button type="button" class="btn btn-ghost btn-circle btn-sm text-info" title="Editar Item"
+                                    hx-get="{reverse("stock:manual_link_item_editor")}?pk={self.instance.pk}&product_id={product.pk}&item_idx={idx}"
+                                    hx-target="#child-modal-container"
+                                    hx-swap="innerHTML">
+                                <span class="material-icons text-sm">edit</span>
+                            </button>
+                            <button type="button" class="btn btn-ghost btn-circle btn-sm text-error" title="Desvincular Item"
+                                    hx-post="{reverse("stock:unlink_item")}?item_idx={idx}&pk={self.instance.pk}"
+                                    hx-target="#step-container">
+                                <span class="material-icons text-sm">link_off</span>
+                            </button>
+                        </div>
                     </td>
                 </tr>"""
 
@@ -1335,7 +1564,7 @@ class ImportManualItemsForm(forms.ModelForm):
                         <th>Produto</th>
                         <th class="text-center">Em estoque</th>
                         <th class="text-center">Quantidade</th>
-                        <th class="text-right">Valor Unitário</th>
+                        <th class="text-right">Valor de Custo</th>
                         <th class="text-right">Valor de Venda</th>
                         <th class="text-right">Último valor de compra</th>
                         <th class="text-right">Último valor de venda</th>

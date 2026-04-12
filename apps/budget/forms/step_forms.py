@@ -18,7 +18,7 @@ from apps.budget.pricing import resolve_discount_fields
 from apps.checklist.models import Checklist
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.utils import alert_confirm_layout
-from apps.core.widgets import CalendarDateInput, MoneyInput, NumberInput, PercentageInput, SearchableSelectInput, SelectInput, TextInput, TextareaInput
+from apps.core.widgets import CalendarDateInput, CheckboxInput, MoneyInput, NumberInput, PercentageInput, SearchableSelectInput, SelectInput, TextInput, TextareaInput
 from apps.customer.models import Customer, Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
 
@@ -270,9 +270,10 @@ class BudgetStep1Form(forms.ModelForm):
 
     class Meta:
         model = Budget
-        fields = ["workshop", "cost_estimator", "entry_date", "customer", "vehicle", "current_km", "fuel_level"]
+        fields = ["workshop", "cost_estimator", "entry_date", "is_warranty_budget", "customer", "vehicle", "current_km", "fuel_level"]
         widgets = {
             "entry_date": CalendarDateInput(),
+            "is_warranty_budget": CheckboxInput(),
             "customer": SearchableSelectInput(attrs={"x-model": "customerId", "@change": "customerId = $el.value; vehicleId = '';"}),
             "current_km": NumberInput(),
             "fuel_level": SelectInput(),
@@ -512,6 +513,25 @@ class BudgetStep1Form(forms.ModelForm):
                 Div(
                     # Orçamento
                     Div(
+                        HTML("""
+                            <div class="mb-4" x-data="{ isWarrantyBudget: {% if form.is_warranty_budget.value %}true{% else %}false{% endif %} }">
+                                <div class="mb-2 text-sm font-semibold uppercase tracking-wide text-base-content/70">O orçamento é de garantia?</div>
+                                <label for="id_is_warranty_budget" class="flex w-fit items-center gap-3 rounded-xl border border-base-300 bg-base-200/40 px-4 py-3 cursor-pointer transition-colors hover:border-primary/40">
+                                    <input
+                                        type="checkbox"
+                                        name="is_warranty_budget"
+                                        id="id_is_warranty_budget"
+                                        class="toggle toggle-primary"
+                                        @change="isWarrantyBudget = $event.target.checked"
+                                        {% if form.is_warranty_budget.value %}checked{% endif %}
+                                    >
+                                    <span class="min-w-10 font-medium text-base-content text-right" x-text="isWarrantyBudget ? 'Sim' : 'Não'">{% if form.is_warranty_budget.value %}Sim{% else %}Não{% endif %}</span>
+                                </label>
+                                {% if form.is_warranty_budget.errors %}
+                                    <span class="mt-2 block text-sm text-error">{{ form.is_warranty_budget.errors|join:', ' }}</span>
+                                {% endif %}
+                            </div>
+                        """),
                         HTML('<h3 class="text-2xl font-bold mb-2">Orçamento</h3>'),
                         Div(
                             Field("workshop", wrapper_class="col-span-12 lg:col-span-12"),

@@ -504,6 +504,15 @@ class ManualStockImportPricingTests(TestCase):
         self.assertIn("R$ 15,00", html)
         self.assertIn("manual-confirm-lower-price-input", html)
 
+    def test_manual_items_form_renders_edit_action_for_existing_row(self) -> None:
+        form = ImportManualItemsForm(instance=self.stock_import, workshop=self.workshop, request=SimpleNamespace(user=self.user))
+
+        html = Template("{% load crispy_forms_tags %}{% crispy form %}").render(Context({"form": form}))
+
+        self.assertIn(reverse("stock:manual_link_item_editor"), html)
+        self.assertIn(f"product_id={self.product.pk}&item_idx=0", html)
+        self.assertIn("Editar Item", html)
+
     def test_update_manual_item_data_persists_selling_price(self) -> None:
         response = self.client.post(
             reverse("stock:update_manual_item_data", kwargs={"pk": self.stock_import.pk}),
@@ -592,6 +601,206 @@ class ManualStockImportPricingTests(TestCase):
         self.assertEqual(self.product.last_purchase_price, Money("8.00", "BRL"))
         self.assertEqual(self.product.last_used_price, Money("13.50", "BRL"))
         self.assertEqual(self.stock_product.current_quantity, 7)
+
+
+class ManualStockImportLinkEditorTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=32)
+        self.group = CatalogGroup.objects.create(workshop=self.workshop, name="Fila Manual")
+        self.product = Product.objects.create(
+            workshop=self.workshop,
+            code="BAN-FILA",
+            name="Banana Fila",
+            unit=Product.Unit.UND,
+            group=self.group,
+            cost_price=Money("8.00", "BRL"),
+            selling_price=Money("13.00", "BRL"),
+            last_purchase_price=Money("7.25", "BRL"),
+            last_used_price=Money("15.00", "BRL"),
+            origin_cst=Product.OriginCST.NACIONAL,
+            purpose=Product.Purpose.RESALE,
+        )
+        self.stock_product = StockProduct.objects.get(workshop=self.workshop, product=self.product)
+        self.stock_product.current_quantity = 9
+        self.stock_product.save(update_fields=["current_quantity"])
+        self.stock_import = StockImport.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            method=StockImport.ImportMethods.MANUAL,
+            current_step=3,
+            nf_key="5" * 44,
+            supplier_name="Fornecedor Fila",
+            supplier_cnpj="12.345.678/0001-32",
+            items_data=[],
+            payments_data=[],
+        )
+
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_link_manual_modal_manual_mode_opens_child_editor(self) -> None:
+        response = self.client.get(reverse("stock:link_product_manual"), {"pk": self.stock_import.pk, "manual": "true"})
+
+        self.assertContains(response, reverse("stock:manual_link_item_editor"))
+        self.assertContains(response, "#child-modal-container")
+
+    def test_manual_link_item_editor_get_prefills_product_information(self) -> None:
+        response = self.client.get(
+            reverse("stock:manual_link_item_editor"),
+            {"pk": self.stock_import.pk, "product_id": self.product.pk},
+        )
+
+        self.assertContains(response, "Banana Fila")
+        self.assertContains(response, "Último valor de compra")
+        self.assertContains(response, "Último valor de venda")
+        self.assertContains(response, 'name="quantity"')
+        self.assertContains(response, 'name="unit_cost_0"')
+        self.assertContains(response, 'name="selling_price_0"')
+
+    def test_manual_link_item_editor_get_with_item_idx_prefills_existing_row(self) -> None:
+        self.stock_import.items_data = [
+            {
+                "ref": self.product.code,
+                "desc": self.product.name,
+                "qtd": "2",
+                "valor": "8.50",
+                "selling_price": "16.25",
+                "linked_product_id": str(self.product.pk),
+            }
+        ]
+        self.stock_import.save(update_fields=["items_data"])
+
+        response = self.client.get(
+            reverse("stock:manual_link_item_editor"),
+            {"pk": self.stock_import.pk, "product_id": self.product.pk, "item_idx": "0"},
+        )
+
+        self.assertContains(response, "Editar item vinculado")
+        self.assertContains(response, 'name="item_idx"')
+        self.assertContains(response, 'value="0"')
+        self.assertContains(response, 'value="2"')
+        self.assertContains(response, 'value="8.50"')
+        self.assertContains(response, 'value="16.25"')
+
+    def test_manual_link_item_editor_post_adds_item_after_save(self) -> None:
+        response = self.client.post(
+            f"{reverse('stock:manual_link_item_editor')}?pk={self.stock_import.pk}&product_id={self.product.pk}",
+            data={
+                "product_id": str(self.product.pk),
+                "quantity": "2",
+                "unit_cost_0": "8.50",
+                "unit_cost_1": "BRL",
+                "selling_price_0": "16.25",
+                "selling_price_1": "BRL",
+                "confirm_lower_price": "",
+            },
+        )
+
+        self.stock_import.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertJSONEqual(
+            response.headers["HX-Trigger"],
+            {
+                "productCreated": {},
+                "showToast": {
+                    "type": "success",
+                    "message": "Banana Fila adicionado a importacao manual.",
+                },
+            },
+        )
+        self.assertEqual(len(self.stock_import.items_data), 1)
+        self.assertEqual(self.stock_import.items_data[0]["linked_product_id"], str(self.product.pk))
+        self.assertEqual(self.stock_import.items_data[0]["qtd"], "2")
+        self.assertEqual(self.stock_import.items_data[0]["valor"], "8.50")
+        self.assertEqual(self.stock_import.items_data[0]["selling_price"], "16.25")
+
+    def test_manual_link_item_editor_requires_confirmation_for_lower_price(self) -> None:
+        response = self.client.post(
+            f"{reverse('stock:manual_link_item_editor')}?pk={self.stock_import.pk}&product_id={self.product.pk}",
+            data={
+                "product_id": str(self.product.pk),
+                "quantity": "1",
+                "unit_cost_0": "8.00",
+                "unit_cost_1": "BRL",
+                "selling_price_0": "10.00",
+                "selling_price_1": "BRL",
+                "confirm_lower_price": "",
+            },
+        )
+
+        self.stock_import.refresh_from_db()
+        response_text = response.content.decode("utf-8").replace("\xa0", " ")
+
+        self.assertIn("Último valor usado: R$ 15,00", response_text)
+        self.assertEqual(self.stock_import.items_data, [])
+
+    def test_manual_link_item_editor_allows_confirmed_lower_price(self) -> None:
+        response = self.client.post(
+            f"{reverse('stock:manual_link_item_editor')}?pk={self.stock_import.pk}&product_id={self.product.pk}",
+            data={
+                "product_id": str(self.product.pk),
+                "quantity": "1",
+                "unit_cost_0": "8.00",
+                "unit_cost_1": "BRL",
+                "selling_price_0": "10.00",
+                "selling_price_1": "BRL",
+                "confirm_lower_price": "1",
+            },
+        )
+
+        self.stock_import.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(self.stock_import.items_data), 1)
+        self.assertEqual(self.stock_import.items_data[0]["selling_price"], "10.00")
+
+    def test_manual_link_item_editor_post_with_item_idx_updates_existing_row(self) -> None:
+        self.stock_import.items_data = [
+            {
+                "ref": self.product.code,
+                "desc": self.product.name,
+                "qtd": "1",
+                "valor": "8.00",
+                "selling_price": "13.00",
+                "linked_product_id": str(self.product.pk),
+            }
+        ]
+        self.stock_import.save(update_fields=["items_data"])
+
+        response = self.client.post(
+            f"{reverse('stock:manual_link_item_editor')}?pk={self.stock_import.pk}&product_id={self.product.pk}&item_idx=0",
+            data={
+                "product_id": str(self.product.pk),
+                "item_idx": "0",
+                "quantity": "3",
+                "unit_cost_0": "9.10",
+                "unit_cost_1": "BRL",
+                "selling_price_0": "18.40",
+                "selling_price_1": "BRL",
+                "confirm_lower_price": "",
+            },
+        )
+
+        self.stock_import.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertJSONEqual(
+            response.headers["HX-Trigger"],
+            {
+                "productCreated": {},
+                "showToast": {
+                    "type": "success",
+                    "message": "Banana Fila atualizado na importacao manual.",
+                },
+            },
+        )
+        self.assertEqual(len(self.stock_import.items_data), 1)
+        self.assertEqual(self.stock_import.items_data[0]["qtd"], "3")
+        self.assertEqual(self.stock_import.items_data[0]["valor"], "9.10")
+        self.assertEqual(self.stock_import.items_data[0]["selling_price"], "18.40")
 
 
 class StockReportViewTests(TestCase):

@@ -342,7 +342,7 @@ class KitForm(forms.ModelForm):
                             <div class="flex flex-wrap gap-2 mb-3">
                                 <label for="kit-products-modal" class="btn btn-sm btn-primary" @click="openProductsModal()">Adicionar Produto</label>
                                 <label for="kit-services-modal" class="btn btn-sm btn-primary" @click="openServicesModal()">Adicionar Serviço</label>
-                                <label for="kit-distribute-time-modal" class="btn btn-sm btn-primary" @click="openDistributeTimeModal()">Distribuir Tempos</label>
+                                <label for="kit-distribute-time-modal" class="btn btn-sm btn-primary" @click="openDistributeTimeModal()">Inserir tempo total do Kit</label>
                             </div>
 
                             <div class="p-4 bg-base-300 rounded-box mb-4">
@@ -387,6 +387,15 @@ class KitForm(forms.ModelForm):
                                                 <td colspan="5" class="text-sm text-gray-500 italic">Nenhum produto adicionado.</td>
                                             </tr>
                                         </tbody>
+                                        <tfoot>
+                                            <tr class="border-t border-base-300">
+                                                <th>Total dos produtos</th>
+                                                <th class="text-right whitespace-nowrap" x-text="productsCostTotalDisplay()"></th>
+                                                <th class="text-right whitespace-nowrap" x-text="productsSellTotalDisplay()"></th>
+                                                <th></th>
+                                                <th></th>
+                                            </tr>
+                                        </tfoot>
                                     </table>
                                 </div>
                                 <select name="kit_products" multiple class="hidden">
@@ -443,6 +452,16 @@ class KitForm(forms.ModelForm):
                                                 <td colspan="6" class="text-sm text-gray-500 italic">Nenhum serviço adicionado.</td>
                                             </tr>
                                         </tbody>
+                                        <tfoot>
+                                            <tr class="border-t border-base-300">
+                                                <th>Total dos serviços</th>
+                                                <th class="text-right whitespace-nowrap" x-text="servicesCostTotalDisplay()"></th>
+                                                <th class="text-right whitespace-nowrap" x-text="servicesSellTotalDisplay()"></th>
+                                                <th></th>
+                                                <th></th>
+                                                <th></th>
+                                            </tr>
+                                        </tfoot>
                                     </table>
                                 </div>
                                 <select name="kit_services" multiple class="hidden">
@@ -541,7 +560,7 @@ class KitForm(forms.ModelForm):
                             <input type="checkbox" id="kit-distribute-time-modal" class="modal-toggle" />
                             <div class="modal" role="dialog" aria-modal="true">
                                 <div class="modal-box max-w-md">
-                                    <h3 class="text-lg font-bold">Distribuir Tempos</h3>
+                                    <h3 class="text-lg font-bold">Inserir tempo total do Kit</h3>
                                     <p class="text-sm text-base-content/70 mt-1">Informe o tempo total do kit para distribuir entre os serviços com base na quantidade.</p>
                                     <div class="mt-4 space-y-2">
                                         <label class="label p-0" for="kit-total-time-input">
@@ -668,6 +687,47 @@ class KitForm(forms.ModelForm):
                                         const hours = Math.floor(safeSeconds / 3600);
                                         const minutes = Math.floor((safeSeconds % 3600) / 60);
                                         return `${{String(hours).padStart(2, '0')}}:${{String(minutes).padStart(2, '0')}}`;
+                                    }},
+                                    parseMoneyValue(value) {{
+                                        const normalized = (value || '').toString().trim();
+                                        if (!normalized || normalized === '-') return 0;
+
+                                        const sanitized = normalized.replace(/[^\d,.-]/g, '');
+                                        if (!sanitized || sanitized === '-' || sanitized === ',' || sanitized === '.') return 0;
+
+                                        const decimalValue = sanitized.includes(',') ? sanitized.replace(/\./g, '').replace(',', '.') : sanitized.replace(/,/g, '');
+                                        const parsed = Number.parseFloat(decimalValue);
+                                        return Number.isNaN(parsed) ? 0 : parsed;
+                                    }},
+                                    formatCurrency(value) {{
+                                        const parsed = typeof value === 'number' ? value : Number.parseFloat(value);
+                                        const safeValue = Number.isNaN(parsed) ? 0 : parsed;
+                                        return new Intl.NumberFormat('pt-BR', {{
+                                            style: 'currency',
+                                            currency: 'BRL',
+                                        }}).format(safeValue);
+                                    }},
+                                    resolveItemQuantity(item) {{
+                                        const qty = Number.parseInt(item.qty, 10);
+                                        if (Number.isNaN(qty) || qty < 0) return 0;
+                                        return qty;
+                                    }},
+                                    calculateItemsTotal(items, fieldName) {{
+                                        return items.reduce((sum, item) => {{
+                                            return sum + (this.parseMoneyValue(item[fieldName]) * this.resolveItemQuantity(item));
+                                        }}, 0);
+                                    }},
+                                    productsCostTotalDisplay() {{
+                                        return this.formatCurrency(this.calculateItemsTotal(this.selectedProducts, 'cost'));
+                                    }},
+                                    productsSellTotalDisplay() {{
+                                        return this.formatCurrency(this.calculateItemsTotal(this.selectedProducts, 'sell'));
+                                    }},
+                                    servicesCostTotalDisplay() {{
+                                        return this.formatCurrency(this.calculateItemsTotal(this.selectedServices, 'cost'));
+                                    }},
+                                    servicesSellTotalDisplay() {{
+                                        return this.formatCurrency(this.calculateItemsTotal(this.selectedServices, 'sell'));
                                     }},
                                     refreshTotalDurationDisplay() {{
                                         const totalSeconds = this.selectedServices.reduce((sum, service) => {{

@@ -224,6 +224,30 @@ class BudgetStep1FormTests(TestCase):
         self.assertIn(reverse("budget:vehicle-detail"), rendered_vehicle_field)
         self.assertIn(':disabled="!customerId"', rendered_vehicle_field)
 
+    def test_accepts_warranty_budget_toggle(self) -> None:
+        user, workshop = create_director_user_with_workshop(suffix=67)
+        customer = create_customer(workshop=workshop, suffix=67)
+        vehicle = create_vehicle(workshop=workshop, customer=customer, suffix=67, plate="BDG6767")
+
+        request = RequestFactory().post(reverse("budget:budget_create"))
+        request.user = user
+
+        form = BudgetStep1Form(
+            data={
+                "entry_date": timezone.now().date().isoformat(),
+                "is_warranty_budget": "on",
+                "customer": str(customer.pk),
+                "vehicle": str(vehicle.pk),
+                "current_km": "15000",
+                "fuel_level": "5",
+            },
+            workshop=workshop,
+            request=request,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        self.assertTrue(form.cleaned_data["is_warranty_budget"])
+
     def test_accepts_current_km_with_thousands_separator(self) -> None:
         user, workshop = create_director_user_with_workshop(suffix=68)
         customer = create_customer(workshop=workshop, suffix=68)
@@ -565,6 +589,25 @@ class BudgetCreateViewAppointmentSyncTests(TestCase):
         self.assertIsNone(appointment.workorder)
         self.assertEqual(appointment.budget.customer, self.customer)
         self.assertEqual(response.headers.get("Location"), f"{reverse('budget:budget_create')}?step=2&pk={budget.pk}&appointment_id={appointment.pk}")
+
+    def test_create_persists_warranty_budget_flag_from_step_1(self) -> None:
+        response = self.client.post(
+            f"{reverse('budget:budget_create')}?step=1",
+            {
+                "entry_date": timezone.now().date().isoformat(),
+                "is_warranty_budget": "on",
+                "customer": str(self.customer.pk),
+                "vehicle": str(self.vehicle.pk),
+                "current_km": "12000",
+                "fuel_level": "5",
+            },
+        )
+
+        budget = Budget.objects.get(workshop=self.workshop)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(budget.is_warranty_budget)
+        self.assertEqual(response.headers.get("Location"), f"{reverse('budget:budget_create')}?step=2&pk={budget.pk}")
 
 
 class BudgetListFiltersTests(TestCase):

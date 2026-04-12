@@ -81,6 +81,7 @@ class Budget(TimeStampedModel):
     # Datas e Prazos
     expiration_date = models.DateField(verbose_name="Data de Validade", null=True, blank=True)
     entry_date = models.DateField(verbose_name="Data de Entrada")
+    is_warranty_budget = models.BooleanField(verbose_name="Orçamento de Garantia", default=False)
 
     # Informações Técnicas
     problem_description = models.TextField(verbose_name="Relato principal do cliente", blank=True, null=True)

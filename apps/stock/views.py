@@ -6,7 +6,7 @@ from django import forms
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
-from django.http import HttpRequest, HttpResponse
+from django.http import Http404, HttpRequest, HttpResponse
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -22,6 +22,7 @@ from djmoney.money import Money
 
 from .forms import (
     AdditionalChargeSessionForm,
+    ManualLinkItemEditForm,
     ImportManualItemsForm,
     ImportSefazListForm,
     ImportStep1Form,
@@ -951,6 +952,105 @@ class LinkProductManualView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         response = HttpResponse("")
         response["HX-Trigger"] = "productCreated"
+        return response
+
+
+class ManualLinkItemEditorView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = StockImport
+    workshop_permission_codename = "change_stockimport"
+
+    @staticmethod
+    def _parse_item_idx(raw_item_idx: int | str | None) -> int | None:
+        cleaned_value = clean_id(raw_item_idx)
+        if cleaned_value in (None, ""):
+            return None
+        return int(cleaned_value)
+
+    def _get_stock_import(self, pk: int | str | None) -> StockImport:
+        return get_object_or_404(StockImport, id=clean_id(pk), workshop=self.workshop, method=StockImport.ImportMethods.MANUAL)
+
+    @staticmethod
+    def _get_item_data(stock_import: StockImport, item_idx: int | None) -> dict[str, str] | None:
+        if item_idx is None:
+            return None
+
+        items = list(stock_import.items_data or [])
+        if item_idx < 0 or item_idx >= len(items):
+            raise Http404("Índice do item inválido.")
+
+        return dict(items[item_idx])
+
+    def _get_product(self, product_id: int | str | None, *, item_data: dict[str, str] | None = None) -> Product:
+        resolved_product_id = clean_id(product_id)
+        if resolved_product_id in (None, "") and item_data is not None:
+            resolved_product_id = clean_id(item_data.get("linked_product_id"))
+
+        return get_object_or_404(Product.objects.filter(workshop=self.workshop).select_related("stock_products"), id=resolved_product_id)
+
+    def _build_form(self, request: HttpRequest, *, stock_import: StockImport, product: Product, item_idx: int | None) -> ManualLinkItemEditForm:
+        form_kwargs: dict[str, object] = {
+            "product": product,
+            "stock_import": stock_import,
+            "item_idx": item_idx,
+        }
+        if request.method == "POST":
+            form_kwargs["data"] = request.POST
+        return ManualLinkItemEditForm(**form_kwargs)
+
+    def _render_modal(self, request: HttpRequest, *, stock_import: StockImport, product: Product, form: ManualLinkItemEditForm, item_idx: int | None) -> HttpResponse:
+        query_params = f"?pk={stock_import.pk}&product_id={product.pk}"
+        if item_idx is not None:
+            query_params += f"&item_idx={item_idx}"
+
+        return render(
+            request,
+            "stock/partials/modal/manual_link_item_editor_modal.html",
+            {
+                "form": form,
+                "product": product,
+                "stock_import": stock_import,
+                "submit_url": f"{reverse('stock:manual_link_item_editor')}{query_params}",
+            },
+        )
+
+    def get(self, request: HttpRequest) -> HttpResponse:
+        stock_import = self._get_stock_import(request.GET.get("pk"))
+        item_idx = self._parse_item_idx(request.GET.get("item_idx"))
+        item_data = self._get_item_data(stock_import, item_idx)
+        product = self._get_product(request.GET.get("product_id"), item_data=item_data)
+        form = self._build_form(request, stock_import=stock_import, product=product, item_idx=item_idx)
+        return self._render_modal(request, stock_import=stock_import, product=product, form=form, item_idx=item_idx)
+
+    @transaction.atomic
+    def post(self, request: HttpRequest) -> HttpResponse:
+        stock_import = self._get_stock_import(request.GET.get("pk") or request.POST.get("pk"))
+        item_idx = self._parse_item_idx(request.GET.get("item_idx") or request.POST.get("item_idx"))
+        item_data = self._get_item_data(stock_import, item_idx)
+        product = self._get_product(request.GET.get("product_id") or request.POST.get("product_id"), item_data=item_data)
+        form = self._build_form(request, stock_import=stock_import, product=product, item_idx=item_idx)
+
+        if not form.is_valid():
+            return self._render_modal(request, stock_import=stock_import, product=product, form=form, item_idx=item_idx)
+
+        items = list(stock_import.items_data or [])
+        if item_idx is not None:
+            items[item_idx] = form.build_item_data()
+        else:
+            items.append(form.build_item_data())
+        stock_import.items_data = items
+        stock_import.save(update_fields=["items_data"])
+
+        success_message = f"{product.name} atualizado na importacao manual." if item_idx is not None else f"{product.name} adicionado a importacao manual."
+        response = HttpResponse("")
+        response["HX-Trigger"] = json.dumps(
+            {
+                "productCreated": {},
+                "showToast": {
+                    "type": "success",
+                    "message": success_message,
+                },
+            }
+        )
         return response
 
 

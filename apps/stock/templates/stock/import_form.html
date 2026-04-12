@@ -11,4 +11,29 @@
     </div>
 </div>
 <div id="modal-container"></div>
+<div id="child-modal-container"></div>
+
+<script>
+    (function() {
+        window.closeStockParentModal = function() {
+            const parentContainer = document.getElementById('modal-container');
+            const childContainer = document.getElementById('child-modal-container');
+
+            if (childContainer) {
+                childContainer.innerHTML = '';
+            }
+
+            if (parentContainer) {
+                parentContainer.innerHTML = '';
+            }
+        };
+
+        window.closeStockChildModal = function() {
+            const childContainer = document.getElementById('child-modal-container');
+            if (childContainer) {
+                childContainer.innerHTML = '';
+            }
+        };
+    })();
+</script>
 {% endblock %}
