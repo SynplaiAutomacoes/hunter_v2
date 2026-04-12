@@ -6,7 +6,7 @@ from datetime import timedelta
 from decimal import Decimal
 from typing import cast
 from urllib.parse import urlparse
-from unittest.mock import PropertyMock, patch
+from unittest.mock import ANY, PropertyMock, patch
 
 import requests
 from django import forms
@@ -1392,6 +1392,45 @@ class BudgetPdfContextTests(TestCase):
         self.assertEqual(context["total_profit_product_value"], Money("0.00", "BRL"))
         self.assertEqual(context["total_profit_service_value"], Money("0.00", "BRL"))
 
+    def test_build_budget_pdf_context_zeroes_client_visible_warranty_prices(self) -> None:
+        workshop = create_workshop(suffix=15)
+        budget = create_budget(workshop=workshop)
+        budget.is_warranty_budget = True
+        budget.save(update_fields=["is_warranty_budget"])
+
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            is_local=True,
+            description="Produto garantia cliente",
+            quantity=2,
+            product_cost_price=Money("50.00", "BRL"),
+            product_selling_price=Money("100.00", "BRL"),
+            shipping=Money("5.00", "BRL"),
+        )
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            is_local=True,
+            description="Servico garantia cliente",
+            quantity=1,
+            service_cost_price=Money("30.00", "BRL"),
+            service_selling_price=Money("90.00", "BRL"),
+        )
+        budget.discount_value = Money("5.00", "BRL")
+
+        context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste", zero_warranty_prices=True)
+
+        self.assertEqual(context["produtos"][0]["unit_price"], Money("0.00", "BRL"))
+        self.assertEqual(context["produtos"][0]["shipping"], Money("0.00", "BRL"))
+        self.assertEqual(context["produtos"][0]["total_price"], Money("0.00", "BRL"))
+        self.assertEqual(context["servicos"][0]["unit_price"], Money("0.00", "BRL"))
+        self.assertEqual(context["servicos"][0]["total_price"], Money("0.00", "BRL"))
+        self.assertEqual(context["desconto"], Money("0.00", "BRL"))
+        self.assertEqual(context["total_produtos"], Money("0.00", "BRL"))
+        self.assertEqual(context["total_servicos"], Money("0.00", "BRL"))
+        self.assertEqual(context["total_geral"], Money("0.00", "BRL"))
+
     def test_budget_pdf_template_allows_long_freeform_text_to_wrap(self) -> None:
         workshop = create_workshop(suffix=94)
         customer = create_customer(workshop=workshop, suffix=94)
@@ -1547,7 +1586,7 @@ class BudgetPdfViewTests(TestCase):
             response = self.client.get(reverse(url_name, args=[budget.pk]))
 
             self.assertEqual(response.status_code, 200)
-            self.assertContains(response, "Trago pelo cliente?")
+            self.assertContains(response, "Fornecido pelo cliente?")
             self.assertRegex(response.content.decode(), r">\s*Sim\s*<")
             self.assertRegex(response.content.decode(), r">\s*Não\s*<")
 
@@ -1561,6 +1600,72 @@ class BudgetPdfViewTests(TestCase):
 
             self.assertEqual(response.status_code, 200)
             self.assertContains(response, "Orçamento de Garantia")
+
+    def test_visualizar_pdf_zeroes_client_prices_for_warranty_budget(self) -> None:
+        budget = self._create_budget_with_customer_and_vehicle(suffix=206)
+        budget.is_warranty_budget = True
+        budget.save(update_fields=["is_warranty_budget"])
+
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            is_local=True,
+            description="Produto garantia PDF cliente",
+            quantity=2,
+            product_cost_price=Money("50.00", "BRL"),
+            product_selling_price=Money("100.00", "BRL"),
+            shipping=Money("5.00", "BRL"),
+        )
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            is_local=True,
+            description="Servico garantia PDF cliente",
+            quantity=1,
+            service_cost_price=Money("30.00", "BRL"),
+            service_selling_price=Money("90.00", "BRL"),
+        )
+
+        response = self.client.get(reverse("budget:visualizar_pdf", args=[budget.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "TOTAL DAS PEÇAS: R$")
+        self.assertContains(response, "TOTAL DOS SERVIÇOS: R$")
+        self.assertContains(response, "TOTAL GERAL:")
+        self.assertNotContains(response, "R$ 105,00")
+        self.assertNotContains(response, "R$ 30,00")
+        self.assertGreaterEqual(response.content.decode().count("R$\xa00,00"), 5)
+
+    def test_visualizar_pdf_gestor_keeps_internal_warranty_totals(self) -> None:
+        budget = self._create_budget_with_customer_and_vehicle(suffix=207)
+        budget.is_warranty_budget = True
+        budget.save(update_fields=["is_warranty_budget"])
+
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            is_local=True,
+            description="Produto garantia PDF gestor",
+            quantity=2,
+            product_cost_price=Money("50.00", "BRL"),
+            product_selling_price=Money("100.00", "BRL"),
+            shipping=Money("5.00", "BRL"),
+        )
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            is_local=True,
+            description="Servico garantia PDF gestor",
+            quantity=1,
+            service_cost_price=Money("30.00", "BRL"),
+            service_selling_price=Money("90.00", "BRL"),
+        )
+
+        response = self.client.get(reverse("budget:visualizar_pdf_gestor", args=[budget.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "R$\xa0105,00", html=False)
+        self.assertContains(response, "R$\xa030,00", html=False)
 
     def test_pdf_views_hide_warranty_label_for_regular_budget(self) -> None:
         budget = self._create_budget_with_customer_and_vehicle(suffix=107)
@@ -2645,6 +2750,7 @@ class BudgetSignaturePublicViewTests(TestCase):
         render_mock.assert_called_once()
         self.assertEqual(render_mock.call_args.args[1], "budget/partials/pdf/visualizarPDF.html")
         self.assertEqual(render_mock.call_args.args[2], {"budget": budget, "observacao": budget.pdf_observation})
+        build_context_mock.assert_called_once_with(budget=budget, observacao=budget.pdf_observation, request=ANY, zero_warranty_prices=True)
 
     def test_signature_preview_rejects_inactive_token(self) -> None:
         workshop = create_workshop(suffix=79)

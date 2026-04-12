@@ -53,14 +53,21 @@ def build_workshop_logo_data_uri(*, workshop) -> str:
     return f"data:{stored_logo.content_type};base64,{encoded_logo}"
 
 
-def build_budget_pdf_context(*, budget, observacao: str | None = None, request=None) -> dict:
+def build_budget_pdf_context(*, budget, observacao: str | None = None, request=None, zero_warranty_prices: bool = False) -> dict:
     snapshot = budget.pricing_snapshot
     resolved_observation = observacao if observacao is not None else budget.pdf_observation
     is_warranty_budget = budget.is_warranty_budget
+    is_client_warranty_pdf = is_warranty_budget and zero_warranty_prices
     total_produtos = budget.display_total_products_by_slider
     total_servicos = budget.display_total_services_by_slider
     desconto = budget.display_resolved_discount_value
     total_geral = budget.display_total_budget_value
+
+    if is_client_warranty_pdf:
+        total_produtos = Money(0, "BRL")
+        total_servicos = Money(0, "BRL")
+        desconto = Money(0, "BRL")
+        total_geral = Money(0, "BRL")
     soma_markup = _calculate_soma_markup(
         total_budget_value=total_geral,
         total_costs_products_value=snapshot.total_costs_products_value,
@@ -78,8 +85,8 @@ def build_budget_pdf_context(*, budget, observacao: str | None = None, request=N
             "location": line.location or "-",
             "unit_price": (Money(0, "BRL") if is_warranty_budget else line.unit_price),
             "adjusted_unit_price": (Money(0, "BRL") if is_warranty_budget else line.adjusted_unit_price),
-            "shipping": line.shipping,
-            "total_price": (line.cost_total + line.shipping if is_warranty_budget else line.total_price),
+            "shipping": (Money(0, "BRL") if is_client_warranty_pdf else line.shipping),
+            "total_price": (Money(0, "BRL") if is_client_warranty_pdf else (line.cost_total + line.shipping if is_warranty_budget else line.total_price)),
             "product_cost_price": line.cost_total,
             "profit_value": (Money(0, "BRL") if is_warranty_budget else line.profit_value),
             "show_kit_duplicate_warning": line.show_kit_duplicate_warning,
@@ -93,7 +100,7 @@ def build_budget_pdf_context(*, budget, observacao: str | None = None, request=N
             "description": line.description,
             "quantity": line.quantity,
             "unit_price": (Money(0, "BRL") if is_warranty_budget else line.adjusted_unit_price),
-            "total_price": (line.cost_total if is_warranty_budget else line.total_price),
+            "total_price": (Money(0, "BRL") if is_client_warranty_pdf else (line.cost_total if is_warranty_budget else line.total_price)),
             "service_cost_price": line.cost_total,
             "profit_value": (Money(0, "BRL") if is_warranty_budget else line.profit_value),
             "duration_display": line.duration_display,
