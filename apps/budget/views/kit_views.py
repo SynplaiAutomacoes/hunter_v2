@@ -86,7 +86,7 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
             quantity = override.quantity if override else kit_service.quantity
             cost = override.service_cost_price if override else service.suggested_cost
-            price = override.service_selling_price if override else service.selling_price
+            price = override.service_selling_price if override else kit_service.resolved_selling_price
 
             row_form = BudgetKitServiceEditRowForm(
                 initial={
@@ -336,6 +336,7 @@ class BudgetKitServiceCalculateView(LoginRequiredMixin, WorkshopScopedMixin, Vie
         if not service_in_kit:
             return JsonResponse({"error": "service_not_in_kit"}, status=400)
 
+        kit_service = get_object_or_404(item.kit.kit_services.select_related("service"), service_id=service_id)
         service = get_object_or_404(Service, id=service_id, workshop=self.workshop)
         existing_override = BudgetKitItemOverride.objects.filter(workshop=self.workshop, budget_item=item, service=service).first()
 
@@ -353,7 +354,7 @@ class BudgetKitServiceCalculateView(LoginRequiredMixin, WorkshopScopedMixin, Vie
             service_selling_price_amount = service_selling_price.amount.quantize(Decimal("0.01"))
         else:
             cost_default = existing_override.service_cost_price.amount if existing_override and existing_override.service_cost_price else (service.suggested_cost.amount if service.suggested_cost else Decimal("0"))
-            price_default = existing_override.service_selling_price.amount if existing_override else service.selling_price.amount
+            price_default = existing_override.service_selling_price.amount if existing_override else kit_service.resolved_selling_price.amount
             service_cost_price_amount = _parse_decimal_value(request.POST.get("cost"), cost_default).quantize(Decimal("0.01"))
             service_selling_price_amount = _parse_decimal_value(request.POST.get("price"), price_default).quantize(Decimal("0.01"))
 

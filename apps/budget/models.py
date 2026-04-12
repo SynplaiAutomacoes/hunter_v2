@@ -710,7 +710,7 @@ class BudgetItem(TimeStampedModel):
 
             elif self.kit:
                 self.product_selling_price = sum((kp.product.selling_price * kp.quantity for kp in self.kit.kit_products.all()), Money(0, "BRL"))
-                self.service_selling_price = sum((ks.service.selling_price * ks.quantity for ks in self.kit.kit_services.all()), Money(0, "BRL"))
+                self.service_selling_price = sum((ks.resolved_selling_price * ks.quantity for ks in self.kit.kit_services.all()), Money(0, "BRL"))
 
                 self.product_cost_price = sum((kp.product.cost_price * kp.quantity for kp in self.kit.kit_products.all()), Money(0, "BRL"))
                 self.service_cost_price = sum((ks.service.suggested_cost * ks.quantity for ks in self.kit.kit_services.all() if ks.service.suggested_cost), Money(0, "BRL"))
@@ -855,7 +855,7 @@ class BudgetItem(TimeStampedModel):
                 continue
 
             service_cost = override.service_cost_price if override else (kit_service.service.suggested_cost or Money(0, "BRL"))
-            service_price = override.service_selling_price if override else kit_service.service.selling_price
+            service_price = override.service_selling_price if override else kit_service.resolved_selling_price
             unit_cost += service_cost * quantity
             unit_price += service_price * quantity
 
@@ -910,7 +910,7 @@ class BudgetItem(TimeStampedModel):
                 else:
                     servico_subtotal = override.service_selling_price * override.quantity
             elif kit_service.quantity > 0:
-                servico_subtotal = kit_service.service.selling_price * kit_service.quantity
+                servico_subtotal = kit_service.resolved_selling_price * kit_service.quantity
             else:
                 servico_subtotal = Money(0, "BRL")
             total_servicos += servico_subtotal
@@ -958,7 +958,7 @@ class BudgetItem(TimeStampedModel):
                 else:
                     servico_subtotal = override.service_selling_price * override.quantity
             elif kit_service.quantity > 0:
-                servico_subtotal = kit_service.service.selling_price * kit_service.quantity
+                servico_subtotal = kit_service.resolved_selling_price * kit_service.quantity
             else:
                 servico_subtotal = Money(0, "BRL")
             total_servicos += servico_subtotal
@@ -1065,7 +1065,7 @@ class BudgetItem(TimeStampedModel):
                     continue
                 total_selling += override.service_selling_price * override.quantity
             elif kit_service.quantity > 0:
-                total_selling += kit_service.service.selling_price * kit_service.quantity
+                total_selling += kit_service.resolved_selling_price * kit_service.quantity
 
         return total_selling * self.quantity
 
@@ -1114,7 +1114,7 @@ class BudgetItem(TimeStampedModel):
             # Componentes de Serviço no Kit
             for ks in self.kit.kit_services.all():
                 ovr = s_ovr.get(ks.service_id)
-                u_p = ovr.service_selling_price if ovr else ks.service.selling_price
+                u_p = ovr.service_selling_price if ovr else ks.resolved_selling_price
                 u_c = ovr.service_cost_price if ovr else (ks.service.suggested_cost or Money(0, "BRL"))
                 qty = ks.quantity  # Overrides de serviço costumam manter qty
 

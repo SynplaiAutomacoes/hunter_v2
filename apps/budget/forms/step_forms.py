@@ -514,21 +514,39 @@ class BudgetStep1Form(forms.ModelForm):
                     # Orçamento
                     Div(
                         HTML("""
-                            <div class="mb-4" x-data="{ isWarrantyBudget: {% if form.is_warranty_budget.value %}true{% else %}false{% endif %} }">
-                                <div class="mb-2 text-sm font-semibold uppercase tracking-wide text-base-content/70">O orçamento é de garantia?</div>
-                                <label for="id_is_warranty_budget" class="flex w-fit items-center gap-3 rounded-xl border border-base-300 bg-base-200/40 px-4 py-3 cursor-pointer transition-colors hover:border-primary/40">
-                                    <input
-                                        type="checkbox"
-                                        name="is_warranty_budget"
-                                        id="id_is_warranty_budget"
-                                        class="toggle toggle-primary"
-                                        @change="isWarrantyBudget = $event.target.checked"
-                                        {% if form.is_warranty_budget.value %}checked{% endif %}
-                                    >
-                                    <span class="min-w-10 font-medium text-base-content text-right" x-text="isWarrantyBudget ? 'Sim' : 'Não'">{% if form.is_warranty_budget.value %}Sim{% else %}Não{% endif %}</span>
-                                </label>
+                            <div class="mb-5 rounded-2xl border border-base-300/80 bg-base-200/30 p-4 shadow-sm" x-data="{ isWarrantyBudget: {% if form.is_warranty_budget.value %}true{% else %}false{% endif %} }">
+                                <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                                    <div class="space-y-1">
+                                        <div class="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-base-content/55">
+                                            <span class="inline-block h-2 w-2 rounded-full bg-primary"></span>
+                                            Garantia
+                                        </div>
+                                        <div class="text-lg font-semibold text-base-content">O orçamento é de garantia?</div>
+                                        <p class="text-sm leading-relaxed text-base-content/70">Ative esta opção quando o atendimento estiver relacionado a um retorno em garantia.</p>
+                                    </div>
+
+                                    <label for="id_is_warranty_budget" class="flex w-full items-center justify-between gap-4 rounded-xl border border-base-300 bg-base-100 px-4 py-3 cursor-pointer transition-all hover:border-primary/40 hover:shadow-sm lg:max-w-xs">
+                                        <div class="flex items-center gap-3">
+                                            <input
+                                                type="checkbox"
+                                                name="is_warranty_budget"
+                                                id="id_is_warranty_budget"
+                                                class="toggle toggle-primary"
+                                                @change="isWarrantyBudget = $event.target.checked"
+                                                {% if form.is_warranty_budget.value %}checked{% endif %}
+                                            >
+                                            <span class="text-sm font-medium text-base-content/70">Status</span>
+                                        </div>
+                                        <span
+                                            class="inline-flex min-w-16 items-center justify-center rounded-full px-3 py-1 text-sm font-semibold transition-colors"
+                                            :class="isWarrantyBudget ? 'bg-success/15 text-success' : 'bg-error/15 text-error'"
+                                            x-text="isWarrantyBudget ? 'Sim' : 'Não'"
+                                        >{% if form.is_warranty_budget.value %}Sim{% else %}Não{% endif %}</span>
+                                    </label>
+                                </div>
+
                                 {% if form.is_warranty_budget.errors %}
-                                    <span class="mt-2 block text-sm text-error">{{ form.is_warranty_budget.errors|join:', ' }}</span>
+                                    <span class="mt-3 block text-sm text-error">{{ form.is_warranty_budget.errors|join:', ' }}</span>
                                 {% endif %}
                             </div>
                         """),

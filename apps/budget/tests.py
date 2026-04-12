@@ -248,6 +248,19 @@ class BudgetStep1FormTests(TestCase):
         self.assertTrue(form.is_valid(), form.errors.as_json())
         self.assertTrue(form.cleaned_data["is_warranty_budget"])
 
+    def test_renders_red_no_badge_for_warranty_toggle_when_unchecked(self) -> None:
+        user, workshop = create_director_user_with_workshop(suffix=66)
+
+        request = RequestFactory().get(reverse("budget:budget_create"))
+        request.user = user
+
+        form = BudgetStep1Form(workshop=workshop, request=request)
+        form_html = Template("{% load crispy_forms_tags %}{% crispy form %}").render(Context({"form": form}))
+
+        self.assertIn("O orçamento é de garantia?", form_html)
+        self.assertIn("bg-error/15 text-error", form_html)
+        self.assertIn(">Não</span>", form_html)
+
     def test_accepts_current_km_with_thousands_separator(self) -> None:
         user, workshop = create_director_user_with_workshop(suffix=68)
         customer = create_customer(workshop=workshop, suffix=68)
@@ -701,6 +714,18 @@ class BudgetListFiltersTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertQuerySetEqual(response.context["budget"].order_by("pk"), [approved_budget], transform=lambda obj: obj)
         self.assertNotIn(cancelled_budget, response.context["budget"])
+
+    def test_budget_list_displays_warranty_budget_badge(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=81)
+        warranty_budget = create_budget(workshop=workshop)
+        warranty_budget.is_warranty_budget = True
+        warranty_budget.save(update_fields=["is_warranty_budget"])
+
+        response = self.client.get(reverse("budget:budget_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, str(Budget.is_warranty_budget.field.verbose_name))
+        self.assertContains(response, '<span class="badge badge-soft badge-success badge-sm">Sim</span>', html=True)
 
     def test_budget_list_shows_cancelled_when_cancelled_filter_is_selected(self) -> None:
         workshop = self._login_with_active_workshop(suffix=73)
@@ -2439,6 +2464,18 @@ class BudgetDuplicateKitProductTests(TestCase):
         self.assertEqual(len(context["servicos"]), 1)
         self.assertEqual(context["servicos"][0]["quantity"], 3)
         self.assertEqual(context["servicos"][0]["total_price"], Money("60.00", "BRL"))
+
+    def test_budget_item_uses_kit_service_custom_selling_price(self) -> None:
+        workshop = create_workshop(suffix=94)
+        budget = create_budget(workshop=workshop)
+        service = create_service(workshop=workshop, suffix=94)
+        kit = create_kit(workshop=workshop, suffix=941, products=[])
+        KitService.objects.create(kit=kit, service=service, quantity=2, duration=service.duration, selling_price=Money("33.00", "BRL"))
+
+        item = BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
+
+        self.assertEqual(item.service_selling_price, Money("66.00", "BRL"))
+        self.assertEqual(item.get_kit_services_total(), Money("66.00", "BRL"))
 
     def test_duplicate_service_warning_is_rendered_for_direct_item_present_in_kit(self) -> None:
         workshop = create_workshop(suffix=93)

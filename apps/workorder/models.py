@@ -590,7 +590,7 @@ class WorkOrderItem(TimeStampedModel):
 
             elif self.kit:
                 self.product_selling_price = sum((kp.product.selling_price * kp.quantity for kp in self.kit.kit_products.all()), Money(0, "BRL"))
-                self.service_selling_price = sum((ks.service.selling_price * ks.quantity for ks in self.kit.kit_services.all()), Money(0, "BRL"))
+                self.service_selling_price = sum((ks.resolved_selling_price * ks.quantity for ks in self.kit.kit_services.all()), Money(0, "BRL"))
 
                 self.product_cost_price = sum((kp.product.cost_price * kp.quantity for kp in self.kit.kit_products.all()), Money(0, "BRL"))
                 self.service_cost_price = sum((ks.service.suggested_cost * ks.quantity for ks in self.kit.kit_services.all() if ks.service.suggested_cost), Money(0, "BRL"))
@@ -743,7 +743,7 @@ class WorkOrderItem(TimeStampedModel):
                 else:
                     servico_subtotal = override.service_selling_price * override.quantity
             elif kit_service.quantity > 0:
-                servico_subtotal = kit_service.service.selling_price * kit_service.quantity
+                servico_subtotal = kit_service.resolved_selling_price * kit_service.quantity
             else:
                 servico_subtotal = Money(0, "BRL")
             total_servicos += servico_subtotal
@@ -787,7 +787,7 @@ class WorkOrderItem(TimeStampedModel):
                 else:
                     servico_subtotal = override.service_selling_price * override.quantity
             elif kit_service.quantity > 0:
-                servico_subtotal = kit_service.service.selling_price * kit_service.quantity
+                servico_subtotal = kit_service.resolved_selling_price * kit_service.quantity
             else:
                 servico_subtotal = Money(0, "BRL")
             total_servicos += servico_subtotal
@@ -893,7 +893,7 @@ class WorkOrderItem(TimeStampedModel):
                     continue
                 total_selling += override.service_selling_price * override.quantity
             elif kit_service.quantity > 0:
-                total_selling += kit_service.service.selling_price * kit_service.quantity
+                total_selling += kit_service.resolved_selling_price * kit_service.quantity
 
         return total_selling * self.quantity
 

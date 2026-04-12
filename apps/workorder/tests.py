@@ -1442,6 +1442,19 @@ class WorkOrderDuplicateKitProductTests(TestCase):
         self.assertEqual(workorder.get_total_services_by_slider, budget.get_total_services_by_slider)
         self.assertEqual(workorder.pricing_snapshot.service_lines[0].quantity, 3)
 
+    def test_workorder_item_uses_kit_service_custom_selling_price(self) -> None:
+        workshop = create_workshop(suffix=13)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        service = create_service(workshop=workshop, suffix=130)
+        kit = create_kit(workshop=workshop, suffix=1301, products=[])
+        KitService.objects.create(kit=kit, service=service, quantity=2, duration=service.duration, selling_price=Money("33.00", "BRL"))
+
+        item = WorkOrderItem.objects.create(workshop=workshop, workorder=workorder, kit=kit, quantity=1)
+
+        self.assertEqual(item.service_selling_price, Money("66.00", "BRL"))
+        self.assertEqual(item.get_kit_services_total(), Money("66.00", "BRL"))
+
     def test_stock_approval_uses_consolidated_product_quantity(self) -> None:
         workshop = create_workshop(suffix=11)
         budget = create_budget(workshop=workshop)
