@@ -293,6 +293,7 @@ class ImportStepItemsForm(forms.ModelForm):
         rows_system = ""
         quick_create_url = reverse("stock:product_quick_create")
         link_manual_url = reverse("stock:link_product_manual")
+        item_editor_url = reverse("stock:manual_link_item_editor")
 
         for idx, item in enumerate(self.import_items):
             ref_xml = item.get("ref", "")
@@ -313,19 +314,29 @@ class ImportStepItemsForm(forms.ModelForm):
             product_id = item.get("linked_product_id")
             product = Product.objects.filter(id=product_id, workshop=self.workshop).first() if product_id else None
             if product:
+                item_unit_cost = _format_money_display(_money_from_value(item.get("valor")) or product.cost_price)
+                item_selling_price = _format_money_display(_money_from_value(item.get("selling_price")) or product.selling_price)
                 rows_system += f"""<tr class="h-16 border-b">
                         <td class="max-w-[150px]">
                             <div class="text-sm font-medium truncate" title="{product.name}">{product.name}</div>
                             <div class="text-[10px] opacity-50 font-mono">{product.code}</div>
                         </td>
-                        <td class="text-center">{product.cost_price}</td>
-                        <td class="text-center">{product.selling_price}</td>
+                        <td class="text-center whitespace-nowrap">{item_unit_cost}</td>
+                        <td class="text-center whitespace-nowrap">{item_selling_price}</td>
                         <td class="text-center">{product.stock_products.current_quantity}</td>
                         <td class="text-center">
-                            <button type="button" class="btn btn-ghost btn-xs text-error" 
-                                    hx-post='{reverse("stock:unlink_item")}?item_idx={idx}&pk={self.instance.pk}' hx-target="#step-container">
-                                <span class="material-icons text-xs">link_off</span>
-                            </button>
+                            <div class="flex gap-1 justify-center">
+                                <button type="button" class="btn btn-ghost btn-xs text-info" title="Editar Item"
+                                        hx-get="{item_editor_url}?pk={self.instance.pk}&product_id={product.pk}&item_idx={idx}"
+                                        hx-target="#child-modal-container"
+                                        hx-swap="innerHTML">
+                                    <span class="material-icons text-xs">edit</span>
+                                </button>
+                                <button type="button" class="btn btn-ghost btn-xs text-error" title="Desvincular Item"
+                                        hx-post='{reverse("stock:unlink_item")}?item_idx={idx}&pk={self.instance.pk}' hx-target="#step-container">
+                                    <span class="material-icons text-xs">link_off</span>
+                                </button>
+                            </div>
                         </td>
                     </tr>"""
             else:
@@ -1153,22 +1164,68 @@ class ManualLinkItemEditForm(forms.Form):
         return self.item_idx is not None
 
     @property
+    def has_existing_link(self) -> bool:
+        item_data = self.item_data or {}
+        return bool(item_data.get("linked_product_id"))
+
+    @property
+    def is_linking_imported_item(self) -> bool:
+        return self.item_idx is not None and not self.has_existing_link
+
+    @property
+    def is_manual_import(self) -> bool:
+        return self.stock_import.method == StockImport.ImportMethods.MANUAL
+
+    @property
     def modal_title(self) -> str:
-        return "Editar item vinculado" if self.is_editing else "Configurar item antes de inserir"
+        if self.has_existing_link:
+            return "Editar item vinculado"
+        if self.is_linking_imported_item:
+            return "Configurar item antes de vincular"
+        return "Configurar item antes de inserir"
 
     @property
     def modal_description(self) -> str:
-        if self.is_editing:
-            return "Revise quantidade e preços antes de atualizar o item na tabela da importação manual."
+        if self.has_existing_link:
+            return "Revise quantidade e preços antes de atualizar o item na tabela da importação."
+        if self.is_linking_imported_item:
+            return "Revise quantidade e preços antes de vincular o produto ao item importado."
         return "Revise quantidade e preços antes de adicionar o produto na tabela da importação manual."
 
     @property
     def submit_label(self) -> str:
-        return "Salvar alterações" if self.is_editing else "Salvar e Inserir"
+        if self.has_existing_link:
+            return "Salvar alterações"
+        if self.is_linking_imported_item:
+            return "Salvar e Vincular"
+        return "Salvar e Inserir"
 
     @property
     def submit_icon(self) -> str:
-        return "edit" if self.is_editing else "playlist_add"
+        if self.has_existing_link:
+            return "edit"
+        if self.is_linking_imported_item:
+            return "link"
+        return "playlist_add"
+
+    @property
+    def save_help_text(self) -> str:
+        if self.has_existing_link:
+            return "Ao salvar, este item sera atualizado na tabela desta etapa."
+        if self.is_linking_imported_item:
+            return "Ao salvar, o produto sera vinculado ao item importado e os dados informados ficarao salvos nesta etapa."
+        return "Ao salvar, este item sera adicionado a tabela desta etapa e continuara editavel depois."
+
+    @property
+    def success_message(self) -> str:
+        if self.has_existing_link:
+            message = "atualizado na importacao manual" if self.is_manual_import else "atualizado na importacao"
+        elif self.is_linking_imported_item:
+            message = "vinculado na importacao"
+        else:
+            message = "adicionado a importacao manual"
+
+        return f"{self.product.name} {message}."
 
     @property
     def current_quantity(self) -> int:
@@ -1309,19 +1366,19 @@ class ManualLinkItemEditForm(forms.Form):
             }}
         }}"""
 
-    def build_item_data(self) -> dict[str, str]:
+    def build_item_data(self, existing_item: dict[str, Any] | None = None) -> dict[str, Any]:
         quantity = Decimal(str(self.cleaned_data["quantity"] or 0))
         unit_cost = self.cleaned_data["unit_cost"]
         selling_price = self.cleaned_data["selling_price"]
 
-        return {
-            "ref": str(self.product.code),
-            "desc": str(self.product.name),
-            "qtd": str(quantity),
-            "valor": str(unit_cost.amount.quantize(MONEY_QUANTIZER)),
-            "selling_price": str(selling_price.amount.quantize(MONEY_QUANTIZER)),
-            "linked_product_id": str(self.product.pk),
-        }
+        item_data = dict(existing_item or {})
+        item_data.setdefault("ref", str(self.product.code))
+        item_data.setdefault("desc", str(self.product.name))
+        item_data["qtd"] = str(quantity)
+        item_data["valor"] = str(unit_cost.amount.quantize(MONEY_QUANTIZER))
+        item_data["selling_price"] = str(selling_price.amount.quantize(MONEY_QUANTIZER))
+        item_data["linked_product_id"] = str(self.product.pk)
+        return item_data
 
     def clean_product_id(self) -> int:
         product_id = int(self.cleaned_data["product_id"])

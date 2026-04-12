@@ -23,7 +23,7 @@ from apps.collaborators.models import WorkshopMember
 from apps.core.documents.contract import DocumentPayload
 from apps.finance.models.payment_method import PaymentMethod
 from apps.iam.utils import get_or_create_director_role
-from apps.stock.forms import ImportManualItemsForm, ImportSefazListForm, ImportStep1Form, ImportStepPaymentForm, ImportStepSummaryForm, ImportStepSupplierForm, QuickProductForm
+from apps.stock.forms import ImportManualItemsForm, ImportSefazListForm, ImportStep1Form, ImportStepItemsForm, ImportStepPaymentForm, ImportStepSummaryForm, ImportStepSupplierForm, QuickProductForm
 from apps.stock.models import SefazZipCache, StockImport, StockMovement, StockPaymentMethod, StockProduct, StockTransfer
 from apps.stock.utils import NFParser
 from apps.suppliers.models import Supplier
@@ -806,6 +806,139 @@ class ManualStockImportLinkEditorTests(TestCase):
         )
         self.assertEqual(len(self.stock_import.items_data), 1)
         self.assertEqual(self.stock_import.items_data[0]["qtd"], "3")
+        self.assertEqual(self.stock_import.items_data[0]["valor"], "9.10")
+        self.assertEqual(self.stock_import.items_data[0]["selling_price"], "18.40")
+
+
+class SefazStockImportLinkEditorTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=33)
+        self.group = CatalogGroup.objects.create(workshop=self.workshop, name="Fila SEFAZ")
+        self.product = Product.objects.create(
+            workshop=self.workshop,
+            code="BAN-SEFAZ",
+            name="Banana SEFAZ",
+            unit=Product.Unit.UND,
+            group=self.group,
+            cost_price=Money("8.00", "BRL"),
+            selling_price=Money("13.00", "BRL"),
+            last_purchase_price=Money("7.10", "BRL"),
+            last_used_price=Money("15.00", "BRL"),
+            origin_cst=Product.OriginCST.NACIONAL,
+            purpose=Product.Purpose.RESALE,
+        )
+        self.stock_product = StockProduct.objects.get(workshop=self.workshop, product=self.product)
+        self.stock_product.current_quantity = 6
+        self.stock_product.save(update_fields=["current_quantity"])
+        self.stock_import = StockImport.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            method=StockImport.ImportMethods.SEFAZ,
+            current_step=4,
+            nf_key="6" * 44,
+            nf_number="456",
+            supplier_name="Fornecedor SEFAZ",
+            supplier_cnpj="12.345.678/0001-33",
+            items_data=[
+                {
+                    "ref": "NF-ITEM-01",
+                    "desc": "Item da NF-e",
+                    "qtd": "2",
+                    "valor": "8.50",
+                    "ncm": "12345678",
+                }
+            ],
+            payments_data=[],
+        )
+
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_link_manual_modal_import_mode_opens_child_editor(self) -> None:
+        response = self.client.get(reverse("stock:link_product_manual"), {"pk": self.stock_import.pk, "item_idx": "0"})
+
+        self.assertContains(response, reverse("stock:manual_link_item_editor"))
+        self.assertContains(response, "#child-modal-container")
+        self.assertContains(response, "const itemIdx = '0'")
+
+    def test_import_step_items_form_renders_edit_action_for_linked_row(self) -> None:
+        self.stock_import.items_data = [
+            {
+                "ref": "NF-ITEM-01",
+                "desc": "Item da NF-e",
+                "qtd": "2",
+                "valor": "8.50",
+                "selling_price": "17.35",
+                "ncm": "12345678",
+                "linked_product_id": str(self.product.pk),
+            }
+        ]
+        self.stock_import.save(update_fields=["items_data"])
+
+        form = ImportStepItemsForm(
+            instance=self.stock_import,
+            workshop=self.workshop,
+            request=SimpleNamespace(user=self.user),
+            import_items=self.stock_import.items_data,
+        )
+
+        html = Template("{% load crispy_forms_tags %}{% crispy form %}").render(Context({"form": form}))
+        html = html.replace("\xa0", " ")
+
+        self.assertIn(reverse("stock:manual_link_item_editor"), html)
+        self.assertIn(f"product_id={self.product.pk}&item_idx=0", html)
+        self.assertIn("Editar Item", html)
+        self.assertIn("R$ 17,35", html)
+
+    def test_manual_link_item_editor_get_prefills_sefaz_item_values(self) -> None:
+        response = self.client.get(
+            reverse("stock:manual_link_item_editor"),
+            {"pk": self.stock_import.pk, "product_id": self.product.pk, "item_idx": "0"},
+        )
+
+        self.assertContains(response, "Configurar item antes de vincular")
+        self.assertContains(response, 'name="item_idx"')
+        self.assertContains(response, 'value="0"')
+        self.assertContains(response, 'value="2"')
+        self.assertContains(response, 'value="8.50"')
+        self.assertContains(response, 'value="13.00"')
+        self.assertContains(response, "Salvar e Vincular")
+
+    def test_manual_link_item_editor_post_links_sefaz_item_and_preserves_nf_fields(self) -> None:
+        response = self.client.post(
+            f"{reverse('stock:manual_link_item_editor')}?pk={self.stock_import.pk}&product_id={self.product.pk}&item_idx=0",
+            data={
+                "product_id": str(self.product.pk),
+                "item_idx": "0",
+                "quantity": "4",
+                "unit_cost_0": "9.10",
+                "unit_cost_1": "BRL",
+                "selling_price_0": "18.40",
+                "selling_price_1": "BRL",
+                "confirm_lower_price": "",
+            },
+        )
+
+        self.stock_import.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertJSONEqual(
+            response.headers["HX-Trigger"],
+            {
+                "productCreated": {},
+                "showToast": {
+                    "type": "success",
+                    "message": "Banana SEFAZ vinculado na importacao.",
+                },
+            },
+        )
+        self.assertEqual(self.stock_import.items_data[0]["ref"], "NF-ITEM-01")
+        self.assertEqual(self.stock_import.items_data[0]["desc"], "Item da NF-e")
+        self.assertEqual(self.stock_import.items_data[0]["ncm"], "12345678")
+        self.assertEqual(self.stock_import.items_data[0]["linked_product_id"], str(self.product.pk))
+        self.assertEqual(self.stock_import.items_data[0]["qtd"], "4")
         self.assertEqual(self.stock_import.items_data[0]["valor"], "9.10")
         self.assertEqual(self.stock_import.items_data[0]["selling_price"], "18.40")
 

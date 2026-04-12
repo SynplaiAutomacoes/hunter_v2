@@ -1,21 +1,18 @@
 <div class="modal modal-open" x-data="{
-    isManual: {{ is_manual|yesno:'true,false' }},
     confirmLink(product) {
-        if (this.isManual) {
-            htmx.ajax('GET', '{% url 'stock:manual_link_item_editor' %}?pk={{ pk }}&product_id=' + encodeURIComponent(product.id), {
-                target: '#child-modal-container',
-                swap: 'innerHTML'
-            });
-            return;
+        const params = new URLSearchParams({
+            pk: '{{ pk }}',
+            product_id: String(product.id)
+        });
+        const itemIdx = '{{ item_idx|default:'' }}';
+
+        if (itemIdx) {
+            params.set('item_idx', itemIdx);
         }
 
-        htmx.ajax('POST', '{% url 'stock:link_product_manual' %}?manual={{ is_manual|yesno:'true,false' }}', {
-            values: {
-                item_idx: '{{ item_idx|default:'' }}',
-                pk: '{{ pk }}',
-                product_id: product.id
-            },
-            target: '#modal-container'
+        htmx.ajax('GET', '{% url 'stock:manual_link_item_editor' %}?' + params.toString(), {
+            target: '#child-modal-container',
+            swap: 'innerHTML'
         });
     }
 }">

@@ -83,11 +83,7 @@
                     </div>
 
                     <div class="rounded-xl border border-base-300 bg-base-200/60 p-4 text-sm text-base-content/80">
-                        {% if form.is_editing %}
-                            <p>Ao salvar, este item será atualizado na tabela da etapa 3.</p>
-                        {% else %}
-                            <p>Ao salvar, este item será adicionado à tabela da etapa 3 e continuará editável depois.</p>
-                        {% endif %}
+                        <p>{{ form.save_help_text }}</p>
                     </div>
                 </div>
             </div>
