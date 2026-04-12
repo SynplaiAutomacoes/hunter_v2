@@ -142,6 +142,7 @@ class KitForm(forms.ModelForm):
         cancel_url = reverse("catalog:kits_list")
         product_search_url = reverse("catalog:kits_product_search")
         service_search_url = reverse("catalog:kits_service_search")
+        service_bulk_pricing_url = reverse("catalog:kits_service_bulk_pricing")
 
         initial_products = []
         initial_services = []
@@ -297,6 +298,7 @@ class KitForm(forms.ModelForm):
                         <div
                             class="col-span-12"
                             x-data="kitItemsManager()"
+                            @kit-service-updated.window="applyUpdatedService($event.detail)"
                         >
                             <div class="p-4 bg-base-300 rounded-box mb-4">
                                 <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
@@ -739,6 +741,68 @@ class KitForm(forms.ModelForm):
                                             swap: 'innerHTML',
                                         }});
                                     }},
+                                    getCsrfToken() {{
+                                        const csrfField = document.querySelector('input[name="csrfmiddlewaretoken"]');
+                                        return csrfField ? csrfField.value : '';
+                                    }},
+                                    showToast(message, type = 'warning') {{
+                                        document.body.dispatchEvent(new CustomEvent('showToast', {{
+                                            detail: {{ message, type }},
+                                        }}));
+                                    }},
+                                    applyUpdatedService(payload) {{
+                                        if (!payload || payload.id === undefined || payload.id === null) return;
+                                        const service = this.selectedServices.find(item => String(item.id) === String(payload.id));
+                                        if (!service) return;
+
+                                        service.name = payload.name ?? service.name;
+                                        service.cost = payload.cost ?? service.cost;
+                                        service.sell = payload.sell ?? service.sell;
+                                        service.duration = payload.duration ?? service.duration;
+
+                                        this.refreshTotalDurationDisplay();
+                                        this.resetEditModalContent();
+
+                                        const modalToggle = document.getElementById('edit-item-modal');
+                                        if (modalToggle) modalToggle.checked = false;
+                                    }},
+                                    async refreshServiceSellPricesFromDurations() {{
+                                        if (this.selectedServices.length === 0) return;
+
+                                        const response = await fetch('{service_bulk_pricing_url}', {{
+                                            method: 'POST',
+                                            headers: {{
+                                                'Content-Type': 'application/json',
+                                                'X-CSRFToken': this.getCsrfToken(),
+                                                'X-Requested-With': 'XMLHttpRequest',
+                                            }},
+                                            credentials: 'same-origin',
+                                            body: JSON.stringify({{
+                                                services: this.selectedServices.map((service) => ({{
+                                                    id: service.id,
+                                                    duration: this.normalizeDurationForPost(service.duration),
+                                                }})),
+                                            }}),
+                                        }});
+
+                                        const payload = await response.json().catch(() => ({{}}));
+                                        if (!response.ok) {{
+                                            throw new Error(payload.error || 'Falha ao recalcular valores de venda dos serviços.');
+                                        }}
+
+                                        if (payload.workshop_cost_missing) {{
+                                            this.showToast('Configure os custos da oficina para recalcular os valores de venda dos serviços.', 'warning');
+                                            return;
+                                        }}
+
+                                        const sellMap = new Map((payload.services || []).map((service) => [String(service.id), service.sell]));
+                                        this.selectedServices.forEach((service) => {{
+                                            const recalculatedSell = sellMap.get(String(service.id));
+                                            if (recalculatedSell) {{
+                                                service.sell = recalculatedSell;
+                                            }}
+                                        }});
+                                    }},
 
                                     parseDurationToSeconds(value) {{
                                         const normalized = this.normalizeDurationForPost(value);
@@ -960,7 +1024,7 @@ class KitForm(forms.ModelForm):
                                     formatDurationForDisplay(value) {{
                                         return this.normalizeDurationForPost(value).slice(0, 5);
                                     }},
-                                    applyTimeDistribution() {{
+                                    async applyTimeDistribution() {{
                                         if (this.selectedServices.length === 0) {{
                                             window.alert('Adicione ao menos um serviço para distribuir tempos.');
                                             return;
@@ -1003,6 +1067,13 @@ class KitForm(forms.ModelForm):
                                             const minutes = item.assigned % 60;
                                             this.selectedServices[item.index].duration = `${{String(hours).padStart(2, '0')}}:${{String(minutes).padStart(2, '0')}}:00`;
                                         }});
+
+                                        try {{
+                                            await this.refreshServiceSellPricesFromDurations();
+                                        }} catch (error) {{
+                                            console.error('Error recalculating kit service selling prices:', error);
+                                            this.showToast('Nao foi possivel recalcular os valores de venda dos servicos.', 'error');
+                                        }}
 
                                         this.totalDurationDisplay = this.normalizeDistributionTime(this.distributionTotalTime);
 
