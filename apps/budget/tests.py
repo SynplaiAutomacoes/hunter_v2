@@ -248,7 +248,7 @@ class BudgetStep1FormTests(TestCase):
         self.assertTrue(form.is_valid(), form.errors.as_json())
         self.assertTrue(form.cleaned_data["is_warranty_budget"])
 
-    def test_renders_red_no_badge_for_warranty_toggle_when_unchecked(self) -> None:
+    def test_renders_solid_red_no_badge_for_warranty_toggle_when_unchecked(self) -> None:
         user, workshop = create_director_user_with_workshop(suffix=66)
 
         request = RequestFactory().get(reverse("budget:budget_create"))
@@ -258,7 +258,7 @@ class BudgetStep1FormTests(TestCase):
         form_html = Template("{% load crispy_forms_tags %}{% crispy form %}").render(Context({"form": form}))
 
         self.assertIn("O orçamento é de garantia?", form_html)
-        self.assertIn("bg-error/15 text-error", form_html)
+        self.assertIn("badge-error", form_html)
         self.assertIn(">Não</span>", form_html)
 
     def test_accepts_current_km_with_thousands_separator(self) -> None:
@@ -715,17 +715,21 @@ class BudgetListFiltersTests(TestCase):
         self.assertQuerySetEqual(response.context["budget"].order_by("pk"), [approved_budget], transform=lambda obj: obj)
         self.assertNotIn(cancelled_budget, response.context["budget"])
 
-    def test_budget_list_displays_warranty_budget_badge(self) -> None:
+    def test_budget_list_displays_warranty_budget_badges(self) -> None:
         workshop = self._login_with_active_workshop(suffix=81)
         warranty_budget = create_budget(workshop=workshop)
         warranty_budget.is_warranty_budget = True
         warranty_budget.save(update_fields=["is_warranty_budget"])
+        regular_budget = create_budget(workshop=workshop)
+        regular_budget.is_warranty_budget = False
+        regular_budget.save(update_fields=["is_warranty_budget"])
 
         response = self.client.get(reverse("budget:budget_list"))
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, str(Budget.is_warranty_budget.field.verbose_name))
-        self.assertContains(response, '<span class="badge badge-soft badge-success badge-sm">Sim</span>', html=True)
+        self.assertContains(response, '<span class="badge badge-success badge-sm whitespace-nowrap">Sim</span>', html=True)
+        self.assertContains(response, '<span class="badge badge-error badge-sm whitespace-nowrap">Não</span>', html=True)
 
     def test_budget_list_shows_cancelled_when_cancelled_filter_is_selected(self) -> None:
         workshop = self._login_with_active_workshop(suffix=73)

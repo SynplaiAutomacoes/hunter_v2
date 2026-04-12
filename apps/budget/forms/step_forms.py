@@ -538,8 +538,8 @@ class BudgetStep1Form(forms.ModelForm):
                                             <span class="text-sm font-medium text-base-content/70">Status</span>
                                         </div>
                                         <span
-                                            class="inline-flex min-w-16 items-center justify-center rounded-full px-3 py-1 text-sm font-semibold transition-colors"
-                                            :class="isWarrantyBudget ? 'bg-success/15 text-success' : 'bg-error/15 text-error'"
+                                            class="badge min-w-16 px-3 py-3 text-sm font-semibold transition-colors"
+                                            :class="isWarrantyBudget ? 'badge-success' : 'badge-error'"
                                             x-text="isWarrantyBudget ? 'Sim' : 'Não'"
                                         >{% if form.is_warranty_budget.value %}Sim{% else %}Não{% endif %}</span>
                                     </label>
