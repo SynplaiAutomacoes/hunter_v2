@@ -38,6 +38,8 @@ class TableColumn:
         sort_by: Expressão ou campo personalizado para ordenação no ORM.
                  Pode ser uma string, Expression, ou lista deles.
         format: Identificador de formatação para o frontend (ex: 'cnpj', 'money').
+        cell_template: Template opcional para renderizacao customizada da celula.
+        mobile_stack: Em cards mobile, empilha rotulo e valor verticalmente.
     """
 
     label: str
@@ -49,6 +51,8 @@ class TableColumn:
     search_by: str | Sequence[str] | None = None
     sort_by: str | BaseExpression | Sequence[str | BaseExpression] | None = None
     format: str | None = None
+    cell_template: str = ""
+    mobile_stack: bool = False
 
 
 @dataclass(frozen=True)
@@ -634,6 +638,8 @@ def _render_rows(
                     "label": col.label,
                     "value": value,
                     "td_class": col.td_class,
+                    "cell_template": col.cell_template,
+                    "mobile_stack": col.mobile_stack,
                     "is_boolean": is_boolean,
                     "bool_value": value if is_boolean else None,
                     "format": col.format,

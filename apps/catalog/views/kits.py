@@ -55,7 +55,10 @@ class KitListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseM
             TableColumn(Kit.name.field.verbose_name, attr="name"),
             TableColumn(
                 "Aplicações",
-                attr=lambda kit: kit.applications_summary,
+                attr=lambda kit: kit.applications_table_value(preview_limit=2),
+                td_class="align-top",
+                cell_template="kits/partials/applications_cell.html",
+                mobile_stack=True,
                 sortable=False,
                 search_by=("applications__brand", "applications__model", "applications__engine", "applications__fuel"),
             ),

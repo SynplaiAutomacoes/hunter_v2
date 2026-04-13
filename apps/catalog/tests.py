@@ -402,6 +402,50 @@ class KitFormPageTests(TestCase):
         self.assertNotContains(response, "window.htmx.trigger(list, 'load');", html=False)
 
 
+class KitListViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=81)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_kit_list_renders_expandable_application_preview(self) -> None:
+        kit = Kit.objects.create(workshop=self.workshop, name="Kit Aplicacoes", description="", is_active=True)
+        KitApplication.objects.create(kit=kit, brand="Jeep", model="Renegade", engine="2.0", fuel="Diesel", year_start=2015, year_end=2021)
+        KitApplication.objects.create(kit=kit, brand="Fiat", model="Toro", engine="2.0", fuel="Diesel", year_start=2016, year_end=2022)
+        KitApplication.objects.create(kit=kit, brand="Ram", model="Rampage", engine="2.0", fuel="Diesel", year_start=2024, year_end=2024)
+
+        response = self.client.get(reverse("catalog:kits_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Jeep Renegade")
+        self.assertContains(response, "2.0 Diesel | 2015 a 2021")
+        self.assertContains(response, "Fiat Toro")
+        self.assertContains(response, "2.0 Diesel | 2016 a 2022")
+        self.assertContains(response, "Ram Rampage")
+        self.assertContains(response, "2.0 Diesel | 2024")
+        self.assertContains(response, "Ver mais")
+        self.assertContains(response, "Ver menos")
+        self.assertContains(response, "+1")
+        self.assertNotContains(response, "Jeep Renegade 2.0 Diesel 2015 a 2021; +2")
+        self.assertLess(response.content.decode().find("Ram Rampage"), response.content.decode().find("Ver menos"))
+
+    def test_kit_list_search_still_matches_application_fields(self) -> None:
+        matching_kit = Kit.objects.create(workshop=self.workshop, name="Kit Diesel", description="", is_active=True)
+        KitApplication.objects.create(kit=matching_kit, brand="Fiat", model="Toro", engine="2.0", fuel="Diesel", year_start=2016, year_end=2022)
+
+        other_kit = Kit.objects.create(workshop=self.workshop, name="Kit Gasolina", description="", is_active=True)
+        KitApplication.objects.create(kit=other_kit, brand="Honda", model="Civic", engine="1.5", fuel="Gasolina", year_start=2019, year_end=2021)
+
+        response = self.client.get(reverse("catalog:kits_list"), data={"q": "Toro"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, matching_kit.name)
+        self.assertNotContains(response, other_kit.name)
+
+
 class ServiceQuickUpdateViewTests(TestCase):
     def setUp(self) -> None:
         self.user, self.workshop = create_director_user_with_workshop(suffix=79)

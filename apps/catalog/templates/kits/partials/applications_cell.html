@@ -1,0 +1,55 @@
+<div class="w-full min-w-0 md:min-w-[22rem]" x-data="{ open: false }">
+    {% if cell.value.visible_items %}
+        <div class="space-y-2">
+            <div class="divide-y divide-base-200/80">
+                {% for application in cell.value.visible_items %}
+                    <div class="py-2 first:pt-0 last:pb-0">
+                        <p class="font-semibold text-sm text-base-content">{{ application.title }}</p>
+                        {% if application.subtitle %}
+                            <p class="mt-0.5 text-xs text-base-content/60">{{ application.subtitle }}</p>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+
+            {% if cell.value.hidden_count %}
+                <div
+                    x-cloak
+                    x-show="open"
+                    x-transition:enter="transition duration-200 ease-out"
+                    x-transition:enter-start="opacity-0 -translate-y-1"
+                    x-transition:enter-end="opacity-100 translate-y-0"
+                    x-transition:leave="transition duration-150 ease-in"
+                    x-transition:leave-start="opacity-100 translate-y-0"
+                    x-transition:leave-end="opacity-0 -translate-y-1"
+                    class="border-t border-base-200/80 pt-2"
+                >
+                    <div class="divide-y divide-base-200/80">
+                        {% for application in cell.value.hidden_items %}
+                            <div class="py-2 first:pt-0 last:pb-0">
+                                <p class="font-semibold text-sm text-base-content">{{ application.title }}</p>
+                                {% if application.subtitle %}
+                                    <p class="mt-0.5 text-xs text-base-content/60">{{ application.subtitle }}</p>
+                                {% endif %}
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <button
+                    type="button"
+                    class="btn btn-ghost btn-xs h-auto min-h-0 gap-1.5 px-2.5 text-base-content/70 hover:bg-base-200 hover:text-base-content"
+                    @click="open = !open"
+                    :aria-expanded="open.toString()"
+                >
+                    <span class="material-icons text-sm leading-none transition-transform duration-200" :class="open ? 'rotate-180' : ''">expand_more</span>
+                    <span class="font-medium" x-show="!open">Ver mais</span>
+                    <span class="font-medium" x-cloak x-show="open">Ver menos</span>
+                    <span class="badge badge-ghost badge-sm">+{{ cell.value.hidden_count }}</span>
+                </button>
+            {% endif %}
+        </div>
+    {% else %}
+        <span class="text-sm text-base-content/60">{{ cell.value.empty_label }}</span>
+    {% endif %}
+</div>
