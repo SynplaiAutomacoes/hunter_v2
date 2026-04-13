@@ -255,6 +255,67 @@ class TestRenderTableTag(TestCase):
         # A célula deve carregar o hint via data-attribute para o JS aplicar a máscara.
         self.assertIn('data-hf="cnpj"', html)
 
+    def test_custom_cell_template_renders_preview_and_mobile_stack_layout(self):
+        @dataclass(frozen=True)
+        class ApplicationItem:
+            title: str
+            subtitle: str = ""
+
+        @dataclass(frozen=True)
+        class ApplicationValue:
+            visible_items: list[ApplicationItem]
+            hidden_items: list[ApplicationItem]
+            hidden_count: int
+            empty_label: str = "Sem aplicação cadastrada"
+
+        @dataclass(frozen=True)
+        class Row:
+            applications: ApplicationValue
+
+        request = self.factory.get("/workshops/")
+        template = Template(
+            """
+            {% load table_tags %}
+            {% render_table rows fields table_id='t' per_page=10 %}
+            """
+        )
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "rows": [
+                        Row(
+                            applications=ApplicationValue(
+                                visible_items=[
+                                    ApplicationItem(title="Jeep Renegade", subtitle="2.0 Diesel | 2015 a 2021"),
+                                    ApplicationItem(title="Fiat Toro", subtitle="2.0 Diesel | 2016 a 2022"),
+                                ],
+                                hidden_items=[ApplicationItem(title="Ram Rampage", subtitle="2.0 Diesel | 2024")],
+                                hidden_count=1,
+                            )
+                        )
+                    ],
+                    "fields": [
+                        TableColumn(label="Aplicações", attr="applications", cell_template="kits/partials/applications_cell.html", mobile_stack=True),
+                    ],
+                }
+            )
+        )
+
+        self.assertIn("Jeep Renegade", html)
+        self.assertIn("2.0 Diesel | 2015 a 2021", html)
+        self.assertIn("Fiat Toro", html)
+        self.assertIn("2.0 Diesel | 2016 a 2022", html)
+        self.assertIn("Ram Rampage", html)
+        self.assertIn("2.0 Diesel | 2024", html)
+        self.assertIn("Ver mais", html)
+        self.assertIn("Ver menos", html)
+        self.assertIn("+1", html)
+        self.assertIn('x-show="open"', html)
+        self.assertIn("flex-col items-start", html)
+        self.assertIn("w-full text-left", html)
+        self.assertLess(html.find("Ram Rampage"), html.find("Ver menos"))
+
     def test_formatted_cell_with_none_renders_literal_none_and_no_hint(self):
         create_workshop(name="Oficina 01", cnpj=None)
 

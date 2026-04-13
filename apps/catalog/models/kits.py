@@ -8,7 +8,7 @@ from django.db.models import F, Q
 from djmoney.models.fields import MoneyField
 from djmoney.money import Money
 
-from apps.catalog.kit_applications import build_kit_application_label, build_kit_applications_summary, build_kit_application_preview_lines, build_powertrain_display
+from apps.catalog.kit_applications import KitApplicationsTableValue, build_kit_application_label, build_kit_applications_summary, build_kit_application_preview_lines, build_kit_applications_table_value, build_powertrain_display
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.core.models import TimeStampedModel
@@ -66,6 +66,9 @@ class Kit(TimeStampedModel):
 
     def application_preview_lines(self, *, limit: int = 3) -> list[str]:
         return build_kit_application_preview_lines(self.ordered_applications(), limit=limit)
+
+    def applications_table_value(self, *, preview_limit: int = 2) -> KitApplicationsTableValue:
+        return build_kit_applications_table_value(self.ordered_applications(), preview_limit=preview_limit)
 
 
 class KitApplication(TimeStampedModel):
