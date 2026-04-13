@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from html import escape
 import json
 import logging
 from datetime import timedelta
@@ -18,6 +19,8 @@ from apps.catalog.models.kits import Kit, KitApplication, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.core.widgets import CheckboxInput, TextInput, TextareaInput, SelectInput, MoneyInput, PercentageInput, ImageInput, DurationInput
+from apps.customer.vehicle_engine import normalize_vehicle_engine_choice, vehicle_engine_form_choices
+from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice, vehicle_fuel_form_choices
 from apps.workshops.models.workshops import Workshop
 
 logger = logging.getLogger(__name__)
@@ -86,24 +89,119 @@ class KitForm(forms.ModelForm):
 
     def _build_initial_applications(self) -> list[dict[str, str]]:
         if self.is_bound:
-            return self._extract_application_rows_from_post()
+            return [self._normalize_application_row_for_display(application) for application in self._extract_application_rows_from_post()]
 
         if self.instance.pk:
             applications = [
-                {
-                    "brand": application.brand,
-                    "model": application.model,
-                    "engine": application.engine,
-                    "fuel": application.fuel,
-                    "year_start": str(application.year_start),
-                    "year_end": str(application.year_end),
-                }
+                self._normalize_application_row_for_display(
+                    {
+                        "brand": application.brand,
+                        "model": application.model,
+                        "engine": application.engine,
+                        "fuel": application.fuel,
+                        "year_start": str(application.year_start),
+                        "year_end": str(application.year_end),
+                    }
+                )
                 for application in self.instance.ordered_applications()
             ]
             if applications:
                 return applications
 
         return []
+
+    @staticmethod
+    def _normalize_application_row_for_display(application: dict[str, str]) -> dict[str, str]:
+        return {
+            "brand": str(application.get("brand", "")).strip(),
+            "model": str(application.get("model", "")).strip(),
+            "engine": normalize_vehicle_engine_choice(application.get("engine", "")),
+            "fuel": normalize_vehicle_fuel_choice(application.get("fuel", "")),
+            "year_start": str(application.get("year_start", "")).strip(),
+            "year_end": str(application.get("year_end", "")).strip(),
+        }
+
+    @staticmethod
+    def _build_application_select_options_html(*, target_expression: str, choices: list[tuple[str, str]]) -> str:
+        options_html: list[str] = []
+        for option_value, option_label in choices:
+            if not option_value:
+                continue
+
+            option_value_literal = escape(json.dumps(str(option_value)), quote=True)
+            option_label_text = escape(str(option_label))
+            options_html.append(
+                f"""
+                <li
+                    @click="{target_expression} = {option_value_literal}; open = false"
+                    class="relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white group transition-colors"
+                >
+                    <span class="block truncate" :class="{{'font-bold': {target_expression} == {option_value_literal}}}">
+                        {option_label_text}
+                    </span>
+
+                    <span
+                        x-show="{target_expression} == {option_value_literal}"
+                        class="absolute inset-y-0 right-0 flex items-center pr-4 text-primary group-hover:text-white"
+                    >
+                        <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+                        </svg>
+                    </span>
+                </li>
+                """
+            )
+
+        return "".join(options_html)
+
+    @classmethod
+    def _build_application_select_html(cls, *, field_name: str, target_expression: str) -> str:
+        choices = vehicle_engine_form_choices() if field_name == "kit_application_engine" else vehicle_fuel_form_choices()
+        options_html = cls._build_application_select_options_html(target_expression=target_expression, choices=choices)
+        escaped_name = escape(field_name, quote=True)
+
+        return f"""
+        <div class="relative" x-data="{{ open: false }}" @click.outside="open = false">
+            <input type="hidden" name="{escaped_name}" :value="{target_expression}">
+
+            <button
+                type="button"
+                @click="open = !open"
+                class="input-theme flex w-full cursor-default items-center justify-between text-left"
+                :class="{{'ring-2 ring-primary border-primary': open}}"
+            >
+                <span x-text="{target_expression} || 'Selecione...'" :class="{{'input-placeholder-color': !{target_expression}}}"></span>
+
+                <span class="pointer-events-none flex items-center pr-2">
+                    <svg class="h-5 w-5 transition-transform duration-200" :class="{{'rotate-180': open}}" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"></path>
+                    </svg>
+                </span>
+            </button>
+
+            <div
+                x-show="open"
+                x-transition:enter="transition ease-out duration-100"
+                x-transition:enter-start="transform opacity-0 scale-95"
+                x-transition:enter-end="transform opacity-100 scale-100"
+                x-transition:leave="transition ease-in duration-75"
+                x-transition:leave-start="transform opacity-100 scale-100"
+                x-transition:leave-end="transform opacity-0 scale-95"
+                class="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-md bg-base-100 py-1 text-base shadow-lg ring-1 ring-primary ring-opacity-5 focus:outline-none sm:text-sm"
+                style="display: none;"
+            >
+                <ul role="listbox">
+                    <li
+                        @click="{target_expression} = ''; open = false"
+                        class="cursor-pointer select-none py-2 pl-3 pr-9 font-semibold text-error hover:bg-primary hover:text-white"
+                    >
+                        Limpar seleção
+                    </li>
+                    {options_html}
+                </ul>
+            </div>
+        </div>
+        """
 
     @staticmethod
     def _format_money_display(value: Money | Decimal | None) -> str:
@@ -285,6 +383,8 @@ class KitForm(forms.ModelForm):
         products_json = json.dumps(initial_products)
         services_json = json.dumps(initial_services)
         applications_json = json.dumps(self._build_initial_applications())
+        engine_select_html = self._build_application_select_html(field_name="kit_application_engine", target_expression="application.engine")
+        fuel_select_html = self._build_application_select_html(field_name="kit_application_fuel", target_expression="application.fuel")
 
         return Layout(
             Div(
@@ -329,13 +429,13 @@ class KitForm(forms.ModelForm):
                                                     <label class="label p-0 mb-1">
                                                         <span class="label-text">Motor</span>
                                                     </label>
-                                                    <input type="text" name="kit_application_engine" class="input-theme w-full" x-model="application.engine" placeholder="Ex: 2.0" />
+                                                    {engine_select_html}
                                                 </div>
                                                 <div class="lg:col-span-2">
                                                     <label class="label p-0 mb-1">
                                                         <span class="label-text">Combustível</span>
                                                     </label>
-                                                    <input type="text" name="kit_application_fuel" class="input-theme w-full" x-model="application.fuel" placeholder="Ex: Diesel" />
+                                                    {fuel_select_html}
                                                 </div>
                                                 <div class="lg:col-span-1">
                                                     <label class="label p-0 mb-1">
@@ -1268,14 +1368,31 @@ class KitForm(forms.ModelForm):
         }
 
         for application in raw_applications:
-            missing_fields = [label for field_name, label in required_application_fields.items() if not str(application.get(field_name, "")).strip()]
+            normalized_engine = normalize_vehicle_engine_choice(application.get("engine", ""))
+            normalized_fuel = normalize_vehicle_fuel_choice(application.get("fuel", ""))
+
+            if application.get("engine") and not normalized_engine:
+                self.add_error(None, "Selecione um motor válido em todas as aplicações do kit.")
+                continue
+
+            if application.get("fuel") and not normalized_fuel:
+                self.add_error(None, "Selecione um combustível válido em todas as aplicações do kit.")
+                continue
+
+            normalized_application = {
+                **application,
+                "engine": normalized_engine,
+                "fuel": normalized_fuel,
+            }
+
+            missing_fields = [label for field_name, label in required_application_fields.items() if not str(normalized_application.get(field_name, "")).strip()]
             if missing_fields:
                 self.add_error(None, "Preencha marca, modelo, motor, combustível, ano inicial e ano final em todas as aplicações do kit.")
                 continue
 
             try:
-                year_start = int(str(application.get("year_start", "")).strip())
-                year_end = int(str(application.get("year_end", "")).strip())
+                year_start = int(str(normalized_application.get("year_start", "")).strip())
+                year_end = int(str(normalized_application.get("year_end", "")).strip())
             except (TypeError, ValueError):
                 self.add_error(None, "Informe anos válidos em todas as aplicações do kit.")
                 continue
@@ -1289,10 +1406,10 @@ class KitForm(forms.ModelForm):
                 continue
 
             normalized_key = (
-                normalize_vehicle_text(str(application.get("brand", ""))),
-                normalize_vehicle_text(str(application.get("model", ""))),
-                normalize_vehicle_text(str(application.get("engine", ""))),
-                normalize_vehicle_text(str(application.get("fuel", ""))),
+                normalize_vehicle_text(str(normalized_application.get("brand", ""))),
+                normalize_vehicle_text(str(normalized_application.get("model", ""))),
+                normalize_vehicle_text(str(normalized_application.get("engine", ""))),
+                normalize_vehicle_text(str(normalized_application.get("fuel", ""))),
                 year_start,
                 year_end,
             )
@@ -1304,10 +1421,10 @@ class KitForm(forms.ModelForm):
             seen_applications.add(normalized_key)
             normalized_applications.append(
                 {
-                    "brand": str(application.get("brand", "")).strip(),
-                    "model": str(application.get("model", "")).strip(),
-                    "engine": str(application.get("engine", "")).strip(),
-                    "fuel": str(application.get("fuel", "")).strip(),
+                    "brand": str(normalized_application.get("brand", "")).strip(),
+                    "model": str(normalized_application.get("model", "")).strip(),
+                    "engine": str(normalized_application.get("engine", "")).strip(),
+                    "fuel": str(normalized_application.get("fuel", "")).strip(),
                     "year_start": year_start,
                     "year_end": year_end,
                 }
