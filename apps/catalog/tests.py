@@ -321,6 +321,73 @@ class KitTests(TestCase):
         self.assertEqual(KitApplication.objects.filter(kit=kit).count(), 2)
         self.assertEqual(kit.applications_summary, "Jeep Renegade 2.0 Diesel 2015 a 2021; +1")
 
+    def test_kit_form_normalizes_application_engine_and_fuel_choices(self):
+        form = KitForm(
+            data={
+                "name": "Kit Flex",
+                "description": "",
+                "is_active": "on",
+                **self.build_application_payload(engine="Motor 2,0 Turbo", fuel="gasolina e etanol"),
+            },
+            workshop=self.workshop,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        form.instance.workshop = self.workshop
+        kit = form.save()
+
+        application = KitApplication.objects.get(kit=kit)
+        self.assertEqual(application.engine, "2.0")
+        self.assertEqual(application.fuel, "Flex")
+
+    def test_kit_form_rejects_invalid_application_engine_choice(self):
+        form = KitForm(
+            data={
+                "name": "Kit Motor Invalido",
+                "description": "",
+                "is_active": "on",
+                **self.build_application_payload(engine="2.8"),
+            },
+            workshop=self.workshop,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("Selecione um motor válido em todas as aplicações do kit.", form.non_field_errors())
+
+    def test_kit_form_rejects_invalid_application_fuel_choice(self):
+        form = KitForm(
+            data={
+                "name": "Kit Combustivel Invalido",
+                "description": "",
+                "is_active": "on",
+                **self.build_application_payload(fuel="GNV"),
+            },
+            workshop=self.workshop,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("Selecione um combustível válido em todas as aplicações do kit.", form.non_field_errors())
+
+    def test_kit_form_shows_blank_engine_and_fuel_for_unsupported_existing_application_values(self):
+        kit = Kit.objects.create(workshop=self.workshop, name="Kit Legado", description="", is_active=True)
+        KitApplication.objects.create(kit=kit, brand="Jeep", model="Renegade", engine="2.8", fuel="GNV", year_start=2020, year_end=2021)
+
+        form = KitForm(instance=kit, workshop=self.workshop)
+
+        self.assertEqual(
+            form._build_initial_applications(),
+            [
+                {
+                    "brand": "Jeep",
+                    "model": "Renegade",
+                    "engine": "",
+                    "fuel": "",
+                    "year_start": "2020",
+                    "year_end": "2021",
+                }
+            ],
+        )
+
     def test_kit_form_rejects_invalid_application_year_range(self):
         form = KitForm(
             data={
@@ -399,6 +466,9 @@ class KitFormPageTests(TestCase):
         self.assertContains(response, "Carregando serviço...", html=False)
         self.assertContains(response, "Selecione um item para editar.", html=False)
         self.assertContains(response, '@kit-service-updated.window="applyUpdatedService($event.detail)"', html=False)
+        self.assertContains(response, "application.engine = &quot;2.0&quot;; open = false", html=False)
+        self.assertContains(response, "application.fuel = &quot;Diesel&quot;; open = false", html=False)
+        self.assertContains(response, "Limpar seleção")
         self.assertNotContains(response, "window.htmx.trigger(list, 'load');", html=False)
 
 
