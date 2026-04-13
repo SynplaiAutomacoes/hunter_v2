@@ -5,6 +5,8 @@ from django.db import models
 from phonenumber_field.modelfields import PhoneNumberField
 
 from apps.core.models import TimeStampedModel
+from apps.customer.vehicle_engine import VehicleEngine, normalize_vehicle_engine_choice
+from apps.customer.vehicle_fuel import VehicleFuel, normalize_vehicle_fuel_choice
 
 
 def _digits_only(value: object) -> str:
@@ -40,8 +42,8 @@ class Appointment(TimeStampedModel):
     guest_vehicle_model = models.CharField(verbose_name="Modelo do veiculo", max_length=500, blank=True, default="")
     guest_vehicle_year_fabrication = models.CharField(verbose_name="Ano de Fabricacao", max_length=4, blank=True, default="")
     guest_vehicle_year_model = models.CharField(verbose_name="Ano do Modelo", max_length=4, blank=True, default="")
-    guest_vehicle_engine = models.CharField(verbose_name="Motorizacao", max_length=30, blank=True, default="")
-    guest_vehicle_fuel = models.CharField(verbose_name="Combustivel", max_length=30, blank=True, default="")
+    guest_vehicle_engine = models.CharField(verbose_name="Motorizacao", max_length=30, choices=VehicleEngine.choices, blank=True, default="")
+    guest_vehicle_fuel = models.CharField(verbose_name="Combustivel", max_length=30, choices=VehicleFuel.choices, blank=True, default="")
     title = models.CharField(verbose_name="Titulo", max_length=120)
     starts_at = models.DateTimeField(verbose_name="Data e hora de entrada")
     ends_at = models.DateTimeField(verbose_name="Data e hora de saida")
@@ -103,10 +105,20 @@ class Appointment(TimeStampedModel):
         self.guest_vehicle_model = _normalize_upper_text(self.guest_vehicle_model)
         self.guest_vehicle_year_fabrication = str(self.guest_vehicle_year_fabrication or "").strip()
         self.guest_vehicle_year_model = str(self.guest_vehicle_year_model or "").strip()
-        self.guest_vehicle_engine = _normalize_upper_text(self.guest_vehicle_engine)
-        self.guest_vehicle_fuel = _normalize_upper_text(self.guest_vehicle_fuel)
+        raw_guest_vehicle_engine = str(self.guest_vehicle_engine or "").strip()
+        normalized_guest_vehicle_engine = normalize_vehicle_engine_choice(raw_guest_vehicle_engine)
+        if not raw_guest_vehicle_engine or normalized_guest_vehicle_engine:
+            self.guest_vehicle_engine = normalized_guest_vehicle_engine
+        else:
+            self.guest_vehicle_engine = _normalize_upper_text(self.guest_vehicle_engine)
+        self.guest_vehicle_fuel = normalize_vehicle_fuel_choice(self.guest_vehicle_fuel)
 
     def clean(self) -> None:
+        skip_guest_vehicle_engine_required_validation = bool(getattr(self, "_skip_guest_vehicle_engine_required_validation", False))
+        raw_guest_vehicle_engine = str(self.guest_vehicle_engine or "").strip()
+        normalized_guest_vehicle_engine = normalize_vehicle_engine_choice(raw_guest_vehicle_engine)
+        raw_guest_vehicle_fuel = str(self.guest_vehicle_fuel or "").strip()
+        normalized_guest_vehicle_fuel = normalize_vehicle_fuel_choice(raw_guest_vehicle_fuel)
         self._normalize_guest_fields()
         errors: dict[str, list[str]] = {}
 
@@ -140,9 +152,13 @@ class Appointment(TimeStampedModel):
                 errors.setdefault("guest_vehicle_year_fabrication", []).append("Informe o ano de fabricacao do veiculo quando o cliente nao estiver cadastrado.")
             if not self.guest_vehicle_year_model.strip():
                 errors.setdefault("guest_vehicle_year_model", []).append("Informe o ano do modelo do veiculo quando o cliente nao estiver cadastrado.")
-            if not self.guest_vehicle_engine.strip():
+            if raw_guest_vehicle_engine and not normalized_guest_vehicle_engine:
+                errors.setdefault("guest_vehicle_engine", []).append("Selecione uma motorizacao valida.")
+            elif not self.guest_vehicle_engine.strip() and not skip_guest_vehicle_engine_required_validation:
                 errors.setdefault("guest_vehicle_engine", []).append("Informe a motorizacao do veiculo quando o cliente nao estiver cadastrado.")
-            if not self.guest_vehicle_fuel.strip():
+            if raw_guest_vehicle_fuel and not normalized_guest_vehicle_fuel:
+                errors.setdefault("guest_vehicle_fuel", []).append("Selecione um combustivel valido.")
+            elif not self.guest_vehicle_fuel.strip():
                 errors.setdefault("guest_vehicle_fuel", []).append("Informe o combustivel do veiculo quando o cliente nao estiver cadastrado.")
 
         if vehicle_id and not customer_id:

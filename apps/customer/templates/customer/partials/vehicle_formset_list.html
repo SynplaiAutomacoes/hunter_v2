@@ -66,7 +66,27 @@ x-on:vehicle-list:changed.window="totalForms = document.querySelectorAll('.vehic
         function fillField(container, suffix, value) {
             if (!value) return;
             const input = container.querySelector(`[name$="${suffix}"]`);
-            if (input) input.value = value;
+            if (!input) return;
+
+            input.value = value;
+
+            const widgetContainer = input.closest('[x-data]');
+            if (widgetContainer && window.Alpine) {
+                try {
+                    const widgetData = Alpine.$data(widgetContainer);
+                    if (widgetData && Object.prototype.hasOwnProperty.call(widgetData, 'value')) {
+                        widgetData.value = String(value);
+                        if (typeof widgetData.updateLabelFromValue === 'function') {
+                            widgetData.updateLabelFromValue();
+                        }
+                    }
+                } catch (error) {
+                    console.warn('Erro ao sincronizar campo com select customizado:', error);
+                }
+            }
+
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
         }
     </script>
 </div>

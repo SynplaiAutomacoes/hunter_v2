@@ -35,6 +35,10 @@ class Product(TimeStampedModel):
         GR = "GR", "GR"
         LT = "LT", "LT"
         KG = "KG", "KG"
+        BIS = "BIS", "BIS"
+        CX = "CX", "CX"
+        KIT = "KIT", "KIT"
+        TB = "TB", "TB"
 
     class OriginCST(models.IntegerChoices):
         NACIONAL = 0, "0 - Nacional"
@@ -80,6 +84,7 @@ class Product(TimeStampedModel):
     # --- Financeiro ---
     cost_price = MoneyField(verbose_name="Valor de Custo", max_digits=14, decimal_places=2)
     selling_price = MoneyField(verbose_name="Valor de Venda", max_digits=14, decimal_places=2)
+    last_purchase_price = MoneyField(verbose_name="Ultimo Valor de Compra", max_digits=14, decimal_places=2, null=True, blank=True)
     last_used_price = MoneyField(verbose_name="Ultimo Valor Utilizado", max_digits=14, decimal_places=2, null=True, blank=True)
 
     # Margem armazenada para facilidade de consulta, mas calculada no form

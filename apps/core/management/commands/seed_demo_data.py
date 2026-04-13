@@ -1583,6 +1583,7 @@ class Command(BaseCommand):
             defaults: dict[str, object] = {
                 "installments_count": installments_count,
                 "is_active": True,
+                "payment_type": PaymentMethod.infer_payment_type(description),
             }
 
             if tax_percentage is not None:

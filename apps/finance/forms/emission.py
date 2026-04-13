@@ -138,7 +138,7 @@ def _build_step3_rows(*, workorder: WorkOrder) -> tuple[list[dict[str, Any]], li
                 continue
 
             effective_quantity = per_kit_quantity * item.quantity
-            unit_price = override.service_selling_price if override else service.selling_price
+            unit_price = override.service_selling_price if override else kit_service.resolved_selling_price
             duration = override.duration if override and override.duration else service.duration
             total_value = unit_price * effective_quantity
 

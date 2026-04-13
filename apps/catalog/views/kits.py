@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 
 from django.contrib import messages
@@ -7,7 +8,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
 from django.db import IntegrityError
 from django.db.models import Q
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.urls import reverse_lazy
 from django.views import View
@@ -17,6 +18,7 @@ from apps.catalog.forms.kits import KitForm, QuickProductEditForm, QuickServiceE
 from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
+from apps.catalog.util import calculate_catalog_service_prices, get_current_workshop_cost
 from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
@@ -53,7 +55,10 @@ class KitListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseM
             TableColumn(Kit.name.field.verbose_name, attr="name"),
             TableColumn(
                 "Aplicações",
-                attr=lambda kit: kit.applications_summary,
+                attr=lambda kit: kit.applications_table_value(preview_limit=2),
+                td_class="align-top",
+                cell_template="kits/partials/applications_cell.html",
+                mobile_stack=True,
                 sortable=False,
                 search_by=("applications__brand", "applications__model", "applications__engine", "applications__fuel"),
             ),
@@ -229,8 +234,73 @@ class ServiceQuickUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView
         return kwargs
 
     def form_valid(self, form):
-        form.save()
-        return HttpResponse(headers={"HX-Refresh": "true"})
+        service = form.save()
+        response = HttpResponse(status=204)
+        response["HX-Trigger"] = json.dumps(
+            {
+                "kit-service-updated": {
+                    "id": service.pk,
+                    "name": service.name,
+                    "cost": KitForm._format_money_display(service.suggested_cost),
+                    "sell": KitForm._format_money_display(service.selling_price),
+                    "duration": KitForm._format_duration(service.duration),
+                }
+            }
+        )
+        return response
+
+
+class KitServiceBulkPricingView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Service
+    workshop_permission_codename = "change_kit"
+
+    def post(self, request, *args, **kwargs):
+        try:
+            payload = json.loads(request.body.decode("utf-8") or "{}")
+        except json.JSONDecodeError:
+            return JsonResponse({"error": "invalid_payload"}, status=400)
+
+        services_payload = payload.get("services")
+        if not isinstance(services_payload, list):
+            return JsonResponse({"error": "invalid_services"}, status=400)
+
+        service_ids: list[int] = []
+        normalized_rows: list[dict[str, int | str]] = []
+        for row in services_payload:
+            if not isinstance(row, dict):
+                return JsonResponse({"error": "invalid_service_row"}, status=400)
+
+            cleaned_service_id = clean_id(row.get("id"))
+            raw_duration = str(row.get("duration") or "").strip()
+            duration = KitForm._parse_duration_value(raw_duration)
+            if not cleaned_service_id or duration is None:
+                return JsonResponse({"error": "invalid_service_row"}, status=400)
+
+            service_id = int(cleaned_service_id)
+
+            service_ids.append(service_id)
+            normalized_rows.append({"id": service_id, "duration": KitForm._format_duration(duration)})
+
+        valid_service_ids = set(Service.objects.filter(workshop=self.workshop, id__in=service_ids).values_list("id", flat=True))
+        if set(service_ids) != valid_service_ids:
+            return JsonResponse({"error": "service_not_found"}, status=400)
+
+        workshop_cost, missing = get_current_workshop_cost(self.workshop)
+        if missing or workshop_cost is None:
+            return JsonResponse({"services": [], "workshop_cost_missing": True})
+
+        priced_rows = []
+        for row in normalized_rows:
+            duration = KitForm._parse_duration_value(str(row["duration"])) or KitForm._parse_duration_value("00:00:00")
+            _, selling_price = calculate_catalog_service_prices(duration, workshop_cost)
+            priced_rows.append(
+                {
+                    "id": row["id"],
+                    "sell": KitForm._format_money_display(selling_price),
+                }
+            )
+
+        return JsonResponse({"services": priced_rows, "workshop_cost_missing": False})
 
 
 class KitServiceSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):

@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from django import forms
 from django.forms import inlineformset_factory
 from django.forms.models import BaseInlineFormSet
@@ -8,11 +10,23 @@ from django.urls import reverse
 from .models import Customer, Vehicle
 from apps.core.widgets import CPForCNPJInput, CalendarDateInput, TextInput, SelectInput, RGInput, PhoneInput, EmailInput, CheckboxInput, NumberInput, PlateInput
 from .cpf_cnpj_validator import is_valid_cpf, is_valid_cnpj
+from .vehicle_engine import normalize_vehicle_engine_choice, vehicle_engine_form_choices
+from .vehicle_fuel import normalize_vehicle_fuel_choice, vehicle_fuel_form_choices
 from ..core.forms import AddressFormMixin, address_layout
 from ..workshops.models.workshops import Workshop
 
 
+def _set_normalized_initial_choice(form: forms.BaseForm, field_name: str, current_value: object, normalizer: Callable[[object], str]) -> None:
+    normalized_value = normalizer(current_value)
+    form.initial[field_name] = normalized_value
+    if field_name in form.fields:
+        form.fields[field_name].initial = normalized_value
+
+
 class VehicleInlineForm(forms.ModelForm):
+    engine = forms.CharField(label="Motor", required=False, widget=SelectInput(choices=vehicle_engine_form_choices()))
+    fuel = forms.CharField(label="Combustível", required=False, widget=SelectInput(choices=vehicle_fuel_form_choices()))
+
     class Meta:
         model = Vehicle
         fields = "__all__"
@@ -20,6 +34,11 @@ class VehicleInlineForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         self.workshop = kwargs.pop("workshop", None)
         super().__init__(*args, **kwargs)
+        self.fields["engine"].widget = SelectInput(choices=vehicle_engine_form_choices())
+        self.fields["fuel"].widget = SelectInput(choices=vehicle_fuel_form_choices())
+        if not self.is_bound:
+            _set_normalized_initial_choice(self, "engine", self.initial.get("engine") or getattr(self.instance, "engine", None), normalize_vehicle_engine_choice)
+            _set_normalized_initial_choice(self, "fuel", self.initial.get("fuel") or getattr(self.instance, "fuel", None), normalize_vehicle_fuel_choice)
 
     def clean_plate(self):
         plate = (self.cleaned_data.get("plate") or "").strip().upper()
@@ -36,6 +55,20 @@ class VehicleInlineForm(forms.ModelForm):
             raise forms.ValidationError("Já existe um veículo com esta placa nesta oficina.")
 
         return plate
+
+    def clean_fuel(self):
+        fuel = self.cleaned_data.get("fuel")
+        normalized_fuel = normalize_vehicle_fuel_choice(fuel)
+        if fuel and not normalized_fuel:
+            raise forms.ValidationError("Selecione um combustível válido.")
+        return normalized_fuel
+
+    def clean_engine(self):
+        engine = self.cleaned_data.get("engine")
+        normalized_engine = normalize_vehicle_engine_choice(engine)
+        if engine and not normalized_engine:
+            raise forms.ValidationError("Selecione um motor válido.")
+        return normalized_engine
 
 
 class VehicleInlineFormSet(BaseInlineFormSet):
@@ -86,8 +119,8 @@ VehicleFormSet = inlineformset_factory(
         "year_fabrication": TextInput(),
         "year_model": TextInput(),
         "color": TextInput(),
-        "fuel": TextInput(),
-        "engine": TextInput(),
+        "fuel": SelectInput(choices=vehicle_fuel_form_choices()),
+        "engine": SelectInput(choices=vehicle_engine_form_choices()),
         "type": TextInput(),
         "renavam": TextInput(),
         "chassi": TextInput(),
@@ -470,6 +503,9 @@ class QuickCustomerForm(AddressFormMixin, forms.ModelForm):
 
 
 class QuickVehicleForm(forms.ModelForm):
+    engine = forms.CharField(label="Motor", required=False, widget=SelectInput(choices=vehicle_engine_form_choices()))
+    fuel = forms.CharField(label="Combustível", required=False, widget=SelectInput(choices=vehicle_fuel_form_choices()))
+
     class Meta:
         model = Vehicle
         fields = ["plate", "brand", "model", "engine", "fuel", "year_fabrication", "year_model", "color"]
@@ -477,8 +513,8 @@ class QuickVehicleForm(forms.ModelForm):
             "plate": PlateInput(),
             "brand": TextInput(),
             "model": TextInput(),
-            "engine": TextInput(),
-            "fuel": TextInput(),
+            "engine": SelectInput(choices=vehicle_engine_form_choices()),
+            "fuel": SelectInput(choices=vehicle_fuel_form_choices()),
             "year_fabrication": TextInput(),
             "year_model": TextInput(),
             "color": TextInput(),
@@ -488,6 +524,11 @@ class QuickVehicleForm(forms.ModelForm):
         self.workshop = kwargs.pop("workshop", None)
         self.customer = kwargs.pop("customer", None)
         super().__init__(*args, **kwargs)
+        self.fields["engine"].widget = SelectInput(choices=vehicle_engine_form_choices())
+        self.fields["fuel"].widget = SelectInput(choices=vehicle_fuel_form_choices())
+        if not self.is_bound:
+            _set_normalized_initial_choice(self, "engine", self.initial.get("engine") or getattr(self.instance, "engine", None), normalize_vehicle_engine_choice)
+            _set_normalized_initial_choice(self, "fuel", self.initial.get("fuel") or getattr(self.instance, "fuel", None), normalize_vehicle_fuel_choice)
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
@@ -503,6 +544,31 @@ class QuickVehicleForm(forms.ModelForm):
 
                 const container = el.closest('.vehicle-item') || el.closest('form');
                 if (!container) return;
+
+                function syncFieldValue(input, value) {
+                    if (!input || value === null || value === undefined || value === '') return;
+
+                    const normalizedValue = String(value);
+                    input.value = normalizedValue;
+
+                    const widgetContainer = input.closest('[x-data]');
+                    if (widgetContainer && window.Alpine) {
+                        try {
+                            const widgetData = Alpine.$data(widgetContainer);
+                            if (widgetData && Object.prototype.hasOwnProperty.call(widgetData, 'value')) {
+                                widgetData.value = normalizedValue;
+                                if (typeof widgetData.updateLabelFromValue === 'function') {
+                                    widgetData.updateLabelFromValue();
+                                }
+                            }
+                        } catch (syncError) {
+                            console.warn('Erro ao sincronizar campo com select customizado:', syncError);
+                        }
+                    }
+
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                }
 
                 try {
                     el.classList.add('loading-api');
@@ -526,8 +592,7 @@ class QuickVehicleForm(forms.ModelForm):
                     Object.keys(fieldsMap).forEach((key) => {
                         const input = container.querySelector(`[name$="${key}"]`);
                         if (input && fieldsMap[key]) {
-                            input.value = fieldsMap[key];
-                            input.dispatchEvent(new Event('input', { bubbles: true }));
+                            syncFieldValue(input, fieldsMap[key]);
                         }
                     });
 
@@ -578,6 +643,20 @@ class QuickVehicleForm(forms.ModelForm):
             raise forms.ValidationError("Já existe um veículo com esta placa nesta oficina.")
 
         return plate
+
+    def clean_fuel(self):
+        fuel = self.cleaned_data.get("fuel")
+        normalized_fuel = normalize_vehicle_fuel_choice(fuel)
+        if fuel and not normalized_fuel:
+            raise forms.ValidationError("Selecione um combustível válido.")
+        return normalized_fuel
+
+    def clean_engine(self):
+        engine = self.cleaned_data.get("engine")
+        normalized_engine = normalize_vehicle_engine_choice(engine)
+        if engine and not normalized_engine:
+            raise forms.ValidationError("Selecione um motor válido.")
+        return normalized_engine
 
     def save(self, commit=True):
         instance = super().save(commit=False)

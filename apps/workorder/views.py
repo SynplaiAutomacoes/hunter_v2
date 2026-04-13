@@ -24,7 +24,7 @@ from djmoney.money import Money
 
 from apps.catalog.price_tracking import build_product_price_warning
 from apps.catalog.price_tracking import record_product_last_used_price
-from apps.catalog.kit_applications import build_vehicle_application_filter_warning, build_vehicle_context_label, evaluate_kit_vehicle_compatibility, vehicle_has_complete_application_context
+from apps.catalog.kit_applications import build_vehicle_context_label, evaluate_kit_vehicle_compatibility, vehicle_has_complete_application_context
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.models.kits import Kit
@@ -138,7 +138,7 @@ KIT_COMPATIBILITY_BADGE_CLASSES = {
     "compatible": "badge-success",
     "partially_compatible": "badge-accent",
     "no_applications": "badge-warning",
-    "missing_vehicle_data": "badge-info",
+    "missing_vehicle_data": "badge-warning",
     "incompatible": "badge-error",
 }
 KIT_COMPATIBILITY_SORT_ORDER = {
@@ -207,7 +207,6 @@ def _prepare_kit_selection_items(*, kits: list[Kit], workorder: WorkOrder, exist
 
     hidden_count = 0
     compatible_count = 0
-    indeterminate_count = 0
     incompatible_count = 0
     no_application_count = 0
 
@@ -228,8 +227,6 @@ def _prepare_kit_selection_items(*, kits: list[Kit], workorder: WorkOrder, exist
 
         if compatibility.status == "compatible":
             compatible_count += 1
-        elif compatibility.status == "missing_vehicle_data":
-            indeterminate_count += 1
         elif compatibility.status == "incompatible":
             incompatible_count += 1
         elif compatibility.status == "no_applications":
@@ -247,10 +244,8 @@ def _prepare_kit_selection_items(*, kits: list[Kit], workorder: WorkOrder, exist
     return ordered_kits, {
         "kit_vehicle_filter_active": filter_active,
         "kit_vehicle_filter_context": build_vehicle_context_label(vehicle),
-        "kit_vehicle_filter_warning": build_vehicle_application_filter_warning(vehicle) if indeterminate_count else "",
         "kit_hidden_count": hidden_count,
         "kit_compatible_count": compatible_count,
-        "kit_indeterminate_count": indeterminate_count,
         "kit_incompatible_count": incompatible_count,
         "kit_no_application_count": no_application_count,
     }
@@ -792,7 +787,7 @@ class WorkOrderKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
             quantity = override.quantity if override else kit_service.quantity
             cost = override.service_cost_price if override else (service.suggested_cost or Money(0, "BRL"))
-            price = override.service_selling_price if override else service.selling_price
+            price = override.service_selling_price if override else kit_service.resolved_selling_price
 
             row_form = WorkOrderKitServiceEditRowForm(
                 initial={

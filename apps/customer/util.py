@@ -3,7 +3,9 @@ import os
 
 import requests
 
+from apps.customer.vehicle_engine import normalize_vehicle_engine_choice
 from apps.customer.models import Vehicle, Customer
+from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice
 
 
 def fetch_vehicle_data(plate):
@@ -40,6 +42,8 @@ def fetch_vehicle_data(plate):
                 }
             )
 
+        vehicle_info["engine"] = normalize_vehicle_engine_choice(vehicle_info.get("engine"))
+        vehicle_info["fuel"] = normalize_vehicle_fuel_choice(vehicle_info.get("fuel"))
         return vehicle_info
     except (requests.RequestException, ValueError):
         return None

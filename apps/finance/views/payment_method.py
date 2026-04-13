@@ -23,12 +23,17 @@ class PaymentMethodListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplat
         queryset = apply_is_active_filter(queryset, params=self.request.GET)
         return queryset.order_by("description")
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs: object) -> dict[str, object]:
         context = super().get_context_data(**kwargs)
+        description_label = str(PaymentMethod.description.field.verbose_name)
+        payment_type_label = str(PaymentMethod.payment_type.field.verbose_name)
+        installments_label = str(PaymentMethod.installments_count.field.verbose_name)
+        is_active_label = str(PaymentMethod.is_active.field.verbose_name)
         context["fields"] = [
-            TableColumn(PaymentMethod.description.field.verbose_name, attr=PaymentMethod.description.field.name),
-            TableColumn(PaymentMethod.installments_count.field.verbose_name, attr=PaymentMethod.installments_count.field.name),
-            TableColumn(PaymentMethod.is_active.field.verbose_name, attr=PaymentMethod.is_active.field.name),
+            TableColumn(description_label, attr=PaymentMethod.description.field.name),
+            TableColumn(payment_type_label, attr="get_payment_type_display", search_by="payment_type"),
+            TableColumn(installments_label, attr=PaymentMethod.installments_count.field.name),
+            TableColumn(is_active_label, attr=PaymentMethod.is_active.field.name),
         ]
         context["actions"] = [TableActionDefaults.edit("finance:payment_methods_update")]
         return context

@@ -148,7 +148,14 @@ class NFParser:
                 data_vencimento = dup.xpath("ns:dVenc/text()", namespaces=SEFAZ_NFE_NAMESPACE)
                 data_vencimento = data_vencimento[0] if data_vencimento else ""
 
-                method_obj, _ = PaymentMethod.objects.get_or_create(workshop=workshop, description=method_slug, defaults={"is_active": True})
+                method_obj, _ = PaymentMethod.objects.get_or_create(
+                    workshop=workshop,
+                    description=method_slug,
+                    defaults={
+                        "is_active": True,
+                        "payment_type": PaymentMethod.infer_payment_type(method_slug),
+                    },
+                )
 
                 pagamentos_sessao.append(
                     {

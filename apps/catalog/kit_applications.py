@@ -21,6 +21,20 @@ class KitCompatibilityResult:
     visible_by_default: bool
 
 
+@dataclass(frozen=True)
+class KitApplicationTableItem:
+    title: str
+    subtitle: str = ""
+
+
+@dataclass(frozen=True)
+class KitApplicationsTableValue:
+    visible_items: list[KitApplicationTableItem]
+    hidden_items: list[KitApplicationTableItem]
+    hidden_count: int = 0
+    empty_label: str = "Sem aplicação cadastrada"
+
+
 def normalize_vehicle_text(value: str | None) -> str:
     normalized_value = unicodedata.normalize("NFKD", str(value or "").strip().lower())
     ascii_value = normalized_value.encode("ascii", "ignore").decode("ascii")
@@ -33,6 +47,10 @@ def build_powertrain_display(engine: str | None, fuel: str | None) -> str:
     return " ".join(part for part in parts if part)
 
 
+def _build_vehicle_name_display(brand: str | None, model: str | None) -> str:
+    return " ".join(part for part in [str(brand or "").strip(), str(model or "").strip()] if part)
+
+
 def format_year_range(year_start: int | None, year_end: int | None) -> str:
     if year_start is None or year_end is None:
         return ""
@@ -42,10 +60,23 @@ def format_year_range(year_start: int | None, year_end: int | None) -> str:
 
 
 def build_kit_application_label(application: Any) -> str:
-    vehicle_name = " ".join(part for part in [str(getattr(application, "brand", "") or "").strip(), str(getattr(application, "model", "") or "").strip()] if part)
+    vehicle_name = _build_vehicle_name_display(getattr(application, "brand", ""), getattr(application, "model", ""))
     powertrain = build_powertrain_display(getattr(application, "engine", ""), getattr(application, "fuel", ""))
     years = format_year_range(getattr(application, "year_start", None), getattr(application, "year_end", None))
     return " ".join(part for part in [vehicle_name, powertrain, years] if part)
+
+
+def build_kit_application_table_item(application: Any) -> KitApplicationTableItem | None:
+    vehicle_name = _build_vehicle_name_display(getattr(application, "brand", ""), getattr(application, "model", ""))
+    powertrain = build_powertrain_display(getattr(application, "engine", ""), getattr(application, "fuel", ""))
+    years = format_year_range(getattr(application, "year_start", None), getattr(application, "year_end", None))
+
+    title = vehicle_name or build_kit_application_label(application)
+    if not title:
+        return None
+
+    subtitle = " | ".join(part for part in [powertrain, years] if part)
+    return KitApplicationTableItem(title=title, subtitle=subtitle)
 
 
 def build_kit_applications_summary(applications: Iterable[Any], *, limit: int = 1) -> str:
@@ -72,6 +103,21 @@ def build_kit_application_preview_lines(applications: Iterable[Any], *, limit: i
     hidden_count = len(labels) - limit
     suffix = "aplicação adicional" if hidden_count == 1 else "aplicações adicionais"
     return [*labels[:limit], f"+{hidden_count} {suffix}"]
+
+
+def build_kit_applications_table_value(applications: Iterable[Any], *, preview_limit: int = 2) -> KitApplicationsTableValue:
+    items = [item for application in applications if (item := build_kit_application_table_item(application)) is not None]
+    if not items:
+        return KitApplicationsTableValue(visible_items=[], hidden_items=[])
+
+    visible_items = items[:preview_limit]
+    hidden_items = items[preview_limit:]
+    hidden_count = len(hidden_items)
+    return KitApplicationsTableValue(
+        visible_items=visible_items,
+        hidden_items=hidden_items,
+        hidden_count=hidden_count,
+    )
 
 
 def parse_vehicle_year(vehicle: Vehicle | None) -> int | None:
@@ -137,6 +183,14 @@ def _matches_text(expected: str | None, actual: str | None) -> bool:
     return normalized_expected == normalized_actual or normalized_expected in normalized_actual or normalized_actual in normalized_expected
 
 
+def _matches_exact_text(expected: str | None, actual: str | None) -> bool:
+    normalized_expected = normalize_vehicle_text(expected)
+    normalized_actual = normalize_vehicle_text(actual)
+    if not normalized_expected or not normalized_actual:
+        return False
+    return normalized_expected == normalized_actual
+
+
 def _matches_year_range(application: Any, vehicle_year: int) -> bool:
     return int(getattr(application, "year_start", 0) or 0) <= vehicle_year <= int(getattr(application, "year_end", 0) or 0)
 
@@ -146,15 +200,20 @@ def _application_matches_available_vehicle_context(*, application: Any, vehicle:
         return False
 
     compared_any = False
-    field_pairs = (("brand", "brand"), ("model", "model"), ("engine", "engine"), ("fuel", "fuel"))
+    field_matchers = (
+        ("brand", "brand", _matches_exact_text),
+        ("model", "model", _matches_exact_text),
+        ("engine", "engine", _matches_text),
+        ("fuel", "fuel", _matches_text),
+    )
 
-    for application_field, vehicle_field in field_pairs:
+    for application_field, vehicle_field, matcher in field_matchers:
         vehicle_value = getattr(vehicle, vehicle_field, "")
         if not normalize_vehicle_text(vehicle_value):
             continue
 
         compared_any = True
-        if not _matches_text(getattr(application, application_field, ""), vehicle_value):
+        if not matcher(getattr(application, application_field, ""), vehicle_value):
             return False
 
     vehicle_year = parse_vehicle_year(vehicle)
@@ -174,7 +233,7 @@ def _application_matches_vehicle_identity(*, application: Any, vehicle: Vehicle 
     if vehicle_year is None:
         return False
 
-    return _matches_text(getattr(application, "brand", ""), getattr(vehicle, "brand", "")) and _matches_text(getattr(application, "model", ""), getattr(vehicle, "model", "")) and _matches_year_range(application, vehicle_year)
+    return _matches_exact_text(getattr(application, "brand", ""), getattr(vehicle, "brand", "")) and _matches_exact_text(getattr(application, "model", ""), getattr(vehicle, "model", "")) and _matches_year_range(application, vehicle_year)
 
 
 def evaluate_kit_vehicle_compatibility(*, kit: Any, vehicle: Vehicle | None) -> KitCompatibilityResult:

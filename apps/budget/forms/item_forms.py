@@ -33,6 +33,7 @@ class BudgetItemEditForm(forms.ModelForm):
     def __init__(self, *args, budget_id=None, **kwargs):
         super().__init__(*args, **kwargs)
         item = self.instance
+        is_warranty_budget = bool(getattr(getattr(item, "budget", None), "is_warranty_budget", False))
 
         # Se for kit, remover todos os campos de edição (kits usam modal próprio)
         if item.kit:
@@ -48,6 +49,8 @@ class BudgetItemEditForm(forms.ModelForm):
             self.fields.pop("service_selling_price")
             self.fields.pop("service_cost_price")
             self.fields.pop("duration")
+            if is_warranty_budget and "product_selling_price" in self.fields:
+                self.fields.pop("product_selling_price")
             if item.product is None:
                 self.fields.pop("ncm")
             else:
@@ -59,6 +62,8 @@ class BudgetItemEditForm(forms.ModelForm):
             self.fields.pop("shipping")
             self.fields.pop("is_customer_supplied")
             self.fields.pop("ncm")
+            if is_warranty_budget and "service_selling_price" in self.fields:
+                self.fields.pop("service_selling_price")
 
             if budget_id:
                 self.fields["duration"].widget.attrs.update(
@@ -102,13 +107,16 @@ class LocalProductForm(forms.ModelForm):
             "shipping": MoneyInput(),
         }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, is_warranty_budget=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["description"].label = "Descrição"
         self.fields["quantity"].label = "Quantidade"
         self.fields["product_cost_price"].label = "Custo"
-        self.fields["product_selling_price"].label = "Valor de Venda"
         self.fields["shipping"].label = "Frete"
+        if is_warranty_budget:
+            self.fields.pop("product_selling_price")
+        else:
+            self.fields["product_selling_price"].label = "Valor de Venda"
 
 
 class LocalServiceForm(forms.ModelForm):
@@ -123,13 +131,16 @@ class LocalServiceForm(forms.ModelForm):
             "duration": DurationInput(),
         }
 
-    def __init__(self, *args, budget_id=None, **kwargs):
+    def __init__(self, *args, budget_id=None, is_warranty_budget=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["description"].label = "Descrição"
         self.fields["quantity"].label = "Quantidade"
         self.fields["service_cost_price"].label = "Custo"
-        self.fields["service_selling_price"].label = "Valor de Venda"
         self.fields["duration"].label = "Duração"
+        if is_warranty_budget:
+            self.fields.pop("service_selling_price")
+        else:
+            self.fields["service_selling_price"].label = "Valor de Venda"
 
         # Adicionar cálculo automático
         if budget_id and not self.instance.pk:

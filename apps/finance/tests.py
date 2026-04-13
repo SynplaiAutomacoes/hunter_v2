@@ -2706,7 +2706,7 @@ class UnifiedEmissionWizardTests(TestCase):
         workorder.sync_from_budget()
         return workorder
 
-    def _build_workorder_with_kit(self, *, suffix: int) -> tuple[WorkOrder, WorkOrderItem, Product, Service]:
+    def _build_workorder_with_kit(self, *, suffix: int, kit_service_selling_price: str | None = None) -> tuple[WorkOrder, WorkOrderItem, Product, Service]:
         budget = Budget(workshop=self.workshop, entry_date=timezone.now().date())
         budget.save()
 
@@ -2731,7 +2731,12 @@ class UnifiedEmissionWizardTests(TestCase):
         )
         kit = Kit.objects.create(workshop=self.workshop, name=f"Kit Emissao {suffix}")
         KitProduct.objects.create(kit=kit, product=product, quantity=1)
-        KitService.objects.create(kit=kit, service=service, quantity=1)
+        KitService.objects.create(
+            kit=kit,
+            service=service,
+            quantity=1,
+            selling_price=Money(kit_service_selling_price, "BRL") if kit_service_selling_price is not None else None,
+        )
         BudgetItem.objects.create(workshop=self.workshop, budget=budget, kit=kit, quantity=1)
 
         workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
@@ -3085,6 +3090,28 @@ class UnifiedEmissionWizardTests(TestCase):
         self.assertEqual(override.product_cost_price, Money("9.00", "BRL"))
         self.assertEqual(override.product_selling_price, Money("19.00", "BRL"))
         self.assertEqual(override.shipping, Money("4.00", "BRL"))
+
+    def test_unified_items_step_uses_kit_service_custom_selling_price_in_component_modal(self) -> None:
+        workorder, kit_item, _, service = self._build_workorder_with_kit(suffix=90, kit_service_selling_price="44.00")
+        self.client.post(self._wizard_url(step=1), {"workorder": workorder.pk})
+        self.client.post(self._wizard_url(step=2), {})
+
+        response = self.client.get(
+            reverse(
+                "finance:emission_workorder_kit_component_edit",
+                kwargs={
+                    "workorder_pk": workorder.pk,
+                    "item_id": kit_item.pk,
+                    "component_type": "service",
+                    "component_id": service.pk,
+                },
+            ),
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'name="price_0"')
+        self.assertContains(response, 'value="44.00"')
 
     def test_emission_preview_returns_summary_body_with_slider_values(self) -> None:
         self._advance_to_step_4()
@@ -6912,11 +6939,23 @@ class DreReportViewTests(TestCase):
 
 
 class PaymentMethodFormTests(TestCase):
+    def test_infer_payment_type_maps_credit_debit_and_other_descriptions(self) -> None:
+        self.assertEqual(PaymentMethod.infer_payment_type("Cartão de Crédito"), PaymentMethod.PaymentType.CREDIT)
+        self.assertEqual(PaymentMethod.infer_payment_type("Cartao de Debito"), PaymentMethod.PaymentType.DEBIT)
+        self.assertEqual(PaymentMethod.infer_payment_type("Pix"), PaymentMethod.PaymentType.BOTH)
+
+    def test_new_form_defaults_payment_type_to_both(self) -> None:
+        workshop = create_workshop(suffix=86)
+
+        form = PaymentMethodForm(workshop=workshop)
+
+        self.assertEqual(form["payment_type"].value(), PaymentMethod.PaymentType.BOTH)
+
     def test_form_saves_installments_count(self) -> None:
         workshop = create_workshop(suffix=86)
 
         form = PaymentMethodForm(
-            data={"description": "Cartão de Crédito", "installments_count": "4", "is_active": "on"},
+            data={"description": "Cartão de Crédito", "payment_type": PaymentMethod.PaymentType.CREDIT, "installments_count": "4", "is_active": "on"},
             workshop=workshop,
         )
 
@@ -6927,6 +6966,7 @@ class PaymentMethodFormTests(TestCase):
         payment_method.save()
 
         self.assertEqual(payment_method.installments_count, 4)
+        self.assertEqual(payment_method.payment_type, PaymentMethod.PaymentType.CREDIT)
 
 
 class PaymentMethodViewsTests(TestCase):
@@ -6941,7 +6981,7 @@ class PaymentMethodViewsTests(TestCase):
     def test_create_view_persists_installments_count(self) -> None:
         response = self.client.post(
             reverse("finance:payment_methods_create"),
-            data={"description": "Cartão de Crédito", "installments_count": "4", "is_active": "on"},
+            data={"description": "Cartão de Crédito", "payment_type": PaymentMethod.PaymentType.CREDIT, "installments_count": "4", "is_active": "on"},
         )
 
         self.assertEqual(response.status_code, 302)
@@ -6949,12 +6989,20 @@ class PaymentMethodViewsTests(TestCase):
 
         payment_method = PaymentMethod.objects.get(workshop=self.workshop, description="Cartão de Crédito")
         self.assertEqual(payment_method.installments_count, 4)
+        self.assertEqual(payment_method.payment_type, PaymentMethod.PaymentType.CREDIT)
 
-    def test_list_view_displays_installments_count_column(self) -> None:
-        PaymentMethod.objects.create(workshop=self.workshop, description="Pix Parcelado", installments_count=3)
+    def test_list_view_displays_payment_type_and_installments_columns(self) -> None:
+        PaymentMethod.objects.create(
+            workshop=self.workshop,
+            description="Pix Parcelado",
+            payment_type=PaymentMethod.PaymentType.DEBIT,
+            installments_count=3,
+        )
 
         response = self.client.get(reverse("finance:payment_methods_list"))
 
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Tipo")
+        self.assertContains(response, "Débito")
         self.assertContains(response, "Parcelas")
         self.assertContains(response, "3")
