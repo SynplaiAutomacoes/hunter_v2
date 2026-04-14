@@ -1431,6 +1431,32 @@ class BudgetPdfContextTests(TestCase):
         self.assertEqual(context["total_servicos"], Money("0.00", "BRL"))
         self.assertEqual(context["total_geral"], Money("0.00", "BRL"))
 
+    def test_build_budget_pdf_context_selected_items_keeps_kit_components_out_of_direct_tables(self) -> None:
+        workshop = create_workshop(suffix=16)
+        budget = create_budget(workshop=workshop)
+        direct_product = create_product(workshop=workshop, suffix=161, application="Gol")
+        direct_service = create_service(workshop=workshop, suffix=162)
+        kit_product = create_product(workshop=workshop, suffix=163, application="Fox")
+        kit_service = create_service(workshop=workshop, suffix=164)
+        kit = create_kit(workshop=workshop, suffix=165, products=[(kit_product, 1)])
+        KitService.objects.create(kit=kit, service=kit_service, quantity=2, duration=kit_service.duration)
+
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=direct_product, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, service=direct_service, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
+
+        context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste", presentation="selected_items")
+        html = render_to_string("budget/partials/pdf/visualizarPDF.html", context)
+
+        self.assertEqual([produto["description"] for produto in context["produtos"]], [direct_product.name])
+        self.assertEqual([servico["description"] for servico in context["servicos"]], [direct_service.name])
+        self.assertEqual(len(context["kits"]), 1)
+        self.assertEqual(context["kits"][0]["description"], kit.name)
+        self.assertNotIn(kit_product.name, [produto["description"] for produto in context["produtos"]])
+        self.assertNotIn(kit_service.name, [servico["description"] for servico in context["servicos"]])
+        self.assertIn('<h4 class="font-bold mb-1 uppercase">Kits</h4>', html)
+        self.assertIn(kit.name, html)
+
     def test_budget_pdf_template_allows_long_freeform_text_to_wrap(self) -> None:
         workshop = create_workshop(suffix=94)
         customer = create_customer(workshop=workshop, suffix=94)
@@ -1766,6 +1792,23 @@ class BudgetStep6FormTests(TestCase):
         self.assertNotIn("Existem pecas com quantidade acima do estoque disponivel", html)
         self.assertIn("signatureBlocked: false", html)
         self.assertIn(f"onclick=\"updateBudgetStatus({budget.pk}, 'approve')\"", html)
+
+    def test_step6_service_table_keeps_kit_services_out_of_direct_service_rows(self) -> None:
+        workshop = create_workshop(suffix=66)
+        budget = create_budget(workshop=workshop)
+        direct_service = create_service(workshop=workshop, suffix=661)
+        kit_service = create_service(workshop=workshop, suffix=662)
+        kit = create_kit(workshop=workshop, suffix=663, products=[])
+        KitService.objects.create(kit=kit, service=kit_service, quantity=2, duration=kit_service.duration)
+
+        BudgetItem.objects.create(workshop=workshop, budget=budget, service=direct_service, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
+
+        rows = _render_budget_items_rows(budget, step6=True)
+
+        self.assertIn(direct_service.name, rows["service"])
+        self.assertNotIn(kit_service.name, rows["service"])
+        self.assertIn(kit.name, rows["kit"])
 
     def test_step6_uses_budget_observation_without_inheriting_workshop_value(self) -> None:
         workshop = create_workshop(suffix=69)
@@ -2750,7 +2793,7 @@ class BudgetSignaturePublicViewTests(TestCase):
         render_mock.assert_called_once()
         self.assertEqual(render_mock.call_args.args[1], "budget/partials/pdf/visualizarPDF.html")
         self.assertEqual(render_mock.call_args.args[2], {"budget": budget, "observacao": budget.pdf_observation})
-        build_context_mock.assert_called_once_with(budget=budget, observacao=budget.pdf_observation, request=ANY, zero_warranty_prices=True)
+        build_context_mock.assert_called_once_with(budget=budget, observacao=budget.pdf_observation, request=ANY, zero_warranty_prices=True, presentation="selected_items")
 
     def test_signature_preview_rejects_inactive_token(self) -> None:
         workshop = create_workshop(suffix=79)
