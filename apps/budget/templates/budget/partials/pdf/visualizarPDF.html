@@ -287,6 +287,10 @@
                         <td class="p-1 text-right">{{ p.unit_price }}</td>
                         <td class="p-1 text-right font-medium">{{ p.total_price }}</td>
                     </tr>
+                    {% empty %}
+                    <tr class="border-b border-gray-100">
+                        <td colspan="5" class="p-1 text-center text-gray-400 italic">Nenhum produto avulso listado.</td>
+                    </tr>
                     {% endfor %}
                     <tr class="bg-gray-50 border-t-2 border-gray-200">
                         <td colspan="5" class="p-1 text-right font-bold text-[11px]">TOTAL DAS PEÇAS: {{ total_produtos }}</td>
@@ -308,6 +312,10 @@
                     <tr class="border-b border-gray-100">
                         <td class="p-1 font-medium"><span class="desc-truncate">{{ s.description }}</span></td>
                     </tr>
+                    {% empty %}
+                    <tr class="border-b border-gray-100">
+                        <td class="p-1 text-center text-gray-400 italic">Nenhum serviço avulso listado.</td>
+                    </tr>
                     {% endfor %}
                     <tr class="bg-gray-50 border-t-2 border-gray-200">
                         <td class="p-1 text-right font-bold text-[11px]">TOTAL DOS SERVIÇOS: {{ total_servicos }}</td>
@@ -315,6 +323,40 @@
                 </tbody>
             </table>
         </div>
+
+        {% if page.kits %}
+        <div class="p-4 border-b border-gray-200">
+            <h4 class="font-bold mb-1 uppercase">Kits</h4>
+            <table class="w-full text-left border-collapse text-[10px] mt-1 leading-tight">
+                <thead>
+                    <tr class="bg-gray-100 border-b-2 border-gray-200">
+                        <th class="p-1 font-semibold">Kit</th>
+                        <th class="p-1 font-semibold w-[10%] text-center">Qtd</th>
+                        <th class="p-1 font-semibold w-[15%] text-center">Produtos</th>
+                        <th class="p-1 font-semibold w-[15%] text-center">Serviços</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for kit in page.kits %}
+                    <tr class="border-b border-gray-100 align-top">
+                        <td class="p-1">
+                            <div class="font-medium">{{ kit.description }}</div>
+                            {% if kit.products_summary != '-' %}
+                            <div class="text-gray-500">Produtos: {{ kit.products_summary }}</div>
+                            {% endif %}
+                            {% if kit.services_summary != '-' %}
+                            <div class="text-gray-500">Serviços: {{ kit.services_summary }}</div>
+                            {% endif %}
+                        </td>
+                        <td class="p-1 text-center">{{ kit.quantity }}</td>
+                        <td class="p-1 text-center">{{ kit.product_count }}</td>
+                        <td class="p-1 text-center">{{ kit.service_count }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
 
         <div class="summary-section p-4 border-b-0">
             <div class="summary-observation">
