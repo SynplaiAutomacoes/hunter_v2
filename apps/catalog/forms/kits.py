@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from html import escape
 import json
 import logging
 from datetime import timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 
 from django import forms
@@ -18,6 +19,8 @@ from apps.catalog.models.kits import Kit, KitApplication, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.core.widgets import CheckboxInput, TextInput, TextareaInput, SelectInput, MoneyInput, PercentageInput, ImageInput, DurationInput
+from apps.customer.vehicle_engine import normalize_vehicle_engine_choice, vehicle_engine_form_choices
+from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice, vehicle_fuel_form_choices
 from apps.workshops.models.workshops import Workshop
 
 logger = logging.getLogger(__name__)
@@ -86,18 +89,20 @@ class KitForm(forms.ModelForm):
 
     def _build_initial_applications(self) -> list[dict[str, str]]:
         if self.is_bound:
-            return self._extract_application_rows_from_post()
+            return [self._normalize_application_row_for_display(application) for application in self._extract_application_rows_from_post()]
 
         if self.instance.pk:
             applications = [
-                {
-                    "brand": application.brand,
-                    "model": application.model,
-                    "engine": application.engine,
-                    "fuel": application.fuel,
-                    "year_start": str(application.year_start),
-                    "year_end": str(application.year_end),
-                }
+                self._normalize_application_row_for_display(
+                    {
+                        "brand": application.brand,
+                        "model": application.model,
+                        "engine": application.engine,
+                        "fuel": application.fuel,
+                        "year_start": str(application.year_start),
+                        "year_end": str(application.year_end),
+                    }
+                )
                 for application in self.instance.ordered_applications()
             ]
             if applications:
@@ -105,10 +110,137 @@ class KitForm(forms.ModelForm):
 
         return []
 
+    @staticmethod
+    def _normalize_application_row_for_display(application: dict[str, str]) -> dict[str, str]:
+        return {
+            "brand": str(application.get("brand", "")).strip(),
+            "model": str(application.get("model", "")).strip(),
+            "engine": normalize_vehicle_engine_choice(application.get("engine", "")),
+            "fuel": normalize_vehicle_fuel_choice(application.get("fuel", "")),
+            "year_start": str(application.get("year_start", "")).strip(),
+            "year_end": str(application.get("year_end", "")).strip(),
+        }
+
+    @staticmethod
+    def _build_application_select_options_html(*, target_expression: str, choices: list[tuple[str, str]]) -> str:
+        options_html: list[str] = []
+        for option_value, option_label in choices:
+            if not option_value:
+                continue
+
+            option_value_literal = escape(json.dumps(str(option_value)), quote=True)
+            option_label_text = escape(str(option_label))
+            options_html.append(
+                f"""
+                <li
+                    @click="{target_expression} = {option_value_literal}; open = false"
+                    class="relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white group transition-colors"
+                >
+                    <span class="block truncate" :class="{{'font-bold': {target_expression} == {option_value_literal}}}">
+                        {option_label_text}
+                    </span>
+
+                    <span
+                        x-show="{target_expression} == {option_value_literal}"
+                        class="absolute inset-y-0 right-0 flex items-center pr-4 text-primary group-hover:text-white"
+                    >
+                        <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+                        </svg>
+                    </span>
+                </li>
+                """
+            )
+
+        return "".join(options_html)
+
+    @classmethod
+    def _build_application_select_html(cls, *, field_name: str, target_expression: str) -> str:
+        choices = vehicle_engine_form_choices() if field_name == "kit_application_engine" else vehicle_fuel_form_choices()
+        options_html = cls._build_application_select_options_html(target_expression=target_expression, choices=choices)
+        escaped_name = escape(field_name, quote=True)
+
+        return f"""
+        <div class="relative" x-data="{{ open: false }}" @click.outside="open = false">
+            <input type="hidden" name="{escaped_name}" :value="{target_expression}">
+
+            <button
+                type="button"
+                @click="open = !open"
+                class="input-theme flex w-full cursor-default items-center justify-between text-left"
+                :class="{{'ring-2 ring-primary border-primary': open}}"
+            >
+                <span x-text="{target_expression} || 'Selecione...'" :class="{{'input-placeholder-color': !{target_expression}}}"></span>
+
+                <span class="pointer-events-none flex items-center pr-2">
+                    <svg class="h-5 w-5 transition-transform duration-200" :class="{{'rotate-180': open}}" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"></path>
+                    </svg>
+                </span>
+            </button>
+
+            <div
+                x-show="open"
+                x-transition:enter="transition ease-out duration-100"
+                x-transition:enter-start="transform opacity-0 scale-95"
+                x-transition:enter-end="transform opacity-100 scale-100"
+                x-transition:leave="transition ease-in duration-75"
+                x-transition:leave-start="transform opacity-100 scale-100"
+                x-transition:leave-end="transform opacity-0 scale-95"
+                class="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-md bg-base-100 py-1 text-base shadow-lg ring-1 ring-primary ring-opacity-5 focus:outline-none sm:text-sm"
+                style="display: none;"
+            >
+                <ul role="listbox">
+                    <li
+                        @click="{target_expression} = ''; open = false"
+                        class="cursor-pointer select-none py-2 pl-3 pr-9 font-semibold text-error hover:bg-primary hover:text-white"
+                    >
+                        Limpar seleção
+                    </li>
+                    {options_html}
+                </ul>
+            </div>
+        </div>
+        """
+
+    @staticmethod
+    def _format_money_display(value: Money | Decimal | None) -> str:
+        if value is None:
+            return str(Money(0, "BRL"))
+        if isinstance(value, Money):
+            return str(value)
+        return str(Money(value, "BRL"))
+
+    @staticmethod
+    def _parse_money_value(raw_value: str) -> Decimal | None:
+        value = (raw_value or "").strip()
+        if not value:
+            return None
+
+        normalized = value.replace("R$", "").replace("\xa0", "").replace(" ", "")
+        if not normalized or normalized in {"-", ",", "."}:
+            return None
+
+        if "," in normalized:
+            normalized = normalized.replace(".", "").replace(",", ".")
+        else:
+            normalized = normalized.replace(",", "")
+
+        try:
+            amount = Decimal(normalized)
+        except InvalidOperation:
+            return None
+
+        if amount < 0:
+            return None
+
+        return amount.quantize(Decimal("0.01"))
+
     def get_layout(self):
         cancel_url = reverse("catalog:kits_list")
         product_search_url = reverse("catalog:kits_product_search")
         service_search_url = reverse("catalog:kits_service_search")
+        service_bulk_pricing_url = reverse("catalog:kits_service_bulk_pricing")
 
         initial_products = []
         initial_services = []
@@ -179,13 +311,15 @@ class KitForm(forms.ModelForm):
                 raw_duration = str(self.data.get(f"kit_service_duration_{sid}", "") or "").strip()
                 duration_value = self._parse_duration_value(raw_duration)
                 formatted_duration = KitForm._format_duration(duration_value)
+                raw_sell = str(self.data.get(f"kit_service_sell_{sid}", "") or "").strip()
+                sell_value = self._parse_money_value(raw_sell)
 
                 initial_services.append(
                     {
                         "id": service.id,
                         "name": service.name,
                         "cost": str(service.suggested_cost) if service.suggested_cost else "-",
-                        "sell": str(service.selling_price),
+                        "sell": self._format_money_display(sell_value if sell_value is not None else service.selling_price),
                         "qty": qty,
                         "duration": formatted_duration,
                     }
@@ -223,6 +357,8 @@ class KitForm(forms.ModelForm):
                 .only(
                     "quantity",
                     "duration",
+                    "selling_price",
+                    "selling_price_currency",
                     "service__id",
                     "service__name",
                     "service__suggested_cost",
@@ -238,7 +374,7 @@ class KitForm(forms.ModelForm):
                         "id": service.id,
                         "name": service.name,
                         "cost": str(service.suggested_cost) if service.suggested_cost else "-",
-                        "sell": str(service.selling_price),
+                        "sell": self._format_money_display(ks.resolved_selling_price),
                         "qty": ks.quantity,
                         "duration": KitForm._format_duration(ks.duration),
                     }
@@ -247,6 +383,8 @@ class KitForm(forms.ModelForm):
         products_json = json.dumps(initial_products)
         services_json = json.dumps(initial_services)
         applications_json = json.dumps(self._build_initial_applications())
+        engine_select_html = self._build_application_select_html(field_name="kit_application_engine", target_expression="application.engine")
+        fuel_select_html = self._build_application_select_html(field_name="kit_application_fuel", target_expression="application.fuel")
 
         return Layout(
             Div(
@@ -260,6 +398,7 @@ class KitForm(forms.ModelForm):
                         <div
                             class="col-span-12"
                             x-data="kitItemsManager()"
+                            @kit-service-updated.window="applyUpdatedService($event.detail)"
                         >
                             <div class="p-4 bg-base-300 rounded-box mb-4">
                                 <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
@@ -290,13 +429,13 @@ class KitForm(forms.ModelForm):
                                                     <label class="label p-0 mb-1">
                                                         <span class="label-text">Motor</span>
                                                     </label>
-                                                    <input type="text" name="kit_application_engine" class="input-theme w-full" x-model="application.engine" placeholder="Ex: 2.0" />
+                                                    {engine_select_html}
                                                 </div>
                                                 <div class="lg:col-span-2">
                                                     <label class="label p-0 mb-1">
                                                         <span class="label-text">Combustível</span>
                                                     </label>
-                                                    <input type="text" name="kit_application_fuel" class="input-theme w-full" x-model="application.fuel" placeholder="Ex: Diesel" />
+                                                    {fuel_select_html}
                                                 </div>
                                                 <div class="lg:col-span-1">
                                                     <label class="label p-0 mb-1">
@@ -343,6 +482,7 @@ class KitForm(forms.ModelForm):
                                 <label for="kit-products-modal" class="btn btn-sm btn-primary" @click="openProductsModal()">Adicionar Produto</label>
                                 <label for="kit-services-modal" class="btn btn-sm btn-primary" @click="openServicesModal()">Adicionar Serviço</label>
                                 <label for="kit-distribute-time-modal" class="btn btn-sm btn-primary" @click="openDistributeTimeModal()">Inserir tempo total do Kit</label>
+                                <label for="kit-distribute-service-sell-modal" class="btn btn-sm btn-primary" @click="openDistributeServiceSellModal()">Inserir Valor Total Venda Serviços</label>
                             </div>
 
                             <div class="p-4 bg-base-300 rounded-box mb-4">
@@ -475,6 +615,9 @@ class KitForm(forms.ModelForm):
                                 <template x-for="item in selectedServices" :key="'sd-'+item.id">
                                     <input type="hidden" :name="'kit_service_duration_' + item.id" :value="normalizeDurationForPost(item.duration)" />
                                 </template>
+                                <template x-for="item in selectedServices" :key="'ss-'+item.id">
+                                    <input type="hidden" :name="'kit_service_sell_' + item.id" :value="normalizeMoneyForPost(item.sell)" />
+                                </template>
                             </div>
 
                             <input type="checkbox" id="kit-products-modal" class="modal-toggle" />
@@ -584,6 +727,33 @@ class KitForm(forms.ModelForm):
                                 <label class="modal-backdrop" for="kit-distribute-time-modal">Close</label>
                             </div>
 
+                            <input type="checkbox" id="kit-distribute-service-sell-modal" class="modal-toggle" />
+                            <div class="modal" role="dialog" aria-modal="true">
+                                <div class="modal-box max-w-md">
+                                    <h3 class="text-lg font-bold">Inserir Valor Total Venda Serviços</h3>
+                                    <p class="text-sm text-base-content/70 mt-1">Informe o valor total de venda dos serviços do kit para distribuir entre os serviços com base na quantidade.</p>
+                                    <div class="mt-4 space-y-2">
+                                        <label class="label p-0" for="kit-total-service-sell-input">
+                                            <span class="label-text">Valor total de venda dos serviços</span>
+                                        </label>
+                                        <input
+                                            id="kit-total-service-sell-input"
+                                            type="text"
+                                            class="input-theme w-full"
+                                            placeholder="Ex: R$ 150,00"
+                                            x-model="distributionTotalServiceSell"
+                                            @input="handleDistributionServiceSellInput($event)"
+                                        />
+                                        <p class="text-xs text-base-content/70">Serviços selecionados: <span class="font-semibold" x-text="selectedServices.length"></span></p>
+                                    </div>
+                                    <div class="modal-action">
+                                        <button type="button" class="btn btn-primary" @click="applyServiceSellDistribution()">Distribuir</button>
+                                        <label for="kit-distribute-service-sell-modal" class="btn btn-ghost">Fechar</label>
+                                    </div>
+                                </div>
+                                <label class="modal-backdrop" for="kit-distribute-service-sell-modal">Close</label>
+                            </div>
+
                             <input type="checkbox" id="edit-item-modal" class="modal-toggle" @change="if (!$event.target.checked) resetEditModalContent()" />
                             <div class="modal" role="dialog">
                                 <div class="modal-box w-11/12 max-w-5xl relative bg-base-100">
@@ -671,6 +841,68 @@ class KitForm(forms.ModelForm):
                                             swap: 'innerHTML',
                                         }});
                                     }},
+                                    getCsrfToken() {{
+                                        const csrfField = document.querySelector('input[name="csrfmiddlewaretoken"]');
+                                        return csrfField ? csrfField.value : '';
+                                    }},
+                                    showToast(message, type = 'warning') {{
+                                        document.body.dispatchEvent(new CustomEvent('showToast', {{
+                                            detail: {{ message, type }},
+                                        }}));
+                                    }},
+                                    applyUpdatedService(payload) {{
+                                        if (!payload || payload.id === undefined || payload.id === null) return;
+                                        const service = this.selectedServices.find(item => String(item.id) === String(payload.id));
+                                        if (!service) return;
+
+                                        service.name = payload.name ?? service.name;
+                                        service.cost = payload.cost ?? service.cost;
+                                        service.sell = payload.sell ?? service.sell;
+                                        service.duration = payload.duration ?? service.duration;
+
+                                        this.refreshTotalDurationDisplay();
+                                        this.resetEditModalContent();
+
+                                        const modalToggle = document.getElementById('edit-item-modal');
+                                        if (modalToggle) modalToggle.checked = false;
+                                    }},
+                                    async refreshServiceSellPricesFromDurations() {{
+                                        if (this.selectedServices.length === 0) return;
+
+                                        const response = await fetch('{service_bulk_pricing_url}', {{
+                                            method: 'POST',
+                                            headers: {{
+                                                'Content-Type': 'application/json',
+                                                'X-CSRFToken': this.getCsrfToken(),
+                                                'X-Requested-With': 'XMLHttpRequest',
+                                            }},
+                                            credentials: 'same-origin',
+                                            body: JSON.stringify({{
+                                                services: this.selectedServices.map((service) => ({{
+                                                    id: service.id,
+                                                    duration: this.normalizeDurationForPost(service.duration),
+                                                }})),
+                                            }}),
+                                        }});
+
+                                        const payload = await response.json().catch(() => ({{}}));
+                                        if (!response.ok) {{
+                                            throw new Error(payload.error || 'Falha ao recalcular valores de venda dos serviços.');
+                                        }}
+
+                                        if (payload.workshop_cost_missing) {{
+                                            this.showToast('Configure os custos da oficina para recalcular os valores de venda dos serviços.', 'warning');
+                                            return;
+                                        }}
+
+                                        const sellMap = new Map((payload.services || []).map((service) => [String(service.id), service.sell]));
+                                        this.selectedServices.forEach((service) => {{
+                                            const recalculatedSell = sellMap.get(String(service.id));
+                                            if (recalculatedSell) {{
+                                                service.sell = recalculatedSell;
+                                            }}
+                                        }});
+                                    }},
 
                                     parseDurationToSeconds(value) {{
                                         const normalized = this.normalizeDurationForPost(value);
@@ -706,6 +938,20 @@ class KitForm(forms.ModelForm):
                                             style: 'currency',
                                             currency: 'BRL',
                                         }}).format(safeValue);
+                                    }},
+                                    parseMoneyToCents(value) {{
+                                        const digits = (value || '').toString().replace(/\D/g, '');
+                                        if (!digits) return null;
+                                        const parsed = Number.parseInt(digits, 10);
+                                        return Number.isNaN(parsed) ? null : parsed;
+                                    }},
+                                    normalizeMoneyInput(value) {{
+                                        const cents = this.parseMoneyToCents(value);
+                                        if (cents === null) return '';
+                                        return this.formatCurrency(cents / 100);
+                                    }},
+                                    normalizeMoneyForPost(value) {{
+                                        return this.parseMoneyValue(value).toFixed(2);
                                     }},
                                     resolveItemQuantity(item) {{
                                         const qty = Number.parseInt(item.qty, 10);
@@ -787,6 +1033,9 @@ class KitForm(forms.ModelForm):
                                     openDistributeTimeModal() {{
                                         this.distributionTotalTime = '';
                                     }},
+                                    openDistributeServiceSellModal() {{
+                                        this.distributionTotalServiceSell = '';
+                                    }},
 
                                     toggleModalProduct(item) {{
                                         const idx = this.modalSelectedProducts.findIndex(i => i.id == item.id);
@@ -824,6 +1073,7 @@ class KitForm(forms.ModelForm):
                                         }}
                                     }},
                                     distributionTotalTime: '',
+                                    distributionTotalServiceSell: '',
 
                                     parseTotalMinutes(value) {{
                                         const normalized = this.normalizeDistributionTime(value);
@@ -845,6 +1095,11 @@ class KitForm(forms.ModelForm):
                                     handleDistributionTimeInput(event) {{
                                         const formatted = this.normalizeDistributionTime(event.target.value);
                                         this.distributionTotalTime = formatted;
+                                        event.target.value = formatted;
+                                    }},
+                                    handleDistributionServiceSellInput(event) {{
+                                        const formatted = this.normalizeMoneyInput(event.target.value);
+                                        this.distributionTotalServiceSell = formatted;
                                         event.target.value = formatted;
                                     }},
                                     normalizeDurationForPost(value) {{
@@ -869,7 +1124,7 @@ class KitForm(forms.ModelForm):
                                     formatDurationForDisplay(value) {{
                                         return this.normalizeDurationForPost(value).slice(0, 5);
                                     }},
-                                    applyTimeDistribution() {{
+                                    async applyTimeDistribution() {{
                                         if (this.selectedServices.length === 0) {{
                                             window.alert('Adicione ao menos um serviço para distribuir tempos.');
                                             return;
@@ -913,9 +1168,56 @@ class KitForm(forms.ModelForm):
                                             this.selectedServices[item.index].duration = `${{String(hours).padStart(2, '0')}}:${{String(minutes).padStart(2, '0')}}:00`;
                                         }});
 
+                                        try {{
+                                            await this.refreshServiceSellPricesFromDurations();
+                                        }} catch (error) {{
+                                            console.error('Error recalculating kit service selling prices:', error);
+                                            this.showToast('Nao foi possivel recalcular os valores de venda dos servicos.', 'error');
+                                        }}
+
                                         this.totalDurationDisplay = this.normalizeDistributionTime(this.distributionTotalTime);
 
                                         const modalToggle = document.getElementById('kit-distribute-time-modal');
+                                        if (modalToggle) modalToggle.checked = false;
+                                    }},
+                                    applyServiceSellDistribution() {{
+                                        if (this.selectedServices.length === 0) {{
+                                            window.alert('Adicione ao menos um serviço para distribuir valores.');
+                                            return;
+                                        }}
+
+                                        const totalCents = this.parseMoneyToCents(this.distributionTotalServiceSell);
+                                        if (totalCents === null) {{
+                                            window.alert('Informe um valor total de venda válido para os serviços.');
+                                            return;
+                                        }}
+
+                                        const weightedServices = this.selectedServices
+                                            .map((service, index) => ({{
+                                                index,
+                                                weight: this.resolveItemQuantity(service),
+                                            }}))
+                                            .filter((item) => item.weight > 0);
+
+                                        if (weightedServices.length === 0) {{
+                                            window.alert('Informe uma quantidade válida para os serviços selecionados.');
+                                            return;
+                                        }}
+
+                                        const totalWeight = weightedServices.reduce((sum, item) => sum + item.weight, 0);
+                                        const baseUnitCents = Math.floor(totalCents / totalWeight);
+                                        const anchor = weightedServices.slice().sort((a, b) => a.weight - b.weight || a.index - b.index)[0];
+                                        const nonAnchorWeight = totalWeight - anchor.weight;
+                                        const anchorUnitCents = Math.max(0, Math.round((totalCents - (baseUnitCents * nonAnchorWeight)) / anchor.weight));
+
+                                        weightedServices.forEach((item) => {{
+                                            const unitCents = item.index === anchor.index ? anchorUnitCents : baseUnitCents;
+                                            this.selectedServices[item.index].sell = this.formatCurrency(unitCents / 100);
+                                        }});
+
+                                        this.distributionTotalServiceSell = this.formatCurrency(this.calculateItemsTotal(this.selectedServices, 'sell'));
+
+                                        const modalToggle = document.getElementById('kit-distribute-service-sell-modal');
                                         if (modalToggle) modalToggle.checked = false;
                                     }},
 
@@ -1012,6 +1314,7 @@ class KitForm(forms.ModelForm):
 
         service_qty: dict[str, int] = {}
         service_duration: dict[str, timedelta] = {}
+        service_sell: dict[str, Decimal | None] = {}
         for sid in unique_service_ids:
             raw = self.data.get(f"kit_service_qty_{sid}", "1")
             try:
@@ -1037,9 +1340,20 @@ class KitForm(forms.ModelForm):
                 duration_value = timedelta()
             service_duration[sid] = duration_value
 
+            raw_sell = str(self.data.get(f"kit_service_sell_{sid}", "") or "").strip()
+            sell_value = self._parse_money_value(raw_sell)
+            if raw_sell and sell_value is None:
+                logger.warning(
+                    "Valor de venda invalido para servico no kit",
+                    extra={"kit_id": self.instance.pk, "service_id": sid, "raw_selling_price": raw_sell},
+                )
+                self.add_error(None, "Valor de venda inválido para serviço.")
+            service_sell[sid] = sell_value
+
         cleaned_data["_kit_products_qty"] = product_qty
         cleaned_data["_kit_services_qty"] = service_qty
         cleaned_data["_kit_services_duration"] = service_duration
+        cleaned_data["_kit_services_sell"] = service_sell
 
         raw_applications = self._extract_application_rows_from_post()
         normalized_applications: list[dict[str, int | str]] = []
@@ -1054,14 +1368,31 @@ class KitForm(forms.ModelForm):
         }
 
         for application in raw_applications:
-            missing_fields = [label for field_name, label in required_application_fields.items() if not str(application.get(field_name, "")).strip()]
+            normalized_engine = normalize_vehicle_engine_choice(application.get("engine", ""))
+            normalized_fuel = normalize_vehicle_fuel_choice(application.get("fuel", ""))
+
+            if application.get("engine") and not normalized_engine:
+                self.add_error(None, "Selecione um motor válido em todas as aplicações do kit.")
+                continue
+
+            if application.get("fuel") and not normalized_fuel:
+                self.add_error(None, "Selecione um combustível válido em todas as aplicações do kit.")
+                continue
+
+            normalized_application = {
+                **application,
+                "engine": normalized_engine,
+                "fuel": normalized_fuel,
+            }
+
+            missing_fields = [label for field_name, label in required_application_fields.items() if not str(normalized_application.get(field_name, "")).strip()]
             if missing_fields:
                 self.add_error(None, "Preencha marca, modelo, motor, combustível, ano inicial e ano final em todas as aplicações do kit.")
                 continue
 
             try:
-                year_start = int(str(application.get("year_start", "")).strip())
-                year_end = int(str(application.get("year_end", "")).strip())
+                year_start = int(str(normalized_application.get("year_start", "")).strip())
+                year_end = int(str(normalized_application.get("year_end", "")).strip())
             except (TypeError, ValueError):
                 self.add_error(None, "Informe anos válidos em todas as aplicações do kit.")
                 continue
@@ -1075,10 +1406,10 @@ class KitForm(forms.ModelForm):
                 continue
 
             normalized_key = (
-                normalize_vehicle_text(str(application.get("brand", ""))),
-                normalize_vehicle_text(str(application.get("model", ""))),
-                normalize_vehicle_text(str(application.get("engine", ""))),
-                normalize_vehicle_text(str(application.get("fuel", ""))),
+                normalize_vehicle_text(str(normalized_application.get("brand", ""))),
+                normalize_vehicle_text(str(normalized_application.get("model", ""))),
+                normalize_vehicle_text(str(normalized_application.get("engine", ""))),
+                normalize_vehicle_text(str(normalized_application.get("fuel", ""))),
                 year_start,
                 year_end,
             )
@@ -1090,10 +1421,10 @@ class KitForm(forms.ModelForm):
             seen_applications.add(normalized_key)
             normalized_applications.append(
                 {
-                    "brand": str(application.get("brand", "")).strip(),
-                    "model": str(application.get("model", "")).strip(),
-                    "engine": str(application.get("engine", "")).strip(),
-                    "fuel": str(application.get("fuel", "")).strip(),
+                    "brand": str(normalized_application.get("brand", "")).strip(),
+                    "model": str(normalized_application.get("model", "")).strip(),
+                    "engine": str(normalized_application.get("engine", "")).strip(),
+                    "fuel": str(normalized_application.get("fuel", "")).strip(),
                     "year_start": year_start,
                     "year_end": year_end,
                 }
@@ -1133,6 +1464,7 @@ class KitForm(forms.ModelForm):
         product_qty: dict[str, int] = self.cleaned_data.get("_kit_products_qty", {})
         service_qty: dict[str, int] = self.cleaned_data.get("_kit_services_qty", {})
         service_duration: dict[str, timedelta] = self.cleaned_data.get("_kit_services_duration", {})
+        service_sell: dict[str, Decimal | None] = self.cleaned_data.get("_kit_services_sell", {})
         applications: list[dict[str, int | str]] = self.cleaned_data.get("_kit_applications", [])
 
         KitProduct.objects.filter(kit=instance).exclude(product_id__in=product_ids).delete()
@@ -1160,6 +1492,7 @@ class KitForm(forms.ModelForm):
                     defaults={
                         "quantity": int(service_qty.get(sid, 1) or 1),
                         "duration": service_duration.get(sid, timedelta()),
+                        "selling_price": Money(service_sell[sid], "BRL") if service_sell.get(sid) is not None else None,
                     },
                 )
             except Exception:
@@ -1170,6 +1503,7 @@ class KitForm(forms.ModelForm):
                         "service_id": sid,
                         "quantity": service_qty.get(sid, 1),
                         "duration": str(service_duration.get(sid, timedelta())),
+                        "selling_price": str(service_sell.get(sid) if service_sell.get(sid) is not None else ""),
                     },
                 )
                 raise
@@ -1205,6 +1539,7 @@ class KitForm(forms.ModelForm):
             service_ids=service_ids,
             service_qty=service_qty,
             service_duration=service_duration,
+            service_sell=service_sell,
             product_ids=product_ids,
             product_qty=product_qty,
         )
@@ -1273,7 +1608,7 @@ class KitForm(forms.ModelForm):
             return [str(v) for v in value]
         return [str(value)]
 
-    def _calculate_total_kits(self, service_ids: list[str], service_qty: dict[str, int], service_duration: dict[str, timedelta], product_ids: list[str], product_qty: dict[str, int]) -> dict[str, timedelta | Any]:
+    def _calculate_total_kits(self, service_ids: list[str], service_qty: dict[str, int], service_duration: dict[str, timedelta], service_sell: dict[str, Decimal | None], product_ids: list[str], product_qty: dict[str, int]) -> dict[str, timedelta | Any]:
         products_map = {str(p.id): p for p in Product.objects.filter(workshop=self.workshop, id__in=product_ids).only("id", "selling_price", "selling_price_currency")}
 
         services_map = {str(s.id): s for s in Service.objects.filter(workshop=self.workshop, id__in=service_ids).only("id", "selling_price", "selling_price_currency", "duration")}
@@ -1293,7 +1628,10 @@ class KitForm(forms.ModelForm):
             if not service:
                 continue
             qty = int(service_qty.get(sid, 1) or 1)
-            services_sell += (service.selling_price.amount if service.selling_price else Decimal("0")) * qty
+            unit_sell = service_sell.get(sid)
+            if unit_sell is None:
+                unit_sell = service.selling_price.amount if service.selling_price else Decimal("0")
+            services_sell += unit_sell * qty
 
             row_duration = service_duration.get(sid, service.duration or timedelta()) * qty
             services_total_duration += row_duration

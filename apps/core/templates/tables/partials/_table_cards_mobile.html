@@ -29,9 +29,9 @@
 
                     <dl class="space-y-2">
                         {% for cell in row.cells %}
-                            <div class="flex items-center justify-between gap-4">
+                            <div class="flex gap-4 {% if cell.mobile_stack %}flex-col items-start{% else %}items-center justify-between{% endif %}">
                                 <dt class="text-sm font-medium text-base-content/70">{{ cell.label }}</dt>
-                                <dd class="text-sm text-base-content text-right">
+                                <dd class="text-sm text-base-content {% if cell.mobile_stack %}w-full text-left{% else %}text-right{% endif %} {{ cell.td_class }}">
                                     {% include "tables/partials/_cell_value.html" with cell=cell %}
                                 </dd>
                             </div>

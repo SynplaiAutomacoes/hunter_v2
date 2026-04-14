@@ -801,7 +801,7 @@ class EmissionWorkOrderKitComponentUpdateView(LoginRequiredMixin, WorkshopScoped
             initial={
                 "quantity": override.quantity if override else kit_service.quantity,
                 "cost": override.service_cost_price if override else (kit_service.service.suggested_cost or Money(0, "BRL")),
-                "price": override.service_selling_price if override else kit_service.service.selling_price,
+                "price": override.service_selling_price if override else kit_service.resolved_selling_price,
                 "duration": override.duration if override and override.duration else kit_service.service.duration,
             },
             parent_quantity=parent_quantity,

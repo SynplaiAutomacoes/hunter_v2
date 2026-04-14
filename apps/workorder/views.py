@@ -787,7 +787,7 @@ class WorkOrderKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
             quantity = override.quantity if override else kit_service.quantity
             cost = override.service_cost_price if override else (service.suggested_cost or Money(0, "BRL"))
-            price = override.service_selling_price if override else service.selling_price
+            price = override.service_selling_price if override else kit_service.resolved_selling_price
 
             row_form = WorkOrderKitServiceEditRowForm(
                 initial={

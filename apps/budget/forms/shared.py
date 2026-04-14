@@ -111,8 +111,8 @@ def _render_budget_items_rows(budget, step6=False):
                         "budget": budget_for_render,
                         "is_full_render": True,
                         "step6": True,
-                        "slider_price": item.adjusted_unit_price,
-                        "slider_total_price": item.total_price,
+                        "slider_price": (item.cost_total if budget_for_render.is_warranty_budget else item.adjusted_unit_price),
+                        "slider_total_price": ((item.cost_total + item.shipping) if budget_for_render.is_warranty_budget else item.total_price),
                     },
                 )
 
@@ -124,8 +124,8 @@ def _render_budget_items_rows(budget, step6=False):
                         "budget": budget_for_render,
                         "is_full_render": True,
                         "step6": True,
-                        "slider_price": item.adjusted_unit_price,
-                        "slider_total_price": item.total_price,
+                        "slider_price": (item.cost_total if budget_for_render.is_warranty_budget else item.adjusted_unit_price),
+                        "slider_total_price": (item.cost_total if budget_for_render.is_warranty_budget else item.total_price),
                     },
                 )
 

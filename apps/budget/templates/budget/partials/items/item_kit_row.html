@@ -20,9 +20,9 @@
     <td class="text-right">{{ item.kit_unit_cost }}</td>
     <td class="text-right">
         {% if step6 %}
-            {{ slider_price }}
+            {% if budget.is_warranty_budget %}R$ 0,00{% else %}{{ slider_price }}{% endif %}
         {% else %}
-            {{ item.kit_unit_price }}
+            {{ item.display_kit_unit_price }}
         {% endif %}
     </td>
     {% endif %}

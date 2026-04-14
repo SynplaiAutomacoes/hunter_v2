@@ -7,6 +7,8 @@
         {% else %}
             <span class="badge badge-soft badge-error badge-sm">Não</span>
         {% endif %}
+    {% elif cell.cell_template %}
+        {% include cell.cell_template with cell=cell %}
     {% else %}
         {% if cell.value == None %}
             None
