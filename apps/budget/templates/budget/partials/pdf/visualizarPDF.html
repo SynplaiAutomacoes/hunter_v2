@@ -341,15 +341,7 @@
                 <tbody>
                     {% for kit in page.kits %}
                     <tr class="border-b border-gray-100 align-top">
-                        <td class="p-1">
-                            <div class="font-medium">{{ kit.description }}</div>
-                            {% if kit.products_summary != '-' %}
-                            <div class="text-gray-500">Produtos: {{ kit.products_summary }}</div>
-                            {% endif %}
-                            {% if kit.services_summary != '-' %}
-                            <div class="text-gray-500">Serviços: {{ kit.services_summary }}</div>
-                            {% endif %}
-                        </td>
+                        <td class="p-1 font-medium">{{ kit.description }}</td>
                         <td class="p-1 text-center">{{ kit.quantity }}</td>
                         <td class="p-1 text-center">{{ kit.product_count }}</td>
                         <td class="p-1 text-center">{{ kit.service_count }}</td>
