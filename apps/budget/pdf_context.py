@@ -5,6 +5,7 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from djmoney.money import Money
 
+from apps.budget.pricing import format_duration_display
 from apps.budget.review_display import build_budget_review_display
 from apps.workshops.services.files import WorkshopFileStorageError, get_workshop_logo_file
 
@@ -78,8 +79,13 @@ def build_budget_pdf_context(*, budget, observacao: str | None = None, request=N
 
     if presentation == "selected_items":
         review_display = build_budget_review_display(budget=budget)
-        produtos = [
-            {
+
+        produtos = []
+        servicos = []
+        kits = []
+
+        for line in review_display.direct_products:
+            produtos.append({
                 "id": line.item.product_id,
                 "description": line.item.description,
                 "quantity": line.item.quantity,
@@ -94,12 +100,10 @@ def build_budget_pdf_context(*, budget, observacao: str | None = None, request=N
                 "product_cost_price": line.item.product_cost_price * line.item.quantity,
                 "profit_value": (Money(0, "BRL") if is_warranty_budget else line.total_price - (line.item.product_cost_price * line.item.quantity)),
                 "show_kit_duplicate_warning": False,
-            }
-            for line in review_display.direct_products
-        ]
+            })
 
-        servicos = [
-            {
+        for line in review_display.direct_services:
+            servicos.append({
                 "id": line.item.service_id,
                 "description": line.item.description,
                 "quantity": line.item.quantity,
@@ -108,12 +112,10 @@ def build_budget_pdf_context(*, budget, observacao: str | None = None, request=N
                 "service_cost_price": line.warranty_total_price,
                 "profit_value": (Money(0, "BRL") if is_warranty_budget else line.total_price - line.warranty_total_price),
                 "duration_display": line.duration_display,
-            }
-            for line in review_display.direct_services
-        ]
+            })
 
-        kits = [
-            {
+        for line in review_display.kits:
+            kits.append({
                 "id": line.item.kit_id,
                 "description": line.item.description,
                 "quantity": line.item.quantity,
@@ -121,9 +123,7 @@ def build_budget_pdf_context(*, budget, observacao: str | None = None, request=N
                 "service_count": line.item.effective_kit_services_count,
                 "products_summary": line.products_summary,
                 "services_summary": line.services_summary,
-            }
-            for line in review_display.kits
-        ]
+            })
     else:
         produtos = [
             {
