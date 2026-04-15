@@ -51,12 +51,12 @@ class SupplierListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
             TableColumn(Supplier.phone.field.verbose_name, attr=Supplier.phone.field.name),
             TableColumn(Supplier.email.field.verbose_name, attr=Supplier.email.field.name),
             TableColumn("Endereço", attr="full_address", search_by=("logradouro", "numero", "cidade", "estado")),
+            TableColumn(Supplier.is_active.field.verbose_name, attr=Supplier.is_active.field.name),
             TableColumn(Supplier.registration_date.field.verbose_name, attr=Supplier.registration_date.field.name),
         ]
 
         context["actions"] = [
             TableActionDefaults.edit("suppliers:supplier_update"),
-            TableActionDefaults.delete("suppliers:supplier_delete"),
         ]
 
         context["state_choices"] = Supplier.estado.field.choices
