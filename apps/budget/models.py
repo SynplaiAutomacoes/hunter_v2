@@ -43,6 +43,12 @@ class SignatureStatus(models.TextChoices):
     APPROVED = "approved", "Aprovado"
 
 
+class BudgetType(models.TextChoices):
+    SALE = "sale", "Venda"
+    WARRANTY = "warranty", "Garantia"
+    COURTESY = "courtesy", "Cortesia"
+
+
 class FuelLevel(models.IntegerChoices):
     FULL = 8, "Cheio"
     SEVEN_EIGHTHS = 7, "7/8"
@@ -82,6 +88,7 @@ class Budget(TimeStampedModel):
     expiration_date = models.DateField(verbose_name="Data de Validade", null=True, blank=True)
     entry_date = models.DateField(verbose_name="Data de Entrada")
     is_warranty_budget = models.BooleanField(verbose_name="Orçamento de Garantia", default=False)
+    budget_type = models.CharField(verbose_name="Tipo de Orçamento", choices=BudgetType.choices, default=BudgetType.SALE)
 
     # Informações Técnicas
     problem_description = models.TextField(verbose_name="Relato principal do cliente", blank=True, null=True)
@@ -562,12 +569,11 @@ class Budget(TimeStampedModel):
         return {"text": BudgetStatus(self.status).label, "class": status_color.get(self.status, "badge-neutral")}
 
     @property
-    def warranty_budget_badge(self):
+    def type_budget_badge(self):
         if self.is_warranty_budget:
             return {"text": "Garantia", "class": "badge-error"}
 
-        # TODO: substituir logica para cortesia
-        if self.is_warranty_budget == "substituir logica para cortesia":
+        if self.budget_type == "courtesy":
             return {"text": "Cortesia", "class": "badge-info"}
 
         return {"text": "Venda", "class": "badge-success"}
