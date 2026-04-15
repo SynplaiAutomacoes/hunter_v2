@@ -1021,10 +1021,9 @@ class BudgetTotalsConsistencyTests(TestCase):
             service_selling_price=Money("0.01", "BRL"),
         )
 
-        with patch.object(Budget, "calculate_pricing_methods", side_effect=AssertionError("Nao deve usar metodo de precificacao para total_base_value")):
-            self.assertEqual(budget.total_products_value, Money("205.00", "BRL"))
-            self.assertEqual(budget.total_services_value, Money("0.01", "BRL"))
-            self.assertEqual(budget.total_base_value, Money("205.01", "BRL"))
+        self.assertEqual(budget.total_products_value, Money("205.00", "BRL"))
+        self.assertEqual(budget.total_services_value, Money("0.01", "BRL"))
+        self.assertEqual(budget.total_base_value, Money("205.01", "BRL"))
 
     def test_total_budget_value_applies_discount_over_item_totals(self) -> None:
         workshop = create_workshop(suffix=72)
@@ -1089,6 +1088,52 @@ class BudgetTotalsConsistencyTests(TestCase):
         self.assertEqual(budget.discount_value, Money("50.00", "BRL"))
         self.assertEqual(budget.discount_percentage, Decimal("0.200000"))
         self.assertEqual(budget.total_budget_value, Money("200.00", "BRL"))
+
+    def test_pricing_snapshot_uses_traditional_labor_value_when_traditional_method_is_selected(self) -> None:
+        workshop = create_workshop(suffix=75)
+        budget = create_budget(workshop=workshop)
+
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            is_local=True,
+            description="Servico tradicional",
+            quantity=1,
+            service_cost_price=Money("40.00", "BRL"),
+            service_selling_price=Money("100.00", "BRL"),
+            duration=timedelta(hours=2),
+        )
+
+        with patch.object(Budget, "calculate_pricing_methods", return_value={"method_name": "Tradicional", "venda_mao_obra": Money("160.00", "BRL")}):
+            snapshot = budget.pricing_snapshot
+
+        self.assertEqual(snapshot.total_services_value, Money("100.00", "BRL"))
+        self.assertEqual(snapshot.total_labor_selling_value, Money("160.00", "BRL"))
+        self.assertEqual(snapshot.total_labor_by_slider, Money("160.00", "BRL"))
+        self.assertEqual(budget.total_base_value, Money("160.00", "BRL"))
+
+    def test_pricing_snapshot_keeps_hunter_labor_sum_when_hunter_method_is_selected(self) -> None:
+        workshop = create_workshop(suffix=76)
+        budget = create_budget(workshop=workshop)
+
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            is_local=True,
+            description="Servico hunter",
+            quantity=1,
+            service_cost_price=Money("40.00", "BRL"),
+            service_selling_price=Money("100.00", "BRL"),
+            duration=timedelta(hours=2),
+        )
+
+        with patch.object(Budget, "calculate_pricing_methods", return_value={"method_name": "Hunter", "venda_mao_obra": Money("160.00", "BRL")}):
+            snapshot = budget.pricing_snapshot
+
+        self.assertEqual(snapshot.total_services_value, Money("100.00", "BRL"))
+        self.assertEqual(snapshot.total_labor_selling_value, Money("100.00", "BRL"))
+        self.assertEqual(snapshot.total_labor_by_slider, Money("100.00", "BRL"))
+        self.assertEqual(budget.total_base_value, Money("100.00", "BRL"))
 
     def test_warranty_budget_display_totals_use_costs_without_changing_stored_sales(self) -> None:
         workshop = create_workshop(suffix=41)

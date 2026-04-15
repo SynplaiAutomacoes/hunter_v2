@@ -477,6 +477,21 @@ class Budget(TimeStampedModel):
                 is_local_service_item=self._is_local_service_item,
             )
             setattr(self, "_pricing_snapshot_cache", cached_snapshot)
+
+            pricing_method_data = self.calculate_pricing_methods()
+            labor_selling_value_override = pricing_method_data.get("venda_mao_obra") if pricing_method_data.get("method_name") == "Tradicional" else None
+            if isinstance(labor_selling_value_override, Money):
+                cached_snapshot = build_pricing_snapshot(
+                    items=list(self._iter_items()),
+                    slider=int(self.slider or 0),
+                    discount_value=self.discount_value,
+                    discount_percentage=self.discount_percentage,
+                    labor_cost_value=self.total_labor_cost_value,
+                    labor_selling_value_override=labor_selling_value_override,
+                    is_local_product_item=self._is_local_product_item,
+                    is_local_service_item=self._is_local_service_item,
+                )
+            setattr(self, "_pricing_snapshot_cache", cached_snapshot)
         return cached_snapshot
 
     def invalidate_pricing_snapshot_cache(self) -> None:
