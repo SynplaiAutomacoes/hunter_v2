@@ -551,6 +551,7 @@ class Budget(TimeStampedModel):
         if self.is_warranty_budget:
             return {"text": "Garantia", "class": "badge-error"}
 
+        # TODO: substituir logica para cortesia
         if self.is_warranty_budget == "substituir logica para cortesia":
             return {"text": "Cortesia", "class": "badge-info"}
 
