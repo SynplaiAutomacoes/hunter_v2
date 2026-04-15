@@ -549,9 +549,12 @@ class Budget(TimeStampedModel):
     @property
     def warranty_budget_badge(self):
         if self.is_warranty_budget:
-            return {"text": "Sim", "class": "badge-success"}
+            return {"text": "Garantia", "class": "badge-error"}
 
-        return {"text": "Não", "class": "badge-error"}
+        if self.is_warranty_budget == "substituir logica para cortesia":
+            return {"text": "Cortesia", "class": "badge-info"}
+
+        return {"text": "Venda", "class": "badge-success"}
 
     ## Total
     @property
