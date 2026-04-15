@@ -270,7 +270,7 @@ class BudgetStep1Form(forms.ModelForm):
 
     class Meta:
         model = Budget
-        fields = ["workshop", "cost_estimator", "entry_date", "is_warranty_budget", "customer", "vehicle", "current_km", "fuel_level"]
+        fields = ["workshop", "cost_estimator", "entry_date", "budget_type", "customer", "vehicle", "current_km", "fuel_level"]
         widgets = {
             "entry_date": CalendarDateInput(),
             "budget_type": SelectInput(),
