@@ -3,6 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from apps.finance.models.financial_movement import FinancialMovement
+from apps.finance.services.payment_method_fees import calculate_payment_method_fee_amount
 from apps.sources.models import Source
 from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod
 
@@ -24,48 +25,57 @@ def _resolve_fee_amount(*, payment: WorkOrderPaymentMethod) -> Decimal:
         return _ZERO
 
     payment_amount = Decimal(str(getattr(payment.total_paid, "amount", _ZERO) or _ZERO))
-    tax_percentage = getattr(payment_method, "tax_percentage", None)
-    if tax_percentage:
-        return (payment_amount * Decimal(str(tax_percentage))).quantize(Decimal("0.01"))
-
-    tax_value = getattr(getattr(payment_method, "tax_value", None), "amount", None)
-    if tax_value is not None:
-        return Decimal(str(tax_value or _ZERO)).quantize(Decimal("0.01"))
-
-    return _ZERO
+    return calculate_payment_method_fee_amount(payment_method=payment_method, base_amount=payment_amount)
 
 
-def _sync_workorder_card_fee_movements(*, workorder: WorkOrder) -> None:
+def sync_workorder_card_fee_movements(*, workorder: WorkOrder) -> None:
     source = _get_workorder_source(workorder=workorder)
     active_payment_ids: set[int] = set()
 
     for payment in workorder.payments.select_related("payment_method"):
         fee_amount = _resolve_fee_amount(payment=payment)
-        if fee_amount <= _ZERO:
+        fee_movements = list(
             FinancialMovement.objects.filter(
                 workorder_payment=payment,
                 movement_kind=FinancialMovement.MovementKind.WORKORDER_CARD_FEE,
-            ).delete()
+            ).order_by("pk")
+        )
+        if fee_amount <= _ZERO:
+            if fee_movements:
+                FinancialMovement.objects.filter(pk__in=[movement.pk for movement in fee_movements]).delete()
             continue
 
         active_payment_ids.add(payment.pk)
-        FinancialMovement.objects.update_or_create(
-            workorder_payment=payment,
-            movement_kind=FinancialMovement.MovementKind.WORKORDER_CARD_FEE,
-            defaults={
-                "workshop": workorder.workshop,
-                "user": workorder.budget.cost_estimator,
-                "workorder": workorder,
-                "source": source,
-                "direction": FinancialMovement.MovementDirection.DEBIT,
-                "description": "Pagamento da taxa da maquininha",
-                "payment_method": payment.payment_method,
-                "amount": fee_amount,
-                "due_date": payment.due_date,
-                "is_paid": True,
-                "dre_topic": FinancialMovement.DreTopic.DESPESAS_FINANCEIRAS,
-            },
+        defaults = {
+            "workshop": workorder.workshop,
+            "user": workorder.budget.cost_estimator,
+            "workorder": workorder,
+            "source": source,
+            "direction": FinancialMovement.MovementDirection.DEBIT,
+            "description": "Pagamento da taxa da maquininha",
+            "payment_method": payment.payment_method,
+            "amount": fee_amount,
+            "due_date": payment.due_date,
+            "is_paid": True,
+            "dre_topic": FinancialMovement.DreTopic.DESPESAS_FINANCEIRAS,
+        }
+
+        fee_movement = (
+            fee_movements[0]
+            if fee_movements
+            else FinancialMovement(
+                workorder_payment=payment,
+                movement_kind=FinancialMovement.MovementKind.WORKORDER_CARD_FEE,
+            )
         )
+        for field_name, field_value in defaults.items():
+            setattr(fee_movement, field_name, field_value)
+        fee_movement.workorder_payment = payment
+        fee_movement.movement_kind = FinancialMovement.MovementKind.WORKORDER_CARD_FEE
+        fee_movement.save()
+
+        if len(fee_movements) > 1:
+            FinancialMovement.objects.filter(pk__in=[movement.pk for movement in fee_movements[1:]]).delete()
 
     stale_fee_movements = FinancialMovement.objects.filter(
         workorder=workorder,
@@ -105,5 +115,5 @@ def sync_workorder_financial_movement(*, workorder: WorkOrder) -> FinancialMovem
             setattr(movement, field_name, field_value)
         movement.save(update_fields=[*defaults.keys()])
 
-    _sync_workorder_card_fee_movements(workorder=workorder)
+    sync_workorder_card_fee_movements(workorder=workorder)
     return movement
