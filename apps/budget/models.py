@@ -569,7 +569,7 @@ class Budget(TimeStampedModel):
         return {"text": BudgetStatus(self.status).label, "class": status_color.get(self.status, "badge-neutral")}
 
     @property
-    def warranty_budget_badge(self):
+    def type_budget_badge(self):
         if self.is_warranty_budget:
             return {"text": "Garantia", "class": "badge-error"}
 

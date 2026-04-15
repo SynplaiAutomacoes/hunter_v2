@@ -273,7 +273,7 @@ class BudgetStep1Form(forms.ModelForm):
         fields = ["workshop", "cost_estimator", "entry_date", "is_warranty_budget", "customer", "vehicle", "current_km", "fuel_level"]
         widgets = {
             "entry_date": CalendarDateInput(),
-            "is_warranty_budget": CheckboxInput(),
+            "budget_type": SelectInput(),
             "customer": SearchableSelectInput(attrs={"x-model": "customerId", "@change": "customerId = $el.value; vehicleId = '';"}),
             "current_km": NumberInput(),
             "fuel_level": SelectInput(),
@@ -511,42 +511,67 @@ class BudgetStep1Form(forms.ModelForm):
             Div(
                 # Coluna Esquerda
                 Div(
-                    # Orçamento
+                    # Tipo Orçamento
                     Div(
                         HTML("""
-                            <div class="mb-5 rounded-2xl border border-base-300/80 bg-base-200/30 p-4 shadow-sm" x-data="{ isWarrantyBudget: {% if form.is_warranty_budget.value %}true{% else %}false{% endif %} }">
+                            <div
+                                class="mb-5 rounded-2xl border border-base-300/80 bg-base-200/30 p-4 shadow-sm"
+                                x-data="{
+                                    budgetType: '{{ form.budget_type.value|default:"sale" }}'
+                                }"
+                            >
                                 <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                                     <div class="space-y-1">
-                                        <div class="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-base-content/55">
-                                            <span class="inline-block h-2 w-2 rounded-full bg-primary"></span>
-                                            Garantia
-                                        </div>
-                                        <div class="text-lg font-semibold text-base-content">O orçamento é de garantia?</div>
-                                        <p class="text-sm leading-relaxed text-base-content/70">Ative esta opção quando o atendimento estiver relacionado a um retorno em garantia.</p>
+                                        <div class="text-lg font-semibold text-base-content">Tipo do Orçamento</div>
+                                        <p class="text-sm leading-relaxed text-base-content/70">
+                                            Escolha entre as opções disponíveis.
+                                        </p>
                                     </div>
 
-                                    <label for="id_is_warranty_budget" class="flex w-full items-center justify-between gap-4 rounded-xl border border-base-300 bg-base-100 px-4 py-3 cursor-pointer transition-all hover:border-primary/40 hover:shadow-sm lg:max-w-xs">
-                                        <div class="flex items-center gap-3">
-                                            <input
-                                                type="checkbox"
-                                                name="is_warranty_budget"
-                                                id="id_is_warranty_budget"
-                                                class="toggle toggle-primary"
-                                                @change="isWarrantyBudget = $event.target.checked"
-                                                {% if form.is_warranty_budget.value %}checked{% endif %}
+                                    <div class="flex w-full items-center justify-between gap-4 bg-base-100 px-4 py-3 transition-all hover:border-primary/40 hover:shadow-sm lg:max-w-xs">
+                                        <div class="flex w-full flex-col gap-2">
+                                            <select
+                                                name="budget_type"
+                                                id="id_budget_type"
+                                                class="select select-bordered w-full"
+                                                x-model="budgetType"
                                             >
-                                            <span class="text-sm font-medium text-base-content/70">Status</span>
+                                                <option value="sale" {% if form.budget_type.value == "sale" %}selected{% endif %}>Venda</option>
+                                                <option value="warranty" {% if form.budget_type.value == "warranty" %}selected{% endif %}>Garantia</option>
+                                                <option value="courtesy" {% if form.budget_type.value == "courtesy" %}selected{% endif %}>Cortesia</option>
+                                            </select>
                                         </div>
+
                                         <span
-                                            class="badge min-w-16 px-3 py-3 text-sm font-semibold transition-colors"
-                                            :class="isWarrantyBudget ? 'badge-success' : 'badge-error'"
-                                            x-text="isWarrantyBudget ? 'Sim' : 'Não'"
-                                        >{% if form.is_warranty_budget.value %}Sim{% else %}Não{% endif %}</span>
-                                    </label>
+                                            class="badge min-w-20 px-3 py-3 text-sm font-semibold transition-colors"
+                                            :class="{
+                                                'badge-success': budgetType === 'sale',
+                                                'badge-error': budgetType === 'warranty',
+                                                'badge-info': budgetType === 'courtesy'
+                                            }"
+                                            x-text="
+                                                budgetType === 'warranty'
+                                                    ? 'Garantia'
+                                                    : budgetType === 'courtesy'
+                                                        ? 'Cortesia'
+                                                        : 'Venda'
+                                            "
+                                        >
+                                            {% if form.budget_type.value == "warranty" %}
+                                                Garantia
+                                            {% elif form.budget_type.value == "courtesy" %}
+                                                Cortesia
+                                            {% else %}
+                                                Venda
+                                            {% endif %}
+                                        </span>
+                                    </div>
                                 </div>
 
-                                {% if form.is_warranty_budget.errors %}
-                                    <span class="mt-3 block text-sm text-error">{{ form.is_warranty_budget.errors|join:', ' }}</span>
+                                {% if form.budget_type.errors %}
+                                    <span class="mt-3 block text-sm text-error">
+                                        {{ form.budget_type.errors|join:', ' }}
+                                    </span>
                                 {% endif %}
                             </div>
                         """),
