@@ -69,7 +69,6 @@ class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
 
         context["actions"] = [
             TableActionDefaults.edit("customer:customer_update"),
-            TableActionDefaults.delete("customer:customer_delete"),
         ]
 
         context["state_choices"] = Customer.estado.field.choices

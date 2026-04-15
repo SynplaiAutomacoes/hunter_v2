@@ -56,7 +56,6 @@ class ServiceListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespo
 
         context["actions"] = [
             TableActionDefaults.edit("catalog:services_update"),
-            TableActionDefaults.delete("catalog:services_delete"),
         ]
 
         return context

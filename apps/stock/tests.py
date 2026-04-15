@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import gzip
 from datetime import timedelta
+from decimal import Decimal
 from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -21,8 +22,10 @@ from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.collaborators.models import WorkshopMember
 from apps.core.documents.contract import DocumentPayload
+from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
 from apps.iam.utils import get_or_create_director_role
+from apps.sources.models import Source
 from apps.stock.forms import ImportManualItemsForm, ImportSefazListForm, ImportStep1Form, ImportStepItemsForm, ImportStepPaymentForm, ImportStepSummaryForm, ImportStepSupplierForm, QuickProductForm
 from apps.stock.models import SefazZipCache, StockImport, StockMovement, StockPaymentMethod, StockProduct, StockTransfer
 from apps.stock.utils import NFParser
@@ -1264,6 +1267,41 @@ class StockImportPaymentFlowTests(TestCase):
         self.assertEqual(stock_import.payments_data[0]["first_amount"], "40.00")
         self.assertEqual(stock_import.payments_data[0]["total_paid"], "40.00")
 
+    def test_add_payment_session_creates_fee_movement_using_percentage(self) -> None:
+        payment_method = PaymentMethod.objects.create(
+            workshop=self.workshop,
+            description="Credito",
+            installments_count=10,
+            tax_percentage=Decimal("6.99"),
+        )
+        stock_import = StockImport.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            nf_key="4" * 44,
+            nf_number="NF-400",
+            supplier_name="Fornecedor Taxa",
+            supplier_cnpj="11.222.333/0001-41",
+            items_data=[{"valor": "1385.84", "qtd": "1"}],
+            payments_data=[],
+        )
+
+        response = self.client.post(
+            f"{reverse('stock:add_payment_session')}?pk={stock_import.pk}",
+            data={
+                "payment_method": str(payment_method.pk),
+                "payment_date": "2026-03-24",
+                "first_amount_0": "1385.84",
+            },
+        )
+
+        stock_import.refresh_from_db()
+        payment_entry = stock_import.payments_data[0]
+        fee_movement = FinancialMovement.objects.get(pk=payment_entry["fee_financial_movement_id"])
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(fee_movement.amount, Money("96.87", "BRL"))
+        self.assertEqual(fee_movement.description, "Pagamento da taxa da maquininha")
+
     def test_add_additional_value_modal_renders_fields(self) -> None:
         stock_import = StockImport.objects.create(
             workshop=self.workshop,
@@ -1415,6 +1453,134 @@ class StockImportPaymentFlowTests(TestCase):
         self.assertEqual(payment.remaining_installments_amount, Money("0.00", "BRL"))
         self.assertEqual(payment.total_paid, Money("40.00", "BRL"))
         self.assertEqual(StockPaymentMethod.objects.filter(workshop=self.workshop).count(), 1)
+
+    def test_repair_payment_method_fee_movements_fixes_existing_stock_fee_history(self) -> None:
+        payment_method = PaymentMethod.objects.create(
+            workshop=self.workshop,
+            description="Credito",
+            installments_count=10,
+            tax_percentage=Decimal("6.99"),
+        )
+        source = Source.objects.create(workshop=self.workshop, name="Fornecedor Taxa")
+        payment_movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Pagamento Importacao de Estoque - NF: NF-701",
+            payment_method=payment_method,
+            nf_number="NF-701",
+            amount=Money("1385.84", "BRL"),
+            due_date=timezone.localdate(),
+            is_paid=False,
+        )
+        fee_movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Pagamento da taxa da maquininha",
+            payment_method=payment_method,
+            nf_number="NF-701",
+            amount=Money("9687.02", "BRL"),
+            due_date=timezone.localdate(),
+            is_paid=False,
+        )
+        stock_import = StockImport.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            nf_key="7" * 44,
+            nf_number="NF-701",
+            supplier_name="Fornecedor Taxa",
+            supplier_cnpj="11.222.333/0001-41",
+            items_data=[],
+            payments_data=[
+                {
+                    "id": 1,
+                    "financial_movement_id": payment_movement.pk,
+                    "fee_financial_movement_id": fee_movement.pk,
+                    "entry_type": "payment",
+                    "method": payment_method.pk,
+                    "method_display": payment_method.description,
+                    "installments": "10",
+                    "first_amount": "1385.84",
+                    "total_paid": "1385.84",
+                    "payment_date": timezone.localdate().isoformat(),
+                    "reason": payment_method.description,
+                }
+            ],
+        )
+
+        call_command("repair_payment_method_fee_movements")
+
+        fee_movement.refresh_from_db()
+        stock_import.refresh_from_db()
+        self.assertEqual(fee_movement.amount, Money("96.87", "BRL"))
+        self.assertEqual(stock_import.payments_data[0]["fee_financial_movement_id"], fee_movement.pk)
+
+    def test_repair_payment_method_fee_movements_resolves_legacy_textual_stock_method(self) -> None:
+        payment_method = PaymentMethod.objects.create(
+            workshop=self.workshop,
+            description="BOLETO",
+            installments_count=1,
+            tax_percentage=Decimal("2.50"),
+        )
+        source = Source.objects.create(workshop=self.workshop, name="Fornecedor Boleto")
+        payment_movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Pagamento Importacao de Estoque - NF: NF-702",
+            payment_method=payment_method,
+            nf_number="NF-702",
+            amount=Money("200.00", "BRL"),
+            due_date=timezone.localdate(),
+            is_paid=False,
+        )
+        fee_movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Pagamento da taxa da maquininha",
+            payment_method=payment_method,
+            nf_number="NF-702",
+            amount=Money("500.00", "BRL"),
+            due_date=timezone.localdate(),
+            is_paid=False,
+        )
+        stock_import = StockImport.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            nf_key="2" * 44,
+            nf_number="NF-702",
+            supplier_name="Fornecedor Boleto",
+            items_data=[],
+            payments_data=[
+                {
+                    "id": 1,
+                    "financial_movement_id": payment_movement.pk,
+                    "fee_financial_movement_id": fee_movement.pk,
+                    "entry_type": "payment",
+                    "method": "BOLETO",
+                    "method_display": "BOLETO",
+                    "installments": "1",
+                    "first_amount": "200.00",
+                    "total_paid": "200.00",
+                    "payment_date": timezone.localdate().isoformat(),
+                    "reason": "BOLETO",
+                }
+            ],
+        )
+
+        call_command("repair_payment_method_fee_movements")
+
+        fee_movement.refresh_from_db()
+        stock_import.refresh_from_db()
+        self.assertEqual(fee_movement.amount, Money("5.00", "BRL"))
+        self.assertEqual(fee_movement.payment_method, payment_method)
+        self.assertEqual(stock_import.payments_data[0]["method"], "BOLETO")
 
 
 class BackfillStockProductSuppliersCommandTests(TestCase):

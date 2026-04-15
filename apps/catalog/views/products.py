@@ -93,7 +93,6 @@ class ProductListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespo
 
         context["actions"] = [
             TableActionDefaults.edit("catalog:product_update"),
-            TableActionDefaults.delete("catalog:product_delete"),
         ]
 
         context["group_choices"] = [(str(group_id), name) for group_id, name in CatalogGroup.objects.filter(workshop=self.workshop).order_by("name").values_list("id", "name")]

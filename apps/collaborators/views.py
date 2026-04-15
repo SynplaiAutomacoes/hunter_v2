@@ -65,7 +65,6 @@ class WorkshopCollaboratorListView(LoginRequiredMixin, WorkshopScopedMixin, Htmx
 
         context["actions"] = [
             TableActionDefaults.edit("collaborators:collaborator_update"),
-            TableActionDefaults.delete("collaborators:collaborator_delete"),
         ]
 
         context["collaborator_type_choices"] = WorkshopCollaborator.collaborator_type.field.choices
