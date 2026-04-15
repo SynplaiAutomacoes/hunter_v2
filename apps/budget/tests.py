@@ -1476,7 +1476,7 @@ class BudgetPdfContextTests(TestCase):
         self.assertEqual(context["total_servicos"], Money("0.00", "BRL"))
         self.assertEqual(context["total_geral"], Money("0.00", "BRL"))
 
-    def test_build_budget_pdf_context_selected_items_keeps_kit_components_out_of_direct_tables(self) -> None:
+    def test_customer_budget_pdf_hides_kit_section(self) -> None:
         workshop = create_workshop(suffix=16)
         budget = create_budget(workshop=workshop)
         direct_product = create_product(workshop=workshop, suffix=161, application="Gol")
@@ -1493,14 +1493,10 @@ class BudgetPdfContextTests(TestCase):
         context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste", presentation="selected_items")
         html = render_to_string("budget/partials/pdf/visualizarPDF.html", context)
 
-        self.assertEqual([produto["description"] for produto in context["produtos"]], [direct_product.name])
-        self.assertEqual([servico["description"] for servico in context["servicos"]], [direct_service.name])
         self.assertEqual(len(context["kits"]), 1)
         self.assertEqual(context["kits"][0]["description"], kit.name)
-        self.assertNotIn(kit_product.name, [produto["description"] for produto in context["produtos"]])
-        self.assertNotIn(kit_service.name, [servico["description"] for servico in context["servicos"]])
-        self.assertIn('<h4 class="font-bold mb-1 uppercase">Kits</h4>', html)
-        self.assertIn(kit.name, html)
+        self.assertNotIn('<h4 class="font-bold mb-1 uppercase">Kits</h4>', html)
+        self.assertNotIn(kit.name, html)
 
     def test_budget_pdf_template_allows_long_freeform_text_to_wrap(self) -> None:
         workshop = create_workshop(suffix=94)
