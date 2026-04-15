@@ -31,6 +31,7 @@ class RepairStats:
     updated: int = 0
     deleted: int = 0
     unchanged: int = 0
+    unresolved_payment_methods: int = 0
 
     @property
     def changed(self) -> int:
@@ -67,9 +68,16 @@ def _movement_amount(movement: FinancialMovement) -> Decimal:
 
 def _stock_payment_method(*, stock_import: StockImport, payment_entry: dict[str, Any]) -> PaymentMethod | None:
     method_id = payment_entry.get("method")
-    if not method_id:
+    if method_id in (None, ""):
         return None
-    return PaymentMethod.objects.filter(pk=method_id, workshop=stock_import.workshop).first()
+
+    try:
+        return PaymentMethod.objects.filter(pk=int(str(method_id).strip()), workshop=stock_import.workshop).first()
+    except (TypeError, ValueError):
+        method_description = str(method_id).strip()
+        if not method_description:
+            return None
+        return PaymentMethod.objects.filter(workshop=stock_import.workshop, description__iexact=method_description).order_by("pk").first()
 
 
 def _get_stock_source(*, stock_import: StockImport, create: bool) -> Source | None:
@@ -153,9 +161,10 @@ class Command(BaseCommand):
 
         message = (
             f"O.S. -> analisadas: {workorder_stats.scanned}, criadas: {workorder_stats.created}, "
-            f"atualizadas: {workorder_stats.updated}, removidas: {workorder_stats.deleted}, inalteradas: {workorder_stats.unchanged}. "
+            f"atualizadas: {workorder_stats.updated}, removidas: {workorder_stats.deleted}, inalteradas: {workorder_stats.unchanged}, "
+            f"formas nao resolvidas: {workorder_stats.unresolved_payment_methods}. "
             f"Estoque -> analisadas: {stock_stats.scanned}, criadas: {stock_stats.created}, atualizadas: {stock_stats.updated}, "
-            f"removidas: {stock_stats.deleted}, inalteradas: {stock_stats.unchanged}."
+            f"removidas: {stock_stats.deleted}, inalteradas: {stock_stats.unchanged}, formas nao resolvidas: {stock_stats.unresolved_payment_methods}."
         )
         if dry_run:
             self.stdout.write(self.style.WARNING(f"Dry-run concluido. {message}"))
@@ -270,6 +279,8 @@ class Command(BaseCommand):
                     continue
 
                 payment_method = _stock_payment_method(stock_import=stock_import, payment_entry=payment_entry)
+                if payment_method is None and payment_entry.get("method") not in (None, ""):
+                    stats.unresolved_payment_methods += 1
                 total_paid = _resolve_decimal_amount(payment_entry.get("total_paid", _ZERO))
                 expected_amount = calculate_payment_method_fee_amount(payment_method=payment_method, base_amount=total_paid)
                 expected_due_date = _resolve_payment_date(payment_entry.get("payment_date"))
