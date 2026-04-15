@@ -12,6 +12,7 @@ import time
 from urllib.parse import quote
 
 from django.contrib.messages import get_messages
+from django.core.management import call_command
 from django.core.exceptions import ValidationError
 from django.contrib.auth.models import Permission
 from django.test import TestCase, override_settings
@@ -4925,6 +4926,70 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertContains(response, "Pagamento da taxa da maquininha")
         self.assertContains(response, reverse("finance:financial_movement_update", args=[parent_movement.pk]))
         self.assertContains(response, reverse("finance:financial_movement_update", args=[fee_movement.pk]))
+
+    def test_repair_payment_method_fee_movements_fixes_existing_workorder_fee_history(self) -> None:
+        today = timezone.localdate()
+        workorder = self._create_report_workorder(
+            customer_name="Cliente Historico Taxa",
+            total_value="1385.84",
+            problem_description="OS com taxa historica errada",
+            payment_specs=[
+                {"description": "Credito", "amount": "1385.84", "due_date": today.isoformat(), "installments_count": "10"},
+            ],
+        )
+        payment = WorkOrderPaymentMethod.objects.get(workorder=workorder)
+        payment_method = PaymentMethod.objects.get(workshop=self.workshop, description="Credito")
+        payment_method.tax_percentage = Decimal("6.99")
+        payment_method.save(update_fields=["tax_percentage"])
+
+        fee_movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            workorder=workorder,
+            workorder_payment=payment,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_CARD_FEE,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Pagamento da taxa da maquininha",
+            payment_method=payment_method,
+            amount=Money("9687.02", "BRL"),
+            due_date=today,
+            is_paid=True,
+            dre_topic=FinancialMovement.DreTopic.DESPESAS_FINANCEIRAS,
+        )
+
+        call_command("repair_payment_method_fee_movements")
+
+        fee_movement.refresh_from_db()
+        self.assertEqual(fee_movement.amount, Money("96.87", "BRL"))
+        self.assertEqual(fee_movement.payment_method, payment_method)
+        self.assertEqual(fee_movement.workorder_payment, payment)
+
+    def test_sync_workorder_financial_movement_calculates_card_fee_as_percentage(self) -> None:
+        today = timezone.localdate()
+        workorder = self._create_report_workorder(
+            customer_name="Cliente Taxa Percentual",
+            total_value="1385.84",
+            problem_description="OS com taxa percentual",
+            payment_specs=[
+                {"description": "Credito Parcelado", "amount": "1385.84", "due_date": today.isoformat(), "installments_count": "10"},
+            ],
+        )
+        workorder.budget.status = BudgetStatus.APPROVED
+        workorder.budget.save(update_fields=["status"])
+
+        payment_method = PaymentMethod.objects.get(workshop=self.workshop, description="Credito Parcelado")
+        payment_method.tax_percentage = Decimal("6.99")
+        payment_method.save(update_fields=["tax_percentage"])
+
+        sync_workorder_financial_movement(workorder=workorder)
+
+        fee_movement = FinancialMovement.objects.get(
+            workorder=workorder,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_CARD_FEE,
+        )
+        self.assertEqual(fee_movement.amount, Money("96.87", "BRL"))
+        self.assertEqual(fee_movement.payment_method, payment_method)
 
     def test_reports_home_view_orders_financial_movements_by_newest_created(self) -> None:
         older_created = FinancialMovement.objects.create(
