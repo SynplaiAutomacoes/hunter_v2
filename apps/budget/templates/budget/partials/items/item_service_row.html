@@ -44,7 +44,7 @@
             {{ item.display_service_selling_price }}
         {% endif %}
     </td>
-    <td class="text-center">{{ item.duration_display }}</td>
+    <td class="text-center">{{ duration_display|default:item.duration_display }}</td>
     <td class="font-bold text-right">
         {% if step6 %}
             {{ slider_total_price }}
