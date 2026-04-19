@@ -297,6 +297,20 @@ class MovementStep3Form(FinancialMovementBaseForm):
         self.fields["payment_method"].required = True
         self.fields["is_paid"].initial = bool(self.instance.is_paid) if self.instance.pk else False
 
+        self.fields["repeat_count"] = forms.IntegerField(required=False, min_value=1, max_value=120,
+            widget=NumberInput(attrs={"class": "w-24 text-center", "placeholder": "1"}))
+
+        self.fields["repeat_count"].label = ""
+        
+        repeat_choices = [("mensal", "Mensal")]
+        if getattr(self.instance, "collaborator_id", None):
+            repeat_choices.append(("5_dia_util", "5º dia útil"))
+        
+        self.fields["repeat_type"] = forms.ChoiceField(choices=repeat_choices, initial="mensal", required=False,
+            widget=forms.RadioSelect(attrs={"class": "radio radio-primary radio-sm"}))
+
+        self.fields["repeat_type"].label = ""
+
         if self.workshop:
             self.fields["budget_plan"].widget.choices = [(bp.id, str(bp)) for bp in FinancialGroup.objects.filter(workshop=self.workshop)]
             self.fields["bank_account"].widget.choices = [(ba.id, str(ba)) for ba in BankAccount.objects.filter(workshop=self.workshop)]
@@ -327,12 +341,73 @@ class MovementStep3Form(FinancialMovementBaseForm):
                 Div("bank_account", css_class="col-span-4"),
                 #
                 Div("nf_number", css_class="col-span-6"),
-                Div("attachment", css_class="col-span-6"),
+                Div(
+                    Div(
+                        HTML('<span class="text-base font-semibold mb-4 mr-2">Repetir este lançamento</span>'),
+                        Field("repeat_count", wrapper_class="mb-0 flex-1"),
+                        HTML('<span class="text-base font-semibold mb-4 ml-2">vezes</span>'),
+                        css_class="flex items-center gap-2 mb-4"
+                    ),
+                    Div(
+                        Field("repeat_type", wrapper_class="text-lg inline-flex gap-4"),
+                        css_class="flex items-center gap-4"
+                    ),
+                    css_class="col-span-6"
+                ),
                 #
+                Div("attachment", css_class="col-span-12"),
                 Div("financial_observation", css_class="col-span-12"),
                 css_class="grid grid-cols-12 gap-4",
             )
         )
+
+    def save(self, commit=True):
+        instance = super().save(commit=commit)
+        if commit:
+            repeat_count = self.cleaned_data.get("repeat_count")
+            repeat_type = self.cleaned_data.get("repeat_type")
+            
+            flag_key = f"generated_reps_{instance.pk}"
+            if repeat_count and repeat_count > 0 and getattr(self, "request", None) and not self.request.session.get(flag_key):
+                self._generate_repetitions(instance, repeat_count, repeat_type)
+                self.request.session[flag_key] = True
+        return instance
+
+    def _generate_repetitions(self, instance, count, r_type):
+        import calendar
+        import datetime
+        
+        def add_months(sourcedate, months):
+            month = sourcedate.month - 1 + months
+            year = sourcedate.year + month // 12
+            month = month % 12 + 1
+            day = min(sourcedate.day, calendar.monthrange(year,month)[1])
+            return datetime.date(year, month, day)
+            
+        def get_5th_business_day(year, month):
+            business_days = 0
+            day = 1
+            while True:
+                d = datetime.date(year, month, day)
+                if d.weekday() < 5:
+                    business_days += 1
+                    if business_days == 5:
+                        return d
+                day += 1
+
+        for i in range(1, count + 1):
+            new_instance = FinancialMovement.objects.get(pk=instance.pk)
+            new_instance.pk = None
+            new_instance.is_paid = False
+            new_instance.attachment = None
+            
+            if r_type == "mensal":
+                new_instance.due_date = add_months(instance.due_date, i)
+            elif r_type == "5_dia_util":
+                target_date = add_months(instance.due_date, i)
+                new_instance.due_date = get_5th_business_day(target_date.year, target_date.month)
+                
+            new_instance.save()
 
 
 class MovementStep4Form(FinancialMovementBaseForm):
