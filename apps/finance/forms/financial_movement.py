@@ -66,7 +66,11 @@ class MovementStep1Form(FinancialMovementBaseForm):
                     const personType = document.querySelector('[name="person_type"]');
                     const entityField = document.querySelector('[name="entity"]');
                     const directionField = document.querySelector('[name="direction"]');
-                    const entityTitle = document.getElementById('entity-title');
+
+                    const step2 = document.getElementById('step-2');
+                    const step3 = document.getElementById('step-3');
+                    const step4 = document.getElementById('step-4');
+
                     const personTitle = document.getElementById('person-title');
                     const resumeContainer = document.getElementById('entity-details');
 
@@ -80,8 +84,32 @@ class MovementStep1Form(FinancialMovementBaseForm):
                         }
                     }
 
+                    function handleDirection() {
+                        updateTitles();
+
+                        if (directionField.value) {
+                            step2.classList.remove('hidden');
+                        } else {
+                            step2.classList.add('hidden');
+                            step3.classList.add('hidden');
+                            step4.classList.add('hidden');
+
+                            personType.value = "";
+                            entityField.innerHTML = "";
+                            resumeContainer.innerHTML = "";
+                        }
+                    }
+
                     function loadEntities() {
                         const type = personType.value;
+
+                        if (!type) {
+                            step3.classList.add('hidden');
+                            step4.classList.add('hidden');
+                            return;
+                        }
+
+                        step3.classList.remove('hidden');
 
                         fetch(`/finance/entities?type=${type}`, {
                             headers: { 'X-Requested-With': 'XMLHttpRequest' }
@@ -89,6 +117,11 @@ class MovementStep1Form(FinancialMovementBaseForm):
                         .then(r => r.json())
                         .then(data => {
                             entityField.innerHTML = "";
+
+                            const placeholder = document.createElement("option");
+                            placeholder.value = "";
+                            placeholder.textContent = "Selecione...";
+                            entityField.appendChild(placeholder);
 
                             data.forEach(item => {
                                 const opt = document.createElement("option");
@@ -103,7 +136,12 @@ class MovementStep1Form(FinancialMovementBaseForm):
                         const id = entityField.value;
                         const type = personType.value;
 
-                        if (!id) return;
+                        if (!id) {
+                            step4.classList.add('hidden');
+                            return;
+                        }
+
+                        step4.classList.remove('hidden');
 
                         fetch(`/finance/entity_details?type=${type}&id=${id}`, {
                             headers: { 'X-Requested-With': 'XMLHttpRequest' }
@@ -114,28 +152,46 @@ class MovementStep1Form(FinancialMovementBaseForm):
                         });
                     }
 
-                    directionField.addEventListener('change', updateTitles);
+                    directionField.addEventListener('change', handleDirection);
                     personType.addEventListener('change', loadEntities);
                     entityField.addEventListener('change', loadDetails);
 
-                    updateTitles();
+                    // Estado inicial
+                    handleDirection();
+                    loadEntities();
+                    loadDetails();
                 });
             </script>"""),
             Div(
                 Div(
-                    HTML('<h2 class="text-xl font-bold mb-4">Defina se é contas a pagar ou a receber</h2>'),
-                    Field("direction"),
-
-                    HTML('<h2 id="person-title" class="text-xl font-bold mt-15 mb-4">Escolha o credor ou devedor</h2>'),
-                    Field("person_type"),
+                    # Opção 1
+                    Div(
+                        HTML('<h2 class="text-xl font-bold mb-4">Defina se é contas a pagar ou a receber</h2>'),
+                        Field("direction"),
+                    ),
+                    # Opção 2
+                    Div(
+                        HTML('<h2 id="person-title" class="text-xl font-bold mt-15 mb-4">Escolha o credor ou devedor</h2>'),
+                        Field("person_type"),
+                        css_class="hidden",
+                        css_id="step-2"
+                    ),
                     css_class="col-span-12 lg:col-span-6",
                 ),
                 Div(
-                    HTML('<h2 id="entity-title" class="text-xl font-bold mb-4">Fornecedor/Colaborador</h2>'),
-                    Field("entity"),
-
-                    HTML('<h2 class="text-xl font-bold mt-15 mb-4">Confirme os dados</h2>'),
-                    Div(id="entity-details"),
+                    # Opção 3
+                    Div(
+                        HTML('<h2 id="entity-title" class="text-xl font-bold mb-4">Fornecedor/Colaborador</h2>'),
+                        Field("entity"),
+                        css_id="step-3"
+                    ),
+                    # Opção 4
+                    Div(
+                        HTML('<h2 class="text-xl font-bold mt-15 mb-4">Confirme os dados</h2>'),
+                        Div(id="entity-details"),
+                        css_class="hidden",
+                        css_id="step-4"
+                    ),
                     css_class="col-span-12 lg:col-span-6",
                 ),
                 css_class="grid grid-cols-12 gap-6",
