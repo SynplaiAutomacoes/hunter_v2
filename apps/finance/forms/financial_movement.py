@@ -102,13 +102,23 @@ class MovementStep1Form(FinancialMovementBaseForm):
 
                     function loadEntities() {
                         const type = personType.value;
+                        const entityTitle = document.getElementById('entity-title');
 
                         if (!type) {
                             step3.classList.add('hidden');
                             step4.classList.add('hidden');
+                    
+                            entityTitle.innerText = "Fornecedor/Colaborador";
                             return;
                         }
 
+                        // Atualiza o título dinamicamente
+                        if (type === "supplier") {
+                            entityTitle.innerText = "Fornecedor";
+                        } else if (type === "collaborator") {
+                            entityTitle.innerText = "Colaborador";
+                        }
+                    
                         step3.classList.remove('hidden');
 
                         fetch(`/finance/entities?type=${type}`, {
