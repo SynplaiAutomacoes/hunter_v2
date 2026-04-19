@@ -271,14 +271,10 @@ class MovementStep2Form(FinancialMovementBaseForm):
 
 
 class MovementStep3Form(FinancialMovementBaseForm):
-    is_paid = forms.TypedChoiceField(
-        label="Pago",
-        required=True,
+    is_paid = forms.TypedChoiceField(label="Pago", required=True, initial=False,
         coerce=lambda value: str(value).lower() == "true",
         choices=((False, "Não"), (True, "Sim")),
-        widget=SelectInput(choices=[(False, "Não"), (True, "Sim")]),
-        initial=False,
-    )
+        widget=SelectInput(choices=[(False, "Não"), (True, "Sim")]))
 
     class Meta:
         model = FinancialMovement
@@ -302,9 +298,21 @@ class MovementStep3Form(FinancialMovementBaseForm):
         self.fields["is_paid"].initial = bool(self.instance.is_paid) if self.instance.pk else False
 
         if self.workshop:
-            self.fields["payment_method"].widget.choices = [(pm.id, str(pm)) for pm in PaymentMethod.objects.filter(workshop=self.workshop)]
             self.fields["budget_plan"].widget.choices = [(bp.id, str(bp)) for bp in FinancialGroup.objects.filter(workshop=self.workshop)]
             self.fields["bank_account"].widget.choices = [(ba.id, str(ba)) for ba in BankAccount.objects.filter(workshop=self.workshop)]
+
+            payment_methods = PaymentMethod.objects.filter(workshop=self.workshop, is_active=True)
+            direction = self.instance.direction
+
+            if direction == FinancialMovement.MovementDirection.CREDIT:
+                payment_methods = payment_methods.filter(payment_type__in=[
+                        PaymentMethod.PaymentType.CREDIT, PaymentMethod.PaymentType.BOTH])
+
+            elif direction == FinancialMovement.MovementDirection.DEBIT:
+                payment_methods = payment_methods.filter(payment_type__in=[
+                        PaymentMethod.PaymentType.DEBIT, PaymentMethod.PaymentType.BOTH])
+
+            self.fields["payment_method"].widget.choices = [(pm.id, str(pm)) for pm in payment_methods]
 
         self.helper = FormHelper()
         self.helper.form_tag = False
