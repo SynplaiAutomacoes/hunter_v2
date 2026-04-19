@@ -350,6 +350,17 @@ class MovementStep4Form(FinancialMovementBaseForm):
         status_color = "text-success" if is_entry else "text-error"
         direction_label = inst.get_direction_display()
 
+        # Origem exibida: Supplier, Collaborator ou fallback
+        if inst.supplier:
+            origin_name = str(inst.supplier.name) if inst.supplier.name else ""
+            origin_label = "Fornecedor"
+        elif inst.collaborator:
+            origin_name = str(inst.collaborator.name) if inst.collaborator.name else ""
+            origin_label = "Colaborador"
+        else:
+            origin_name = "Não informado"
+            origin_label = "Origem"
+
         self.helper.layout = Layout(
             HTML(f"""
                     <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
@@ -364,13 +375,13 @@ class MovementStep4Form(FinancialMovementBaseForm):
                                 <div class="card bg-base-200 shadow-sm border border-base-300">
                                     <div class="card-body p-6">
                                         <h4 class="text-base uppercase font-black opacity-50 mb-4 flex items-center gap-1">
-                                            <span class="material-icons text-sm">inventory_2</span> Origem e Identificação
+                                            <span class="material-icons text-sm">inventory_2</span> {origin_label} e Identificação
                                         </h4>
 
                                         <div class="space-y-4">
                                             <div>
-                                                <p class="text-sm opacity-60">Origem</p>
-                                                <p class="text-lg font-semibold">{inst.source.name if inst.source else "Não informada"}</p>
+                                                <p class="text-sm opacity-60">{origin_label}</p>
+                                                <p class="text-lg font-semibold">{origin_name}</p>
                                             </div>
 
                                             <div>
