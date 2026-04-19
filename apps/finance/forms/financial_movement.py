@@ -126,19 +126,48 @@ class MovementStep1Form(FinancialMovementBaseForm):
                         })
                         .then(r => r.json())
                         .then(data => {
-                            entityField.innerHTML = "";
+                            // Encontra o container do SearchableSelectInput (tem x-data)
+                            const container = entityField.closest('[x-data]');
+                            if (!container) return;
 
-                            const placeholder = document.createElement("option");
-                            placeholder.value = "";
-                            placeholder.textContent = "Selecione...";
-                            entityField.appendChild(placeholder);
+                            // Acessa os dados do Alpine se possível, ou apenas manipula o DOM
+                            const optionsList = container.querySelector('[x-ref="options"]');
+                            if (!optionsList) return;
+
+                            // Limpa o valor atual no componente Alpine
+                            if (window.Alpine) {
+                                const alpineData = Alpine.$data(container);
+                                if (alpineData && typeof alpineData.clear === 'function') {
+                                    alpineData.clear();
+                                }
+                            }
+
+                            optionsList.innerHTML = "";
 
                             data.forEach(item => {
-                                const opt = document.createElement("option");
-                                opt.value = item.id;
-                                opt.textContent = item.name;
-                                entityField.appendChild(opt);
+                                const li = document.createElement("li");
+                                li.setAttribute("x-show", "!search || $el.dataset.searchText.includes(search.toLowerCase())");
+                                li.setAttribute("@click", "select($el)");
+                                li.dataset.value = item.id;
+                                li.dataset.label = item.name;
+                                li.dataset.searchText = item.name.toLowerCase();
+                                li.className = "relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white transition-colors group";
+                                
+                                const span = document.createElement("span");
+                                span.className = "block truncate";
+                                span.setAttribute(":class", `{'font-bold': value == '${item.id}'}`);
+                                span.textContent = item.name;
+                                
+                                li.appendChild(span);
+                                optionsList.appendChild(li);
                             });
+
+                            // Adiciona a mensagem de "Nenhum resultado"
+                            const noResults = document.createElement("li");
+                            noResults.setAttribute("x-show", "search && $refs.options.querySelectorAll('li[data-value]:not([style*=\\'display: none\\'])').length === 0");
+                            noResults.className = "py-2 pl-3 text-gray-500 italic";
+                            noResults.textContent = "Nenhum resultado encontrado...";
+                            optionsList.appendChild(noResults);
                         });
                     }
 

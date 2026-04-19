@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.http import JsonResponse
 from django.shortcuts import redirect, get_object_or_404, render
 from django.urls import reverse, reverse_lazy
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -16,7 +17,8 @@ from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.finance.forms.financial_movement import MovementStep1Form, MovementStep2Form, MovementStep3Form, MovementStep4Form
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.views.navigation import append_query_params
-from apps.sources.models import Source
+from apps.collaborators.models import WorkshopCollaborator
+from apps.suppliers.models import Supplier
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
@@ -246,3 +248,43 @@ class SourceDetailView(View):
             source_obj = Source.objects.filter(id=source_id).first()
 
         return render(request, "finance/partials/source_resume.html", {"source_obj": source_obj})
+
+
+class EntityListView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = FinancialMovement
+    workshop_permission_codename = "view_financialmovement"
+
+    def get(self, request, *args, **kwargs):
+        entity_type = request.GET.get("type")
+        workshop = self.workshop
+
+        data = []
+        if entity_type == "supplier":
+            entities = Supplier.objects.filter(workshop=workshop)
+            data = [{"id": e.id, "name": e.name} for e in entities]
+        elif entity_type == "collaborator":
+            entities = WorkshopCollaborator.objects.filter(workshop=workshop)
+            data = [{"id": e.id, "name": str(e)} for e in entities]
+
+        return JsonResponse(data, safe=False)
+
+
+class EntityDetailView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = FinancialMovement
+    workshop_permission_codename = "view_financialmovement"
+
+    def get(self, request, *args, **kwargs):
+        entity_type = request.GET.get("type")
+        entity_id = request.GET.get("id")
+        workshop = self.workshop
+
+        context = {"type": entity_type}
+
+        if entity_type == "supplier":
+            context["entity"] = Supplier.objects.filter(id=entity_id, workshop=workshop).first()
+            template = "finance/partials/supplier_resume.html"
+        else:
+            context["entity"] = WorkshopCollaborator.objects.filter(id=entity_id, workshop=workshop).first()
+            template = "finance/partials/collaborator_resume.html"
+
+        return render(request, template, context)
