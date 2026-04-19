@@ -82,15 +82,29 @@ class MovementStep1Form(FinancialMovementBaseForm):
             </script>"""),
             Div(
                 Div(
-                    HTML('<h2 class="text-xl font-bold mb-4">Origem da Movimentação</h2>'),
-                    Field("source"),
+                    Div(
+                        HTML('<h2 class="text-xl font-bold mb-4">Defina se é contas a pagar ou a receber</h2>'),
+                        Field("source"),
+                    ),
+                    Div(
+                        HTML('<h2 class="text-xl font-bold mb-4">Escolha o credor ou devedor</h2>'),
+                        Field("source"),
+                        css_class="mt-20"
+                    ),
                     css_class="col-span-12 lg:col-span-6",
                 ),
                 Div(
-                    HTML('<h2 class="text-xl font-bold mb-4">Dados da Origem</h2>'),
                     Div(
-                        HTML(render_to_string("finance/partials/source_resume.html", {"source_obj": source_obj})),
-                        id="source-details",
+                        HTML('<h2 class="text-xl font-bold mb-4">Fornecedor/Colaborador</h2>'),
+                        Field("source"),
+                    ),
+                    Div(
+                        HTML('<h2 class="text-xl font-bold mb-4">Confirme os dados</h2>'),
+                        Div(
+                            HTML(render_to_string("finance/partials/source_resume.html", {"source_obj": source_obj})),
+                            id="source-details",
+                        ),
+                        css_class="mt-20"
                     ),
                     css_class="col-span-12 lg:col-span-6",
                 ),
@@ -124,14 +138,12 @@ class MovementStep3Form(FinancialMovementBaseForm):
 
     class Meta:
         model = FinancialMovement
-        fields = ["direction", "payment_method", "is_paid", "amount", "due_date", "nf_number", "dre_topic", "budget_plan", "bank_account", "attachment", "financial_observation"]
+        fields = ["payment_method", "is_paid", "amount", "due_date", "nf_number", "budget_plan", "bank_account", "attachment", "financial_observation"]
         widgets = {
-            "direction": SelectInput(),
             "payment_method": SearchableSelectInput(),
             "amount": MoneyInput(),
             "due_date": CalendarDateInput(),
             "nf_number": NumberInput(),
-            "dre_topic": SelectInput(),
             "budget_plan": SearchableSelectInput(),
             "bank_account": SearchableSelectInput(),
             "financial_observation": TextareaInput(attrs={"rows": 4}),
@@ -141,10 +153,8 @@ class MovementStep3Form(FinancialMovementBaseForm):
         super().__init__(*args, **kwargs)
 
         self.fields["due_date"].required = True
-        self.fields["direction"].required = True
         self.fields["amount"].required = True
         self.fields["payment_method"].required = True
-        self.fields["dre_topic"].required = True
         self.fields["is_paid"].initial = bool(self.instance.is_paid) if self.instance.pk else False
 
         if self.workshop:
@@ -156,17 +166,15 @@ class MovementStep3Form(FinancialMovementBaseForm):
         self.helper.form_tag = False
         self.helper.layout = Layout(
             Div(
-                Div("due_date", css_class="col-span-4"),
-                Div("direction", css_class="col-span-4"),
-                Div("amount", css_class="col-span-4"),
+                Div("due_date", css_class="col-span-6"),
+                Div("amount", css_class="col-span-6"),
                 #
                 Div("budget_plan", css_class="col-span-6"),
                 Div("bank_account", css_class="col-span-6"),
                 #
-                Div("payment_method", css_class="col-span-3"),
-                Div("is_paid", css_class="col-span-3"),
-                Div("nf_number", css_class="col-span-3"),
-                Div("dre_topic", css_class="col-span-3"),
+                Div("payment_method", css_class="col-span-4"),
+                Div("is_paid", css_class="col-span-4"),
+                Div("nf_number", css_class="col-span-4"),
                 Div("attachment", css_class="col-span-12"),
                 #
                 Div("financial_observation", css_class="col-span-12"),
