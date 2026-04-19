@@ -14,8 +14,8 @@ from apps.finance.models.bank_account import BankAccount
 
 class FinancialMovement(TimeStampedModel):
     class MovementDirection(models.TextChoices):
-        CREDIT = "CREDIT", "Crédito"
-        DEBIT = "DEBIT", "Débito"
+        CREDIT = "CREDIT", "Contas a receber (receita)"
+        DEBIT = "DEBIT", "Contas a pagar (despesa)"
 
     class MovementKind(models.TextChoices):
         DEFAULT = "DEFAULT", "Padrão"

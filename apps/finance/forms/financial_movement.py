@@ -4,11 +4,13 @@ from django import forms
 from django.template.loader import render_to_string
 from django.urls import reverse_lazy
 
+from apps.collaborators.models import WorkshopCollaborator
 from apps.core.widgets import SearchableSelectInput, TextInput, TextareaInput, CalendarDateInput, SelectInput, MoneyInput, NumberInput
 from apps.finance.models import PaymentMethod, FinancialGroup
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.sources.models import Source
+from apps.suppliers.models import Supplier
 
 
 class FinancialMovementBaseForm(forms.ModelForm):
@@ -19,98 +21,145 @@ class FinancialMovementBaseForm(forms.ModelForm):
 
 
 class MovementStep1Form(FinancialMovementBaseForm):
+    person_type = forms.ChoiceField(label="", choices=[("supplier", "Fornecedor"), ("collaborator", "Colaborador")],
+                                    widget=SelectInput(), required=True)
+
+    entity = forms.ChoiceField(label="", widget=SearchableSelectInput(), required=True)
+
     class Meta:
         model = FinancialMovement
-        fields = ["source"]
-        widgets = {"source": SearchableSelectInput()}
+        fields = ["direction"]
+
+        widgets = {
+            "direction": SelectInput()
+        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # self.fields["source"].widget.attrs.update(
-        #     {
-        #         "hx-get": reverse_lazy("finance:source_details"),
-        #         "hx-trigger": "change",
-        #         "hx-target": "#source-details",
-        #         "hx-swap": "innerHTML",
-        #         "hx-include": "[name='source']",
-        #     }
-        # )
+        # Defaults
+        self.fields["entity"].choices = []
 
         if self.workshop:
-            queryset = Source.objects.filter(workshop=self.workshop)
-            self.fields["source"].queryset = queryset
-            self.fields["source"].widget.choices = [(s.id, s.name) for s in queryset]
+            suppliers = Supplier.objects.filter(workshop=self.workshop)
+            collaborators = WorkshopCollaborator.objects.filter(workshop=self.workshop)
 
-        source_id = self.data.get("source") or (self.instance.source_id if self.instance.pk else None)
-        source_obj = None
-        if source_id:
-            source_obj = Source.objects.filter(id=source_id, workshop=self.workshop).first()
+            self.suppliers_choices = [(s.id, s.name) for s in suppliers]
+            self.collaborators_choices = [(c.id, str(c)) for c in collaborators]
+
+        # Bind dinâmico (POST ou edição)
+        person_type = self.data.get("person_type")
+
+        self.fields["direction"].label = ""
+
+        if person_type == "supplier":
+            self.fields["entity"].choices = getattr(self, "suppliers_choices", [])
+        elif person_type == "collaborator":
+            self.fields["entity"].choices = getattr(self, "collaborators_choices", [])
 
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
-            HTML("""<script>
+            HTML("""
+            <script>
                 document.addEventListener('DOMContentLoaded', function() {
-                    const sourceInput = document.querySelector('input[name="source"]');
-                    const detailsContainer = document.querySelector('#source-details');
-                
-                    if (sourceInput) {
-                        sourceInput.addEventListener('change', function() {
-                            const sourceId = this.value;
-                            
-                            if (!sourceId) {
-                                detailsContainer.innerHTML = "<p class='italic opacity-50 text-center py-8'>Selecione uma origem para ver os detalhes.</p>";
-                                return;
-                            }
-                
-                            const url = `{% url 'finance:source_details' %}?source=${sourceId}`;
-                
-                            fetch(url, {
-                                headers: {
-                                    'X-Requested-With': 'XMLHttpRequest'
-                                }
-                            })
-                            .then(response => response.text())
-                            .then(html => {
-                                detailsContainer.innerHTML = html;
-                            })
-                            .catch(error => console.error('Erro ao buscar detalhes:', error));
+                    const personType = document.querySelector('[name="person_type"]');
+                    const entityField = document.querySelector('[name="entity"]');
+                    const directionField = document.querySelector('[name="direction"]');
+                    const entityTitle = document.getElementById('entity-title');
+                    const personTitle = document.getElementById('person-title');
+                    const resumeContainer = document.getElementById('entity-details');
+
+                    function updateTitles() {
+                        const direction = directionField.value;
+
+                        if (direction === "DEBIT") {
+                            personTitle.innerText = "Escolha o credor";
+                        } else if (direction === "CREDIT") {
+                            personTitle.innerText = "Escolha o devedor";
+                        }
+                    }
+
+                    function loadEntities() {
+                        const type = personType.value;
+
+                        fetch(`/finance/entities?type=${type}`, {
+                            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                        })
+                        .then(r => r.json())
+                        .then(data => {
+                            entityField.innerHTML = "";
+
+                            data.forEach(item => {
+                                const opt = document.createElement("option");
+                                opt.value = item.id;
+                                opt.textContent = item.name;
+                                entityField.appendChild(opt);
+                            });
                         });
                     }
+
+                    function loadDetails() {
+                        const id = entityField.value;
+                        const type = personType.value;
+
+                        if (!id) return;
+
+                        fetch(`/finance/entity_details?type=${type}&id=${id}`, {
+                            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                        })
+                        .then(r => r.text())
+                        .then(html => {
+                            resumeContainer.innerHTML = html;
+                        });
+                    }
+
+                    directionField.addEventListener('change', updateTitles);
+                    personType.addEventListener('change', loadEntities);
+                    entityField.addEventListener('change', loadDetails);
+
+                    updateTitles();
                 });
             </script>"""),
             Div(
                 Div(
-                    Div(
-                        HTML('<h2 class="text-xl font-bold mb-4">Defina se é contas a pagar ou a receber</h2>'),
-                        Field("source"),
-                    ),
-                    Div(
-                        HTML('<h2 class="text-xl font-bold mb-4">Escolha o credor ou devedor</h2>'),
-                        Field("source"),
-                        css_class="mt-20"
-                    ),
+                    HTML('<h2 class="text-xl font-bold mb-4">Defina se é contas a pagar ou a receber</h2>'),
+                    Field("direction"),
+
+                    HTML('<h2 id="person-title" class="text-xl font-bold mt-15 mb-4">Escolha o credor ou devedor</h2>'),
+                    Field("person_type"),
                     css_class="col-span-12 lg:col-span-6",
                 ),
                 Div(
-                    Div(
-                        HTML('<h2 class="text-xl font-bold mb-4">Fornecedor/Colaborador</h2>'),
-                        Field("source"),
-                    ),
-                    Div(
-                        HTML('<h2 class="text-xl font-bold mb-4">Confirme os dados</h2>'),
-                        Div(
-                            HTML(render_to_string("finance/partials/source_resume.html", {"source_obj": source_obj})),
-                            id="source-details",
-                        ),
-                        css_class="mt-20"
-                    ),
+                    HTML('<h2 id="entity-title" class="text-xl font-bold mb-4">Fornecedor/Colaborador</h2>'),
+                    Field("entity"),
+
+                    HTML('<h2 class="text-xl font-bold mt-15 mb-4">Confirme os dados</h2>'),
+                    Div(id="entity-details"),
                     css_class="col-span-12 lg:col-span-6",
                 ),
                 css_class="grid grid-cols-12 gap-6",
-            ),
+            )
         )
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+
+        person_type = self.cleaned_data.get("person_type")
+        entity_id = self.cleaned_data.get("entity")
+
+        instance.supplier = None
+        instance.collaborator = None
+
+        if person_type == "supplier":
+            instance.supplier_id = entity_id
+        elif person_type == "collaborator":
+            instance.collaborator_id = entity_id
+
+        if commit:
+            instance.save()
+
+        return instance
 
 
 class MovementStep2Form(FinancialMovementBaseForm):
