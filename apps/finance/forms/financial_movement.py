@@ -310,16 +310,16 @@ class MovementStep3Form(FinancialMovementBaseForm):
         self.helper.form_tag = False
         self.helper.layout = Layout(
             Div(
-                Div("due_date", css_class="col-span-6"),
-                Div("amount", css_class="col-span-6"),
-                #
-                Div("budget_plan", css_class="col-span-6"),
-                Div("bank_account", css_class="col-span-6"),
+                Div("due_date", css_class="col-span-4"),
+                Div("is_paid", css_class="col-span-4"),
+                Div("amount", css_class="col-span-4"),
                 #
                 Div("payment_method", css_class="col-span-4"),
-                Div("is_paid", css_class="col-span-4"),
-                Div("nf_number", css_class="col-span-4"),
-                Div("attachment", css_class="col-span-12"),
+                Div("budget_plan", css_class="col-span-4"),
+                Div("bank_account", css_class="col-span-4"),
+                #
+                Div("nf_number", css_class="col-span-6"),
+                Div("attachment", css_class="col-span-6"),
                 #
                 Div("financial_observation", css_class="col-span-12"),
                 css_class="grid grid-cols-12 gap-4",
