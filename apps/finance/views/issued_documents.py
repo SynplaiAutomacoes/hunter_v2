@@ -96,7 +96,7 @@ class IssuedDocumentsFilterMixin:
             elif start_date > end_date:
                 filter_error = "A data inicial nao pode ser maior que a data final."
 
-        is_valid = bool(start_date and end_date and not filter_error)
+        is_valid = not bool(filter_error)
 
         return {
             "start_raw": start_raw,
@@ -116,18 +116,24 @@ class IssuedDocumentsFilterMixin:
         normalized = normalized.strip("-._")
         return normalized or "documento"
 
-    def _build_nfe_queryset(self, *, start_date: date, end_date: date):
+    def _build_nfe_queryset(self, *, start_date: date | None, end_date: date | None):
+        qs = NfeRequest.objects.filter(workshop=self.workshop)
+        if start_date and end_date:
+            qs = qs.filter(criado_em__date__range=(start_date, end_date))
+            
         return (
-            NfeRequest.objects.filter(workshop=self.workshop, criado_em__date__range=(start_date, end_date))
-            .select_related("workorder", "workorder__budget", "workorder__budget__customer")
+            qs.select_related("workorder", "workorder__budget", "workorder__budget__customer")
             .prefetch_related(Prefetch("items", queryset=NfeItem.objects.order_by("-id"), to_attr="prefetched_items"))
             .order_by("-criado_em", "-pk")
         )
 
-    def _build_nfse_queryset(self, *, start_date: date, end_date: date):
+    def _build_nfse_queryset(self, *, start_date: date | None, end_date: date | None):
+        qs = NfseRequest.objects.filter(workshop=self.workshop)
+        if start_date and end_date:
+            qs = qs.filter(criado_em__date__range=(start_date, end_date))
+            
         return (
-            NfseRequest.objects.filter(workshop=self.workshop, criado_em__date__range=(start_date, end_date))
-            .select_related("workorder", "workorder__budget", "workorder__budget__customer")
+            qs.select_related("workorder", "workorder__budget", "workorder__budget__customer")
             .prefetch_related(Prefetch("items", queryset=NfseItem.objects.order_by("-id"), to_attr="prefetched_items"))
             .order_by("-criado_em", "-pk")
         )
