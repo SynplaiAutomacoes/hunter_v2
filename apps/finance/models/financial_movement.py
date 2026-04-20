@@ -101,7 +101,7 @@ class FinancialMovement(TimeStampedModel):
     def report_agent_display(self) -> str:
         if self.workorder_id:
             customer = getattr(getattr(self.workorder, "budget", None), "customer", None)
-            return f"O.S #{str(self.workorder.budget.pk)} - {getattr(customer, "name", "-") or "-"}"
+            return f"O.S #{str(self.workorder.budget.pk)} - {getattr(customer, 'name', '-') or '-'}"
 
         if self.collaborator_id:
             return str(self.collaborator.name)
