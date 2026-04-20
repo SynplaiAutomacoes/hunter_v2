@@ -99,9 +99,16 @@ class FinancialMovement(TimeStampedModel):
 
     @property
     def report_agent_display(self) -> str:
-        source = getattr(self, "source", None)
-        if source is not None:
-            return source.name
+        if self.workorder_id:
+            customer = getattr(getattr(self.workorder, "budget", None), "customer", None)
+            return f"O.S #{str(self.workorder.budget.pk)} - {getattr(customer, "name", "-") or "-"}"
+
+        if self.collaborator_id:
+            return str(self.collaborator.name)
+
+        if self.supplier_id:
+            return str(self.supplier.name)
+
         return "-"
 
     @property
