@@ -218,6 +218,12 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         description = movement.report_description_display
         payment_type = movement.report_payment_method_display
         details = []
+        edit_modal_url = reverse("finance:report_movement_edit", kwargs={"pk": movement.pk})
+        is_workorder = False
+
+        if movement.workorder_id:
+            edit_modal_url = reverse("workorder:workorder_detail", kwargs={"pk": movement.workorder_id})
+            is_workorder = True
 
         if workorder is not None and movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
             total_amount = self._resolve_money_amount(workorder.total_budget_value)
@@ -252,7 +258,8 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "account": movement.report_bank_account_display,
             "payment_type": payment_type,
             "edit_url": reverse("finance:financial_movement_update", kwargs={"pk": movement.pk}),
-            "edit_modal_url": reverse("finance:report_movement_edit", kwargs={"pk": movement.pk}),
+            "edit_modal_url": edit_modal_url,
+            "is_workorder": is_workorder,
             "total": movement.report_total_display,
             "details": details,
         }
