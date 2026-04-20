@@ -1,3 +1,5 @@
+from tokenize import blank_re
+
 from django.db import models
 
 from apps.core.models import TimeStampedModel
@@ -12,8 +14,8 @@ from apps.finance.models.bank_account import BankAccount
 
 class FinancialMovement(TimeStampedModel):
     class MovementDirection(models.TextChoices):
-        CREDIT = "CREDIT", "Crédito"
-        DEBIT = "DEBIT", "Débito"
+        CREDIT = "CREDIT", "Contas a receber (receita)"
+        DEBIT = "DEBIT", "Contas a pagar (despesa)"
 
     class MovementKind(models.TextChoices):
         DEFAULT = "DEFAULT", "Padrão"
@@ -34,7 +36,9 @@ class FinancialMovement(TimeStampedModel):
     workorder_payment = models.ForeignKey("workorder.WorkOrderPaymentMethod", on_delete=models.CASCADE, null=True, blank=True, related_name="financial_movements")
 
     # Origem
-    source = models.ForeignKey(to="sources.Source", verbose_name="Origem", on_delete=models.PROTECT)
+    source = models.ForeignKey(to="sources.Source", verbose_name="Origem", null=True, blank=True, on_delete=models.PROTECT)
+    collaborator = models.ForeignKey("collaborators.WorkshopCollaborator", verbose_name="Colaborador", on_delete=models.SET_NULL, related_name="financial_movements", null=True, blank=True)
+    supplier = models.ForeignKey("suppliers.Supplier",  verbose_name="Fornecedor", on_delete=models.SET_NULL, null=True, blank=True, related_name="financial_movements")
 
     # Itens
     description = models.CharField(verbose_name="Descrição dos Itens", max_length=255, blank=True, null=True)
@@ -44,7 +48,6 @@ class FinancialMovement(TimeStampedModel):
     direction = models.CharField(max_length=15, verbose_name="Tipo", choices=MovementDirection.choices, default=MovementDirection.DEBIT, blank=True, null=True)
     payment_method = models.ForeignKey(PaymentMethod, verbose_name="Forma de Pagamento", on_delete=models.PROTECT, blank=True, null=True)
     nf_number = models.CharField(max_length=50, verbose_name="Número da NF", blank=True, null=True)
-    dre_topic = models.CharField(max_length=50, verbose_name="Tópico DRE", choices=DreTopic.choices, blank=True, null=True)
     amount = MoneyField(verbose_name="Valor", max_digits=14, decimal_places=2, default=0, null=True)
     due_date = models.DateField(verbose_name="Data de Vencimento", blank=True, null=True)
     is_paid = models.BooleanField(verbose_name="Pago", default=False)
@@ -96,9 +99,16 @@ class FinancialMovement(TimeStampedModel):
 
     @property
     def report_agent_display(self) -> str:
-        source = getattr(self, "source", None)
-        if source is not None:
-            return source.name
+        if self.workorder_id:
+            customer = getattr(getattr(self.workorder, "budget", None), "customer", None)
+            return f"O.S #{str(self.workorder.budget.pk)} - {getattr(customer, "name", "-") or "-"}"
+
+        if self.collaborator_id:
+            return str(self.collaborator.name)
+
+        if self.supplier_id:
+            return str(self.supplier.name)
+
         return "-"
 
     @property
