@@ -298,7 +298,7 @@ class MovementStep3Form(FinancialMovementBaseForm):
         self.fields["is_paid"].initial = bool(self.instance.is_paid) if self.instance.pk else False
 
         self.fields["repeat_count"] = forms.IntegerField(required=False, min_value=1, max_value=120,
-            widget=NumberInput(attrs={"class": "w-24 text-center", "placeholder": "1"}))
+            widget=NumberInput(attrs={"class": "w-8 text-center", "placeholder": "1"}))
 
         self.fields["repeat_count"].label = ""
         self.fields["repeat_count"].required = True
@@ -348,7 +348,7 @@ class MovementStep3Form(FinancialMovementBaseForm):
                 Div(
                     Div(
                         HTML('<span class="text-base font-semibold mb-4 mr-2">Repetir este lançamento</span>'),
-                        Field("repeat_count", wrapper_class="mb-0 flex-1"),
+                        Field("repeat_count", wrapper_class="mb-0"),
                         HTML('<span class="text-base font-semibold mb-4 ml-2">vezes</span>'),
                         css_class="flex items-center gap-2 mb-4"
                     ),
@@ -397,15 +397,15 @@ class MovementStep4Form(FinancialMovementBaseForm):
         direction_label = inst.get_direction_display()
 
         # Origem exibida: Supplier, Collaborator ou fallback
+        origin_name = "Não informado"
+        origin_label = "Origem"
+
         if inst.supplier:
             origin_name = str(inst.supplier.name) if inst.supplier.name else ""
             origin_label = "Fornecedor"
         elif inst.collaborator:
             origin_name = str(inst.collaborator.name) if inst.collaborator.name else ""
             origin_label = "Colaborador"
-        else:
-            origin_name = "Não informado"
-            origin_label = "Origem"
 
         self.helper.layout = Layout(
             HTML(f"""
