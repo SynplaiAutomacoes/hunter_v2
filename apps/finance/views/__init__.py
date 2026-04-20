@@ -7,7 +7,7 @@ from .emission import EmissionPreviewView, EmissionRequestCreateView, EmissionWo
 from .issued_documents import IssuedDocumentsArchiveDownloadView, IssuedDocumentsListView
 from .nfe import NfeDocumentDownloadView, NfeRequestCancelView, NfeRequestCreateView, NfeRequestDetailView, NfeRequestListView, NfeRequestReconcileView, NfeRequestUpdateView
 from .nfse import NfseDocumentDownloadView, NfseRequestCancelView, NfseRequestCreateView, NfseRequestDetailView, NfseRequestListView, NfseRequestUpdateView
-from .reports import FinancialReportsHomeView
+from .reports import FinancialReportsHomeView, ReportMovementEditView, ReportMovementDeleteView
 from .tax_class import TaxClassCreateView, TaxClassListView, TaxClassManagerView, TaxClassPresetCreateView, TaxClassPresetListView, TaxClassPresetUpdateView, TaxClassUpdateView
 from .webhook import WebhookView
 from .webmania import (
@@ -30,6 +30,8 @@ __all__ = [
     "FinancialGroupDeleteView",
     "FinancialGroupListView",
     "FinancialReportsHomeView",
+    "ReportMovementEditView",
+    "ReportMovementDeleteView",
     "FinancialGroupUpdateView",
     "IssuedDocumentsArchiveDownloadView",
     "IssuedDocumentsListView",

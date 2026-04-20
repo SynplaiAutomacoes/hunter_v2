@@ -99,7 +99,7 @@
                                     <form method="get" action="{% url 'finance:reports_home' %}">
                                         <h3 class="text-base font-semibold text-base-content">Filtrar relatórios</h3>
 
-                                        <div class="mt-4 max-h-[65vh] space-y-5 overflow-y-auto pr-1">
+                                        <div class="mt-4 max-h-[65vh] space-y-5 overflow-y-auto px-4">
                                             <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                                                 <div>
                                                     <label for="reports-filter-data-inicial">Data inicial</label>
@@ -231,7 +231,7 @@
                                                     </label>
                                                 </div>
 
-                                                <div class="max-h-64 space-y-2 overflow-y-auto pr-1">
+                                                <div class="max-h-64 space-y-2 overflow-y-auto px-2">
                                                     {% for financial_group in financial_group_filters %}
                                                         <label class="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition hover:bg-base-100/70">
                                                             <input

@@ -96,7 +96,6 @@ def _get_financial_movements(*, workshops: Sequence[Workshop], start_date: date,
         workshop__in=workshops,
         due_date__gte=start_date,
         due_date__lte=end_date,
-        dre_topic__in=_SOURCE_ROW_COMPONENTS,
     )
 
     if tipo_data == "PG":
@@ -109,10 +108,6 @@ def _get_financial_movements(*, workshops: Sequence[Workshop], start_date: date,
 
 def _group_financial_movements_by_topic(*, financial_movements: list[FinancialMovement]) -> dict[str, list[FinancialMovement]]:
     grouped_movements: dict[str, list[FinancialMovement]] = {component: [] for component in _SOURCE_ROW_COMPONENTS}
-    for movement in financial_movements:
-        dre_topic = str(getattr(movement, "dre_topic", "") or "")
-        if dre_topic in grouped_movements:
-            grouped_movements[dre_topic].append(movement)
     return grouped_movements
 
 

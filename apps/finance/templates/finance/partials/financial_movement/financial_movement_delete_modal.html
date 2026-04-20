@@ -1,1 +1,45 @@
-{% include 'crud/delete_modal.html' with modal_id='financial-movement-delete-modal' delete_title='Excluir Movimentacao Financeira' delete_warning_text='Tem certeza que deseja excluir esta movimentacao financeira' object=object.description|default:object.source %}
+<input
+  type="checkbox"
+  id="financial-movement-delete-modal"
+  class="modal-toggle"
+  checked
+/>
+
+<div class="modal" role="dialog" aria-modal="true">
+  <div class="modal-box">
+    <h3 class="text-lg font-bold text-base-content">
+      Excluir Movimentacao Financeira
+    </h3>
+    <p class="text-base-content/70 mt-1">Esta ação não pode ser desfeita.</p>
+
+    <div class="alert alert-warning mt-4">
+      <span class="material-icons">warning</span>
+      <div>
+        <div class="font-semibold">Confirmar exclusão</div>
+        <div class="text-sm">
+          Tem certeza que deseja excluir esta movimentacao financeira
+          <span class="font-medium"
+            >{{ object.description|default:object.source }}</span
+          >?
+        </div>
+      </div>
+    </div>
+
+    <form
+      method="post"
+      class="modal-action"
+      hx-post="{{ request.path }}"
+      hx-target="{{ hx_target|default:'#modal-container' }}"
+      hx-swap="innerHTML"
+    >
+      {% csrf_token %}
+      <label for="financial-movement-delete-modal" class="btn btn-ghost"
+        >Cancelar</label
+      >
+      <button type="submit" class="btn btn-error">Excluir</button>
+    </form>
+  </div>
+  <label class="modal-backdrop" for="financial-movement-delete-modal"
+    >Close</label
+  >
+</div>

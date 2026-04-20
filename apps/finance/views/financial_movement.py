@@ -136,7 +136,7 @@ class FinancialMovementCreateView(LoginRequiredMixin, WorkshopScopedMixin, Multi
         ]
 
     def get_success_url(self):
-        return self._get_next_url() or reverse("finance:financial_movement_list")
+        return self._get_next_url() or reverse("finance:reports_home")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -167,8 +167,9 @@ class FinancialMovementCreateView(LoginRequiredMixin, WorkshopScopedMixin, Multi
             success_url = self.get_success_url()
 
         if self.request.htmx:
-            response = redirect(success_url)
-            response["HX-Push-Url"] = success_url
+            from django.http import HttpResponse
+            response = HttpResponse(status=204)
+            response["HX-Redirect"] = success_url
             return response
 
         return redirect(success_url)

@@ -1,5 +1,3 @@
-from tokenize import blank_re
-
 from django.db import models
 
 from apps.core.models import TimeStampedModel
@@ -25,21 +23,21 @@ class FinancialMovement(TimeStampedModel):
     workshop = models.ForeignKey(to="workshops.Workshop", on_delete=models.CASCADE)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
     current_step = models.PositiveSmallIntegerField(default=1)
-    movement_kind = models.CharField(max_length=30, choices=MovementKind.choices, default=MovementKind.DEFAULT)
+    movement_kind = models.CharField(max_length=50, choices=MovementKind.choices, default=MovementKind.DEFAULT)
     workorder = models.ForeignKey("workorder.WorkOrder", on_delete=models.SET_NULL, null=True, blank=True, related_name="financial_movements")
     workorder_payment = models.ForeignKey("workorder.WorkOrderPaymentMethod", on_delete=models.CASCADE, null=True, blank=True, related_name="financial_movements")
 
     # Origem
     source = models.ForeignKey(to="sources.Source", verbose_name="Origem", null=True, blank=True, on_delete=models.PROTECT)
     collaborator = models.ForeignKey("collaborators.WorkshopCollaborator", verbose_name="Colaborador", on_delete=models.SET_NULL, related_name="financial_movements", null=True, blank=True)
-    supplier = models.ForeignKey("suppliers.Supplier",  verbose_name="Fornecedor", on_delete=models.SET_NULL, null=True, blank=True, related_name="financial_movements")
+    supplier = models.ForeignKey("suppliers.Supplier", verbose_name="Fornecedor", on_delete=models.SET_NULL, null=True, blank=True, related_name="financial_movements")
 
     # Itens
-    description = models.CharField(verbose_name="Descrição dos Itens", max_length=255, blank=True, null=True)
+    description = models.TextField(verbose_name="Descrição dos Itens", blank=True, null=True)
     items_observation = models.TextField(verbose_name="Observações dos Itens", blank=True, null=True)
 
     # Financeiro
-    direction = models.CharField(max_length=15, verbose_name="Tipo", choices=MovementDirection.choices, blank=True, null=True)
+    direction = models.CharField(max_length=50, verbose_name="Tipo", choices=MovementDirection.choices, blank=True, null=True)
     payment_method = models.ForeignKey(PaymentMethod, verbose_name="Forma de Pagamento", on_delete=models.PROTECT, blank=True, null=True)
     nf_number = models.CharField(max_length=50, verbose_name="Número da NF", blank=True, null=True)
     amount = MoneyField(verbose_name="Valor", max_digits=14, decimal_places=2, default=0, null=True)
@@ -102,6 +100,9 @@ class FinancialMovement(TimeStampedModel):
 
         if self.supplier_id:
             return str(self.supplier.name)
+
+        if self.source_id:
+            return str(self.source.name)
 
         return "-"
 

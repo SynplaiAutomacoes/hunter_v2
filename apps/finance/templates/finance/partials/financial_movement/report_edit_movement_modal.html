@@ -3,20 +3,20 @@
 <dialog
     id="report-edit-movement-modal"
     class="modal"
-    x-data
+    x-data="{ activeTab: 'payment' }"
     x-ref="editMovementModal"
     x-init="$nextTick(() => $el.showModal())"
     @click="if ($event.target === $el) $el.close()"
     @close="$el.remove()"
 >
-    <div class="modal-box w-11/12 max-w-4xl border border-base-300 bg-base-100 shadow-2xl">
-        <div class="flex items-center justify-between mb-2">
-            <h3 class="text-lg font-semibold text-base-content flex items-center gap-2">
-                <span class="material-icons text-base">edit</span>
+    <div class="modal-box w-[95vw] max-w-7xl border border-base-300 bg-base-100 shadow-2xl p-6 md:p-12">
+        <div class="flex items-center justify-between mb-8">
+            <h3 class="text-2xl font-bold text-base-content flex items-center gap-3">
+                <span class="material-icons text-primary text-2xl">edit</span>
                 Editar Movimentação Financeira
             </h3>
             <button type="button" class="btn btn-ghost btn-sm btn-circle" @click="$refs.editMovementModal.close()" aria-label="Fechar">
-                <span class="material-icons text-lg">close</span>
+                <span class="material-icons text-xl">close</span>
             </button>
         </div>
 
@@ -25,53 +25,218 @@
             method="post"
             enctype="multipart/form-data"
             hx-post="{% url 'finance:report_movement_edit' pk=movement.pk %}"
-            hx-target="#edit-modal-container"
-            hx-swap="innerHTML"
+            hx-target="closest .modal"
+            hx-swap="outerHTML"
             hx-encoding="multipart/form-data"
         >
             {% csrf_token %}
 
-            <div class="max-h-[65vh] overflow-y-auto pr-1 space-y-2 py-3">
+            <div class="tabs tabs-boxed mb-8 flex w-full flex-wrap gap-2 bg-base-200/70 p-2">
+                <button type="button" class="btn btn-sm" :class="activeTab === 'initial' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'initial'">Dados Iniciais</button>
+                <button type="button" class="btn btn-sm" :class="activeTab === 'item' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'item'">Sobre o Item</button>
+                <button type="button" class="btn btn-sm" :class="activeTab === 'payment' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'payment'">Sobre o Pagamento</button>
+                <button type="button" class="btn btn-sm" :class="activeTab === 'attachment' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'attachment'">Anexo</button>
+            </div>
+
+            <div class="max-h-[60vh] overflow-y-auto px-4 md:px-16 space-y-6 py-4">
                 {% crispy form %}
             </div>
 
-            <div class="modal-action mt-4 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
-                <button type="button" class="btn-form-cancel" @click="$refs.editMovementModal.close()">Cancelar</button>
-                <button type="submit" class="btn btn-primary">
-                    <span class="material-icons text-sm">save</span>
-                    Salvar
+            <div class="modal-action mt-10 flex items-center justify-between border-t border-base-200 pt-8">
+                <button
+                    type="button"
+                    class="btn btn-error btn-outline px-6"
+                    hx-get="{% url 'finance:report_movement_delete' pk=movement.pk %}"
+                    hx-target="closest .modal"
+                    hx-swap="outerHTML"
+                >
+                    <span class="material-icons text-sm">delete</span>
+                    Excluir
                 </button>
+                <div class="flex items-center gap-4">
+                    <button type="button" class="btn-form-cancel" @click="$refs.editMovementModal.close()">Cancelar</button>
+                    <button type="submit" class="btn btn-primary px-10">
+                        <span class="material-icons text-sm">save</span>
+                        Salvar Alterações
+                    </button>
+                </div>
             </div>
         </form>
     </div>
 </dialog>
+
+{{ form.payment_method_filter_data|json_script:"report-edit-payment-method-data" }}
 
 <script>
 (function() {
     const modal = document.getElementById('report-edit-movement-modal');
     if (!modal) return;
 
-    const sourceInput = modal.querySelector('input[name="source"]');
-    const detailsContainer = modal.querySelector('#report-edit-source-details');
+    const supplierInput = modal.querySelector('input[name="supplier"]');
+    const collaboratorInput = modal.querySelector('input[name="collaborator"]');
+    const directionInput = modal.querySelector('input[name="direction"]');
+    const paymentMethodInput = modal.querySelector('input[name="payment_method"]');
+    const detailsContainer = modal.querySelector('#report-edit-entity-details');
+    const paymentMethodConfigElement = document.getElementById('report-edit-payment-method-data');
+    const paymentMethodFilterData = paymentMethodConfigElement ? JSON.parse(paymentMethodConfigElement.textContent) : null;
 
-    if (sourceInput && detailsContainer) {
-        sourceInput.addEventListener('change', function() {
-            const sourceId = this.value;
+    function getWidgetElements(input) {
+        if (!input) return null;
+        const container = input.closest('[x-data]');
+        if (!container) return null;
 
-            if (!sourceId) {
-                detailsContainer.innerHTML = "<p class='italic opacity-50 text-center py-4'>Selecione uma origem para ver os detalhes.</p>";
+        return {
+            container,
+            hiddenInput: input,
+            textInput: container.querySelector('input[type="text"]') || container.querySelector('button'),
+        };
+    }
+
+    function clearWidget(input) {
+        const elements = getWidgetElements(input);
+        if (!elements) return;
+
+        if (window.Alpine) {
+            const alpineData = Alpine.$data(elements.container);
+            if (alpineData && typeof alpineData.clear === 'function') {
+                alpineData.clear();
                 return;
             }
+        }
 
-            const url = `{% url 'finance:source_details' %}?source=${sourceId}`;
+        elements.hiddenInput.value = '';
+        elements.hiddenInput.dispatchEvent(new Event('input', { bubbles: true }));
+        elements.hiddenInput.dispatchEvent(new Event('change', { bubbles: true }));
 
-            fetch(url, {
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            })
-            .then(response => response.text())
-            .then(html => { detailsContainer.innerHTML = html; })
-            .catch(error => console.error('Erro ao buscar detalhes:', error));
+        if (elements.textInput && elements.textInput.tagName === 'INPUT') {
+            elements.textInput.value = '';
+        }
+    }
+
+    function setWidgetDisabled(input, disabled) {
+        const elements = getWidgetElements(input);
+        if (!elements) return;
+
+        if (window.Alpine) {
+            const alpineData = Alpine.$data(elements.container);
+            if (alpineData) {
+                if (typeof alpineData.closeDropdown === 'function') {
+                    alpineData.closeDropdown();
+                }
+                alpineData.open = false;
+            }
+        }
+
+        elements.hiddenInput.disabled = disabled;
+        if (elements.textInput) {
+            elements.textInput.disabled = disabled;
+        }
+        elements.container.classList.toggle('opacity-60', disabled);
+        elements.container.classList.toggle('pointer-events-none', disabled);
+    }
+
+    function setWidgetAllowedValues(input, allowedValues) {
+        const elements = getWidgetElements(input);
+        if (!elements || !window.Alpine) return;
+
+        function apply(attempt = 0) {
+            try {
+                const alpineData = Alpine.$data(elements.container);
+                if (alpineData && typeof alpineData.setAllowedValues === 'function') {
+                    alpineData.setAllowedValues(allowedValues);
+                } else if (attempt < 10) {
+                    setTimeout(() => apply(attempt + 1), 100);
+                }
+            } catch (e) {
+                if (attempt < 10) setTimeout(() => apply(attempt + 1), 100);
+            }
+        }
+        apply();
+    }
+
+    function renderPlaceholder() {
+        if (!detailsContainer) return;
+        detailsContainer.innerHTML = "<p class='italic opacity-50 text-center py-4'>Selecione um fornecedor ou colaborador para ver os detalhes.</p>";
+    }
+
+    function loadEntityDetails(type, id) {
+        if (!detailsContainer) return;
+
+        if (!type || !id) {
+            renderPlaceholder();
+            return;
+        }
+
+        const url = `{% url 'finance:entity_details' %}?type=${type}&id=${id}`;
+
+        fetch(url, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
+        .then(response => response.text())
+        .then(html => { detailsContainer.innerHTML = html; })
+        .catch(error => console.error('Erro ao buscar detalhes:', error));
+    }
+
+    function syncEntityState(changedField) {
+        const supplierId = supplierInput ? supplierInput.value : '';
+        const collaboratorId = collaboratorInput ? collaboratorInput.value : '';
+
+        if (changedField === 'supplier' && supplierId && collaboratorInput) {
+            clearWidget(collaboratorInput);
+        }
+
+        if (changedField === 'collaborator' && collaboratorId && supplierInput) {
+            clearWidget(supplierInput);
+        }
+
+        const nextSupplierId = supplierInput ? supplierInput.value : '';
+        const nextCollaboratorId = collaboratorInput ? collaboratorInput.value : '';
+
+        if (nextSupplierId && nextCollaboratorId) {
+            setWidgetDisabled(supplierInput, false);
+            setWidgetDisabled(collaboratorInput, false);
+            loadEntityDetails('supplier', nextSupplierId);
+            return;
+        }
+
+        setWidgetDisabled(collaboratorInput, Boolean(nextSupplierId));
+        setWidgetDisabled(supplierInput, Boolean(nextCollaboratorId));
+
+        if (nextSupplierId) {
+            loadEntityDetails('supplier', nextSupplierId);
+            return;
+        }
+
+        if (nextCollaboratorId) {
+            loadEntityDetails('collaborator', nextCollaboratorId);
+            return;
+        }
+
+        renderPlaceholder();
+    }
+
+    function syncPaymentMethodState() {
+        if (!directionInput || !paymentMethodInput || !paymentMethodFilterData) return;
+
+        const allowedValues = paymentMethodFilterData[directionInput.value] || null;
+        setWidgetAllowedValues(paymentMethodInput, allowedValues);
+    }
+
+    if (supplierInput && collaboratorInput && detailsContainer) {
+        supplierInput.addEventListener('change', function() {
+            syncEntityState('supplier');
         });
+
+        collaboratorInput.addEventListener('change', function() {
+            syncEntityState('collaborator');
+        });
+
+        setTimeout(syncEntityState, 150);
+    }
+
+    if (directionInput && paymentMethodInput && paymentMethodFilterData) {
+        directionInput.addEventListener('change', syncPaymentMethodState);
+        setTimeout(syncPaymentMethodState, 250);
     }
 })();
 </script>

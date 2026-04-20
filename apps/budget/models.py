@@ -88,7 +88,7 @@ class Budget(TimeStampedModel):
     expiration_date = models.DateField(verbose_name="Data de Validade", null=True, blank=True)
     entry_date = models.DateField(verbose_name="Data de Entrada")
     is_warranty_budget = models.BooleanField(verbose_name="Orçamento de Garantia", default=False)
-    budget_type = models.CharField(verbose_name="Tipo de Orçamento", choices=BudgetType.choices, default=BudgetType.SALE)
+    budget_type = models.CharField(verbose_name="Tipo de Orçamento", max_length=50, choices=BudgetType.choices, default=BudgetType.SALE)
 
     # Informações Técnicas
     problem_description = models.TextField(verbose_name="Relato principal do cliente", blank=True, null=True)
@@ -101,13 +101,7 @@ class Budget(TimeStampedModel):
 
     # Financeiro
     discount_value = MoneyField(verbose_name="Aplicar Desconto (R$)", max_digits=14, decimal_places=2, default=0.00)
-    discount_percentage = models.DecimalField(
-        verbose_name="Aplicar Desconto (%)",
-        max_digits=7,
-        decimal_places=6,
-        default=0.00,
-        validators=[MinValueValidator(0), MaxValueValidator(1)],
-    )
+    discount_percentage = models.DecimalField(verbose_name="Aplicar Desconto (%)", max_digits=7, decimal_places=6, default=0.00, validators=[MinValueValidator(0), MaxValueValidator(1)])
 
     # Margens e Ajustes
     profit_margin_parts = models.DecimalField(verbose_name="Percentual Lucro de Peças", max_digits=5, decimal_places=2, default=0.00)
@@ -115,7 +109,7 @@ class Budget(TimeStampedModel):
     slider = models.SmallIntegerField(verbose_name="Slider", default=0, validators=[MinValueValidator(-100), MaxValueValidator(100)], help_text="Negativo: Peça | Positivo: Mão de Obra")
 
     # Status e Controle
-    status = models.CharField(verbose_name="Status", max_length=20, choices=BudgetStatus.choices, default=BudgetStatus.DRAFT)
+    status = models.CharField(verbose_name="Status", max_length=50, choices=BudgetStatus.choices, default=BudgetStatus.DRAFT)
     cancellation_reason = models.CharField(verbose_name="Motivo do Cancelamento", max_length=255, blank=True, null=True)
     current_step = models.PositiveSmallIntegerField(verbose_name="Etapa Atual", default=1)
     step5_calculation_viewed = models.BooleanField(verbose_name="Calculo da etapa 5 visualizado", default=False)
