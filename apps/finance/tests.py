@@ -5384,6 +5384,46 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertContains(response, collaborator.cpf)
         self.assertRegex(response.content.decode("utf-8"), r'<input[^>]*name="supplier"[^>]*disabled')
 
+    def test_report_delete_modal_uses_reports_edit_container_as_htmx_target(self) -> None:
+        movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("100.00", "BRL"),
+            due_date=date(2026, 3, 12),
+            description="Movimento para excluir",
+        )
+
+        response = self.client.get(
+            reverse("finance:report_movement_delete", kwargs={"pk": movement.pk}),
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Excluir Movimentacao Financeira")
+        self.assertContains(response, 'hx-target="#edit-modal-container"', html=False)
+
+    def test_report_delete_modal_post_deletes_movement_and_returns_hx_refresh(self) -> None:
+        movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("120.00", "BRL"),
+            due_date=date(2026, 3, 18),
+            description="Movimento removivel",
+        )
+
+        response = self.client.post(
+            reverse("finance:report_movement_delete", kwargs={"pk": movement.pk}),
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("HX-Refresh"), "true")
+        self.assertFalse(FinancialMovement.objects.filter(pk=movement.pk).exists())
+
     def test_report_edit_modal_post_updates_supplier_and_clears_collaborator_and_source(self) -> None:
         old_supplier = self._create_supplier(suffix=3, name="Fornecedor Antigo")
         new_supplier = self._create_supplier(suffix=4, name="Fornecedor Novo")
