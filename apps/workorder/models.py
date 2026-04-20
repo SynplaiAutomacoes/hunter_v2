@@ -43,13 +43,8 @@ class WorkOrder(TimeStampedModel):
     budget = models.ForeignKey("budget.Budget", on_delete=models.CASCADE, related_name="workorders", help_text="Orçamento Aprovado vinculado à esta O.S.")
     status = models.CharField(verbose_name="Status", max_length=20, choices=WorkOrderStatus.choices, default=WorkOrderStatus.DRAFT)
     discount_value = MoneyField(verbose_name="Desconto da O.S. (R$)", max_digits=14, decimal_places=2, default=0.00)
-    discount_percentage = models.DecimalField(
-        verbose_name="Desconto da O.S. (%)",
-        max_digits=7,
-        decimal_places=6,
-        default=Decimal("0.00"),
-        validators=[MinValueValidator(0), MaxValueValidator(1)],
-    )
+    discount_percentage = models.DecimalField(verbose_name="Desconto da O.S. (%)", max_digits=7,
+        decimal_places=6, default=Decimal("0.00"), validators=[MinValueValidator(0), MaxValueValidator(1)])
     signature_token_version = models.PositiveIntegerField(verbose_name="ID do PDF da Ordem de Serviço", default=1)
     signature_token_active = models.BooleanField(verbose_name="Token de Assinatura Ativo", default=True)
     signature_request_status = models.CharField(max_length=30, choices=WorkOrderSignatureStatus.choices, default=WorkOrderSignatureStatus.NOT_SENT)

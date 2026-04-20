@@ -22,12 +22,6 @@ class FinancialMovement(TimeStampedModel):
         WORKORDER_PARENT = "WORKORDER_PARENT", "OS Pai"
         WORKORDER_CARD_FEE = "WORKORDER_CARD_FEE", "Taxa da Maquininha"
 
-    class DreTopic(models.TextChoices):
-        RECEITA_BRUTA_VENDAS_E_SERVICOS = "receita_bruta_vendas_e_servicos", "Receita Bruta de Vendas e Serviços"
-        CUSTOS_MERCADORIAS_VENDIDAS = "custos_mercadorias_vendidas", "Custos Mercadorias Vendidas"
-        RECEITAS_FINANCEIRAS = "receitas_financeiras", "Receitas Financeiras"
-        DESPESAS_FINANCEIRAS = "despesas_financeiras", "Despesas Financeiras"
-
     workshop = models.ForeignKey(to="workshops.Workshop", on_delete=models.CASCADE)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
     current_step = models.PositiveSmallIntegerField(default=1)
