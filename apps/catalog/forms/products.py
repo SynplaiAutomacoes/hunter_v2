@@ -253,7 +253,7 @@ class ProductForm(forms.ModelForm):
             Div(
                 Div(
                     # --- DADOS GERAIS ---
-                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Dados Gerais</h3>'),
+                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">dados gerais</h3>'),
                     Field("code", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("name", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("unit", wrapper_class="col-span-12 lg:col-span-4"),
