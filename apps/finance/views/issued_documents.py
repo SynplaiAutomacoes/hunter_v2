@@ -25,8 +25,8 @@ from apps.workshops.mixin import WorkshopScopedMixin
 class IssuedDocumentsFilterMixin:
     NOTE_TYPE_CHOICES: tuple[tuple[str, str], ...] = (
         ("all", "Todas"),
-        ("nfe", "NF-e"),
-        ("nfse", "NFS-e"),
+        ("nfe", "Nota Fiscal Produto"),
+        ("nfse", "Nota Fiscal Serviço"),
     )
 
     DOCUMENT_LABELS_BY_TYPE: dict[str, dict[str, list[tuple[str, str]]]] = {
@@ -36,7 +36,7 @@ class IssuedDocumentsFilterMixin:
         },
         "nfse": {
             "xml": [("xml_url", "XML")],
-            "pdfs": [("pdf_nfse_url", "PDF NFS-e")],
+            "pdfs": [("pdf_nfse_url", "PDF da Nota Fiscal de Serviço")],
         },
     }
 
@@ -186,7 +186,7 @@ class IssuedDocumentsFilterMixin:
 
         return {
             "note_type": "nfe",
-            "note_type_label": "NF-e",
+            "note_type_label": "Nota Fiscal Produto",
             "note_type_badge_class": "badge-soft badge-info",
             "request_id": request_obj.pk,
             "number": request_obj.number_display,
@@ -213,7 +213,7 @@ class IssuedDocumentsFilterMixin:
 
         return {
             "note_type": "nfse",
-            "note_type_label": "NFS-e",
+            "note_type_label": "Nota Fiscal Serviço",
             "note_type_badge_class": "badge-soft badge-success",
             "request_id": request_obj.pk,
             "number": note_number or request_obj.rps_number_display,
