@@ -25,8 +25,8 @@
             method="post"
             enctype="multipart/form-data"
             hx-post="{% url 'finance:report_movement_edit' pk=movement.pk %}"
-            hx-target="#edit-modal-container"
-            hx-swap="innerHTML"
+            hx-target="closest .modal"
+            hx-swap="outerHTML"
             hx-encoding="multipart/form-data"
         >
             {% csrf_token %}
@@ -42,12 +42,24 @@
                 {% crispy form %}
             </div>
 
-            <div class="modal-action mt-10 flex items-center justify-end gap-4 border-t border-base-200 pt-8">
-                <button type="button" class="btn-form-cancel" @click="$refs.editMovementModal.close()">Cancelar</button>
-                <button type="submit" class="btn btn-primary px-10">
-                    <span class="material-icons text-sm">save</span>
-                    Salvar Alterações
+            <div class="modal-action mt-10 flex items-center justify-between border-t border-base-200 pt-8">
+                <button
+                    type="button"
+                    class="btn btn-error btn-outline px-6"
+                    hx-get="{% url 'finance:report_movement_delete' pk=movement.pk %}"
+                    hx-target="closest .modal"
+                    hx-swap="outerHTML"
+                >
+                    <span class="material-icons text-sm">delete</span>
+                    Excluir
                 </button>
+                <div class="flex items-center gap-4">
+                    <button type="button" class="btn-form-cancel" @click="$refs.editMovementModal.close()">Cancelar</button>
+                    <button type="submit" class="btn btn-primary px-10">
+                        <span class="material-icons text-sm">save</span>
+                        Salvar Alterações
+                    </button>
+                </div>
             </div>
         </form>
     </div>
