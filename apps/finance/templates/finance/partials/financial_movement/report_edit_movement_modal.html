@@ -9,14 +9,14 @@
     @click="if ($event.target === $el) $el.close()"
     @close="$el.remove()"
 >
-    <div class="modal-box w-[92vw] max-w-6xl border border-base-300 bg-base-100 shadow-2xl">
-        <div class="flex items-center justify-between mb-2">
-            <h3 class="text-lg font-semibold text-base-content flex items-center gap-2">
-                <span class="material-icons text-base">edit</span>
+    <div class="modal-box w-[95vw] max-w-7xl border border-base-300 bg-base-100 shadow-2xl p-6 md:p-12">
+        <div class="flex items-center justify-between mb-8">
+            <h3 class="text-2xl font-bold text-base-content flex items-center gap-3">
+                <span class="material-icons text-primary text-2xl">edit</span>
                 Editar Movimentação Financeira
             </h3>
             <button type="button" class="btn btn-ghost btn-sm btn-circle" @click="$refs.editMovementModal.close()" aria-label="Fechar">
-                <span class="material-icons text-lg">close</span>
+                <span class="material-icons text-xl">close</span>
             </button>
         </div>
 
@@ -31,22 +31,22 @@
         >
             {% csrf_token %}
 
-            <div class="tabs tabs-boxed mb-4 flex w-full flex-wrap gap-2 bg-base-200/70 p-2">
+            <div class="tabs tabs-boxed mb-8 flex w-full flex-wrap gap-2 bg-base-200/70 p-2">
                 <button type="button" class="btn btn-sm" :class="activeTab === 'initial' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'initial'">Dados Iniciais</button>
                 <button type="button" class="btn btn-sm" :class="activeTab === 'item' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'item'">Sobre o Item</button>
                 <button type="button" class="btn btn-sm" :class="activeTab === 'payment' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'payment'">Sobre o Pagamento</button>
                 <button type="button" class="btn btn-sm" :class="activeTab === 'attachment' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'attachment'">Anexo</button>
             </div>
 
-            <div class="max-h-[65vh] overflow-y-auto px-4 space-y-2 py-3">
+            <div class="max-h-[60vh] overflow-y-auto px-4 md:px-16 space-y-6 py-4">
                 {% crispy form %}
             </div>
 
-            <div class="modal-action mt-4 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
+            <div class="modal-action mt-10 flex items-center justify-end gap-4 border-t border-base-200 pt-8">
                 <button type="button" class="btn-form-cancel" @click="$refs.editMovementModal.close()">Cancelar</button>
-                <button type="submit" class="btn btn-primary">
+                <button type="submit" class="btn btn-primary px-10">
                     <span class="material-icons text-sm">save</span>
-                    Salvar
+                    Salvar Alterações
                 </button>
             </div>
         </form>
@@ -76,7 +76,7 @@
         return {
             container,
             hiddenInput: input,
-            textInput: container.querySelector('input[type="text"]'),
+            textInput: container.querySelector('input[type="text"]') || container.querySelector('button'),
         };
     }
 
@@ -96,7 +96,7 @@
         elements.hiddenInput.dispatchEvent(new Event('input', { bubbles: true }));
         elements.hiddenInput.dispatchEvent(new Event('change', { bubbles: true }));
 
-        if (elements.textInput) {
+        if (elements.textInput && elements.textInput.tagName === 'INPUT') {
             elements.textInput.value = '';
         }
     }
@@ -127,10 +127,19 @@
         const elements = getWidgetElements(input);
         if (!elements || !window.Alpine) return;
 
-        const alpineData = Alpine.$data(elements.container);
-        if (alpineData && typeof alpineData.setAllowedValues === 'function') {
-            alpineData.setAllowedValues(allowedValues);
+        function apply(attempt = 0) {
+            try {
+                const alpineData = Alpine.$data(elements.container);
+                if (alpineData && typeof alpineData.setAllowedValues === 'function') {
+                    alpineData.setAllowedValues(allowedValues);
+                } else if (attempt < 10) {
+                    setTimeout(() => apply(attempt + 1), 100);
+                }
+            } catch (e) {
+                if (attempt < 10) setTimeout(() => apply(attempt + 1), 100);
+            }
         }
+        apply();
     }
 
     function renderPlaceholder() {
@@ -210,12 +219,12 @@
             syncEntityState('collaborator');
         });
 
-        syncEntityState();
+        setTimeout(syncEntityState, 150);
     }
 
     if (directionInput && paymentMethodInput && paymentMethodFilterData) {
         directionInput.addEventListener('change', syncPaymentMethodState);
-        syncPaymentMethodState();
+        setTimeout(syncPaymentMethodState, 250);
     }
 })();
 </script>
