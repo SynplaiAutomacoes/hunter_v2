@@ -276,7 +276,6 @@
                                             <th>Tipo</th>
                                             <th>Vencimento</th>
                                             <th>Agente</th>
-                                            <th>Origem</th>
                                             <th>Descrição</th>
                                             <th>Plano Orçamentário</th>
                                             <th>Conta</th>
@@ -306,18 +305,26 @@
                                                 <td><span class="badge {{ row.type_badge.class }} badge-sm whitespace-nowrap">{{ row.type_badge.text }}</span></td>
                                                 <td>{{ row.due_date|date:"d/m/Y"|default:"-" }}</td>
                                                 <td>{{ row.agent }}</td>
-                                                <td>{{ row.origin }}</td>
                                                 <td>{{ row.description }}</td>
                                                 <td>{{ row.budget_plan }}</td>
                                                 <td>{{ row.account }}</td>
                                                 <td>{{ row.payment_type }}</td>
                                                 <td class="text-center">
-                                                    <button type="button" class="btn btn-ghost btn-xs" title="Editar Movimentação Financeira" aria-label="Editar Movimentação Financeira"
+                                                    {% if row.is_workorder %}
+                                                        <button type="button" class="btn btn-ghost btn-xs"
+                                                            title="Abrir Ordem de Serviço"
+                                                            onclick="window.location.href='{{ row.edit_modal_url }}'">
+                                                            <span class="material-icons text-sm">open_in_new</span>
+                                                        </button>
+                                                    {% else %}
+                                                        <button type="button" class="btn btn-ghost btn-xs"
+                                                            title="Editar Movimentação Financeira"
                                                             hx-get="{{ row.edit_modal_url }}"
                                                             hx-target="#edit-modal-container"
                                                             hx-swap="innerHTML">
-                                                        <span class="material-icons text-sm">edit</span>
-                                                    </button>
+                                                            <span class="material-icons text-sm">edit</span>
+                                                        </button>
+                                                    {% endif %}
                                                 </td>
                                                 <td class="text-right"><span class="{{ row.total.class }}">{{ row.total.text }}</span></td>
                                             </tr>

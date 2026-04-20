@@ -46,7 +46,15 @@ from apps.finance.views import (
 
 from apps.finance.views.cash_flow import CashFlowView
 from apps.finance.views.bank_account import BankAccountListView, BankAccountUpdateView, BankAccountCreateView
-from apps.finance.views.financial_movement import FinancialMovementCreateView, FinancialMovementDeleteView, FinancialMovementListView, FinancialMovementUpdateView, SourceDetailView
+from apps.finance.views.financial_movement import (
+    FinancialMovementCreateView,
+    FinancialMovementDeleteView,
+    FinancialMovementListView,
+    FinancialMovementUpdateView,
+    SourceDetailView,
+    EntityListView,
+    EntityDetailView,
+)
 from apps.finance.views.payment_method import PaymentMethodListView, PaymentMethodCreateView, PaymentMethodUpdateView
 from apps.finance.views.reports import ReportMovementEditView
 
@@ -99,6 +107,8 @@ urlpatterns = [
     path("financial-movement/<int:pk>/update/", FinancialMovementUpdateView.as_view(), name="financial_movement_update"),
     path("financial-movement/<int:pk>/delete/", FinancialMovementDeleteView.as_view(), name="financial_movement_delete"),
     path("financial-movement/source_details/", SourceDetailView.as_view(), name="source_details"),
+    path("entities", EntityListView.as_view(), name="entities"),
+    path("entity_details", EntityDetailView.as_view(), name="entity_details"),
     # NFS-e
     path("nfse/", NfseRequestListView.as_view(), name="nfse_list"),
     path("nfse/create/", NfseCreateRedirectView.as_view(), name="nfse_create"),

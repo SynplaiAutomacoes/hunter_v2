@@ -212,14 +212,23 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         payments = list(payment_manager.all()) if payment_manager is not None else []
         latest_payment_date = max((payment.due_date for payment in payments if payment.due_date), default=None)
         total_paid = sum((self._resolve_money_amount(payment.total_paid) for payment in payments), start=Decimal("0.00"))
-        customer = getattr(getattr(workorder, "budget", None), "customer", None) if workorder is not None else None
+        paid_status = movement.report_paid_indicator
+        agent = movement.report_agent_display
+        due_date = movement.due_date
+        description = movement.report_description_display
+        payment_type = movement.report_payment_method_display
+        details = []
+        edit_modal_url = reverse("finance:report_movement_edit", kwargs={"pk": movement.pk})
+        is_workorder = False
+
+        if movement.workorder_id:
+            edit_modal_url = reverse("workorder:workorder_detail", kwargs={"pk": movement.workorder_id})
+            is_workorder = True
 
         if workorder is not None and movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
             total_amount = self._resolve_money_amount(workorder.total_budget_value)
             paid_status: str | dict[str, str] = self._resolve_paid_status(total_paid=total_paid, total_amount=self._resolve_money_amount(workorder.total_budget_value))
             due_date = latest_payment_date
-            agent = getattr(customer, "name", "-") or "-"
-            origin = f"OS #{workorder.pk}"
             description = self._resolve_workorder_description(workorder)
             payment_type = self._resolve_payment_method_summary(payments)
             remaining_amount = total_amount
@@ -236,22 +245,6 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
                         "pending_class": "text-success" if remaining_amount == Decimal("0.00") else "text-warning",
                     }
                 )
-        elif workorder is not None:
-            paid_status = movement.report_paid_indicator
-            due_date = movement.due_date
-            agent = getattr(customer, "name", "-") or "-"
-            origin = f"OS #{workorder.pk}"
-            description = movement.report_description_display
-            payment_type = movement.report_payment_method_display
-            details = []
-        else:
-            paid_status = movement.report_paid_indicator
-            due_date = movement.due_date
-            agent = movement.report_agent_display
-            origin = movement.report_origin_display
-            description = movement.report_description_display
-            payment_type = movement.report_payment_method_display
-            details = []
 
         return {
             "component": f"financial-movement-{movement.pk}",
@@ -260,13 +253,13 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "type_badge": movement.report_direction_badge,
             "due_date": due_date,
             "agent": agent,
-            "origin": origin,
             "description": description,
             "budget_plan": movement.report_budget_plan_display,
             "account": movement.report_bank_account_display,
             "payment_type": payment_type,
             "edit_url": reverse("finance:financial_movement_update", kwargs={"pk": movement.pk}),
-            "edit_modal_url": reverse("finance:report_movement_edit", kwargs={"pk": movement.pk}),
+            "edit_modal_url": edit_modal_url,
+            "is_workorder": is_workorder,
             "total": movement.report_total_display,
             "details": details,
         }
