@@ -104,7 +104,6 @@ INSTALLED_APPS = [
     "apps.catalog",
     "apps.sources",
     "apps.suppliers",
-    "apps.sources",
     "apps.quote",
     "apps.checklist",
     "apps.budget",
