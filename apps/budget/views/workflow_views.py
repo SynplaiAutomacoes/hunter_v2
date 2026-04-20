@@ -708,8 +708,9 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 error_message = str(exc)
                 messages.error(request, error_message)
                 return JsonResponse({"success": False, "error": error_message}, status=400)
-            except Exception:
-                error_message = "Erro interno ao processar aprovação automática de estoque."
+            except Exception as e:
+                print(f"E: {e}")
+                error_message = "Erro interno ao processar aprovação do orçamento."
                 messages.error(request, error_message)
                 return JsonResponse({"success": False, "error": error_message}, status=500)
 

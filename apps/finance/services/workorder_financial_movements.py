@@ -57,7 +57,6 @@ def sync_workorder_card_fee_movements(*, workorder: WorkOrder) -> None:
             "amount": fee_amount,
             "due_date": payment.due_date,
             "is_paid": True,
-            "dre_topic": FinancialMovement.DreTopic.DESPESAS_FINANCEIRAS,
         }
 
         fee_movement = (
@@ -101,7 +100,6 @@ def sync_workorder_financial_movement(*, workorder: WorkOrder) -> FinancialMovem
         "amount": workorder.total_budget_value,
         "due_date": workorder.criado_em.date() if workorder.criado_em else None,
         "movement_kind": FinancialMovement.MovementKind.WORKORDER_PARENT,
-        "dre_topic": FinancialMovement.DreTopic.RECEITA_BRUTA_VENDAS_E_SERVICOS,
     }
 
     movement = FinancialMovement.objects.filter(workorder=workorder, movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT).order_by("pk").first()
