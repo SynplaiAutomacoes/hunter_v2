@@ -102,6 +102,7 @@ INSTALLED_APPS = [
     "apps.workshops",
     "apps.collaborators",
     "apps.catalog",
+    "apps.sources",
     "apps.suppliers",
     "apps.quote",
     "apps.checklist",

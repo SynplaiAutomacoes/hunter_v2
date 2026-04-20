@@ -1,5 +1,3 @@
-from tokenize import blank_re
-
 from django.db import models
 
 from apps.core.models import TimeStampedModel
@@ -32,7 +30,7 @@ class FinancialMovement(TimeStampedModel):
     # Origem
     source = models.ForeignKey(to="sources.Source", verbose_name="Origem", null=True, blank=True, on_delete=models.PROTECT)
     collaborator = models.ForeignKey("collaborators.WorkshopCollaborator", verbose_name="Colaborador", on_delete=models.SET_NULL, related_name="financial_movements", null=True, blank=True)
-    supplier = models.ForeignKey("suppliers.Supplier",  verbose_name="Fornecedor", on_delete=models.SET_NULL, null=True, blank=True, related_name="financial_movements")
+    supplier = models.ForeignKey("suppliers.Supplier", verbose_name="Fornecedor", on_delete=models.SET_NULL, null=True, blank=True, related_name="financial_movements")
 
     # Itens
     description = models.CharField(verbose_name="Descrição dos Itens", max_length=255, blank=True, null=True)
@@ -102,6 +100,9 @@ class FinancialMovement(TimeStampedModel):
 
         if self.supplier_id:
             return str(self.supplier.name)
+
+        if self.source_id:
+            return str(self.source.name)
 
         return "-"
 

@@ -95,6 +95,8 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             FinancialMovement.objects.filter(workshop=self.workshop)
             .select_related(
                 "source",
+                "supplier",
+                "collaborator",
                 "budget_plan",
                 "bank_account",
                 "payment_method",
@@ -175,17 +177,20 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             queryset = queryset.filter(direction=direction)
 
         from django.db.models import Q
+
         search = str(self.request.GET.get("search") or "").strip()
         if search:
             queryset = queryset.filter(
-                Q(description__icontains=search) |
-                Q(items_observation__icontains=search) |
-                Q(financial_observation__icontains=search) |
-                Q(nf_number__icontains=search) |
-                Q(source__name__icontains=search) |
-                Q(budget_plan__name__icontains=search) |
-                Q(bank_account__bank_name__icontains=search) |
-                Q(workorder__id__icontains=search)
+                Q(description__icontains=search)
+                | Q(items_observation__icontains=search)
+                | Q(financial_observation__icontains=search)
+                | Q(nf_number__icontains=search)
+                | Q(source__name__icontains=search)
+                | Q(supplier__name__icontains=search)
+                | Q(collaborator__name__icontains=search)
+                | Q(budget_plan__name__icontains=search)
+                | Q(bank_account__bank_name__icontains=search)
+                | Q(workorder__id__icontains=search)
             )
 
         return queryset
@@ -319,6 +324,7 @@ class ReportMovementEditView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView
 
     def get_form_class(self):
         from apps.finance.forms.financial_movement import ReportMovementEditForm
+
         return ReportMovementEditForm
 
     def get_queryset(self):

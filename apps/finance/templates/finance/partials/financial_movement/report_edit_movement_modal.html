@@ -9,7 +9,7 @@
     @click="if ($event.target === $el) $el.close()"
     @close="$el.remove()"
 >
-    <div class="modal-box w-11/12 max-w-4xl border border-base-300 bg-base-100 shadow-2xl">
+    <div class="modal-box w-11/12 max-w-5xl border border-base-300 bg-base-100 shadow-2xl">
         <div class="flex items-center justify-between mb-2">
             <h3 class="text-lg font-semibold text-base-content flex items-center gap-2">
                 <span class="material-icons text-base">edit</span>
@@ -51,27 +51,136 @@
     const modal = document.getElementById('report-edit-movement-modal');
     if (!modal) return;
 
-    const sourceInput = modal.querySelector('input[name="source"]');
-    const detailsContainer = modal.querySelector('#report-edit-source-details');
+    const supplierInput = modal.querySelector('input[name="supplier"]');
+    const collaboratorInput = modal.querySelector('input[name="collaborator"]');
+    const detailsContainer = modal.querySelector('#report-edit-entity-details');
 
-    if (sourceInput && detailsContainer) {
-        sourceInput.addEventListener('change', function() {
-            const sourceId = this.value;
+    function getWidgetElements(input) {
+        if (!input) return null;
+        const container = input.closest('[x-data]');
+        if (!container) return null;
 
-            if (!sourceId) {
-                detailsContainer.innerHTML = "<p class='italic opacity-50 text-center py-4'>Selecione uma origem para ver os detalhes.</p>";
+        return {
+            container,
+            hiddenInput: input,
+            textInput: container.querySelector('input[type="text"]'),
+        };
+    }
+
+    function clearWidget(input) {
+        const elements = getWidgetElements(input);
+        if (!elements) return;
+
+        if (window.Alpine) {
+            const alpineData = Alpine.$data(elements.container);
+            if (alpineData && typeof alpineData.clear === 'function') {
+                alpineData.clear();
                 return;
             }
+        }
 
-            const url = `{% url 'finance:source_details' %}?source=${sourceId}`;
+        elements.hiddenInput.value = '';
+        elements.hiddenInput.dispatchEvent(new Event('input', { bubbles: true }));
+        elements.hiddenInput.dispatchEvent(new Event('change', { bubbles: true }));
 
-            fetch(url, {
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            })
-            .then(response => response.text())
-            .then(html => { detailsContainer.innerHTML = html; })
-            .catch(error => console.error('Erro ao buscar detalhes:', error));
+        if (elements.textInput) {
+            elements.textInput.value = '';
+        }
+    }
+
+    function setWidgetDisabled(input, disabled) {
+        const elements = getWidgetElements(input);
+        if (!elements) return;
+
+        if (window.Alpine) {
+            const alpineData = Alpine.$data(elements.container);
+            if (alpineData) {
+                if (typeof alpineData.closeDropdown === 'function') {
+                    alpineData.closeDropdown();
+                }
+                alpineData.open = false;
+            }
+        }
+
+        elements.hiddenInput.disabled = disabled;
+        if (elements.textInput) {
+            elements.textInput.disabled = disabled;
+        }
+        elements.container.classList.toggle('opacity-60', disabled);
+        elements.container.classList.toggle('pointer-events-none', disabled);
+    }
+
+    function renderPlaceholder() {
+        if (!detailsContainer) return;
+        detailsContainer.innerHTML = "<p class='italic opacity-50 text-center py-4'>Selecione um fornecedor ou colaborador para ver os detalhes.</p>";
+    }
+
+    function loadEntityDetails(type, id) {
+        if (!detailsContainer) return;
+
+        if (!type || !id) {
+            renderPlaceholder();
+            return;
+        }
+
+        const url = `{% url 'finance:entity_details' %}?type=${type}&id=${id}`;
+
+        fetch(url, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
+        .then(response => response.text())
+        .then(html => { detailsContainer.innerHTML = html; })
+        .catch(error => console.error('Erro ao buscar detalhes:', error));
+    }
+
+    function syncEntityState(changedField) {
+        const supplierId = supplierInput ? supplierInput.value : '';
+        const collaboratorId = collaboratorInput ? collaboratorInput.value : '';
+
+        if (changedField === 'supplier' && supplierId && collaboratorInput) {
+            clearWidget(collaboratorInput);
+        }
+
+        if (changedField === 'collaborator' && collaboratorId && supplierInput) {
+            clearWidget(supplierInput);
+        }
+
+        const nextSupplierId = supplierInput ? supplierInput.value : '';
+        const nextCollaboratorId = collaboratorInput ? collaboratorInput.value : '';
+
+        if (nextSupplierId && nextCollaboratorId) {
+            setWidgetDisabled(supplierInput, false);
+            setWidgetDisabled(collaboratorInput, false);
+            loadEntityDetails('supplier', nextSupplierId);
+            return;
+        }
+
+        setWidgetDisabled(collaboratorInput, Boolean(nextSupplierId));
+        setWidgetDisabled(supplierInput, Boolean(nextCollaboratorId));
+
+        if (nextSupplierId) {
+            loadEntityDetails('supplier', nextSupplierId);
+            return;
+        }
+
+        if (nextCollaboratorId) {
+            loadEntityDetails('collaborator', nextCollaboratorId);
+            return;
+        }
+
+        renderPlaceholder();
+    }
+
+    if (supplierInput && collaboratorInput && detailsContainer) {
+        supplierInput.addEventListener('change', function() {
+            syncEntityState('supplier');
         });
+
+        collaboratorInput.addEventListener('change', function() {
+            syncEntityState('collaborator');
+        });
+
+        syncEntityState();
     }
 })();
 </script>
