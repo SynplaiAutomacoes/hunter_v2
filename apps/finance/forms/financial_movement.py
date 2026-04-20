@@ -301,6 +301,7 @@ class MovementStep3Form(FinancialMovementBaseForm):
             widget=NumberInput(attrs={"class": "w-24 text-center", "placeholder": "1"}))
 
         self.fields["repeat_count"].label = ""
+        self.fields["repeat_count"].required = True
         
         repeat_choices = [("mensal", "Mensal")]
         has_collab = getattr(self.instance, "collaborator_id", None)
@@ -498,6 +499,7 @@ class MovementStep4Form(FinancialMovementBaseForm):
                 repeat_count = self.request.session.pop(f"repeat_count_{instance.pk}", None)
                 repeat_type = self.request.session.pop(f"repeat_type_{instance.pk}", None)
                 if repeat_count and repeat_count > 0:
+                    repeat_count = int(repeat_count) - 1 if repeat_count > 0 else int(repeat_count)
                     self._generate_repetitions(instance, repeat_count, repeat_type)
                     self.request.session[flag_key] = True
         return instance

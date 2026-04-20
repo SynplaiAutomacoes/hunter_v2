@@ -18,6 +18,7 @@ from apps.finance.forms.financial_movement import MovementStep1Form, MovementSte
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.views.navigation import append_query_params
 from apps.collaborators.models import WorkshopCollaborator
+from apps.sources.models import Source
 from apps.suppliers.models import Supplier
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import get_active_workshop_or_404
