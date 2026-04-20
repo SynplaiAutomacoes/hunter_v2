@@ -303,13 +303,11 @@ class MovementStep3Form(FinancialMovementBaseForm):
         self.fields["repeat_count"].label = ""
         
         repeat_choices = [("mensal", "Mensal")]
-        if getattr(self.instance, "collaborator_id", None):
+        has_collab = getattr(self.instance, "collaborator_id", None)
+        if has_collab:
             repeat_choices.append(("5_dia_util", "5º dia útil"))
         
-        self.fields["repeat_type"] = forms.ChoiceField(choices=repeat_choices, initial="mensal", required=False,
-            widget=forms.RadioSelect(attrs={"class": "radio radio-primary radio-sm"}))
-
-        self.fields["repeat_type"].label = ""
+        self.fields["repeat_type"] = forms.ChoiceField(choices=repeat_choices, initial="mensal", required=False)
 
         if self.workshop:
             self.fields["budget_plan"].widget.choices = [(bp.id, str(bp)) for bp in FinancialGroup.objects.filter(workshop=self.workshop)]
@@ -327,6 +325,11 @@ class MovementStep3Form(FinancialMovementBaseForm):
                         PaymentMethod.PaymentType.DEBIT, PaymentMethod.PaymentType.BOTH])
 
             self.fields["payment_method"].widget.choices = [(pm.id, str(pm)) for pm in payment_methods]
+
+        top_btn = '<input class="join-item btn bg-base-200 border-base-300 font-normal shadow-none px-6 checked:bg-primary checked:text-primary-content checked:border-primary" type="radio" name="repeat_type" value="mensal" aria-label="Mensal" checked />'
+        bot_btn = '<input class="join-item btn bg-base-200 border-base-300 font-normal shadow-none px-6 checked:bg-primary checked:text-primary-content checked:border-primary" type="radio" name="repeat_type" value="5_dia_util" aria-label="5º dia útil" />'
+        
+        repeat_html = f'<div class="join">{top_btn}{bot_btn if has_collab else ""}</div>'
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -349,7 +352,7 @@ class MovementStep3Form(FinancialMovementBaseForm):
                         css_class="flex items-center gap-2 mb-4"
                     ),
                     Div(
-                        Field("repeat_type", wrapper_class="text-lg inline-flex gap-4"),
+                        HTML(repeat_html),
                         css_class="flex items-center gap-4"
                     ),
                     css_class="col-span-6"
@@ -367,47 +370,14 @@ class MovementStep3Form(FinancialMovementBaseForm):
             repeat_count = self.cleaned_data.get("repeat_count")
             repeat_type = self.cleaned_data.get("repeat_type")
             
-            flag_key = f"generated_reps_{instance.pk}"
-            if repeat_count and repeat_count > 0 and getattr(self, "request", None) and not self.request.session.get(flag_key):
-                self._generate_repetitions(instance, repeat_count, repeat_type)
-                self.request.session[flag_key] = True
+            if getattr(self, "request", None):
+                if repeat_count and repeat_count > 0:
+                    self.request.session[f"repeat_count_{instance.pk}"] = repeat_count
+                    self.request.session[f"repeat_type_{instance.pk}"] = repeat_type
+                else:
+                    self.request.session.pop(f"repeat_count_{instance.pk}", None)
+                    self.request.session.pop(f"repeat_type_{instance.pk}", None)
         return instance
-
-    def _generate_repetitions(self, instance, count, r_type):
-        import calendar
-        import datetime
-        
-        def add_months(sourcedate, months):
-            month = sourcedate.month - 1 + months
-            year = sourcedate.year + month // 12
-            month = month % 12 + 1
-            day = min(sourcedate.day, calendar.monthrange(year,month)[1])
-            return datetime.date(year, month, day)
-            
-        def get_5th_business_day(year, month):
-            business_days = 0
-            day = 1
-            while True:
-                d = datetime.date(year, month, day)
-                if d.weekday() < 5:
-                    business_days += 1
-                    if business_days == 5:
-                        return d
-                day += 1
-
-        for i in range(1, count + 1):
-            new_instance = FinancialMovement.objects.get(pk=instance.pk)
-            new_instance.pk = None
-            new_instance.is_paid = False
-            new_instance.attachment = None
-            
-            if r_type == "mensal":
-                new_instance.due_date = add_months(instance.due_date, i)
-            elif r_type == "5_dia_util":
-                target_date = add_months(instance.due_date, i)
-                new_instance.due_date = get_5th_business_day(target_date.year, target_date.month)
-                
-            new_instance.save()
 
 
 class MovementStep4Form(FinancialMovementBaseForm):
@@ -519,6 +489,54 @@ class MovementStep4Form(FinancialMovementBaseForm):
                     </div>
                     """)
         )
+
+    def save(self, commit=True):
+        instance = super().save(commit=commit)
+        if commit:
+            flag_key = f"generated_reps_{instance.pk}"
+            if getattr(self, "request", None) and not self.request.session.get(flag_key):
+                repeat_count = self.request.session.pop(f"repeat_count_{instance.pk}", None)
+                repeat_type = self.request.session.pop(f"repeat_type_{instance.pk}", None)
+                if repeat_count and repeat_count > 0:
+                    self._generate_repetitions(instance, repeat_count, repeat_type)
+                    self.request.session[flag_key] = True
+        return instance
+
+    def _generate_repetitions(self, instance, count, r_type):
+        import calendar
+        import datetime
+        
+        def add_months(sourcedate, months):
+            month = sourcedate.month - 1 + months
+            year = sourcedate.year + month // 12
+            month = month % 12 + 1
+            day = min(sourcedate.day, calendar.monthrange(year,month)[1])
+            return datetime.date(year, month, day)
+            
+        def get_5th_business_day(year, month):
+            business_days = 0
+            day = 1
+            while True:
+                d = datetime.date(year, month, day)
+                if d.weekday() < 5:
+                    business_days += 1
+                    if business_days == 5:
+                        return d
+                day += 1
+
+        for i in range(1, count + 1):
+            new_instance = FinancialMovement.objects.get(pk=instance.pk)
+            new_instance.pk = None
+            new_instance.is_paid = False
+            new_instance.attachment = None
+            
+            if r_type == "mensal":
+                new_instance.due_date = add_months(instance.due_date, i)
+            elif r_type == "5_dia_util":
+                target_date = add_months(instance.due_date, i)
+                new_instance.due_date = get_5th_business_day(target_date.year, target_date.month)
+                
+            new_instance.save()
 
 
 class ReportMovementEditForm(FinancialMovementBaseForm):
