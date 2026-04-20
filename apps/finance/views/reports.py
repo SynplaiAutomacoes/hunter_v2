@@ -6,10 +6,11 @@ from typing import Any
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseRedirect
+from django.shortcuts import render
 from django.urls import reverse
 from django.utils import timezone
-from django.views.generic import TemplateView, UpdateView
+from django.views.generic import DeleteView, TemplateView, UpdateView
 
 from apps.finance.forms.emission_ui import format_money
 from apps.finance.models.bank_account import BankAccount
@@ -348,6 +349,35 @@ class ReportMovementEditView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView
             response["HX-Refresh"] = "true"
             return response
         return super().form_valid(form)
+
+    def get_success_url(self):
+        return reverse("finance:reports_home")
+
+
+class ReportMovementDeleteView(LoginRequiredMixin, WorkshopScopedMixin, DeleteView):
+    model = FinancialMovement
+    workshop_permission_codename = "delete_financialmovement"
+
+    def get_queryset(self):
+        return super().get_queryset().filter(workshop=self.workshop)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["hx_target"] = "#edit-modal-container"
+        return context
+
+    def get(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        context = self.get_context_data(object=self.object)
+        return render(request, "finance/partials/financial_movement/financial_movement_delete_modal.html", context)
+
+    def form_valid(self, form):
+        self.object.delete()
+        if self.request.htmx:
+            response = HttpResponse()
+            response["HX-Refresh"] = "true"
+            return response
+        return HttpResponseRedirect(self.get_success_url())
 
     def get_success_url(self):
         return reverse("finance:reports_home")
