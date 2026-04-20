@@ -11,7 +11,7 @@ from django.urls import reverse
 from djmoney.forms import MoneyField
 from djmoney.money import Money
 
-from apps.core.widgets import DurationInput, MoneyInput, NumberInput, SelectInput, TextareaInput
+from apps.core.widgets import DurationInput, MoneyInput, NumberInput, SelectInput, TextareaInput, SearchableSelectInput
 from apps.finance.forms.emission_ui import (
     build_slider_widget_attrs,
     build_step5_pricing_panel_data,
@@ -439,7 +439,7 @@ class EmissionStep1Form(forms.Form):
             return f"Ordem de Servico - {customer_name} - #{workorder.pk}"
 
         field.label_from_instance = _label_from_instance
-        field.widget = SelectInput(choices=list(field.choices))
+        field.widget = SearchableSelectInput(choices=list(field.choices))
 
         self.helper = FormHelper()
         self.helper.form_tag = False
