@@ -5,11 +5,7 @@ from django.utils import timezone
 from localflavor.br.models import BRCNPJField
 
 class Supplier(TimeStampedModel, Address):
-    workshop = models.ForeignKey(
-        "workshops.Workshop",
-        on_delete=models.CASCADE,
-        related_name="suppliers",
-    )
+    workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="suppliers")
     cnpj = BRCNPJField(verbose_name="CNPJ")
     name = models.CharField(verbose_name="Razão Social", max_length=255)
     contact_person = models.CharField(verbose_name="Responsável", max_length=255, default="", blank=True)
