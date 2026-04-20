@@ -25,8 +25,8 @@ from apps.workshops.mixin import WorkshopScopedMixin
 class IssuedDocumentsFilterMixin:
     NOTE_TYPE_CHOICES: tuple[tuple[str, str], ...] = (
         ("all", "Todas"),
-        ("nfe", "NF-e"),
-        ("nfse", "NFS-e"),
+        ("nfe", "Nota Fiscal Produto"),
+        ("nfse", "Nota Fiscal Serviço"),
     )
 
     DOCUMENT_LABELS_BY_TYPE: dict[str, dict[str, list[tuple[str, str]]]] = {
@@ -36,7 +36,7 @@ class IssuedDocumentsFilterMixin:
         },
         "nfse": {
             "xml": [("xml_url", "XML")],
-            "pdfs": [("pdf_nfse_url", "PDF NFS-e")],
+            "pdfs": [("pdf_nfse_url", "PDF da Nota Fiscal de Serviço")],
         },
     }
 
@@ -96,7 +96,7 @@ class IssuedDocumentsFilterMixin:
             elif start_date > end_date:
                 filter_error = "A data inicial nao pode ser maior que a data final."
 
-        is_valid = bool(start_date and end_date and not filter_error)
+        is_valid = not bool(filter_error)
 
         return {
             "start_raw": start_raw,
@@ -116,18 +116,24 @@ class IssuedDocumentsFilterMixin:
         normalized = normalized.strip("-._")
         return normalized or "documento"
 
-    def _build_nfe_queryset(self, *, start_date: date, end_date: date):
+    def _build_nfe_queryset(self, *, start_date: date | None, end_date: date | None):
+        qs = NfeRequest.objects.filter(workshop=self.workshop)
+        if start_date and end_date:
+            qs = qs.filter(criado_em__date__range=(start_date, end_date))
+            
         return (
-            NfeRequest.objects.filter(workshop=self.workshop, criado_em__date__range=(start_date, end_date))
-            .select_related("workorder", "workorder__budget", "workorder__budget__customer")
+            qs.select_related("workorder", "workorder__budget", "workorder__budget__customer")
             .prefetch_related(Prefetch("items", queryset=NfeItem.objects.order_by("-id"), to_attr="prefetched_items"))
             .order_by("-criado_em", "-pk")
         )
 
-    def _build_nfse_queryset(self, *, start_date: date, end_date: date):
+    def _build_nfse_queryset(self, *, start_date: date | None, end_date: date | None):
+        qs = NfseRequest.objects.filter(workshop=self.workshop)
+        if start_date and end_date:
+            qs = qs.filter(criado_em__date__range=(start_date, end_date))
+            
         return (
-            NfseRequest.objects.filter(workshop=self.workshop, criado_em__date__range=(start_date, end_date))
-            .select_related("workorder", "workorder__budget", "workorder__budget__customer")
+            qs.select_related("workorder", "workorder__budget", "workorder__budget__customer")
             .prefetch_related(Prefetch("items", queryset=NfseItem.objects.order_by("-id"), to_attr="prefetched_items"))
             .order_by("-criado_em", "-pk")
         )
@@ -180,7 +186,7 @@ class IssuedDocumentsFilterMixin:
 
         return {
             "note_type": "nfe",
-            "note_type_label": "NF-e",
+            "note_type_label": "Nota Fiscal Produto",
             "note_type_badge_class": "badge-soft badge-info",
             "request_id": request_obj.pk,
             "number": request_obj.number_display,
@@ -207,7 +213,7 @@ class IssuedDocumentsFilterMixin:
 
         return {
             "note_type": "nfse",
-            "note_type_label": "NFS-e",
+            "note_type_label": "Nota Fiscal Serviço",
             "note_type_badge_class": "badge-soft badge-success",
             "request_id": request_obj.pk,
             "number": note_number or request_obj.rps_number_display,
