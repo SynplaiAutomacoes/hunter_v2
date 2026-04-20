@@ -167,8 +167,9 @@ class FinancialMovementCreateView(LoginRequiredMixin, WorkshopScopedMixin, Multi
             success_url = self.get_success_url()
 
         if self.request.htmx:
-            response = redirect(success_url)
-            response["HX-Push-Url"] = success_url
+            from django.http import HttpResponse
+            response = HttpResponse(status=204)
+            response["HX-Redirect"] = success_url
             return response
 
         return redirect(success_url)
