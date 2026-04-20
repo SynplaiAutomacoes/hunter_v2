@@ -4423,8 +4423,19 @@ class FinancialMovementViewsTests(TestCase):
             description=description,
         )
 
-    def _create_payment_method(self, *, description: str = "Pix") -> PaymentMethod:
-        return PaymentMethod.objects.create(workshop=self.workshop, description=description)
+    def _create_payment_method(
+        self,
+        *,
+        description: str = "Pix",
+        payment_type: str = PaymentMethod.PaymentType.BOTH,
+        is_active: bool = True,
+    ) -> PaymentMethod:
+        return PaymentMethod.objects.create(
+            workshop=self.workshop,
+            description=description,
+            payment_type=payment_type,
+            is_active=is_active,
+        )
 
     def _build_step3_payload(self, *, payment_method: PaymentMethod, dre_topic: str | None) -> dict[str, str]:
         return {
@@ -4646,8 +4657,19 @@ class FinancialReportsHomeViewTests(TestCase):
     def _create_financial_group(self, *, name: str, parent: FinancialGroup | None = None) -> FinancialGroup:
         return FinancialGroup.objects.create(workshop=self.workshop, parent=parent, name=name)
 
-    def _create_payment_method(self, *, description: str = "Pix") -> PaymentMethod:
-        return PaymentMethod.objects.create(workshop=self.workshop, description=description)
+    def _create_payment_method(
+        self,
+        *,
+        description: str = "Pix",
+        payment_type: str = PaymentMethod.PaymentType.BOTH,
+        is_active: bool = True,
+    ) -> PaymentMethod:
+        return PaymentMethod.objects.create(
+            workshop=self.workshop,
+            description=description,
+            payment_type=payment_type,
+            is_active=is_active,
+        )
 
     def _create_supplier(self, *, suffix: int, name: str | None = None) -> Supplier:
         return Supplier.objects.create(
@@ -4676,6 +4698,7 @@ class FinancialReportsHomeViewTests(TestCase):
         payment_method: PaymentMethod,
         supplier: Supplier | None = None,
         collaborator: WorkshopCollaborator | None = None,
+        direction: str = FinancialMovement.MovementDirection.DEBIT,
     ) -> dict[str, str]:
         return {
             "supplier": str(supplier.pk) if supplier else "",
@@ -4683,7 +4706,7 @@ class FinancialReportsHomeViewTests(TestCase):
             "description": "Compra de insumos atualizada",
             "items_observation": "Observacao dos itens",
             "due_date": "2026-03-15",
-            "direction": FinancialMovement.MovementDirection.DEBIT,
+            "direction": direction,
             "amount_0": "250.00",
             "amount_1": "BRL",
             "budget_plan": "",
@@ -5300,6 +5323,9 @@ class FinancialReportsHomeViewTests(TestCase):
     def test_report_edit_modal_renders_supplier_and_collaborator_fields_in_wider_modal(self) -> None:
         supplier = self._create_supplier(suffix=1, name="Fornecedor Modal")
         collaborator = self._create_collaborator(suffix=1, name="Colaborador Modal")
+        debit_payment_method = self._create_payment_method(description="Debito Modal", payment_type=PaymentMethod.PaymentType.DEBIT)
+        credit_payment_method = self._create_payment_method(description="Credito Modal", payment_type=PaymentMethod.PaymentType.CREDIT)
+        both_payment_method = self._create_payment_method(description="Pix Modal", payment_type=PaymentMethod.PaymentType.BOTH)
         movement = FinancialMovement.objects.create(
             workshop=self.workshop,
             user=self.user,
@@ -5320,12 +5346,16 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertContains(response, 'name="supplier"', html=False)
         self.assertContains(response, 'name="collaborator"', html=False)
         self.assertNotContains(response, 'name="source"', html=False)
-        self.assertContains(response, "max-w-5xl")
+        self.assertContains(response, "max-w-6xl")
         self.assertContains(response, "Dados Iniciais")
         self.assertContains(response, "Sobre o Item")
         self.assertContains(response, "Sobre o Pagamento")
         self.assertContains(response, ">Anexo<", html=False)
         self.assertContains(response, "x-data=\"{ activeTab: 'payment' }\"", html=False)
+        self.assertContains(response, 'id="report-edit-payment-method-data"', html=False)
+        self.assertContains(response, f'"{debit_payment_method.pk}"', html=False)
+        self.assertContains(response, f'"{credit_payment_method.pk}"', html=False)
+        self.assertContains(response, f'"{both_payment_method.pk}"', html=False)
         self.assertContains(response, supplier.name)
         self.assertContains(response, collaborator.name)
         self.assertContains(response, supplier.cnpj)
@@ -5470,6 +5500,39 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertEqual(movement.source, self.source)
         self.assertIsNone(movement.supplier)
         self.assertIsNone(movement.collaborator)
+
+    def test_report_edit_modal_post_rejects_payment_method_incompatible_with_direction(self) -> None:
+        supplier = self._create_supplier(suffix=8)
+        payment_method = self._create_payment_method(
+            description="Credito Invalido",
+            payment_type=PaymentMethod.PaymentType.CREDIT,
+        )
+        movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("100.00", "BRL"),
+            due_date=date(2026, 3, 12),
+            description="Movimento com pagamento invalido",
+            payment_method=payment_method,
+        )
+
+        response = self.client.post(
+            reverse("finance:report_movement_edit", kwargs={"pk": movement.pk}),
+            data=self._build_report_edit_payload(
+                payment_method=payment_method,
+                supplier=supplier,
+                direction=FinancialMovement.MovementDirection.DEBIT,
+            ),
+            HTTP_HX_REQUEST="true",
+        )
+        movement.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.headers.get("HX-Refresh"))
+        self.assertContains(response, "Selecione uma forma de pagamento compatível com o tipo da movimentação.")
+        self.assertEqual(movement.payment_method, payment_method)
 
     def test_reports_home_view_search_matches_supplier_and_collaborator_names(self) -> None:
         supplier = self._create_supplier(suffix=7, name="Fornecedor Busca")

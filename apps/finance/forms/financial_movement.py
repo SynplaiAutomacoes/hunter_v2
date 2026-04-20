@@ -1,6 +1,7 @@
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
+from django.db.models import Q
 from django.template.loader import render_to_string
 
 from apps.collaborators.models import WorkshopCollaborator
@@ -511,6 +512,7 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
 
     ENTITY_REQUIRED_ERROR = "Selecione um fornecedor ou colaborador."
     ENTITY_EXCLUSIVE_ERROR = "Selecione apenas um fornecedor ou um colaborador."
+    PAYMENT_METHOD_DIRECTION_ERROR = "Selecione uma forma de pagamento compatível com o tipo da movimentação."
 
     is_paid = forms.TypedChoiceField(
         label="Pago",
@@ -560,6 +562,8 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        self.payment_method_filter_data = {"CREDIT": [], "DEBIT": []}
+
         self.fields["supplier"].required = False
         self.fields["collaborator"].required = False
         self.fields["description"].required = True
@@ -572,14 +576,20 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
         if self.workshop:
             supplier_qs = Supplier.objects.filter(workshop=self.workshop)
             collaborator_qs = WorkshopCollaborator.objects.filter(workshop=self.workshop)
+            payment_method_qs = self._get_payment_method_queryset()
             self.fields["supplier"].queryset = supplier_qs
             self.fields["supplier"].widget.choices = [(supplier.id, supplier.name) for supplier in supplier_qs]
             self.fields["collaborator"].queryset = collaborator_qs
             self.fields["collaborator"].widget.choices = [(collaborator.id, str(collaborator)) for collaborator in collaborator_qs]
+            self.fields["payment_method"].queryset = payment_method_qs
 
-            self.fields["payment_method"].widget.choices = [(pm.id, str(pm)) for pm in PaymentMethod.objects.filter(workshop=self.workshop)]
+            self.fields["payment_method"].widget.choices = [(pm.id, str(pm)) for pm in payment_method_qs]
             self.fields["budget_plan"].widget.choices = [(bp.id, str(bp)) for bp in FinancialGroup.objects.filter(workshop=self.workshop)]
             self.fields["bank_account"].widget.choices = [(ba.id, str(ba)) for ba in BankAccount.objects.filter(workshop=self.workshop)]
+            self.payment_method_filter_data = {
+                "CREDIT": [str(payment_method.pk) for payment_method in payment_method_qs if payment_method.payment_type in [PaymentMethod.PaymentType.CREDIT, PaymentMethod.PaymentType.BOTH]],
+                "DEBIT": [str(payment_method.pk) for payment_method in payment_method_qs if payment_method.payment_type in [PaymentMethod.PaymentType.DEBIT, PaymentMethod.PaymentType.BOTH]],
+            }
 
         selected_supplier = self.instance.supplier_id if self.instance.pk else None
         selected_collaborator = self.instance.collaborator_id if self.instance.pk else None
@@ -662,10 +672,30 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
             "context": {},
         }
 
+    def _get_payment_method_queryset(self):
+        payment_methods = PaymentMethod.objects.filter(workshop=self.workshop, is_active=True)
+
+        if self.instance.pk and self.instance.payment_method_id:
+            payment_methods = PaymentMethod.objects.filter(workshop=self.workshop).filter(Q(is_active=True) | Q(pk=self.instance.payment_method_id))
+
+        return payment_methods.order_by("description").distinct()
+
+    @staticmethod
+    def _payment_method_matches_direction(payment_method, direction):
+        if direction == FinancialMovement.MovementDirection.CREDIT:
+            return payment_method.payment_type in [PaymentMethod.PaymentType.CREDIT, PaymentMethod.PaymentType.BOTH]
+
+        if direction == FinancialMovement.MovementDirection.DEBIT:
+            return payment_method.payment_type in [PaymentMethod.PaymentType.DEBIT, PaymentMethod.PaymentType.BOTH]
+
+        return True
+
     def clean(self):
         cleaned_data = super().clean()
         supplier = cleaned_data.get("supplier")
         collaborator = cleaned_data.get("collaborator")
+        direction = cleaned_data.get("direction")
+        payment_method = cleaned_data.get("payment_method")
 
         if supplier and collaborator:
             self.add_error("supplier", self.ENTITY_EXCLUSIVE_ERROR)
@@ -673,6 +703,9 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
         elif not supplier and not collaborator:
             self.add_error("supplier", self.ENTITY_REQUIRED_ERROR)
             self.add_error("collaborator", self.ENTITY_REQUIRED_ERROR)
+
+        if payment_method and direction and not self._payment_method_matches_direction(payment_method, direction):
+            self.add_error("payment_method", self.PAYMENT_METHOD_DIRECTION_ERROR)
 
         return cleaned_data
 

@@ -9,7 +9,7 @@
     @click="if ($event.target === $el) $el.close()"
     @close="$el.remove()"
 >
-    <div class="modal-box w-11/12 max-w-5xl border border-base-300 bg-base-100 shadow-2xl">
+    <div class="modal-box w-[92vw] max-w-6xl border border-base-300 bg-base-100 shadow-2xl">
         <div class="flex items-center justify-between mb-2">
             <h3 class="text-lg font-semibold text-base-content flex items-center gap-2">
                 <span class="material-icons text-base">edit</span>
@@ -38,7 +38,7 @@
                 <button type="button" class="btn btn-sm" :class="activeTab === 'attachment' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'attachment'">Anexo</button>
             </div>
 
-            <div class="max-h-[65vh] overflow-y-auto pr-1 space-y-2 py-3">
+            <div class="max-h-[65vh] overflow-y-auto px-4 space-y-2 py-3">
                 {% crispy form %}
             </div>
 
@@ -53,6 +53,8 @@
     </div>
 </dialog>
 
+{{ form.payment_method_filter_data|json_script:"report-edit-payment-method-data" }}
+
 <script>
 (function() {
     const modal = document.getElementById('report-edit-movement-modal');
@@ -60,7 +62,11 @@
 
     const supplierInput = modal.querySelector('input[name="supplier"]');
     const collaboratorInput = modal.querySelector('input[name="collaborator"]');
+    const directionInput = modal.querySelector('input[name="direction"]');
+    const paymentMethodInput = modal.querySelector('input[name="payment_method"]');
     const detailsContainer = modal.querySelector('#report-edit-entity-details');
+    const paymentMethodConfigElement = document.getElementById('report-edit-payment-method-data');
+    const paymentMethodFilterData = paymentMethodConfigElement ? JSON.parse(paymentMethodConfigElement.textContent) : null;
 
     function getWidgetElements(input) {
         if (!input) return null;
@@ -115,6 +121,16 @@
         }
         elements.container.classList.toggle('opacity-60', disabled);
         elements.container.classList.toggle('pointer-events-none', disabled);
+    }
+
+    function setWidgetAllowedValues(input, allowedValues) {
+        const elements = getWidgetElements(input);
+        if (!elements || !window.Alpine) return;
+
+        const alpineData = Alpine.$data(elements.container);
+        if (alpineData && typeof alpineData.setAllowedValues === 'function') {
+            alpineData.setAllowedValues(allowedValues);
+        }
     }
 
     function renderPlaceholder() {
@@ -178,6 +194,13 @@
         renderPlaceholder();
     }
 
+    function syncPaymentMethodState() {
+        if (!directionInput || !paymentMethodInput || !paymentMethodFilterData) return;
+
+        const allowedValues = paymentMethodFilterData[directionInput.value] || null;
+        setWidgetAllowedValues(paymentMethodInput, allowedValues);
+    }
+
     if (supplierInput && collaboratorInput && detailsContainer) {
         supplierInput.addEventListener('change', function() {
             syncEntityState('supplier');
@@ -188,6 +211,11 @@
         });
 
         syncEntityState();
+    }
+
+    if (directionInput && paymentMethodInput && paymentMethodFilterData) {
+        directionInput.addEventListener('change', syncPaymentMethodState);
+        syncPaymentMethodState();
     }
 })();
 </script>
