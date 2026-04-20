@@ -9,6 +9,7 @@ from apps.core.widgets import SearchableSelectInput, TextInput, TextareaInput, C
 from apps.finance.models import PaymentMethod, FinancialGroup
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_movement import FinancialMovement
+from apps.finance.services.financial_movement import generate_card_fee_movement
 from apps.suppliers.models import Supplier
 
 
@@ -468,6 +469,7 @@ class MovementStep4Form(FinancialMovementBaseForm):
                     repeat_count = int(repeat_count) - 1 if repeat_count > 0 else int(repeat_count)
                     self._generate_repetitions(instance, repeat_count, repeat_type)
                     self.request.session[flag_key] = True
+            generate_card_fee_movement(instance)
         return instance
 
     def _generate_repetitions(self, instance, count, r_type):
