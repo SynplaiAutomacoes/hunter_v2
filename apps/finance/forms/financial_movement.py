@@ -598,8 +598,8 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
-            # ── Seção 1: Agente ──
-            HTML('<h3 class="text-base font-semibold text-base-content flex items-center gap-2 mb-3"><span class="material-icons text-sm">groups</span> Fornecedor ou Colaborador</h3>'),
+            HTML('<section x-show="activeTab === \'initial\'" x-cloak class="space-y-4">'),
+            HTML('<h3 class="text-base font-semibold text-base-content flex items-center gap-2 mb-3"><span class="material-icons text-sm">groups</span> Dados Iniciais</h3>'),
             Div(
                 Div("supplier", css_class="col-span-12 lg:col-span-6"),
                 Div("collaborator", css_class="col-span-12 lg:col-span-6"),
@@ -610,16 +610,16 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
                 ),
                 css_class="grid grid-cols-12 gap-4",
             ),
-            HTML('<div class="divider my-4"></div>'),
-            # ── Seção 2: Item ──
+            HTML("</section>"),
+            HTML('<section x-show="activeTab === \'item\'" x-cloak class="space-y-4">'),
             HTML('<h3 class="text-base font-semibold text-base-content flex items-center gap-2 mb-3"><span class="material-icons text-sm">inventory_2</span> Sobre o Item</h3>'),
             Div(
                 Div("description", css_class="col-span-12"),
                 Div("items_observation", css_class="col-span-12"),
                 css_class="grid grid-cols-12 gap-4",
             ),
-            HTML('<div class="divider my-4"></div>'),
-            # ── Seção 3: Pagamento ──
+            HTML("</section>"),
+            HTML('<section x-show="activeTab === \'payment\'" x-cloak class="space-y-4">'),
             HTML('<h3 class="text-base font-semibold text-base-content flex items-center gap-2 mb-3"><span class="material-icons text-sm">payments</span> Sobre o Pagamento</h3>'),
             Div(
                 Div("due_date", css_class="col-span-12 lg:col-span-4"),
@@ -632,11 +632,17 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
                 Div("payment_method", css_class="col-span-12 lg:col-span-4"),
                 Div("is_paid", css_class="col-span-12 lg:col-span-4"),
                 Div("nf_number", css_class="col-span-12 lg:col-span-4"),
-                #
                 Div("financial_observation", css_class="col-span-12"),
+                css_class="grid grid-cols-12 gap-4",
+            ),
+            HTML("</section>"),
+            HTML('<section x-show="activeTab === \'attachment\'" x-cloak class="space-y-4">'),
+            HTML('<h3 class="text-base font-semibold text-base-content flex items-center gap-2 mb-3"><span class="material-icons text-sm">attach_file</span> Anexo</h3>'),
+            Div(
                 Div("attachment", css_class="col-span-12"),
                 css_class="grid grid-cols-12 gap-4",
             ),
+            HTML("</section>"),
         )
 
     def _build_entity_details_context(self) -> dict[str, object]:
