@@ -4,6 +4,7 @@
         value: '{{ widget.value|default_if_none:"" }}',
         label: '',
         search: '',
+        allowedValues: null,
         init() {
             this.updateLabelFromValue();
             this.$watch('value', () => this.updateLabelFromValue());
@@ -50,6 +51,13 @@
             this.search = '';
             this.open = false;
             this.dispatchEvents();
+        },
+        setAllowedValues(values) {
+            this.allowedValues = Array.isArray(values) ? values.map(value => String(value)) : null;
+
+            if (this.value && this.allowedValues && !this.allowedValues.includes(String(this.value))) {
+                this.clear();
+            }
         },
         openDropdown() {
             this.search = '';
@@ -129,7 +137,7 @@
                 {% for option in group_choices %}
                     {% if option.value %}
                         <li
-                            x-show="!search || $el.dataset.searchText.includes(search.toLowerCase())"
+                            x-show="(!allowedValues || allowedValues.includes($el.dataset.value)) && (!search || $el.dataset.searchText.includes(search.toLowerCase()))"
                             @click="select($el)"
                             data-value="{{ option.value }}"
                             data-label="{{ option.label }}"

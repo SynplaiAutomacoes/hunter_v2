@@ -43,6 +43,12 @@ class SignatureStatus(models.TextChoices):
     APPROVED = "approved", "Aprovado"
 
 
+class BudgetType(models.TextChoices):
+    SALE = "sale", "Venda"
+    WARRANTY = "warranty", "Garantia"
+    COURTESY = "courtesy", "Cortesia"
+
+
 class FuelLevel(models.IntegerChoices):
     FULL = 8, "Cheio"
     SEVEN_EIGHTHS = 7, "7/8"
@@ -82,6 +88,7 @@ class Budget(TimeStampedModel):
     expiration_date = models.DateField(verbose_name="Data de Validade", null=True, blank=True)
     entry_date = models.DateField(verbose_name="Data de Entrada")
     is_warranty_budget = models.BooleanField(verbose_name="Orçamento de Garantia", default=False)
+    budget_type = models.CharField(verbose_name="Tipo de Orçamento", max_length=50, choices=BudgetType.choices, default=BudgetType.SALE)
 
     # Informações Técnicas
     problem_description = models.TextField(verbose_name="Relato principal do cliente", blank=True, null=True)
@@ -94,13 +101,7 @@ class Budget(TimeStampedModel):
 
     # Financeiro
     discount_value = MoneyField(verbose_name="Aplicar Desconto (R$)", max_digits=14, decimal_places=2, default=0.00)
-    discount_percentage = models.DecimalField(
-        verbose_name="Aplicar Desconto (%)",
-        max_digits=7,
-        decimal_places=6,
-        default=0.00,
-        validators=[MinValueValidator(0), MaxValueValidator(1)],
-    )
+    discount_percentage = models.DecimalField(verbose_name="Aplicar Desconto (%)", max_digits=7, decimal_places=6, default=0.00, validators=[MinValueValidator(0), MaxValueValidator(1)])
 
     # Margens e Ajustes
     profit_margin_parts = models.DecimalField(verbose_name="Percentual Lucro de Peças", max_digits=5, decimal_places=2, default=0.00)
@@ -108,7 +109,7 @@ class Budget(TimeStampedModel):
     slider = models.SmallIntegerField(verbose_name="Slider", default=0, validators=[MinValueValidator(-100), MaxValueValidator(100)], help_text="Negativo: Peça | Positivo: Mão de Obra")
 
     # Status e Controle
-    status = models.CharField(verbose_name="Status", max_length=20, choices=BudgetStatus.choices, default=BudgetStatus.DRAFT)
+    status = models.CharField(verbose_name="Status", max_length=50, choices=BudgetStatus.choices, default=BudgetStatus.DRAFT)
     cancellation_reason = models.CharField(verbose_name="Motivo do Cancelamento", max_length=255, blank=True, null=True)
     current_step = models.PositiveSmallIntegerField(verbose_name="Etapa Atual", default=1)
     step5_calculation_viewed = models.BooleanField(verbose_name="Calculo da etapa 5 visualizado", default=False)
@@ -477,6 +478,21 @@ class Budget(TimeStampedModel):
                 is_local_service_item=self._is_local_service_item,
             )
             setattr(self, "_pricing_snapshot_cache", cached_snapshot)
+
+            pricing_method_data = self.calculate_pricing_methods()
+            labor_selling_value_override = pricing_method_data.get("venda_mao_obra") if pricing_method_data.get("method_name") == "Tradicional" else None
+            if isinstance(labor_selling_value_override, Money):
+                cached_snapshot = build_pricing_snapshot(
+                    items=list(self._iter_items()),
+                    slider=int(self.slider or 0),
+                    discount_value=self.discount_value,
+                    discount_percentage=self.discount_percentage,
+                    labor_cost_value=self.total_labor_cost_value,
+                    labor_selling_value_override=labor_selling_value_override,
+                    is_local_product_item=self._is_local_product_item,
+                    is_local_service_item=self._is_local_service_item,
+                )
+            setattr(self, "_pricing_snapshot_cache", cached_snapshot)
         return cached_snapshot
 
     def invalidate_pricing_snapshot_cache(self) -> None:
@@ -547,11 +563,14 @@ class Budget(TimeStampedModel):
         return {"text": BudgetStatus(self.status).label, "class": status_color.get(self.status, "badge-neutral")}
 
     @property
-    def warranty_budget_badge(self):
+    def type_budget_badge(self):
         if self.is_warranty_budget:
-            return {"text": "Sim", "class": "badge-success"}
+            return {"text": "Garantia", "class": "badge-error"}
 
-        return {"text": "Não", "class": "badge-error"}
+        if self.budget_type == "courtesy":
+            return {"text": "Cortesia", "class": "badge-info"}
+
+        return {"text": "Venda", "class": "badge-success"}
 
     ## Total
     @property

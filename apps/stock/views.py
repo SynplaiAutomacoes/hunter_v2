@@ -53,6 +53,7 @@ from ..core.templatetags.table_tags import TableColumn
 from ..core.utils import clean_id
 from ..core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin
 from ..finance.models.payment_method import PaymentMethod
+from ..finance.services.payment_method_fees import calculate_payment_method_fee_amount
 from ..suppliers.models import Supplier
 from ..workshops.mixin import WorkshopScopedMixin
 from ..workshops.models.workshops import Workshop
@@ -777,13 +778,7 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 is_paid=False,
             )
 
-            tax_percentage = method_obj.tax_percentage
-            tax_value = getattr(method_obj.tax_value, "amount", None) if method_obj.tax_value else None
-            fee_amount = Decimal("0.00")
-            if tax_percentage:
-                fee_amount = (total_paid * Decimal(str(tax_percentage))).quantize(Decimal("0.01"))
-            elif tax_value is not None:
-                fee_amount = Decimal(str(tax_value or "0.00")).quantize(Decimal("0.01"))
+            fee_amount = calculate_payment_method_fee_amount(payment_method=method_obj, base_amount=total_paid)
 
             fm_fee = None
             if fee_amount > 0:

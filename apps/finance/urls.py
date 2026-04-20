@@ -46,15 +46,24 @@ from apps.finance.views import (
 
 from apps.finance.views.cash_flow import CashFlowView
 from apps.finance.views.bank_account import BankAccountListView, BankAccountUpdateView, BankAccountCreateView
-from apps.finance.views.financial_movement import FinancialMovementCreateView, FinancialMovementDeleteView, FinancialMovementListView, FinancialMovementUpdateView, SourceDetailView
+from apps.finance.views.financial_movement import (
+    FinancialMovementCreateView,
+    FinancialMovementDeleteView,
+    FinancialMovementListView,
+    FinancialMovementUpdateView,
+    SourceDetailView,
+    EntityListView,
+    EntityDetailView,
+)
 from apps.finance.views.payment_method import PaymentMethodListView, PaymentMethodCreateView, PaymentMethodUpdateView
-from apps.finance.views.reports import ReportMovementEditView
+from apps.finance.views.reports import ReportMovementEditView, ReportMovementDeleteView
 
 app_name = "finance"
 
 urlpatterns = [
     path("reports/", FinancialReportsHomeView.as_view(), name="reports_home"),
     path("reports/movement/<int:pk>/edit/", ReportMovementEditView.as_view(), name="report_movement_edit"),
+    path("reports/movement/<int:pk>/delete/", ReportMovementDeleteView.as_view(), name="report_movement_delete"),
     path("notas-emitidas/", IssuedDocumentsListView.as_view(), name="issued_documents_list"),
     path("notas-emitidas/download/<str:document_group>/", IssuedDocumentsArchiveDownloadView.as_view(), name="issued_documents_download"),
     # Financial Groups
@@ -88,17 +97,17 @@ urlpatterns = [
     path("classe-imposto/presets/", TaxClassPresetListView.as_view(), name="tax_class_preset_list"),
     path("classe-imposto/presets/create/", TaxClassPresetCreateView.as_view(), name="tax_class_preset_create"),
     path("classe-imposto/presets/<int:pk>/edit/", TaxClassPresetUpdateView.as_view(), name="tax_class_preset_update"),
-    # Bank Account
     # Conta Bancária
     path("bank-account/", BankAccountListView.as_view(), name="bank_account_list"),
     path("bank-account/create/", BankAccountCreateView.as_view(), name="bank_account_create"),
     path("bank-account/<int:pk>/update/", BankAccountUpdateView.as_view(), name="bank_account_update"),
     # Movimentação Financeira
-    path("financial-movement/", FinancialMovementListView.as_view(), name="financial_movement_list"),
     path("financial-movement/create/", FinancialMovementCreateView.as_view(), name="financial_movement_create"),
     path("financial-movement/<int:pk>/update/", FinancialMovementUpdateView.as_view(), name="financial_movement_update"),
     path("financial-movement/<int:pk>/delete/", FinancialMovementDeleteView.as_view(), name="financial_movement_delete"),
     path("financial-movement/source_details/", SourceDetailView.as_view(), name="source_details"),
+    path("entities", EntityListView.as_view(), name="entities"),
+    path("entity_details", EntityDetailView.as_view(), name="entity_details"),
     # NFS-e
     path("nfse/", NfseRequestListView.as_view(), name="nfse_list"),
     path("nfse/create/", NfseCreateRedirectView.as_view(), name="nfse_create"),
@@ -116,7 +125,6 @@ urlpatterns = [
     path("webmania/webhook/", WebhookView.as_view(), name="webhook"),
     # Fluxo de Contas
     path("fluxo-de-contas/", CashFlowView.as_view(), name="cash_flow"),
-    
     # DRE
     path("dre/", DreReportView.as_view(), name="dre_report"),
     path("dre/resultados/", DreResultsView.as_view(), name="dre_results"),

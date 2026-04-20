@@ -13,7 +13,6 @@
                 { label: 'Kit', href: '{% url "catalog:kits_list" %}' },
                 { label: 'Grupo', href: '{% url "catalog:group_list" %}' },
                 { label: 'Checklist', href: '{% url "checklist:checklist_list" %}' },
-                { label: 'Origem', href: '{% url "sources:source_list" %}' }
             ]
         },
         {
@@ -45,8 +44,6 @@
             items: [
                 { label: 'Emitir nota', href: '{% url "finance:emission_create" %}?reset=1' },
                 { label: 'Central de Notas', href: '{% url "finance:issued_documents_list" %}' },
-                { label: 'NF-e Emitidas', href: '{% url "finance:nfe_emit" %}' },
-                { label: 'NFS-e Emitidas', href: '{% url "finance:nfse_list" %}' },
                 { label: 'Movimentação Financeira', href: '{% url "finance:reports_home" %}' },
                 { label: 'Conta Bancária', href: '{% url "finance:bank_account_list" %}' },
                 { label: 'Formas de Pagamento', href: '{% url "finance:payment_methods_list" %}' },

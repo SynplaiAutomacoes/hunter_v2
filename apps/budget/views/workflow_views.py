@@ -228,7 +228,7 @@ class BudgetStatusReportDataMixin:
             TableColumn("ID", attr="id"),
             TableColumn(str(Budget.customer.field.verbose_name), attr=Budget.customer.field.name, search_by="customer__name"),
             TableColumn(str(Budget.vehicle.field.verbose_name), attr=Budget.vehicle.field.name, search_by=("vehicle__plate", "vehicle__model", "vehicle__brand")),
-            TableColumn(str(Budget.is_warranty_budget.field.verbose_name), attr="warranty_budget_badge", searchable=False, format="status_badge"),
+            TableColumn(str(Budget.budget_type.field.verbose_name), attr="type_budget_badge", searchable=False, format="status_badge"),
             TableColumn("Criado em", attr="criado_em"),
             TableColumn("Valor Total", attr="total_budget_value", searchable=False),
             TableColumn(str(Budget.status.field.verbose_name), attr="budget_status_badge", search_by="status", format="status_badge"),
@@ -708,8 +708,9 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 error_message = str(exc)
                 messages.error(request, error_message)
                 return JsonResponse({"success": False, "error": error_message}, status=400)
-            except Exception:
-                error_message = "Erro interno ao processar aprovação automática de estoque."
+            except Exception as e:
+                print(f"E: {e}")
+                error_message = "Erro interno ao processar aprovação do orçamento."
                 messages.error(request, error_message)
                 return JsonResponse({"success": False, "error": error_message}, status=500)
 

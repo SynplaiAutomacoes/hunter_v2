@@ -43,13 +43,8 @@ class WorkOrder(TimeStampedModel):
     budget = models.ForeignKey("budget.Budget", on_delete=models.CASCADE, related_name="workorders", help_text="Orçamento Aprovado vinculado à esta O.S.")
     status = models.CharField(verbose_name="Status", max_length=20, choices=WorkOrderStatus.choices, default=WorkOrderStatus.DRAFT)
     discount_value = MoneyField(verbose_name="Desconto da O.S. (R$)", max_digits=14, decimal_places=2, default=0.00)
-    discount_percentage = models.DecimalField(
-        verbose_name="Desconto da O.S. (%)",
-        max_digits=7,
-        decimal_places=6,
-        default=Decimal("0.00"),
-        validators=[MinValueValidator(0), MaxValueValidator(1)],
-    )
+    discount_percentage = models.DecimalField(verbose_name="Desconto da O.S. (%)", max_digits=7,
+        decimal_places=6, default=Decimal("0.00"), validators=[MinValueValidator(0), MaxValueValidator(1)])
     signature_token_version = models.PositiveIntegerField(verbose_name="ID do PDF da Ordem de Serviço", default=1)
     signature_token_active = models.BooleanField(verbose_name="Token de Assinatura Ativo", default=True)
     signature_request_status = models.CharField(max_length=30, choices=WorkOrderSignatureStatus.choices, default=WorkOrderSignatureStatus.NOT_SENT)
@@ -153,6 +148,18 @@ class WorkOrder(TimeStampedModel):
                 discount_value=self.discount_value,
                 labor_cost_value=self.total_labor_cost_value,
             )
+            setattr(self, "_pricing_snapshot_cache", cached_snapshot)
+
+            pricing_method_data = self.calculate_pricing_methods()
+            labor_selling_value_override = pricing_method_data.get("venda_mao_obra") if pricing_method_data.get("method_name") == "Tradicional" else None
+            if isinstance(labor_selling_value_override, Money):
+                cached_snapshot = build_pricing_snapshot(
+                    items=list(self._iter_items()),
+                    slider=int(getattr(self.budget, "slider", 0) or 0),
+                    discount_value=self.discount_value,
+                    labor_cost_value=self.total_labor_cost_value,
+                    labor_selling_value_override=labor_selling_value_override,
+                )
             setattr(self, "_pricing_snapshot_cache", cached_snapshot)
         return cached_snapshot
 

@@ -27,7 +27,6 @@ class CatalogGroupListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplate
 
         context["actions"] = [
             TableActionDefaults.edit("catalog:group_update"),
-            TableActionDefaults.delete("catalog:group_delete"),
         ]
 
         return context
