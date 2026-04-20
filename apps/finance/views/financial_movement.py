@@ -136,7 +136,7 @@ class FinancialMovementCreateView(LoginRequiredMixin, WorkshopScopedMixin, Multi
         ]
 
     def get_success_url(self):
-        return self._get_next_url() or reverse("finance:financial_movement_list")
+        return self._get_next_url() or reverse("finance:reports_home")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

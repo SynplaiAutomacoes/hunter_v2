@@ -300,8 +300,7 @@ class MovementStep3Form(FinancialMovementBaseForm):
         self.fields["repeat_count"] = forms.IntegerField(required=False, min_value=1, max_value=120,
             widget=NumberInput(attrs={"class": "w-8 text-center", "placeholder": "1"}))
 
-        self.fields["repeat_count"].label = ""
-        self.fields["repeat_count"].required = True
+        self.fields["repeat_count"].label = "Repetir este lançamento"
         
         repeat_choices = [("mensal", "Mensal")]
         has_collab = getattr(self.instance, "collaborator_id", None)
@@ -347,14 +346,10 @@ class MovementStep3Form(FinancialMovementBaseForm):
                 Div("nf_number", css_class="col-span-6"),
                 Div(
                     Div(
-                        HTML('<span class="text-base font-semibold mb-4 mr-2">Repetir este lançamento</span>'),
                         Field("repeat_count", wrapper_class="mb-0"),
-                        HTML('<span class="text-base font-semibold mb-4 ml-2">vezes</span>'),
-                        css_class="flex items-center gap-2 mb-4"
-                    ),
-                    Div(
+                        HTML('<span class="text-sm font-semibold">vezes</span>'),
                         HTML(repeat_html),
-                        css_class="flex items-center gap-4"
+                        css_class="flex items-center gap-4 mb-4 col-span-6"
                     ),
                     css_class="col-span-6"
                 ),
