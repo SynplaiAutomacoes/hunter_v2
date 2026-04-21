@@ -350,15 +350,13 @@ class BudgetKitServiceCalculateView(LoginRequiredMixin, WorkshopScopedMixin, Vie
         default_cost, default_price = item.resolve_kit_service_base_prices(kit_service=kit_service, workshop_cost=workshop_cost)
 
         if changed_field == "duration":
-            service_cost_price, service_selling_price = _calculate_service_prices(duration, workshop_cost)
-            service_cost_price_amount = service_cost_price.amount.quantize(Decimal("0.01")) if workshop_cost else default_cost.amount.quantize(Decimal("0.01"))
-
-            if budget.is_warranty_budget:
-                service_selling_price_amount = (existing_override.service_selling_price.amount if existing_override else default_price.amount).quantize(Decimal("0.01"))
-            elif item.kit.service_pricing_mode == item.kit.ServicePricingMode.BY_DURATION and workshop_cost:
+            if workshop_cost:
+                service_cost_price, service_selling_price = _calculate_service_prices(duration, workshop_cost)
+                service_cost_price_amount = service_cost_price.amount.quantize(Decimal("0.01"))
                 service_selling_price_amount = service_selling_price.amount.quantize(Decimal("0.01"))
             else:
-                service_selling_price_amount = (existing_override.service_selling_price.amount if existing_override else default_price.amount).quantize(Decimal("0.01"))
+                service_cost_price_amount = default_cost.amount.quantize(Decimal("0.01"))
+                service_selling_price_amount = default_price.amount.quantize(Decimal("0.01"))
         else:
             cost_default = existing_override.service_cost_price.amount if existing_override and existing_override.service_cost_price else default_cost.amount
             price_default = existing_override.service_selling_price.amount if existing_override else default_price.amount
@@ -382,6 +380,8 @@ class BudgetKitServiceCalculateView(LoginRequiredMixin, WorkshopScopedMixin, Vie
                 "duration": duration,
             },
         )
+        item._clear_kit_snapshot_caches()
+        item.refresh_kit_snapshot_totals()
         reset_steps_after_step_4(budget)
 
         return JsonResponse(

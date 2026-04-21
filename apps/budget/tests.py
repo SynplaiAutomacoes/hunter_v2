@@ -2963,6 +2963,78 @@ class BudgetDuplicateKitProductTests(TestCase):
         self.assertIn("Serviço já registrado em um kit", rows["service"])
 
 
+class BudgetKitServiceCalculateViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=83)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+        self.budget = create_budget(workshop=self.workshop)
+        self.service = create_service(workshop=self.workshop, suffix=83)
+        self.kit = create_kit(workshop=self.workshop, suffix=831, products=[])
+        self.kit.service_pricing_mode = Kit.ServicePricingMode.INSERTED_VALUE
+        self.kit.save(update_fields=["service_pricing_mode"])
+        self.kit_service = KitService.objects.create(kit=self.kit, service=self.service, quantity=1, duration=timedelta(hours=1), selling_price=Money("55.00", "BRL"))
+
+        reference_date = self.budget.criado_em if self.budget.criado_em else timezone.now()
+        WorkshopCost.objects.create(
+            workshop=self.workshop,
+            month=reference_date.month,
+            year=reference_date.year,
+            mechanic_quantity=1,
+            minimum_hourly_cost=Money("25.00", "BRL"),
+            hourly_cost_value=Money("90.00", "BRL"),
+        )
+
+        self.item = BudgetItem.objects.create(workshop=self.workshop, budget=self.budget, kit=self.kit, quantity=1)
+
+    def test_duration_change_recalculates_service_price_even_in_inserted_mode(self) -> None:
+        response = self.client.post(
+            reverse("budget:calculate_kit_service", args=[self.budget.pk, self.item.pk, self.service.pk]),
+            data={
+                "changed_field": "duration",
+                "duration": "02:00:00",
+                "quantity": "1",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+
+        override = BudgetKitItemOverride.objects.get(budget_item=self.item, service=self.service)
+        self.item.refresh_from_db()
+
+        self.assertEqual(payload["price"], "180.00")
+        self.assertEqual(override.service_selling_price, Money("180.00", "BRL"))
+        self.assertEqual(override.service_cost_price, Money("50.00", "BRL"))
+        self.assertEqual(override.duration, timedelta(hours=2))
+        self.assertEqual(self.item.service_selling_price, Money("180.00", "BRL"))
+
+    def test_duration_change_without_workshop_cost_keeps_frozen_price(self) -> None:
+        WorkshopCost.objects.filter(workshop=self.workshop).delete()
+
+        response = self.client.post(
+            reverse("budget:calculate_kit_service", args=[self.budget.pk, self.item.pk, self.service.pk]),
+            data={
+                "changed_field": "duration",
+                "duration": "02:00:00",
+                "quantity": "1",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+
+        override = BudgetKitItemOverride.objects.get(budget_item=self.item, service=self.service)
+
+        self.assertTrue(payload["workshop_cost_missing"])
+        self.assertEqual(payload["price"], "55.00")
+        self.assertEqual(override.service_selling_price, Money("55.00", "BRL"))
+
+
 class BudgetSignaturePublicViewTests(TestCase):
     def setUp(self) -> None:
         self.factory = RequestFactory()
