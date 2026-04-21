@@ -34,6 +34,8 @@ from apps.catalog.views.kits import (
     KitUpdateView,
     KitsByProductHXView,
     KitServiceBulkPricingView,
+    KitServicesSyncView,
+    KitServiceLocalUpdateView,
     ProductQuickUpdateView,
     ServiceQuickUpdateView,
 )
@@ -68,6 +70,8 @@ urlpatterns = [
     path("kits/<int:pk>/edit/", KitUpdateView.as_view(), name="kits_update"),
     path("kits/<int:pk>/delete/", KitDeleteView.as_view(), name="kits_delete"),
     path("kits/services/bulk-pricing/", KitServiceBulkPricingView.as_view(), name="kits_service_bulk_pricing"),
+    path("kits/<int:pk>/services/sync/", KitServicesSyncView.as_view(), name="kits_services_sync"),
+    path("kits/<int:pk>/services/<int:service_id>/local-update/", KitServiceLocalUpdateView.as_view(), name="kits_service_local_update"),
     path("kits/products/search/", KitProductSearchView.as_view(), name="kits_product_search"),
     path("kits/services/search/", KitServiceSearchView.as_view(), name="kits_service_search"),
     path("hx/kits-by-product/", KitsByProductHXView.as_view(), name="kits-by-product-hx"),
