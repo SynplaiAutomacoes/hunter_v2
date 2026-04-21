@@ -450,15 +450,18 @@ def build_pricing_snapshot(
                 service_aggregates[key] = service_aggregate
 
             if consolidated_quantity > service_aggregate.kit_quantity:
-                unit_price = override.service_selling_price if override else kit_service.resolved_selling_price
-                unit_cost = override.service_cost_price if override else (service.suggested_cost or zero_money())
+                if override:
+                    unit_price = override.service_selling_price
+                    unit_cost = override.service_cost_price
+                else:
+                    unit_cost, unit_price = item.resolve_kit_service_base_prices(kit_service=kit_service)
                 service_duration = timedelta(0)
 
                 if override:
                     if override.duration:
                         service_duration = override.duration * consolidated_quantity
-                elif service.duration:
-                    service_duration = service.duration * consolidated_quantity
+                elif kit_service.duration:
+                    service_duration = kit_service.duration * consolidated_quantity
 
                 service_aggregate.kit_quantity = consolidated_quantity
                 service_aggregate.kit_raw_total = unit_price * consolidated_quantity

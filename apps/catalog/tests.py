@@ -200,6 +200,38 @@ class KitTests(TestCase):
         self.assertEqual(item.selling_price, Money("32.50", "BRL"))
         self.assertEqual(kit.total_price, Money("65.00", "BRL"))
 
+    def test_kit_form_persists_selected_service_pricing_mode(self):
+        kit = Kit.objects.create(workshop=self.workshop, name="Kit Modo", description="", is_active=True)
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name="Serviço 1",
+            description="",
+            duration=datetime.timedelta(minutes=30),
+            selling_price=Money(10, "BRL"),
+            suggested_cost=None,
+            is_third_party=False,
+            is_active=True,
+        )
+
+        form = KitForm(
+            instance=kit,
+            data={
+                "name": "Kit Modo",
+                "description": "",
+                "is_active": "on",
+                "kit_services": [str(service.id)],
+                "kit_service_pricing_mode": Kit.ServicePricingMode.INSERTED_VALUE,
+                **self.build_application_payload(),
+            },
+            workshop=self.workshop,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        form.save()
+        kit.refresh_from_db()
+
+        self.assertEqual(kit.service_pricing_mode, Kit.ServicePricingMode.INSERTED_VALUE)
+
     def test_kit_form_rejects_invalid_service_quantity(self):
         service = Service.objects.create(
             workshop=self.workshop,
@@ -460,6 +492,12 @@ class KitFormPageTests(TestCase):
         self.assertNotContains(response, "Distribuir Tempos")
         self.assertContains(response, "Total dos produtos")
         self.assertContains(response, "Total dos serviços")
+        self.assertContains(response, "Valor de venda por duração")
+        self.assertContains(response, "Valor de Venda Inserido")
+        self.assertContains(response, "servicePricingColumnClasses('by_duration', 'header')", html=False)
+        self.assertContains(response, "servicePricingColumnClasses('inserted_value', 'header')", html=False)
+        self.assertContains(response, "servicePricingColumnClasses(mode, section = 'body')", html=False)
+        self.assertContains(response, "servicePricingMode: 'by_duration'", html=False)
         self.assertContains(response, "this.reloadProductSuggestions();", html=False)
         self.assertContains(response, "this.reloadServiceSuggestions();", html=False)
         self.assertContains(response, "Carregando produto...", html=False)
@@ -612,7 +650,7 @@ class KitServiceBulkPricingViewTests(TestCase):
         self.assertJSONEqual(
             response.content,
             {
-                "services": [{"id": self.service.pk, "sell": str(Money("120.00", "BRL"))}],
+                "services": [{"id": self.service.pk, "cost": str(Money("45.00", "BRL")), "sell": str(Money("120.00", "BRL"))}],
                 "workshop_cost_missing": False,
             },
         )

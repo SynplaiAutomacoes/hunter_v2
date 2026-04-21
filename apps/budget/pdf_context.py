@@ -155,9 +155,12 @@ def build_budget_pdf_context(*, budget, observacao: str | None = None, request=N
                     continue
 
                 service = kit_service.service
-                cost_price = override.service_cost_price if override else (service.suggested_cost or Money(0, "BRL"))
-                selling_price = override.service_selling_price if override else kit_service.resolved_selling_price
-                duration = override.duration if override and override.duration else service.duration
+                if override:
+                    cost_price = override.service_cost_price
+                    selling_price = override.service_selling_price
+                else:
+                    cost_price, selling_price = kit_item.resolve_kit_service_base_prices(kit_service=kit_service)
+                duration = override.duration if override and override.duration else kit_service.duration
                 total_quantity = quantity * kit_quantity
 
                 servicos.append({

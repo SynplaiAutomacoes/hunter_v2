@@ -16,6 +16,10 @@ from apps.workshops.models.workshops import Workshop
 
 
 class Kit(TimeStampedModel):
+    class ServicePricingMode(models.TextChoices):
+        BY_DURATION = "by_duration", "Valor de venda por duração"
+        INSERTED_VALUE = "inserted_value", "Valor de venda inserido"
+
     workshop = models.ForeignKey(
         Workshop,
         on_delete=models.CASCADE,
@@ -41,6 +45,12 @@ class Kit(TimeStampedModel):
 
     total_price = MoneyField(verbose_name="Preço Total", max_digits=14, decimal_places=2, default=0.00)
     total_duration = models.DurationField(verbose_name="Duração Total", null=True, blank=True)
+    service_pricing_mode = models.CharField(
+        verbose_name="Modo de precificação de serviços",
+        max_length=20,
+        choices=ServicePricingMode.choices,
+        default=ServicePricingMode.BY_DURATION,
+    )
 
     class Meta:
         verbose_name = "Kit"

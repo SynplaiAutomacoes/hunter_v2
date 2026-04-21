@@ -291,10 +291,11 @@ class KitServiceBulkPricingView(LoginRequiredMixin, WorkshopScopedMixin, View):
         priced_rows = []
         for row in normalized_rows:
             duration = KitForm._parse_duration_value(str(row["duration"])) or KitForm._parse_duration_value("00:00:00")
-            _, selling_price = calculate_catalog_service_prices(duration, workshop_cost)
+            cost_price, selling_price = calculate_catalog_service_prices(duration, workshop_cost)
             priced_rows.append(
                 {
                     "id": row["id"],
+                    "cost": KitForm._format_money_display(cost_price),
                     "sell": KitForm._format_money_display(selling_price),
                 }
             )

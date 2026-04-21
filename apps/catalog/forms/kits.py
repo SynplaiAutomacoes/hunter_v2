@@ -18,6 +18,7 @@ from apps.catalog.kit_applications import normalize_vehicle_text
 from apps.catalog.models.kits import Kit, KitApplication, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
+from apps.catalog.util import calculate_catalog_service_prices, get_current_workshop_cost
 from apps.core.widgets import CheckboxInput, TextInput, TextareaInput, SelectInput, MoneyInput, PercentageInput, ImageInput, DurationInput
 from apps.customer.vehicle_engine import normalize_vehicle_engine_choice, vehicle_engine_form_choices
 from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice, vehicle_fuel_form_choices
@@ -241,6 +242,27 @@ class KitForm(forms.ModelForm):
         product_search_url = reverse("catalog:kits_product_search")
         service_search_url = reverse("catalog:kits_service_search")
         service_bulk_pricing_url = reverse("catalog:kits_service_bulk_pricing")
+        valid_pricing_modes = {choice[0] for choice in Kit.ServicePricingMode.choices}
+        selected_pricing_mode = Kit.ServicePricingMode.BY_DURATION
+
+        if self.instance.pk and self.instance.service_pricing_mode in valid_pricing_modes:
+            selected_pricing_mode = self.instance.service_pricing_mode
+
+        if self.is_bound:
+            posted_mode = str(self.data.get("kit_service_pricing_mode", "") or "").strip()
+            if posted_mode in valid_pricing_modes:
+                selected_pricing_mode = posted_mode
+
+        workshop_cost = None
+        if self.workshop:
+            workshop_cost, _ = get_current_workshop_cost(self.workshop)
+
+        def resolve_duration_based_prices(duration_value: timedelta) -> tuple[str, str]:
+            if workshop_cost is None:
+                return "-", "-"
+
+            calculated_cost, calculated_sell = calculate_catalog_service_prices(duration_value, workshop_cost)
+            return self._format_money_display(calculated_cost), self._format_money_display(calculated_sell)
 
         initial_products = []
         initial_services = []
@@ -313,13 +335,15 @@ class KitForm(forms.ModelForm):
                 formatted_duration = KitForm._format_duration(duration_value)
                 raw_sell = str(self.data.get(f"kit_service_sell_{sid}", "") or "").strip()
                 sell_value = self._parse_money_value(raw_sell)
+                cost_by_duration, sell_by_duration = resolve_duration_based_prices(duration_value or timedelta())
 
                 initial_services.append(
                     {
                         "id": service.id,
                         "name": service.name,
-                        "cost": str(service.suggested_cost) if service.suggested_cost else "-",
-                        "sell": self._format_money_display(sell_value if sell_value is not None else service.selling_price),
+                        "cost_by_duration": cost_by_duration,
+                        "sell_by_duration": sell_by_duration,
+                        "sell_inserted": self._format_money_display(sell_value if sell_value is not None else service.selling_price),
                         "qty": qty,
                         "duration": formatted_duration,
                     }
@@ -369,12 +393,14 @@ class KitForm(forms.ModelForm):
             )
             for ks in kit_services:
                 service = ks.service
+                cost_by_duration, sell_by_duration = resolve_duration_based_prices(ks.duration or timedelta())
                 initial_services.append(
                     {
                         "id": service.id,
                         "name": service.name,
-                        "cost": str(service.suggested_cost) if service.suggested_cost else "-",
-                        "sell": self._format_money_display(ks.resolved_selling_price),
+                        "cost_by_duration": cost_by_duration,
+                        "sell_by_duration": sell_by_duration,
+                        "sell_inserted": self._format_money_display(ks.resolved_selling_price),
                         "qty": ks.quantity,
                         "duration": KitForm._format_duration(ks.duration),
                     }
@@ -470,9 +496,15 @@ class KitForm(forms.ModelForm):
                                 </div>
                             </div>
 
-                            <div class="p-4 bg-base-300 rounded-box mb-3">
-                                <div class="text-sm text-base-content/70">Duração Total</div>
-                                <div class="text-xl font-semibold" x-text="totalDurationDisplay"></div>
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
+                                <div class="p-4 bg-base-300 rounded-box">
+                                    <div class="text-sm text-base-content/70">Duração Total</div>
+                                    <div class="text-xl font-semibold" x-text="totalDurationDisplay"></div>
+                                </div>
+                                <div class="p-4 bg-base-300 rounded-box">
+                                    <div class="text-sm text-base-content/70" x-text="servicePricingMode === 'by_duration' ? 'Valor do Kit por Duração' : 'Valor inserido do kit'"></div>
+                                    <div class="text-xl font-semibold" x-text="currentKitSellTotalDisplay()"></div>
+                                </div>
                             </div>
 
                             <div class="divider my-1"></div>
@@ -556,7 +588,8 @@ class KitForm(forms.ModelForm):
                                             <tr>
                                                 <th>Serviço</th>
                                                 <th class="text-right">Custo</th>
-                                                <th class="text-right">Venda</th>
+                                                <th class="text-right transition-all duration-200" :class="servicePricingColumnClasses('by_duration', 'header')">Valor de venda por duração</th>
+                                                <th class="text-right transition-all duration-200" :class="servicePricingColumnClasses('inserted_value', 'header')">Valor de Venda Inserido</th>
                                                 <th class="text-center">Qtd</th>
                                                 <th class="text-center">Duração</th>
                                                 <th class="text-right"></th>
@@ -566,8 +599,9 @@ class KitForm(forms.ModelForm):
                                             <template x-for="(item, index) in selectedServices" :key="'s-'+item.id">
                                                 <tr>
                                                     <td><span x-text="item.name"></span></td>
-                                                    <td class="text-right whitespace-nowrap"><span x-text="item.cost"></span></td>
-                                                    <td class="text-right whitespace-nowrap"><span x-text="item.sell"></span></td>
+                                                    <td class="text-right whitespace-nowrap"><span x-text="item.cost_by_duration"></span></td>
+                                                    <td class="text-right whitespace-nowrap transition-all duration-200" :class="servicePricingColumnClasses('by_duration', 'body')"><span x-text="item.sell_by_duration"></span></td>
+                                                    <td class="text-right whitespace-nowrap transition-all duration-200" :class="servicePricingColumnClasses('inserted_value', 'body')"><span x-text="item.sell_inserted"></span></td>
                                                     <td class="text-center">
                                                         <input type="number" min="1" step="1" class="input-theme w-20 text-center" x-model.number="item.qty" />
                                                     </td>
@@ -589,20 +623,46 @@ class KitForm(forms.ModelForm):
                                                 </tr>
                                             </template>
                                             <tr x-show="selectedServices.length === 0">
-                                                <td colspan="6" class="text-sm text-gray-500 italic">Nenhum serviço adicionado.</td>
+                                                <td colspan="7" class="text-sm text-gray-500 italic">Nenhum serviço adicionado.</td>
                                             </tr>
                                         </tbody>
                                         <tfoot>
                                             <tr class="border-t border-base-300">
                                                 <th>Total dos serviços</th>
-                                                <th class="text-right whitespace-nowrap" x-text="servicesCostTotalDisplay()"></th>
-                                                <th class="text-right whitespace-nowrap" x-text="servicesSellTotalDisplay()"></th>
+                                                <th class="text-right whitespace-nowrap" x-text="servicesCostByDurationTotalDisplay()"></th>
+                                                <th class="text-right whitespace-nowrap transition-all duration-200" :class="servicePricingColumnClasses('by_duration', 'footer')" x-text="servicesSellByDurationTotalDisplay()"></th>
+                                                <th class="text-right whitespace-nowrap transition-all duration-200" :class="servicePricingColumnClasses('inserted_value', 'footer')" x-text="servicesSellInsertedTotalDisplay()"></th>
                                                 <th></th>
                                                 <th></th>
                                                 <th></th>
                                             </tr>
                                         </tfoot>
                                     </table>
+                                </div>
+                                <div class="mt-3 p-2 bg-base-200 rounded-box border border-base-300">
+                                    <div class="text-xs font-semibold mb-1">Modo de precificação dos serviços</div>
+                                    <div class="relative grid grid-cols-2 items-center p-1 rounded-full bg-base-100 border border-base-300 max-w-md">
+                                        <div
+                                            class="absolute top-1 bottom-1 left-1 w-[calc(50%-0.25rem)] rounded-full bg-primary transition-transform duration-200"
+                                            :class="servicePricingMode === 'by_duration' ? 'translate-x-0' : 'translate-x-full'"
+                                        ></div>
+                                        <button
+                                            type="button"
+                                            class="relative z-10 px-2 py-1 text-xs font-semibold text-left rounded-md transition-colors"
+                                            :class="servicePricingMode === 'by_duration' ? 'text-base-content' : 'text-base-content/70'"
+                                            @click="setServicePricingMode('by_duration')"
+                                        >
+                                            Valor de venda por duração
+                                        </button>
+                                        <button
+                                            type="button"
+                                            class="relative z-10 px-2 py-1 text-xs font-semibold text-left rounded-md transition-colors"
+                                            :class="servicePricingMode === 'inserted_value' ? 'text-base-content' : 'text-base-content/70'"
+                                            @click="setServicePricingMode('inserted_value')"
+                                        >
+                                            Valor de venda inserido
+                                        </button>
+                                    </div>
                                 </div>
                                 <select name="kit_services" multiple class="hidden">
                                     <template x-for="item in selectedServices" :key="'so-'+item.id">
@@ -616,8 +676,9 @@ class KitForm(forms.ModelForm):
                                     <input type="hidden" :name="'kit_service_duration_' + item.id" :value="normalizeDurationForPost(item.duration)" />
                                 </template>
                                 <template x-for="item in selectedServices" :key="'ss-'+item.id">
-                                    <input type="hidden" :name="'kit_service_sell_' + item.id" :value="normalizeMoneyForPost(item.sell)" />
+                                    <input type="hidden" :name="'kit_service_sell_' + item.id" :value="normalizeMoneyForPost(item.sell_inserted)" />
                                 </template>
+                                <input type="hidden" name="kit_service_pricing_mode" :value="servicePricingMode" />
                             </div>
 
                             <input type="checkbox" id="kit-products-modal" class="modal-toggle" />
@@ -775,6 +836,7 @@ class KitForm(forms.ModelForm):
                                     applications: {applications_json},
                                     modalSelectedProducts: [],
                                     modalSelectedServices: [],
+                                    servicePricingMode: '{selected_pricing_mode}',
                                     totalDurationDisplay: '00:00',
 
                                     init() {{
@@ -856,17 +918,19 @@ class KitForm(forms.ModelForm):
                                         if (!service) return;
 
                                         service.name = payload.name ?? service.name;
-                                        service.cost = payload.cost ?? service.cost;
-                                        service.sell = payload.sell ?? service.sell;
+                                        service.sell_inserted = payload.sell ?? service.sell_inserted;
                                         service.duration = payload.duration ?? service.duration;
 
                                         this.refreshTotalDurationDisplay();
+                                        this.refreshServicePricingFromDurations().catch((error) => {{
+                                            console.error('Error refreshing duration-based pricing:', error);
+                                        }});
                                         this.resetEditModalContent();
 
                                         const modalToggle = document.getElementById('edit-item-modal');
                                         if (modalToggle) modalToggle.checked = false;
                                     }},
-                                    async refreshServiceSellPricesFromDurations() {{
+                                    async refreshServicePricingFromDurations() {{
                                         if (this.selectedServices.length === 0) return;
 
                                         const response = await fetch('{service_bulk_pricing_url}', {{
@@ -891,15 +955,16 @@ class KitForm(forms.ModelForm):
                                         }}
 
                                         if (payload.workshop_cost_missing) {{
-                                            this.showToast('Configure os custos da oficina para recalcular os valores de venda dos serviços.', 'warning');
+                                            this.showToast('Configure os custos da oficina para recalcular custo e valor por duração.', 'warning');
                                             return;
                                         }}
 
-                                        const sellMap = new Map((payload.services || []).map((service) => [String(service.id), service.sell]));
+                                        const pricingMap = new Map((payload.services || []).map((service) => [String(service.id), service]));
                                         this.selectedServices.forEach((service) => {{
-                                            const recalculatedSell = sellMap.get(String(service.id));
-                                            if (recalculatedSell) {{
-                                                service.sell = recalculatedSell;
+                                            const recalculated = pricingMap.get(String(service.id));
+                                            if (recalculated) {{
+                                                if (recalculated.cost) service.cost_by_duration = recalculated.cost;
+                                                if (recalculated.sell) service.sell_by_duration = recalculated.sell;
                                             }}
                                         }});
                                     }},
@@ -924,10 +989,10 @@ class KitForm(forms.ModelForm):
                                         const normalized = (value || '').toString().trim();
                                         if (!normalized || normalized === '-') return 0;
 
-                                        const sanitized = normalized.replace(/[^\d,.-]/g, '');
+                                        const sanitized = normalized.replace(/[^0-9,.-]/g, '');
                                         if (!sanitized || sanitized === '-' || sanitized === ',' || sanitized === '.') return 0;
 
-                                        const decimalValue = sanitized.includes(',') ? sanitized.replace(/\./g, '').replace(',', '.') : sanitized.replace(/,/g, '');
+                                        const decimalValue = sanitized.includes(',') ? sanitized.split('.').join('').replace(',', '.') : sanitized.replace(/,/g, '');
                                         const parsed = Number.parseFloat(decimalValue);
                                         return Number.isNaN(parsed) ? 0 : parsed;
                                     }},
@@ -940,7 +1005,7 @@ class KitForm(forms.ModelForm):
                                         }}).format(safeValue);
                                     }},
                                     parseMoneyToCents(value) {{
-                                        const digits = (value || '').toString().replace(/\D/g, '');
+                                        const digits = (value || '').toString().replace(/[^0-9]/g, '');
                                         if (!digits) return null;
                                         const parsed = Number.parseInt(digits, 10);
                                         return Number.isNaN(parsed) ? null : parsed;
@@ -952,6 +1017,21 @@ class KitForm(forms.ModelForm):
                                     }},
                                     normalizeMoneyForPost(value) {{
                                         return this.parseMoneyValue(value).toFixed(2);
+                                    }},
+                                    setServicePricingMode(mode) {{
+                                        if (mode !== 'by_duration' && mode !== 'inserted_value') return;
+                                        this.servicePricingMode = mode;
+                                    }},
+                                    servicePricingColumnClasses(mode, section = 'body') {{
+                                        const isActive = this.servicePricingMode === mode;
+                                        const baseClasses = 'border-success/40';
+                                        const inactiveClasses = 'border-transparent bg-transparent shadow-none';
+                                        const activeClassesBySection = {{
+                                            header: 'border-x border-t bg-success/10 shadow-[inset_0_1px_0_0_color-mix(in_oklab,var(--color-success)_45%,transparent),inset_1px_0_0_0_color-mix(in_oklab,var(--color-success)_45%,transparent),inset_-1px_0_0_0_color-mix(in_oklab,var(--color-success)_45%,transparent)]',
+                                            body: 'border-x bg-success/10 shadow-[inset_1px_0_0_0_color-mix(in_oklab,var(--color-success)_45%,transparent),inset_-1px_0_0_0_color-mix(in_oklab,var(--color-success)_45%,transparent)]',
+                                            footer: 'border-x border-b bg-success/10 shadow-[inset_0_-1px_0_0_color-mix(in_oklab,var(--color-success)_45%,transparent),inset_1px_0_0_0_color-mix(in_oklab,var(--color-success)_45%,transparent),inset_-1px_0_0_0_color-mix(in_oklab,var(--color-success)_45%,transparent)]',
+                                        }};
+                                        return `${{baseClasses}} ${{isActive ? activeClassesBySection[section] || activeClassesBySection.body : inactiveClasses}}`;
                                     }},
                                     resolveItemQuantity(item) {{
                                         const qty = Number.parseInt(item.qty, 10);
@@ -969,11 +1049,21 @@ class KitForm(forms.ModelForm):
                                     productsSellTotalDisplay() {{
                                         return this.formatCurrency(this.calculateItemsTotal(this.selectedProducts, 'sell'));
                                     }},
-                                    servicesCostTotalDisplay() {{
-                                        return this.formatCurrency(this.calculateItemsTotal(this.selectedServices, 'cost'));
+                                    servicesCostByDurationTotalDisplay() {{
+                                        return this.formatCurrency(this.calculateItemsTotal(this.selectedServices, 'cost_by_duration'));
                                     }},
-                                    servicesSellTotalDisplay() {{
-                                        return this.formatCurrency(this.calculateItemsTotal(this.selectedServices, 'sell'));
+                                    servicesSellByDurationTotalDisplay() {{
+                                        return this.formatCurrency(this.calculateItemsTotal(this.selectedServices, 'sell_by_duration'));
+                                    }},
+                                    servicesSellInsertedTotalDisplay() {{
+                                        return this.formatCurrency(this.calculateItemsTotal(this.selectedServices, 'sell_inserted'));
+                                    }},
+                                    currentKitSellTotalDisplay() {{
+                                        const productsTotal = this.calculateItemsTotal(this.selectedProducts, 'sell');
+                                        const servicesTotal = this.servicePricingMode === 'by_duration'
+                                            ? this.calculateItemsTotal(this.selectedServices, 'sell_by_duration')
+                                            : this.calculateItemsTotal(this.selectedServices, 'sell_inserted');
+                                        return this.formatCurrency(productsTotal + servicesTotal);
                                     }},
                                     refreshTotalDurationDisplay() {{
                                         const totalSeconds = this.selectedServices.reduce((sum, service) => {{
@@ -1022,8 +1112,9 @@ class KitForm(forms.ModelForm):
                                         this.modalSelectedServices = this.selectedServices.map(s => ({{
                                             id: s.id,
                                             name: s.name,
-                                            cost: s.cost,
-                                            sell: s.sell,
+                                            cost_by_duration: s.cost_by_duration,
+                                            sell_by_duration: s.sell_by_duration,
+                                            sell_inserted: s.sell_inserted,
                                             qty: s.qty,
                                             duration: s.duration || '00:00:00',
                                         }}));
@@ -1065,7 +1156,11 @@ class KitForm(forms.ModelForm):
                                     addService(item) {{
                                         if (!this.selectedServices.find(i => i.id == item.id)) {{
                                             this.selectedServices.push({{
-                                                ...item,
+                                                id: item.id,
+                                                name: item.name,
+                                                cost_by_duration: '-',
+                                                sell_by_duration: '-',
+                                                sell_inserted: item.sell || this.formatCurrency(0),
                                                 qty: 1,
                                                 duration: this.normalizeDurationForPost(item.duration || '00:00:00'),
                                             }});
@@ -1077,7 +1172,7 @@ class KitForm(forms.ModelForm):
 
                                     parseTotalMinutes(value) {{
                                         const normalized = this.normalizeDistributionTime(value);
-                                        const match = normalized.match(/^(\\d{{2}}):(\\d{{2}})$/);
+                                        const match = normalized.match(/^([0-9]{{2}}):([0-9]{{2}})$/);
                                         if (!match) return null;
                                         const hours = parseInt(match[1], 10);
                                         const minutes = parseInt(match[2], 10);
@@ -1085,7 +1180,7 @@ class KitForm(forms.ModelForm):
                                         return (hours * 60) + minutes;
                                     }},
                                     normalizeDistributionTime(value) {{
-                                        const digits = (value || '').toString().replace(/\\D/g, '').slice(0, 4);
+                                        const digits = (value || '').toString().replace(/[^0-9]/g, '').slice(0, 4);
                                         if (!digits) return '';
                                         if (digits.length <= 2) return digits;
                                         const hh = digits.slice(0, 2);
@@ -1169,13 +1264,13 @@ class KitForm(forms.ModelForm):
                                         }});
 
                                         try {{
-                                            await this.refreshServiceSellPricesFromDurations();
+                                            await this.refreshServicePricingFromDurations();
                                         }} catch (error) {{
-                                            console.error('Error recalculating kit service selling prices:', error);
-                                            this.showToast('Nao foi possivel recalcular os valores de venda dos servicos.', 'error');
+                                            console.error('Error recalculating kit service pricing:', error);
+                                            this.showToast('Nao foi possivel recalcular custo e valor por duração.', 'error');
                                         }}
 
-                                        this.totalDurationDisplay = this.normalizeDistributionTime(this.distributionTotalTime);
+                                        this.refreshTotalDurationDisplay();
 
                                         const modalToggle = document.getElementById('kit-distribute-time-modal');
                                         if (modalToggle) modalToggle.checked = false;
@@ -1212,10 +1307,10 @@ class KitForm(forms.ModelForm):
 
                                         weightedServices.forEach((item) => {{
                                             const unitCents = item.index === anchor.index ? anchorUnitCents : baseUnitCents;
-                                            this.selectedServices[item.index].sell = this.formatCurrency(unitCents / 100);
+                                            this.selectedServices[item.index].sell_inserted = this.formatCurrency(unitCents / 100);
                                         }});
 
-                                        this.distributionTotalServiceSell = this.formatCurrency(this.calculateItemsTotal(this.selectedServices, 'sell'));
+                                        this.distributionTotalServiceSell = this.formatCurrency(this.calculateItemsTotal(this.selectedServices, 'sell_inserted'));
 
                                         const modalToggle = document.getElementById('kit-distribute-service-sell-modal');
                                         if (modalToggle) modalToggle.checked = false;
@@ -1230,8 +1325,14 @@ class KitForm(forms.ModelForm):
                                         this.resetProductSearch();
                                         this.reloadProductSuggestions();
                                     }},
-                                    applySelectedServices() {{
+                                    async applySelectedServices() {{
                                         this.modalSelectedServices.forEach(s => this.addService(s));
+
+                                        try {{
+                                            await this.refreshServicePricingFromDurations();
+                                        }} catch (error) {{
+                                            console.error('Error recalculating pricing after selecting services:', error);
+                                        }}
 
                                         const modalToggle = document.getElementById('kit-services-modal');
                                         if (modalToggle) modalToggle.checked = false;
@@ -1355,6 +1456,18 @@ class KitForm(forms.ModelForm):
         cleaned_data["_kit_services_duration"] = service_duration
         cleaned_data["_kit_services_sell"] = service_sell
 
+        raw_service_pricing_mode = str(self.data.get("kit_service_pricing_mode", "") or "").strip()
+        valid_pricing_modes = {choice[0] for choice in Kit.ServicePricingMode.choices}
+        if not raw_service_pricing_mode:
+            raw_service_pricing_mode = self.instance.service_pricing_mode if self.instance.pk else Kit.ServicePricingMode.BY_DURATION
+        elif raw_service_pricing_mode not in valid_pricing_modes:
+            logger.warning(
+                "Modo de precificacao de servicos invalido no kit",
+                extra={"kit_id": self.instance.pk, "raw_service_pricing_mode": raw_service_pricing_mode},
+            )
+            raw_service_pricing_mode = Kit.ServicePricingMode.BY_DURATION
+        cleaned_data["_kit_service_pricing_mode"] = raw_service_pricing_mode
+
         raw_applications = self._extract_application_rows_from_post()
         normalized_applications: list[dict[str, int | str]] = []
         seen_applications: set[tuple[str, str, str, str, int, int]] = set()
@@ -1465,6 +1578,7 @@ class KitForm(forms.ModelForm):
         service_qty: dict[str, int] = self.cleaned_data.get("_kit_services_qty", {})
         service_duration: dict[str, timedelta] = self.cleaned_data.get("_kit_services_duration", {})
         service_sell: dict[str, Decimal | None] = self.cleaned_data.get("_kit_services_sell", {})
+        service_pricing_mode: str = self.cleaned_data.get("_kit_service_pricing_mode", Kit.ServicePricingMode.BY_DURATION)
         applications: list[dict[str, int | str]] = self.cleaned_data.get("_kit_applications", [])
 
         KitProduct.objects.filter(kit=instance).exclude(product_id__in=product_ids).delete()
@@ -1546,8 +1660,9 @@ class KitForm(forms.ModelForm):
 
         instance.total_price = totals["total_sell"]
         instance.total_duration = totals["services_total_duration"]
+        instance.service_pricing_mode = service_pricing_mode
 
-        instance.save(update_fields=["total_price", "total_duration"])
+        instance.save(update_fields=["total_price", "total_duration", "service_pricing_mode"])
 
         return instance
 
