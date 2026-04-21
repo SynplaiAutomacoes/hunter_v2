@@ -1657,6 +1657,49 @@ class BudgetPdfViewTests(TestCase):
             self.assertRegex(response.content.decode(), r">\s*Sim\s*<")
             self.assertRegex(response.content.decode(), r">\s*Não\s*<")
 
+    def test_visualizar_pdf_gestor_product_table_headers_match_rendered_columns(self) -> None:
+        budget = self._create_budget_with_customer_and_vehicle(suffix=108)
+        product = create_product(workshop=self.workshop, suffix=108)
+
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            product=product,
+            quantity=1,
+        )
+
+        response = self.client.get(reverse("budget:visualizar_pdf_gestor", args=[budget.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertEqual(content.count("Fornecido pelo cliente?"), 1)
+        self.assertEqual(content.count("Valor Unitário"), 1)
+        self.assertContains(response, "Frete")
+        self.assertContains(response, "Custo")
+        self.assertContains(response, "Lucro")
+        self.assertNotContains(response, '<th class="p-1 font-semibold text-center whitespace-normal leading-tight">Fornecido pelo cliente</th>', html=False)
+
+    def test_visualizar_pdf_mecanico_product_table_headers_match_rendered_columns(self) -> None:
+        budget = self._create_budget_with_customer_and_vehicle(suffix=109)
+        product = create_product(workshop=self.workshop, suffix=109)
+
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            product=product,
+            quantity=1,
+        )
+
+        response = self.client.get(reverse("budget:visualizar_pdf_mecanico", args=[budget.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertEqual(content.count("Fornecido pelo cliente?"), 1)
+        self.assertContains(response, "Referência")
+        self.assertContains(response, "Localização")
+        self.assertContains(response, "Descrição")
+        self.assertNotContains(response, '<th class="p-1 font-semibold w-[14%] text-center whitespace-normal leading-tight">Fornecido pelo cliente</th>', html=False)
+
     def test_pdf_views_display_warranty_label_for_warranty_budget(self) -> None:
         budget = self._create_budget_with_customer_and_vehicle(suffix=106)
         budget.is_warranty_budget = True
