@@ -787,9 +787,11 @@ class BudgetItem(TimeStampedModel):
     service_cost_price = MoneyField(verbose_name="Custo", max_digits=14, decimal_places=2, default=0)
     service_selling_price = MoneyField(verbose_name="Valor de Venda", max_digits=14, decimal_places=2, default=0)
     duration = models.DurationField(verbose_name="Duração", null=True, blank=True)
+    kit_snapshot_frozen = models.BooleanField(verbose_name="Snapshot do kit congelado", default=False)
 
     def save(self, *args, **kwargs):
-        if not self.pk:
+        is_new = not self.pk
+        if is_new:
             if self.product:
                 self.product_cost_price = self.product.cost_price
                 self.product_selling_price = self.product.selling_price
@@ -822,8 +824,115 @@ class BudgetItem(TimeStampedModel):
 
         super().save(*args, **kwargs)
 
+        if self.kit_id and not self.kit_snapshot_frozen:
+            self.ensure_kit_snapshot()
+
         if self.product_id:
             record_product_last_used_price(product=self.product, price=self.product_selling_price)
+
+    def _clear_kit_snapshot_caches(self) -> None:
+        for cache_name in ("_kit_override_maps_cache", "_kit_unit_totals_cache"):
+            if hasattr(self, cache_name):
+                delattr(self, cache_name)
+
+    def ensure_kit_snapshot(self) -> None:
+        if not self.pk or not self.kit_id or self.kit_snapshot_frozen:
+            return
+
+        workshop_cost = self._get_budget_reference_workshop_cost()
+        existing_overrides = list(self.kit_overrides.select_related("product", "service").all())
+        product_overrides = {override.product_id: override for override in existing_overrides if override.product_id}
+        service_overrides = {override.service_id: override for override in existing_overrides if override.service_id}
+
+        with transaction.atomic():
+            for kit_product in self.kit.kit_products.select_related("product").all():
+                override = product_overrides.get(kit_product.product_id)
+                BudgetKitItemOverride.objects.update_or_create(
+                    workshop=self.workshop,
+                    budget_item=self,
+                    product=kit_product.product,
+                    defaults={
+                        "quantity": override.quantity if override else kit_product.quantity,
+                        "product_cost_price": override.product_cost_price if override else kit_product.product.cost_price,
+                        "product_selling_price": override.product_selling_price if override else kit_product.product.selling_price,
+                        "shipping": override.shipping if override else Money(0, "BRL"),
+                    },
+                )
+
+            for kit_service in self.kit.kit_services.select_related("service").all():
+                override = service_overrides.get(kit_service.service_id)
+                default_cost, default_sell = self.resolve_kit_service_base_prices(kit_service=kit_service, workshop_cost=workshop_cost)
+                BudgetKitItemOverride.objects.update_or_create(
+                    workshop=self.workshop,
+                    budget_item=self,
+                    service=kit_service.service,
+                    defaults={
+                        "quantity": override.quantity if override else kit_service.quantity,
+                        "service_cost_price": override.service_cost_price if override else default_cost,
+                        "service_selling_price": override.service_selling_price if override else default_sell,
+                        "duration": override.duration if override else (kit_service.duration or timedelta()),
+                    },
+                )
+
+            BudgetItem.objects.filter(pk=self.pk, kit_snapshot_frozen=False).update(kit_snapshot_frozen=True)
+
+        self.kit_snapshot_frozen = True
+        self._clear_kit_snapshot_caches()
+        self.refresh_kit_snapshot_totals()
+
+    def refresh_kit_snapshot_totals(self) -> None:
+        if not self.pk or not self.kit_id:
+            return
+
+        self._clear_kit_snapshot_caches()
+
+        product_cost_total = Money(0, "BRL")
+        product_selling_total = Money(0, "BRL")
+        service_cost_total = Money(0, "BRL")
+        service_selling_total = Money(0, "BRL")
+        total_duration = timedelta()
+
+        for override in self._iter_frozen_kit_product_overrides():
+            if override.quantity <= 0:
+                continue
+            product_cost_total += override.product_cost_price * override.quantity
+            product_selling_total += override.product_selling_price * override.quantity
+
+        for override in self._iter_frozen_kit_service_overrides():
+            if override.quantity <= 0:
+                continue
+            service_cost_total += override.service_cost_price * override.quantity
+            service_selling_total += override.service_selling_price * override.quantity
+            if override.duration:
+                total_duration += override.duration * override.quantity
+
+        BudgetItem.objects.filter(pk=self.pk).update(
+            product_cost_price=product_cost_total,
+            product_selling_price=product_selling_total,
+            service_cost_price=service_cost_total,
+            service_selling_price=service_selling_total,
+            duration=total_duration,
+        )
+
+        self.product_cost_price = product_cost_total
+        self.product_selling_price = product_selling_total
+        self.service_cost_price = service_cost_total
+        self.service_selling_price = service_selling_total
+        self.duration = total_duration
+
+    def _iter_frozen_kit_product_overrides(self):
+        if not self.kit_id:
+            return ()
+
+        self.ensure_kit_snapshot()
+        return self.kit_overrides.filter(product__isnull=False).select_related("product").all()
+
+    def _iter_frozen_kit_service_overrides(self):
+        if not self.kit_id:
+            return ()
+
+        self.ensure_kit_snapshot()
+        return self.kit_overrides.filter(service__isnull=False).select_related("service").all()
 
     @property
     def duration_display(self):
@@ -840,6 +949,9 @@ class BudgetItem(TimeStampedModel):
         cache = getattr(self, "_kit_override_maps_cache", None)
         if cache is not None:
             return cache
+
+        if self.kit_id:
+            self.ensure_kit_snapshot()
 
         product_overrides: dict[int, "BudgetKitItemOverride"] = {}
         service_overrides: dict[int, "BudgetKitItemOverride"] = {}
@@ -915,16 +1027,14 @@ class BudgetItem(TimeStampedModel):
         if not self.kit:
             return []
 
-        product_overrides, _ = self._get_kit_override_maps()
         products: list[dict[str, Any]] = []
 
-        for kit_product in self._iter_kit_products():
-            override = product_overrides.get(kit_product.product_id)
-            quantity = override.quantity if override else kit_product.quantity
+        for override in self._iter_frozen_kit_product_overrides():
+            quantity = override.quantity
             if quantity <= 0:
                 continue
 
-            products.append({"id": kit_product.product_id, "name": kit_product.product.name, "quantity": quantity})
+            products.append({"id": override.product_id, "name": override.product.name, "quantity": quantity})
 
         return products
 
@@ -933,16 +1043,14 @@ class BudgetItem(TimeStampedModel):
         if not self.kit:
             return []
 
-        _, service_overrides = self._get_kit_override_maps()
         services: list[dict[str, Any]] = []
 
-        for kit_service in self._iter_kit_services():
-            override = service_overrides.get(kit_service.service_id)
-            quantity = override.quantity if override else kit_service.quantity
+        for override in self._iter_frozen_kit_service_overrides():
+            quantity = override.quantity
             if quantity <= 0:
                 continue
 
-            services.append({"id": kit_service.service_id, "name": kit_service.service.name, "quantity": quantity})
+            services.append({"id": override.service_id, "name": override.service.name, "quantity": quantity})
 
         return services
 
@@ -1013,33 +1121,22 @@ class BudgetItem(TimeStampedModel):
 
         unit_cost = Money(0, "BRL")
         unit_price = Money(0, "BRL")
-        product_overrides, service_overrides = self._get_kit_override_maps()
-        workshop_cost = self._get_budget_reference_workshop_cost()
 
-        for kit_product in self._iter_kit_products():
-            override = product_overrides.get(kit_product.product_id)
-            quantity = override.quantity if override else kit_product.quantity
+        for override in self._iter_frozen_kit_product_overrides():
+            quantity = override.quantity
             if quantity <= 0:
                 continue
 
-            product_cost = override.product_cost_price if override else kit_product.product.cost_price
-            product_price = override.product_selling_price if override else kit_product.product.selling_price
-            unit_cost += product_cost * quantity
-            unit_price += product_price * quantity
+            unit_cost += override.product_cost_price * quantity
+            unit_price += override.product_selling_price * quantity
 
-        for kit_service in self._iter_kit_services():
-            override = service_overrides.get(kit_service.service_id)
-            quantity = override.quantity if override else kit_service.quantity
+        for override in self._iter_frozen_kit_service_overrides():
+            quantity = override.quantity
             if quantity <= 0:
                 continue
 
-            if override:
-                service_cost = override.service_cost_price
-                service_price = override.service_selling_price
-            else:
-                service_cost, service_price = self.resolve_kit_service_base_prices(kit_service=kit_service, workshop_cost=workshop_cost)
-            unit_cost += service_cost * quantity
-            unit_price += service_price * quantity
+            unit_cost += override.service_cost_price * quantity
+            unit_price += override.service_selling_price * quantity
 
         cache = (unit_cost, unit_price)
         setattr(self, "_kit_unit_totals_cache", cache)
@@ -1067,36 +1164,21 @@ class BudgetItem(TimeStampedModel):
 
         total_produtos = Money(0, "BRL")
         total_servicos = Money(0, "BRL")
-        product_overrides, service_overrides = self._get_kit_override_maps()
-        workshop_cost = self._get_budget_reference_workshop_cost()
 
         # Calcular total dos produtos: (preço * qtd) + frete para cada produto
-        for kit_product in self._iter_kit_products():
-            override = product_overrides.get(kit_product.product_id)
-            if override:
-                if override.quantity <= 0:
-                    produto_subtotal = Money(0, "BRL")
-                else:
-                    produto_subtotal = (override.product_selling_price * override.quantity) + override.shipping
-            elif kit_product.quantity > 0:
-                produto_subtotal = (kit_product.product.selling_price * kit_product.quantity) + Money(0, "BRL")
-            else:
+        for override in self._iter_frozen_kit_product_overrides():
+            if override.quantity <= 0:
                 produto_subtotal = Money(0, "BRL")
+            else:
+                produto_subtotal = (override.product_selling_price * override.quantity) + override.shipping
             total_produtos += produto_subtotal
 
         # Calcular total dos serviços: preço * qtd para cada serviço
-        for kit_service in self._iter_kit_services():
-            override = service_overrides.get(kit_service.service_id)
-            if override:
-                if override.quantity <= 0:
-                    servico_subtotal = Money(0, "BRL")
-                else:
-                    servico_subtotal = override.service_selling_price * override.quantity
-            elif kit_service.quantity > 0:
-                _, default_sell = self.resolve_kit_service_base_prices(kit_service=kit_service, workshop_cost=workshop_cost)
-                servico_subtotal = default_sell * kit_service.quantity
-            else:
+        for override in self._iter_frozen_kit_service_overrides():
+            if override.quantity <= 0:
                 servico_subtotal = Money(0, "BRL")
+            else:
+                servico_subtotal = override.service_selling_price * override.quantity
             total_servicos += servico_subtotal
 
         # Total do kit = soma de produtos + soma de serviços
@@ -1111,18 +1193,11 @@ class BudgetItem(TimeStampedModel):
             return Money(0, "BRL")
 
         total_produtos = Money(0, "BRL")
-        product_overrides, _ = self._get_kit_override_maps()
-        for kit_product in self._iter_kit_products():
-            override = product_overrides.get(kit_product.product_id)
-            if override:
-                if override.quantity <= 0:
-                    produto_subtotal = Money(0, "BRL")
-                else:
-                    produto_subtotal = (override.product_selling_price * override.quantity) + override.shipping
-            elif kit_product.quantity > 0:
-                produto_subtotal = (kit_product.product.selling_price * kit_product.quantity) + Money(0, "BRL")
-            else:
+        for override in self._iter_frozen_kit_product_overrides():
+            if override.quantity <= 0:
                 produto_subtotal = Money(0, "BRL")
+            else:
+                produto_subtotal = (override.product_selling_price * override.quantity) + override.shipping
             total_produtos += produto_subtotal
 
         return total_produtos * self.quantity
@@ -1133,20 +1208,11 @@ class BudgetItem(TimeStampedModel):
             return Money(0, "BRL")
 
         total_servicos = Money(0, "BRL")
-        _, service_overrides = self._get_kit_override_maps()
-        workshop_cost = self._get_budget_reference_workshop_cost()
-        for kit_service in self._iter_kit_services():
-            override = service_overrides.get(kit_service.service_id)
-            if override:
-                if override.quantity <= 0:
-                    servico_subtotal = Money(0, "BRL")
-                else:
-                    servico_subtotal = override.service_selling_price * override.quantity
-            elif kit_service.quantity > 0:
-                _, default_sell = self.resolve_kit_service_base_prices(kit_service=kit_service, workshop_cost=workshop_cost)
-                servico_subtotal = default_sell * kit_service.quantity
-            else:
+        for override in self._iter_frozen_kit_service_overrides():
+            if override.quantity <= 0:
                 servico_subtotal = Money(0, "BRL")
+            else:
+                servico_subtotal = override.service_selling_price * override.quantity
             total_servicos += servico_subtotal
 
         return total_servicos * self.quantity
@@ -1157,14 +1223,9 @@ class BudgetItem(TimeStampedModel):
             return timedelta(0)
 
         total_duration = timedelta(0)
-        _, service_overrides = self._get_kit_override_maps()
-        for kit_service in self._iter_kit_services():
-            override = service_overrides.get(kit_service.service_id)
-            if override:
-                if override.quantity > 0 and override.duration:
-                    total_duration += override.duration * override.quantity
-            elif kit_service.quantity > 0 and kit_service.duration:
-                total_duration += kit_service.duration * kit_service.quantity
+        for override in self._iter_frozen_kit_service_overrides():
+            if override.quantity > 0 and override.duration:
+                total_duration += override.duration * override.quantity
 
         return total_duration * self.quantity
 
@@ -1173,10 +1234,8 @@ class BudgetItem(TimeStampedModel):
             return Money(0, "BRL")
 
         total_shipping = Money(0, "BRL")
-        product_overrides, _ = self._get_kit_override_maps()
-        for kit_product in self._iter_kit_products():
-            override = product_overrides.get(kit_product.product_id)
-            if override and override.quantity > 0:
+        for override in self._iter_frozen_kit_product_overrides():
+            if override.quantity > 0:
                 total_shipping += override.shipping
 
         return total_shipping * self.quantity
@@ -1186,15 +1245,10 @@ class BudgetItem(TimeStampedModel):
             return Money(0, "BRL")
 
         total_cost = Money(0, "BRL")
-        product_overrides, _ = self._get_kit_override_maps()
-        for kit_product in self._iter_kit_products():
-            override = product_overrides.get(kit_product.product_id)
-            if override:
-                if override.quantity <= 0:
-                    continue
-                total_cost += override.product_cost_price * override.quantity
-            elif kit_product.quantity > 0:
-                total_cost += kit_product.product.cost_price * kit_product.quantity
+        for override in self._iter_frozen_kit_product_overrides():
+            if override.quantity <= 0:
+                continue
+            total_cost += override.product_cost_price * override.quantity
 
         return total_cost * self.quantity
 
@@ -1203,17 +1257,10 @@ class BudgetItem(TimeStampedModel):
             return Money(0, "BRL")
 
         total_cost = Money(0, "BRL")
-        _, service_overrides = self._get_kit_override_maps()
-        workshop_cost = self._get_budget_reference_workshop_cost()
-        for kit_service in self._iter_kit_services():
-            override = service_overrides.get(kit_service.service_id)
-            if override:
-                if override.quantity <= 0:
-                    continue
-                total_cost += override.service_cost_price * override.quantity
-            elif kit_service.quantity > 0:
-                default_cost, _ = self.resolve_kit_service_base_prices(kit_service=kit_service, workshop_cost=workshop_cost)
-                total_cost += default_cost * kit_service.quantity
+        for override in self._iter_frozen_kit_service_overrides():
+            if override.quantity <= 0:
+                continue
+            total_cost += override.service_cost_price * override.quantity
 
         return total_cost * self.quantity
 
@@ -1222,20 +1269,13 @@ class BudgetItem(TimeStampedModel):
             return Money(0, "BRL")
 
         total_cost = Money(0, "BRL")
-        _, service_overrides = self._get_kit_override_maps()
-        workshop_cost = self._get_budget_reference_workshop_cost()
-        for kit_service in self._iter_kit_services():
-            if not kit_service.service.is_third_party:
+        for override in self._iter_frozen_kit_service_overrides():
+            if not override.service.is_third_party:
                 continue
 
-            override = service_overrides.get(kit_service.service_id)
-            if override:
-                if override.quantity <= 0:
-                    continue
-                total_cost += override.service_cost_price * override.quantity
-            elif kit_service.quantity > 0:
-                default_cost, _ = self.resolve_kit_service_base_prices(kit_service=kit_service, workshop_cost=workshop_cost)
-                total_cost += default_cost * kit_service.quantity
+            if override.quantity <= 0:
+                continue
+            total_cost += override.service_cost_price * override.quantity
 
         return total_cost * self.quantity
 
@@ -1244,31 +1284,28 @@ class BudgetItem(TimeStampedModel):
             return Money(0, "BRL")
 
         total_selling = Money(0, "BRL")
-        _, service_overrides = self._get_kit_override_maps()
-        workshop_cost = self._get_budget_reference_workshop_cost()
-        for kit_service in self._iter_kit_services():
-            if not kit_service.service.is_third_party:
+        for override in self._iter_frozen_kit_service_overrides():
+            if not override.service.is_third_party:
                 continue
 
-            override = service_overrides.get(kit_service.service_id)
-            if override:
-                if override.quantity <= 0:
-                    continue
-                total_selling += override.service_selling_price * override.quantity
-            elif kit_service.quantity > 0:
-                _, default_sell = self.resolve_kit_service_base_prices(kit_service=kit_service, workshop_cost=workshop_cost)
-                total_selling += default_sell * kit_service.quantity
+            if override.quantity <= 0:
+                continue
+            total_selling += override.service_selling_price * override.quantity
 
         return total_selling * self.quantity
 
     @property
     def unit_price(self):
+        if self.kit:
+            return self.kit_unit_price
         if self.quantity == 0:
             return Money(0, "BRL")
         return Money((self.product_selling_price + self.service_selling_price).amount / self.quantity, "BRL")
 
     @property
     def profit_value(self):
+        if self.kit:
+            return Money(self.kit_unit_price.amount - self.kit_unit_cost.amount, "BRL")
         return Money((self.product_selling_price.amount + self.service_selling_price.amount) - (self.product_cost_price.amount + self.service_cost_price.amount), "BRL")
 
     @property
@@ -1288,31 +1325,22 @@ class BudgetItem(TimeStampedModel):
         if self.kit:
             # Calculamos a soma dos preços ajustados de cada componente do kit
             total_kit_ajustado = Money(0, "BRL")
-            workshop_cost = self._get_budget_reference_workshop_cost()
-
-            # Reutilizamos a lógica de extração que você já tem
-            p_ovr, s_ovr = self._get_kit_override_maps()
 
             # Componentes de Produto no Kit
-            for kp in self.kit.kit_products.all():
-                ovr = p_ovr.get(kp.product_id)
-                u_p = ovr.product_selling_price if ovr else kp.product.selling_price
-                u_c = ovr.product_cost_price if ovr else kp.product.cost_price
-                qty = ovr.quantity if ovr else kp.quantity
+            for ovr in self._iter_frozen_kit_product_overrides():
+                u_p = ovr.product_selling_price
+                u_c = ovr.product_cost_price
+                qty = ovr.quantity
 
                 # Ajustamos o preço unitário deste componente específico
                 ajustado = self.calculate_individual_adjustment(original_unit=u_p, unit_cost=u_c, is_product=True)
                 total_kit_ajustado += ajustado * qty
 
             # Componentes de Serviço no Kit
-            for ks in self.kit.kit_services.all():
-                ovr = s_ovr.get(ks.service_id)
-                if ovr:
-                    u_p = ovr.service_selling_price
-                    u_c = ovr.service_cost_price
-                else:
-                    u_c, u_p = self.resolve_kit_service_base_prices(kit_service=ks, workshop_cost=workshop_cost)
-                qty = ks.quantity  # Overrides de serviço costumam manter qty
+            for ovr in self._iter_frozen_kit_service_overrides():
+                u_p = ovr.service_selling_price
+                u_c = ovr.service_cost_price
+                qty = ovr.quantity
 
                 ajustado = self.calculate_individual_adjustment(original_unit=u_p, unit_cost=u_c, is_product=False)
                 total_kit_ajustado += ajustado * qty

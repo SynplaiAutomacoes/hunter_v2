@@ -25,7 +25,7 @@ from djmoney.money import Money
 
 from apps.budget.forms import BudgetStep1Form, BudgetStep4Form, BudgetStep6Form
 from apps.budget.forms.shared import _render_budget_items_rows
-from apps.budget.models import Budget, BudgetItem, BudgetStatus, SignatureStatus
+from apps.budget.models import Budget, BudgetItem, BudgetKitItemOverride, BudgetStatus, SignatureStatus
 from apps.budget.pdf_context import build_budget_pdf_context
 from apps.budget.service import (
     BUDGET_SIGNATURE_DOCUMENT_ID_KEY,
@@ -2911,6 +2911,42 @@ class BudgetDuplicateKitProductTests(TestCase):
         item = BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
 
         self.assertEqual(item.service_selling_price, Money("210.00", "BRL"))
+
+    def test_budget_item_freezes_kit_values_after_creation(self) -> None:
+        workshop = create_workshop(suffix=10)
+        budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=110)
+        service = create_service(workshop=workshop, suffix=110)
+        kit = create_kit(workshop=workshop, suffix=101, products=[(product, 2)])
+        kit.service_pricing_mode = Kit.ServicePricingMode.INSERTED_VALUE
+        kit.save(update_fields=["service_pricing_mode"])
+        kit_service = KitService.objects.create(kit=kit, service=service, quantity=1, duration=service.duration, selling_price=Money("85.00", "BRL"))
+
+        item = BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
+        original_total = item.total_price
+
+        self.assertTrue(item.kit_snapshot_frozen)
+        self.assertEqual(BudgetKitItemOverride.objects.filter(budget_item=item, product=product).count(), 1)
+        self.assertEqual(BudgetKitItemOverride.objects.filter(budget_item=item, service=service).count(), 1)
+        self.assertEqual(original_total, Money("115.00", "BRL"))
+
+        product.selling_price = Money("99.00", "BRL")
+        product.cost_price = Money("50.00", "BRL")
+        product.save(update_fields=["selling_price", "selling_price_currency", "cost_price", "cost_price_currency"])
+        kit.service_pricing_mode = Kit.ServicePricingMode.BY_DURATION
+        kit.save(update_fields=["service_pricing_mode"])
+        kit_service.selling_price = Money("140.00", "BRL")
+        kit_service.duration_selling_price = Money("210.00", "BRL")
+        kit_service.cost_price = Money("70.00", "BRL")
+        kit_service.save(update_fields=["selling_price", "selling_price_currency", "duration_selling_price", "duration_selling_price_currency", "cost_price", "cost_price_currency"])
+
+        item.refresh_from_db()
+        item._clear_kit_snapshot_caches()
+
+        self.assertEqual(item.total_price, original_total)
+        self.assertEqual(item.get_kit_products_total(), Money("30.00", "BRL"))
+        self.assertEqual(item.get_kit_services_total(), Money("85.00", "BRL"))
+        self.assertEqual(item.kit_unit_cost, Money("25.00", "BRL"))
 
     def test_duplicate_service_warning_is_rendered_for_direct_item_present_in_kit(self) -> None:
         workshop = create_workshop(suffix=93)
