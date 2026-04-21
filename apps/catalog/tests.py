@@ -164,7 +164,7 @@ class KitTests(TestCase):
         item = KitService.objects.get(kit=kit, service=service)
         self.assertEqual(item.duration, datetime.timedelta(hours=1, minutes=20))
 
-    def test_kit_form_persists_service_selling_price_and_updates_kit_total(self):
+    def test_kit_form_updates_total_price_from_inserted_value_mode(self):
         kit = Kit.objects.create(workshop=self.workshop, name="Kit A", description="", is_active=True)
         service = Service.objects.create(
             workshop=self.workshop,
@@ -184,7 +184,9 @@ class KitTests(TestCase):
                 "description": "",
                 "is_active": "on",
                 "kit_services": [str(service.id)],
+                "kit_service_pricing_mode": Kit.ServicePricingMode.INSERTED_VALUE,
                 f"kit_service_qty_{service.id}": "2",
+                f"kit_service_sell_by_duration_{service.id}": "48.90",
                 f"kit_service_sell_{service.id}": "32.50",
                 **self.build_application_payload(),
             },
@@ -199,6 +201,143 @@ class KitTests(TestCase):
 
         self.assertEqual(item.selling_price, Money("32.50", "BRL"))
         self.assertEqual(kit.total_price, Money("65.00", "BRL"))
+
+    def test_kit_form_updates_total_price_from_duration_value_mode(self):
+        kit = Kit.objects.create(workshop=self.workshop, name="Kit Duracao Total", description="", is_active=True)
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name="Serviço 1",
+            description="",
+            duration=datetime.timedelta(minutes=30),
+            selling_price=Money(10, "BRL"),
+            suggested_cost=None,
+            is_third_party=False,
+            is_active=True,
+        )
+
+        form = KitForm(
+            instance=kit,
+            data={
+                "name": "Kit Duracao Total",
+                "description": "",
+                "is_active": "on",
+                "kit_services": [str(service.id)],
+                "kit_service_pricing_mode": Kit.ServicePricingMode.BY_DURATION,
+                f"kit_service_qty_{service.id}": "2",
+                f"kit_service_sell_by_duration_{service.id}": "48.90",
+                f"kit_service_sell_{service.id}": "32.50",
+                **self.build_application_payload(),
+            },
+            workshop=self.workshop,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        form.save()
+
+        item = KitService.objects.get(kit=kit, service=service)
+        kit.refresh_from_db()
+
+        self.assertEqual(item.duration_selling_price, Money("48.90", "BRL"))
+        self.assertEqual(kit.total_price, Money("97.80", "BRL"))
+
+    def test_kit_form_persists_local_service_cost(self):
+        kit = Kit.objects.create(workshop=self.workshop, name="Kit Custo", description="", is_active=True)
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name="Serviço 1",
+            description="",
+            duration=datetime.timedelta(minutes=30),
+            selling_price=Money(10, "BRL"),
+            suggested_cost=Money(5, "BRL"),
+            is_third_party=False,
+            is_active=True,
+        )
+
+        form = KitForm(
+            instance=kit,
+            data={
+                "name": "Kit Custo",
+                "description": "",
+                "is_active": "on",
+                "kit_services": [str(service.id)],
+                f"kit_service_qty_{service.id}": "2",
+                f"kit_service_cost_{service.id}": "18.75",
+                f"kit_service_sell_{service.id}": "32.50",
+                **self.build_application_payload(),
+            },
+            workshop=self.workshop,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        form.save()
+
+        item = KitService.objects.get(kit=kit, service=service)
+        self.assertEqual(item.cost_price, Money("18.75", "BRL"))
+
+    def test_kit_form_persists_local_service_duration_selling_price(self):
+        kit = Kit.objects.create(workshop=self.workshop, name="Kit Duracao", description="", is_active=True)
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name="Serviço 1",
+            description="",
+            duration=datetime.timedelta(minutes=30),
+            selling_price=Money(10, "BRL"),
+            suggested_cost=Money(5, "BRL"),
+            is_third_party=False,
+            is_active=True,
+        )
+
+        form = KitForm(
+            instance=kit,
+            data={
+                "name": "Kit Duracao",
+                "description": "",
+                "is_active": "on",
+                "kit_services": [str(service.id)],
+                f"kit_service_sell_by_duration_{service.id}": "48.90",
+                f"kit_service_sell_{service.id}": "32.50",
+                **self.build_application_payload(),
+            },
+            workshop=self.workshop,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        form.save()
+
+        item = KitService.objects.get(kit=kit, service=service)
+        self.assertEqual(item.duration_selling_price, Money("48.90", "BRL"))
+
+    def test_kit_form_persists_selected_service_pricing_mode(self):
+        kit = Kit.objects.create(workshop=self.workshop, name="Kit Modo", description="", is_active=True)
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name="Serviço 1",
+            description="",
+            duration=datetime.timedelta(minutes=30),
+            selling_price=Money(10, "BRL"),
+            suggested_cost=None,
+            is_third_party=False,
+            is_active=True,
+        )
+
+        form = KitForm(
+            instance=kit,
+            data={
+                "name": "Kit Modo",
+                "description": "",
+                "is_active": "on",
+                "kit_services": [str(service.id)],
+                "kit_service_pricing_mode": Kit.ServicePricingMode.INSERTED_VALUE,
+                **self.build_application_payload(),
+            },
+            workshop=self.workshop,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        form.save()
+        kit.refresh_from_db()
+
+        self.assertEqual(kit.service_pricing_mode, Kit.ServicePricingMode.INSERTED_VALUE)
 
     def test_kit_form_rejects_invalid_service_quantity(self):
         service = Service.objects.create(
@@ -280,6 +419,60 @@ class KitTests(TestCase):
 
         self.assertFalse(form.is_valid())
         self.assertIn("Valor de venda inválido para serviço.", form.non_field_errors())
+
+    def test_kit_form_rejects_invalid_service_cost_price(self):
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name="Serviço 1",
+            description="",
+            duration=datetime.timedelta(minutes=30),
+            selling_price=Money(10, "BRL"),
+            suggested_cost=None,
+            is_third_party=False,
+            is_active=True,
+        )
+
+        form = KitForm(
+            data={
+                "name": "Kit A",
+                "description": "",
+                "is_active": "on",
+                "kit_services": [str(service.id)],
+                f"kit_service_cost_{service.id}": "invalido",
+                **self.build_application_payload(),
+            },
+            workshop=self.workshop,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("Valor de custo inválido para serviço.", form.non_field_errors())
+
+    def test_kit_form_rejects_invalid_service_duration_selling_price(self):
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name="Serviço 1",
+            description="",
+            duration=datetime.timedelta(minutes=30),
+            selling_price=Money(10, "BRL"),
+            suggested_cost=None,
+            is_third_party=False,
+            is_active=True,
+        )
+
+        form = KitForm(
+            data={
+                "name": "Kit A",
+                "description": "",
+                "is_active": "on",
+                "kit_services": [str(service.id)],
+                f"kit_service_sell_by_duration_{service.id}": "invalido",
+                **self.build_application_payload(),
+            },
+            workshop=self.workshop,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("Valor de venda por duração inválido para serviço.", form.non_field_errors())
 
     def test_kit_form_allows_save_without_applications(self):
         form = KitForm(
@@ -460,10 +653,19 @@ class KitFormPageTests(TestCase):
         self.assertNotContains(response, "Distribuir Tempos")
         self.assertContains(response, "Total dos produtos")
         self.assertContains(response, "Total dos serviços")
+        self.assertContains(response, "Valor de venda por duração")
+        self.assertContains(response, "Valor de Venda Inserido")
+        self.assertContains(response, "Custo local do kit")
+        self.assertContains(response, "Esse valor e recalculado automaticamente com base na duração do serviço.")
+        self.assertContains(response, "Deixe vazio para usar o custo por duração")
+        self.assertContains(response, "servicePricingColumnClasses('by_duration', 'header')", html=False)
+        self.assertContains(response, "servicePricingColumnClasses('inserted_value', 'header')", html=False)
+        self.assertContains(response, "servicePricingColumnClasses(mode, section = 'body')", html=False)
+        self.assertContains(response, "servicePricingMode: 'by_duration'", html=False)
         self.assertContains(response, "this.reloadProductSuggestions();", html=False)
         self.assertContains(response, "this.reloadServiceSuggestions();", html=False)
         self.assertContains(response, "Carregando produto...", html=False)
-        self.assertContains(response, "Carregando serviço...", html=False)
+        self.assertContains(response, "Editar serviço do kit")
         self.assertContains(response, "Selecione um item para editar.", html=False)
         self.assertContains(response, '@kit-service-updated.window="applyUpdatedService($event.detail)"', html=False)
         self.assertContains(response, "application.engine = &quot;2.0&quot;; open = false", html=False)
@@ -612,7 +814,7 @@ class KitServiceBulkPricingViewTests(TestCase):
         self.assertJSONEqual(
             response.content,
             {
-                "services": [{"id": self.service.pk, "sell": str(Money("120.00", "BRL"))}],
+                "services": [{"id": self.service.pk, "cost": str(Money("45.00", "BRL")), "sell": str(Money("120.00", "BRL"))}],
                 "workshop_cost_missing": False,
             },
         )
@@ -633,6 +835,100 @@ class KitServiceBulkPricingViewTests(TestCase):
                 "workshop_cost_missing": True,
             },
         )
+
+
+class KitServiceLocalUpdateViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=82)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+        self.kit = Kit.objects.create(workshop=self.workshop, name="Kit Persistencia", description="", is_active=True)
+        self.service = Service.objects.create(
+            workshop=self.workshop,
+            name="Servico Persistido",
+            description="",
+            duration=datetime.timedelta(minutes=30),
+            selling_price=Money("20.00", "BRL"),
+            suggested_cost=Money("10.00", "BRL"),
+            is_third_party=False,
+            is_active=True,
+        )
+        self.kit_service = KitService.objects.create(
+            kit=self.kit,
+            service=self.service,
+            quantity=1,
+            duration=self.service.duration,
+            duration_selling_price=Money("25.00", "BRL"),
+            selling_price=Money("30.00", "BRL"),
+        )
+
+    def test_local_update_persists_service_changes_for_reload(self) -> None:
+        response = self.client.post(
+            reverse("catalog:kits_service_local_update", args=[self.kit.pk, self.service.pk]),
+            data=json.dumps(
+                {
+                    "qty": 1,
+                    "duration": "01:15:00",
+                    "cost": "18.50",
+                    "sell_by_duration": "99.90",
+                    "sell": "120.00",
+                    "service_pricing_mode": Kit.ServicePricingMode.BY_DURATION,
+                }
+            ),
+            content_type="application/json",
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        self.kit_service.refresh_from_db()
+        self.kit.refresh_from_db()
+
+        self.assertEqual(self.kit_service.duration, datetime.timedelta(hours=1, minutes=15))
+        self.assertEqual(self.kit_service.cost_price, Money("18.50", "BRL"))
+        self.assertEqual(self.kit_service.duration_selling_price, Money("99.90", "BRL"))
+        self.assertEqual(self.kit_service.selling_price, Money("120.00", "BRL"))
+        self.assertEqual(self.kit.service_pricing_mode, Kit.ServicePricingMode.BY_DURATION)
+        self.assertEqual(self.kit.total_price, Money("99.90", "BRL"))
+
+    def test_services_sync_persists_bulk_state_for_reload(self) -> None:
+        response = self.client.post(
+            reverse("catalog:kits_services_sync", args=[self.kit.pk]),
+            data=json.dumps(
+                {
+                    "service_pricing_mode": Kit.ServicePricingMode.INSERTED_VALUE,
+                    "services": [
+                        {
+                            "id": self.service.pk,
+                            "qty": 2,
+                            "duration": "01:10:00",
+                            "cost": "15.00",
+                            "sell_by_duration": "88.00",
+                            "sell": "111.00",
+                        }
+                    ],
+                }
+            ),
+            content_type="application/json",
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        self.kit_service.refresh_from_db()
+        self.kit.refresh_from_db()
+
+        self.assertEqual(self.kit_service.quantity, 2)
+        self.assertEqual(self.kit_service.duration, datetime.timedelta(hours=1, minutes=10))
+        self.assertEqual(self.kit_service.cost_price, Money("15.00", "BRL"))
+        self.assertEqual(self.kit_service.duration_selling_price, Money("88.00", "BRL"))
+        self.assertEqual(self.kit_service.selling_price, Money("111.00", "BRL"))
+        self.assertEqual(self.kit.service_pricing_mode, Kit.ServicePricingMode.INSERTED_VALUE)
+        self.assertEqual(self.kit.total_price, Money("222.00", "BRL"))
 
 
 class KitSearchPartialTests(TestCase):

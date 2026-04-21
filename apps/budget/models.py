@@ -11,6 +11,7 @@ from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.price_tracking import record_product_last_used_price
 from apps.catalog.product_issues import ProductIssueSummary, annotate_product_issues
+from apps.catalog.util import calculate_catalog_service_prices
 from apps.core.models import TimeStampedModel
 from djmoney.models.fields import MoneyField
 
@@ -429,8 +430,8 @@ class Budget(TimeStampedModel):
                 if override:
                     if override.quantity > 0 and override.duration:
                         total += override.duration * override.quantity * item.quantity
-                elif kit_service.quantity > 0 and kit_service.service.duration:
-                    total += kit_service.service.duration * kit_service.quantity * item.quantity
+                elif kit_service.quantity > 0 and kit_service.duration:
+                    total += kit_service.duration * kit_service.quantity * item.quantity
         return total
 
     @property
@@ -802,12 +803,21 @@ class BudgetItem(TimeStampedModel):
 
             elif self.kit:
                 self.product_selling_price = sum((kp.product.selling_price * kp.quantity for kp in self.kit.kit_products.all()), Money(0, "BRL"))
-                self.service_selling_price = sum((ks.resolved_selling_price * ks.quantity for ks in self.kit.kit_services.all()), Money(0, "BRL"))
-
                 self.product_cost_price = sum((kp.product.cost_price * kp.quantity for kp in self.kit.kit_products.all()), Money(0, "BRL"))
-                self.service_cost_price = sum((ks.service.suggested_cost * ks.quantity for ks in self.kit.kit_services.all() if ks.service.suggested_cost), Money(0, "BRL"))
 
-                self.duration = sum((ks.service.duration for ks in self.kit.kit_services.all()), timedelta())
+                workshop_cost = self._get_budget_reference_workshop_cost()
+                service_selling_total = Money(0, "BRL")
+                service_cost_total = Money(0, "BRL")
+                total_duration = timedelta()
+                for kit_service in self.kit.kit_services.select_related("service").all():
+                    service_cost, service_selling = self.resolve_kit_service_base_prices(kit_service=kit_service, workshop_cost=workshop_cost)
+                    service_selling_total += service_selling * kit_service.quantity
+                    service_cost_total += service_cost * kit_service.quantity
+                    total_duration += (kit_service.duration or timedelta()) * kit_service.quantity
+
+                self.service_selling_price = service_selling_total
+                self.service_cost_price = service_cost_total
+                self.duration = total_duration
                 self.description = self.kit.name
 
         super().save(*args, **kwargs)
@@ -863,6 +873,42 @@ class BudgetItem(TimeStampedModel):
             return prefetched
 
         return self.kit.kit_services.select_related("service").all()
+
+    def _get_budget_reference_workshop_cost(self) -> WorkshopCost | None:
+        cache_set = getattr(self, "_budget_workshop_cost_cache_set", False)
+        if cache_set:
+            return getattr(self, "_budget_workshop_cost_cache", None)
+
+        reference_date = self.budget.criado_em if self.budget_id and self.budget and self.budget.criado_em else timezone.now()
+
+        workshop_cost = WorkshopCost.objects.filter(workshop=self.workshop, month=reference_date.month, year=reference_date.year).first()
+        if workshop_cost is None:
+            workshop_cost = WorkshopCost.objects.filter(workshop=self.workshop, month=timezone.now().month, year=timezone.now().year).first()
+
+        setattr(self, "_budget_workshop_cost_cache", workshop_cost)
+        setattr(self, "_budget_workshop_cost_cache_set", True)
+        return workshop_cost
+
+    def resolve_kit_service_base_prices(self, *, kit_service: Any, workshop_cost: WorkshopCost | None = None) -> tuple[Money, Money]:
+        duration = kit_service.duration or timedelta()
+        manual_cost = getattr(kit_service, "cost_price", None)
+        manual_duration_selling = getattr(kit_service, "duration_selling_price", None)
+        inserted_selling = kit_service.resolved_selling_price
+        resolved_workshop_cost = workshop_cost if workshop_cost is not None else self._get_budget_reference_workshop_cost()
+
+        if resolved_workshop_cost is not None:
+            duration_cost, duration_sell = calculate_catalog_service_prices(duration, resolved_workshop_cost)
+            resolved_cost = manual_cost if manual_cost is not None else duration_cost
+            resolved_duration_selling = manual_duration_selling if manual_duration_selling is not None else duration_sell
+            if self.kit and self.kit.service_pricing_mode == Kit.ServicePricingMode.BY_DURATION:
+                return resolved_cost, resolved_duration_selling
+            return resolved_cost, inserted_selling
+
+        fallback_cost = manual_cost if manual_cost is not None else (kit_service.service.suggested_cost or Money(0, "BRL"))
+        fallback_duration_selling = manual_duration_selling if manual_duration_selling is not None else inserted_selling
+        if self.kit and self.kit.service_pricing_mode == Kit.ServicePricingMode.BY_DURATION:
+            return fallback_cost, fallback_duration_selling
+        return fallback_cost, inserted_selling
 
     @property
     def effective_kit_products(self) -> list[dict[str, Any]]:
@@ -968,6 +1014,7 @@ class BudgetItem(TimeStampedModel):
         unit_cost = Money(0, "BRL")
         unit_price = Money(0, "BRL")
         product_overrides, service_overrides = self._get_kit_override_maps()
+        workshop_cost = self._get_budget_reference_workshop_cost()
 
         for kit_product in self._iter_kit_products():
             override = product_overrides.get(kit_product.product_id)
@@ -986,8 +1033,11 @@ class BudgetItem(TimeStampedModel):
             if quantity <= 0:
                 continue
 
-            service_cost = override.service_cost_price if override else (kit_service.service.suggested_cost or Money(0, "BRL"))
-            service_price = override.service_selling_price if override else kit_service.resolved_selling_price
+            if override:
+                service_cost = override.service_cost_price
+                service_price = override.service_selling_price
+            else:
+                service_cost, service_price = self.resolve_kit_service_base_prices(kit_service=kit_service, workshop_cost=workshop_cost)
             unit_cost += service_cost * quantity
             unit_price += service_price * quantity
 
@@ -1018,6 +1068,7 @@ class BudgetItem(TimeStampedModel):
         total_produtos = Money(0, "BRL")
         total_servicos = Money(0, "BRL")
         product_overrides, service_overrides = self._get_kit_override_maps()
+        workshop_cost = self._get_budget_reference_workshop_cost()
 
         # Calcular total dos produtos: (preço * qtd) + frete para cada produto
         for kit_product in self._iter_kit_products():
@@ -1042,7 +1093,8 @@ class BudgetItem(TimeStampedModel):
                 else:
                     servico_subtotal = override.service_selling_price * override.quantity
             elif kit_service.quantity > 0:
-                servico_subtotal = kit_service.resolved_selling_price * kit_service.quantity
+                _, default_sell = self.resolve_kit_service_base_prices(kit_service=kit_service, workshop_cost=workshop_cost)
+                servico_subtotal = default_sell * kit_service.quantity
             else:
                 servico_subtotal = Money(0, "BRL")
             total_servicos += servico_subtotal
@@ -1082,6 +1134,7 @@ class BudgetItem(TimeStampedModel):
 
         total_servicos = Money(0, "BRL")
         _, service_overrides = self._get_kit_override_maps()
+        workshop_cost = self._get_budget_reference_workshop_cost()
         for kit_service in self._iter_kit_services():
             override = service_overrides.get(kit_service.service_id)
             if override:
@@ -1090,7 +1143,8 @@ class BudgetItem(TimeStampedModel):
                 else:
                     servico_subtotal = override.service_selling_price * override.quantity
             elif kit_service.quantity > 0:
-                servico_subtotal = kit_service.resolved_selling_price * kit_service.quantity
+                _, default_sell = self.resolve_kit_service_base_prices(kit_service=kit_service, workshop_cost=workshop_cost)
+                servico_subtotal = default_sell * kit_service.quantity
             else:
                 servico_subtotal = Money(0, "BRL")
             total_servicos += servico_subtotal
@@ -1109,8 +1163,8 @@ class BudgetItem(TimeStampedModel):
             if override:
                 if override.quantity > 0 and override.duration:
                     total_duration += override.duration * override.quantity
-            elif kit_service.quantity > 0 and kit_service.service.duration:
-                total_duration += kit_service.service.duration * kit_service.quantity
+            elif kit_service.quantity > 0 and kit_service.duration:
+                total_duration += kit_service.duration * kit_service.quantity
 
         return total_duration * self.quantity
 
@@ -1150,14 +1204,16 @@ class BudgetItem(TimeStampedModel):
 
         total_cost = Money(0, "BRL")
         _, service_overrides = self._get_kit_override_maps()
+        workshop_cost = self._get_budget_reference_workshop_cost()
         for kit_service in self._iter_kit_services():
             override = service_overrides.get(kit_service.service_id)
             if override:
                 if override.quantity <= 0:
                     continue
                 total_cost += override.service_cost_price * override.quantity
-            elif kit_service.quantity > 0 and kit_service.service.suggested_cost:
-                total_cost += kit_service.service.suggested_cost * kit_service.quantity
+            elif kit_service.quantity > 0:
+                default_cost, _ = self.resolve_kit_service_base_prices(kit_service=kit_service, workshop_cost=workshop_cost)
+                total_cost += default_cost * kit_service.quantity
 
         return total_cost * self.quantity
 
@@ -1167,6 +1223,7 @@ class BudgetItem(TimeStampedModel):
 
         total_cost = Money(0, "BRL")
         _, service_overrides = self._get_kit_override_maps()
+        workshop_cost = self._get_budget_reference_workshop_cost()
         for kit_service in self._iter_kit_services():
             if not kit_service.service.is_third_party:
                 continue
@@ -1176,8 +1233,9 @@ class BudgetItem(TimeStampedModel):
                 if override.quantity <= 0:
                     continue
                 total_cost += override.service_cost_price * override.quantity
-            elif kit_service.quantity > 0 and kit_service.service.suggested_cost:
-                total_cost += kit_service.service.suggested_cost * kit_service.quantity
+            elif kit_service.quantity > 0:
+                default_cost, _ = self.resolve_kit_service_base_prices(kit_service=kit_service, workshop_cost=workshop_cost)
+                total_cost += default_cost * kit_service.quantity
 
         return total_cost * self.quantity
 
@@ -1187,6 +1245,7 @@ class BudgetItem(TimeStampedModel):
 
         total_selling = Money(0, "BRL")
         _, service_overrides = self._get_kit_override_maps()
+        workshop_cost = self._get_budget_reference_workshop_cost()
         for kit_service in self._iter_kit_services():
             if not kit_service.service.is_third_party:
                 continue
@@ -1197,7 +1256,8 @@ class BudgetItem(TimeStampedModel):
                     continue
                 total_selling += override.service_selling_price * override.quantity
             elif kit_service.quantity > 0:
-                total_selling += kit_service.resolved_selling_price * kit_service.quantity
+                _, default_sell = self.resolve_kit_service_base_prices(kit_service=kit_service, workshop_cost=workshop_cost)
+                total_selling += default_sell * kit_service.quantity
 
         return total_selling * self.quantity
 
@@ -1228,6 +1288,7 @@ class BudgetItem(TimeStampedModel):
         if self.kit:
             # Calculamos a soma dos preços ajustados de cada componente do kit
             total_kit_ajustado = Money(0, "BRL")
+            workshop_cost = self._get_budget_reference_workshop_cost()
 
             # Reutilizamos a lógica de extração que você já tem
             p_ovr, s_ovr = self._get_kit_override_maps()
@@ -1246,8 +1307,11 @@ class BudgetItem(TimeStampedModel):
             # Componentes de Serviço no Kit
             for ks in self.kit.kit_services.all():
                 ovr = s_ovr.get(ks.service_id)
-                u_p = ovr.service_selling_price if ovr else ks.resolved_selling_price
-                u_c = ovr.service_cost_price if ovr else (ks.service.suggested_cost or Money(0, "BRL"))
+                if ovr:
+                    u_p = ovr.service_selling_price
+                    u_c = ovr.service_cost_price
+                else:
+                    u_c, u_p = self.resolve_kit_service_base_prices(kit_service=ks, workshop_cost=workshop_cost)
                 qty = ks.quantity  # Overrides de serviço costumam manter qty
 
                 ajustado = self.calculate_individual_adjustment(original_unit=u_p, unit_cost=u_c, is_product=False)
