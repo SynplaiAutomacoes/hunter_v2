@@ -636,33 +636,37 @@ class KitForm(forms.ModelForm):
                                                 <th></th>
                                                 <th></th>
                                             </tr>
+                                            <tr>
+                                                <th colspan="2"></th>
+                                                <th colspan="2" class="pt-3 pb-1 px-0">
+                                                    <div class="text-[11px] font-semibold text-center mb-1 text-base-content/70">Modo de precificação dos serviços</div>
+                                                    <div class="relative grid grid-cols-2 items-center p-1 rounded-full bg-base-100 border border-base-300 w-full max-w-none mx-auto">
+                                                        <div
+                                                            class="absolute top-1 bottom-1 left-1 w-[calc(50%-0.25rem)] rounded-full bg-primary transition-transform duration-200"
+                                                            :class="servicePricingMode === 'by_duration' ? 'translate-x-0' : 'translate-x-full'"
+                                                        ></div>
+                                                        <button
+                                                            type="button"
+                                                            class="relative z-10 px-2 py-1 text-xs font-semibold text-center rounded-md transition-colors duration-200"
+                                                            :class="servicePricingMode === 'by_duration' ? 'text-primary-content' : 'text-base-content/70'"
+                                                            @click="setServicePricingMode('by_duration')"
+                                                        >
+                                                            Valor de venda por duração
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            class="relative z-10 px-2 py-1 text-xs font-semibold text-center rounded-md transition-colors duration-200"
+                                                            :class="servicePricingMode === 'inserted_value' ? 'text-primary-content' : 'text-base-content/70'"
+                                                            @click="setServicePricingMode('inserted_value')"
+                                                        >
+                                                            Valor de venda inserido
+                                                        </button>
+                                                    </div>
+                                                </th>
+                                                <th colspan="3"></th>
+                                            </tr>
                                         </tfoot>
                                     </table>
-                                </div>
-                                <div class="mt-3 p-2 bg-base-200 rounded-box border border-base-300">
-                                    <div class="text-xs font-semibold mb-1">Modo de precificação dos serviços</div>
-                                    <div class="relative grid grid-cols-2 items-center p-1 rounded-full bg-base-100 border border-base-300 max-w-md">
-                                        <div
-                                            class="absolute top-1 bottom-1 left-1 w-[calc(50%-0.25rem)] rounded-full bg-primary transition-transform duration-200"
-                                            :class="servicePricingMode === 'by_duration' ? 'translate-x-0' : 'translate-x-full'"
-                                        ></div>
-                                        <button
-                                            type="button"
-                                            class="relative z-10 px-2 py-1 text-xs font-semibold text-left rounded-md transition-colors"
-                                            :class="servicePricingMode === 'by_duration' ? 'text-base-content' : 'text-base-content/70'"
-                                            @click="setServicePricingMode('by_duration')"
-                                        >
-                                            Valor de venda por duração
-                                        </button>
-                                        <button
-                                            type="button"
-                                            class="relative z-10 px-2 py-1 text-xs font-semibold text-left rounded-md transition-colors"
-                                            :class="servicePricingMode === 'inserted_value' ? 'text-base-content' : 'text-base-content/70'"
-                                            @click="setServicePricingMode('inserted_value')"
-                                        >
-                                            Valor de venda inserido
-                                        </button>
-                                    </div>
                                 </div>
                                 <select name="kit_services" multiple class="hidden">
                                     <template x-for="item in selectedServices" :key="'so-'+item.id">
@@ -1024,12 +1028,12 @@ class KitForm(forms.ModelForm):
                                     }},
                                     servicePricingColumnClasses(mode, section = 'body') {{
                                         const isActive = this.servicePricingMode === mode;
-                                        const baseClasses = 'border-success/40';
-                                        const inactiveClasses = 'border-transparent bg-transparent shadow-none';
+                                        const baseClasses = 'transition-all duration-200';
+                                        const inactiveClasses = 'bg-transparent shadow-[inset_1px_0_0_0_color-mix(in_oklab,var(--color-base-300)_100%,transparent),inset_-1px_0_0_0_color-mix(in_oklab,var(--color-base-300)_100%,transparent),inset_0_-1px_0_0_0_color-mix(in_oklab,var(--color-base-300)_100%,transparent)]';
                                         const activeClassesBySection = {{
-                                            header: 'border-x border-t bg-success/10 shadow-[inset_0_1px_0_0_color-mix(in_oklab,var(--color-success)_45%,transparent),inset_1px_0_0_0_color-mix(in_oklab,var(--color-success)_45%,transparent),inset_-1px_0_0_0_color-mix(in_oklab,var(--color-success)_45%,transparent)]',
-                                            body: 'border-x bg-success/10 shadow-[inset_1px_0_0_0_color-mix(in_oklab,var(--color-success)_45%,transparent),inset_-1px_0_0_0_color-mix(in_oklab,var(--color-success)_45%,transparent)]',
-                                            footer: 'border-x border-b bg-success/10 shadow-[inset_0_-1px_0_0_color-mix(in_oklab,var(--color-success)_45%,transparent),inset_1px_0_0_0_color-mix(in_oklab,var(--color-success)_45%,transparent),inset_-1px_0_0_0_color-mix(in_oklab,var(--color-success)_45%,transparent)]',
+                                            header: 'bg-success/10 shadow-[inset_1px_0_0_0_color-mix(in_oklab,var(--color-success)_45%,transparent),inset_-1px_0_0_0_color-mix(in_oklab,var(--color-success)_45%,transparent),inset_0_-1px_0_0_0_color-mix(in_oklab,var(--color-success)_45%,transparent)]',
+                                            body: 'bg-success/10 shadow-[inset_1px_0_0_0_color-mix(in_oklab,var(--color-success)_45%,transparent),inset_-1px_0_0_0_color-mix(in_oklab,var(--color-success)_45%,transparent),inset_0_-1px_0_0_0_color-mix(in_oklab,var(--color-success)_45%,transparent)]',
+                                            footer: 'bg-success/10 shadow-[inset_1px_0_0_0_color-mix(in_oklab,var(--color-success)_45%,transparent),inset_-1px_0_0_0_color-mix(in_oklab,var(--color-success)_45%,transparent),inset_0_-1px_0_0_0_color-mix(in_oklab,var(--color-success)_45%,transparent)]',
                                         }};
                                         return `${{baseClasses}} ${{isActive ? activeClassesBySection[section] || activeClassesBySection.body : inactiveClasses}}`;
                                     }},
