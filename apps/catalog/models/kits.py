@@ -16,6 +16,10 @@ from apps.workshops.models.workshops import Workshop
 
 
 class Kit(TimeStampedModel):
+    class ServicePricingMode(models.TextChoices):
+        BY_DURATION = "by_duration", "Valor de venda por duração"
+        INSERTED_VALUE = "inserted_value", "Valor de venda inserido"
+
     workshop = models.ForeignKey(
         Workshop,
         on_delete=models.CASCADE,
@@ -41,6 +45,12 @@ class Kit(TimeStampedModel):
 
     total_price = MoneyField(verbose_name="Preço Total", max_digits=14, decimal_places=2, default=0.00)
     total_duration = models.DurationField(verbose_name="Duração Total", null=True, blank=True)
+    service_pricing_mode = models.CharField(
+        verbose_name="Modo de precificação de serviços",
+        max_length=20,
+        choices=ServicePricingMode.choices,
+        default=ServicePricingMode.BY_DURATION,
+    )
 
     class Meta:
         verbose_name = "Kit"
@@ -126,6 +136,8 @@ class KitService(TimeStampedModel):
     service = models.ForeignKey(Service, on_delete=models.CASCADE, related_name="service_kits")
     quantity = models.PositiveIntegerField(verbose_name="Quantidade", default=1)
     duration = models.DurationField(verbose_name="Duração", default=timedelta)
+    cost_price = MoneyField(verbose_name="Custo", max_digits=14, decimal_places=2, null=True, blank=True, default_currency="BRL")
+    duration_selling_price = MoneyField(verbose_name="Valor de Venda por Duração", max_digits=14, decimal_places=2, null=True, blank=True, default_currency="BRL")
     selling_price = MoneyField(verbose_name="Valor de Venda", max_digits=14, decimal_places=2, null=True, blank=True, default_currency="BRL")
 
     class Meta:
@@ -144,3 +156,11 @@ class KitService(TimeStampedModel):
     @property
     def resolved_selling_price(self) -> Money:
         return self.selling_price if self.selling_price is not None else self.service.selling_price
+
+    @property
+    def resolved_cost_price(self) -> Money:
+        return self.cost_price if self.cost_price is not None else self.service.suggested_cost
+
+    @property
+    def resolved_duration_selling_price(self) -> Money:
+        return self.duration_selling_price if self.duration_selling_price is not None else self.service.selling_price
