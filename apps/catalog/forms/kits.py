@@ -539,7 +539,7 @@ class KitForm(forms.ModelForm):
                                                     <td class="text-right whitespace-nowrap"><span x-text="item.cost"></span></td>
                                                     <td class="text-right whitespace-nowrap"><span x-text="item.sell"></span></td>
                                                     <td class="text-center">
-                                                        <input type="number" min="1" step="1" class="input-theme w-20 text-center" x-model.number="item.qty" />
+                                                        <input type="number" min="1" step="1" class="input-theme w-20 text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0" x-model.number="item.qty" />
                                                     </td>
                                                     <td class="text-right">
                                                         <button type="button" 
@@ -603,7 +603,7 @@ class KitForm(forms.ModelForm):
                                                     <td class="text-right whitespace-nowrap transition-all duration-200" :class="servicePricingColumnClasses('by_duration', 'body')"><span x-text="item.sell_by_duration"></span></td>
                                                     <td class="text-right whitespace-nowrap transition-all duration-200" :class="servicePricingColumnClasses('inserted_value', 'body')"><span x-text="item.sell_inserted"></span></td>
                                                     <td class="text-center">
-                                                        <input type="number" min="1" step="1" class="input-theme w-20 text-center" x-model.number="item.qty" />
+                                                        <input type="number" min="1" step="1" class="input-theme w-20 text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0" x-model.number="item.qty" />
                                                     </td>
                                                     <td class="text-center whitespace-nowrap">
                                                         <span x-text="formatDurationForDisplay(item.duration)"></span>
