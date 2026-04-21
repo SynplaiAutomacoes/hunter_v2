@@ -551,17 +551,19 @@ class KitForm(forms.ModelForm):
                                                     <td class="text-center">
                                                         <input type="number" min="1" step="1" class="input-theme w-20 text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0" x-model.number="item.qty" />
                                                     </td>
-                                                    <td class="text-right">
-                                                        <button type="button" 
-                                                                class="btn-table-edit mx-1"
-                                                                @click="openProductEditModal(item.id)"
-                                                                title="Editar Produto">
-                                                            <span class="material-icons text-base">edit</span>
-                                                        </button>
-                                                        
-                                                        <button type="button" class="btn-table-delete" @click="removeProduct(index)" title="Remover">
-                                                            <span class="material-icons text-base">delete</span>
-                                                        </button>
+                                                    <td class="text-right whitespace-nowrap">
+                                                        <div class="flex items-center justify-end gap-1 min-w-max">
+                                                            <button type="button"
+                                                                    class="btn-table-edit"
+                                                                    @click="openProductEditModal(item.id)"
+                                                                    title="Editar Produto">
+                                                                <span class="material-icons text-base">edit</span>
+                                                            </button>
+
+                                                            <button type="button" class="btn-table-delete" @click="removeProduct(index)" title="Remover">
+                                                                <span class="material-icons text-base">delete</span>
+                                                            </button>
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             </template>
@@ -618,17 +620,19 @@ class KitForm(forms.ModelForm):
                                                     <td class="text-center whitespace-nowrap">
                                                         <span x-text="formatDurationForDisplay(item.duration)"></span>
                                                     </td>
-                                                    <td class="text-right">
-                                                        <button type="button" 
-                                                                class="btn-table-edit mx-1"
-                                                                @click="openServiceEditModal(item.id)"
-                                                                title="Editar Serviço">
-                                                            <span class="material-icons text-base">edit</span>
-                                                        </button>
+                                                    <td class="text-right whitespace-nowrap">
+                                                        <div class="flex items-center justify-end gap-1 min-w-max">
+                                                            <button type="button"
+                                                                    class="btn-table-edit"
+                                                                    @click="openServiceEditModal(item.id)"
+                                                                    title="Editar Serviço">
+                                                                <span class="material-icons text-base">edit</span>
+                                                            </button>
 
-                                                        <button type="button" class="btn-table-delete" @click="removeService(index)" title="Remover">
-                                                            <span class="material-icons text-base">delete</span>
-                                                        </button>
+                                                            <button type="button" class="btn-table-delete" @click="removeService(index)" title="Remover">
+                                                                <span class="material-icons text-base">delete</span>
+                                                            </button>
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             </template>
