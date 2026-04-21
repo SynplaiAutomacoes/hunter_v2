@@ -2858,6 +2858,60 @@ class BudgetDuplicateKitProductTests(TestCase):
         self.assertEqual(item.service_cost_price, Money("50.00", "BRL"))
         self.assertEqual(item.service_selling_price, Money("55.00", "BRL"))
 
+    def test_budget_item_uses_manual_kit_service_cost_when_present(self) -> None:
+        workshop = create_workshop(suffix=98)
+        budget = create_budget(workshop=workshop)
+        service = create_service(workshop=workshop, suffix=98)
+        kit = create_kit(workshop=workshop, suffix=981, products=[])
+        kit.service_pricing_mode = Kit.ServicePricingMode.BY_DURATION
+        kit.save(update_fields=["service_pricing_mode"])
+        KitService.objects.create(kit=kit, service=service, quantity=1, duration=timedelta(hours=2), cost_price=Money("77.00", "BRL"), selling_price=Money("55.00", "BRL"))
+
+        reference_date = budget.criado_em if budget.criado_em else timezone.now()
+        WorkshopCost.objects.create(
+            workshop=workshop,
+            month=reference_date.month,
+            year=reference_date.year,
+            mechanic_quantity=1,
+            minimum_hourly_cost=Money("25.00", "BRL"),
+            hourly_cost_value=Money("90.00", "BRL"),
+        )
+
+        item = BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
+
+        self.assertEqual(item.service_cost_price, Money("77.00", "BRL"))
+        self.assertEqual(item.service_selling_price, Money("180.00", "BRL"))
+
+    def test_budget_item_uses_manual_kit_service_duration_selling_when_present(self) -> None:
+        workshop = create_workshop(suffix=99)
+        budget = create_budget(workshop=workshop)
+        service = create_service(workshop=workshop, suffix=99)
+        kit = create_kit(workshop=workshop, suffix=991, products=[])
+        kit.service_pricing_mode = Kit.ServicePricingMode.BY_DURATION
+        kit.save(update_fields=["service_pricing_mode"])
+        KitService.objects.create(
+            kit=kit,
+            service=service,
+            quantity=1,
+            duration=timedelta(hours=2),
+            duration_selling_price=Money("210.00", "BRL"),
+            selling_price=Money("55.00", "BRL"),
+        )
+
+        reference_date = budget.criado_em if budget.criado_em else timezone.now()
+        WorkshopCost.objects.create(
+            workshop=workshop,
+            month=reference_date.month,
+            year=reference_date.year,
+            mechanic_quantity=1,
+            minimum_hourly_cost=Money("25.00", "BRL"),
+            hourly_cost_value=Money("90.00", "BRL"),
+        )
+
+        item = BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
+
+        self.assertEqual(item.service_selling_price, Money("210.00", "BRL"))
+
     def test_duplicate_service_warning_is_rendered_for_direct_item_present_in_kit(self) -> None:
         workshop = create_workshop(suffix=93)
         budget = create_budget(workshop=workshop)

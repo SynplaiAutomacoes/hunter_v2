@@ -891,16 +891,23 @@ class BudgetItem(TimeStampedModel):
 
     def resolve_kit_service_base_prices(self, *, kit_service: Any, workshop_cost: WorkshopCost | None = None) -> tuple[Money, Money]:
         duration = kit_service.duration or timedelta()
+        manual_cost = getattr(kit_service, "cost_price", None)
+        manual_duration_selling = getattr(kit_service, "duration_selling_price", None)
         inserted_selling = kit_service.resolved_selling_price
         resolved_workshop_cost = workshop_cost if workshop_cost is not None else self._get_budget_reference_workshop_cost()
 
         if resolved_workshop_cost is not None:
             duration_cost, duration_sell = calculate_catalog_service_prices(duration, resolved_workshop_cost)
+            resolved_cost = manual_cost if manual_cost is not None else duration_cost
+            resolved_duration_selling = manual_duration_selling if manual_duration_selling is not None else duration_sell
             if self.kit and self.kit.service_pricing_mode == Kit.ServicePricingMode.BY_DURATION:
-                return duration_cost, duration_sell
-            return duration_cost, inserted_selling
+                return resolved_cost, resolved_duration_selling
+            return resolved_cost, inserted_selling
 
-        fallback_cost = kit_service.service.suggested_cost or Money(0, "BRL")
+        fallback_cost = manual_cost if manual_cost is not None else (kit_service.service.suggested_cost or Money(0, "BRL"))
+        fallback_duration_selling = manual_duration_selling if manual_duration_selling is not None else inserted_selling
+        if self.kit and self.kit.service_pricing_mode == Kit.ServicePricingMode.BY_DURATION:
+            return fallback_cost, fallback_duration_selling
         return fallback_cost, inserted_selling
 
     @property

@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import timedelta
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
@@ -14,8 +15,10 @@ from django.urls import reverse_lazy
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
+from djmoney.money import Money
+
 from apps.catalog.forms.kits import KitForm, QuickProductEditForm, QuickServiceEditForm
-from apps.catalog.models.kits import Kit
+from apps.catalog.models.kits import Kit, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.util import calculate_catalog_service_prices, get_current_workshop_cost
@@ -301,6 +304,208 @@ class KitServiceBulkPricingView(LoginRequiredMixin, WorkshopScopedMixin, View):
             )
 
         return JsonResponse({"services": priced_rows, "workshop_cost_missing": False})
+
+
+class KitServicesSyncView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Kit
+    workshop_permission_codename = "change_kit"
+
+    def post(self, request, *args, **kwargs):
+        try:
+            payload = json.loads(request.body.decode("utf-8") or "{}")
+        except json.JSONDecodeError:
+            return JsonResponse({"error": "invalid_payload"}, status=400)
+
+        services_payload = payload.get("services")
+        if not isinstance(services_payload, list):
+            return JsonResponse({"error": "invalid_services"}, status=400)
+
+        kit = Kit.objects.filter(workshop=self.workshop, pk=kwargs.get("pk")).first()
+        if kit is None:
+            return JsonResponse({"error": "kit_not_found"}, status=404)
+
+        raw_mode = str(payload.get("service_pricing_mode") or "").strip()
+        valid_modes = {choice[0] for choice in Kit.ServicePricingMode.choices}
+        service_pricing_mode = raw_mode if raw_mode in valid_modes else kit.service_pricing_mode
+
+        normalized_rows: list[dict[str, object]] = []
+        service_ids: list[int] = []
+        for row in services_payload:
+            if not isinstance(row, dict):
+                return JsonResponse({"error": "invalid_service_row"}, status=400)
+
+            cleaned_service_id = clean_id(row.get("id"))
+            raw_qty = row.get("qty", 1)
+            raw_duration = str(row.get("duration") or "").strip()
+            raw_cost = str(row.get("cost") or "").strip()
+            raw_sell_by_duration = str(row.get("sell_by_duration") or "").strip()
+            raw_sell = str(row.get("sell") or "").strip()
+
+            try:
+                quantity = max(1, int(str(raw_qty)))
+            except (TypeError, ValueError):
+                return JsonResponse({"error": "invalid_qty"}, status=400)
+
+            duration = KitForm._parse_duration_value(raw_duration)
+            cost_value = KitForm._parse_money_value(raw_cost)
+            sell_by_duration_value = KitForm._parse_money_value(raw_sell_by_duration)
+            sell_value = KitForm._parse_money_value(raw_sell)
+
+            if not cleaned_service_id or duration is None:
+                return JsonResponse({"error": "invalid_service_row"}, status=400)
+            if raw_cost and cost_value is None:
+                return JsonResponse({"error": "invalid_cost"}, status=400)
+            if raw_sell_by_duration and sell_by_duration_value is None:
+                return JsonResponse({"error": "invalid_sell_by_duration"}, status=400)
+            if raw_sell and sell_value is None:
+                return JsonResponse({"error": "invalid_sell"}, status=400)
+
+            service_id = int(cleaned_service_id)
+            service_ids.append(service_id)
+            normalized_rows.append(
+                {
+                    "service_id": service_id,
+                    "quantity": quantity,
+                    "duration": duration,
+                    "cost_value": cost_value,
+                    "sell_by_duration_value": sell_by_duration_value,
+                    "sell_value": sell_value,
+                }
+            )
+
+        services_map = {service.id: service for service in Service.objects.filter(workshop=self.workshop, id__in=service_ids)}
+        if len(services_map) != len(set(service_ids)):
+            return JsonResponse({"error": "service_not_found"}, status=400)
+
+        with transaction.atomic():
+            existing_rows = {item.service_id: item for item in KitService.objects.filter(kit=kit).select_related("service")}
+            posted_ids = set(service_ids)
+
+            for service_id, existing in existing_rows.items():
+                if service_id not in posted_ids:
+                    existing.delete()
+
+            for row in normalized_rows:
+                service_id = int(row["service_id"])
+                item = existing_rows.get(service_id)
+                if item is None:
+                    item = KitService(kit=kit, service=services_map[service_id])
+
+                item.quantity = int(row["quantity"])
+                item.duration = row["duration"]
+                item.cost_price = Money(row["cost_value"], "BRL") if row["cost_value"] is not None else None
+                item.duration_selling_price = Money(row["sell_by_duration_value"], "BRL") if row["sell_by_duration_value"] is not None else None
+                item.selling_price = Money(row["sell_value"], "BRL") if row["sell_value"] is not None else None
+                item.save()
+
+            product_total = Money(0, "BRL")
+            for kit_product in kit.kit_products.select_related("product"):
+                product_total += (kit_product.product.selling_price or Money(0, "BRL")) * kit_product.quantity
+
+            service_total = Money(0, "BRL")
+            services_total_duration = timedelta()
+            for item in KitService.objects.filter(kit=kit).select_related("service"):
+                unit_sell = item.resolved_duration_selling_price if service_pricing_mode == Kit.ServicePricingMode.BY_DURATION else item.resolved_selling_price
+                service_total += unit_sell * item.quantity
+                services_total_duration += (item.duration or timedelta()) * item.quantity
+
+            kit.total_price = product_total + service_total
+            kit.total_duration = services_total_duration
+            kit.service_pricing_mode = service_pricing_mode
+            kit.save(update_fields=["total_price", "total_duration", "service_pricing_mode", "atualizado_em"])
+
+        return JsonResponse({"saved": True})
+
+
+class KitServiceLocalUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Kit
+    workshop_permission_codename = "change_kit"
+
+    def post(self, request, *args, **kwargs):
+        try:
+            payload = json.loads(request.body.decode("utf-8") or "{}")
+        except json.JSONDecodeError:
+            return JsonResponse({"error": "invalid_payload"}, status=400)
+
+        kit = Kit.objects.filter(workshop=self.workshop, pk=kwargs.get("pk")).first()
+        if kit is None:
+            return JsonResponse({"error": "kit_not_found"}, status=404)
+
+        service_id = kwargs.get("service_id")
+        raw_qty = payload.get("qty", 1)
+        try:
+            quantity = max(1, int(str(raw_qty)))
+        except (TypeError, ValueError):
+            return JsonResponse({"error": "invalid_qty"}, status=400)
+
+        service = Service.objects.filter(workshop=self.workshop, pk=service_id).first()
+        if service is None:
+            return JsonResponse({"error": "service_not_found"}, status=404)
+
+        kit_service, _ = KitService.objects.get_or_create(
+            kit=kit,
+            service=service,
+            defaults={"quantity": quantity},
+        )
+
+        raw_duration = str(payload.get("duration") or "").strip()
+        duration = KitForm._parse_duration_value(raw_duration)
+        if duration is None:
+            return JsonResponse({"error": "invalid_duration"}, status=400)
+
+        raw_cost = str(payload.get("cost") or "").strip()
+        cost_value = KitForm._parse_money_value(raw_cost)
+        if raw_cost and cost_value is None:
+            return JsonResponse({"error": "invalid_cost"}, status=400)
+
+        raw_sell_by_duration = str(payload.get("sell_by_duration") or "").strip()
+        sell_by_duration_value = KitForm._parse_money_value(raw_sell_by_duration)
+        if raw_sell_by_duration and sell_by_duration_value is None:
+            return JsonResponse({"error": "invalid_sell_by_duration"}, status=400)
+
+        raw_sell = str(payload.get("sell") or "").strip()
+        sell_value = KitForm._parse_money_value(raw_sell)
+        if raw_sell and sell_value is None:
+            return JsonResponse({"error": "invalid_sell"}, status=400)
+
+        kit_service.duration = duration
+        kit_service.quantity = quantity
+        kit_service.cost_price = Money(cost_value, "BRL") if cost_value is not None else None
+        kit_service.duration_selling_price = Money(sell_by_duration_value, "BRL") if sell_by_duration_value is not None else None
+        kit_service.selling_price = Money(sell_value, "BRL") if sell_value is not None else None
+        kit_service.save(update_fields=["quantity", "duration", "cost_price", "cost_price_currency", "duration_selling_price", "duration_selling_price_currency", "selling_price", "selling_price_currency", "atualizado_em"])
+
+        service_pricing_mode = str(payload.get("service_pricing_mode") or "").strip()
+        if service_pricing_mode in {choice[0] for choice in Kit.ServicePricingMode.choices} and kit.service_pricing_mode != service_pricing_mode:
+            kit.service_pricing_mode = service_pricing_mode
+
+        product_total = Money(0, "BRL")
+        for kit_product in kit.kit_products.select_related("product"):
+            product_total += (kit_product.product.selling_price or Money(0, "BRL")) * kit_product.quantity
+
+        service_total = Money(0, "BRL")
+        services_total_duration = timedelta()
+        for item in kit.kit_services.select_related("service"):
+            unit_sell = item.resolved_duration_selling_price if kit.service_pricing_mode == Kit.ServicePricingMode.BY_DURATION else item.resolved_selling_price
+            service_total += unit_sell * item.quantity
+            services_total_duration += (item.duration or timedelta()) * item.quantity
+
+        kit.total_price = product_total + service_total
+        kit.total_duration = services_total_duration
+        kit.save(update_fields=["total_price", "total_duration", "service_pricing_mode", "atualizado_em"])
+
+        return JsonResponse(
+            {
+                "saved": True,
+                "service": {
+                    "id": kit_service.service_id,
+                    "duration": KitForm._format_duration(kit_service.duration),
+                    "cost": KitForm._format_money_display(kit_service.cost_price),
+                    "sell_by_duration": KitForm._format_money_display(kit_service.duration_selling_price),
+                    "sell": KitForm._format_money_display(kit_service.selling_price),
+                },
+            }
+        )
 
 
 class KitServiceSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
