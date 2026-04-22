@@ -49,9 +49,7 @@ from apps.finance.views.bank_account import BankAccountListView, BankAccountUpda
 from apps.finance.views.financial_movement import (
     FinancialMovementCreateView,
     FinancialMovementDeleteView,
-    FinancialMovementListView,
     FinancialMovementUpdateView,
-    SourceDetailView,
     EntityListView,
     EntityDetailView,
 )
@@ -105,7 +103,6 @@ urlpatterns = [
     path("financial-movement/create/", FinancialMovementCreateView.as_view(), name="financial_movement_create"),
     path("financial-movement/<int:pk>/update/", FinancialMovementUpdateView.as_view(), name="financial_movement_update"),
     path("financial-movement/<int:pk>/delete/", FinancialMovementDeleteView.as_view(), name="financial_movement_delete"),
-    path("financial-movement/source_details/", SourceDetailView.as_view(), name="source_details"),
     path("entities", EntityListView.as_view(), name="entities"),
     path("entity_details", EntityDetailView.as_view(), name="entity_details"),
     # NFS-e

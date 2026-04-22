@@ -242,16 +242,6 @@ class FinancialMovementDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxD
     htmx_trigger = "financial_movement-table-refresh"
 
 
-class SourceDetailView(View):
-    def get(self, request, *args, **kwargs):
-        source_id = request.GET.get("source")
-        source_obj = None
-        if source_id:
-            source_obj = Source.objects.filter(id=source_id).first()
-
-        return render(request, "finance/partials/source_resume.html", {"source_obj": source_obj})
-
-
 class EntityListView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = FinancialMovement
     workshop_permission_codename = "view_financialmovement"

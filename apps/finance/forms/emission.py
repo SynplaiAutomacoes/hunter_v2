@@ -546,7 +546,6 @@ class EmissionStep3Form(forms.Form):
                 f"""
                 <tr class="border-b border-base-300/60">
                     <td class="py-2">{escape(str(row["description"]))}</td>
-                    <td class="py-2">{row["origin"]}</td>
                     <td class="py-2 text-center">{row["quantity"]}</td>
                     <td class="py-2 text-right">{format_money(row["unit_price"])}</td>
                     <td class="py-2 text-right font-semibold">{format_money(row["total"])}</td>
@@ -561,7 +560,6 @@ class EmissionStep3Form(forms.Form):
                 f"""
                 <tr class="border-b border-base-300/60">
                     <td class="py-2">{escape(str(row["description"]))}</td>
-                    <td class="py-2">{row["origin"]}</td>
                     <td class="py-2 text-center">{row["quantity"]}</td>
                     <td class="py-2 text-right">{format_money(row["unit_price"])}</td>
                     <td class="py-2 text-right font-semibold">{format_money(row["total"])}</td>
@@ -602,7 +600,6 @@ class EmissionStep3Form(forms.Form):
                                 <thead>
                                     <tr>
                                         <th>Descricao</th>
-                                        <th>Origem</th>
                                         <th class="text-center">Qtd</th>
                                         <th class="text-right">Valor Unitario</th>
                                         <th class="text-right">Total</th>
@@ -625,7 +622,6 @@ class EmissionStep3Form(forms.Form):
                                 <thead>
                                     <tr>
                                         <th>Descricao</th>
-                                        <th>Origem</th>
                                         <th class="text-center">Qtd</th>
                                         <th class="text-right">Valor Unitario</th>
                                         <th class="text-right">Total</th>
