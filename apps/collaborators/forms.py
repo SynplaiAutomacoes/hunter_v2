@@ -153,6 +153,16 @@ class BaseWorkshopCollaboratorForm(forms.ModelForm):
                 #
                 Div(
                     HTML('<div class="col-span-12 divider"></div>'),
+                    HTML(
+                        """
+                        <div class="col-span-12">
+                            <div class="flex items-center gap-3 bg-base-300 border border-base-100 rounded-lg px-4 py-3">
+                                <span class="material-icons text-primary">manage_accounts</span>
+                                <p class="text-sm font-semibold">Crie o usuário e selecione o grupo de permissão</p>
+                            </div>
+                        </div>
+                        """
+                    ),
                     Field("system_username", wrapper_class="col-span-12 lg:col-span-6"),
                     Field("role", wrapper_class="col-span-12 lg:col-span-6"),
                     *self.get_access_extra_layout_fields(),
