@@ -108,22 +108,21 @@
             <table class="w-full text-left border-collapse text-[10px] mt-1 leading-tight">
                 <thead>
                     <tr class="bg-gray-100 border-b-2 border-gray-200">
-                        <th class="p-1 font-semibold w-[20%]">Referência</th>
+                        <th class="p-1 font-semibold w-[20%] text-center">Referência</th>
                         <th class="p-1 font-semibold w-[20%] text-center">Localização</th>
                         <th class="p-1 font-semibold w-[10%] text-center">Quantidade</th>
                         <th class="p-1 font-semibold w-[14%] text-center whitespace-normal leading-tight">Fornecido pelo cliente?</th>
-                        <th class="p-1 font-semibold w-[14%] text-center whitespace-normal leading-tight">Fornecido pelo cliente</th>
                         <th class="p-1 font-semibold">Descrição</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for item in produtos %}
                         <tr class="border-b border-gray-100">
-                            <td class="p-1">{{ item.code|default:"-" }}</td>
+                            <td class="p-1 text-center">{{ item.code|default:"-" }}</td>
                             <td class="p-1 text-center text-blue-700 font-mono">{{ item.location|default:"-" }}</td>
                             <td class="p-1 text-center font-bold text-[11px]">{{ item.quantity }}</td>
                             <td class="p-1 text-center">{% if item.is_customer_supplied %}Sim{% else %}Não{% endif %}</td>
-                            <td class="p-1 uppercase">{{ item.description }}</td>
+                            <td class="p-1 text-left uppercase">{{ item.description }}</td>
                         </tr>
                     {% empty %}
                         <tr><td colspan="5" class="p-2 text-center text-gray-400 italic">Nenhum produto listado.</td></tr>

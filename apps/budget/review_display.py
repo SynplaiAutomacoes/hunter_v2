@@ -137,8 +137,11 @@ def _build_kit_contribution(*, item: Any, sort_order: int) -> _SelectedItemContr
         if total_quantity <= 0:
             continue
 
-        unit_price = override.service_selling_price if override else kit_service.resolved_selling_price
-        unit_cost = override.service_cost_price if override else (kit_service.service.suggested_cost or zero_money())
+        if override:
+            unit_price = override.service_selling_price
+            unit_cost = override.service_cost_price
+        else:
+            unit_cost, unit_price = item.resolve_kit_service_base_prices(kit_service=kit_service)
         if kit_service.service.is_third_party:
             contribution.third_party_raw_total += unit_price * total_quantity
             contribution.third_party_cost_total += unit_cost * total_quantity
@@ -148,8 +151,8 @@ def _build_kit_contribution(*, item: Any, sort_order: int) -> _SelectedItemContr
         contribution.labor_quantity += total_quantity
         if override and override.duration:
             contribution.labor_duration += override.duration * total_quantity
-        elif kit_service.service.duration:
-            contribution.labor_duration += kit_service.service.duration * total_quantity
+        elif kit_service.duration:
+            contribution.labor_duration += kit_service.duration * total_quantity
 
     return contribution
 

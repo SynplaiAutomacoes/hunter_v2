@@ -115,13 +115,11 @@
                         <th class="p-1 font-semibold">Descrição</th>
                         <th class="p-1 font-semibold text-center">Quantidade</th>
                         <th class="p-1 font-semibold text-center whitespace-normal leading-tight">Fornecido pelo cliente?</th>
-                        <th class="p-1 font-semibold text-right">Valor de Venda</th>
-                        <th class="p-1 font-semibold text-center whitespace-normal leading-tight">Fornecido pelo cliente</th>
-                        <th class="p-1 font-semibold text-right">Valor Unitário</th>
-                        <th class="p-1 font-semibold text-right">Frete</th>
-                        <th class="p-1 font-semibold text-right">Total</th>
-                        <th class="p-1 font-semibold text-right">Custo</th>
-                        <th class="p-1 font-semibold text-right">Lucro</th>
+                        <th class="p-1 font-semibold text-center">Valor Unitário</th>
+                        <th class="p-1 font-semibold text-center">Frete</th>
+                        <th class="p-1 font-semibold text-center">Total</th>
+                        <th class="p-1 font-semibold text-center">Custo</th>
+                        <th class="p-1 font-semibold text-center">Lucro</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -130,11 +128,11 @@
                         <td class="p-1">{{ p.description }}</td>
                         <td class="p-1 text-center">{{ p.quantity }}</td>
                         <td class="p-1 text-center">{% if p.is_customer_supplied %}Sim{% else %}Não{% endif %}</td>
-                        <td class="p-1 text-right">{{ p.adjusted_unit_price }}</td>
-                        <td class="p-1 text-right">{{ p.shipping }}</td>
-                        <td class="p-1 text-right font-medium">{{ p.total_price }}</td>
-                        <td class="p-1 text-right font-bold">{{ p.product_cost_price }}</td>
-                        <td class="p-1 text-right font-bold">{{ p.profit_value }}</td>
+                        <td class="p-1 text-center">{{ p.adjusted_unit_price }}</td>
+                        <td class="p-1 text-center">{{ p.shipping }}</td>
+                        <td class="p-1 text-center font-medium">{{ p.total_price }}</td>
+                        <td class="p-1 text-center font-bold">{{ p.product_cost_price }}</td>
+                        <td class="p-1 text-center font-bold">{{ p.profit_value }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>

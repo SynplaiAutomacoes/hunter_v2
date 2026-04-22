@@ -28,28 +28,23 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "change_budgetitem"
 
     def get(self, request, budget_id, item_id):
-        from apps.budget.models import BudgetKitItemOverride
-
         _get_budget_for_workshop(self.workshop, budget_id)
         item = _get_budget_item_for_workshop(self.workshop, budget_id, item_id, kit__isnull=False)
+        item.ensure_kit_snapshot()
 
         # Buscar produtos do kit com overrides
         kit_products = []
-        for kit_product in item.kit.kit_products.select_related("product").all():
-            product = kit_product.product
-            override = BudgetKitItemOverride.objects.filter(budget_item=item, product=product).first()
-
-            quantity = override.quantity if override else kit_product.quantity
-            cost = override.product_cost_price if override else product.cost_price
-            price = override.product_selling_price if override else product.selling_price
-            shipping = override.shipping if override else Money(0, "BRL")
+        for override in item.kit_overrides.filter(product__isnull=False).select_related("product").all():
+            product = override.product
+            if product is None:
+                continue
 
             row_form = BudgetKitProductEditRowForm(
                 initial={
-                    "quantity": quantity,
-                    "cost": cost,
-                    "price": price,
-                    "shipping": shipping,
+                    "quantity": override.quantity,
+                    "cost": override.product_cost_price,
+                    "price": override.product_selling_price,
+                    "shipping": override.shipping,
                 },
                 prefix=f"product_{str(product.id)}",
             )
@@ -64,16 +59,15 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         # Buscar serviços do kit com overrides
         kit_services = []
-        for kit_service in item.kit.kit_services.select_related("service").all():
-            service = kit_service.service
-            override = BudgetKitItemOverride.objects.filter(budget_item=item, service=service).first()
+        for override in item.kit_overrides.filter(service__isnull=False).select_related("service").all():
+            service = override.service
+            if service is None:
+                continue
 
             # Format duration as HH:MM:SS
             duration_str = ""
-            if override and override.duration:
+            if override.duration:
                 duration = override.duration
-            elif service.duration:
-                duration = service.duration
             else:
                 duration = timedelta(0)
 
@@ -84,15 +78,11 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 seconds = total_seconds % 60
                 duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
-            quantity = override.quantity if override else kit_service.quantity
-            cost = override.service_cost_price if override else service.suggested_cost
-            price = override.service_selling_price if override else kit_service.resolved_selling_price
-
             row_form = BudgetKitServiceEditRowForm(
                 initial={
-                    "quantity": quantity,
-                    "cost": cost,
-                    "price": price,
+                    "quantity": override.quantity,
+                    "cost": override.service_cost_price,
+                    "price": override.service_selling_price,
                     "duration": duration_str,
                 },
                 prefix=f"service_{str(service.id)}",
@@ -120,6 +110,7 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         budget = _get_budget_for_workshop(self.workshop, str(budget_id))
         item = _get_budget_item_for_workshop(self.workshop, str(budget_id), str(item_id), kit__isnull=False)
+        item.ensure_kit_snapshot()
 
         products_json = request.POST.get("products", "[]")
         try:
@@ -244,6 +235,9 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
         # Reset etapas 5 e 6 após modificar a etapa 4
         reset_steps_after_step_4(budget)
 
+        item._clear_kit_snapshot_caches()
+        item.refresh_kit_snapshot_totals()
+
         # Force recalculation by accessing total_price
         _ = item.total_price
 
@@ -349,17 +343,23 @@ class BudgetKitServiceCalculateView(LoginRequiredMixin, WorkshopScopedMixin, Vie
 
         raw_duration = request.POST.get("duration")
         parsed_duration = _parse_duration_from_string(raw_duration)
-        duration = parsed_duration or (existing_override.duration if existing_override else service.duration) or timedelta(0)
+        duration = parsed_duration or (existing_override.duration if existing_override else kit_service.duration) or timedelta(0)
 
         workshop_cost, workshop_cost_missing = _get_budget_workshop_cost(budget, self.workshop)
 
+        default_cost, default_price = item.resolve_kit_service_base_prices(kit_service=kit_service, workshop_cost=workshop_cost)
+
         if changed_field == "duration":
-            service_cost_price, service_selling_price = _calculate_service_prices(duration, workshop_cost)
-            service_cost_price_amount = service_cost_price.amount.quantize(Decimal("0.01"))
-            service_selling_price_amount = (existing_override.service_selling_price.amount if existing_override else kit_service.resolved_selling_price.amount).quantize(Decimal("0.01")) if budget.is_warranty_budget else service_selling_price.amount.quantize(Decimal("0.01"))
+            if workshop_cost:
+                service_cost_price, service_selling_price = _calculate_service_prices(duration, workshop_cost)
+                service_cost_price_amount = service_cost_price.amount.quantize(Decimal("0.01"))
+                service_selling_price_amount = service_selling_price.amount.quantize(Decimal("0.01"))
+            else:
+                service_cost_price_amount = default_cost.amount.quantize(Decimal("0.01"))
+                service_selling_price_amount = default_price.amount.quantize(Decimal("0.01"))
         else:
-            cost_default = existing_override.service_cost_price.amount if existing_override and existing_override.service_cost_price else (service.suggested_cost.amount if service.suggested_cost else Decimal("0"))
-            price_default = existing_override.service_selling_price.amount if existing_override else kit_service.resolved_selling_price.amount
+            cost_default = existing_override.service_cost_price.amount if existing_override and existing_override.service_cost_price else default_cost.amount
+            price_default = existing_override.service_selling_price.amount if existing_override else default_price.amount
             service_cost_price_amount = _parse_decimal_value(request.POST.get("cost"), cost_default).quantize(Decimal("0.01"))
             service_selling_price_amount = price_default.quantize(Decimal("0.01")) if budget.is_warranty_budget else _parse_decimal_value(request.POST.get("price"), price_default).quantize(Decimal("0.01"))
 
@@ -380,6 +380,8 @@ class BudgetKitServiceCalculateView(LoginRequiredMixin, WorkshopScopedMixin, Vie
                 "duration": duration,
             },
         )
+        item._clear_kit_snapshot_caches()
+        item.refresh_kit_snapshot_totals()
         reset_steps_after_step_4(budget)
 
         return JsonResponse(
