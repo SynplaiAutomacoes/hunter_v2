@@ -36,6 +36,21 @@ class Service(TimeStampedModel):
 
         return f"{hours:02d}h {minutes:02d}m"
 
+    @property
+    def is_used(self) -> bool:
+        # Verifica se já foi usado em orçamentos ou ordens de serviço
+        if self.budgetitem_set.exists():
+            return True
+        if self.workorderitem_set.exists():
+            return True
+        if self.budgetkititemoverride_set.exists():
+            return True
+        if self.workorderkititemoverride_set.exists():
+            return True
+        if self.service_kits.exists():
+            return True
+        return False
+
     class Meta:
         verbose_name = "Serviço"
         verbose_name_plural = "Serviços"
