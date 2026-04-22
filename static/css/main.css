@@ -135,4 +135,44 @@
     :root[data-theme="dark"] .budget-step2-client-report p[id^="error_"] {
         color: #fecaca;
     }
+
+    /* container das tabs */
+    .tabs-lift {
+        @apply border-b border-base-300;
+    }
+
+    /* base das abas (efeito flutuante) */
+    .tabs-lift .tab {
+        @apply bg-base-100 border border-base-300 shadow-md rounded-xl mx-1 px-4 py-2;
+        transform: translateY(2px);
+        opacity: 0.6;
+        transition: all 0.2s ease;
+        position: relative;
+        z-index: 1;
+    }
+
+    /* hover reforça sensação de elevação */
+    .tabs-lift .tab:hover {
+        transform: translateY(0px);
+        opacity: 1;
+        @apply shadow-lg;
+    }
+
+    /* aba ativa */
+    .tabs-lift input:checked + label.tab {
+        @apply bg-base-100 text-primary border-primary shadow-xl;
+        transform: translateY(1px);
+        opacity: 1;
+
+        /* conexão com o container */
+        border-bottom-color: transparent;
+        z-index: 10;
+    }
+
+    /* conteúdo abaixo */
+    .tab-content-container {
+        @apply border border-base-300 bg-base-100 p-4;
+        @apply rounded-b-xl rounded-tr-xl;
+        margin-top: -1px; /* elimina linha entre tabs e conteúdo */
+    }
 }

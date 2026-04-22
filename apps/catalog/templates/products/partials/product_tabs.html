@@ -1,28 +1,3 @@
-<style>
-    /* base das abas (efeito flutuante) */
-    .tabs-lift .tab {
-        @apply bg-base-100 border border-base-300 shadow-md rounded-xl mx-1 px-4 py-2;
-        transform: translateY(2px);
-        opacity: 0.85;
-        transition: all 0.2s ease;
-    }
-
-    /* hover reforça sensação de elevação */
-    .tabs-lift .tab:hover {
-        transform: translateY(0px);
-        opacity: 1;
-        @apply shadow-lg;
-    }
-
-    /* aba ativa */
-    .tabs-lift input:checked + label.tab {
-        @apply bg-primary text-primary-content shadow-xl;
-        transform: translateY(0px);
-        opacity: 1;
-        border-color: var(--p);
-    }
-</style>
-
 <div class="tabs tabs-lift mt-7">
 
     <input type="radio" name="product_tabs" value="cadastro" x-model="activeTab" class="hidden" id="tab-cadastro" checked>
