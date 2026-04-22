@@ -11,7 +11,7 @@ from django.urls import reverse
 from djmoney.forms import MoneyField
 from djmoney.money import Money
 
-from apps.core.widgets import DurationInput, MoneyInput, NumberInput, SelectInput, TextareaInput, SearchableSelectInput
+from apps.core.widgets import DurationInput, MoneyInput, NumberInput, TextareaInput, SearchableSelectInput
 from apps.finance.forms.emission_ui import (
     build_slider_widget_attrs,
     build_step5_pricing_panel_data,
@@ -712,7 +712,7 @@ class EmissionStep5Form(forms.Form):
 
         note_mode_field = self.fields["note_mode"]
         note_mode_field.choices = list(note_mode_choices)
-        note_mode_field.widget = SelectInput(choices=list(note_mode_choices))
+        note_mode_field.widget = SearchableSelectInput(choices=list(note_mode_choices))
         note_mode_field.help_text = "Escolha se a emissão sera somente de produtos, somente de servicos, ou das duas notas em sequencia."
 
         self.helper = FormHelper()
@@ -755,7 +755,7 @@ class EmissionNfeConfigForm(forms.Form):
         dropdown_choices.extend(tax_class_choices)
         tax_class_field = self.fields["tax_class"]
         tax_class_field.choices = dropdown_choices
-        tax_class_field.widget = SelectInput(choices=dropdown_choices)
+        tax_class_field.widget = SearchableSelectInput(choices=dropdown_choices)
         tax_class_field.help_text = "Classe fiscal que sera aplicada aos produtos emitidos na NF-e."
         self._valid_tax_class_refs = {value for value, _ in tax_class_choices if value}
 
@@ -802,7 +802,7 @@ class EmissionNfseConfigForm(forms.Form):
         dropdown_choices.extend(tax_class_choices)
         tax_class_field = self.fields["tax_class"]
         tax_class_field.choices = dropdown_choices
-        tax_class_field.widget = SelectInput(choices=dropdown_choices)
+        tax_class_field.widget = SearchableSelectInput(choices=dropdown_choices)
         tax_class_field.help_text = "Classe fiscal que sera aplicada ao valor total da NFS-e."
         self._valid_tax_class_refs = {value for value, _ in tax_class_choices if value}
 

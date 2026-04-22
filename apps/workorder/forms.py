@@ -13,7 +13,7 @@ from djmoney.money import Money
 from apps.budget.pricing import resolve_discount_fields
 from apps.budget.forms.widgets import MultipleFileInput
 from apps.core.utils import alert_confirm_layout
-from apps.core.widgets import CalendarDateInput, DurationInput, MoneyInput, NumberInput, PercentageInput, SelectInput, TextInput
+from apps.core.widgets import CalendarDateInput, DurationInput, MoneyInput, NumberInput, PercentageInput, SearchableSelectInput, TextInput
 from apps.finance.models.payment_method import PaymentMethod
 from apps.workorder.models import WorkOrderAttachment, WorkOrderItem, WorkOrderPaymentMethod
 
@@ -48,7 +48,7 @@ class WorkOrderPaymentForm(forms.ModelForm):
         model = WorkOrderPaymentMethod
         fields = ["payment_method", "first_installment_amount", "due_date"]
         widgets = {
-            "payment_method": SelectInput(),
+            "payment_method": SearchableSelectInput(),
             "first_installment_amount": MoneyInput(),
             "due_date": CalendarDateInput(),
         }

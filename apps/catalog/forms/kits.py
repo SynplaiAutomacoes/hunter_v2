@@ -19,7 +19,8 @@ from apps.catalog.models.kits import Kit, KitApplication, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.util import calculate_catalog_service_prices, get_current_workshop_cost
-from apps.core.widgets import CheckboxInput, TextInput, TextareaInput, SelectInput, MoneyInput, PercentageInput, ImageInput, DurationInput
+from apps.core.widgets import CheckboxInput, TextInput, TextareaInput, MoneyInput, PercentageInput, ImageInput, DurationInput, \
+    SearchableSelectInput
 from apps.customer.vehicle_engine import normalize_vehicle_engine_choice, vehicle_engine_form_choices
 from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice, vehicle_fuel_form_choices
 from apps.workshops.models.workshops import Workshop
@@ -2146,8 +2147,8 @@ class QuickProductEditForm(forms.ModelForm):
             "code": TextInput(),
             "name": TextInput(),
             "description": TextareaInput(attrs={"class": "!bg-transparent"}),
-            "unit": SelectInput(),
-            "group": SelectInput(),
+            "unit": SearchableSelectInput(),
+            "group": SearchableSelectInput(),
             "brand": TextInput(),
             "model": TextInput(),
             "sku": TextInput(),
@@ -2158,8 +2159,8 @@ class QuickProductEditForm(forms.ModelForm):
             "profit_margin": PercentageInput(attrs={"readonly": True}),
             "ncm": TextInput(),
             "cest": TextInput(),
-            "origin_cst": SelectInput(),
-            "purpose": SelectInput(),
+            "origin_cst": SearchableSelectInput(),
+            "purpose": SearchableSelectInput(),
             "image": ImageInput(),
             "application": TextareaInput(),
             "is_active": CheckboxInput(),

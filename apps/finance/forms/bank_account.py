@@ -3,7 +3,7 @@ from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 from django import forms
 from django.urls import reverse
 
-from apps.core.widgets import TextInput, CheckboxInput, SelectInput
+from apps.core.widgets import TextInput, CheckboxInput, SearchableSelectInput
 from apps.finance.models.bank_account import BankAccount
 
 
@@ -15,7 +15,7 @@ class BankAccountForm(forms.ModelForm):
             "bank_code": TextInput(attrs={"placeholder": "Ex: 001"}),
             "bank_name": TextInput(),
             "agency": TextInput(attrs={"placeholder": "0001"}),
-            "account_type": SelectInput(),
+            "account_type": SearchableSelectInput(),
             "account_number": TextInput(attrs={"placeholder": "12345-6"}),
             "is_active": CheckboxInput(),
         }

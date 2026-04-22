@@ -18,8 +18,7 @@ from apps.core.widgets import (
     PercentageInput,
     PhoneInput,
     RGInput,
-    SelectInput,
-    TextInput,
+    TextInput, SearchableSelectInput,
 )
 from apps.iam.models import WorkshopRole
 from apps.workshops.models.workshops import Workshop
@@ -56,14 +55,14 @@ class BaseWorkshopCollaboratorForm(forms.ModelForm):
             "cpf": CPForCNPJInput(mode="cpf"),
             "rg": RGInput(),
             "birth_date": CalendarDateInput(),
-            "sex": SelectInput(),
+            "sex": SearchableSelectInput(),
             "phone": PhoneInput(),
             "email": EmailInput(),
             "position": TextInput(attrs={"placeholder": "Cargo"}),
             "salary": MoneyInput(),
             "admission_date": CalendarDateInput(),
             "termination_date": CalendarDateInput(),
-            "collaborator_type": SelectInput(),
+            "collaborator_type": SearchableSelectInput(),
             "receives_commission": CheckboxInput(),
             "commission_percentage": PercentageInput(),
             "is_active": CheckboxInput(),
@@ -79,7 +78,7 @@ class BaseWorkshopCollaboratorForm(forms.ModelForm):
 
         roles_qs = WorkshopRole.objects.filter(account=account).order_by("name") if account else WorkshopRole.objects.none()
         self.fields["role"].queryset = roles_qs
-        self.fields["role"].widget = SelectInput(choices=[(str(r.pk), r.name) for r in roles_qs])
+        self.fields["role"].widget = SearchableSelectInput(choices=[(str(r.pk), r.name) for r in roles_qs])
 
         if self.instance and getattr(self.instance, "user_id", None):
             self.fields["system_username"].initial = self.instance.user.username
@@ -308,7 +307,7 @@ class WorkshopCollaboratorModalForm(forms.ModelForm):
             "phone": PhoneInput(),
             "birth_date": CalendarDateInput(),
             "position": TextInput(attrs={"placeholder": "Ex: Mecânico Chefe"}),
-            "collaborator_type": SelectInput(),
+            "collaborator_type": SearchableSelectInput(),
             "admission_date": CalendarDateInput(),
         }
 
