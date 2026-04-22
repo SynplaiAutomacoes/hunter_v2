@@ -228,7 +228,7 @@ def _build_summary_preview_html(*, workorder: WorkOrder, selected_slider: int) -
         <div class="rounded-2xl border border-base-300 bg-base-100 p-5 shadow-sm">
             <div class="mb-4 flex items-center justify-between gap-3 flex-wrap">
                 <div>
-                    <h3 class="text-xl font-bold text-base-content">Itens consolidados da emissao</h3>
+                    <h3 class="text-xl font-bold text-base-content">Itens consolidados da emissão</h3>
                     <p class="text-sm text-base-content/70">Os valores abaixo refletem o slider aplicado no resumo.</p>
                 </div>
             </div>
@@ -446,7 +446,7 @@ class EmissionStep1Form(forms.Form):
         self.helper.layout = Layout(
             Div(
                 HTML("<h2 class='text-2xl font-bold'>Selecionar Ordem de Servico</h2>"),
-                HTML("<p class='text-base-content/70 mb-6'>Selecione a OS aprovada que sera usada na emissao fiscal.</p>"),
+                HTML("<p class='text-base-content/70 mb-6'>Selecione a OS aprovada que sera usada na emissão fiscal.</p>"),
                 Field("workorder"),
                 css_class="space-y-4",
             )
@@ -479,7 +479,7 @@ class EmissionStep2Form(forms.Form):
         self.helper.layout = Layout(
             Div(
                 HTML("<h2 class='text-2xl font-bold'>Conferir cliente</h2>"),
-                HTML("<p class='text-base-content/70 mb-6'>Revise os dados do cliente e do veiculo antes de seguir. Se precisar, faca um ajuste rapido sem sair da emissao.</p>"),
+                HTML("<p class='text-base-content/70 mb-6'>Revise os dados do cliente e do veiculo antes de seguir. Se precisar, faca um ajuste rapido sem sair da emissão.</p>"),
                 HTML(
                     f"""
                     <div class="grid grid-cols-1 gap-6">
@@ -516,7 +516,7 @@ class EmissionStep2Form(forms.Form):
                                 </div>
                                 {vehicle_action_html}
                             </div>
-                            <p class="text-sm text-base-content/70">As alteracoes do veiculo sao globais e refletem em toda a oficina.</p>
+                            <p class="text-sm text-base-content/70">As alterações do veiculo sao globais e refletem em toda a oficina.</p>
                         </div>
                     </div>
                     """
@@ -601,9 +601,9 @@ class EmissionStep3Form(forms.Form):
                                     <tr>
                                         <th>Descricao</th>
                                         <th class="text-center">Qtd</th>
-                                        <th class="text-right">Valor Unitario</th>
+                                        <th class="text-right">Valor Unitário</th>
                                         <th class="text-right">Total</th>
-                                        <th class="text-center">Acoes</th>
+                                        <th class="text-center">Ações</th>
                                     </tr>
                                 </thead>
                                 <tbody>{products_html}</tbody>
@@ -623,9 +623,9 @@ class EmissionStep3Form(forms.Form):
                                     <tr>
                                         <th>Descricao</th>
                                         <th class="text-center">Qtd</th>
-                                        <th class="text-right">Valor Unitario</th>
+                                        <th class="text-right">Valor Unitário</th>
                                         <th class="text-right">Total</th>
-                                        <th class="text-center">Acoes</th>
+                                        <th class="text-center">Ações</th>
                                     </tr>
                                 </thead>
                                 <tbody>{services_html}</tbody>
@@ -647,7 +647,7 @@ class EmissionStep3Form(forms.Form):
 
 
 class EmissionStep4Form(forms.Form):
-    pricing_slider = forms.IntegerField(label="Slider da emissao", min_value=-100, max_value=100)
+    pricing_slider = forms.IntegerField(label="", min_value=-100, max_value=100)
 
     def __init__(self, *args, **kwargs):
         workorder = kwargs.pop("workorder", None)
@@ -666,7 +666,6 @@ class EmissionStep4Form(forms.Form):
                 sync_selector="#emission-form:abort",
             )
         )
-        slider_field.help_text = "Deslize para redistribuir o valor total entre produtos e servicos antes de emitir as notas."
 
         warning_html = ""
         preview_html = ""
@@ -694,7 +693,7 @@ class EmissionStep4Form(forms.Form):
         self.helper.layout = Layout(
             Div(
                 HTML("<h2 class='text-2xl font-bold'>Resumo</h2>"),
-                HTML("<p class='text-base-content/70 mb-6'>Ajuste o slider e revise todos os produtos e servicos com os valores finais da emissao.</p>"),
+                HTML("<p class='text-base-content/70 mb-6'>Ajuste o slider e revise todos os produtos e servicos com os valores finais da emissão.</p>"),
                 build_step5_summary_layout(prefix="emission", panel_data=panel_data, slider_field_name="pricing_slider", form_selector="#emission-form", body_html=body_html) if panel_data is not None else HTML(""),
                 css_class="space-y-4",
             )
@@ -714,7 +713,7 @@ class EmissionStep5Form(forms.Form):
         note_mode_field = self.fields["note_mode"]
         note_mode_field.choices = list(note_mode_choices)
         note_mode_field.widget = SelectInput(choices=list(note_mode_choices))
-        note_mode_field.help_text = "Escolha se a emissao sera somente de produtos, somente de servicos, ou das duas notas em sequencia."
+        note_mode_field.help_text = "Escolha se a emissão sera somente de produtos, somente de servicos, ou das duas notas em sequencia."
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -729,7 +728,7 @@ class EmissionStep5Form(forms.Form):
                         <ul class="list-disc ml-5 space-y-1 text-sm">
                             <li><strong>NF-e</strong>: abre a etapa de configuracao fiscal dos produtos.</li>
                             <li><strong>NFS-e</strong>: abre a etapa de configuracao fiscal dos servicos.</li>
-                            <li><strong>Ambas</strong>: abre as duas etapas e faz a emissao em sequencia na ultima tela.</li>
+                            <li><strong>Ambas</strong>: abre as duas etapas e faz a emissão em sequencia na ultima tela.</li>
                         </ul>
                     </div>
                     """
