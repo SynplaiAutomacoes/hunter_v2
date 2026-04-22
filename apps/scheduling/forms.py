@@ -11,7 +11,7 @@ from django.utils.html import escape
 from django.utils import timezone
 
 from apps.budget.models import Budget
-from apps.core.widgets import CPForCNPJInput, CheckboxInput, PhoneInput, PlateInput, SearchableSelectInput, SelectInput, TextInput, TextareaInput
+from apps.core.widgets import CPForCNPJInput, CheckboxInput, PhoneInput, PlateInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.customer.cpf_cnpj_validator import is_valid_cpf
 from apps.customer.vehicle_engine import normalize_vehicle_engine_choice, vehicle_engine_form_choices
 from apps.customer.models import Customer, Vehicle
@@ -81,8 +81,8 @@ class AppointmentForm(forms.ModelForm):
     guest_vehicle_model = forms.CharField(label="Modelo", required=False, widget=_uppercase_text_input())
     guest_vehicle_year_fabrication = forms.CharField(label="Ano Fabricacao", required=False, widget=_year_text_input())
     guest_vehicle_year_model = forms.CharField(label="Ano Modelo", required=False, widget=_year_text_input())
-    guest_vehicle_engine = forms.CharField(label="Motorizacao", required=False, widget=SelectInput(choices=vehicle_engine_form_choices()))
-    guest_vehicle_fuel = forms.CharField(label="Combustivel", required=False, widget=SelectInput(choices=vehicle_fuel_form_choices()))
+    guest_vehicle_engine = forms.CharField(label="Motorizacao", required=False, widget=SearchableSelectInput(choices=vehicle_engine_form_choices()))
+    guest_vehicle_fuel = forms.CharField(label="Combustivel", required=False, widget=SearchableSelectInput(choices=vehicle_fuel_form_choices()))
     budget = forms.ModelChoiceField(label="Orcamento vinculado", queryset=Budget.objects.none(), widget=SearchableSelectInput(), required=False)
     workorder = forms.ModelChoiceField(label="Ordem de servico vinculada", queryset=WorkOrder.objects.none(), widget=SearchableSelectInput(), required=False)
 
@@ -121,13 +121,13 @@ class AppointmentForm(forms.ModelForm):
             "guest_vehicle_model": _uppercase_text_input(),
             "guest_vehicle_year_fabrication": _year_text_input(),
             "guest_vehicle_year_model": _year_text_input(),
-            "guest_vehicle_engine": SelectInput(choices=vehicle_engine_form_choices()),
-            "guest_vehicle_fuel": SelectInput(choices=vehicle_fuel_form_choices()),
+            "guest_vehicle_engine": SearchableSelectInput(choices=vehicle_engine_form_choices()),
+            "guest_vehicle_fuel": SearchableSelectInput(choices=vehicle_fuel_form_choices()),
             "starts_at": forms.DateTimeInput(format="%Y-%m-%dT%H:%M", attrs={"type": "datetime-local", "class": "input-theme h-12"}),
             "ends_at": forms.DateTimeInput(format="%Y-%m-%dT%H:%M", attrs={"type": "datetime-local", "class": "input-theme h-12"}),
             "block_color": forms.HiddenInput(),
             "alert_customer": CheckboxInput(),
-            "status": SelectInput(attrs={"class": "h-12"}),
+            "status": SearchableSelectInput(attrs={"class": "h-12"}),
             "notes": TextareaInput(rows=3),
         }
 

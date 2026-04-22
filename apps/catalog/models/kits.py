@@ -80,6 +80,15 @@ class Kit(TimeStampedModel):
     def applications_table_value(self, *, preview_limit: int = 2) -> KitApplicationsTableValue:
         return build_kit_applications_table_value(self.ordered_applications(), preview_limit=preview_limit)
 
+    @property
+    def is_used(self) -> bool:
+        # Verifica se já foi usado em orçamentos ou ordens de serviço
+        if self.budgetitem_set.exists():
+            return True
+        if self.workorderitem_set.exists():
+            return True
+        return False
+
 
 class KitApplication(TimeStampedModel):
     kit = models.ForeignKey(Kit, on_delete=models.CASCADE, related_name="applications")

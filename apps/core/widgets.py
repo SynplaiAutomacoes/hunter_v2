@@ -101,6 +101,10 @@ class SelectInput(forms.TextInput):
 class SearchableSelectInput(SelectInput):
     template_name = "widgets/searchable_select.html"
 
+    def __init__(self, *args, choices: List[Tuple[str, str]] | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.choices = choices or []
+
 
 class CalendarDateInput(forms.DateInput):
     template_name = "widgets/calendar_date_input.html"

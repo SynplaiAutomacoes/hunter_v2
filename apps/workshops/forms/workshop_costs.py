@@ -10,7 +10,7 @@ from djmoney.forms import MoneyField
 
 from apps.core.widgets import (
     TextInput,
-    SelectInput,
+    SearchableSelectInput,
     DurationInput,
     PercentageInput,
     MoneyInput,
@@ -52,7 +52,7 @@ class WorkshopCostForm(forms.ModelForm):
             "profitability_multiplier",
         ]
         widgets = {
-            "month": SelectInput(),
+            "month": SearchableSelectInput(),
             "year": TextInput(),
             "mechanic_quantity": NumberInput(),
             "work_hours_per_day": DurationInput(),

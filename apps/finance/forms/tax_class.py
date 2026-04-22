@@ -9,7 +9,7 @@ from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
 from django.forms import formset_factory
 
-from apps.core.widgets import CheckboxInput, DecimalInput, SelectInput, TextInput, TextareaInput
+from apps.core.widgets import CheckboxInput, DecimalInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.models import TaxClassPreset
 
 
@@ -181,18 +181,18 @@ class NfeTaxClassForm(TaxClassFormBase):
 
 class NfseTaxClassForm(TaxClassFormBase):
     codigo_servico = forms.CharField(label="Código do serviço", required=True, widget=TextInput())
-    tipo_emissao = forms.ChoiceField(label="Tipo de emissão", required=False, choices=TIPO_EMISSAO_NFSE_CHOICES, widget=SelectInput(choices=TIPO_EMISSAO_NFSE_CHOICES))
+    tipo_emissao = forms.ChoiceField(label="Tipo de emissão", required=False, choices=TIPO_EMISSAO_NFSE_CHOICES, widget=SearchableSelectInput(choices=TIPO_EMISSAO_NFSE_CHOICES))
     codigo_tributacao_municipio = forms.CharField(label="Código tributação município", required=False, widget=TextInput())
-    tributacao_iss = forms.ChoiceField(label="Tributação ISS", required=False, choices=TRIBUTACAO_ISS_CHOICES, widget=SelectInput(choices=TRIBUTACAO_ISS_CHOICES))
-    tipo_imunidade = forms.ChoiceField(label="Tipo imunidade", required=False, choices=TIPO_IMUNIDADE_CHOICES, widget=SelectInput(choices=TIPO_IMUNIDADE_CHOICES))
-    retencao_iss = forms.ChoiceField(label="Retenção ISS", required=False, choices=RETENCAO_ISS_NACIONAL_CHOICES, widget=SelectInput(choices=RETENCAO_ISS_NACIONAL_CHOICES))
-    cst_pis_cofins = forms.ChoiceField(label="CST PIS/COFINS", required=False, choices=CST_PIS_COFINS_CHOICES, widget=SelectInput(choices=CST_PIS_COFINS_CHOICES))
-    retencao_pis_cofins = forms.ChoiceField(label="Retenção PIS/COFINS", required=False, choices=RETENCAO_PIS_COFINS_CHOICES, widget=SelectInput(choices=RETENCAO_PIS_COFINS_CHOICES))
+    tributacao_iss = forms.ChoiceField(label="Tributação ISS", required=False, choices=TRIBUTACAO_ISS_CHOICES, widget=SearchableSelectInput(choices=TRIBUTACAO_ISS_CHOICES))
+    tipo_imunidade = forms.ChoiceField(label="Tipo imunidade", required=False, choices=TIPO_IMUNIDADE_CHOICES, widget=SearchableSelectInput(choices=TIPO_IMUNIDADE_CHOICES))
+    retencao_iss = forms.ChoiceField(label="Retenção ISS", required=False, choices=RETENCAO_ISS_NACIONAL_CHOICES, widget=SearchableSelectInput(choices=RETENCAO_ISS_NACIONAL_CHOICES))
+    cst_pis_cofins = forms.ChoiceField(label="CST PIS/COFINS", required=False, choices=CST_PIS_COFINS_CHOICES, widget=SearchableSelectInput(choices=CST_PIS_COFINS_CHOICES))
+    retencao_pis_cofins = forms.ChoiceField(label="Retenção PIS/COFINS", required=False, choices=RETENCAO_PIS_COFINS_CHOICES, widget=SearchableSelectInput(choices=RETENCAO_PIS_COFINS_CHOICES))
 
-    natureza_operacao = forms.ChoiceField(label="Natureza da operação (ABRASF)", required=False, choices=NATUREZA_OPERACAO_CHOICES, widget=SelectInput(choices=NATUREZA_OPERACAO_CHOICES))
-    exigibilidade_iss = forms.ChoiceField(label="Exigibilidade ISS (ABRASF)", required=True, choices=EXIGIBILIDADE_ISS_CHOICES, widget=SelectInput(choices=EXIGIBILIDADE_ISS_CHOICES))
-    iss_retido = forms.ChoiceField(label="ISS retido (ABRASF)", required=True, choices=ISS_RETIDO_CHOICES, widget=SelectInput(choices=ISS_RETIDO_CHOICES))
-    responsavel_retencao = forms.ChoiceField(label="Responsável retenção", required=False, choices=RESPONSAVEL_RETENCAO_CHOICES, widget=SelectInput(choices=RESPONSAVEL_RETENCAO_CHOICES))
+    natureza_operacao = forms.ChoiceField(label="Natureza da operação (ABRASF)", required=False, choices=NATUREZA_OPERACAO_CHOICES, widget=SearchableSelectInput(choices=NATUREZA_OPERACAO_CHOICES))
+    exigibilidade_iss = forms.ChoiceField(label="Exigibilidade ISS (ABRASF)", required=True, choices=EXIGIBILIDADE_ISS_CHOICES, widget=SearchableSelectInput(choices=EXIGIBILIDADE_ISS_CHOICES))
+    iss_retido = forms.ChoiceField(label="ISS retido (ABRASF)", required=True, choices=ISS_RETIDO_CHOICES, widget=SearchableSelectInput(choices=ISS_RETIDO_CHOICES))
+    responsavel_retencao = forms.ChoiceField(label="Responsável retenção", required=False, choices=RESPONSAVEL_RETENCAO_CHOICES, widget=SearchableSelectInput(choices=RESPONSAVEL_RETENCAO_CHOICES))
     codigo_cnae = forms.CharField(label="Código CNAE", required=False, widget=TextInput())
 
     iss = forms.DecimalField(label="Alíquota ISS", required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
@@ -533,9 +533,9 @@ class ScenarioFormBase(forms.Form):
 
 
 class IcmsScenarioForm(ScenarioFormBase):
-    tipo_tributacao = forms.ChoiceField(required=False, choices=ICMS_TIPO_TRIBUTACAO_CHOICES, widget=SelectInput(choices=ICMS_TIPO_TRIBUTACAO_CHOICES))
-    cenario = forms.ChoiceField(required=False, choices=NFE_SCENARIO_CHOICES, widget=SelectInput(choices=NFE_SCENARIO_CHOICES))
-    tipo_pessoa = forms.ChoiceField(required=False, choices=TIPO_PESSOA_CHOICES, widget=SelectInput(choices=TIPO_PESSOA_CHOICES))
+    tipo_tributacao = forms.ChoiceField(required=False, choices=ICMS_TIPO_TRIBUTACAO_CHOICES, widget=SearchableSelectInput(choices=ICMS_TIPO_TRIBUTACAO_CHOICES))
+    cenario = forms.ChoiceField(required=False, choices=NFE_SCENARIO_CHOICES, widget=SearchableSelectInput(choices=NFE_SCENARIO_CHOICES))
+    tipo_pessoa = forms.ChoiceField(required=False, choices=TIPO_PESSOA_CHOICES, widget=SearchableSelectInput(choices=TIPO_PESSOA_CHOICES))
     nao_contribuinte = forms.BooleanField(required=False, widget=CheckboxInput())
     codigo_cfop = forms.CharField(required=False, max_length=10, widget=TextInput())
     situacao_tributaria = forms.CharField(required=False, max_length=3, widget=TextInput())
@@ -592,8 +592,8 @@ class IcmsScenarioForm(ScenarioFormBase):
 
 
 class IpiScenarioForm(ScenarioFormBase):
-    cenario = forms.ChoiceField(required=False, choices=SCENARIO_PADRAO_CHOICES, widget=SelectInput(choices=SCENARIO_PADRAO_CHOICES))
-    tipo_pessoa = forms.ChoiceField(required=False, choices=TIPO_PESSOA_CHOICES, widget=SelectInput(choices=TIPO_PESSOA_CHOICES))
+    cenario = forms.ChoiceField(required=False, choices=SCENARIO_PADRAO_CHOICES, widget=SearchableSelectInput(choices=SCENARIO_PADRAO_CHOICES))
+    tipo_pessoa = forms.ChoiceField(required=False, choices=TIPO_PESSOA_CHOICES, widget=SearchableSelectInput(choices=TIPO_PESSOA_CHOICES))
     situacao_tributaria = forms.CharField(required=False, max_length=3, widget=TextInput())
     codigo_enquadramento = forms.CharField(required=False, max_length=3, widget=TextInput())
     aliquota = forms.DecimalField(required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
@@ -612,8 +612,8 @@ class IpiScenarioForm(ScenarioFormBase):
 
 
 class PisScenarioForm(ScenarioFormBase):
-    cenario = forms.ChoiceField(required=False, choices=SCENARIO_PADRAO_CHOICES, widget=SelectInput(choices=SCENARIO_PADRAO_CHOICES))
-    tipo_pessoa = forms.ChoiceField(required=False, choices=TIPO_PESSOA_CHOICES, widget=SelectInput(choices=TIPO_PESSOA_CHOICES))
+    cenario = forms.ChoiceField(required=False, choices=SCENARIO_PADRAO_CHOICES, widget=SearchableSelectInput(choices=SCENARIO_PADRAO_CHOICES))
+    tipo_pessoa = forms.ChoiceField(required=False, choices=TIPO_PESSOA_CHOICES, widget=SearchableSelectInput(choices=TIPO_PESSOA_CHOICES))
     situacao_tributaria = forms.CharField(required=False, max_length=3, widget=TextInput())
     aliquota = forms.DecimalField(required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
 
@@ -631,8 +631,8 @@ class PisScenarioForm(ScenarioFormBase):
 
 
 class CofinsScenarioForm(ScenarioFormBase):
-    cenario = forms.ChoiceField(required=False, choices=SCENARIO_PADRAO_CHOICES, widget=SelectInput(choices=SCENARIO_PADRAO_CHOICES))
-    tipo_pessoa = forms.ChoiceField(required=False, choices=TIPO_PESSOA_CHOICES, widget=SelectInput(choices=TIPO_PESSOA_CHOICES))
+    cenario = forms.ChoiceField(required=False, choices=SCENARIO_PADRAO_CHOICES, widget=SearchableSelectInput(choices=SCENARIO_PADRAO_CHOICES))
+    tipo_pessoa = forms.ChoiceField(required=False, choices=TIPO_PESSOA_CHOICES, widget=SearchableSelectInput(choices=TIPO_PESSOA_CHOICES))
     situacao_tributaria = forms.CharField(required=False, max_length=3, widget=TextInput())
     aliquota = forms.DecimalField(required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
 

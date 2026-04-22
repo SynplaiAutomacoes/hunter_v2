@@ -7,7 +7,7 @@ from django.urls import reverse
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 
-from apps.core.widgets import TextInput, SelectInput, NumberInput, CheckboxInput
+from apps.core.widgets import TextInput, SearchableSelectInput, NumberInput, CheckboxInput
 from apps.quote.models.investigative_questions import InvestigativeQuestion
 from apps.workshops.models.workshops import Workshop
 
@@ -21,7 +21,7 @@ class InvestigativeQuestionForm(forms.ModelForm):
         fields = ["text", "response_type", "order", "is_active"]
         widgets = {
             "text": TextInput(attrs={"placeholder": "Ex: Qual o principal uso do veículo?"}),
-            "response_type": SelectInput(),
+            "response_type": SearchableSelectInput(),
             "order": NumberInput(),
             "is_active": CheckboxInput(),
         }

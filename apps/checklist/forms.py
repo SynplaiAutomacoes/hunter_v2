@@ -4,7 +4,7 @@ from crispy_forms.layout import Layout, Div, Field, HTML, Submit, Button
 from django.template.loader import render_to_string
 from django.urls import reverse
 from .models import Checklist, ChecklistItem
-from apps.core.widgets import TextInput, SelectInput
+from apps.core.widgets import TextInput, SearchableSelectInput
 from ..workshops.models.workshops import Workshop
 
 
@@ -28,7 +28,7 @@ class ChecklistForm(forms.ModelForm):
 
         agrupamento_widget = TextInput(attrs={"id": "novo-agrupamento", "list": "agrupamentos-sugestoes", "class":"col-span-12 lg:col-span-4"}).render("agrupamento_input", "")
         item_widget = TextInput(attrs={"id": "novo-item-descricao", "class":"col-span-12 lg:col-span-4"}).render("item_input", "")
-        tipo_resposta_widget = SelectInput(choices=ChecklistItem.TIPO_RESPOSTA_CHOICES, attrs={"id": "novo-tipo-resposta", "class":"col-span-12 lg:col-span-4"}).render("tipo_resposta_select", "")
+        tipo_resposta_widget = SearchableSelectInput(choices=ChecklistItem.TIPO_RESPOSTA_CHOICES, attrs={"id": "novo-tipo-resposta", "class":"col-span-12 lg:col-span-4"}).render("tipo_resposta_select", "")
 
         existing_items_html = ""
         if self.instance and self.instance.pk:

@@ -104,6 +104,10 @@ class StockMovement(TimeStampedModel):
     def location(self):
         return self.stock_product.product.location
 
+    @property
+    def total_value(self):
+        return self.stock_product.unit_cost * self.quantity
+
 
 class StockPaymentMethod(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="stockpayments")

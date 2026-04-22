@@ -18,8 +18,7 @@ from apps.core.widgets import (
     PercentageInput,
     PhoneInput,
     RGInput,
-    SelectInput,
-    TextInput,
+    TextInput, SearchableSelectInput,
 )
 from apps.iam.models import WorkshopRole
 from apps.workshops.models.workshops import Workshop
@@ -56,14 +55,14 @@ class BaseWorkshopCollaboratorForm(forms.ModelForm):
             "cpf": CPForCNPJInput(mode="cpf"),
             "rg": RGInput(),
             "birth_date": CalendarDateInput(),
-            "sex": SelectInput(),
+            "sex": SearchableSelectInput(),
             "phone": PhoneInput(),
             "email": EmailInput(),
             "position": TextInput(attrs={"placeholder": "Cargo"}),
             "salary": MoneyInput(),
             "admission_date": CalendarDateInput(),
             "termination_date": CalendarDateInput(),
-            "collaborator_type": SelectInput(),
+            "collaborator_type": SearchableSelectInput(),
             "receives_commission": CheckboxInput(),
             "commission_percentage": PercentageInput(),
             "is_active": CheckboxInput(),
@@ -79,7 +78,7 @@ class BaseWorkshopCollaboratorForm(forms.ModelForm):
 
         roles_qs = WorkshopRole.objects.filter(account=account).order_by("name") if account else WorkshopRole.objects.none()
         self.fields["role"].queryset = roles_qs
-        self.fields["role"].widget = SelectInput(choices=[(str(r.pk), r.name) for r in roles_qs])
+        self.fields["role"].widget = SearchableSelectInput(choices=[(str(r.pk), r.name) for r in roles_qs])
 
         if self.instance and getattr(self.instance, "user_id", None):
             self.fields["system_username"].initial = self.instance.user.username
@@ -154,6 +153,16 @@ class BaseWorkshopCollaboratorForm(forms.ModelForm):
                 #
                 Div(
                     HTML('<div class="col-span-12 divider"></div>'),
+                    HTML(
+                        """
+                        <div class="col-span-12">
+                            <div class="flex items-center gap-3 bg-base-300 border border-base-100 rounded-lg px-4 py-3">
+                                <span class="material-icons text-primary">manage_accounts</span>
+                                <p class="text-sm font-semibold">Crie o usuário e selecione o grupo de permissão</p>
+                            </div>
+                        </div>
+                        """
+                    ),
                     Field("system_username", wrapper_class="col-span-12 lg:col-span-6"),
                     Field("role", wrapper_class="col-span-12 lg:col-span-6"),
                     *self.get_access_extra_layout_fields(),
@@ -308,7 +317,7 @@ class WorkshopCollaboratorModalForm(forms.ModelForm):
             "phone": PhoneInput(),
             "birth_date": CalendarDateInput(),
             "position": TextInput(attrs={"placeholder": "Ex: Mecânico Chefe"}),
-            "collaborator_type": SelectInput(),
+            "collaborator_type": SearchableSelectInput(),
             "admission_date": CalendarDateInput(),
         }
 

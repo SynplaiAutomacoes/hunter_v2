@@ -1,5 +1,61 @@
 {% extends 'crud/form_page.html' %}
+{% load l10n %}
 
 {% block crud_title %}Editar Fornecedor{% endblock %}
 {% block crud_subtitle %}Alteração dos dados do fornecedor: {{ object.name }}{% endblock %}
 {% block crud_back_url %}{% url 'suppliers:supplier_list' %}{% endblock %}
+
+{% block crud_tabs_form %}
+<div class="tabs tabs-bordered mt-7">
+    <input type="radio" name="supplier_tabs" value="cadastro"
+        class="tab !border-b-2 checked:!border-primary checked:!text-primary font-medium transition-colors"
+        aria-label="Formulário" x-model="activeTab" />
+    <input type="radio" name="supplier_tabs" value="historico"
+        class="tab !border-b-2 checked:!border-primary checked:!text-primary font-medium transition-colors"
+        aria-label="Histórico" x-model="activeTab" />
+</div>
+{% endblock %}
+
+{% block section_product_history %}
+<div class="overflow-x-auto">
+    <table class="table w-full">
+        <thead>
+            <tr>
+                <th class="bg-base-200">Data</th>
+                <th class="bg-base-200">Produtos</th>
+                <th class="bg-base-200">Valores</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for movement in object.movements.all|slice:":100" %}
+            <tr class="hover">
+                <td class="whitespace-nowrap">{{ movement.criado_em|date:"d/m/Y H:i" }}</td>
+                <td>
+                    <div class="flex items-center gap-2">
+                        <span class="font-medium">{{ movement.stock_product.product.name }}</span>
+                        {% if movement.type == 'ENTRADA' %}
+                        <span class="badge badge-success badge-sm">Entrada</span>
+                        {% else %}
+                        <span class="badge badge-error badge-sm">Saída</span>
+                        {% endif %}
+                    </div>
+                    <div class="text-xs text-base-content/70 mt-1">
+                        Qtd: {{ movement.quantity }}
+                    </div>
+                </td>
+                <td
+                    class="whitespace-nowrap font-medium {% if movement.type == 'ENTRADA' %}text-success{% else %}text-error{% endif %}">
+                    R$ {{ movement.total_value.amount|localize }}
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="3" class="text-center text-base-content/70 py-8">
+                    Nenhuma movimentação de produto registrada para este fornecedor.
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
