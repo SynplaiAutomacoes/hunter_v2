@@ -1,5 +1,6 @@
 from django.urls import path
 from . import views
+from .views.workflow_views import BudgetReferenceModalView
 
 app_name = "budget"
 
@@ -60,4 +61,5 @@ urlpatterns = [
     path("<int:budget_id>/register-local/<int:item_id>/", views.RegisterLocalItemView.as_view(), name="register_local_item"),
     path("<int:budget_id>/calculate-local-service/", views.CalculateLocalServiceView.as_view(), name="calculate_local_service"),
     path("<int:budget_id>/quick-create/<str:item_type>/", views.QuickCreateProductView.as_view(), name="quick_create_item"),
+    path("<int:pk>/reference-modal/", BudgetReferenceModalView.as_view(), name="budget_reference_modal"),
 ]

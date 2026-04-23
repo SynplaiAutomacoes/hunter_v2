@@ -84,6 +84,7 @@ class Budget(TimeStampedModel):
     collaborator = models.ForeignKey("collaborators.WorkshopCollaborator", verbose_name="Colaborador", on_delete=models.SET_NULL, related_name="budgets", null=True)
     collaborators = models.ManyToManyField("collaborators.WorkshopCollaborator", verbose_name="Colaboradores", related_name="collaborators_budgets", blank=True)
     checklist = models.ForeignKey("checklist.Checklist", verbose_name="Checklist", on_delete=models.SET_NULL, related_name="budgets", null=True, blank=True)
+    reference_budget = models.ForeignKey("self", verbose_name="Orçamento de Referência", on_delete=models.SET_NULL, related_name="related_budgets", null=True, blank=True)
 
     # Datas e Prazos
     expiration_date = models.DateField(verbose_name="Data de Validade", null=True, blank=True)

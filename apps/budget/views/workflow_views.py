@@ -798,3 +798,43 @@ class SaveObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return JsonResponse({"success": True})
         except (TypeError, ValueError, json.JSONDecodeError, AttributeError, Http404):
             return JsonResponse({"success": False}, status=400)
+
+
+class BudgetReferenceModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "change_budget"
+
+    def get(self, request, pk):
+        budget = _get_budget_for_workshop(self.workshop, pk)
+        available_budgets = Budget.objects.filter(workshop=self.workshop).exclude(pk=budget.pk).select_related("customer", "vehicle").order_by("-id")[:50]
+        context = {
+            "budget": budget,
+            "available_budgets": available_budgets,
+        }
+        return render(request, "budget/partials/budget_reference_modal.html", context)
+
+    def post(self, request, pk):
+        budget = _get_budget_for_workshop(self.workshop, pk)
+        reference_budget_id = request.POST.get("reference_budget_id")
+        
+        if reference_budget_id:
+            try:
+                reference_budget = _get_budget_for_workshop(self.workshop, reference_budget_id)
+                budget.reference_budget = reference_budget
+                budget.customer = reference_budget.customer
+                budget.vehicle = reference_budget.vehicle
+                budget.save(update_fields=["reference_budget", "customer", "vehicle"])
+                
+                # Redirect or trigger HTMX reload
+                response = HttpResponse(status=204)
+                redirect_url = f"{reverse('budget:budget_update', kwargs={'pk': budget.pk})}?step={budget.current_step}"
+                triggers = {
+                    "showToast": {"message": "Orçamento de referência vinculado com sucesso.", "type": "success"},
+                    "redirectAfterToast": {"url": redirect_url, "delay": 500}
+                }
+                response["HX-Trigger"] = json.dumps(triggers)
+                return response
+            except Http404:
+                return HttpResponse("Orçamento de referência inválido.", status=400)
+                
+        return HttpResponse("Nenhum orçamento selecionado.", status=400)
