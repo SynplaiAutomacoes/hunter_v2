@@ -26,7 +26,7 @@
             <table class="table table-zebra w-full">
                 <thead>
                     <tr>
-                        <th>Tipo</th>
+                        <th class="min-w-[200px]">Tipo</th>
                         <th>Nº da Nota</th>
                         <th>Referência</th>
                         <th>OS</th>
@@ -40,7 +40,7 @@
                 <tbody>
                     {% for row in issued_note_rows %}
                         <tr>
-                            <td>
+                            <td class="w-32">
                                 <span class="badge {{ row.note_type_badge_class }}">{{ row.note_type_label }}</span>
                             </td>
                             <td class="font-semibold">{{ row.number }}</td>

@@ -40,7 +40,7 @@ def _format_decimal_multiplier(value: Decimal) -> str:
     absolute_value = abs(quantized_value)
     integer_part, decimal_part = f"{absolute_value:.2f}".split(".")
     grouped_integer = f"{int(integer_part):,}".replace(",", ".")
-    return f"{sign}{grouped_integer},{decimal_part}x"
+    return f"{sign}{grouped_integer},{decimal_part} vezes"
 
 
 def build_workshop_logo_data_uri(*, workshop) -> str:
