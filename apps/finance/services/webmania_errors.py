@@ -28,9 +28,9 @@ def sanitize_webmania_api_message(message: object, *, scope: str | None = None) 
         if scope == "tax_class":
             return "Configure a empresa na Webmania antes de continuar com classes de imposto."
         if scope == "nfe":
-            return "Configure a empresa na Webmania antes de emitir NF-e."
+            return "Configure a empresa na Webmania antes de emitir Nota Fiscal."
         if scope == "nfse":
-            return "Configure a empresa na Webmania antes de emitir NFS-e."
+            return "Configure a empresa na Webmania antes de emitir Nota Fiscal de Serviço."
         return "Configure a empresa na Webmania antes de prosseguir."
 
     return normalized_message

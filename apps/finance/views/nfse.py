@@ -46,7 +46,7 @@ class NfseCancelForm(forms.Form):
     def clean_reason_code(self) -> int:
         value = str(self.cleaned_data.get("reason_code") or "").strip()
         if value not in {"1", "2", "4"}:
-            raise forms.ValidationError("Selecione um motivo para cancelar a NFS-e.")
+            raise forms.ValidationError("Selecione um motivo para cancelar a Nota Fiscal de Serviço.")
         return int(value)
 
 
@@ -124,8 +124,8 @@ class NfseRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView)
                     _build_field("Ordem de serviço", self.object.workorder),
                     _build_field("Cliente", self.object.customer_name),
                     _build_field("Classe de imposto", self.object.tax_class),
-                    _build_field("Número da NFS-e", self.object.reserved_rps_number),
-                    _build_field("Série da NFS-e", self.object.reserved_rps_series),
+                    _build_field("Número da Nota Fiscal de Serviço", self.object.reserved_rps_number),
+                    _build_field("Série da Nota Fiscal de Serviço", self.object.reserved_rps_series),
                     _build_field("Discriminação", self.object.service_description),
                     _build_field("Criado em", self.object.criado_em.strftime("%d/%m/%Y %H:%M") if self.object.criado_em else "-"),
                     _build_field("Atualizado em", self.object.atualizado_em.strftime("%d/%m/%Y %H:%M") if self.object.atualizado_em else "-"),
@@ -145,17 +145,17 @@ class NfseRequestCancelView(LoginRequiredMixin, WorkshopScopedMixin, View):
         nfse_request = get_object_or_404(NfseRequest, pk=kwargs.get("pk"), workshop=self.workshop)
         latest_item = nfse_request.items.order_by("-id").first()
         if latest_item is None:
-            messages.error(request, "A NFS-e ainda nao possui item sincronizado para cancelamento.")
+            messages.error(request, "A Nota Fiscal de Serviço ainda nao possui item sincronizado para cancelamento.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
 
         status = str(getattr(latest_item, "status", "")).strip().lower()
         if status not in {"aprovado", "agendado", "contingencia"}:
-            messages.error(request, "Somente NFS-e aprovada, agendada ou em contingencia pode ser cancelada.")
+            messages.error(request, "Somente Nota Fiscal de Serviço aprovada, agendada ou em contingencia pode ser cancelada.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
 
         form = NfseCancelForm(request.POST)
         if not form.is_valid():
-            messages.error(request, "Selecione um motivo para cancelar a NFS-e.")
+            messages.error(request, "Selecione um motivo para cancelar a Nota Fiscal de Serviço.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
 
         reason_code = int(form.cleaned_data["reason_code"])
@@ -180,7 +180,7 @@ class NfseRequestCancelView(LoginRequiredMixin, WorkshopScopedMixin, View):
         latest_item.save(update_fields=["status", "reason", "raw_payload", "xml_url"])
 
         nfse_request.set_status(NfseRequestStatus.CANCELED)
-        messages.success(request, "NFS-e cancelada com sucesso.")
+        messages.success(request, "Nota Fiscal de Serviço cancelada com sucesso.")
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
 
 
@@ -240,7 +240,7 @@ class NfsePreviewPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 request,
                 "finance/partials/preview_error.html",
                 {
-                    "title": "Previa da NFS-e indisponivel",
+                    "title": "Previa da Nota Fiscal de Serviço indisponivel",
                     "message": str(exc),
                 },
                 status=502,
@@ -268,7 +268,7 @@ class NfseRequestCreateView(SharedEmissionRequestCreateBaseView):
     step3_form_class = NfseRequestStep3Form
     preview_initial_fields = ("pricing_slider", "tax_class", "service_description", "additional_information")
     tax_class_kind = "nfse"
-    tax_class_warning_message = "Nao foi possivel carregar classes de imposto de NFS-e: {error}"
+    tax_class_warning_message = "Nao foi possivel carregar classes de imposto de Nota Fiscal de Serviço: {error}"
     success_redirect_name = "finance:nfse_list"
     status_by_step = {
         1: NfseRequestStatus.CHECKING_CLIENT,
@@ -295,7 +295,7 @@ class NfseRequestCreateView(SharedEmissionRequestCreateBaseView):
             if not self.object.update_status_based_on_request(response_payload.get("status")):
                 self.object.set_status(NfseRequestStatus.PROCESSING)
 
-            messages.success(self.request, "Solicitação de NFS-e enviada com sucesso.")
+            messages.success(self.request, "Solicitação de Nota Fiscal de Serviço enviada com sucesso.")
             logger.info(
                 "nfse_finalize_succeeded nfse_request_id=%s workshop_id=%s user_id=%s status=%s",
                 getattr(self.object, "pk", None),
@@ -312,9 +312,9 @@ class NfseRequestCreateView(SharedEmissionRequestCreateBaseView):
     def _build_preview_response(self, *, form) -> HttpResponse:
         return render_emission_preview_modal(
             request=self.request,
-            title="Previa da NFS-e",
-            description="Confira o documento antes de transmitir a NFS-e para a Webmania.",
-            previews=[{"label": "NFS-e", "embed_url": reverse("finance:nfse_preview_pdf", kwargs={"pk": self.object.pk})}],
+            title="Previa da Nota Fiscal de Serviço",
+            description="Confira o documento antes de transmitir a Nota Fiscal de Serviço para a Webmania.",
+            previews=[{"label": "Nota Fiscal de Serviço", "embed_url": reverse("finance:nfse_preview_pdf", kwargs={"pk": self.object.pk})}],
             transmit_url=self._step_url(step=self.get_current_step()),
             hidden_fields=build_preview_hidden_fields(cleaned_data=form.cleaned_data),
         )

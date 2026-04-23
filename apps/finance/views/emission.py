@@ -88,11 +88,11 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
     ]
 
     dynamic_steps_by_mode = {
-        "nfe": [{"key": "nfe_config", "title": "NF-e", "form_class": EmissionNfeConfigForm}],
-        "nfse": [{"key": "nfse_config", "title": "NFS-e", "form_class": EmissionNfseConfigForm}],
+        "nfe": [{"key": "nfe_config", "title": "Nota Fiscal", "form_class": EmissionNfeConfigForm}],
+        "nfse": [{"key": "nfse_config", "title": "Nota Fiscal de Serviço", "form_class": EmissionNfseConfigForm}],
         "both": [
-            {"key": "nfe_config", "title": "NF-e", "form_class": EmissionNfeConfigForm},
-            {"key": "nfse_config", "title": "NFS-e", "form_class": EmissionNfseConfigForm},
+            {"key": "nfe_config", "title": "Nota Fiscal", "form_class": EmissionNfeConfigForm},
+            {"key": "nfse_config", "title": "Nota Fiscal de Serviço", "form_class": EmissionNfseConfigForm},
         ],
     }
 
@@ -179,9 +179,9 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         nfse_request_id = state.get("nfse_request_id")
 
         if nfe_request_id:
-            actions.append({"label": "Abrir NF-e criada", "url": reverse("finance:nfe_update", kwargs={"pk": int(nfe_request_id)})})
+            actions.append({"label": "Abrir Nota Fiscal criada", "url": reverse("finance:nfe_update", kwargs={"pk": int(nfe_request_id)})})
         if nfse_request_id:
-            actions.append({"label": "Abrir NFS-e criada", "url": reverse("finance:nfse_update", kwargs={"pk": int(nfse_request_id)})})
+            actions.append({"label": "Abrir Nota Fiscal de Serviço criada", "url": reverse("finance:nfse_update", kwargs={"pk": int(nfse_request_id)})})
 
         return actions
 
@@ -269,9 +269,9 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         if has_products and has_services:
             return {"nfe", "nfse", "both"}, ""
         if has_products:
-            return {"nfe"}, "Nao ha saldo de servicos para emitir NFS-e com a configuracao atual."
+            return {"nfe"}, "Nao ha saldo de servicos para emitir Nota Fiscal de Serviço com a configuracao atual."
         if has_services:
-            return {"nfse"}, "Nao ha saldo de produtos para emitir NF-e com a configuracao atual."
+            return {"nfse"}, "Nao ha saldo de produtos para emitir Nota Fiscal com a configuracao atual."
         return set(), "Nao ha saldo de produtos ou servicos para emitir nota com a configuracao atual."
 
     def get_initial(self) -> dict[str, Any]:
@@ -392,7 +392,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
 
     def _retry_notice(self, *, state: dict[str, Any], step_key: str) -> str:
         if step_key == "nfse_config" and state.get("note_mode") == "both" and state.get("nfe_done") and not state.get("nfse_done"):
-            return "A NF-e ja foi emitida com sucesso. Este reenvio tentara apenas a NFS-e pendente."
+            return "A Nota Fiscal ja foi emitida com sucesso. Este reenvio tentara apenas a Nota Fiscal de Serviço pendente."
         return ""
 
     def get_context_data(self, **kwargs):
@@ -529,8 +529,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         if not self._acquire_submission_lock(state=state, note_key="nfe"):
             existing_request_id = state.get("nfe_request_id")
             if existing_request_id:
-                return False, "Ja existe um envio de NF-e em andamento para esta emissao. Aguarde a conclusao antes de tentar novamente."
-            return False, "A emissao da NF-e ja esta sendo processada. Aguarde alguns instantes e tente novamente."
+                return False, "Ja existe um envio de Nota Fiscal em andamento para esta emissao. Aguarde a conclusao antes de tentar novamente."
+            return False, "A emissao da Nota Fiscal ja esta sendo processada. Aguarde alguns instantes e tente novamente."
 
         nfe_request = self._get_or_create_nfe_request(state=state, workorder=workorder)
         try:
@@ -557,8 +557,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         if not self._acquire_submission_lock(state=state, note_key="nfse"):
             existing_request_id = state.get("nfse_request_id")
             if existing_request_id:
-                return False, "Ja existe um envio de NFS-e em andamento para esta emissao. Aguarde a conclusao antes de tentar novamente."
-            return False, "A emissao da NFS-e ja esta sendo processada. Aguarde alguns instantes e tente novamente."
+                return False, "Ja existe um envio de Nota Fiscal de Serviço em andamento para esta emissao. Aguarde a conclusao antes de tentar novamente."
+            return False, "A emissao da Nota Fiscal de Serviço ja esta sendo processada. Aguarde alguns instantes e tente novamente."
 
         nfse_request = self._get_or_create_nfse_request(state=state, workorder=workorder)
         try:
@@ -583,7 +583,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
 
     @staticmethod
     def _note_label(*, note_key: str) -> str:
-        return "NF-e" if note_key == "nfe" else "NFS-e"
+        return "Nota Fiscal" if note_key == "nfe" else "Nota Fiscal de Serviço"
 
     def _add_note_success_message(self, *, note_key: str) -> None:
         messages.success(self.request, f"{self._note_label(note_key=note_key)} enviada com sucesso.")
@@ -627,7 +627,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
 
             previews.append(
                 {
-                    "label": "DANFE" if branch == "nfe" else "NFS-e",
+                    "label": "DANFE" if branch == "nfe" else "Nota Fiscal de Serviço",
                     "embed_url": str(preview_payload.get("embed_url") or ""),
                 }
             )
