@@ -18,7 +18,7 @@ from apps.budget.pricing import resolve_discount_fields
 from apps.checklist.models import Checklist
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.utils import alert_confirm_layout
-from apps.core.widgets import CalendarDateInput, CheckboxInput, MoneyInput, NumberInput, PercentageInput, SearchableSelectInput, SelectInput, TextInput, TextareaInput
+from apps.core.widgets import CalendarDateInput, MoneyInput, NumberInput, PercentageInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.customer.models import Customer, Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
 
@@ -273,10 +273,10 @@ class BudgetStep1Form(forms.ModelForm):
         fields = ["workshop", "cost_estimator", "entry_date", "budget_type", "customer", "vehicle", "current_km", "fuel_level"]
         widgets = {
             "entry_date": CalendarDateInput(),
-            "budget_type": SelectInput(),
+            "budget_type": SearchableSelectInput(),
             "customer": SearchableSelectInput(attrs={"x-model": "customerId", "@change": "customerId = $el.value; vehicleId = '';"}),
             "current_km": NumberInput(),
-            "fuel_level": SelectInput(),
+            "fuel_level": SearchableSelectInput(),
         }
 
     def __init__(self, *args, **kwargs):
@@ -727,7 +727,7 @@ class BudgetStep2Form(forms.ModelForm):
             # Definir o tipo de campo
             if q.response_type == InvestigativeQuestion.ResponseType.BOOLEAN:
                 choices = [("", "Selecione..."), ("Sim", "Sim"), ("Não", "Não")]
-                self.fields[field_name] = forms.ChoiceField(label=q.text, choices=choices, required=False, initial=initial_value, widget=SelectInput(choices=choices))
+                self.fields[field_name] = forms.ChoiceField(label=q.text, choices=choices, required=False, initial=initial_value, widget=SearchableSelectInput(choices=choices))
             elif q.response_type == InvestigativeQuestion.ResponseType.SCALE:
                 display_id = f"display_{field_name}"
                 self.fields[field_name] = forms.IntegerField(
@@ -742,7 +742,7 @@ class BudgetStep2Form(forms.ModelForm):
             elif q.response_type == InvestigativeQuestion.ResponseType.MULTIPLE_CHOICE:
                 choices = [(opt, opt) for opt in q.options]
                 choices1 = [("", "Selecione...")] + choices
-                self.fields[field_name] = forms.ChoiceField(label=q.text, choices=choices1, required=False, initial=initial_value, widget=SelectInput(choices=choices1))
+                self.fields[field_name] = forms.ChoiceField(label=q.text, choices=choices1, required=False, initial=initial_value, widget=SearchableSelectInput(choices=choices1))
             else:  # FREE_TEXT
                 self.fields[field_name] = forms.CharField(label=q.text, required=False, initial=initial_value, widget=TextInput())
 
@@ -1769,7 +1769,7 @@ class BudgetStep4Form(forms.ModelForm):
                                             </th>
                                             <th class="w-[16%] text-left">DESCRIÇÃO</th>
                                             <th class="w-[16%] text-left">APLICAÇÃO</th>
-                                            <th class="w-[10%] text-center whitespace-normal break-words leading-tight">Fornecido pelo cliente?</th>
+                                            <th class="w-[10%] text-center whitespace-normal break-words leading-tight">FORNECIDO PELO CLIENTE</th>
                                             <th class="w-[8%] text-center">QTD.</th>
                                             <th class="w-[10%] text-right">CUSTO</th>
                                             <th class="w-[12%] text-right">VALOR VENDA</th>
@@ -2966,10 +2966,10 @@ class BudgetStep6Form(forms.ModelForm):
                             <table class="table table-zebra table-fixed w-full">
                               <thead class="bg-primary text-primary-content">
                                 <tr>
-                                  <th class="w-[20%]">NOME</th>
+                                  <th class="w-[18%]">NOME</th>
                                   <th class="w-[18%]">APLICAÇÃO</th>
-                                  <th class="w-[14%] text-center whitespace-normal break-words leading-tight" title="Fornecido pelo cliente?">Fornecido pelo cliente?</th>
-                                  <th class="w-[8%] text-center">QTD.</th>
+                                  <th class="w-[18%] text-center whitespace-normal break-words leading-tight">FORNECIDO PELO CLIENTE</th>
+                                  <th class="w-[6%] text-center">QTD.</th>
                                   <th class="w-[10%]">CUSTO</th>
                                   <th class="w-[12%]">VALOR</th>
                                   <th class="w-[8%]">FRETE</th>

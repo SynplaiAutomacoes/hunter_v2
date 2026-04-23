@@ -1,7 +1,7 @@
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from crispy_forms.layout import Div, Field, HTML
-from apps.core.widgets import CEPInput, TextInput, SelectInput
+from apps.core.widgets import CEPInput, TextInput, SearchableSelectInput
 from django.db import transaction
 from apps.budget.models import BudgetStatus
 
@@ -18,14 +18,14 @@ class AddressFormMixin:
             "complemento": TextInput(),
             "bairro": TextInput(),
             "cidade": TextInput(),
-            "estado": SelectInput(),
+            "estado": SearchableSelectInput(),
         }
 
         for field_name, widget in address_widgets.items():
             if field_name in self.fields:
                 self.fields[field_name].widget = widget
                 if field_name == "estado":
-                    self.fields[field_name].widget = SelectInput(
+                    self.fields[field_name].widget = SearchableSelectInput(
                         choices=self.fields[field_name].choices,
                         attrs={"class": "form-control"},
                     )

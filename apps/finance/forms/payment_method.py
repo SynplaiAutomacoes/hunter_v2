@@ -3,7 +3,7 @@ from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 from django import forms
 from django.urls import reverse
 
-from apps.core.widgets import CheckboxInput, MoneyInput, NumberInput, PercentageInput, SelectInput, TextInput
+from apps.core.widgets import CheckboxInput, MoneyInput, NumberInput, PercentageInput, SearchableSelectInput, TextInput
 from apps.finance.models.payment_method import PaymentMethod
 
 
@@ -20,7 +20,7 @@ class PaymentMethodForm(forms.ModelForm):
         fields = ["description", "payment_type", "installments_count", "tax_percentage", "tax_value", "is_active"]
         widgets = {
             "description": TextInput(attrs={"placeholder": "Ex: Cartão de Crédito, Pix..."}),
-            "payment_type": SelectInput(),
+            "payment_type": SearchableSelectInput(),
             "installments_count": NumberInput(),
             "tax_value": MoneyInput(),
             "is_active": CheckboxInput(),

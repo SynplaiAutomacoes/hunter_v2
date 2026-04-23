@@ -6,7 +6,7 @@ from apps.budget.models import BudgetItem
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
-from apps.core.widgets import CheckboxInput, DurationInput, MoneyInput, NumberInput, SelectInput, TextInput
+from apps.core.widgets import CheckboxInput, DurationInput, MoneyInput, NumberInput, TextInput, SearchableSelectInput
 
 from .shared import _budget_item_type
 
@@ -165,8 +165,8 @@ class QuickProductForm(forms.ModelForm):
         widgets = {
             "code": TextInput(attrs={"placeholder": "Ex: P001"}),
             "name": TextInput(attrs={"placeholder": "Ex: Filtro de Óleo"}),
-            "unit": SelectInput(),
-            "group": SelectInput(),
+            "unit": SearchableSelectInput(),
+            "group": SearchableSelectInput(),
             "cost_price": MoneyInput(),
             "selling_price": MoneyInput(),
             "ncm": TextInput(attrs={"placeholder": "Ex: 87089990"}),

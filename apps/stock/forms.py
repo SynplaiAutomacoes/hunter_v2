@@ -30,7 +30,8 @@ from apps.catalog.models.products import Product
 from apps.catalog.price_tracking import build_product_price_warning, record_product_last_purchase_price, record_product_last_used_price
 from apps.core.forms import address_layout, AddressFormMixin
 from apps.core.utils import alert_confirm_layout
-from apps.core.widgets import TextInput, SelectInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput, PhoneInput, EmailInput, TextareaInput
+from apps.core.widgets import TextInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput, PhoneInput, EmailInput, TextareaInput, \
+    SearchableSelectInput
 from apps.finance.models.payment_method import PaymentMethod
 
 from apps.stock.financial_entries import ADDITIONAL_CHARGE_ENTRY_TYPE, PAYMENT_ENTRY_TYPE, calculate_import_totals, get_entry_amount, get_entry_reason, normalize_entry_type
@@ -90,7 +91,7 @@ class ImportStep1Form(forms.ModelForm):
     class Meta:
         model = StockImport
         fields = ["method"]
-        widgets = {"method": SelectInput(choices=StockImport.ImportMethods.choices, attrs={"x-model": "method"})}
+        widgets = {"method": SearchableSelectInput(choices=StockImport.ImportMethods.choices, attrs={"x-model": "method"})}
 
     def __init__(self, *args, **kwargs):
         self.workshop = kwargs.pop("workshop", None)
@@ -406,7 +407,7 @@ class ImportStepItemsForm(forms.ModelForm):
 
 
 class ImportStepPaymentForm(forms.ModelForm):
-    payment_method = forms.ModelChoiceField(queryset=PaymentMethod.objects.none(), label="Forma de Pagamento", widget=SelectInput, required=False, empty_label="Selecione uma forma")
+    payment_method = forms.ModelChoiceField(queryset=PaymentMethod.objects.none(), label="Forma de Pagamento", widget=SearchableSelectInput, required=False, empty_label="Selecione uma forma")
     installments_count = forms.IntegerField(min_value=1, initial=1, label="Número de Parcelas", widget=forms.HiddenInput, required=False)
     first_amount = MoneyField(max_digits=14, decimal_places=2, label="Valor Pago", widget=MoneyInput, required=False)
     payment_date = forms.DateField(label="Data de Vencimento", widget=CalendarDateInput, required=False)
@@ -1046,7 +1047,7 @@ class ImportStepSupplierManualForm(forms.ModelForm):
         if current_supplier:
             self.initial["supplier_select"] = str(current_supplier.id)
 
-        self.fields["supplier_select"].widget = SelectInput(choices=choices, attrs={"hx-get": reverse("stock:supplier_details"), "hx-target": "#supplier-info-container", "hx-trigger": "change, load", "class": "w-full", "x-model": "supplierId", "@change": "supplierId = $el.value"})
+        self.fields["supplier_select"].widget = SearchableSelectInput(choices=choices, attrs={"hx-get": reverse("stock:supplier_details"), "hx-target": "#supplier-info-container", "hx-trigger": "change, load", "class": "w-full", "x-model": "supplierId", "@change": "supplierId = $el.value"})
 
         initial_alpine = {"supName": self.instance.supplier_name or "", "supCnpj": self.instance.supplier_cnpj or "", "supplierId": str(current_supplier.id) if current_supplier else ""}
 
@@ -1796,7 +1797,7 @@ class TransferStepOperationForm(forms.ModelForm):
         model = StockTransfer
         fields = ["operation_type"]
         widgets = {
-            "operation_type": SelectInput(),
+            "operation_type": SearchableSelectInput(),
         }
 
     def __init__(self, *args, **kwargs):
@@ -1996,8 +1997,8 @@ class TransferStepReasonForm(forms.ModelForm):
 
 
 class TransferStepWorkshopsForm(forms.ModelForm):
-    source_workshop = forms.ModelChoiceField(queryset=Workshop.objects.none(), label="Oficina de Origem", widget=SelectInput())
-    destination_workshop = forms.ModelChoiceField(queryset=Workshop.objects.none(), label="Oficina de Destino", widget=SelectInput())
+    source_workshop = forms.ModelChoiceField(queryset=Workshop.objects.none(), label="Oficina de Origem", widget=SearchableSelectInput())
+    destination_workshop = forms.ModelChoiceField(queryset=Workshop.objects.none(), label="Oficina de Destino", widget=SearchableSelectInput())
 
     class Meta:
         model = StockTransfer
@@ -2540,14 +2541,14 @@ class QuickProductForm(forms.ModelForm):
         widgets = {
             "code": TextInput(),
             "name": TextInput(),
-            "unit": SelectInput(),
-            "group": SelectInput(),
+            "unit": SearchableSelectInput(),
+            "group": SearchableSelectInput(),
             "cost_price": MoneyInput(),
             "selling_price": MoneyInput(),
             "profit_margin": PercentageInput(),
             "ncm": TextInput(attrs={"placeholder": "Ex: 87089990"}),
-            "origin_cst": SelectInput(),
-            "purpose": SelectInput(),
+            "origin_cst": SearchableSelectInput(),
+            "purpose": SearchableSelectInput(),
         }
 
     def __init__(self, *args, workshop=None, **kwargs):
