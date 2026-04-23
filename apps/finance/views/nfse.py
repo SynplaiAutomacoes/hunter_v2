@@ -266,7 +266,7 @@ class NfseRequestCreateView(SharedEmissionRequestCreateBaseView):
     partial_template_name = "finance/partials/nfse_step_content.html"
     preview_template_name = "finance/partials/nfse_step3_preview.html"
     step3_form_class = NfseRequestStep3Form
-    preview_initial_fields = ("pricing_slider", "tax_class", "service_description")
+    preview_initial_fields = ("pricing_slider", "tax_class", "service_description", "additional_information")
     tax_class_kind = "nfse"
     tax_class_warning_message = "Nao foi possivel carregar classes de imposto de NFS-e: {error}"
     success_redirect_name = "finance:nfse_list"

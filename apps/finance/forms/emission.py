@@ -744,6 +744,7 @@ class EmissionStep5Form(forms.Form):
 
 class EmissionNfeConfigForm(forms.Form):
     tax_class = forms.ChoiceField(label="Classe de imposto", choices=[])
+    additional_information = forms.CharField(label="Observacao da nota", required=False, widget=TextareaInput(rows=4))
 
     def __init__(self, *args, **kwargs):
         workorder = kwargs.pop("workorder", None)
@@ -758,6 +759,9 @@ class EmissionNfeConfigForm(forms.Form):
         tax_class_field.widget = SearchableSelectInput(choices=dropdown_choices)
         tax_class_field.help_text = "Classe fiscal que sera aplicada aos produtos emitidos na NF-e."
         self._valid_tax_class_refs = {value for value, _ in tax_class_choices if value}
+
+        additional_information_field = self.fields["additional_information"]
+        additional_information_field.help_text = "Enviada como informacao complementar junto com a NF-e."
 
         current_tax_class = str((self.data.get("tax_class") if self.is_bound else self.initial.get("tax_class", "")) or "").strip()
         if self._valid_tax_class_refs and current_tax_class not in self._valid_tax_class_refs and not self.is_bound:
@@ -775,6 +779,7 @@ class EmissionNfeConfigForm(forms.Form):
                 HTML("<h2 class='text-2xl font-bold'>NF-e</h2>"),
                 HTML("<p class='text-base-content/70 mb-6'>Confira os produtos que serao enviados na NF-e e selecione a classe de imposto.</p>"),
                 Field("tax_class"),
+                Field("additional_information"),
                 HTML(warning_html),
                 HTML(preview_html),
                 css_class="space-y-4",
@@ -791,6 +796,7 @@ class EmissionNfeConfigForm(forms.Form):
 class EmissionNfseConfigForm(forms.Form):
     tax_class = forms.ChoiceField(label="Classe de imposto", choices=[])
     service_description = forms.CharField(label="Descricao do servico", required=False, widget=TextareaInput(rows=4))
+    additional_information = forms.CharField(label="Observacao da nota", required=False, widget=TextareaInput(rows=4))
 
     def __init__(self, *args, **kwargs):
         workorder = kwargs.pop("workorder", None)
@@ -816,6 +822,9 @@ class EmissionNfseConfigForm(forms.Form):
         if not self.is_bound and not str(self.initial.get("service_description") or "").strip():
             self.initial["service_description"] = default_service_description
 
+        additional_information_field = self.fields["additional_information"]
+        additional_information_field.help_text = "Enviada como informacao complementar quando o provedor da NFS-e suportar esse campo."
+
         warning_html = ""
         preview_html = ""
         if workorder is not None:
@@ -832,6 +841,7 @@ class EmissionNfseConfigForm(forms.Form):
                     Field("service_description", wrapper_class="col-span-12 lg:col-span-8"),
                     css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
                 ),
+                Field("additional_information"),
                 HTML(warning_html),
                 HTML(preview_html),
                 css_class="space-y-4",

@@ -122,8 +122,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             "workorder_id": None,
             "pricing_slider": None,
             "note_mode": "",
-            "nfe_config": {"tax_class": ""},
-            "nfse_config": {"tax_class": "", "service_description": ""},
+            "nfe_config": {"tax_class": "", "additional_information": ""},
+            "nfse_config": {"tax_class": "", "service_description": "", "additional_information": ""},
             "nfe_request_id": None,
             "nfse_request_id": None,
             "nfe_done": False,
@@ -137,9 +137,9 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             state.update(stored_state)
 
         if not isinstance(state.get("nfe_config"), dict):
-            state["nfe_config"] = {"tax_class": ""}
+            state["nfe_config"] = {"tax_class": "", "additional_information": ""}
         if not isinstance(state.get("nfse_config"), dict):
-            state["nfse_config"] = {"tax_class": "", "service_description": ""}
+            state["nfse_config"] = {"tax_class": "", "service_description": "", "additional_information": ""}
 
         state["note_mode"] = _normalize_note_mode(state.get("note_mode"))
         state["nfe_done"] = bool(state.get("nfe_done"))
@@ -457,6 +457,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         nfe_request.current_step = 3
         nfe_request.status = NfeRequestStatus.CHECKING_PRODUCTS
         nfe_request.tax_class = str((state.get("nfe_config") or {}).get("tax_class") or "")
+        nfe_request.additional_information = str((state.get("nfe_config") or {}).get("additional_information") or "")
         nfe_request.pricing_slider = self._selected_slider(state=state, workorder=workorder)
         nfe_request.save()
 
@@ -478,6 +479,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         nfse_request.status = NfseRequestStatus.CHECKING_SERVICES
         nfse_request.tax_class = str((state.get("nfse_config") or {}).get("tax_class") or "")
         nfse_request.service_description = str((state.get("nfse_config") or {}).get("service_description") or "")
+        nfse_request.additional_information = str((state.get("nfse_config") or {}).get("additional_information") or "")
         nfse_request.pricing_slider = self._selected_slider(state=state, workorder=workorder)
         nfse_request.save()
 
@@ -643,8 +645,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
                         "workorder_id": workorder.pk,
                         "pricing_slider": None,
                         "note_mode": _normalize_note_mode(self.request.GET.get("tipo")),
-                        "nfe_config": {"tax_class": ""},
-                        "nfse_config": {"tax_class": "", "service_description": ""},
+                        "nfe_config": {"tax_class": "", "additional_information": ""},
+                        "nfse_config": {"tax_class": "", "service_description": "", "additional_information": ""},
                     }
                 )
                 self._clear_submission_progress(state)
@@ -681,9 +683,9 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             if selected_mode != previous_mode:
                 self._clear_submission_progress(state)
                 if selected_mode == "nfe":
-                    state["nfse_config"] = {"tax_class": "", "service_description": ""}
+                    state["nfse_config"] = {"tax_class": "", "service_description": "", "additional_information": ""}
                 elif selected_mode == "nfse":
-                    state["nfe_config"] = {"tax_class": ""}
+                    state["nfe_config"] = {"tax_class": "", "additional_information": ""}
             state["note_mode"] = selected_mode
             next_key = "nfe_config" if selected_mode in {"nfe", "both"} else "nfse_config"
             next_step = self._set_current_step(state=state, step_key=next_key)
@@ -691,7 +693,10 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             return self._redirect_to_step(next_step)
 
         if current_step_key == "nfe_config":
-            state["nfe_config"] = {"tax_class": form.cleaned_data["tax_class"]}
+            state["nfe_config"] = {
+                "tax_class": form.cleaned_data["tax_class"],
+                "additional_information": form.cleaned_data.get("additional_information", ""),
+            }
             self._write_state(state)
             if state.get("note_mode") == "both":
                 next_step = self._set_current_step(state=state, step_key="nfse_config")
@@ -705,6 +710,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             state["nfse_config"] = {
                 "tax_class": form.cleaned_data["tax_class"],
                 "service_description": form.cleaned_data["service_description"],
+                "additional_information": form.cleaned_data.get("additional_information", ""),
             }
             self._write_state(state)
             if self.request.POST.get("intent") == "preview":

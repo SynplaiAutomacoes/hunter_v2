@@ -379,6 +379,7 @@ class NfseRequest(TimeStampedModel):
         help_text="Copia o slider do orcamento na criacao e permanece independente para a emissao.",
     )
     service_description = models.TextField(verbose_name="Discriminação do Serviço", blank=True, default="")
+    additional_information = models.TextField(verbose_name="Informações complementares", blank=True, default="")
     tax_class = models.CharField(verbose_name="Classe de Imposto", max_length=30, default="REF000000")
     reserved_rps_number = models.PositiveIntegerField(verbose_name="RPS reservado", null=True, blank=True)
     reserved_rps_series = models.CharField(verbose_name="Série RPS reservada", max_length=20, blank=True, default="")
@@ -470,6 +471,7 @@ class NfeRequest(TimeStampedModel):
         validators=[MinValueValidator(-100), MaxValueValidator(100)],
         help_text="Copia o slider do orcamento na criacao e permanece independente para a emissao.",
     )
+    additional_information = models.TextField(verbose_name="Informações complementares", blank=True, default="")
     tax_class = models.CharField(verbose_name="Classe de Imposto", max_length=30, default="REF000000")
     reserved_number = models.PositiveIntegerField(verbose_name="Número reservado", null=True, blank=True)
     reserved_series = models.PositiveIntegerField(verbose_name="Série reservada", null=True, blank=True)

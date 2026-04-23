@@ -344,6 +344,18 @@ def _build_payment_payload(*, workorder: WorkOrder, total_value: Decimal) -> dic
     return payload
 
 
+def _apply_additional_information_to_nfe_payload(*, payload: dict[str, Any], nfe_request: NfeRequest) -> None:
+    additional_information = str(getattr(nfe_request, "additional_information", "") or "").strip()
+    if not additional_information:
+        return
+
+    pedido_payload = payload.get("pedido")
+    if not isinstance(pedido_payload, dict):
+        pedido_payload = {}
+        payload["pedido"] = pedido_payload
+    pedido_payload["informacoes_complementares"] = additional_information
+
+
 def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int | None = None) -> tuple[list[dict[str, Any]], Decimal, SliderAllocation]:
     workorder = nfe_request.workorder
     allocation = build_slider_allocation_for_workorder(
@@ -415,6 +427,8 @@ def build_nfe_payload(*, nfe_request: NfeRequest, request: HttpRequest | None = 
         payload["numero"] = int(nfe_request.reserved_number)
     if nfe_request.reserved_series is not None:
         payload["serie"] = int(nfe_request.reserved_series)
+
+    _apply_additional_information_to_nfe_payload(payload=payload, nfe_request=nfe_request)
 
     logger.info(
         "nfe_payload_built nfe_request_id=%s workshop_id=%s workorder_id=%s slider=%s products_target=%s services_target=%s",

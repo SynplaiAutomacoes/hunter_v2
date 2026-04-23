@@ -7,7 +7,7 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
 
-from apps.core.widgets import SearchableSelectInput
+from apps.core.widgets import SearchableSelectInput, TextareaInput
 from apps.finance.forms.emission_ui import (
     build_slider_widget_attrs,
     build_step5_pricing_panel_data,
@@ -38,7 +38,10 @@ class NfeRequestStep2Form(SharedEmissionCustomerReviewForm):
 class NfeRequestStep3Form(forms.ModelForm):
     class Meta:
         model = NfeRequest
-        fields = ["pricing_slider", "tax_class"]
+        fields = ["pricing_slider", "tax_class", "additional_information"]
+        widgets = {
+            "additional_information": TextareaInput(rows=4),
+        }
 
     def __init__(self, *args, **kwargs):
         self.workshop = kwargs.pop("workshop", None)
@@ -74,6 +77,11 @@ class NfeRequestStep3Form(forms.ModelForm):
         tax_class_field.widget = SearchableSelectInput(choices=dropdown_choices)
         tax_class_field.help_text = "Classe de imposto de produto (NF-e)."
         self._valid_tax_class_refs = {value for value, _ in self.tax_class_choices if value}
+
+        additional_information_field = self.fields["additional_information"]
+        additional_information_field.label = "Observacao da nota"
+        additional_information_field.required = False
+        additional_information_field.help_text = "Enviada como informacao complementar junto com a NF-e."
 
         current_tax_class_source = self.data.get("tax_class") if self.is_bound else self.initial.get("tax_class", getattr(self.instance, "tax_class", ""))
         current_tax_class = str(current_tax_class_source or "").strip()
@@ -169,6 +177,7 @@ class NfeRequestStep3Form(forms.ModelForm):
                     Field("tax_class", wrapper_class="col-span-12 lg:col-span-6"),
                     css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
                 ),
+                Field("additional_information"),
                 HTML('<div id="nfe-warning-block">' + warning_html + "</div>"),
                 HTML('<div id="nfe-preview-block">' + preview_html + "</div>"),
                 css_class="space-y-4",

@@ -1200,11 +1200,14 @@ class EmissionRequestNumberReservationTests(TestCase):
     def test_build_nfe_payload_includes_reserved_number_and_series(self) -> None:
         _, _, nfe_request, _ = self._build_requests(suffix=72)
         reserve_nfe_request_number(nfe_request=nfe_request)
+        nfe_request.additional_information = "Observacao complementar da NF-e"
+        nfe_request.save(update_fields=["additional_information"])
 
         payload = build_nfe_payload(nfe_request=nfe_request)
 
         self.assertEqual(payload.get("numero"), 9000)
         self.assertEqual(payload.get("serie"), 1)
+        self.assertEqual(payload.get("pedido", {}).get("informacoes_complementares"), "Observacao complementar da NF-e")
 
     @override_settings(WEBMANIA_AMBIENT="2")
     def test_build_nfe_payload_rounds_unit_price_up_with_two_decimal_places(self) -> None:
@@ -1229,12 +1232,15 @@ class EmissionRequestNumberReservationTests(TestCase):
     def test_build_nfse_payload_includes_reserved_rps_number_and_series(self) -> None:
         _, _, _, nfse_request = self._build_requests(suffix=73)
         reserve_nfse_request_rps_number(nfse_request=nfse_request)
+        nfse_request.additional_information = "Observacao complementar da NFS-e"
+        nfse_request.save(update_fields=["additional_information"])
 
         payload = build_nfse_payload(nfse_request=nfse_request)
         first_rps = payload.get("rps", [{}])[0]
 
         self.assertEqual(first_rps.get("numero"), 8000)
         self.assertEqual(first_rps.get("serie"), "A1")
+        self.assertEqual(first_rps.get("servico", {}).get("informacoes_complementares"), "Observacao complementar da NFS-e")
 
     @override_settings(WEBMANIA_AMBIENT="2")
     def test_sync_nfe_emission_response_backfills_reserved_number_when_api_omits_it(self) -> None:
@@ -2997,6 +3003,7 @@ class UnifiedEmissionWizardTests(TestCase):
                 {
                     "tax_class": "REFNFSE901",
                     "service_description": "Servico executado na OS unificada",
+                    "additional_information": "Observacao complementar da emissao unificada",
                 },
             )
 
@@ -3008,6 +3015,7 @@ class UnifiedEmissionWizardTests(TestCase):
         self.assertEqual(nfse_request.pricing_slider, 25)
         self.assertEqual(nfse_request.tax_class, "REFNFSE901")
         self.assertEqual(nfse_request.service_description, "Servico executado na OS unificada")
+        self.assertEqual(nfse_request.additional_information, "Observacao complementar da emissao unificada")
         self.assertEqual(nfse_request.current_step, 3)
         self.assertEqual(nfse_request.status, NfseRequestStatus.PROCESSING)
         emit_mock.assert_called_once_with(nfse_request=nfse_request, request=ANY)

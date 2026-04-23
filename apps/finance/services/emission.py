@@ -345,6 +345,10 @@ def _default_service_description(nfse_request: NfseRequest) -> str:
     return build_default_service_description_for_workorder(workorder=nfse_request.workorder)
 
 
+def _additional_information(nfse_request: NfseRequest) -> str:
+    return str(getattr(nfse_request, "additional_information", "") or "").strip()
+
+
 def _service_total_value(nfse_request: NfseRequest, *, slider_override: int | None = None) -> str:
     allocation = build_slider_allocation_for_workorder(
         workorder=nfse_request.workorder,
@@ -371,6 +375,9 @@ def build_nfse_payload(*, nfse_request: NfseRequest, request: HttpRequest | None
         },
         "tomador": _build_taker_payload(nfse_request),
     }
+    additional_information = _additional_information(nfse_request)
+    if additional_information:
+        first_rps["servico"]["informacoes_complementares"] = additional_information
     if nfse_request.reserved_rps_number is not None:
         first_rps["numero"] = int(nfse_request.reserved_rps_number)
     if str(nfse_request.reserved_rps_series or "").strip():

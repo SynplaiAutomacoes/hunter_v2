@@ -74,10 +74,11 @@ class NfseRequestStep2Form(SharedEmissionCustomerReviewForm):
 class NfseRequestStep3Form(forms.ModelForm):
     class Meta:
         model = NfseRequest
-        fields = ["pricing_slider", "tax_class", "service_description"]
+        fields = ["pricing_slider", "tax_class", "service_description", "additional_information"]
         widgets = {
             "tax_class": TextInput(),
             "service_description": TextareaInput(rows=4),
+            "additional_information": TextareaInput(rows=4),
         }
 
     def __init__(self, *args, **kwargs):
@@ -145,6 +146,11 @@ class NfseRequestStep3Form(forms.ModelForm):
         if not self.instance.service_description and "service_description" not in self.initial:
             self.initial["service_description"] = default_description
 
+        additional_information_field = self.fields["additional_information"]
+        additional_information_field.label = "Observacao da nota"
+        additional_information_field.required = False
+        additional_information_field.help_text = "Enviada como informacao complementar quando o provedor da NFS-e suportar esse campo."
+
         rows_html = "".join(
             f"""
             <tr class="border-b border-base-300/60">
@@ -206,6 +212,7 @@ class NfseRequestStep3Form(forms.ModelForm):
                     Field("service_description", wrapper_class="col-span-12 lg:col-span-8"),
                     css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
                 ),
+                Field("additional_information"),
                 HTML('<div id="nfse-warning-block">' + warning_html + "</div>"),
                 HTML('<div id="nfse-preview-block">' + preview_html + "</div>"),
                 css_class="space-y-4",
