@@ -708,12 +708,41 @@ class EmissionStep5Form(forms.Form):
 
     def __init__(self, *args, **kwargs):
         note_mode_choices = kwargs.pop("note_mode_choices", EMISSION_NOTE_MODE_CHOICES)
+        allowed_note_modes = set(kwargs.pop("allowed_note_modes", {"nfe", "nfse", "both"}))
+        availability_message = str(kwargs.pop("availability_message", "") or "").strip()
         super().__init__(*args, **kwargs)
 
         note_mode_field = self.fields["note_mode"]
         note_mode_field.choices = list(note_mode_choices)
         note_mode_field.widget = SearchableSelectInput(choices=list(note_mode_choices))
         note_mode_field.help_text = "Escolha se a emissão sera somente de produtos, somente de servicos, ou das duas notas em sequencia."
+
+        selected_note_mode = str((self.data.get("note_mode") if self.is_bound else self.initial.get("note_mode", "")) or "").strip()
+        if selected_note_mode not in allowed_note_modes:
+            if "both" in allowed_note_modes:
+                selected_note_mode = "both"
+            elif "nfe" in allowed_note_modes:
+                selected_note_mode = "nfe"
+            elif "nfse" in allowed_note_modes:
+                selected_note_mode = "nfse"
+            else:
+                selected_note_mode = ""
+            if not self.is_bound:
+                self.initial["note_mode"] = selected_note_mode
+
+        option_cards_html = "".join(
+            self._build_note_mode_option_html(
+                value=value,
+                label=label,
+                checked=value == selected_note_mode,
+                disabled=value not in allowed_note_modes,
+            )
+            for value, label in note_mode_choices
+        )
+
+        availability_notice_html = ""
+        if availability_message:
+            availability_notice_html = f"<div class='alert alert-info'>{availability_message}</div>"
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -733,13 +762,35 @@ class EmissionStep5Form(forms.Form):
                     </div>
                     """
                 ),
-                Field("note_mode"),
+                HTML(availability_notice_html),
+                HTML(f"<div class='grid grid-cols-1 lg:grid-cols-3 gap-4'>{option_cards_html}</div>"),
                 css_class="space-y-4",
             )
         )
 
+        self._allowed_note_modes = allowed_note_modes
+
+    @staticmethod
+    def _build_note_mode_option_html(*, value: str, label: str, checked: bool, disabled: bool) -> str:
+        disabled_class = "opacity-50 cursor-not-allowed" if disabled else "cursor-pointer hover:border-primary/50"
+        checked_class = "border-primary ring-2 ring-primary/20" if checked else "border-base-300"
+        disabled_attr = "disabled" if disabled else ""
+        checked_attr = "checked" if checked else ""
+        return f"""
+            <label class="flex items-start gap-3 rounded-2xl border bg-base-100 p-5 transition {checked_class} {disabled_class}">
+                <input type="radio" name="note_mode" value="{value}" class="radio radio-primary mt-1" {checked_attr} {disabled_attr}>
+                <div>
+                    <div class="font-semibold text-base-content">{label}</div>
+                    <div class="text-sm text-base-content/70 mt-1">{"Indisponível com a configuração atual." if disabled else "Disponível para emissão nesta configuração."}</div>
+                </div>
+            </label>
+        """
+
     def clean_note_mode(self) -> str:
-        return _resolve_note_mode(self.cleaned_data.get("note_mode"))
+        note_mode = _resolve_note_mode(self.cleaned_data.get("note_mode"))
+        if note_mode not in self._allowed_note_modes:
+            raise forms.ValidationError("Selecione um tipo de nota fiscal disponível para a configuração atual.")
+        return note_mode
 
 
 class EmissionNfeConfigForm(forms.Form):

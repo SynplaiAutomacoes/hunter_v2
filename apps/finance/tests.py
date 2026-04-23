@@ -2830,6 +2830,27 @@ class UnifiedEmissionWizardTests(TestCase):
         workorder.sync_from_budget()
         return workorder
 
+    def _build_product_only_workorder(self, *, suffix: int) -> WorkOrder:
+        budget = Budget(workshop=self.workshop, entry_date=timezone.now().date())
+        budget.save()
+
+        product_group = CatalogGroup.objects.create(workshop=self.workshop, name=f"Grupo Produto Only {suffix}")
+        product = Product.objects.create(
+            workshop=self.workshop,
+            code=f"P-ONLY-{suffix}",
+            unit=Product.Unit.UND,
+            name=f"Produto Only {suffix}",
+            ncm="87089990",
+            group=product_group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+        )
+        BudgetItem.objects.create(workshop=self.workshop, budget=budget, product=product, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        workorder.sync_from_budget()
+        return workorder
+
     def _build_workorder_with_kit(self, *, suffix: int, kit_service_selling_price: str | None = None) -> tuple[WorkOrder, WorkOrderItem, Product, Service]:
         budget = Budget(workshop=self.workshop, entry_date=timezone.now().date())
         budget.save()
@@ -3048,6 +3069,42 @@ class UnifiedEmissionWizardTests(TestCase):
         self.assertContains(response, "Transmitir")
         self.assertContains(response, reverse("finance:nfe_preview_pdf", kwargs={"pk": nfe_request.pk}))
         emit_mock.assert_not_called()
+
+    def test_unified_wizard_shows_note_mode_with_only_nfse_enabled_when_products_total_is_zero(self) -> None:
+        self.workorder = self._build_service_only_workorder(suffix=120)
+
+        self._advance_to_step_4(tipo="nfse")
+
+        response = self.client.post(self._wizard_url(step=4), {"pricing_slider": "0"}, follow=True)
+
+        self.assertEqual(response.redirect_chain[-1][0], self._wizard_url(step=5))
+        self.assertContains(response, "Nao ha saldo de produtos para emitir NF-e com a configuracao atual.")
+        self.assertContains(response, 'name="note_mode" value="nfse"', html=False)
+        self.assertContains(response, 'name="note_mode" value="nfse" class="radio radio-primary mt-1" checked', html=False)
+        self.assertContains(response, 'name="note_mode" value="nfe" class="radio radio-primary mt-1"  disabled', html=False)
+        self.assertContains(response, 'name="note_mode" value="both" class="radio radio-primary mt-1"  disabled', html=False)
+
+        session = self.client.session
+        wizard_state = session.get(self._wizard_session_key(), {})
+        self.assertEqual(wizard_state.get("note_mode"), "nfse")
+
+    def test_unified_wizard_shows_note_mode_with_only_nfe_enabled_when_services_total_is_zero(self) -> None:
+        self.workorder = self._build_product_only_workorder(suffix=121)
+
+        self._advance_to_step_4(tipo="nfe")
+
+        response = self.client.post(self._wizard_url(step=4), {"pricing_slider": "0"}, follow=True)
+
+        self.assertEqual(response.redirect_chain[-1][0], self._wizard_url(step=5))
+        self.assertContains(response, "Nao ha saldo de servicos para emitir NFS-e com a configuracao atual.")
+        self.assertContains(response, 'name="note_mode" value="nfe"', html=False)
+        self.assertContains(response, 'name="note_mode" value="nfe" class="radio radio-primary mt-1" checked', html=False)
+        self.assertContains(response, 'name="note_mode" value="nfse" class="radio radio-primary mt-1"  disabled', html=False)
+        self.assertContains(response, 'name="note_mode" value="both" class="radio radio-primary mt-1"  disabled', html=False)
+
+        session = self.client.session
+        wizard_state = session.get(self._wizard_session_key(), {})
+        self.assertEqual(wizard_state.get("note_mode"), "nfe")
 
     def test_unified_summary_step_uses_step5_layout_and_slider_preview_updates_partial_regions(self) -> None:
         self._advance_to_step_4()

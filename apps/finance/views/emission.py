@@ -28,6 +28,7 @@ from apps.finance.forms import (
 from apps.finance.models.finance import NfeRequest, NfeRequestStatus, NfseRequest, NfseRequestStatus
 from apps.finance.services.emission import NfseEmissionError, emit_nfse_request, sync_emission_response
 from apps.finance.services.nfe_emission import NfeEmissionError, emit_nfe_request, sync_nfe_emission_response
+from apps.finance.services.pricing import build_slider_allocation_for_workorder
 from apps.finance.services.tax_classes import TaxClassServiceError, list_tax_classes
 from apps.finance.views.request_workflow import build_preview_hidden_fields, render_emission_preview_modal
 from apps.finance.views.ncm_validation import (
@@ -260,6 +261,19 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             return int(state["pricing_slider"])
         return int(getattr(getattr(workorder, "budget", None), "slider", 0) or 0)
 
+    def _note_mode_availability(self, *, workorder: WorkOrder, selected_slider: int) -> tuple[set[str], str]:
+        allocation = build_slider_allocation_for_workorder(workorder=workorder, slider_override=selected_slider)
+        has_products = allocation.products_target > 0
+        has_services = allocation.services_target > 0
+
+        if has_products and has_services:
+            return {"nfe", "nfse", "both"}, ""
+        if has_products:
+            return {"nfe"}, "Nao ha saldo de servicos para emitir NFS-e com a configuracao atual."
+        if has_services:
+            return {"nfse"}, "Nao ha saldo de produtos para emitir NF-e com a configuracao atual."
+        return set(), "Nao ha saldo de produtos ou servicos para emitir nota com a configuracao atual."
+
     def get_initial(self) -> dict[str, Any]:
         initial = super().get_initial()
         state = self._load_state()
@@ -273,7 +287,19 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             initial["pricing_slider"] = self._selected_slider(state=state, workorder=workorder)
 
         if step_key == "note_mode":
-            initial["note_mode"] = state.get("note_mode") or _normalize_note_mode(self.request.GET.get("tipo")) or "nfe"
+            selected_slider = self._selected_slider(state=state, workorder=workorder)
+            allowed_note_modes, _ = self._note_mode_availability(workorder=workorder, selected_slider=selected_slider) if workorder is not None else ({"nfe", "nfse", "both"}, "")
+            preferred_mode = state.get("note_mode") or _normalize_note_mode(self.request.GET.get("tipo"))
+            if preferred_mode not in allowed_note_modes:
+                if "both" in allowed_note_modes:
+                    preferred_mode = "both"
+                elif "nfe" in allowed_note_modes:
+                    preferred_mode = "nfe"
+                elif "nfse" in allowed_note_modes:
+                    preferred_mode = "nfse"
+                else:
+                    preferred_mode = ""
+            initial["note_mode"] = preferred_mode or "nfe"
 
         if step_key == "nfe_config":
             initial.update(state.get("nfe_config") or {})
@@ -330,6 +356,13 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             kwargs["workorder"] = workorder
         elif step_key == "note_mode":
             kwargs["note_mode_choices"] = EMISSION_NOTE_MODE_CHOICES
+            if workorder is not None:
+                allowed_note_modes, availability_message = self._note_mode_availability(
+                    workorder=workorder,
+                    selected_slider=self._selected_slider(state=state, workorder=workorder),
+                )
+                kwargs["allowed_note_modes"] = allowed_note_modes
+                kwargs["availability_message"] = availability_message
         elif step_key == "nfe_config":
             kwargs["workorder"] = workorder
             kwargs["tax_class_choices"] = tax_class_choices["nfe"]
@@ -673,6 +706,13 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             if state.get("pricing_slider") != selected_slider:
                 state["pricing_slider"] = selected_slider
                 self._clear_submission_progress(state)
+
+            allowed_note_modes, _ = self._note_mode_availability(workorder=workorder, selected_slider=selected_slider)
+            if not allowed_note_modes:
+                messages.error(self.request, "Nao ha saldo de produtos ou servicos para emitir nota com a configuracao atual.")
+                self._write_state(state)
+                return self._redirect_to_step(self._current_step())
+
             next_step = self._set_current_step(state=state, step_key="note_mode")
             self._write_state(state)
             return self._redirect_to_step(next_step)
