@@ -1769,7 +1769,7 @@ class BudgetStep4Form(forms.ModelForm):
                                             </th>
                                             <th class="w-[16%] text-left">DESCRIÇÃO</th>
                                             <th class="w-[16%] text-left">APLICAÇÃO</th>
-                                            <th class="w-[10%] text-center whitespace-normal break-words leading-tight">Fornecido pelo cliente?</th>
+                                            <th class="w-[10%] text-center whitespace-normal break-words leading-tight">FORNECIDO PELO CLIENTE</th>
                                             <th class="w-[8%] text-center">QTD.</th>
                                             <th class="w-[10%] text-right">CUSTO</th>
                                             <th class="w-[12%] text-right">VALOR VENDA</th>
@@ -2966,10 +2966,10 @@ class BudgetStep6Form(forms.ModelForm):
                             <table class="table table-zebra table-fixed w-full">
                               <thead class="bg-primary text-primary-content">
                                 <tr>
-                                  <th class="w-[20%]">NOME</th>
+                                  <th class="w-[18%]">NOME</th>
                                   <th class="w-[18%]">APLICAÇÃO</th>
-                                  <th class="w-[14%] text-center whitespace-normal break-words leading-tight" title="Fornecido pelo cliente?">Fornecido pelo cliente?</th>
-                                  <th class="w-[8%] text-center">QTD.</th>
+                                  <th class="w-[18%] text-center whitespace-normal break-words leading-tight">FORNECIDO PELO CLIENTE</th>
+                                  <th class="w-[6%] text-center">QTD.</th>
                                   <th class="w-[10%]">CUSTO</th>
                                   <th class="w-[12%]">VALOR</th>
                                   <th class="w-[8%]">FRETE</th>
