@@ -29,6 +29,7 @@ from apps.finance.models.finance import NfeRequest, NfeRequestStatus, NfseReques
 from apps.finance.services.emission import NfseEmissionError, emit_nfse_request, sync_emission_response
 from apps.finance.services.nfe_emission import NfeEmissionError, emit_nfe_request, sync_nfe_emission_response
 from apps.finance.services.tax_classes import TaxClassServiceError, list_tax_classes
+from apps.finance.views.request_workflow import build_preview_hidden_fields, render_emission_preview_modal
 from apps.finance.views.ncm_validation import (
     NFE_INVALID_NCM_MODAL_ERROR,
     build_invalid_ncm_modal_context,
@@ -344,12 +345,17 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         if step_key in {"workorder", "customer", "items", "summary", "note_mode"}:
             return "Salvar e continuar"
         if step_key == "nfe_config":
-            return "Salvar e continuar" if state.get("note_mode") == "both" else "Emitir NF-e"
+            return "Salvar e continuar" if state.get("note_mode") == "both" else "Ver prévia"
         if step_key == "nfse_config":
-            if state.get("note_mode") == "both":
-                return "Reenviar NFS-e" if state.get("nfe_done") and not state.get("nfse_done") else "Emitir notas"
-            return "Emitir NFS-e"
+            return "Ver prévia"
         return "Salvar e continuar"
+
+    def _submit_button_intent(self, *, state: dict[str, Any], step_key: str) -> str:
+        if step_key == "nfe_config" and state.get("note_mode") != "both":
+            return "preview"
+        if step_key == "nfse_config":
+            return "preview"
+        return ""
 
     def _retry_notice(self, *, state: dict[str, Any], step_key: str) -> str:
         if step_key == "nfse_config" and state.get("note_mode") == "both" and state.get("nfe_done") and not state.get("nfse_done"):
@@ -372,6 +378,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         context["previous_step"] = current_step - 1 if current_step > min_accessible_step else None
         context["is_final_step"] = current_step == len(steps)
         context["submit_button_label"] = self._submit_button_label(state=state, step_key=current_step_key)
+        context["submit_button_intent"] = self._submit_button_intent(state=state, step_key=current_step_key)
         context["retry_notice"] = self._retry_notice(state=state, step_key=current_step_key)
         context["wizard_state"] = state
         context["selected_workorder"] = self._selected_workorder(state)
@@ -556,6 +563,49 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             return
         messages.error(self.request, f"Falha ao enviar {label}.")
 
+    def _preview_nfe(self, *, state: dict[str, Any], workorder: WorkOrder) -> tuple[dict[str, Any] | None, str | None]:
+        invalid_ncm_modal = build_invalid_ncm_modal_context(workorder=workorder, return_url=self.request.get_full_path())
+        if invalid_ncm_modal is not None:
+            store_invalid_ncm_modal_context(request=self.request, modal_context=invalid_ncm_modal)
+            return None, NFE_INVALID_NCM_MODAL_ERROR
+
+        nfe_request = self._get_or_create_nfe_request(state=state, workorder=workorder)
+        return {"embed_url": reverse("finance:nfe_preview_pdf", kwargs={"pk": nfe_request.pk})}, None
+
+    def _preview_nfse(self, *, state: dict[str, Any], workorder: WorkOrder) -> tuple[dict[str, Any] | None, str | None]:
+        nfse_request = self._get_or_create_nfse_request(state=state, workorder=workorder)
+        return {"embed_url": reverse("finance:nfse_preview_pdf", kwargs={"pk": nfse_request.pk})}, None
+
+    def _build_preview_response(self, *, state: dict[str, Any], workorder: WorkOrder, cleaned_data: dict[str, Any], current_step: int):
+        note_mode = str(state.get("note_mode") or "")
+        branches = ["nfe", "nfse"] if note_mode == "both" else [note_mode]
+        previews: list[dict[str, str]] = []
+
+        for branch in branches:
+            if state.get(f"{branch}_done"):
+                continue
+
+            preview_payload, error_message = self._preview_nfe(state=state, workorder=workorder) if branch == "nfe" else self._preview_nfse(state=state, workorder=workorder)
+            if preview_payload is None:
+                self._add_note_error_message(note_key=branch, error_message=error_message)
+                return self._redirect_after_finalize_error(state=state, note_key=branch)
+
+            previews.append(
+                {
+                    "label": "DANFE" if branch == "nfe" else "NFS-e",
+                    "embed_url": str(preview_payload.get("embed_url") or ""),
+                }
+            )
+
+        return render_emission_preview_modal(
+            request=self.request,
+            title="Previa da emissao",
+            description="Confira os documentos antes de transmitir as notas fiscais para a Webmania.",
+            previews=previews,
+            transmit_url=self._step_url(current_step),
+            hidden_fields=build_preview_hidden_fields(cleaned_data=cleaned_data),
+        )
+
     def _finalize_selected_notes(self, *, state: dict[str, Any], workorder: WorkOrder):
         note_mode = str(state.get("note_mode") or "")
         branches = ["nfe", "nfse"] if note_mode == "both" else [note_mode]
@@ -647,6 +697,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
                 next_step = self._set_current_step(state=state, step_key="nfse_config")
                 self._write_state(state)
                 return self._redirect_to_step(next_step)
+            if self.request.POST.get("intent") == "preview":
+                return self._build_preview_response(state=state, workorder=workorder, cleaned_data=form.cleaned_data, current_step=self._current_step())
             return self._finalize_selected_notes(state=state, workorder=workorder)
 
         if current_step_key == "nfse_config":
@@ -655,6 +707,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
                 "service_description": form.cleaned_data["service_description"],
             }
             self._write_state(state)
+            if self.request.POST.get("intent") == "preview":
+                return self._build_preview_response(state=state, workorder=workorder, cleaned_data=form.cleaned_data, current_step=self._current_step())
             return self._finalize_selected_notes(state=state, workorder=workorder)
 
         return self._redirect_to_step(self._current_step())

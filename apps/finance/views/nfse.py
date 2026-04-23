@@ -7,7 +7,9 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
+from django.utils.decorators import method_decorator
 from django.urls import reverse
+from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views import View
 from django.views.generic import DetailView, ListView
 
@@ -16,10 +18,15 @@ from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxTemplateResponseMixin
 from apps.finance.forms import NfseRequestStep1Form, NfseRequestStep2Form, NfseRequestStep3Form
 from apps.finance.models.finance import NfseItem, NfseRequest, NfseRequestStatus
-from apps.finance.services.emission import NfseEmissionError, cancel_nfse_document, emit_nfse_request, sync_emission_response
+from apps.finance.services.emission import NfseEmissionError, cancel_nfse_document, download_nfse_preview_document, emit_nfse_request, sync_emission_response
 from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.finance.views.navigation import build_detail_url_with_preserved_origin, build_issued_documents_back_url
-from apps.finance.views.request_workflow import SharedEmissionRequestCreateBaseView, SharedEmissionRequestUpdateBaseView
+from apps.finance.views.request_workflow import (
+    SharedEmissionRequestCreateBaseView,
+    SharedEmissionRequestUpdateBaseView,
+    build_preview_hidden_fields,
+    render_emission_preview_modal,
+)
 from apps.workshops.mixin import WorkshopScopedMixin
 
 
@@ -217,6 +224,32 @@ class NfseDocumentDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
         return f'attachment; filename="nfse-{document_kind}-{safe_identifier}.{extension}"'
 
 
+@method_decorator(xframe_options_exempt, name="dispatch")
+class NfsePreviewPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "view_nfserequest"
+
+    def get(self, request, *args, **kwargs):
+        nfse_request = get_object_or_404(NfseRequest, pk=kwargs.get("pk"), workshop=self.workshop)
+
+        try:
+            downloaded = download_nfse_preview_document(nfse_request=nfse_request, request=request)
+        except NfseEmissionError as exc:
+            return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
+
+        response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
+        response["Content-Disposition"] = self._build_content_disposition(nfse_request=nfse_request)
+        response["Cache-Control"] = "no-store"
+        return response
+
+    @staticmethod
+    def _build_content_disposition(*, nfse_request: NfseRequest) -> str:
+        identifier = str(getattr(nfse_request, "reserved_rps_number", "") or nfse_request.pk or "documento").strip()
+        safe_identifier = identifier.replace(" ", "-")
+        return f'inline; filename="nfse-previa-{safe_identifier}.pdf"'
+
+
 class NfseRequestCreateView(SharedEmissionRequestCreateBaseView):
     model = NfseRequest
     template_name = "finance/nfse_request_form.html"
@@ -265,6 +298,16 @@ class NfseRequestCreateView(SharedEmissionRequestCreateBaseView):
             logger.exception("Falha ao emitir NFS-e", extra={"nfse_request_id": self.object.pk})
             messages.error(self.request, str(exc))
             return False
+
+    def _build_preview_response(self, *, form) -> HttpResponse:
+        return render_emission_preview_modal(
+            request=self.request,
+            title="Previa da NFS-e",
+            description="Confira o documento antes de transmitir a NFS-e para a Webmania.",
+            previews=[{"label": "NFS-e", "embed_url": reverse("finance:nfse_preview_pdf", kwargs={"pk": self.object.pk})}],
+            transmit_url=self._step_url(step=self.get_current_step()),
+            hidden_fields=build_preview_hidden_fields(cleaned_data=form.cleaned_data),
+        )
 
 
 class NfseRequestUpdateView(SharedEmissionRequestUpdateBaseView, NfseRequestCreateView):

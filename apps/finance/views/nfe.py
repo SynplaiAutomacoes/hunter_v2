@@ -7,7 +7,9 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
+from django.utils.decorators import method_decorator
 from django.urls import reverse
+from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views import View
 from django.views.generic import DetailView, ListView
 
@@ -17,11 +19,16 @@ from apps.core.views import HtmxTemplateResponseMixin
 from apps.finance.forms import NfeRequestStep1Form, NfeRequestStep2Form, NfeRequestStep3Form
 from apps.finance.models.finance import NfeItem, NfeRequest, NfeRequestStatus
 from apps.finance.services.nfe_consulta import NfeConsultaError, reconcile_nfe_item
-from apps.finance.services.nfe_emission import NfeEmissionError, cancel_nfe_document, emit_nfe_request, sync_nfe_emission_response
+from apps.finance.services.nfe_emission import NfeEmissionError, cancel_nfe_document, download_nfe_preview_document, emit_nfe_request, sync_nfe_emission_response
 from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.finance.views.ncm_validation import build_invalid_ncm_modal_context, pop_invalid_ncm_modal_context, store_invalid_ncm_modal_context
 from apps.finance.views.navigation import build_detail_url_with_preserved_origin, build_issued_documents_back_url
-from apps.finance.views.request_workflow import SharedEmissionRequestCreateBaseView, SharedEmissionRequestUpdateBaseView
+from apps.finance.views.request_workflow import (
+    SharedEmissionRequestCreateBaseView,
+    SharedEmissionRequestUpdateBaseView,
+    build_preview_hidden_fields,
+    render_emission_preview_modal,
+)
 from apps.workshops.mixin import WorkshopScopedMixin
 
 
@@ -224,6 +231,32 @@ class NfeDocumentDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
         return f'attachment; filename="nfe-{document_kind}-{safe_identifier}.{extension}"'
 
 
+@method_decorator(xframe_options_exempt, name="dispatch")
+class NfePreviewPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "view_nfserequest"
+
+    def get(self, request, *args, **kwargs):
+        nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
+
+        try:
+            downloaded = download_nfe_preview_document(nfe_request=nfe_request, request=request)
+        except NfeEmissionError as exc:
+            return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
+
+        response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
+        response["Content-Disposition"] = self._build_content_disposition(nfe_request=nfe_request)
+        response["Cache-Control"] = "no-store"
+        return response
+
+    @staticmethod
+    def _build_content_disposition(*, nfe_request: NfeRequest) -> str:
+        identifier = str(getattr(nfe_request, "reserved_number", "") or nfe_request.pk or "documento").strip()
+        safe_identifier = identifier.replace(" ", "-")
+        return f'inline; filename="nfe-previa-{safe_identifier}.pdf"'
+
+
 class NfeRequestCreateView(SharedEmissionRequestCreateBaseView):
     model = NfeRequest
     workshop_permission_model = "nfserequest"
@@ -271,6 +304,26 @@ class NfeRequestCreateView(SharedEmissionRequestCreateBaseView):
             logger.exception("Falha ao emitir NF-e", extra={"nfe_request_id": self.object.pk})
             messages.error(self.request, str(exc))
             return False
+
+    def _build_preview_response(self, *, form) -> HttpResponse:
+        invalid_ncm_modal = build_invalid_ncm_modal_context(workorder=self.object.workorder, return_url=self.request.get_full_path())
+        if invalid_ncm_modal is not None:
+            store_invalid_ncm_modal_context(request=self.request, modal_context=invalid_ncm_modal)
+            step_url = self._step_url(step=self.get_current_step())
+            if self.request.htmx:
+                response = HttpResponse()
+                response["HX-Redirect"] = step_url
+                return response
+            return redirect(step_url)
+
+        return render_emission_preview_modal(
+            request=self.request,
+            title="Previa da NF-e",
+            description="Confira o documento antes de transmitir a NF-e para a Webmania.",
+            previews=[{"label": "DANFE", "embed_url": reverse("finance:nfe_preview_pdf", kwargs={"pk": self.object.pk})}],
+            transmit_url=self._step_url(step=self.get_current_step()),
+            hidden_fields=build_preview_hidden_fields(cleaned_data=form.cleaned_data),
+        )
 
 
 class NfeRequestUpdateView(SharedEmissionRequestUpdateBaseView, NfeRequestCreateView):

@@ -21,6 +21,7 @@ from apps.finance.services.webmania_auth import (
     sanitize_webmania_setting,
     should_use_global_webmania_auth,
 )
+from apps.finance.services.webmania_documents import DownloadedWebmaniaDocument, WebmaniaDocumentDownloadError, download_webmania_document
 from apps.finance.services.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
 from apps.finance.services.webmania_status import normalize_nfe_status
 from apps.workorder.models import WorkOrder
@@ -425,6 +426,100 @@ def build_nfe_payload(*, nfe_request: NfeRequest, request: HttpRequest | None = 
         str(allocation.services_target),
     )
     return payload
+
+
+def _extract_nfe_preview_url(data: dict[str, Any]) -> str:
+    for key in ("danfe", "danfe_simples", "danfe_etiqueta", "pdf", "url"):
+        value = str(data.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _is_json_content_type(content_type: str) -> bool:
+    normalized_content_type = content_type.lower()
+    return "application/json" in normalized_content_type or "text/json" in normalized_content_type
+
+
+def preview_nfe_request(*, nfe_request: NfeRequest, request: HttpRequest | None = None, slider_override: int | None = None) -> dict[str, Any]:
+    headers = _build_headers(workshop=nfe_request.workshop)
+    emit_url = _build_emit_url()
+
+    _validate_nfe_tax_class(nfe_request=nfe_request, headers=headers)
+
+    payload = build_nfe_payload(nfe_request=nfe_request, request=request, slider_override=slider_override)
+    payload["previa_danfe"] = True
+
+    try:
+        response = requests.post(emit_url, json=payload, headers=headers, timeout=30)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        message = build_webmania_request_exception_message(exc, default="Falha ao gerar previa da NF-e", scope="nfe")
+        raise NfeEmissionError(message) from exc
+
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise NfeEmissionError("Resposta invalida da API de previa da NF-e.") from exc
+
+    if not isinstance(data, dict):
+        raise NfeEmissionError("Resposta invalida da API de previa da NF-e.")
+
+    error_message = extract_webmania_error_message(data.get("error") or data.get("msg") or data.get("message"), scope="nfe")
+    if error_message:
+        raise NfeEmissionError(error_message)
+
+    preview_url = _extract_nfe_preview_url(data)
+    if not preview_url:
+        raise NfeEmissionError("A API da Webmania nao retornou a URL da previa da NF-e.")
+
+    return {**data, "preview_url": preview_url}
+
+
+def download_nfe_preview_document(*, nfe_request: NfeRequest, request: HttpRequest | None = None, slider_override: int | None = None) -> DownloadedWebmaniaDocument:
+    headers = _build_headers(workshop=nfe_request.workshop)
+    emit_url = _build_emit_url()
+
+    _validate_nfe_tax_class(nfe_request=nfe_request, headers=headers)
+
+    payload = build_nfe_payload(nfe_request=nfe_request, request=request, slider_override=slider_override)
+    payload["previa_danfe"] = True
+
+    try:
+        response = requests.post(emit_url, json=payload, headers=headers, timeout=60)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        message = build_webmania_request_exception_message(exc, default="Falha ao gerar previa da NF-e", scope="nfe")
+        raise NfeEmissionError(message) from exc
+
+    content_type = str(response.headers.get("Content-Type") or "application/pdf")
+    if not _is_json_content_type(content_type):
+        return DownloadedWebmaniaDocument(
+            content=response.content,
+            content_type=content_type,
+            content_disposition=str(response.headers.get("Content-Disposition") or ""),
+        )
+
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise NfeEmissionError("Resposta invalida da API de previa da NF-e.") from exc
+
+    if not isinstance(data, dict):
+        raise NfeEmissionError("Resposta invalida da API de previa da NF-e.")
+
+    error_message = extract_webmania_error_message(data.get("error") or data.get("msg") or data.get("message"), scope="nfe")
+    if error_message:
+        raise NfeEmissionError(error_message)
+
+    preview_url = _extract_nfe_preview_url(data)
+    if not preview_url:
+        raise NfeEmissionError("A API da Webmania nao retornou o PDF da previa da NF-e.")
+
+    try:
+        return download_webmania_document(workshop=nfe_request.workshop, url=preview_url)
+    except WebmaniaDocumentDownloadError as exc:
+        raise NfeEmissionError(str(exc)) from exc
 
 
 def emit_nfe_request(*, nfe_request: NfeRequest, request: HttpRequest | None = None, slider_override: int | None = None) -> dict[str, Any]:

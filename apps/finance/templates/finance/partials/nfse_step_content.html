@@ -20,8 +20,8 @@
         <div></div>
     {% endif %}
 
-    <button type="submit" form="nfse-form" class="btn btn-primary">
-        {% if current_step == steps_config|length %}Finalizar{% else %}Salvar e Continuar{% endif %}
+    <button type="submit" form="nfse-form" class="btn btn-primary" {% if current_step == steps_config|length %}name="intent" value="preview"{% endif %}>
+        {% if current_step == steps_config|length %}Ver prévia{% else %}Salvar e Continuar{% endif %}
     </button>
 </div>
 
