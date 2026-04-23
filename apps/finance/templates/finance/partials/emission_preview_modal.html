@@ -30,13 +30,67 @@
         {% endfor %}
     </div>
 
-    <form hx-post="{{ transmit_url }}" hx-target="#step-container" hx-swap="innerHTML" class="p-6 border-t border-base-200 flex items-center justify-end gap-3 bg-base-50">
+    <form
+        hx-post="{{ transmit_url }}"
+        hx-target="#step-container"
+        hx-swap="innerHTML"
+        class="p-6 border-t border-base-200 flex items-center justify-end gap-3 bg-base-50"
+        data-preview-transmit-form
+    >
         {% csrf_token %}
         <input type="hidden" name="intent" value="transmit">
         {% for hidden_field in hidden_fields %}
             <input type="hidden" name="{{ hidden_field.name }}" value="{{ hidden_field.value }}">
         {% endfor %}
-        <button type="button" class="btn btn-ghost" onclick="window.closeEmissionModal && window.closeEmissionModal()">Cancelar</button>
-        <button type="submit" class="btn btn-primary">Transmitir</button>
+        <button type="button" class="btn btn-ghost" onclick="window.closeEmissionModal && window.closeEmissionModal()" data-preview-cancel-button>Cancelar</button>
+        <button type="submit" class="btn btn-primary min-w-32" data-preview-submit-button>
+            <span class="loading loading-spinner loading-sm hidden" data-preview-submit-spinner></span>
+            <span data-preview-submit-label>Transmitir</span>
+        </button>
     </form>
 </div>
+
+<script>
+    (function () {
+        const form = document.querySelector('[data-preview-transmit-form]');
+        if (!form) {
+            return;
+        }
+
+        const submitButton = form.querySelector('[data-preview-submit-button]');
+        const cancelButton = form.querySelector('[data-preview-cancel-button]');
+        const spinner = form.querySelector('[data-preview-submit-spinner]');
+        const label = form.querySelector('[data-preview-submit-label]');
+
+        const setLoadingState = function (isLoading) {
+            if (submitButton) {
+                submitButton.disabled = isLoading;
+            }
+            if (cancelButton) {
+                cancelButton.disabled = isLoading;
+            }
+            if (spinner) {
+                spinner.classList.toggle('hidden', !isLoading);
+            }
+            if (label) {
+                label.textContent = isLoading ? 'Transmitindo...' : 'Transmitir';
+            }
+        };
+
+        form.addEventListener('submit', function () {
+            setLoadingState(true);
+        });
+
+        document.body.addEventListener('htmx:responseError', function (event) {
+            if (event.detail && event.detail.elt === form) {
+                setLoadingState(false);
+            }
+        });
+
+        document.body.addEventListener('htmx:sendError', function (event) {
+            if (event.detail && event.detail.elt === form) {
+                setLoadingState(false);
+            }
+        });
+    })();
+</script>
