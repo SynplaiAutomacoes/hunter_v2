@@ -14,11 +14,10 @@ from apps.catalog.price_tracking import build_product_price_warning
 from apps.core.widgets import (
     TextInput,
     MoneyInput,
-    SelectInput,
     PercentageInput,
     CheckboxInput,
     TextareaInput,
-    ImageInput,
+    ImageInput, SearchableSelectInput,
 )
 from apps.workshops.models.workshops import Workshop
 
@@ -62,8 +61,8 @@ class ProductForm(forms.ModelForm):
             "code": TextInput(),
             "name": TextInput(),
             "description": TextareaInput(attrs={"class": "!bg-transparent"}),
-            "unit": SelectInput(),
-            "group": SelectInput(),
+            "unit": SearchableSelectInput(),
+            "group": SearchableSelectInput(),
             "brand": TextInput(),
             "model": TextInput(),
             "sku": TextInput(),
@@ -74,8 +73,8 @@ class ProductForm(forms.ModelForm):
             "profit_margin": PercentageInput(attrs={"readonly": True}),
             "ncm": TextInput(),
             "cest": TextInput(),
-            "origin_cst": SelectInput(),
-            "purpose": SelectInput(),
+            "origin_cst": SearchableSelectInput(),
+            "purpose": SearchableSelectInput(),
             "image": ImageInput(),
             "application": TextareaInput(),
             "is_active": CheckboxInput(),

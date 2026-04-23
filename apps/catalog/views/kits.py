@@ -72,6 +72,7 @@ class KitListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseM
 
         context["actions"] = [
             TableActionDefaults.edit("catalog:kits_update"),
+            TableActionDefaults.delete("catalog:kits_delete", visible=lambda obj: not obj.is_used),
         ]
 
         return context

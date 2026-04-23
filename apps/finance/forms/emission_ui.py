@@ -201,23 +201,23 @@ def build_step5_pricing_panel_layout(*, prefix: str, panel_data: Step5PricingPan
         Div(
             Div(
                 Div(
-                    HTML('<h3 class="text-3xl font-bold mb-2 border-b-3 step5-accent-border text-center step5-accent-text">Metodo Hunter</h3>'),
+                    HTML('<h3 class="text-3xl font-bold mb-2 border-b-3 step5-accent-border text-center step5-accent-text">Método Hunter</h3>'),
                     Div(
                         HTML(
                             f"""
                             <div class="grid grid-cols-1 md:grid-cols-2 mt-7 gap-x-8 gap-y-3 text-base text-base-content font-semibold">
                                 <div class="grid grid-cols-12 border border-base-300 bg-base-100">
-                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo de Pecas</span>
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo de Peças</span>
                                     <span class="col-span-4 p-2 border-l border-base-300">{panel_data.cost_products}</span>
                                 </div>
 
                                 <div class="grid grid-cols-12 border border-base-300 bg-base-100">
-                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Valor de Venda de Pecas</span>
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Valor de Venda de Peças</span>
                                     {_build_sale_products_span(prefix=prefix, panel_data=panel_data)}
                                 </div>
 
                                 <div class="grid grid-cols-12 border border-base-300 bg-base-100">
-                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo de Frete de Pecas</span>
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo de Frete de Peças</span>
                                     <span class="col-span-4 p-2 border-l border-base-300">{panel_data.cost_products_shipping}</span>
                                 </div>
 
@@ -234,22 +234,22 @@ def build_step5_pricing_panel_layout(*, prefix: str, panel_data: Step5PricingPan
                                 <div class="grid grid-cols-12"></div>
 
                                 <div class="grid grid-cols-12 border border-base-300 bg-base-100">
-                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo da Hora do Mecanico</span>
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo da Hora do Mecânico</span>
                                     <span class="col-span-4 p-2 border-l border-base-300">{panel_data.mechanic_hour_cost}</span>
                                 </div>
 
                                 <div class="grid grid-cols-12 border border-base-300 bg-base-100">
-                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Valor de Venda de Mao de Obra</span>
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Valor de Venda de Mão de Obra</span>
                                     {_build_sale_labor_span(prefix=prefix, panel_data=panel_data)}
                                 </div>
 
                                 <div class="grid grid-cols-12 border border-base-300 bg-base-100 font-semibold">
-                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo Total da Mao de Obra</span>
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo Total da Mão de Obra</span>
                                     <span class="col-span-4 p-2 border-l border-base-300">{panel_data.labor_total_cost}</span>
                                 </div>
 
                                 <div class="grid grid-cols-12 border border-base-300 bg-base-100">
-                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Duracao Total</span>
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Duração Total</span>
                                     <span class="col-span-4 p-2 border-l border-base-300">{panel_data.duration_display}</span>
                                 </div>
 
@@ -284,7 +284,7 @@ def build_step5_pricing_panel_layout(*, prefix: str, panel_data: Step5PricingPan
                     Div(
                         HTML(
                             f"""<div class="text-center text-base-content mt-6">
-                                    <p class="text-2xl font-bold">Valor do Orcamento</p>
+                                    <p class="text-2xl font-bold">Valor do Orçamento</p>
                                     <p class="text-3xl font-black step5-accent-text">{panel_data.total_base_value}</p>
                                 </div>"""
                         )
@@ -296,17 +296,17 @@ def build_step5_pricing_panel_layout(*, prefix: str, panel_data: Step5PricingPan
             Div(
                 Div(
                     Div(
-                        HTML('<h4 class="font-bold text-lg mb-2">Margem de Lucro</h4>'),
+                        HTML('<h4 class="font-bold text-lg mb-2">Defina o percentual para cada Nota Fiscal</h4>'),
                         HTML(
                             f"""
                             <div class="flex justify-between mb-1">
-                                <span class="text-sm font-bold">Peca: <span id="{prefix}-val-peca">0</span>%</span>
-                                <span class="text-sm font-bold">Mao de Obra: <span id="{prefix}-val-mo">0</span>%</span>
+                                <span class="text-sm font-bold">Peça: <span id="{prefix}-val-peca">0</span>%</span>
+                                <span class="text-sm font-bold">Mão de Obra: <span id="{prefix}-val-mo">0</span>%</span>
                             </div>
                             """
                         ),
                         Field(slider_field_name, label=False, help_text=False, wrapper_class="w-full"),
-                        HTML('<p class="text-sm text-gray-500 font-semibold italic">Deslize para a esquerda para aumentar Peca, ou para direita para aumentar Mao de obra</p>'),
+                        HTML('<p class="text-sm text-gray-500 font-semibold italic">Defina o valor que gostaria de emitir como NF de peça ou NF de serviço.</p>'),
                         css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
                     ),
                     Div(
@@ -329,7 +329,7 @@ def build_step5_pricing_panel_layout(*, prefix: str, panel_data: Step5PricingPan
                     ),
                     Div(
                         HTML('<h4 class="font-bold text-lg mb-2 text-center border-b-1 border-gray-300">Valor Final</h4>'),
-                        HTML('<h5 class="font-semibold text-lg mb-2 text-center">Valor do Orcamento com desconto aplicado:</h5>'),
+                        HTML('<h5 class="font-semibold text-lg mb-2 text-center">Valor do Orçamento com desconto aplicado:</h5>'),
                         HTML(
                             f"""
                             <div class="space-y-3">
@@ -366,23 +366,23 @@ def build_step5_summary_layout(*, prefix: str, panel_data: Step5PricingPanelData
         Div(
             Div(
                 Div(
-                    HTML('<h3 class="text-3xl font-bold mb-2 border-b-3 step5-accent-border text-center step5-accent-text">Metodo Hunter</h3>'),
+                    HTML('<h3 class="text-3xl font-bold mb-2 border-b-3 step5-accent-border text-center step5-accent-text">Método Hunter</h3>'),
                     Div(
                         HTML(
                             f"""
                             <div class="grid grid-cols-1 md:grid-cols-2 mt-7 gap-x-8 gap-y-3 text-base text-base-content font-semibold">
                                 <div class="grid grid-cols-12 border border-base-300 bg-base-100">
-                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo de Pecas</span>
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo de Peças</span>
                                     <span class="col-span-4 p-2 border-l border-base-300">{panel_data.cost_products}</span>
                                 </div>
 
                                 <div class="grid grid-cols-12 border border-base-300 bg-base-100">
-                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Valor de Venda de Pecas</span>
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Valor de Venda de Peças</span>
                                     {_build_sale_products_span(prefix=prefix, panel_data=panel_data)}
                                 </div>
 
                                 <div class="grid grid-cols-12 border border-base-300 bg-base-100">
-                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo de Frete de Pecas</span>
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo de Frete de Peças</span>
                                     <span class="col-span-4 p-2 border-l border-base-300">{panel_data.cost_products_shipping}</span>
                                 </div>
 
@@ -399,22 +399,22 @@ def build_step5_summary_layout(*, prefix: str, panel_data: Step5PricingPanelData
                                 <div class="grid grid-cols-12"></div>
 
                                 <div class="grid grid-cols-12 border border-base-300 bg-base-100">
-                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo da Hora do Mecanico</span>
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo da Hora do Mecânico</span>
                                     <span class="col-span-4 p-2 border-l border-base-300">{panel_data.mechanic_hour_cost}</span>
                                 </div>
 
                                 <div class="grid grid-cols-12 border border-base-300 bg-base-100">
-                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Valor de Venda de Mao de Obra</span>
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Valor de Venda de Mão de Obra</span>
                                     {_build_sale_labor_span(prefix=prefix, panel_data=panel_data)}
                                 </div>
 
                                 <div class="grid grid-cols-12 border border-base-300 bg-base-100 font-semibold">
-                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo Total da Mao de Obra</span>
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo Total da Mão de Obra</span>
                                     <span class="col-span-4 p-2 border-l border-base-300">{panel_data.labor_total_cost}</span>
                                 </div>
 
                                 <div class="grid grid-cols-12 border border-base-300 bg-base-100">
-                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Duracao Total</span>
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Duração Total</span>
                                     <span class="col-span-4 p-2 border-l border-base-300">{panel_data.duration_display}</span>
                                 </div>
 
@@ -449,7 +449,7 @@ def build_step5_summary_layout(*, prefix: str, panel_data: Step5PricingPanelData
                     Div(
                         HTML(
                             f"""<div class="text-center text-base-content mt-6">
-                                    <p class="text-2xl font-bold">Valor do Orcamento</p>
+                                    <p class="text-2xl font-bold">Valor do Orçamento</p>
                                     <p class="text-3xl font-black step5-accent-text">{panel_data.total_base_value}</p>
                                 </div>"""
                         )
@@ -462,17 +462,17 @@ def build_step5_summary_layout(*, prefix: str, panel_data: Step5PricingPanelData
             Div(
                 Div(
                     Div(
-                        HTML('<h4 class="font-bold text-lg mb-2">Margem de Lucro</h4>'),
+                        HTML('<h4 class="font-bold text-lg mb-2">Defina o percentual para cada Nota Fiscal</h4>'),
                         HTML(
                             f"""
                             <div class="flex justify-between mb-1">
-                                <span class="text-sm font-bold">Peca: <span id="{prefix}-val-peca">0</span>%</span>
-                                <span class="text-sm font-bold">Mao de Obra: <span id="{prefix}-val-mo">0</span>%</span>
+                                <span class="text-sm font-bold">Peça: <span id="{prefix}-val-peca">0</span>%</span>
+                                <span class="text-sm font-bold">Mão de Obra: <span id="{prefix}-val-mo">0</span>%</span>
                             </div>
                             """
                         ),
                         Field(slider_field_name, label=False, help_text=False, wrapper_class="w-full"),
-                        HTML('<p class="text-sm text-gray-500 font-semibold italic">Deslize para a esquerda para aumentar Peca, ou para direita para aumentar Mao de obra</p>'),
+                        HTML('<p class="text-sm text-gray-500 font-semibold italic">Defina o valor que gostaria de emitir como NF de peça ou NF de serviço.</p>'),
                         css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
                     ),
                     Div(
@@ -495,7 +495,7 @@ def build_step5_summary_layout(*, prefix: str, panel_data: Step5PricingPanelData
                     ),
                     Div(
                         HTML('<h4 class="font-bold text-lg mb-2 text-center border-b-1 border-gray-300">Valor Final</h4>'),
-                        HTML('<h5 class="font-semibold text-lg mb-2 text-center">Valor do Orcamento com desconto aplicado:</h5>'),
+                        HTML('<h5 class="font-semibold text-lg mb-2 text-center">Valor do Orçamento com desconto aplicado:</h5>'),
                         HTML(
                             f"""
                             <div class="space-y-3">

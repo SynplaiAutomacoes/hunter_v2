@@ -8,7 +8,7 @@ from crispy_forms.layout import Layout, Div, Field, HTML, Submit, Button
 from django.urls import reverse
 
 from .models import Customer, Vehicle
-from apps.core.widgets import CPForCNPJInput, CalendarDateInput, TextInput, SelectInput, RGInput, PhoneInput, EmailInput, CheckboxInput, NumberInput, PlateInput
+from apps.core.widgets import CPForCNPJInput, CalendarDateInput, TextInput, SearchableSelectInput, RGInput, PhoneInput, EmailInput, CheckboxInput, NumberInput, PlateInput
 from .cpf_cnpj_validator import is_valid_cpf, is_valid_cnpj
 from .vehicle_engine import normalize_vehicle_engine_choice, vehicle_engine_form_choices
 from .vehicle_fuel import normalize_vehicle_fuel_choice, vehicle_fuel_form_choices
@@ -24,8 +24,8 @@ def _set_normalized_initial_choice(form: forms.BaseForm, field_name: str, curren
 
 
 class VehicleInlineForm(forms.ModelForm):
-    engine = forms.CharField(label="Motor", required=False, widget=SelectInput(choices=vehicle_engine_form_choices()))
-    fuel = forms.CharField(label="Combustível", required=False, widget=SelectInput(choices=vehicle_fuel_form_choices()))
+    engine = forms.CharField(label="Motor", required=False, widget=SearchableSelectInput(choices=vehicle_engine_form_choices()))
+    fuel = forms.CharField(label="Combustível", required=False, widget=SearchableSelectInput(choices=vehicle_fuel_form_choices()))
 
     class Meta:
         model = Vehicle
@@ -34,8 +34,8 @@ class VehicleInlineForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         self.workshop = kwargs.pop("workshop", None)
         super().__init__(*args, **kwargs)
-        self.fields["engine"].widget = SelectInput(choices=vehicle_engine_form_choices())
-        self.fields["fuel"].widget = SelectInput(choices=vehicle_fuel_form_choices())
+        self.fields["engine"].widget = SearchableSelectInput(choices=vehicle_engine_form_choices())
+        self.fields["fuel"].widget = SearchableSelectInput(choices=vehicle_fuel_form_choices())
         if not self.is_bound:
             _set_normalized_initial_choice(self, "engine", self.initial.get("engine") or getattr(self.instance, "engine", None), normalize_vehicle_engine_choice)
             _set_normalized_initial_choice(self, "fuel", self.initial.get("fuel") or getattr(self.instance, "fuel", None), normalize_vehicle_fuel_choice)
@@ -119,8 +119,8 @@ VehicleFormSet = inlineformset_factory(
         "year_fabrication": TextInput(),
         "year_model": TextInput(),
         "color": TextInput(),
-        "fuel": SelectInput(choices=vehicle_fuel_form_choices()),
-        "engine": SelectInput(choices=vehicle_engine_form_choices()),
+        "fuel": SearchableSelectInput(choices=vehicle_fuel_form_choices()),
+        "engine": SearchableSelectInput(choices=vehicle_engine_form_choices()),
         "type": TextInput(),
         "renavam": TextInput(),
         "chassi": TextInput(),
@@ -163,7 +163,7 @@ class CustomerForm(AddressFormMixin, forms.ModelForm):
             "foundation_date": CalendarDateInput(),
             "rg": RGInput(),
             "birth_date": CalendarDateInput(),
-            "sex": SelectInput(),
+            "sex": SearchableSelectInput(),
             "phone": PhoneInput(),
             "email": EmailInput(),
             "is_active": CheckboxInput(),
@@ -503,8 +503,8 @@ class QuickCustomerForm(AddressFormMixin, forms.ModelForm):
 
 
 class QuickVehicleForm(forms.ModelForm):
-    engine = forms.CharField(label="Motor", required=False, widget=SelectInput(choices=vehicle_engine_form_choices()))
-    fuel = forms.CharField(label="Combustível", required=False, widget=SelectInput(choices=vehicle_fuel_form_choices()))
+    engine = forms.CharField(label="Motor", required=False, widget=SearchableSelectInput(choices=vehicle_engine_form_choices()))
+    fuel = forms.CharField(label="Combustível", required=False, widget=SearchableSelectInput(choices=vehicle_fuel_form_choices()))
 
     class Meta:
         model = Vehicle
@@ -513,8 +513,8 @@ class QuickVehicleForm(forms.ModelForm):
             "plate": PlateInput(),
             "brand": TextInput(),
             "model": TextInput(),
-            "engine": SelectInput(choices=vehicle_engine_form_choices()),
-            "fuel": SelectInput(choices=vehicle_fuel_form_choices()),
+            "engine": SearchableSelectInput(choices=vehicle_engine_form_choices()),
+            "fuel": SearchableSelectInput(choices=vehicle_fuel_form_choices()),
             "year_fabrication": TextInput(),
             "year_model": TextInput(),
             "color": TextInput(),
@@ -524,8 +524,8 @@ class QuickVehicleForm(forms.ModelForm):
         self.workshop = kwargs.pop("workshop", None)
         self.customer = kwargs.pop("customer", None)
         super().__init__(*args, **kwargs)
-        self.fields["engine"].widget = SelectInput(choices=vehicle_engine_form_choices())
-        self.fields["fuel"].widget = SelectInput(choices=vehicle_fuel_form_choices())
+        self.fields["engine"].widget = SearchableSelectInput(choices=vehicle_engine_form_choices())
+        self.fields["fuel"].widget = SearchableSelectInput(choices=vehicle_fuel_form_choices())
         if not self.is_bound:
             _set_normalized_initial_choice(self, "engine", self.initial.get("engine") or getattr(self.instance, "engine", None), normalize_vehicle_engine_choice)
             _set_normalized_initial_choice(self, "fuel", self.initial.get("fuel") or getattr(self.instance, "fuel", None), normalize_vehicle_fuel_choice)

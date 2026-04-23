@@ -7,7 +7,7 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
 
-from apps.core.widgets import SelectInput
+from apps.core.widgets import SearchableSelectInput
 from apps.finance.forms.emission_ui import (
     build_slider_widget_attrs,
     build_step5_pricing_panel_data,
@@ -71,7 +71,7 @@ class NfeRequestStep3Form(forms.ModelForm):
         tax_class_field = self.fields["tax_class"]
         dropdown_choices = [("", "Selecione a classe de imposto")]
         dropdown_choices.extend(self.tax_class_choices)
-        tax_class_field.widget = SelectInput(choices=dropdown_choices)
+        tax_class_field.widget = SearchableSelectInput(choices=dropdown_choices)
         tax_class_field.help_text = "Classe de imposto de produto (NF-e)."
         self._valid_tax_class_refs = {value for value, _ in self.tax_class_choices if value}
 

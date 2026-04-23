@@ -5,7 +5,7 @@ from django.db.models import Q
 from django.template.loader import render_to_string
 
 from apps.collaborators.models import WorkshopCollaborator
-from apps.core.widgets import SearchableSelectInput, TextInput, TextareaInput, CalendarDateInput, SelectInput, MoneyInput, NumberInput
+from apps.core.widgets import SearchableSelectInput, TextInput, TextareaInput, CalendarDateInput, MoneyInput, NumberInput
 from apps.finance.models import PaymentMethod, FinancialGroup
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_movement import FinancialMovement
@@ -21,7 +21,7 @@ class FinancialMovementBaseForm(forms.ModelForm):
 
 
 class MovementStep1Form(FinancialMovementBaseForm):
-    person_type = forms.ChoiceField(label="", choices=[("supplier", "Fornecedor"), ("collaborator", "Colaborador")], widget=SelectInput(), required=True)
+    person_type = forms.ChoiceField(label="", choices=[("supplier", "Fornecedor"), ("collaborator", "Colaborador")], widget=SearchableSelectInput(), required=True)
 
     entity = forms.ChoiceField(label="", widget=SearchableSelectInput(), required=True)
 
@@ -29,7 +29,7 @@ class MovementStep1Form(FinancialMovementBaseForm):
         model = FinancialMovement
         fields = ["direction"]
 
-        widgets = {"direction": SelectInput()}
+        widgets = {"direction": SearchableSelectInput()}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -254,7 +254,7 @@ class MovementStep2Form(FinancialMovementBaseForm):
 
 
 class MovementStep3Form(FinancialMovementBaseForm):
-    is_paid = forms.TypedChoiceField(label="Pago", required=True, initial=False, coerce=lambda value: str(value).lower() == "true", choices=((False, "Não"), (True, "Sim")), widget=SelectInput(choices=[(False, "Não"), (True, "Sim")]))
+    is_paid = forms.TypedChoiceField(label="Pago", required=True, initial=False, coerce=lambda value: str(value).lower() == "true", choices=((False, "Não"), (True, "Sim")), widget=SearchableSelectInput(choices=[(False, "Não"), (True, "Sim")]))
 
     class Meta:
         model = FinancialMovement
@@ -521,7 +521,7 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
         required=True,
         coerce=lambda value: str(value).lower() == "true",
         choices=((False, "Não"), (True, "Sim")),
-        widget=SelectInput(choices=[(False, "Não"), (True, "Sim")]),
+        widget=SearchableSelectInput(choices=[(False, "Não"), (True, "Sim")]),
         initial=False,
     )
 
@@ -552,7 +552,7 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
             "description": TextInput(),
             "items_observation": TextareaInput(attrs={"rows": 3}),
             "due_date": CalendarDateInput(),
-            "direction": SelectInput(),
+            "direction": SearchableSelectInput(),
             "amount": MoneyInput(),
             "budget_plan": SearchableSelectInput(),
             "bank_account": SearchableSelectInput(),

@@ -6,7 +6,7 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
 
-from apps.core.widgets import SelectInput
+from apps.core.widgets import SearchableSelectInput
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 
 
@@ -38,7 +38,7 @@ class SharedEmissionWorkorderSelectionForm(forms.ModelForm):
             return f"Ordem de Servico - {customer_name} - #{workorder.pk}"
 
         field.label_from_instance = _label_from_instance
-        field.widget = SelectInput(choices=field.choices)
+        field.widget = SearchableSelectInput(choices=field.choices)
         field.label = self.workorder_label
 
         self.helper = FormHelper()

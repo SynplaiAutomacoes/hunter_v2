@@ -1,5 +1,5 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.db.models import Q
+from django.db.models import Q, Prefetch
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
@@ -7,6 +7,7 @@ from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
+from apps.stock.models import StockMovement
 from apps.suppliers.forms import SupplierForm
 from apps.suppliers.models import Supplier
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -85,6 +86,18 @@ class SupplierUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
     form_class = SupplierForm
     template_name = "suppliers/supplier_update.html"
     success_url = reverse_lazy("suppliers:supplier_list")
+
+    def get_queryset(self):
+        return (
+            super()
+            .get_queryset()
+            .prefetch_related(
+                Prefetch(
+                    "movements",
+                    queryset=StockMovement.objects.order_by("-criado_em")
+                )
+            )
+        )
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()

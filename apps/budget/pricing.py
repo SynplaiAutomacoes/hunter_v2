@@ -454,7 +454,10 @@ def build_pricing_snapshot(
                     unit_price = override.service_selling_price
                     unit_cost = override.service_cost_price
                 else:
-                    unit_cost, unit_price = item.resolve_kit_service_base_prices(kit_service=kit_service)
+                    try:
+                        unit_cost, unit_price = item.resolve_kit_service_base_prices(kit_service=kit_service)
+                    except AttributeError:
+                        unit_cost, unit_price = item.service_cost_price, item.service_selling_price
                 service_duration = timedelta(0)
 
                 if override:

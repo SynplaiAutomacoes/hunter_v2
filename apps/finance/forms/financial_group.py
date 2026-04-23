@@ -7,7 +7,7 @@ from crispy_forms.layout import Div, Field, HTML, Layout, Submit  # type: ignore
 from django import forms
 from django.urls import reverse
 
-from apps.core.widgets import CheckboxInput, SelectInput, TextInput
+from apps.core.widgets import CheckboxInput, SearchableSelectInput, TextInput
 from apps.finance.models.financial_group import FinancialGroup
 from apps.workshops.models.workshops import Workshop
 
@@ -22,7 +22,7 @@ class FinancialGroupForm(forms.ModelForm):
         queryset=FinancialGroup.objects.none(),
         label="Grupo pai",
         required=False,
-        widget=SelectInput(),
+        widget=SearchableSelectInput(),
         help_text="Deixe em branco para criar um grupo raiz.",
     )
 

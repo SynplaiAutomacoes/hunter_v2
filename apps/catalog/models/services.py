@@ -18,7 +18,7 @@ class Service(TimeStampedModel):
 
     duration = models.DurationField(verbose_name="Duração")
 
-    suggested_cost = MoneyField(verbose_name="Custo Sugerido", max_digits=14, decimal_places=2, null=True, blank=True)
+    suggested_cost = MoneyField(verbose_name="Custo do tempo do serviço", max_digits=14, decimal_places=2, null=True, blank=True)
 
     selling_price = MoneyField(verbose_name="Valor de Venda", max_digits=14, decimal_places=2)
 
@@ -35,6 +35,21 @@ class Service(TimeStampedModel):
         minutes = (total_seconds % 3600) // 60
 
         return f"{hours:02d}h {minutes:02d}m"
+
+    @property
+    def is_used(self) -> bool:
+        # Verifica se já foi usado em orçamentos ou ordens de serviço
+        if self.budgetitem_set.exists():
+            return True
+        if self.workorderitem_set.exists():
+            return True
+        if self.budgetkititemoverride_set.exists():
+            return True
+        if self.workorderkititemoverride_set.exists():
+            return True
+        if self.service_kits.exists():
+            return True
+        return False
 
     class Meta:
         verbose_name = "Serviço"
