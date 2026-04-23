@@ -6,7 +6,7 @@ from django import forms
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import Http404, HttpResponse
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.decorators import method_decorator
 from django.urls import reverse
 from django.views.decorators.clickjacking import xframe_options_exempt
@@ -236,7 +236,17 @@ class NfsePreviewPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
         try:
             downloaded = download_nfse_preview_document(nfse_request=nfse_request, request=request)
         except NfseEmissionError as exc:
-            return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
+            response = render(
+                request,
+                "finance/partials/preview_error.html",
+                {
+                    "title": "Previa da NFS-e indisponivel",
+                    "message": str(exc),
+                },
+                status=502,
+            )
+            response["Cache-Control"] = "no-store"
+            return response
 
         response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
         response["Content-Disposition"] = self._build_content_disposition(nfse_request=nfse_request)

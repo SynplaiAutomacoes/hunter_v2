@@ -42,7 +42,19 @@ from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
-from apps.finance.services.emission import NfseEmissionError, _build_taker_payload, _default_service_description, _service_total_value, build_nfse_payload, build_webmania_webhook_token, cancel_nfse_document, emit_nfse_request, preview_nfse_request, sync_emission_response
+from apps.finance.services.emission import (
+    NfseEmissionError,
+    _build_taker_payload,
+    _default_service_description,
+    _service_total_value,
+    build_nfse_payload,
+    build_webmania_webhook_token,
+    cancel_nfse_document,
+    download_nfse_preview_document,
+    emit_nfse_request,
+    preview_nfse_request,
+    sync_emission_response,
+)
 from apps.finance.services.nfe_emission import NfeEmissionError, _build_nfe_products_payload, _extract_product_lines, build_nfe_payload, build_nfe_preview_rows, build_nfe_preview_warning_message, build_nfe_preview_warning_messages, cancel_nfe_document, preview_nfe_request, sync_nfe_emission_response
 from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfe_request_number, reserve_nfse_request_rps_number
 from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder, compute_slider_allocation, distribute_total_proportionally
@@ -1434,6 +1446,48 @@ class WebmaniaPreviewServiceTests(TestCase):
         sent_payload = post_mock.call_args.kwargs.get("json", {})
         self.assertTrue(sent_payload.get("previa_danfe"))
         reserve_mock.assert_not_called()
+
+    def test_download_nfse_preview_document_retries_after_pending_message(self) -> None:
+        nfse_request = SimpleNamespace(
+            pk=14,
+            workshop=SimpleNamespace(pk=1),
+            workorder=SimpleNamespace(pk=10),
+            tax_class="REFWAITNFSE",
+        )
+        headers = {
+            "Content-Type": "application/json",
+            "X-Consumer-Key": "consumer-key",
+        }
+        tax_class_response = _mock_response([{"referencia": "REFWAITNFSE", "tipo": "nfse", "status": "ativo", "codigo_servico": "01.05"}])
+        ready_response = _mock_response({"pdf_nfse": "https://files.test/nfse-ready-preview.pdf"})
+        ready_response.headers = {"Content-Type": "application/json"}
+        pending_download_response = _mock_response({"msg": "Aguardando PDF do municipio. Ultima atualizacao: 23/04/2026 15:29:42 (Estimativa: 5 minutos)"})
+        pending_download_response.headers = {"Content-Type": "application/json"}
+        pdf_download_response = Mock()
+        pdf_download_response.status_code = 200
+        pdf_download_response.headers = {"Content-Type": "application/pdf", "Content-Disposition": "inline; filename=preview.pdf"}
+        pdf_download_response.content = b"%PDF-ready"
+        pdf_download_response.text = ""
+        pdf_download_response.raise_for_status.return_value = None
+
+        with (
+            patch("apps.finance.services.emission.build_nfse_payload", return_value={"rps": [{"servico": {"classe_imposto": "REFWAITNFSE"}}]}),
+            patch("apps.finance.services.emission._build_tax_class_url", return_value="https://webmania.com.br/api/1/nfe/classe-imposto/"),
+            patch("apps.finance.services.emission._build_emit_url", return_value="https://api.webmania.com.br/2/nfse/emissao/"),
+            patch("apps.finance.services.emission._build_headers", return_value=headers),
+            patch("apps.finance.services.emission.requests.post", return_value=ready_response) as post_mock,
+            patch("apps.finance.services.emission.requests.get", side_effect=[tax_class_response, pending_download_response, pdf_download_response]) as get_mock,
+            patch("apps.finance.services.emission.time.sleep") as sleep_mock,
+        ):
+            downloaded = download_nfse_preview_document(nfse_request=nfse_request)  # type: ignore[arg-type]
+
+        self.assertEqual(downloaded.content, b"%PDF-ready")
+        self.assertEqual(post_mock.call_count, 1)
+        self.assertEqual(get_mock.call_count, 3)
+        sleep_mock.assert_called_once_with(10)
+        preview_get_call = get_mock.call_args_list[-1]
+        self.assertEqual(preview_get_call.kwargs.get("headers"), headers)
+        self.assertEqual(preview_get_call.kwargs.get("timeout"), 60)
 
 
 class NfseEmissionServiceTests(TestCase):
@@ -4025,6 +4079,26 @@ class FiscalDocumentDetailFlowTests(TestCase):
         self.assertEqual(response["Cache-Control"], "no-store")
         self.assertIsNone(response.headers.get("X-Frame-Options"))
         self.assertEqual(response.content, b"preview-pdf-content-nfse")
+
+    def test_nfse_preview_pdf_view_renders_friendly_error_page(self) -> None:
+        nfse_request = NfseRequest.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            tax_class="REFNFSEERROR",
+            service_description="Servico com erro",
+        )
+
+        with patch(
+            "apps.finance.views.nfse.download_nfse_preview_document",
+            side_effect=NfseEmissionError("O PDF da previa da NFS-e ainda esta sendo gerado pelo municipio. Tente novamente em alguns segundos."),
+        ):
+            response = self.client.get(reverse("finance:nfse_preview_pdf", kwargs={"pk": nfse_request.pk}))
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response["Cache-Control"], "no-store")
+        self.assertIsNone(response.headers.get("X-Frame-Options"))
+        self.assertContains(response, "Previa da NFS-e indisponivel", status_code=502)
+        self.assertContains(response, "Tente novamente em alguns segundos", status_code=502)
 
 
 class IssuedDocumentsViewTests(TestCase):

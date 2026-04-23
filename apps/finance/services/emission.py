@@ -4,6 +4,8 @@ from copy import deepcopy
 import json
 import logging
 import re
+import time
+import unicodedata
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 from urllib.parse import urlencode, urlparse
@@ -26,7 +28,7 @@ from apps.finance.services.webmania_auth import (
     sanitize_webmania_setting,
     should_use_global_webmania_auth,
 )
-from apps.finance.services.webmania_documents import DownloadedWebmaniaDocument, WebmaniaDocumentDownloadError, download_webmania_document
+from apps.finance.services.webmania_documents import DownloadedWebmaniaDocument
 from apps.finance.services.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
 
 
@@ -421,6 +423,41 @@ def _is_json_content_type(content_type: str) -> bool:
     return "application/json" in normalized_content_type or "text/json" in normalized_content_type
 
 
+def _normalize_preview_message(text: str) -> str:
+    normalized = unicodedata.normalize("NFKD", text)
+    return "".join(char for char in normalized if not unicodedata.combining(char)).lower()
+
+
+def _is_preview_pending_message(message: str) -> bool:
+    normalized_message = _normalize_preview_message(message)
+    return "aguardando pdf" in normalized_message and "municipio" in normalized_message
+
+
+def _extract_preview_pending_message_from_response(response: requests.Response) -> str:
+    content_type = str(response.headers.get("Content-Type") or "").lower()
+
+    if _is_json_content_type(content_type):
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        if isinstance(payload, dict):
+            message = str(payload.get("msg") or payload.get("message") or payload.get("error") or "").strip()
+            if message and _is_preview_pending_message(message):
+                return message
+        return ""
+
+    body_text = response.text.strip()
+    if body_text and _is_preview_pending_message(body_text):
+        return body_text
+
+    return ""
+
+
+NFSE_PREVIEW_RETRY_DELAY_SECONDS = 10
+NFSE_PREVIEW_MAX_ATTEMPTS = 5
+
+
 def preview_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None = None, slider_override: int | None = None) -> dict[str, Any]:
     emit_url = _build_emit_url()
     headers = _build_headers(workshop=nfse_request.workshop)
@@ -491,15 +528,6 @@ def download_nfse_preview_document(*, nfse_request: NfseRequest, request: HttpRe
             raise NfseEmissionError(error_message) from exc
         return response
 
-    response = _post_preview(payload)
-    content_type = str(response.headers.get("Content-Type") or "application/pdf")
-    if not _is_json_content_type(content_type):
-        return DownloadedWebmaniaDocument(
-            content=response.content,
-            content_type=content_type,
-            content_disposition=str(response.headers.get("Content-Disposition") or ""),
-        )
-
     def _parse_json(current_response: requests.Response) -> dict[str, Any]:
         try:
             data = current_response.json()
@@ -510,32 +538,68 @@ def download_nfse_preview_document(*, nfse_request: NfseRequest, request: HttpRe
             raise NfseEmissionError("Resposta invalida da API de previa da NFS-e.")
         return data
 
-    data = _parse_json(response)
-    error_message = extract_webmania_error_message(data.get("error") or data.get("msg") or data.get("message"), scope="nfse")
-    if error_message and _is_tax_class_not_found_error(error_message):
-        fallback_payload = _build_fallback_payload_with_explicit_tax_data(payload=payload, tax_class_payload=tax_class_payload)
-        response = _post_preview(fallback_payload)
-        content_type = str(response.headers.get("Content-Type") or "application/pdf")
+    def _response_to_document(current_response: requests.Response, *, current_payload: dict[str, Any]) -> DownloadedWebmaniaDocument | None:
+        content_type = str(current_response.headers.get("Content-Type") or "application/pdf")
         if not _is_json_content_type(content_type):
-            return DownloadedWebmaniaDocument(
-                content=response.content,
-                content_type=content_type,
-                content_disposition=str(response.headers.get("Content-Disposition") or ""),
-            )
-        data = _parse_json(response)
+            pending_message = _extract_preview_pending_message_from_response(current_response)
+            if pending_message:
+                return None
+
+        data = _parse_json(current_response)
+        raw_message = str(data.get("msg") or data.get("message") or "").strip()
+        if raw_message and _is_preview_pending_message(raw_message):
+            return None
+
         error_message = extract_webmania_error_message(data.get("error") or data.get("msg") or data.get("message"), scope="nfse")
+        if error_message and _is_tax_class_not_found_error(error_message):
+            fallback_payload = _build_fallback_payload_with_explicit_tax_data(payload=current_payload, tax_class_payload=tax_class_payload)
+            fallback_response = _post_preview(fallback_payload)
+            return _response_to_document(fallback_response, current_payload=fallback_payload)
 
-    if error_message:
-        raise NfseEmissionError(error_message)
+        if error_message:
+            raise NfseEmissionError(error_message)
 
-    preview_url = _extract_nfse_preview_url(data)
-    if not preview_url:
-        raise NfseEmissionError("A API da Webmania nao retornou o PDF da previa da NFS-e.")
+        preview_url = _extract_nfse_preview_url(data)
+        if not preview_url:
+            raise NfseEmissionError("A API da Webmania nao retornou o PDF da previa da NFS-e.")
 
-    try:
-        return download_webmania_document(workshop=nfse_request.workshop, url=preview_url)
-    except WebmaniaDocumentDownloadError as exc:
-        raise NfseEmissionError(str(exc)) from exc
+        for download_attempt in range(1, NFSE_PREVIEW_MAX_ATTEMPTS + 1):
+            try:
+                download_response = requests.get(preview_url, headers=headers, timeout=60)
+                download_response.raise_for_status()
+            except requests.RequestException as exc:
+                error_message = build_webmania_request_exception_message(exc, default="Falha ao baixar previa da NFS-e", scope="nfse")
+                raise NfseEmissionError(error_message) from exc
+
+            pending_message = _extract_preview_pending_message_from_response(download_response)
+            if pending_message:
+                if download_attempt < NFSE_PREVIEW_MAX_ATTEMPTS:
+                    time.sleep(NFSE_PREVIEW_RETRY_DELAY_SECONDS)
+                    continue
+                raise NfseEmissionError("O PDF da previa da NFS-e ainda esta sendo gerado pelo municipio. Tente novamente em alguns segundos.")
+
+            download_content_type = str(download_response.headers.get("Content-Type") or "application/octet-stream")
+            if "application/pdf" not in download_content_type.lower() and not download_response.content.startswith(b"%PDF"):
+                raise NfseEmissionError("A previa da NFS-e ainda nao retornou um PDF valido. Tente novamente em alguns segundos.")
+
+            return DownloadedWebmaniaDocument(
+                content=download_response.content,
+                content_type=download_content_type,
+                content_disposition=str(download_response.headers.get("Content-Disposition") or ""),
+            )
+
+        raise NfseEmissionError("O PDF da previa da NFS-e ainda esta sendo gerado pelo municipio. Tente novamente em alguns segundos.")
+
+    for attempt in range(1, NFSE_PREVIEW_MAX_ATTEMPTS + 1):
+        response = _post_preview(payload)
+        document = _response_to_document(response, current_payload=payload)
+        if document is not None:
+            return document
+
+        if attempt < NFSE_PREVIEW_MAX_ATTEMPTS:
+            time.sleep(NFSE_PREVIEW_RETRY_DELAY_SECONDS)
+
+    raise NfseEmissionError("O PDF da previa da NFS-e ainda esta sendo gerado pelo municipio. Tente novamente em alguns segundos.")
 
 
 def emit_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None = None, slider_override: int | None = None) -> dict[str, Any]:
