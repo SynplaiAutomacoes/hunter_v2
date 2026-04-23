@@ -66,4 +66,14 @@
             {% endfor %}
         </select>
     </div>
+
+    <div>
+        <label for="{{ table_id }}-filter-budget-type">Tipo de Orçamento</label>
+        <select name="budget_type" id="{{ table_id }}-filter-budget-type" class="select select-bordered w-full">
+            <option value="">Todos</option>
+            {% for value, label in budget_type_choices %}
+                <option value="{{ value }}" {% if request.GET.budget_type == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
 </div>

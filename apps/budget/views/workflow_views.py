@@ -20,7 +20,7 @@ from djmoney.money import Money
 from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
 from apps.budget.documents.provider import build_budget_status_report_pdf_render_request, render_budget_status_report_pdf_document
 from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
-from apps.budget.models import Budget, BudgetItem, BudgetStatus, SignatureStatus
+from apps.budget.models import Budget, BudgetItem, BudgetStatus, SignatureStatus, BudgetType
 from apps.budget.pdf_context import build_workshop_logo_data_uri
 from apps.budget.service import SuperSignError, send_budget_for_signature
 from apps.core.documents.http import build_pdf_http_response
@@ -99,6 +99,12 @@ BUDGET_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
         lookup="criado_em__date",
         kind="date_lte",
     ),
+    QueryParamFilter(
+        param_name="budget_type",
+        lookup="budget_type",
+        kind="choice",
+        allowed_values=frozenset(str(choice.value) for choice in BudgetType),
+    ),
 )
 
 BUDGET_STATUS_REPORT_FILTERS: tuple[QueryParamFilter, ...] = (
@@ -115,6 +121,7 @@ BUDGET_STATUS_REPORT_FILTERS: tuple[QueryParamFilter, ...] = (
 )
 
 BUDGET_STATUS_CHOICES = tuple((status.value, str(status.label)) for status in BudgetStatus)
+BUDGET_TYPE_CHOICES = tuple((choice.value, str(choice.label)) for choice in BudgetType)
 BUDGET_STATUS_BADGE_CLASSES = {
     BudgetStatus.DRAFT: "badge-neutral min-w-sm",
     BudgetStatus.WAITING_CLIENT: "badge-warning min-w-sm",
@@ -300,6 +307,7 @@ class BudgetListView(LoginRequiredMixin, BudgetStatusReportDataMixin, WorkshopSc
             TableActionDefaults.edit("budget:budget_update"),
         ]
         context["status_choices"] = BUDGET_STATUS_CHOICES
+        context["budget_type_choices"] = BUDGET_TYPE_CHOICES
         context["selected_status_report"] = self._get_selected_status_report()
         context["status_report_period_label"] = self._get_status_report_period_label()
         context["status_report_querystring"] = self._get_status_report_querystring()
@@ -790,3 +798,43 @@ class SaveObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return JsonResponse({"success": True})
         except (TypeError, ValueError, json.JSONDecodeError, AttributeError, Http404):
             return JsonResponse({"success": False}, status=400)
+
+
+class BudgetReferenceModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "change_budget"
+
+    def get(self, request, pk):
+        budget = _get_budget_for_workshop(self.workshop, pk)
+        available_budgets = Budget.objects.filter(workshop=self.workshop).exclude(pk=budget.pk).select_related("customer", "vehicle").order_by("-id")[:50]
+        context = {
+            "budget": budget,
+            "available_budgets": available_budgets,
+        }
+        return render(request, "budget/partials/budget_reference_modal.html", context)
+
+    def post(self, request, pk):
+        budget = _get_budget_for_workshop(self.workshop, pk)
+        reference_budget_id = request.POST.get("reference_budget_id")
+        
+        if reference_budget_id:
+            try:
+                reference_budget = _get_budget_for_workshop(self.workshop, reference_budget_id)
+                budget.reference_budget = reference_budget
+                budget.customer = reference_budget.customer
+                budget.vehicle = reference_budget.vehicle
+                budget.save(update_fields=["reference_budget", "customer", "vehicle"])
+                
+                # Redirect or trigger HTMX reload
+                response = HttpResponse(status=204)
+                redirect_url = f"{reverse('budget:budget_update', kwargs={'pk': budget.pk})}?step={budget.current_step}"
+                triggers = {
+                    "showToast": {"message": "Orçamento de referência vinculado com sucesso.", "type": "success"},
+                    "redirectAfterToast": {"url": redirect_url, "delay": 500}
+                }
+                response["HX-Trigger"] = json.dumps(triggers)
+                return response
+            except Http404:
+                return HttpResponse("Orçamento de referência inválido.", status=400)
+                
+        return HttpResponse("Nenhum orçamento selecionado.", status=400)
