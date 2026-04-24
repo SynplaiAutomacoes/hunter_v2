@@ -147,6 +147,7 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 # Local
                 "apps.workshops.context_processors.active_workshops",
+                "apps.core.context_processors.navbar",
             ],
             "builtins": [
                 "crispy_forms.templatetags.crispy_forms_tags",

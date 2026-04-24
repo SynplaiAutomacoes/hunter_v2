@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import json
 import logging
 import time
 from typing import Any
 
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse
 from django.template.response import TemplateResponse
 import requests
+from django.views import View
 from django.views.generic import TemplateView
+
+from apps.core.favorites import FavoritePageLimitError, InvalidFavoritePageError, reorder_favorite_pages, toggle_favorite_page
 
 
 external_calls_logger = logging.getLogger("performance.external")
@@ -104,3 +109,45 @@ class BaseModalFormView:
             return response
 
         return super().form_valid(form)
+
+
+class FavoritePageToggleView(LoginRequiredMixin, View):
+    def post(self, request, *args, **kwargs):
+        url = request.POST.get("url", "")
+
+        try:
+            toggle_favorite_page(request=request, user=request.user, url=url)
+        except FavoritePageLimitError as exc:
+            response = HttpResponse(status=204)
+            response["HX-Trigger"] = json.dumps(
+                {
+                    "favoritePagesLimitReached": {
+                        "title": "Limite de favoritos atingido",
+                        "message": str(exc),
+                    }
+                }
+            )
+            return response
+        except InvalidFavoritePageError as exc:
+            response = HttpResponse(status=400)
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": str(exc), "type": "warning"}})
+            return response
+
+        response = HttpResponse(status=204)
+        response["HX-Refresh"] = "true"
+        return response
+
+
+class FavoritePageReorderView(LoginRequiredMixin, View):
+    def post(self, request, *args, **kwargs):
+        raw_ids = request.POST.getlist("favorite_ids")
+
+        try:
+            favorite_ids = [int(favorite_id) for favorite_id in raw_ids]
+            reorder_favorite_pages(user=request.user, ordered_favorite_ids=favorite_ids)
+        except (TypeError, ValueError, InvalidFavoritePageError):
+            response = HttpResponse(status=400)
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": "Não foi possível reordenar os favoritos agora.", "type": "error"}})
+            return response
+
+        return HttpResponse(status=204)
