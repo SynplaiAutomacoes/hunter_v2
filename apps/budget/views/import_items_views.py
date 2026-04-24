@@ -92,27 +92,48 @@ class BudgetImportItemsProcessView(LoginRequiredMixin, WorkshopScopedMixin, View
         if not selected_item_ids:
             return HttpResponse(status=204)
             
-        source_items = BudgetItem.objects.filter(id__in=selected_item_ids, workshop=self.workshop)
+        source_items = BudgetItem.objects.filter(id__in=selected_item_ids, workshop=self.workshop).select_related("product", "service", "kit").prefetch_related("kit_overrides")
         
         for source_item in source_items:
-            source_overrides = []
-            if source_item.kit_id:
-                source_overrides = list(source_item.kit_overrides.all())
+            existing_item = None
+            if not source_item.kit_id:
+                existing_item = budget.items.filter(
+                    product=source_item.product,
+                    service=source_item.service,
+                    kit=None,
+                    is_local=source_item.is_local,
+                    is_customer_supplied=source_item.is_customer_supplied,
+                    description=source_item.description,
+                    product_cost_price=source_item.product_cost_price,
+                    product_selling_price=source_item.product_selling_price,
+                    service_cost_price=source_item.service_cost_price,
+                    service_selling_price=source_item.service_selling_price,
+                    shipping=source_item.shipping,
+                    duration=source_item.duration,
+                ).first()
 
-            new_item = BudgetItem.objects.get(pk=source_item.pk)
-            new_item.pk = None
-            new_item.budget = budget
-            new_item.kit_snapshot_frozen = False
-            new_item.save()
+            if existing_item:
+                existing_item.quantity += source_item.quantity
+                existing_item.save()
+            else:
+                source_overrides = []
+                if source_item.kit_id:
+                    source_overrides = list(source_item.kit_overrides.all())
 
-            if source_item.kit_id and source_overrides:
-                new_item.kit_overrides.all().delete()
-                for override in source_overrides:
-                    override.pk = None
-                    override.budget_item = new_item
-                    override.save()
-                
-                new_item.refresh_kit_snapshot_totals()
+                new_item = BudgetItem.objects.get(pk=source_item.pk)
+                new_item.pk = None
+                new_item.budget = budget
+                new_item.kit_snapshot_frozen = False
+                new_item.save()
+
+                if source_item.kit_id and source_overrides:
+                    new_item.kit_overrides.all().delete()
+                    for override in source_overrides:
+                        override.pk = None
+                        override.budget_item = new_item
+                        override.save()
+                    
+                    new_item.refresh_kit_snapshot_totals()
 
         response = HttpResponse(status=204)
         redirect_url = f"{reverse('budget:budget_update', kwargs={'pk': budget.pk})}?step=4"
