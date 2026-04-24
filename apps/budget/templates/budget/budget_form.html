@@ -34,6 +34,32 @@
     </dialog>
 
     <script>
+        document.body.addEventListener('htmx:afterRequest', function(event) {
+            const trigger = event.detail.xhr.getResponseHeader('HX-Trigger');
+            if (!trigger) return;
+
+            const triggers = JSON.parse(trigger);
+
+            // Exibir toast
+            if (triggers.showToast) {
+                const message = triggers.showToast.message || '';
+                const type = triggers.showToast.type || 'info';
+                // Substitua por sua implementação de toast
+                console.log(`[Toast ${type}] ${message}`);
+            }
+
+            // Redirecionamento
+            if (triggers.redirectAfterToast) {
+                const url = triggers.redirectAfterToast.url;
+                const delay = triggers.redirectAfterToast.delay || 0;
+                setTimeout(() => {
+                    window.location.href = url;
+                }, delay);
+            }
+        });
+    </script>
+
+    <script>
         (function() {
             function getModal(id) {
                 return document.getElementById(id);

@@ -169,8 +169,6 @@ class Budget(TimeStampedModel):
                 self.signature_token_active = False
                 super().save(update_fields=["signature_token_active"])
 
-        super().save(*args, **kwargs)
-
     class Meta:
         verbose_name = "Orçamento"
         verbose_name_plural = "Orçamentos"

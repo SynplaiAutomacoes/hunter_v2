@@ -817,7 +817,7 @@ class BudgetReferenceModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         
         try:
             with transaction.atomic():
-                new_budget = Budget.objects.create(
+                new_budget = Budget(
                     workshop=current_budget.workshop,
                     customer=current_budget.customer,
                     vehicle=current_budget.vehicle,
@@ -836,11 +836,12 @@ class BudgetReferenceModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     discount_percentage=current_budget.discount_percentage,
                     reference_budget=current_budget if relate else None,
                 )
+                new_budget.save()
         except Exception as e:
             return HttpResponse(f"Erro ao criar orçamento: {str(e)}", status=400)
             
         # Redirect or trigger HTMX reload
-        response = HttpResponse(status=204)
+        response = HttpResponse("", status=200)
         redirect_url = f"{reverse('budget:budget_update', kwargs={'pk': new_budget.pk})}?step=1"
         triggers = {
             "showToast": {"message": "Orçamento criado com sucesso.", "type": "success"},
