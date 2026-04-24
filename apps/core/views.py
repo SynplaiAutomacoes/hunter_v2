@@ -175,5 +175,17 @@ def metricas_dashboard(request) -> dict[str, Any]:
 
     return {
         'workshop': workshop,
-        'mes_atual': mes_atual
+        'mes_atual': mes_atual,
+
+        'qtd_carros_mes': qtd_carros_mes,
+        'ticket_medio': ticket_medio,
+        'projecao': projecao,
+        'total_vendido_ate_a_data': total_vendido_ate_a_data,
+        'rentabilidade_acumulada_mes': rentabilidade_acumulada_mes,
+        'indice_retorno_em_garantia_mes': indice_retorno_em_garantia_mes,
+        'taxa_aprovacao': taxa_aprovacao,
+
+        'total_os_a_receber_em_execucao': total_os_a_receber_em_execucao,
+        'total_orcamentos_aguardando_aprovacao': total_orcamentos_aguardando_aprovacao,
+        'total_orcamentos_reprovados': total_orcamentos_reprovados,
     }
