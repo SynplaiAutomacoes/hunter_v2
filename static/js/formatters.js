@@ -512,21 +512,49 @@
                 }
             };
         },
-        moneyInput(rawDotDecimal) {
+        moneyInput(rawDotDecimal, originalDotDecimal = '', warningMessage = '') {
+            const normalizeStoredValue = (value) => {
+                const stringValue = (value ?? '').toString().trim();
+                if (!stringValue) return '';
+                if (/^-?\d+(?:\.\d+)?$/.test(stringValue)) {
+                    return Number(stringValue).toFixed(2);
+                }
+                return money.normalizeToDotDecimal(stringValue);
+            };
+
             return {
-                rawValue: (rawDotDecimal ?? '').toString(),
+                rawValue: normalizeStoredValue(rawDotDecimal),
+                originalValue: normalizeStoredValue(originalDotDecimal),
+                warningMessage: (warningMessage ?? '').toString(),
+                isDirty: false,
                 maxDigits: 14,
+                syncDirtyState(value) {
+                    this.isDirty = value !== this.originalValue;
+                },
+                syncDisplay(value) {
+                    this.$refs.amount.value = value;
+                    this.$refs.display.value = money.formatPtBrFromDotDecimal(value);
+                    this.syncDirtyState(value);
+                },
                 init() {
-                    this.$refs.amount.value = this.rawValue;
-                    this.$refs.display.value = money.formatPtBrFromDotDecimal(this.rawValue);
+                    this.syncDisplay(this.rawValue);
                 },
                 handleInput(e) {
                     const normalized = money.normalizeToDotDecimal(e.target.value, this.maxDigits);
-                    this.$refs.amount.value = normalized;
-                    e.target.value = money.formatPtBrFromDotDecimal(normalized);
+                    this.syncDisplay(normalized);
+                    e.target.value = this.$refs.display.value;
                     emitFormattedChange(this.$refs.amount, {
                         value: normalized,
                         displayValue: e.target.value,
+                    });
+                },
+                restoreOriginal() {
+                    this.syncDisplay(this.originalValue);
+                    emitNativeInputEvents(this.$refs.display);
+                    emitNativeInputEvents(this.$refs.amount);
+                    emitFormattedChange(this.$refs.amount, {
+                        value: this.originalValue,
+                        displayValue: this.$refs.display.value,
                     });
                 },
             };
