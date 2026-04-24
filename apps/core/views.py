@@ -5,6 +5,7 @@ import logging
 import time
 from datetime import datetime
 from typing import Any
+from django.db.models import Sum
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse
@@ -13,6 +14,7 @@ import requests
 from django.views import View
 from django.views.generic import TemplateView
 
+from apps.budget.models import Budget, BudgetStatus
 from apps.core.favorites import FavoritePageLimitError, InvalidFavoritePageError, reorder_favorite_pages, toggle_favorite_page
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.workshops import get_active_workshop_or_404
@@ -160,7 +162,7 @@ def metricas_dashboard(request) -> dict[str, Any]:
     mes_atual: int = datetime.now().month
 
     # Métricas
-    qtd_carros_mes = ""
+    qtd_carros_mes: int = Budget.objects.filter(workshop=workshop, status__in=[BudgetStatus.APPROVED], entry_date__month=mes_atual).exclude(reference_budget__isnull=False).count()
     ticket_medio = ""
     projecao = ""
     total_vendido_ate_a_data = ""
@@ -170,7 +172,8 @@ def metricas_dashboard(request) -> dict[str, Any]:
 
     # Financeiro (R$)
     total_os_a_receber_em_execucao = ""
-    total_orcamentos_aguardando_aprovacao = ""
+    total_orcamentos_aguardando_aprovacao = Budget.objects.filter(workshop=workshop, status__in=[BudgetStatus.WAITING_APPROVAL]
+                                                                  ).aggregate(total_value=Sum('total_budget_value'))['total_budget_value']
     total_orcamentos_reprovados = ""
 
     return {

@@ -32,6 +32,7 @@ class BudgetStatus(models.TextChoices):
     WAITING_ITEMS = "waiting_items", "Aguardando Itens"
     WAITING_PRICING = "waiting_pricing", "Aguardando Precificação"
     WAITING_REVIEW = "waiting_review", "Aguardando Revisão"
+    WAITING_APPROVAL = "waiting_approval", "Aguardando Aprovação"
     APPROVED = "approved", "Aprovado"
     REJECTED = "rejected", "Rejeitado"
     CANCELLED = "cancelled", "Cancelado"
