@@ -1822,7 +1822,8 @@ class BudgetStep4Form(forms.ModelForm):
                                     <thead class="bg-primary text-primary-content">
                                         <tr>
                                             <th class="budget-step4-select-col text-center">
-                                                <input type="checkbox" id="select-all-services" class="checkbox checkbox-primary checkbox-sm" aria-label="Selecionar todos os serviços">
+                                                <input type="checkbox" id="select-all-services" class="checkbox text-white checkbox-sm" 
+                                                       style="border-color: white; color: white;" aria-label="Selecionar todos os serviços">
                                             </th>
                                             <th class="w-[24%] text-left">DESCRIÇÃO</th>
                                             <th class="w-[8%] text-center">QTD.</th>
@@ -1876,7 +1877,8 @@ class BudgetStep4Form(forms.ModelForm):
                                     <thead class="bg-primary text-primary-content">
                                         <tr>
                                             <th class="budget-step4-select-col text-center">
-                                                <input type="checkbox" id="select-all-kits" class="checkbox checkbox-primary checkbox-sm" aria-label="Selecionar todos os kits">
+                                                <input type="checkbox" id="select-all-kits" class="checkbox text-white checkbox-sm" 
+                                                       style="border-color: white; color: white;" aria-label="Selecionar todos os kits">
                                             </th>
                                             <th class="w-[22%] text-left">NOME</th>
                                             <th class="w-[8%] text-center">QTD.</th>
