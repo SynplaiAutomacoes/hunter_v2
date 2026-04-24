@@ -9,7 +9,7 @@
         {% if form.instance.pk %}
         <div>
             <button class="btn btn-outline" hx-get="{% url 'budget:budget_reference_modal' pk=form.instance.pk %}" hx-target="#modal-container" onclick="form_modal.showModal()">
-                <i class="fa-solid fa-copy mr-2"></i> Criar orçamento a partir deste
+                <span class="material-icons" style="vertical-align: middle;">content_copy</span> Criar orçamento a partir deste
             </button>
         </div>
         {% endif %}
@@ -32,6 +32,32 @@
     <dialog id="grandchild_form_modal" class="modal">
         <div id="grandchild-modal-container"></div>
     </dialog>
+
+    <script>
+        document.body.addEventListener('htmx:afterRequest', function(event) {
+            const trigger = event.detail.xhr.getResponseHeader('HX-Trigger');
+            if (!trigger) return;
+
+            const triggers = JSON.parse(trigger);
+
+            // Exibir toast
+            if (triggers.showToast) {
+                const message = triggers.showToast.message || '';
+                const type = triggers.showToast.type || 'info';
+                // Substitua por sua implementação de toast
+                console.log(`[Toast ${type}] ${message}`);
+            }
+
+            // Redirecionamento
+            if (triggers.redirectAfterToast) {
+                const url = triggers.redirectAfterToast.url;
+                const delay = triggers.redirectAfterToast.delay || 0;
+                setTimeout(() => {
+                    window.location.href = url;
+                }, delay);
+            }
+        });
+    </script>
 
     <script>
         (function() {

@@ -62,4 +62,7 @@ urlpatterns = [
     path("<int:budget_id>/calculate-local-service/", views.CalculateLocalServiceView.as_view(), name="calculate_local_service"),
     path("<int:budget_id>/quick-create/<str:item_type>/", views.QuickCreateProductView.as_view(), name="quick_create_item"),
     path("<int:pk>/reference-modal/", BudgetReferenceModalView.as_view(), name="budget_reference_modal"),
+    path("<int:pk>/import-items-search-modal/", views.BudgetImportItemsSearchModalView.as_view(), name="import_items_search_modal"),
+    path("<int:pk>/import-items-select-modal/", views.BudgetImportItemsSelectModalView.as_view(), name="import_items_select_modal"),
+    path("<int:pk>/import-items-process/", views.BudgetImportItemsProcessView.as_view(), name="import_items_process"),
 ]

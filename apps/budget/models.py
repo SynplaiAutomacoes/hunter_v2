@@ -32,6 +32,7 @@ class BudgetStatus(models.TextChoices):
     WAITING_ITEMS = "waiting_items", "Aguardando Itens"
     WAITING_PRICING = "waiting_pricing", "Aguardando Precificação"
     WAITING_REVIEW = "waiting_review", "Aguardando Revisão"
+    WAITING_APPROVAL = "waiting_approval", "Aguardando Aprovação"
     APPROVED = "approved", "Aprovado"
     REJECTED = "rejected", "Rejeitado"
     CANCELLED = "cancelled", "Cancelado"
@@ -167,8 +168,6 @@ class Budget(TimeStampedModel):
             if self.status == BudgetStatus.APPROVED or self.status == BudgetStatus.REJECTED or self.status == BudgetStatus.CANCELLED:
                 self.signature_token_active = False
                 super().save(update_fields=["signature_token_active"])
-
-        super().save(*args, **kwargs)
 
     class Meta:
         verbose_name = "Orçamento"

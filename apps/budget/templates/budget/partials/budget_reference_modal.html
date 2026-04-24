@@ -1,30 +1,24 @@
-<div class="modal-box max-w-2xl relative">
+<div class="modal-box max-w-md relative">
     <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick="closeBudgetParentModal()">✕</button>
 
-    <h3 class="font-bold text-lg mb-4">Criar orçamento a partir de um existente</h3>
-    <p class="text-sm text-base-content/70 mb-4">
-        Selecione um orçamento existente para ser usado como referência. 
-        Os campos Cliente e Veículo deste orçamento serão atualizados para corresponderem aos da referência selecionada.
+    <h3 class="font-bold text-2xl mb-4">Criar orçamento a partir deste</h3>
+    <p class="text-lg text-base-content/70 mb-4">
+        Deseja relacionar o novo orçamento a este?
     </p>
 
     <form method="post" action="{% url 'budget:budget_reference_modal' pk=budget.pk %}" hx-post="{% url 'budget:budget_reference_modal' pk=budget.pk %}" hx-target="#modal-container" hx-swap="outerHTML">
         {% csrf_token %}
         <div class="form-control w-full mb-6">
-            <label class="label" for="reference_budget_id">
-                <span class="label-text">Orçamento de Referência</span>
-            </label>
-            <select class="select select-bordered w-full" id="reference_budget_id" name="reference_budget_id" required>
-                <option value="" disabled selected>Selecione um orçamento...</option>
-                {% for ref_budget in available_budgets %}
-                    <option value="{{ ref_budget.pk }}">Orçamento #{{ ref_budget.pk }} - {{ ref_budget.customer.name|default:"Sem cliente" }} - {{ ref_budget.vehicle.plate|default:"Sem placa" }}</option>
-                {% endfor %}
+            <select class="select select-bordered w-full" id="relate_budget" name="relate_budget" required>
+                <option value="yes" selected>Sim</option>
+                <option value="no">Não</option>
             </select>
         </div>
 
         <div class="modal-action">
             <button type="button" class="btn" onclick="closeBudgetParentModal()">Cancelar</button>
             <button type="submit" class="btn btn-primary">
-                <i class="fa-solid fa-link mr-2"></i> Relacionar Orçamento
+                <span class="material-icons" style="vertical-align: middle;">content_copy</span> Finalizar cópia
             </button>
         </div>
     </form>

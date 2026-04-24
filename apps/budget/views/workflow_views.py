@@ -806,35 +806,46 @@ class BudgetReferenceModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def get(self, request, pk):
         budget = _get_budget_for_workshop(self.workshop, pk)
-        available_budgets = Budget.objects.filter(workshop=self.workshop).exclude(pk=budget.pk).select_related("customer", "vehicle").order_by("-id")[:50]
         context = {
             "budget": budget,
-            "available_budgets": available_budgets,
         }
         return render(request, "budget/partials/budget_reference_modal.html", context)
 
     def post(self, request, pk):
-        budget = _get_budget_for_workshop(self.workshop, pk)
-        reference_budget_id = request.POST.get("reference_budget_id")
+        current_budget = _get_budget_for_workshop(self.workshop, pk)
+        relate = request.POST.get("relate_budget") == "yes"
         
-        if reference_budget_id:
-            try:
-                reference_budget = _get_budget_for_workshop(self.workshop, reference_budget_id)
-                budget.reference_budget = reference_budget
-                budget.customer = reference_budget.customer
-                budget.vehicle = reference_budget.vehicle
-                budget.save(update_fields=["reference_budget", "customer", "vehicle"])
-                
-                # Redirect or trigger HTMX reload
-                response = HttpResponse(status=204)
-                redirect_url = f"{reverse('budget:budget_update', kwargs={'pk': budget.pk})}?step={budget.current_step}"
-                triggers = {
-                    "showToast": {"message": "Orçamento de referência vinculado com sucesso.", "type": "success"},
-                    "redirectAfterToast": {"url": redirect_url, "delay": 500}
-                }
-                response["HX-Trigger"] = json.dumps(triggers)
-                return response
-            except Http404:
-                return HttpResponse("Orçamento de referência inválido.", status=400)
-                
-        return HttpResponse("Nenhum orçamento selecionado.", status=400)
+        try:
+            with transaction.atomic():
+                new_budget = Budget(
+                    workshop=current_budget.workshop,
+                    customer=current_budget.customer,
+                    vehicle=current_budget.vehicle,
+                    cost_estimator=request.user,
+                    collaborator=current_budget.collaborator,
+                    checklist=current_budget.checklist,
+                    expiration_date=current_budget.expiration_date,
+                    entry_date=timezone.now().date(),
+                    problem_description=current_budget.problem_description,
+                    technical_diagnosis=current_budget.technical_diagnosis,
+                    notes=current_budget.notes,
+                    pdf_observation=current_budget.pdf_observation,
+                    fuel_level=current_budget.fuel_level,
+                    defect=current_budget.defect,
+                    discount_value=current_budget.discount_value,
+                    discount_percentage=current_budget.discount_percentage,
+                    reference_budget=current_budget if relate else None,
+                )
+                new_budget.save()
+        except Exception as e:
+            return HttpResponse(f"Erro ao criar orçamento: {str(e)}", status=400)
+            
+        # Redirect or trigger HTMX reload
+        response = HttpResponse("", status=200)
+        redirect_url = f"{reverse('budget:budget_update', kwargs={'pk': new_budget.pk})}?step=1"
+        triggers = {
+            "showToast": {"message": "Orçamento criado com sucesso.", "type": "success"},
+            "redirectAfterToast": {"url": redirect_url, "delay": 500}
+        }
+        response["HX-Trigger"] = json.dumps(triggers)
+        return response
