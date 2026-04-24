@@ -4,6 +4,7 @@
             label: 'Cadastros',
             items: [
                 { label: 'Cliente', href: '{% url "customer:customer_list" %}' },
+                { label: 'Histórico de Clientes', href: '{% url "customer:customer_history_list" %}'},
                 { label: 'Mensagens WhatsApp', href: '{% url "messaging:message_template_list" %}' },
                 { label: 'Grupos de Mensagens', href: '{% url "messaging:customer_message_group_list" %}' },
                 { label: 'Colaborador', href: '{% url "collaborators:collaborator_list" %}' },
@@ -51,12 +52,6 @@
                 { label: 'Classe de Imposto', href: '{% url "finance:tax_class_list" %}' },
                 { label: 'Gerar DRE', href: '{% url "finance:dre_report" %}' },
                 { label: 'Fluxo de Contas', href: '{% url "finance:cash_flow" %}' }
-            ]
-        },
-        {
-            label: 'Consulta',
-            items: [
-                { label: 'Histórico de Clientes', href: '{% url "customer:customer_history_list" %}'}
             ]
         },
         {
