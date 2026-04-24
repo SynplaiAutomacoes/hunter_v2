@@ -1,0 +1,26 @@
+<div class="modal-box max-w-2xl relative">
+    <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick="form_modal.close()">✕</button>
+
+    <h3 class="font-bold text-lg mb-4">Trazer itens de outro orçamento</h3>
+    <p class="text-sm text-base-content/70 mb-4">
+        Selecione o orçamento do qual você deseja copiar os itens.
+    </p>
+
+    <form method="post" action="{% url 'budget:import_items_select_modal' pk=budget.pk %}" hx-post="{% url 'budget:import_items_select_modal' pk=budget.pk %}" hx-target="#modal-container" hx-swap="innerHTML">
+        {% csrf_token %}
+        <div class="form-control w-full mb-6">
+            {{ form.reference_budget_id.label_tag }}
+            {{ form.reference_budget_id }}
+            {% if form.reference_budget_id.errors %}
+                <label class="label"><span class="label-text-alt text-error">{{ form.reference_budget_id.errors.0 }}</span></label>
+            {% endif %}
+        </div>
+
+        <div class="modal-action">
+            <button type="button" class="btn" onclick="form_modal.close()">Cancelar</button>
+            <button type="submit" class="btn btn-primary">
+                Avançar <i class="fa-solid fa-arrow-right ml-2"></i>
+            </button>
+        </div>
+    </form>
+</div>

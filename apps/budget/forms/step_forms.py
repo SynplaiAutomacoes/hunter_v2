@@ -1730,7 +1730,19 @@ class BudgetStep4Form(forms.ModelForm):
             Div(
                 # Coluna Esquerda: Seleção
                 Div(
-                    HTML('<h2 class="text-2xl font-bold mb-6">Seleção de Produtos e Serviços</h2>'),
+                    HTML(f'''
+                        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
+                            <h2 class="text-2xl font-bold">Seleção de Produtos, Serviços e Kits</h2>
+                            <button
+                                type="button"
+                                class="btn btn-primary text-base btn-base mt-2 sm:mt-0"
+                                hx-get="{reverse('budget:import_items_search_modal', kwargs={'pk': budget.pk})}"
+                                hx-target="#modal-container"
+                                onclick="form_modal.showModal()">
+                                Trazer itens de outro orçamento
+                            </button>
+                        </div>
+                    '''),
                     # Seção de Produtos
                     Div(
                         Div(
