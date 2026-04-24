@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from apps.collaborators.services import sync_workorder_collaborator_payrolls
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.services.payment_method_fees import calculate_payment_method_fee_amount
 from apps.sources.models import Source
@@ -114,4 +115,5 @@ def sync_workorder_financial_movement(*, workorder: WorkOrder) -> FinancialMovem
         movement.save(update_fields=[*defaults.keys()])
 
     sync_workorder_card_fee_movements(workorder=workorder)
+    sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=defaults["due_date"])
     return movement

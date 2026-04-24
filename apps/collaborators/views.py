@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
+from django.forms import BaseInlineFormSet
 from django.http import HttpResponse, HttpResponseRedirect
-from django.urls import reverse_lazy
-from django.views.generic import CreateView, DeleteView, ListView, UpdateView
+from django.shortcuts import get_object_or_404, render
+from django.urls import reverse, reverse_lazy
+from django.views.generic import CreateView, DeleteView, ListView, UpdateView, View
 
-from apps.collaborators.forms import WorkshopCollaboratorCreateForm, WorkshopCollaboratorModalForm, WorkshopCollaboratorUpdateForm
-from apps.collaborators.models import WorkshopCollaborator, WorkshopMember
+from apps.collaborators.forms import CollaboratorBenefitFormSet, WorkshopCollaboratorCreateForm, WorkshopCollaboratorModalForm, WorkshopCollaboratorUpdateForm
+from apps.collaborators.models import CollaboratorPayroll, WorkshopCollaborator, WorkshopMember
+from apps.collaborators.services import calculate_transport_allowance_total, get_reference_work_days, sync_collaborator_payroll
 from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
@@ -125,6 +129,8 @@ class WorkshopCollaboratorCreateView(LoginRequiredMixin, WorkshopScopedMixin, Cr
                 form.instance.user = None
                 response = super().form_valid(form)
 
+            sync_collaborator_payroll(collaborator=self.object)
+
         return response
 
 
@@ -140,13 +146,60 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
         kwargs["workshop"] = self.workshop
         return kwargs
 
-    def form_valid(self, form):
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        benefit_formset = kwargs.get("benefit_formset")
+        if benefit_formset is None:
+            benefit_formset = CollaboratorBenefitFormSet(instance=self.object, prefix="benefits")
+        reference_date = self.request.GET.get("reference_date")
+        history_month = str(self.request.GET.get("history_month") or "").strip()
+        history_year = str(self.request.GET.get("history_year") or "").strip()
+        history_status = str(self.request.GET.get("history_status") or "").strip()
+        payroll_history = self.object.payrolls.select_related("financial_movement").prefetch_related("items").all()
+
+        if history_month.isdigit():
+            payroll_history = payroll_history.filter(reference_month=int(history_month))
+        if history_year.isdigit():
+            payroll_history = payroll_history.filter(reference_year=int(history_year))
+        if history_status == "paid":
+            payroll_history = payroll_history.filter(financial_movement__is_paid=True)
+        elif history_status == "forecast":
+            payroll_history = payroll_history.exclude(financial_movement__is_paid=True)
+
+        month_choices = sorted({payroll.reference_month for payroll in self.object.payrolls.only("reference_month")}, reverse=True)
+        year_choices = sorted({payroll.reference_year for payroll in self.object.payrolls.only("reference_year")}, reverse=True)
+        context["benefit_formset"] = benefit_formset
+        context["benefit_empty_form"] = benefit_formset.empty_form
+        context["payroll_history"] = payroll_history[:24]
+        context["current_work_days"] = get_reference_work_days(collaborator=self.object)
+        context["current_transport_total"] = calculate_transport_allowance_total(collaborator=self.object)
+        context["active_tab"] = self.request.POST.get("tab") or self.request.GET.get("tab") or "cadastro"
+        context["reference_date"] = reference_date
+        context["history_month_choices"] = month_choices
+        context["history_year_choices"] = year_choices
+        context["selected_history_month"] = history_month
+        context["selected_history_year"] = history_year
+        context["selected_history_status"] = history_status
+        return context
+
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        form = self.get_form()
+        benefit_formset = CollaboratorBenefitFormSet(request.POST, instance=self.object, prefix="benefits")
+        if form.is_valid() and benefit_formset.is_valid():
+            return self.forms_valid(form, benefit_formset)
+        return self.forms_invalid(form, benefit_formset)
+
+    def forms_valid(self, form, benefit_formset: BaseInlineFormSet):
         with transaction.atomic():
             if form.instance.salary is None:
                 form.instance.salary = 0
 
             response = super().form_valid(form)
             collaborator = self.object
+
+            benefit_formset.instance = collaborator
+            benefit_formset.save()
 
             if collaborator.system_access:
                 role = form.cleaned_data["role"]
@@ -187,7 +240,15 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
                 collaborator.user.is_active = False
                 collaborator.user.save(update_fields=["is_active"])
 
+            sync_collaborator_payroll(collaborator=collaborator)
             return response
+
+    def forms_invalid(self, form, benefit_formset: BaseInlineFormSet):
+        return self.render_to_response(self.get_context_data(form=form, benefit_formset=benefit_formset))
+
+    def form_valid(self, form):
+        benefit_formset = CollaboratorBenefitFormSet(self.request.POST or None, instance=form.instance, prefix="benefits")
+        return self.forms_valid(form, benefit_formset)
 
 
 class WorkshopCollaboratorDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResponseMixin, DeleteView):
@@ -221,6 +282,49 @@ class WorkshopCollaboratorDeleteView(LoginRequiredMixin, WorkshopScopedMixin, Ht
         return HttpResponseRedirect(self.get_success_url())
 
 
+class CollaboratorPayrollMarkPaidView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkshopCollaborator
+    workshop_permission_codename = "change_financialmovement"
+
+    def post(self, request, pk, payroll_id):
+        collaborator = get_object_or_404(WorkshopCollaborator, pk=pk, workshop=self.workshop)
+        payroll = get_object_or_404(CollaboratorPayroll.objects.select_related("financial_movement"), pk=payroll_id, collaborator=collaborator)
+
+        if payroll.financial_movement is not None:
+            payroll.financial_movement.is_paid = True
+            payroll.financial_movement.save(update_fields=["is_paid"])
+            sync_collaborator_payroll(collaborator=collaborator, reference_date=date(payroll.reference_year, payroll.reference_month, 1))
+
+        query_params = self.request.POST.copy()
+        query_params.pop("csrfmiddlewaretoken", None)
+        redirect_url = reverse("collaborators:collaborator_update", kwargs={"pk": collaborator.pk})
+        encoded = query_params.urlencode()
+        if encoded:
+            redirect_url = f"{redirect_url}?{encoded}"
+        return HttpResponseRedirect(redirect_url)
+
+
+class CollaboratorPayrollReceiptView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkshopCollaborator
+    workshop_permission_codename = "view_financialmovement"
+
+    def get(self, request, pk, payroll_id):
+        collaborator = get_object_or_404(WorkshopCollaborator, pk=pk, workshop=self.workshop)
+        payroll = get_object_or_404(
+            CollaboratorPayroll.objects.select_related("financial_movement", "collaborator", "workshop").prefetch_related("items"),
+            pk=payroll_id,
+            collaborator=collaborator,
+        )
+        return render(
+            request,
+            "collaborators/payroll_receipt.html",
+            {
+                "collaborator": collaborator,
+                "payroll": payroll,
+            },
+        )
+
+
 class WorkshopCollaboratorModalCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
     model = WorkshopCollaborator
     form_class = WorkshopCollaboratorModalForm
@@ -235,6 +339,7 @@ class WorkshopCollaboratorModalCreateView(LoginRequiredMixin, WorkshopScopedMixi
                 self.object.salary = 0
 
             self.object.save()
+            sync_collaborator_payroll(collaborator=self.object)
 
         response = HttpResponse(status=204)
         response["HX-Trigger"] = json.dumps({"collaboratorSaved": {"id": str(self.object.pk), "name": self.object.name}})
@@ -254,6 +359,7 @@ class WorkshopCollaboratorModalUpdateView(LoginRequiredMixin, WorkshopScopedMixi
                 self.object.salary = 0
 
             self.object.save()
+            sync_collaborator_payroll(collaborator=self.object)
 
             if self.object.user_id:
                 user = self.object.user

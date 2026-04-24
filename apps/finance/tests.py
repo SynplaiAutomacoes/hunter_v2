@@ -28,6 +28,7 @@ from apps.catalog.models.kits import Kit, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.collaborators.models import WorkshopCollaborator, WorkshopMember
+from apps.collaborators.services import sync_collaborator_payroll
 from apps.core.documents.contract import DocumentPayload
 from apps.customer.models import Customer, Vehicle
 from apps.finance.documents.provider import build_dre_excel_document, build_dre_pdf_render_request
@@ -5161,6 +5162,28 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertEqual(monthly_card["results"][1]["tone"], "neutral")
         self.assertContains(response, 'style="color: #166534;"')
         self.assertContains(response, 'style="color: #991b1b;"')
+
+    def test_reports_home_view_displays_collaborator_payroll_summary_card(self) -> None:
+        collaborator = self._create_collaborator(suffix=55, name="Colaborador Folha")
+        collaborator.salary = Money("1000.00", "BRL")
+        collaborator.transport_allowance_daily = Money("5.00", "BRL")
+        collaborator.save(update_fields=["salary", "transport_allowance_daily"])
+        today = timezone.localdate()
+        WorkshopCost.objects.create(workshop=self.workshop, month=today.month, year=today.year, mechanic_quantity=1, work_days_per_month=20)
+
+        payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=today)
+        assert payroll.financial_movement is not None
+        payroll.financial_movement.is_paid = True
+        payroll.financial_movement.save(update_fields=["is_paid"])
+
+        response = self.client.get(reverse("finance:reports_home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Folha e Comissões do Mês")
+        self.assertContains(response, "Folhas previstas")
+        self.assertContains(response, "R$ 1.100,00")
+        self.assertContains(response, "Folha consolidada por colaborador")
+        self.assertContains(response, "Holerite")
 
     def test_reports_home_view_displays_current_year_totals_in_second_card(self) -> None:
         today = timezone.localdate()

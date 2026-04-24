@@ -12,6 +12,8 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.generic import DeleteView, TemplateView, UpdateView
 
+from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorPayroll
+from apps.collaborators.services import sync_workorder_collaborator_payrolls
 from apps.finance.forms.emission_ui import format_money
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
@@ -212,6 +214,54 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             overview=build_financial_overview(workshop=self.workshop, **self._get_filter_params()),
         )
 
+    def _build_collaborator_payroll_summary_card(self) -> dict[str, object]:
+        reference_date = timezone.localdate()
+        payrolls = CollaboratorPayroll.objects.filter(workshop=self.workshop, reference_year=reference_date.year, reference_month=reference_date.month).select_related("financial_movement")
+        commissions = CollaboratorCommissionEntry.objects.filter(workshop=self.workshop, reference_year=reference_date.year, reference_month=reference_date.month)
+
+        total_forecast = sum((self._resolve_money_amount(payroll.total_amount) for payroll in payrolls), start=Decimal("0.00"))
+        total_paid = sum((self._resolve_money_amount(payroll.total_amount) for payroll in payrolls if payroll.financial_movement and payroll.financial_movement.is_paid), start=Decimal("0.00"))
+        commissions_forecast = sum((self._resolve_money_amount(entry.commission_amount) for entry in commissions), start=Decimal("0.00"))
+        commissions_paid = sum((self._resolve_money_amount(entry.commission_amount) for entry in commissions if entry.status == CollaboratorCommissionEntry.Status.PAID), start=Decimal("0.00"))
+
+        return {
+            "title": "Folha e Comissões do Mês",
+            "is_placeholder": False,
+            "rows": [
+                {"label": "Folhas previstas", "value": str(payrolls.count()), "small": False, "tone": "neutral"},
+                {"label": "Folhas pagas", "value": str(sum(1 for payroll in payrolls if payroll.financial_movement and payroll.financial_movement.is_paid)), "small": True, "tone": "neutral"},
+                {"label": "Comissões previstas", "value": format_money(commissions_forecast), "small": False, "tone": "debit"},
+                {"label": "Comissões pagas", "value": format_money(commissions_paid), "small": True, "tone": "debit"},
+            ],
+            "results": [
+                {"label": "Total previsto", "value": format_money(total_forecast), "accent": True, "tone": "debit"},
+                {"label": "Total pago", "value": format_money(total_paid), "accent": False, "tone": "debit"},
+            ],
+        }
+
+    def _build_collaborator_payroll_rows(self) -> list[dict[str, object]]:
+        reference_date = timezone.localdate()
+        payrolls = CollaboratorPayroll.objects.filter(workshop=self.workshop, reference_year=reference_date.year, reference_month=reference_date.month).select_related("collaborator", "financial_movement").order_by("collaborator__name", "id")
+        rows: list[dict[str, object]] = []
+        for payroll in payrolls:
+            rows.append(
+                {
+                    "collaborator_name": payroll.collaborator.name,
+                    "due_date": payroll.due_date,
+                    "salary_amount": payroll.salary_amount,
+                    "transport_allowance_amount": payroll.transport_allowance_amount,
+                    "benefits_amount": payroll.benefits_amount,
+                    "commission_amount": payroll.commission_amount,
+                    "total_amount": payroll.total_amount,
+                    "paid_amount": payroll.paid_amount,
+                    "status": payroll.status,
+                    "status_label": payroll.status_label,
+                    "history_url": f"{reverse('collaborators:collaborator_update', kwargs={'pk': payroll.collaborator.pk})}?tab=historico&history_month={payroll.reference_month}&history_year={payroll.reference_year}",
+                    "receipt_url": reverse("collaborators:collaborator_payroll_receipt", kwargs={"pk": payroll.collaborator.pk, "payroll_id": payroll.pk}),
+                }
+            )
+        return rows
+
     def _build_financial_movement_row(self, movement: FinancialMovement) -> dict[str, object]:
         workorder = getattr(movement, "workorder", None)
         payment_manager = getattr(workorder, "payments", None)
@@ -296,8 +346,10 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             self._build_summary_card(title="Créditos e Débitos deste Mês", overview=monthly_overview),
             self._build_summary_card(title=f"Balanço Geral {reference_date.year}", overview=yearly_overview),
             self._build_selection_summary_card(),
+            self._build_collaborator_payroll_summary_card(),
         ]
         context["financial_movement_report_rows"] = self._get_financial_movement_report_rows(movements=page_obj.object_list)
+        context["collaborator_payroll_rows"] = self._build_collaborator_payroll_rows()
         context["financial_group_filters"] = self._get_financial_groups_queryset()
         context["bank_account_filters"] = self._get_bank_accounts_queryset()
         context["direction_filter_choices"] = self.FILTER_DIRECTION_CHOICES
@@ -344,6 +396,8 @@ class ReportMovementEditView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView
 
     def form_valid(self, form):
         self.object = form.save()
+        if self.object.workorder_id:
+            sync_workorder_collaborator_payrolls(workorder=self.object.workorder, reference_date=self.object.due_date)
         if self.request.htmx:
             response = HttpResponse()
             response["HX-Refresh"] = "true"

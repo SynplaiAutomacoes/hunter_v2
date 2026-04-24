@@ -60,6 +60,43 @@
             </div>
 
             <div class="p-4 border-b border-gray-200">
+                <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div class="lg:max-w-xl">
+                        <h4 class="font-bold mb-1">COLABORADORES DA O.S.</h4>
+                        <p class="text-sm text-base-content/70">Use esta vinculacao para prever e consolidar a comissao futura do colaborador.</p>
+                        <div class="mt-3 flex flex-wrap gap-2">
+                            {% for collaborator in workorder.collaborators.all %}
+                                <span class="badge badge-primary badge-outline">{{ collaborator.name }}</span>
+                            {% empty %}
+                                <span class="text-sm text-base-content/60">Nenhum colaborador vinculado.</span>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <form
+                        method="post"
+                        hx-post="{% url 'workorder:update_collaborators' workorder.pk %}"
+                        hx-target="#resume-section"
+                        hx-swap="innerHTML"
+                        class="w-full lg:max-w-lg rounded-xl border border-base-300 bg-base-100 p-4"
+                    >
+                        {% csrf_token %}
+                        <label class="label pt-0" for="{{ collaborator_form.collaborators.id_for_label }}">
+                            <span class="label-text font-medium">Colaboradores responsaveis</span>
+                        </label>
+                        {{ collaborator_form.collaborators }}
+                        {% if collaborator_form.collaborators.errors %}
+                            <p class="mt-2 text-sm text-error">{{ collaborator_form.collaborators.errors|join:', ' }}</p>
+                        {% endif %}
+                        <p class="mt-2 text-xs text-base-content/60">{{ collaborator_form.collaborators.help_text }}</p>
+                        <div class="mt-4 flex justify-end">
+                            <button type="submit" class="btn btn-primary btn-sm">Salvar colaboradores</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <div class="p-4 border-b border-gray-200">
                 <h4 class="font-bold mb-2">PRODUTOS</h4>
                 <div class="overflow-x-auto">
                     <table class="w-full text-left">
