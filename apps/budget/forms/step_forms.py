@@ -1765,15 +1765,16 @@ class BudgetStep4Form(forms.ModelForm):
                                     <thead class="bg-primary text-primary-content">
                                         <tr>
                                             <th class="budget-step4-select-col text-center">
-                                                <input type="checkbox" id="select-all-products" class="checkbox checkbox-primary checkbox-sm" aria-label="Selecionar todas as peças">
+                                                <input type="checkbox" id="select-all-products" class="checkbox text-white checkbox-sm" 
+                                                       style="border-color: white; color: white;" aria-label="Selecionar todas as peças">
                                             </th>
                                             <th class="w-[16%] text-left">DESCRIÇÃO</th>
-                                            <th class="w-[16%] text-left">APLICAÇÃO</th>
-                                            <th class="w-[10%] text-center whitespace-normal break-words leading-tight">FORNECIDO PELO CLIENTE</th>
+                                            <th class="w-[12%] text-left">APLICAÇÃO</th>
+                                            <th class="w-[14%] text-center whitespace-normal break-words leading-tight">FORNECIDO PELO CLIENTE</th>
                                             <th class="w-[8%] text-center">QTD.</th>
                                             <th class="w-[10%] text-right">CUSTO</th>
-                                            <th class="w-[12%] text-right">VALOR VENDA</th>
-                                            <th class="w-[8%] text-right">FRETE</th>
+                                            <th class="w-[10%] text-right">VALOR VENDA</th>
+                                            <th class="w-[10%] text-right">FRETE</th>
                                             <th class="w-[10%] text-right">TOTAL</th>
                                             <th class="w-[10%] text-center budget-step4-actions">AÇÕES</th>
                                         </tr>
