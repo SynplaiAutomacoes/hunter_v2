@@ -17,12 +17,7 @@ class ImportItemsSearchForm(forms.Form):
     reference_budget_id = forms.ChoiceField(
         label="Orçamento de Origem",
         required=True,
-        widget=SearchableSelectInput(
-            attrs={
-                "class": "select select-bordered w-full",
-                "data-placeholder": "Selecione um orçamento...",
-            }
-        ),
+        widget=SearchableSelectInput(),
     )
 
     def __init__(self, *args, **kwargs):
