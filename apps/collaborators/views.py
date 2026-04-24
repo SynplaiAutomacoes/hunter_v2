@@ -11,6 +11,7 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from apps.collaborators.forms import WorkshopCollaboratorCreateForm, WorkshopCollaboratorModalForm, WorkshopCollaboratorUpdateForm
 from apps.collaborators.models import WorkshopCollaborator, WorkshopMember
+from apps.collaborators.services import freeze_existing_pricing_history, sync_current_month_salary_costs
 from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
@@ -125,6 +126,9 @@ class WorkshopCollaboratorCreateView(LoginRequiredMixin, WorkshopScopedMixin, Cr
                 form.instance.user = None
                 response = super().form_valid(form)
 
+            freeze_existing_pricing_history(workshop=self.workshop, cutoff=self.object.criado_em)
+            sync_current_month_salary_costs(workshop=self.workshop)
+
         return response
 
 
@@ -235,6 +239,9 @@ class WorkshopCollaboratorModalCreateView(LoginRequiredMixin, WorkshopScopedMixi
                 self.object.salary = 0
 
             self.object.save()
+
+            freeze_existing_pricing_history(workshop=self.workshop, cutoff=self.object.criado_em)
+            sync_current_month_salary_costs(workshop=self.workshop)
 
         response = HttpResponse(status=204)
         response["HX-Trigger"] = json.dumps({"collaboratorSaved": {"id": str(self.object.pk), "name": self.object.name}})

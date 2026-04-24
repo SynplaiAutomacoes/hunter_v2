@@ -186,6 +186,9 @@ def _render_edit_items_modal(
 
 
 def _get_workorder_workshop_cost(workorder: WorkOrder, workshop):
+    if getattr(workorder, "budget_id", None) and getattr(workorder, "budget", None):
+        return workorder.budget.get_frozen_pricing_context()
+
     try:
         reference_date = workorder.criado_em if workorder.criado_em else timezone.now()
         return WorkshopCost.objects.get(workshop=workshop, month=reference_date.month, year=reference_date.year)

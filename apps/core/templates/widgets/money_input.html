@@ -2,34 +2,49 @@
 
 {% with amount=widget.subwidgets.0 currency=widget.subwidgets.1 %}
 <div
-    x-data="formatters.widget.moneyInput('{{ amount.value|default_if_none:""|unlocalize|escapejs }}')"
+    x-data="formatters.widget.moneyInput('{{ amount.value|default_if_none:""|unlocalize|escapejs }}', '{{ widget.attrs.restore_original_value|default_if_none:""|escapejs }}', '{{ widget.attrs.restore_warning_message|default_if_none:""|escapejs }}')"
     x-init="init()"
-    class="relative"
+    class="w-full"
 >
-    <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-        <span class="sm:text-sm">R$</span>
+    <div class="relative">
+        <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+            <span class="sm:text-sm">R$</span>
+        </div>
+
+        <!-- input visível (apenas UI) -->
+        <input
+            type="text"
+            id="{{ amount.attrs.id }}_display"
+            x-ref="display"
+            @input="handleInput"
+            inputmode="numeric"
+            autocomplete="off"
+            placeholder="0,00"
+            class="input-theme pl-8 {% if widget.attrs.restore_warning_message %}pr-10{% else %}pr-2{% endif %} {{ widget.attrs.class }}"
+            {% if widget.attrs.required %}required{% endif %}
+            {% if widget.attrs.disabled %}disabled{% endif %}
+            {% if widget.attrs.readonly %}readonly{% endif %}
+
+            {% for name, value in widget.attrs.items %}
+                {% if name != 'class' and name != 'type' and name != 'name' and name != 'id' and name != 'value' and name != 'x-ref' and name != 'restore_original_value' and name != 'restore_warning_message' %}
+                    {{ name }}="{% if value is True %}{{ name }}{% else %}{{ value }}{% endif %}"
+                {% endif %}
+            {% endfor %}
+        >
+
+        {% if widget.attrs.restore_warning_message %}
+        <div class="absolute inset-y-0 right-0 flex items-center pr-2" x-show="isDirty" x-cloak>
+            <button
+                type="button"
+                class="btn btn-ghost btn-xs btn-circle text-warning"
+                title="Restaurar valor original"
+                @click="restoreOriginal()"
+            >
+                <span class="material-icons text-sm">autorenew</span>
+            </button>
+        </div>
+        {% endif %}
     </div>
-
-    <!-- input visível (apenas UI) -->
-    <input
-        type="text"
-        id="{{ amount.attrs.id }}_display"
-        x-ref="display"
-        @input="handleInput"
-        inputmode="numeric"
-        autocomplete="off"
-        placeholder="0,00"
-        class="input-theme pl-8 pr-2 {{ widget.attrs.class }}"
-        {% if widget.attrs.required %}required{% endif %}
-        {% if widget.attrs.disabled %}disabled{% endif %}
-        {% if widget.attrs.readonly %}readonly{% endif %}
-
-        {% for name, value in widget.attrs.items %}
-            {% if name != 'class' and name != 'type' and name != 'name' and name != 'id' and name != 'value' and name != 'x-ref' %}
-                {{ name }}="{% if value is True %}{{ name }}{% else %}{{ value }}{% endif %}"
-            {% endif %}
-        {% endfor %}
-    >
 
     <!-- subwidget real do valor (vai no POST) -->
     <input
@@ -49,5 +64,9 @@
         value="BRL"
         {% if currency.attrs.disabled %}disabled{% endif %}
     >
+
+    {% if widget.attrs.restore_warning_message %}
+    <p class="text-warning text-xs mt-1" x-show="!isDirty">{{ widget.attrs.restore_warning_message }}</p>
+    {% endif %}
 </div>
 {% endwith %}
