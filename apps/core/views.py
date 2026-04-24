@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from datetime import datetime
 from typing import Any
 
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -13,7 +14,8 @@ from django.views import View
 from django.views.generic import TemplateView
 
 from apps.core.favorites import FavoritePageLimitError, InvalidFavoritePageError, reorder_favorite_pages, toggle_favorite_page
-
+from apps.workshops.models.workshops import Workshop
+from apps.workshops.util.workshops import get_active_workshop_or_404
 
 external_calls_logger = logging.getLogger("performance.external")
 
@@ -151,3 +153,27 @@ class FavoritePageReorderView(LoginRequiredMixin, View):
             return response
 
         return HttpResponse(status=204)
+
+
+def metricas_dashboard(request) -> dict[str, Any]:
+    workshop: Workshop = get_active_workshop_or_404(request=request)
+    mes_atual: int = datetime.now().month
+
+    # Métricas
+    qtd_carros_mes = ""
+    ticket_medio = ""
+    projecao = ""
+    total_vendido_ate_a_data = ""
+    rentabilidade_acumulada_mes = ""
+    indice_retorno_em_garantia_mes = ""
+    taxa_aprovacao = ""
+
+    # Financeiro (R$)
+    total_os_a_receber_em_execucao = ""
+    total_orcamentos_aguardando_aprovacao = ""
+    total_orcamentos_reprovados = ""
+
+    return {
+        'workshop': workshop,
+        'mes_atual': mes_atual
+    }
