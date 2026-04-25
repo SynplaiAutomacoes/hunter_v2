@@ -93,6 +93,39 @@ class CrudWrapperTemplateTests(SimpleTestCase):
         self.assertIn("new URLSearchParams(window.location.search)", html)
         self.assertIn("event.detail.parameters = parameters;", html)
 
+    def test_page_wrapper_renders_clickable_favorite_button_in_navbar(self):
+        request = self.factory.get("/workshops/")
+        template = Template(
+            """
+            {% extends 'crud/page.html' %}
+            {% block crud_content %}<div>Conteudo</div>{% endblock %}
+            """
+        )
+
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "active_workshops": [],
+                    "active_workshop_is_director": False,
+                    "navbar_menus": [
+                        {"label": "Cadastros", "children": [{"label": "Cliente", "href": "/customer/"}]},
+                        {"label": "Orcamentos", "href": "/budget/"},
+                    ],
+                    "navbar_favorites": [{"id": 1, "label": "Cliente", "href": "/customer/"}],
+                    "navbar_favorite_urls": {"/customer/"},
+                }
+            )
+        )
+
+        self.assertIn(reverse("core:favorite_page_toggle"), html)
+        self.assertIn("favorite-pages-limit-modal", html)
+        self.assertIn('x-sort="reorderFavorites()"', html)
+        self.assertIn('data-favorite-id="1"', html)
+        self.assertIn("Remover Cliente dos favoritos", html)
+        self.assertIn("Adicionar Orcamentos aos favoritos", html)
+        self.assertIn("Favoritos", html)
+
     def test_detail_wrapper_only_syncs_query_params_for_its_own_requests(self):
         request = self.factory.get("/workshops/1/?q=Oficina&page=2")
         template = Template(

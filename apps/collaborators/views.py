@@ -12,12 +12,12 @@ from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse, reverse_lazy
 from django.utils.decorators import method_decorator
-from django.views.generic import CreateView, DeleteView, ListView, UpdateView, View
 from django.views.decorators.clickjacking import xframe_options_exempt
+from django.views.generic import CreateView, DeleteView, ListView, UpdateView, View
 
 from apps.collaborators.forms import CollaboratorBenefitFormSet, WorkshopCollaboratorCreateForm, WorkshopCollaboratorModalForm, WorkshopCollaboratorUpdateForm
 from apps.collaborators.models import CollaboratorBenefit, CollaboratorPayroll, WorkshopCollaborator, WorkshopMember
-from apps.collaborators.services import calculate_transport_allowance_total, get_reference_work_days, sync_collaborator_payroll
+from apps.collaborators.services import calculate_transport_allowance_total, freeze_existing_pricing_history, get_reference_work_days, sync_collaborator_payroll, sync_current_month_salary_costs
 from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
@@ -139,6 +139,8 @@ class WorkshopCollaboratorCreateView(LoginRequiredMixin, WorkshopScopedMixin, Cr
                 response = super().form_valid(form)
 
             sync_collaborator_payroll(collaborator=self.object)
+            freeze_existing_pricing_history(workshop=self.workshop, cutoff=self.object.criado_em)
+            sync_current_month_salary_costs(workshop=self.workshop)
 
         return response
 
@@ -256,6 +258,7 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
                 collaborator.user.save(update_fields=["is_active"])
 
             sync_collaborator_payroll(collaborator=collaborator)
+            sync_current_month_salary_costs(workshop=self.workshop)
             return response
 
     def forms_invalid(self, form, benefit_formset: BaseInlineFormSet):
@@ -368,6 +371,8 @@ class WorkshopCollaboratorModalCreateView(LoginRequiredMixin, WorkshopScopedMixi
 
             self.object.save()
             sync_collaborator_payroll(collaborator=self.object)
+            freeze_existing_pricing_history(workshop=self.workshop, cutoff=self.object.criado_em)
+            sync_current_month_salary_costs(workshop=self.workshop)
 
         response = HttpResponse(status=204)
         response["HX-Trigger"] = json.dumps({"collaboratorSaved": {"id": str(self.object.pk), "name": self.object.name}})
@@ -388,6 +393,7 @@ class WorkshopCollaboratorModalUpdateView(LoginRequiredMixin, WorkshopScopedMixi
 
             self.object.save()
             sync_collaborator_payroll(collaborator=self.object)
+            sync_current_month_salary_costs(workshop=self.workshop)
 
             if self.object.user_id:
                 user = self.object.user

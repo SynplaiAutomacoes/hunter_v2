@@ -48,13 +48,16 @@ from apps.collaborators.models import WorkshopCollaborator
 from apps.core.query_filters import apply_query_param_filters
 from apps.customer.models import Customer, Vehicle
 from apps.collaborators.models import WorkshopMember
+from apps.collaborators.services import freeze_existing_pricing_history, sync_current_month_salary_costs
 from apps.iam.utils import get_or_create_director_role
 from apps.stock.models import StockProduct
 from apps.workorder.models import WorkOrder
 from apps.budget.views.pdf_views import signature_file, signature_preview, visualizar_pdf_assinatura
 from apps.budget.views.workflow_views import BUDGET_LIST_FILTERS, trigger_signature_send_if_needed
 from apps.workshops.models.workshops import Workshop
-from apps.workshops.models.workshop_costs import WorkshopCost
+from apps.workshops.models.monthly_costs import MonthlyCost
+from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
+from apps.workshops.util.monthly_costs import ADMIN_SALARY_MONTHLY_COST_NAME, MECHANIC_SALARY_MONTHLY_COST_NAME
 from apps.workshops.services.files import StoredWorkshopFile
 from apps.scheduling.models import Appointment
 
@@ -151,6 +154,12 @@ def create_collaborator(*, workshop: Workshop, suffix: int = 1, name: str | None
         admission_date=timezone.now().date(),
         collaborator_type=WorkshopCollaborator.CollaboratorType.PRODUCTIVE,
     )
+
+
+def create_salary_monthly_costs(*, workshop: Workshop) -> tuple[MonthlyCost, MonthlyCost]:
+    productive_cost, _ = MonthlyCost.objects.get_or_create(workshop=workshop, name=MECHANIC_SALARY_MONTHLY_COST_NAME, defaults={"is_active": True})
+    administrative_cost, _ = MonthlyCost.objects.get_or_create(workshop=workshop, name=ADMIN_SALARY_MONTHLY_COST_NAME, defaults={"is_active": True})
+    return productive_cost, administrative_cost
 
 
 def create_product(*, workshop: Workshop, suffix: int = 1, application: str = "") -> Product:
@@ -3056,7 +3065,7 @@ class BudgetKitServiceCalculateViewTests(TestCase):
         self.assertEqual(override.duration, timedelta(hours=2))
         self.assertEqual(self.item.service_selling_price, Money("180.00", "BRL"))
 
-    def test_duration_change_without_workshop_cost_keeps_frozen_price(self) -> None:
+    def test_duration_change_without_workshop_cost_uses_frozen_budget_snapshot(self) -> None:
         WorkshopCost.objects.filter(workshop=self.workshop).delete()
 
         response = self.client.post(
@@ -3073,9 +3082,99 @@ class BudgetKitServiceCalculateViewTests(TestCase):
 
         override = BudgetKitItemOverride.objects.get(budget_item=self.item, service=self.service)
 
-        self.assertTrue(payload["workshop_cost_missing"])
-        self.assertEqual(payload["price"], "55.00")
-        self.assertEqual(override.service_selling_price, Money("55.00", "BRL"))
+        self.assertFalse(payload["workshop_cost_missing"])
+        self.assertEqual(payload["price"], "180.00")
+        self.assertEqual(override.service_selling_price, Money("180.00", "BRL"))
+        self.assertEqual(override.service_cost_price, Money("50.00", "BRL"))
+
+
+class BudgetPricingSnapshotTests(TestCase):
+    def test_budget_snapshot_preserves_old_values_after_workshop_cost_change(self) -> None:
+        workshop = create_workshop(suffix=11)
+        budget = create_budget(workshop=workshop)
+        mechanic_cost, _ = create_salary_monthly_costs(workshop=workshop)
+        reference_date = budget.criado_em if budget.criado_em else timezone.now()
+
+        workshop_cost = WorkshopCost.objects.create(
+            workshop=workshop,
+            month=reference_date.month,
+            year=reference_date.year,
+            mechanic_quantity=1,
+            working_hours_per_month=Decimal("100.00"),
+            minimum_hourly_cost=Money("30.00", "BRL"),
+            hourly_cost_value=Money("80.00", "BRL"),
+            profitability_multiplier=Decimal("2.50"),
+        )
+        WorkshopCostItem.objects.create(workshop_cost=workshop_cost, monthly_cost=mechanic_cost, amount=Money("1000.00", "BRL"))
+
+        budget.freeze_pricing_snapshot()
+
+        WorkshopCostItem.objects.filter(workshop_cost=workshop_cost, monthly_cost=mechanic_cost).update(amount=Money("2000.00", "BRL"))
+        WorkshopCost.objects.filter(pk=workshop_cost.pk).update(
+            working_hours_per_month=Decimal("200.00"),
+            minimum_hourly_cost=Money("40.00", "BRL"),
+            hourly_cost_value=Money("120.00", "BRL"),
+            profitability_multiplier=Decimal("3.00"),
+        )
+        budget.refresh_from_db()
+
+        self.assertEqual(budget.pricing_productive_salary_total, Money("1000.00", "BRL"))
+        self.assertEqual(budget.mechanic_hour_cost_value, Money("10.00", "BRL"))
+        self.assertEqual(budget.get_mlr, Decimal("2.50"))
+
+
+class CollaboratorSalarySyncTests(TestCase):
+    def test_new_collaborator_updates_current_month_and_preserves_existing_budget_and_workorder(self) -> None:
+        _, workshop = create_director_user_with_workshop(suffix=12)
+        mechanic_cost, admin_cost = create_salary_monthly_costs(workshop=workshop)
+        today = timezone.localdate()
+        workshop_cost = WorkshopCost.objects.create(
+            workshop=workshop,
+            month=today.month,
+            year=today.year,
+            mechanic_quantity=1,
+            work_hours_per_day=timedelta(hours=10),
+            work_days_per_month=20,
+            productivity_average=Decimal("0.50"),
+            working_hours_per_month=Decimal("100.00"),
+            minimum_hourly_cost=Money("10.00", "BRL"),
+            hourly_cost_value=Money("20.00", "BRL"),
+            profitability_multiplier=Decimal("2.00"),
+        )
+        WorkshopCostItem.objects.create(workshop_cost=workshop_cost, monthly_cost=mechanic_cost, amount=Money("1000.00", "BRL"))
+        WorkshopCostItem.objects.create(workshop_cost=workshop_cost, monthly_cost=admin_cost, amount=Money("500.00", "BRL"))
+
+        previous_budget = create_budget(workshop=workshop)
+        previous_workorder = WorkOrder.objects.create(workshop=workshop, budget=previous_budget)
+
+        collaborator = WorkshopCollaborator.objects.create(
+            workshop=workshop,
+            name="Novo Produtivo",
+            cpf="52998224725",
+            birth_date=today,
+            position="Mecanico",
+            salary=Money("500.00", "BRL"),
+            admission_date=today,
+            collaborator_type=WorkshopCollaborator.CollaboratorType.PRODUCTIVE,
+            is_active=True,
+        )
+
+        freeze_existing_pricing_history(workshop=workshop, cutoff=collaborator.criado_em)
+        sync_current_month_salary_costs(workshop=workshop)
+
+        workshop_cost.refresh_from_db()
+        previous_budget.refresh_from_db()
+        previous_workorder.refresh_from_db()
+
+        mechanic_item = WorkshopCostItem.objects.get(workshop_cost=workshop_cost, monthly_cost=mechanic_cost)
+        self.assertEqual(mechanic_item.amount, Money("500.00", "BRL"))
+        self.assertEqual(previous_budget.pricing_productive_salary_total, Money("1000.00", "BRL"))
+        self.assertEqual(previous_budget.mechanic_hour_cost_value, Money("10.00", "BRL"))
+        self.assertEqual(previous_workorder.mechanic_hour_cost_value, Money("10.00", "BRL"))
+
+        future_budget = create_budget(workshop=workshop)
+
+        self.assertEqual(future_budget.mechanic_hour_cost_value, Money("5.00", "BRL"))
 
 
 class BudgetSignaturePublicViewTests(TestCase):

@@ -1,4 +1,5 @@
 from datetime import timedelta
+from types import SimpleNamespace
 from typing import Any, Iterable
 
 from django.db import models, transaction
@@ -31,6 +32,7 @@ class BudgetStatus(models.TextChoices):
     WAITING_ITEMS = "waiting_items", "Aguardando Itens"
     WAITING_PRICING = "waiting_pricing", "Aguardando Precificação"
     WAITING_REVIEW = "waiting_review", "Aguardando Revisão"
+    WAITING_APPROVAL = "waiting_approval", "Aguardando Aprovação"
     APPROVED = "approved", "Aprovado"
     REJECTED = "rejected", "Rejeitado"
     CANCELLED = "cancelled", "Cancelado"
@@ -84,6 +86,7 @@ class Budget(TimeStampedModel):
     collaborator = models.ForeignKey("collaborators.WorkshopCollaborator", verbose_name="Colaborador", on_delete=models.SET_NULL, related_name="budgets", null=True)
     collaborators = models.ManyToManyField("collaborators.WorkshopCollaborator", verbose_name="Colaboradores", related_name="collaborators_budgets", blank=True)
     checklist = models.ForeignKey("checklist.Checklist", verbose_name="Checklist", on_delete=models.SET_NULL, related_name="budgets", null=True, blank=True)
+    reference_budget = models.ForeignKey("self", verbose_name="Orçamento de Referência", on_delete=models.SET_NULL, related_name="related_budgets", null=True, blank=True)
 
     # Datas e Prazos
     expiration_date = models.DateField(verbose_name="Data de Validade", null=True, blank=True)
@@ -114,6 +117,14 @@ class Budget(TimeStampedModel):
     cancellation_reason = models.CharField(verbose_name="Motivo do Cancelamento", max_length=255, blank=True, null=True)
     current_step = models.PositiveSmallIntegerField(verbose_name="Etapa Atual", default=1)
     step5_calculation_viewed = models.BooleanField(verbose_name="Calculo da etapa 5 visualizado", default=False)
+
+    pricing_reference_month = models.PositiveSmallIntegerField(verbose_name="Mês de referência da precificação", null=True, blank=True)
+    pricing_reference_year = models.PositiveIntegerField(verbose_name="Ano de referência da precificação", null=True, blank=True)
+    pricing_productive_salary_total = MoneyField(verbose_name="Total congelado de salários produtivos", max_digits=14, decimal_places=2, null=True, blank=True)
+    pricing_working_hours_per_month = models.DecimalField(verbose_name="Horas úteis/mês congeladas", max_digits=10, decimal_places=2, null=True, blank=True)
+    pricing_minimum_hourly_cost = MoneyField(verbose_name="Custo hora mínimo congelado", max_digits=14, decimal_places=2, null=True, blank=True)
+    pricing_hourly_cost_value = MoneyField(verbose_name="Valor hora congelado", max_digits=14, decimal_places=2, null=True, blank=True)
+    pricing_profitability_multiplier = models.DecimalField(verbose_name="Multiplicador congelado", max_digits=10, decimal_places=2, null=True, blank=True)
 
     # Token SuperSign
     signature_token_version = models.PositiveIntegerField(verbose_name="ID do PDF do Orçamento", default=1)
@@ -158,26 +169,97 @@ class Budget(TimeStampedModel):
                 self.signature_token_active = False
                 super().save(update_fields=["signature_token_active"])
 
-        super().save(*args, **kwargs)
-
     class Meta:
         verbose_name = "Orçamento"
         verbose_name_plural = "Orçamentos"
 
     @property
+    def has_frozen_pricing_snapshot(self) -> bool:
+        return self.pricing_reference_month is not None and self.pricing_reference_year is not None
+
+    def _get_pricing_reference_date(self):
+        return self.criado_em if self.criado_em else timezone.now()
+
+    def _get_reference_workshop_cost(self) -> WorkshopCost | None:
+        reference_date = self._get_pricing_reference_date()
+        workshop_cost = WorkshopCost.objects.filter(workshop=self.workshop, month=reference_date.month, year=reference_date.year).first()
+        if workshop_cost is not None:
+            return workshop_cost
+
+        return WorkshopCost.objects.filter(workshop=self.workshop, month=timezone.now().month, year=timezone.now().year).first()
+
+    def build_pricing_snapshot_data(self) -> dict[str, Any]:
+        workshop_cost = self._get_reference_workshop_cost()
+        productive_salary_total = Money(0, "BRL")
+        working_hours_per_month = Decimal("0.00")
+        minimum_hourly_cost = Money(0, "BRL")
+        hourly_cost_value = Money(0, "BRL")
+        profitability_multiplier = Decimal("0.00")
+
+        reference_date = self._get_pricing_reference_date()
+        reference_month = reference_date.month
+        reference_year = reference_date.year
+
+        if workshop_cost is not None:
+            reference_month = workshop_cost.month
+            reference_year = workshop_cost.year
+            working_hours_per_month = workshop_cost.working_hours_per_month or Decimal("0.00")
+            minimum_hourly_cost = workshop_cost.minimum_hourly_cost or Money(0, "BRL")
+            hourly_cost_value = workshop_cost.hourly_cost_value or Money(0, "BRL")
+            profitability_multiplier = workshop_cost.profitability_multiplier or Decimal("0.00")
+
+            mechanic_salary_obj = get_mechanic_salary_monthly_cost(workshop=self.workshop)
+            if mechanic_salary_obj is not None:
+                salary_item = WorkshopCostItem.objects.filter(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_obj).first()
+                if salary_item is not None:
+                    productive_salary_total = salary_item.amount
+
+        return {
+            "pricing_reference_month": reference_month,
+            "pricing_reference_year": reference_year,
+            "pricing_productive_salary_total": productive_salary_total,
+            "pricing_working_hours_per_month": working_hours_per_month,
+            "pricing_minimum_hourly_cost": minimum_hourly_cost,
+            "pricing_hourly_cost_value": hourly_cost_value,
+            "pricing_profitability_multiplier": profitability_multiplier,
+        }
+
+    def freeze_pricing_snapshot(self, *, force: bool = False) -> None:
+        if self.pk is None:
+            return
+
+        if self.has_frozen_pricing_snapshot and not force:
+            return
+
+        snapshot_data = self.build_pricing_snapshot_data()
+        type(self).objects.filter(pk=self.pk).update(**snapshot_data)
+        for field_name, value in snapshot_data.items():
+            setattr(self, field_name, value)
+
+    def get_frozen_pricing_context(self):
+        if not self.has_frozen_pricing_snapshot:
+            self.freeze_pricing_snapshot()
+
+        return SimpleNamespace(
+            minimum_hourly_cost=self.pricing_minimum_hourly_cost or Money(0, "BRL"),
+            hourly_cost_value=self.pricing_hourly_cost_value or Money(0, "BRL"),
+            profitability_multiplier=self.pricing_profitability_multiplier or Decimal("0.00"),
+            working_hours_per_month=self.pricing_working_hours_per_month or Decimal("0.00"),
+            productive_salary_total=self.pricing_productive_salary_total or Money(0, "BRL"),
+            month=self.pricing_reference_month,
+            year=self.pricing_reference_year,
+        )
+
+    @property
     def get_mlr(self):
-        workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=timezone.now().month, year=timezone.now().year)
-        return workshop_cost.profitability_multiplier
+        return self.get_frozen_pricing_context().profitability_multiplier
 
     @property
     def get_mlo(self):
-        workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=timezone.now().month, year=timezone.now().year)
-        mechanic_salary_obj = get_mechanic_salary_monthly_cost(workshop=self.workshop)
-
-        # Extra
-        salario_mecanicos = WorkshopCostItem.objects.get(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_obj).amount
+        pricing_context = self.get_frozen_pricing_context()
+        salario_mecanicos = pricing_context.productive_salary_total
         duracao_total = Decimal(self.total_duration.total_seconds()) / Decimal(3600)
-        horas_uteis_mes = workshop_cost.working_hours_per_month
+        horas_uteis_mes = pricing_context.working_hours_per_month
 
         # Custos
         custo_pecas = self.total_costs_products_value
@@ -200,28 +282,12 @@ class Budget(TimeStampedModel):
 
     def calculate_pricing_methods(self):
         fallback_data = self._build_pricing_fallback_data()
-
-        try:
-            reference_date = self.criado_em if self.criado_em else timezone.now()
-            workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=reference_date.month, year=reference_date.year)
-        except WorkshopCost.DoesNotExist:
-            try:
-                workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=timezone.now().month, year=timezone.now().year)
-            except WorkshopCost.DoesNotExist:
-                return fallback_data
-
-        mechanic_salary_obj = get_mechanic_salary_monthly_cost(workshop=self.workshop)
-        if mechanic_salary_obj is None:
-            return fallback_data
-
-        try:
-            salario_mecanicos = WorkshopCostItem.objects.get(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_obj).amount
-        except WorkshopCostItem.DoesNotExist:
-            return fallback_data
+        pricing_context = self.get_frozen_pricing_context()
+        salario_mecanicos = pricing_context.productive_salary_total
 
         # Índices
         duracao_total = Decimal(self.total_duration.total_seconds()) / Decimal(3600)
-        horas_uteis_mes = workshop_cost.working_hours_per_month
+        horas_uteis_mes = pricing_context.working_hours_per_month
 
         if not horas_uteis_mes or horas_uteis_mes == 0:
             return fallback_data
@@ -241,7 +307,7 @@ class Budget(TimeStampedModel):
         subtracao_base_lucro = custo_pecas + custo_frete_pecas + custo_total_mao_obra + custo_servico_terceiro
 
         # MÉTOD0 TRADICIONAL
-        valor_hora_vendida_trad = workshop_cost.hourly_cost_value
+        valor_hora_vendida_trad = pricing_context.hourly_cost_value
         venda_mao_obra_trad = valor_hora_vendida_trad * duracao_total
         valor_orcamento_trad = soma_base_orcamento + venda_mao_obra_trad
         lucro_operacional_trad = valor_orcamento_trad - subtracao_base_lucro
@@ -436,25 +502,9 @@ class Budget(TimeStampedModel):
 
     @property
     def mechanic_hour_cost_value(self) -> Money:
-        reference_date = self.criado_em if self.criado_em else timezone.now()
-        try:
-            workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=reference_date.month, year=reference_date.year)
-        except WorkshopCost.DoesNotExist:
-            try:
-                workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=timezone.now().month, year=timezone.now().year)
-            except WorkshopCost.DoesNotExist:
-                return Money(0, "BRL")
-
-        mechanic_salary_obj = get_mechanic_salary_monthly_cost(workshop=self.workshop)
-        if mechanic_salary_obj is None:
-            return Money(0, "BRL")
-
-        try:
-            salario_mecanicos = WorkshopCostItem.objects.get(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_obj).amount
-        except WorkshopCostItem.DoesNotExist:
-            return Money(0, "BRL")
-
-        horas_uteis_mes = workshop_cost.working_hours_per_month
+        pricing_context = self.get_frozen_pricing_context()
+        salario_mecanicos = pricing_context.productive_salary_total
+        horas_uteis_mes = pricing_context.working_hours_per_month
         if not horas_uteis_mes or horas_uteis_mes == 0:
             return Money(0, "BRL")
 
@@ -991,11 +1041,7 @@ class BudgetItem(TimeStampedModel):
         if cache_set:
             return getattr(self, "_budget_workshop_cost_cache", None)
 
-        reference_date = self.budget.criado_em if self.budget_id and self.budget and self.budget.criado_em else timezone.now()
-
-        workshop_cost = WorkshopCost.objects.filter(workshop=self.workshop, month=reference_date.month, year=reference_date.year).first()
-        if workshop_cost is None:
-            workshop_cost = WorkshopCost.objects.filter(workshop=self.workshop, month=timezone.now().month, year=timezone.now().year).first()
+        workshop_cost = self.budget.get_frozen_pricing_context() if self.budget_id and self.budget else None
 
         setattr(self, "_budget_workshop_cost_cache", workshop_cost)
         setattr(self, "_budget_workshop_cost_cache_set", True)

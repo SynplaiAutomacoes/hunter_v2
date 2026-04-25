@@ -5,55 +5,54 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('finance', '0033_nferequest_additional_information_and_more'),
+        ("finance", "0033_nferequest_additional_information_and_more"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='taxclassnfecofinsscenario',
-            name='tax_class',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='cofins_scenarios', to='finance.taxclassnfe', verbose_name='Classe de Nota Fiscal'),
+            model_name="taxclassnfecofinsscenario",
+            name="tax_class",
+            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="cofins_scenarios", to="finance.taxclassnfe", verbose_name="Classe de Nota Fiscal"),
         ),
         migrations.AlterField(
-            model_name='taxclassnfeicmsscenario',
-            name='tax_class',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='icms_scenarios', to='finance.taxclassnfe', verbose_name='Classe de Nota Fiscal'),
+            model_name="taxclassnfeicmsscenario",
+            name="tax_class",
+            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="icms_scenarios", to="finance.taxclassnfe", verbose_name="Classe de Nota Fiscal"),
         ),
         migrations.AlterField(
-            model_name='taxclassnfeipiscenario',
-            name='tax_class',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='ipi_scenarios', to='finance.taxclassnfe', verbose_name='Classe de Nota Fiscal'),
+            model_name="taxclassnfeipiscenario",
+            name="tax_class",
+            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="ipi_scenarios", to="finance.taxclassnfe", verbose_name="Classe de Nota Fiscal"),
         ),
         migrations.AlterField(
-            model_name='taxclassnfepisscenario',
-            name='tax_class',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='pis_scenarios', to='finance.taxclassnfe', verbose_name='Classe de Nota Fiscal'),
+            model_name="taxclassnfepisscenario",
+            name="tax_class",
+            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="pis_scenarios", to="finance.taxclassnfe", verbose_name="Classe de Nota Fiscal"),
         ),
         migrations.AlterField(
-            model_name='taxclasspreset',
-            name='kind',
-            field=models.CharField(choices=[('nfe', 'Nota Fiscal'), ('nfse', 'Nota Fiscal de Serviço')], max_length=10, verbose_name='Tipo'),
+            model_name="taxclasspreset",
+            name="kind",
+            field=models.CharField(choices=[("nfe", "Nota Fiscal"), ("nfse", "Nota Fiscal de Serviço")], max_length=10, verbose_name="Tipo"),
         ),
         migrations.AlterField(
-            model_name='webmaniacompany',
-            name='nfe_numero',
-            field=models.PositiveIntegerField(blank=True, null=True, verbose_name='Próximo número da Nota Fiscal'),
+            model_name="webmaniacompany",
+            name="nfe_numero",
+            field=models.PositiveIntegerField(blank=True, null=True, verbose_name="Próximo número da Nota Fiscal"),
         ),
         migrations.AlterField(
-            model_name='webmaniacompany',
-            name='nfe_numero_dev',
-            field=models.PositiveIntegerField(blank=True, null=True, verbose_name='Próximo número da Nota Fiscal homologação'),
+            model_name="webmaniacompany",
+            name="nfe_numero_dev",
+            field=models.PositiveIntegerField(blank=True, null=True, verbose_name="Próximo número da Nota Fiscal homologação"),
         ),
         migrations.AlterField(
-            model_name='webmaniacompany',
-            name='nfe_serie',
-            field=models.PositiveIntegerField(blank=True, null=True, verbose_name='Série da Nota Fiscal'),
+            model_name="webmaniacompany",
+            name="nfe_serie",
+            field=models.PositiveIntegerField(blank=True, null=True, verbose_name="Série da Nota Fiscal"),
         ),
         migrations.AlterField(
-            model_name='webmaniacompany',
-            name='nfse_rps_serie',
-            field=models.CharField(blank=True, default='', max_length=10, verbose_name='Série RPS da Nota Fiscal de Serviço'),
+            model_name="webmaniacompany",
+            name="nfse_rps_serie",
+            field=models.CharField(blank=True, default="", max_length=10, verbose_name="Série RPS da Nota Fiscal de Serviço"),
         ),
     ]

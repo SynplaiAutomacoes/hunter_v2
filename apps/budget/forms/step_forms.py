@@ -1735,7 +1735,19 @@ class BudgetStep4Form(forms.ModelForm):
             Div(
                 # Coluna Esquerda: Seleção
                 Div(
-                    HTML('<h2 class="text-2xl font-bold mb-6">Seleção de Produtos e Serviços</h2>'),
+                    HTML(f'''
+                        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
+                            <h2 class="text-2xl font-bold">Seleção de Produtos, Serviços e Kits</h2>
+                            <button
+                                type="button"
+                                class="btn btn-primary text-base btn-base mt-2 sm:mt-0"
+                                hx-get="{reverse('budget:import_items_search_modal', kwargs={'pk': budget.pk})}"
+                                hx-target="#modal-container"
+                                onclick="form_modal.showModal()">
+                                Trazer itens de outro orçamento
+                            </button>
+                        </div>
+                    '''),
                     # Seção de Produtos
                     Div(
                         Div(
@@ -1770,15 +1782,16 @@ class BudgetStep4Form(forms.ModelForm):
                                     <thead class="bg-primary text-primary-content">
                                         <tr>
                                             <th class="budget-step4-select-col text-center">
-                                                <input type="checkbox" id="select-all-products" class="checkbox checkbox-primary checkbox-sm" aria-label="Selecionar todas as peças">
+                                                <input type="checkbox" id="select-all-products" class="checkbox text-white checkbox-sm" 
+                                                       style="border-color: white; color: white;" aria-label="Selecionar todas as peças">
                                             </th>
                                             <th class="w-[16%] text-left">DESCRIÇÃO</th>
-                                            <th class="w-[16%] text-left">APLICAÇÃO</th>
-                                            <th class="w-[10%] text-center whitespace-normal break-words leading-tight">Fornecido pelo cliente?</th>
+                                            <th class="w-[12%] text-left">APLICAÇÃO</th>
+                                            <th class="w-[14%] text-center whitespace-normal break-words leading-tight">FORNECIDO PELO CLIENTE</th>
                                             <th class="w-[8%] text-center">QTD.</th>
                                             <th class="w-[10%] text-right">CUSTO</th>
-                                            <th class="w-[12%] text-right">VALOR VENDA</th>
-                                            <th class="w-[8%] text-right">FRETE</th>
+                                            <th class="w-[10%] text-right">VALOR VENDA</th>
+                                            <th class="w-[10%] text-right">FRETE</th>
                                             <th class="w-[10%] text-right">TOTAL</th>
                                             <th class="w-[10%] text-center budget-step4-actions">AÇÕES</th>
                                         </tr>
@@ -1826,7 +1839,8 @@ class BudgetStep4Form(forms.ModelForm):
                                     <thead class="bg-primary text-primary-content">
                                         <tr>
                                             <th class="budget-step4-select-col text-center">
-                                                <input type="checkbox" id="select-all-services" class="checkbox checkbox-primary checkbox-sm" aria-label="Selecionar todos os serviços">
+                                                <input type="checkbox" id="select-all-services" class="checkbox text-white checkbox-sm" 
+                                                       style="border-color: white; color: white;" aria-label="Selecionar todos os serviços">
                                             </th>
                                             <th class="w-[24%] text-left">DESCRIÇÃO</th>
                                             <th class="w-[8%] text-center">QTD.</th>
@@ -1880,7 +1894,8 @@ class BudgetStep4Form(forms.ModelForm):
                                     <thead class="bg-primary text-primary-content">
                                         <tr>
                                             <th class="budget-step4-select-col text-center">
-                                                <input type="checkbox" id="select-all-kits" class="checkbox checkbox-primary checkbox-sm" aria-label="Selecionar todos os kits">
+                                                <input type="checkbox" id="select-all-kits" class="checkbox text-white checkbox-sm" 
+                                                       style="border-color: white; color: white;" aria-label="Selecionar todos os kits">
                                             </th>
                                             <th class="w-[22%] text-left">NOME</th>
                                             <th class="w-[8%] text-center">QTD.</th>
@@ -2971,10 +2986,10 @@ class BudgetStep6Form(forms.ModelForm):
                             <table class="table table-zebra table-fixed w-full">
                               <thead class="bg-primary text-primary-content">
                                 <tr>
-                                  <th class="w-[20%]">NOME</th>
+                                  <th class="w-[18%]">NOME</th>
                                   <th class="w-[18%]">APLICAÇÃO</th>
-                                  <th class="w-[14%] text-center whitespace-normal break-words leading-tight" title="Fornecido pelo cliente?">Fornecido pelo cliente?</th>
-                                  <th class="w-[8%] text-center">QTD.</th>
+                                  <th class="w-[18%] text-center whitespace-normal break-words leading-tight">FORNECIDO PELO CLIENTE</th>
+                                  <th class="w-[6%] text-center">QTD.</th>
                                   <th class="w-[10%]">CUSTO</th>
                                   <th class="w-[12%]">VALOR</th>
                                   <th class="w-[8%]">FRETE</th>

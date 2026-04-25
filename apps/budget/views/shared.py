@@ -65,6 +65,9 @@ def _parse_duration_from_string(raw_duration):
 
 
 def _get_budget_workshop_cost(budget, workshop):
+    if budget and getattr(budget, "pk", None):
+        return budget.get_frozen_pricing_context(), False
+
     try:
         reference_date = budget.criado_em if budget.criado_em else timezone.now()
         return (
