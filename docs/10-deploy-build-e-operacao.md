@@ -31,6 +31,17 @@ Em alto nivel, o `Dockerfile`:
 
 Esse pipeline deixa claro que o build de frontend e o preparo de assets fazem parte do build de imagem, nao de um passo separado de CI apenas.
 
+## Cairo no deploy
+
+O deploy ja instala dependencias nativas do Cairo no `Dockerfile`, o que e necessario para conversao de logomarca SVG em PNG no backend.
+
+Trecho relevante:
+
+- `libcairo2-dev`
+- `pkg-config`
+
+Se a aplicacao passar a falhar em conversao de SVG no ambiente remoto, revise primeiro se a imagem publicada foi rebuildada a partir do `Dockerfile` mais recente.
+
 ## Startup do container
 
 `entrypoint.sh` executa esta sequencia:
@@ -111,6 +122,12 @@ Antes de considerar o ambiente saudavel, confira:
 
 - revise credenciais Webmania no ambiente remoto
 - revise credenciais do bucket S3 compativel e certificado da oficina
+
+### Upload de logo SVG falha
+
+- no ambiente local Windows, confirme que `libcairo-2.dll` esta disponivel no `PATH`
+- em deploy Docker, confirme que a imagem atual foi rebuildada com as dependencias nativas do Cairo
+- valide com `uv run python -c "import cairosvg; print('ok')"`
 
 ### Static quebrado
 

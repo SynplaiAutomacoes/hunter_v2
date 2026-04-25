@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import base64
+import io
 from unittest.mock import Mock, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
+from PIL import Image
 
 from apps.accounts.models import Account, User
 from apps.collaborators.models import WorkshopMember
@@ -239,8 +241,9 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
         self.assertNotContains(page_response, "certificados/")
         self.assertNotContains(page_response, "Atualmente:")
 
+    @override_settings(APP_BASE_URL="https://app.example.com")
     def test_logo_autoupload_saves_logo_in_bucket_and_syncs_public_url(self) -> None:
-        logo_bytes = b"fake-logo-bytes"
+        logo_bytes = self._build_png(width=320, height=160)
         logo_file = SimpleUploadedFile(
             "logo.png",
             logo_bytes,
@@ -278,10 +281,76 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
 
         self.assertEqual(preview_response.status_code, 200)
         self.assertEqual(preview_response["Content-Type"], "image/png")
-        self.assertEqual(preview_response.content, logo_bytes)
+        self.assertEqual(preview_response.content[:8], b"\x89PNG\r\n\x1a\n")
         self.assertEqual(public_response.status_code, 200)
         self.assertEqual(public_response["Content-Type"], "image/png")
-        self.assertEqual(public_response.content, logo_bytes)
+        self.assertEqual(public_response.content[:8], b"\x89PNG\r\n\x1a\n")
+
+        normalized_logo = file_service.files["logo"][self.workshop.logo_file_key]
+        self.assertEqual(normalized_logo.filename, "logo.png")
+        self.assertEqual(normalized_logo.content_type, "image/png")
+        with Image.open(io.BytesIO(normalized_logo.content)) as image:
+            self.assertLessEqual(image.width, 120)
+            self.assertLessEqual(image.height, 65)
+
+    @override_settings(APP_BASE_URL="https://app.example.com")
+    def test_logo_autoupload_converts_svg_to_png_with_size_limit(self) -> None:
+        logo_file = SimpleUploadedFile(
+            "logo.svg",
+            b"""<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" width="320" height="160"><rect width="320" height="160" fill="#ff0000"/></svg>""",
+            content_type="image/svg+xml",
+        )
+        file_service = FakeWorkshopFileService()
+        rasterized_png = self._build_png(width=320, height=160)
+
+        with (
+            patch("apps.workshops.services.files.get_workshop_file_service", return_value=file_service),
+            patch("apps.workshops.services.files.update_webmania_company", return_value={"success": True}),
+            patch("apps.workshops.services.files._rasterize_svg_to_png", return_value=rasterized_png),
+        ):
+            response = self.client.post(
+                reverse("workshops:update", kwargs={"pk": self.workshop.pk}),
+                data={
+                    "tab": "logo_autoupload",
+                    "logo": logo_file,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.workshop.refresh_from_db()
+        self.assertEqual(self.workshop.logo_file_name, "logo.png")
+
+        normalized_logo = file_service.files["logo"][self.workshop.logo_file_key]
+        self.assertEqual(normalized_logo.filename, "logo.png")
+        self.assertEqual(normalized_logo.content_type, "image/png")
+        with Image.open(io.BytesIO(normalized_logo.content)) as image:
+            self.assertLessEqual(image.width, 120)
+            self.assertLessEqual(image.height, 65)
+
+    def test_logo_autoupload_rejects_non_supported_logo_format(self) -> None:
+        logo_file = SimpleUploadedFile(
+            "logo.gif",
+            b"GIF89a",
+            content_type="image/gif",
+        )
+
+        response = self.client.post(
+            reverse("workshops:update", kwargs={"pk": self.workshop.pk}),
+            data={
+                "tab": "logo_autoupload",
+                "logo": logo_file,
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertJSONEqual(response.content, {"ok": False, "message": "Permitido logomarca somente nos formatos JPEG, PNG, WEBP ou SVG."})
+
+    @staticmethod
+    def _build_png(*, width: int, height: int) -> bytes:
+        image = Image.new("RGBA", (width, height), color=(255, 0, 0, 255))
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        return buffer.getvalue()
 
     def test_delete_workshop_removes_local_records_only(self) -> None:
         company = WebmaniaCompany.objects.create(workshop=self.workshop, webmania_company_id="DEL-01")

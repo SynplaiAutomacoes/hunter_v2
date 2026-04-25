@@ -287,7 +287,7 @@ class WorkshopLogoForm(forms.Form):
     logo = forms.FileField(
         required=False,
         label="Logo da oficina",
-        validators=[FileExtensionValidator(allowed_extensions=["png", "jpg", "jpeg", "gif", "webp", "svg"])],
+        validators=[FileExtensionValidator(allowed_extensions=["png", "jpg", "jpeg", "webp", "svg"], message="Permitido logomarca somente nos formatos JPEG, PNG, WEBP ou SVG.")],
         widget=ImageInput(),
     )
 
@@ -297,6 +297,18 @@ class WorkshopLogoForm(forms.Form):
 
         if preview_url:
             self.initial["logo"] = _PreviewableFileValue(preview_url)
+
+    def clean_logo(self):
+        logo = self.cleaned_data.get("logo")
+        if logo in (None, False):
+            return logo
+
+        allowed_content_types = {"image/jpeg", "image/png", "image/webp", "image/svg+xml"}
+        content_type = str(getattr(logo, "content_type", "") or "").strip().lower()
+        if content_type and content_type not in allowed_content_types:
+            raise forms.ValidationError("Permitido logomarca somente nos formatos JPEG, PNG, WEBP ou SVG.")
+
+        return logo
 
     def has_new_upload(self) -> bool:
         uploaded_file = self.cleaned_data.get("logo")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import io
 import logging
 import mimetypes
 import uuid
@@ -10,7 +11,9 @@ from datetime import datetime
 from functools import lru_cache
 from tempfile import NamedTemporaryFile
 from typing import Iterator, Literal
+from urllib.parse import urlparse
 
+from PIL import Image, UnidentifiedImageError
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
 from django.urls import reverse
@@ -28,6 +31,8 @@ from apps.workshops.models.workshops import Workshop
 logger = logging.getLogger(__name__)
 
 StoredFileKind = Literal["certificate", "logo"]
+MAX_LOGO_WIDTH_PX = 120
+MAX_LOGO_HEIGHT_PX = 65
 
 
 class WorkshopFileStorageError(Exception):
@@ -202,7 +207,43 @@ def _read_uploaded_file(uploaded_file: UploadedFile, *, kind: StoredFileKind) ->
         content_type=getattr(uploaded_file, "content_type", ""),
         default_content_type=_default_content_type(kind=kind, filename=filename),
     )
+
+    if kind == "logo":
+        content, filename, content_type = _normalize_logo_upload(content=content, filename=filename, content_type=content_type)
+
     return _BufferedUpload(filename=filename, content_type=content_type, content=content)
+
+
+def _normalize_logo_upload(*, content: bytes, filename: str, content_type: str) -> tuple[bytes, str, str]:
+    rasterized_content = content
+    normalized_content_type = str(content_type or "").strip().lower()
+    if normalized_content_type == "image/svg+xml" or filename.lower().endswith(".svg"):
+        rasterized_content = _rasterize_svg_to_png(content)
+
+    try:
+        with Image.open(io.BytesIO(rasterized_content)) as image:
+            normalized_image = image.convert("RGBA")
+            normalized_image.thumbnail((MAX_LOGO_WIDTH_PX, MAX_LOGO_HEIGHT_PX), Image.Resampling.LANCZOS)
+
+            output = io.BytesIO()
+            normalized_image.save(output, format="PNG")
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise WorkshopFileStorageError("Nao foi possivel processar a logomarca enviada. Use um arquivo de imagem valido.") from exc
+
+    normalized_name = f"{filename.rsplit('.', 1)[0] if '.' in filename else filename}.png"
+    safe_name = _normalize_filename(normalized_name, fallback_name="logo.png")
+    return output.getvalue(), safe_name, "image/png"
+
+
+def _rasterize_svg_to_png(content: bytes) -> bytes:
+    try:
+        import cairosvg  # type: ignore[import-untyped]
+
+        return bytes(cairosvg.svg2png(bytestring=content))
+    except OSError as exc:
+        raise WorkshopFileStorageError("Nao foi possivel converter a logomarca SVG para PNG porque a biblioteca nativa do Cairo nao esta instalada neste ambiente. Use PNG, JPEG ou WEBP, ou instale o runtime do Cairo.") from exc
+    except Exception as exc:
+        raise WorkshopFileStorageError("Nao foi possivel converter a logomarca SVG para PNG.") from exc
 
 
 @lru_cache(maxsize=1)
@@ -224,7 +265,22 @@ def workshop_has_logo(workshop: Workshop) -> bool:
 
 def build_workshop_logo_public_url(*, workshop: Workshop, request=None) -> str:
     path = reverse("workshops:logo_public", kwargs={"token": workshop.logo_public_token})
-    return build_absolute_app_url(path=path, request=request)
+    public_url = build_absolute_app_url(path=path, request=None)
+    if not _is_public_url(public_url):
+        raise WorkshopFileStorageError("Configure APP_BASE_URL com uma URL publica para sincronizar a logomarca com a Webmania.")
+    return public_url
+
+
+def _is_public_url(url: str) -> bool:
+    parsed = urlparse(str(url or "").strip())
+    hostname = str(parsed.hostname or "").strip().lower()
+    if not hostname:
+        return False
+    if hostname in {"localhost", "127.0.0.1", "0.0.0.0"}:
+        return False
+    if hostname.endswith(".local"):
+        return False
+    return True
 
 
 def get_workshop_certificate_file(workshop: Workshop) -> StoredWorkshopFile | None:
@@ -287,14 +343,11 @@ def save_workshop_logo_atomic(
     )
 
     previous_file_id = str(getattr(workshop, "logo_file_key", "") or "").strip()
+    previous_file_name = str(getattr(workshop, "logo_file_name", "") or "").strip()
+    previous_content_type = str(getattr(workshop, "logo_content_type", "") or "").strip()
+    previous_uploaded_at = getattr(workshop, "logo_uploaded_at", None)
     previous_company_logo_url = str(company.logomarca or "").strip()
     public_logo_url = build_workshop_logo_public_url(workshop=workshop, request=request)
-
-    try:
-        update_webmania_company(company=company, payload={"logomarca": public_logo_url})
-    except Exception:
-        _safe_delete_file(kind="logo", file_id=staged_file.file_id)
-        raise
 
     try:
         with transaction.atomic():
@@ -303,19 +356,48 @@ def save_workshop_logo_atomic(
             workshop.logo_content_type = staged_file.content_type
             workshop.logo_uploaded_at = staged_file.uploaded_at
             workshop.save(update_fields=["logo_file_key", "logo_file_name", "logo_content_type", "logo_uploaded_at"])
+    except Exception as exc:
+        _safe_delete_file(kind="logo", file_id=staged_file.file_id)
+        raise WorkshopFileSyncError("Falha ao concluir o salvamento da logo. Nenhuma alteracao foi mantida.") from exc
 
+    try:
+        update_webmania_company(company=company, payload={"logomarca": public_logo_url})
+    except Exception:
+        _rollback_logo_upload(
+            workshop=workshop,
+            company=company,
+            previous_file_id=previous_file_id,
+            previous_file_name=previous_file_name,
+            previous_content_type=previous_content_type,
+            previous_uploaded_at=previous_uploaded_at,
+            previous_company_logo_url=previous_company_logo_url,
+        )
+        _safe_delete_file(kind="logo", file_id=staged_file.file_id)
+        raise
+
+    try:
+        with transaction.atomic():
             if company.logomarca != public_logo_url:
                 company.logomarca = public_logo_url
                 company.save(update_fields=["logomarca"])
 
             transaction.on_commit(lambda: _cleanup_replaced_file(kind="logo", previous_file_id=previous_file_id, new_file_id=staged_file.file_id))
     except Exception as exc:
-        _safe_delete_file(kind="logo", file_id=staged_file.file_id)
+        _rollback_logo_upload(
+            workshop=workshop,
+            company=company,
+            previous_file_id=previous_file_id,
+            previous_file_name=previous_file_name,
+            previous_content_type=previous_content_type,
+            previous_uploaded_at=previous_uploaded_at,
+            previous_company_logo_url=previous_company_logo_url,
+        )
         if previous_company_logo_url != public_logo_url:
             try:
                 update_webmania_company(company=company, payload={"logomarca": previous_company_logo_url})
             except Exception as restore_exc:
                 raise WorkshopFileSyncError("Falha ao salvar a logo localmente e ao restaurar a logo anterior na Webmania.") from restore_exc
+        _safe_delete_file(kind="logo", file_id=staged_file.file_id)
         raise WorkshopFileSyncError("Falha ao concluir o salvamento da logo. Nenhuma alteracao foi mantida.") from exc
 
     return public_logo_url
@@ -477,6 +559,27 @@ def schedule_workshop_files_cleanup(workshop: Workshop) -> None:
 def _cleanup_replaced_file(*, kind: StoredFileKind, previous_file_id: str, new_file_id: str) -> None:
     if previous_file_id and previous_file_id != new_file_id:
         _safe_delete_file(kind=kind, file_id=previous_file_id)
+
+
+def _rollback_logo_upload(
+    *,
+    workshop: Workshop,
+    company: WebmaniaCompany,
+    previous_file_id: str,
+    previous_file_name: str,
+    previous_content_type: str,
+    previous_uploaded_at: datetime | None,
+    previous_company_logo_url: str,
+) -> None:
+    workshop.logo_file_key = previous_file_id
+    workshop.logo_file_name = previous_file_name
+    workshop.logo_content_type = previous_content_type
+    workshop.logo_uploaded_at = previous_uploaded_at
+    workshop.save(update_fields=["logo_file_key", "logo_file_name", "logo_content_type", "logo_uploaded_at"])
+
+    if company.logomarca != previous_company_logo_url:
+        company.logomarca = previous_company_logo_url
+        company.save(update_fields=["logomarca"])
 
 
 def _safe_delete_file(*, kind: StoredFileKind, file_id: str) -> None:

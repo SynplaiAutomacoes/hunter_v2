@@ -16,6 +16,29 @@ Instale antes de qualquer coisa:
 - `npm`
 - Docker / Docker Compose
 
+### Dependencia nativa para conversao de logo SVG
+
+O fluxo de logomarca usa `CairoSVG` para converter SVG em PNG antes de salvar no bucket e sincronizar com a Webmania. No Windows, isso exige o runtime nativo do Cairo.
+
+Opcao recomendada no Windows:
+
+1. instale o GTK3 Runtime ou outro pacote que forneca `libcairo-2.dll`
+2. adicione a pasta `bin` desse runtime ao `PATH`
+3. feche e abra o terminal novamente
+4. rode `uv sync`
+
+Exemplo comum de pasta esperada no `PATH`:
+
+- `C:\Program Files\GTK3-Runtime Win64\bin`
+
+Validacao rapida:
+
+```bash
+uv run python -c "import cairosvg; print('ok')"
+```
+
+Se esse comando falhar com erro sobre `libcairo-2.dll`, o runtime do Cairo ainda nao esta disponivel para o Python.
+
 ## Setup local minimo
 
 No root do projeto:
@@ -26,6 +49,12 @@ npm ci
 docker compose up -d postgres
 uv run python manage.py migrate
 uv run python manage.py runserver
+```
+
+Se voce pretende subir logomarca em SVG no ambiente local, valide tambem:
+
+```bash
+uv run python -c "import cairosvg; print('cairosvg pronto')"
 ```
 
 Se quiser base inicial com dados de demonstracao:
