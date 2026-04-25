@@ -1,0 +1,94 @@
+<div class="modal-header">
+    <h3 class="text-2xl font-bold">Agrupar Lançamentos - Etapa 2</h3>
+    <p class="text-sm opacity-60">Selecione os lançamentos de <strong>{{ entity_name }}</strong> que deseja agrupar.</p>
+</div>
+
+<form hx-post="{% url 'finance:group_movement_wizard' %}" hx-target="#group-modal-content">
+    <input type="hidden" name="step" value="2">
+    <input type="hidden" name="entity_type" value="{{ entity_type }}">
+    <input type="hidden" name="entity_id" value="{{ entity_id }}">
+    
+    <div class="modal-body py-6">
+        {% if error %}
+        <div class="alert alert-error mb-4">
+            <span class="material-icons">error</span>
+            <span>{{ error }}</span>
+        </div>
+        {% endif %}
+        
+        {% if movements %}
+        <div class="overflow-x-auto">
+            <table class="table table-zebra w-full">
+                <thead>
+                    <tr>
+                        <th class="w-10"></th>
+                        <th>Vencimento</th>
+                        <th>Tipo</th>
+                        <th>Descrição</th>
+                        <th>Forma Pgto</th>
+                        <th>Status</th>
+                        <th>Valor</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for movement in movements %}
+                    <tr>
+                        <td>
+                            <input type="checkbox" name="movements" value="{{ movement.id }}" class="checkbox checkbox-primary" />
+                        </td>
+
+                        <td>{{ movement.due_date|date:"d/m/Y" }}</td>
+
+                        <!-- Tipo -->
+                        <td>
+                            {% if movement.direction == "CREDIT" %}
+                                <span class="badge badge-success">Crédito</span>
+                            {% elif movement.direction == "DEBIT" %}
+                                <span class="badge badge-error">Débito</span>
+                            {% endif %}
+                        </td>
+
+                        <!-- Descrição -->
+                        <td>
+                            <div class="font-medium">{{ movement.description }}</div>
+                            {% if movement.items_observation %}
+                                <div class="text-xs opacity-60">{{ movement.items_observation|truncatechars:50 }}</div>
+                            {% endif %}
+                        </td>
+
+                        <!-- Forma de pagamento -->
+                        <td>{{ movement.payment_method|default:"-" }}</td>
+
+                        <!-- Status -->
+                        <td>
+                            {% if movement.is_paid %}
+                                <span class="badge badge-success">Pago</span>
+                            {% else %}
+                                <span class="badge badge-warning">Pendente</span>
+                            {% endif %}
+                        </td>
+
+                        <!-- Valor -->
+                        <td class="font-semibold">
+                            {{ movement.amount }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="alert alert-info">
+            <span class="material-icons">info</span>
+            <span>Nenhum lançamento pendente encontrado para este {{ entity_type|yesno:"Fornecedor,Colaborador" }}.</span>
+        </div>
+        {% endif %}
+    </div>
+    
+    <div class="modal-footer flex justify-end gap-2">
+        <button type="button" class="btn btn-ghost" hx-get="{% url 'finance:group_movement_wizard' %}?step=1" hx-target="#group-modal-content">Voltar</button>
+        {% if movements %}
+        <button type="submit" class="btn btn-primary">Próximo</button>
+        {% endif %}
+    </div>
+</form>

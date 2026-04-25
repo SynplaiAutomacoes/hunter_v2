@@ -1,0 +1,24 @@
+{% load crispy_forms_tags %}
+<div class="modal-header">
+    <h3 class="text-2xl font-bold">Agrupar Lançamentos - Etapa Final</h3>
+    <p class="text-sm opacity-60">Informe os detalhes do novo agrupamento.</p>
+</div>
+
+<form hx-post="{% url 'finance:group_movement_wizard' %}" hx-target="#group-modal-content">
+    <input type="hidden" name="step" value="3">
+    <input type="hidden" name="entity_type" value="{{ entity_type }}">
+    <input type="hidden" name="entity_id" value="{{ entity_id }}">
+    {% for mv_id in movement_ids %}
+    <input type="hidden" name="movements" value="{{ mv_id }}">
+    {% endfor %}
+
+    <div class="modal-body py-6">
+        {{ form|crispy }}
+    </div>
+    
+    <div class="modal-footer flex justify-end gap-2">
+        <button type="button" class="btn btn-ghost" hx-post="{% url 'finance:group_movement_wizard' %}" hx-target="#group-modal-content"
+                hx-vals='{"step": "1", "entity": "{{ entity_type }}_{{ entity_id }}"}'>Voltar</button>
+        <button type="submit" class="btn btn-success">Finalizar Agrupamento</button>
+    </div>
+</form>

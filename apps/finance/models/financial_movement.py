@@ -1,3 +1,4 @@
+from typing import Any
 from django.db import models
 
 from apps.core.models import TimeStampedModel
@@ -5,9 +6,21 @@ from djmoney.models.fields import MoneyField
 
 from django.conf import settings
 
-from apps.finance.forms.emission_ui import format_money
 from apps.finance.models import PaymentMethod, FinancialGroup
 from apps.finance.models.bank_account import BankAccount
+
+
+def _format_money_for_report(value: Any) -> str:
+    from decimal import Decimal
+    amount: Decimal
+    if hasattr(value, "amount"):
+        amount = value.amount
+    else:
+        amount = Decimal(str(value or 0))
+    amount = amount.quantize(Decimal("0.01"))
+    integer_part, decimal_part = f"{amount:.2f}".split(".")
+    grouped_integer = f"{int(integer_part):,}".replace(",", ".")
+    return f"R$ {grouped_integer},{decimal_part}"
 
 
 class FinancialMovement(TimeStampedModel):
@@ -19,6 +32,7 @@ class FinancialMovement(TimeStampedModel):
         DEFAULT = "DEFAULT", "Padrão"
         WORKORDER_PARENT = "WORKORDER_PARENT", "OS Pai"
         WORKORDER_CARD_FEE = "WORKORDER_CARD_FEE", "Taxa da Maquininha"
+        GROUP_PARENT = "GROUP_PARENT", "Agrupamento"
 
     workshop = models.ForeignKey(to="workshops.Workshop", on_delete=models.CASCADE)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
@@ -26,6 +40,7 @@ class FinancialMovement(TimeStampedModel):
     movement_kind = models.CharField(max_length=50, choices=MovementKind.choices, default=MovementKind.DEFAULT)
     workorder = models.ForeignKey("workorder.WorkOrder", on_delete=models.SET_NULL, null=True, blank=True, related_name="financial_movements")
     workorder_payment = models.ForeignKey("workorder.WorkOrderPaymentMethod", on_delete=models.CASCADE, null=True, blank=True, related_name="financial_movements")
+    movement_group = models.ForeignKey("finance.MovementGroup", on_delete=models.CASCADE, null=True, blank=True, related_name="financial_movements")
 
     # Origem
     source = models.ForeignKey(to="sources.Source", verbose_name="Origem", null=True, blank=True, on_delete=models.PROTECT)
@@ -50,7 +65,7 @@ class FinancialMovement(TimeStampedModel):
 
     @staticmethod
     def _format_report_money(value: object) -> str:
-        return format_money(value)
+        return _format_money_for_report(value)
 
     @property
     def report_paid_indicator(self) -> str | dict[str, str]:

@@ -57,6 +57,7 @@ from apps.finance.views.financial_movement import (
 )
 from apps.finance.views.payment_method import PaymentMethodListView, PaymentMethodCreateView, PaymentMethodUpdateView
 from apps.finance.views.reports import ReportMovementEditView, ReportMovementDeleteView
+from apps.finance.views.movement_group import GroupMovementWizardView, GroupMovementDeleteView
 
 app_name = "finance"
 
@@ -64,6 +65,8 @@ urlpatterns = [
     path("reports/", FinancialReportsHomeView.as_view(), name="reports_home"),
     path("reports/movement/<int:pk>/edit/", ReportMovementEditView.as_view(), name="report_movement_edit"),
     path("reports/movement/<int:pk>/delete/", ReportMovementDeleteView.as_view(), name="report_movement_delete"),
+    path("reports/group/wizard/", GroupMovementWizardView.as_view(), name="group_movement_wizard"),
+    path("reports/group/<int:pk>/delete/", GroupMovementDeleteView.as_view(), name="group_movement_delete"),
     path("notas-emitidas/", IssuedDocumentsListView.as_view(), name="issued_documents_list"),
     path("notas-emitidas/download/<str:document_group>/", IssuedDocumentsArchiveDownloadView.as_view(), name="issued_documents_download"),
     # Financial Groups

@@ -9,9 +9,15 @@
                 <p class="text-base-content/70">Acompanhe os principais indicadores financeiros da oficina a partir deste painel.</p>
             </div>
 
-            <a href="{% url 'finance:financial_movement_create' %}" class="btn btn-primary">
-                Nova Movimentação Financeira
-            </a>
+            <div class="flex items-center gap-2">
+                <button type="button" class="btn btn-secondary" onclick="group_modal.showModal()" hx-get="{% url 'finance:group_movement_wizard' %}?step=1" hx-target="#group-modal-content">
+                    <span class="material-icons">layers</span>
+                    Agrupar
+                </button>
+                <a href="{% url 'finance:financial_movement_create' %}" class="btn btn-primary">
+                    Nova Movimentação Financeira
+                </a>
+            </div>
         </div>
 
         <div class="grid items-start gap-4 lg:grid-cols-2 2xl:grid-cols-4">
@@ -474,6 +480,19 @@
         </div>
 
         <form method="dialog" class="modal-backdrop">
+            <button>close</button>
+        </form>
+    </dialog>
+    <!-- Grouping Modal -->
+    <dialog id="group_modal" class="modal">
+        <div class="modal-box max-w-4xl border border-base-300 bg-base-100 p-0 shadow-2xl">
+            <div id="group-modal-content">
+                <div class="flex justify-center py-10">
+                    <span class="loading loading-spinner loading-lg"></span>
+                </div>
+            </div>
+        </div>
+        <form method="dialog" class="modal-backdrop bg-black/50">
             <button>close</button>
         </form>
     </dialog>

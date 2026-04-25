@@ -11,6 +11,7 @@ from django.shortcuts import render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.generic import DeleteView, TemplateView, UpdateView
+from django.db.models import Q
 
 from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorPayroll
 from apps.collaborators.services import sync_workorder_collaborator_payrolls
@@ -96,6 +97,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
     def _get_financial_movements_queryset(self):
         queryset = (
             FinancialMovement.objects.filter(workshop=self.workshop)
+            .filter(Q(movement_group__isnull=True) | Q(movement_kind=FinancialMovement.MovementKind.GROUP_PARENT))
             .select_related(
                 "source",
                 "supplier",
