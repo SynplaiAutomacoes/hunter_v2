@@ -1,0 +1,12 @@
+<div id="collaborator-details-content">
+    {% if entity %}
+        <div class="bg-base-200 p-4 rounded-lg space-y-2 animate-in fade-in duration-300">
+            <p><strong>Nome:</strong> {{ entity.name|default:"----" }}</p>
+            <p><strong>CPF:</strong> {{ entity.cpf|default:"---" }}</p>
+            <p><strong>Cargo:</strong> {{ entity.position|default:"---" }}</p>
+            <p><strong>Telefone:</strong> {{ entity.phone|default:"---" }}</p>
+        </div>
+    {% else %}
+        <p class='italic opacity-50 text-center py-8'>Selecione um colaborador para ver os detalhes.</p>
+    {% endif %}
+</div>

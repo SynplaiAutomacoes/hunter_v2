@@ -74,6 +74,93 @@ class CatalogListViewFilterTests(TestCase):
         self.assertIn(active_product, all_queryset)
         self.assertIn(inactive_product, all_queryset)
 
+    def test_product_list_exact_code_search_includes_equivalent_products(self) -> None:
+        matched_product = Product.objects.create(
+            workshop=self.workshop,
+            group=self.group,
+            code="P-100",
+            name="Produto Base",
+            unit=Product.Unit.UND,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            is_active=True,
+        )
+        equivalent_product = Product.objects.create(
+            workshop=self.workshop,
+            group=self.group,
+            code="P-200",
+            name="Produto Equivalente",
+            unit=Product.Unit.UND,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            is_active=True,
+        )
+        unrelated_product = Product.objects.create(
+            workshop=self.workshop,
+            group=self.group,
+            code="P-300",
+            name="Produto Solto",
+            unit=Product.Unit.UND,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            is_active=True,
+        )
+        matched_product.equivalent_parts.add(equivalent_product)
+
+        view = ProductListView()
+        view.request = self.factory.get("/catalog/products/", {"q": "P-100"})
+        view.workshop = self.workshop
+
+        queryset = view.get_queryset()
+
+        self.assertIn(matched_product, queryset)
+        self.assertIn(equivalent_product, queryset)
+        self.assertNotIn(unrelated_product, queryset)
+        self.assertEqual(queryset.filter(pk=equivalent_product.pk).count(), 1)
+
+    def test_product_list_name_search_does_not_expand_equivalent_products(self) -> None:
+        matched_product = Product.objects.create(
+            workshop=self.workshop,
+            group=self.group,
+            code="P-400",
+            name="Produto Nome Base",
+            unit=Product.Unit.UND,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            is_active=True,
+        )
+        equivalent_product = Product.objects.create(
+            workshop=self.workshop,
+            group=self.group,
+            code="P-500",
+            name="Produto Nome Equivalente",
+            unit=Product.Unit.UND,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            is_active=True,
+        )
+        matched_product.equivalent_parts.add(equivalent_product)
+
+        view = ProductListView()
+        view.request = self.factory.get("/catalog/products/", {"q": "Nome Base"})
+        view.workshop = self.workshop
+
+        queryset = view.get_queryset()
+
+        self.assertIn(matched_product, queryset)
+        self.assertNotIn(equivalent_product, queryset)
+
+    def test_product_list_table_columns_disable_generic_search_reapplication(self) -> None:
+        view = ProductListView()
+        view.request = self.factory.get("/catalog/products/")
+        view.workshop = self.workshop
+        view.object_list = view.get_queryset()
+
+        context = view.get_context_data()
+
+        self.assertTrue(context["fields"])
+        self.assertTrue(all(not field.searchable for field in context["fields"]))
+
     def test_service_list_hides_inactive_by_default_but_allows_explicit_filters(self) -> None:
         active_service = Service.objects.create(
             workshop=self.workshop,

@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import calendar
+from datetime import date
+from decimal import Decimal
+
 from django.conf import settings
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 from djmoney.models.fields import MoneyField
+from djmoney.money import Money
 from localflavor.br.models import BRCPFField
 from phonenumber_field.modelfields import PhoneNumberField
 
@@ -54,52 +60,30 @@ class WorkshopCollaborator(TimeStampedModel):
         ADMINISTRATIVE = "A", "Administrativo"
         PRODUCTIVE = "P", "Produtivo"
 
-    workshop = models.ForeignKey(
-        "workshops.Workshop",
-        on_delete=models.CASCADE,
-        related_name="collaborators",
-    )
-    user = models.OneToOneField(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        related_name="workshop_collaborator",
-        null=True,
-        blank=True,
-    )
+    class PaymentDayType(models.TextChoices):
+        FIFTH_BUSINESS_DAY = "FIFTH_BUSINESS_DAY", "5o dia util"
+        FIXED_DAY = "FIXED_DAY", "Data de pagamento"
 
+    workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="collaborators")
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, related_name="workshop_collaborator", null=True, blank=True)
     name = models.CharField(verbose_name="Nome", max_length=255)
     cpf = BRCPFField(verbose_name="CPF", null=False, blank=False)
     # TODO: Create specific field for RG
     rg = models.CharField(verbose_name="RG", max_length=9, blank=True, null=True)
     birth_date = models.DateField(verbose_name="Data de Nascimento", null=False, blank=False)
     sex = models.CharField(verbose_name="Sexo", max_length=1, choices=Sex.choices, blank=True)
-
     phone = PhoneNumberField(verbose_name="Telefone", blank=True)
     email = models.EmailField(verbose_name="E-mail", blank=True)
-
     position = models.CharField(verbose_name="Cargo", max_length=255, blank=True)
-    salary = MoneyField(
-        verbose_name="Salário",
-        max_digits=14,
-        decimal_places=2,
-        null=False,
-        blank=True,
-    )
-
+    salary = MoneyField(verbose_name="Salário", max_digits=14, decimal_places=2, null=False, blank=True)
+    payment_day_type = models.CharField(verbose_name="Tipo de pagamento", max_length=32, choices=PaymentDayType.choices, default=PaymentDayType.FIFTH_BUSINESS_DAY)
+    payment_day_of_month = models.PositiveSmallIntegerField(verbose_name="Dia do pagamento", null=True, blank=True)
+    transport_allowance_daily = MoneyField(verbose_name="Vale Transporte Diário", max_digits=14, decimal_places=2, default=Decimal("0.00"), blank=True)
     admission_date = models.DateField(verbose_name="Data de Admissão", null=False, blank=False)
     termination_date = models.DateField(verbose_name="Data de Saída", null=True, blank=True)
-
     collaborator_type = models.CharField(verbose_name="Tipo", max_length=1, choices=CollaboratorType.choices, blank=False, null=False)
-
     receives_commission = models.BooleanField(verbose_name="Recebe Comissão", default=False)
-    commission_percentage = models.DecimalField(
-        verbose_name="Percentual de Comissão",
-        max_digits=7,
-        decimal_places=6,
-        null=True,
-        blank=True,
-    )
-
+    commission_percentage = models.DecimalField(verbose_name="Percentual de Comissão", max_digits=7, decimal_places=6, null=True, blank=True)
     is_active = models.BooleanField(verbose_name="Ativo", default=True)
     system_access = models.BooleanField(verbose_name="Acesso ao Sistema", default=False)
 
@@ -115,7 +99,152 @@ class WorkshopCollaborator(TimeStampedModel):
                 condition=Q(commission_percentage__isnull=True) | (Q(commission_percentage__gte=0) & Q(commission_percentage__lte=1)),
                 name="collaborator_commission_percentage_range",
             ),
+            models.CheckConstraint(
+                condition=Q(payment_day_type="FIFTH_BUSINESS_DAY", payment_day_of_month__isnull=True) | Q(payment_day_type="FIXED_DAY", payment_day_of_month__gte=1, payment_day_of_month__lte=31),
+                name="collaborator_payment_day_configuration_valid",
+            ),
         ]
 
     def __str__(self) -> str:
-        return f"{self.name} ({self.get_collaborator_type_display()})"
+        return self.name
+
+    @property
+    def salary_amount(self) -> Decimal:
+        return Decimal(str(getattr(self.salary, "amount", 0) or 0))
+
+    @property
+    def transport_allowance_daily_amount(self) -> Decimal:
+        return Decimal(str(getattr(self.transport_allowance_daily, "amount", 0) or 0))
+
+    def get_payment_reference_date(self, *, reference_date: date | None = None) -> date:
+        base_date = reference_date or timezone.localdate()
+        return date(base_date.year, base_date.month, 1)
+
+    def get_due_date_for_reference(self, *, reference_date: date | None = None) -> date:
+        target_month = self.get_payment_reference_date(reference_date=reference_date)
+        if self.payment_day_type == self.PaymentDayType.FIXED_DAY and self.payment_day_of_month:
+            last_day = calendar.monthrange(target_month.year, target_month.month)[1]
+            return date(target_month.year, target_month.month, min(self.payment_day_of_month, last_day))
+
+        business_days = 0
+        day = 1
+        while True:
+            current_date = date(target_month.year, target_month.month, day)
+            if current_date.weekday() < 5:
+                business_days += 1
+                if business_days == 5:
+                    return current_date
+            day += 1
+
+
+class CollaboratorBenefit(TimeStampedModel):
+    collaborator = models.ForeignKey("collaborators.WorkshopCollaborator", on_delete=models.CASCADE, related_name="benefits")
+    name = models.CharField(verbose_name="Nome do benefício", max_length=255)
+    description = models.TextField(verbose_name="Descrição", blank=True)
+    monthly_amount = MoneyField(verbose_name="Valor mensal", max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    is_active = models.BooleanField(verbose_name="Ativo", default=True)
+
+    class Meta(TimeStampedModel.Meta):
+        verbose_name = "Benefício do Colaborador"
+        verbose_name_plural = "Benefícios do Colaborador"
+        ordering = ["id"]
+
+    def __str__(self) -> str:
+        return f"{self.collaborator.name} - {self.name}"
+
+
+class CollaboratorPayroll(TimeStampedModel):
+    class Status(models.TextChoices):
+        FORECAST = "FORECAST", "Previsto"
+        PARTIAL = "PARTIAL", "Parcial"
+        PAID = "PAID", "Pago"
+
+    workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="collaborator_payrolls")
+    collaborator = models.ForeignKey("collaborators.WorkshopCollaborator", on_delete=models.CASCADE, related_name="payrolls")
+    reference_year = models.PositiveIntegerField(verbose_name="Ano de referência")
+    reference_month = models.PositiveSmallIntegerField(verbose_name="Mês de referência")
+    due_date = models.DateField(verbose_name="Data prevista para pagamento")
+    salary_amount = MoneyField(verbose_name="Salário", max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    transport_allowance_amount = MoneyField(verbose_name="Vale Transporte", max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    benefits_amount = MoneyField(verbose_name="Benefícios", max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    commission_amount = MoneyField(verbose_name="Comissão", max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    total_amount = MoneyField(verbose_name="Valor total", max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    financial_movement = models.OneToOneField("finance.FinancialMovement", verbose_name="Movimentação Financeira", on_delete=models.SET_NULL, related_name="collaborator_payroll", null=True, blank=True)
+
+    class Meta(TimeStampedModel.Meta):
+        verbose_name = "Folha do Colaborador"
+        verbose_name_plural = "Folhas dos Colaboradores"
+        ordering = ["-reference_year", "-reference_month", "-id"]
+        constraints = [
+            models.UniqueConstraint(fields=("collaborator", "reference_year", "reference_month"), name="unique_collaborator_payroll_reference"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.collaborator.name} - {self.reference_month:02d}/{self.reference_year}"
+
+    @property
+    def paid_amount(self) -> Money:
+        if self.financial_movement and self.financial_movement.is_paid:
+            return self.total_amount
+        return Money(0, "BRL")
+
+    @property
+    def status(self) -> str:
+        if self.financial_movement and self.financial_movement.is_paid:
+            return self.Status.PAID
+        return self.Status.FORECAST
+
+    @property
+    def status_label(self) -> str:
+        return str(self.Status(self.status).label)
+
+
+class CollaboratorPayrollItem(TimeStampedModel):
+    class ItemType(models.TextChoices):
+        SALARY = "SALARY", "Salário"
+        TRANSPORT = "TRANSPORT", "Vale Transporte"
+        BENEFIT = "BENEFIT", "Benefício"
+        COMMISSION = "COMMISSION", "Comissão"
+
+    payroll = models.ForeignKey("collaborators.CollaboratorPayroll", on_delete=models.CASCADE, related_name="items")
+    item_type = models.CharField(verbose_name="Tipo", max_length=32, choices=ItemType.choices)
+    title = models.CharField(verbose_name="Título", max_length=255)
+    description = models.TextField(verbose_name="Descrição", blank=True)
+    amount = MoneyField(verbose_name="Valor", max_digits=14, decimal_places=2, default=Decimal("0.00"))
+
+    class Meta(TimeStampedModel.Meta):
+        verbose_name = "Item da Folha do Colaborador"
+        verbose_name_plural = "Itens da Folha do Colaborador"
+        ordering = ["id"]
+
+    def __str__(self) -> str:
+        return f"{self.payroll} - {self.title}"
+
+
+class CollaboratorCommissionEntry(TimeStampedModel):
+    class Status(models.TextChoices):
+        FORECAST = "FORECAST", "Previsto"
+        PAID = "PAID", "Pago"
+
+    workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="collaborator_commission_entries")
+    collaborator = models.ForeignKey("collaborators.WorkshopCollaborator", on_delete=models.CASCADE, related_name="commission_entries")
+    workorder = models.ForeignKey("workorder.WorkOrder", on_delete=models.CASCADE, related_name="commission_entries")
+    payroll = models.ForeignKey("collaborators.CollaboratorPayroll", on_delete=models.SET_NULL, related_name="commission_entries", null=True, blank=True)
+    reference_year = models.PositiveIntegerField(verbose_name="Ano de referência")
+    reference_month = models.PositiveSmallIntegerField(verbose_name="Mês de referência")
+    percentage = models.DecimalField(verbose_name="Percentual", max_digits=7, decimal_places=6)
+    base_amount = MoneyField(verbose_name="Base de cálculo", max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    commission_amount = MoneyField(verbose_name="Valor da comissão", max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    status = models.CharField(verbose_name="Status", max_length=16, choices=Status.choices, default=Status.FORECAST)
+    paid_at = models.DateField(verbose_name="Pago em", null=True, blank=True)
+
+    class Meta(TimeStampedModel.Meta):
+        verbose_name = "Lançamento de Comissão do Colaborador"
+        verbose_name_plural = "Lançamentos de Comissão do Colaborador"
+        ordering = ["-reference_year", "-reference_month", "-id"]
+        constraints = [
+            models.UniqueConstraint(fields=("collaborator", "workorder"), name="unique_collaborator_commission_workorder"),
+        ]
+
+    def __str__(self) -> str:
+        return f"Comissão {self.collaborator.name} - OS #{self.workorder.pk}"

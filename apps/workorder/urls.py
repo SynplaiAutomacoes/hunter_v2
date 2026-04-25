@@ -10,6 +10,7 @@ urlpatterns = [
     path("status-report/pdf/", views.WorkOrderStatusReportPdfView.as_view(), name="status_report_pdf"),
     path("<int:pk>/", views.WorkOrderDetailView.as_view(), name="workorder_detail"),
     path("<int:pk>/resume-section/", views.WorkOrderResumeSectionView.as_view(), name="resume_section"),
+    path("<int:pk>/update-collaborators/", views.UpdateWorkOrderCollaboratorsView.as_view(), name="update_collaborators"),
     path("<int:pk>/payment-section/", views.WorkOrderPaymentSectionView.as_view(), name="payment_section"),
     path("<int:pk>/update-discount/", views.UpdateWorkOrderDiscountView.as_view(), name="update_discount"),
     path("<int:pk>/kit/<int:item_id>/edit/", views.WorkOrderKitEditView.as_view(), name="edit_kit"),

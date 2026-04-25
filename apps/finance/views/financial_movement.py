@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.http import JsonResponse
 from django.shortcuts import redirect, get_object_or_404, render
 from django.urls import reverse, reverse_lazy
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -16,7 +17,9 @@ from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.finance.forms.financial_movement import MovementStep1Form, MovementStep2Form, MovementStep3Form, MovementStep4Form
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.views.navigation import append_query_params
+from apps.collaborators.models import WorkshopCollaborator
 from apps.sources.models import Source
+from apps.suppliers.models import Supplier
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
@@ -133,7 +136,7 @@ class FinancialMovementCreateView(LoginRequiredMixin, WorkshopScopedMixin, Multi
         ]
 
     def get_success_url(self):
-        return self._get_next_url() or reverse("finance:financial_movement_list")
+        return self._get_next_url() or reverse("finance:reports_home")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -164,8 +167,9 @@ class FinancialMovementCreateView(LoginRequiredMixin, WorkshopScopedMixin, Multi
             success_url = self.get_success_url()
 
         if self.request.htmx:
-            response = redirect(success_url)
-            response["HX-Push-Url"] = success_url
+            from django.http import HttpResponse
+            response = HttpResponse(status=204)
+            response["HX-Redirect"] = success_url
             return response
 
         return redirect(success_url)
@@ -238,11 +242,41 @@ class FinancialMovementDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxD
     htmx_trigger = "financial_movement-table-refresh"
 
 
-class SourceDetailView(View):
-    def get(self, request, *args, **kwargs):
-        source_id = request.GET.get("source")
-        source_obj = None
-        if source_id:
-            source_obj = Source.objects.filter(id=source_id).first()
+class EntityListView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = FinancialMovement
+    workshop_permission_codename = "view_financialmovement"
 
-        return render(request, "finance/partials/source_resume.html", {"source_obj": source_obj})
+    def get(self, request, *args, **kwargs):
+        entity_type = request.GET.get("type")
+        workshop = self.workshop
+
+        data = []
+        if entity_type == "supplier":
+            entities = Supplier.objects.filter(workshop=workshop)
+            data = [{"id": e.id, "name": e.name} for e in entities]
+        elif entity_type == "collaborator":
+            entities = WorkshopCollaborator.objects.filter(workshop=workshop)
+            data = [{"id": e.id, "name": str(e)} for e in entities]
+
+        return JsonResponse(data, safe=False)
+
+
+class EntityDetailView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = FinancialMovement
+    workshop_permission_codename = "view_financialmovement"
+
+    def get(self, request, *args, **kwargs):
+        entity_type = request.GET.get("type")
+        entity_id = request.GET.get("id")
+        workshop = self.workshop
+
+        context = {"type": entity_type}
+
+        if entity_type == "supplier":
+            context["entity"] = Supplier.objects.filter(id=entity_id, workshop=workshop).first()
+            template = "finance/partials/supplier_resume.html"
+        else:
+            context["entity"] = WorkshopCollaborator.objects.filter(id=entity_id, workshop=workshop).first()
+            template = "finance/partials/collaborator_resume.html"
+
+        return render(request, template, context)

@@ -6,11 +6,14 @@ from typing import Any
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseRedirect
+from django.shortcuts import render
 from django.urls import reverse
 from django.utils import timezone
-from django.views.generic import TemplateView, UpdateView
+from django.views.generic import DeleteView, TemplateView, UpdateView
 
+from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorPayroll
+from apps.collaborators.services import sync_workorder_collaborator_payrolls
 from apps.finance.forms.emission_ui import format_money
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
@@ -95,6 +98,8 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             FinancialMovement.objects.filter(workshop=self.workshop)
             .select_related(
                 "source",
+                "supplier",
+                "collaborator",
                 "budget_plan",
                 "bank_account",
                 "payment_method",
@@ -175,17 +180,20 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             queryset = queryset.filter(direction=direction)
 
         from django.db.models import Q
+
         search = str(self.request.GET.get("search") or "").strip()
         if search:
             queryset = queryset.filter(
-                Q(description__icontains=search) |
-                Q(items_observation__icontains=search) |
-                Q(financial_observation__icontains=search) |
-                Q(nf_number__icontains=search) |
-                Q(source__name__icontains=search) |
-                Q(budget_plan__name__icontains=search) |
-                Q(bank_account__bank_name__icontains=search) |
-                Q(workorder__id__icontains=search)
+                Q(description__icontains=search)
+                | Q(items_observation__icontains=search)
+                | Q(financial_observation__icontains=search)
+                | Q(nf_number__icontains=search)
+                | Q(source__name__icontains=search)
+                | Q(supplier__name__icontains=search)
+                | Q(collaborator__name__icontains=search)
+                | Q(budget_plan__name__icontains=search)
+                | Q(bank_account__bank_name__icontains=search)
+                | Q(workorder__id__icontains=search)
             )
 
         return queryset
@@ -206,20 +214,77 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             overview=build_financial_overview(workshop=self.workshop, **self._get_filter_params()),
         )
 
+    def _build_collaborator_payroll_summary_card(self) -> dict[str, object]:
+        reference_date = timezone.localdate()
+        payrolls = CollaboratorPayroll.objects.filter(workshop=self.workshop, reference_year=reference_date.year, reference_month=reference_date.month).select_related("financial_movement")
+        commissions = CollaboratorCommissionEntry.objects.filter(workshop=self.workshop, reference_year=reference_date.year, reference_month=reference_date.month)
+
+        total_forecast = sum((self._resolve_money_amount(payroll.total_amount) for payroll in payrolls), start=Decimal("0.00"))
+        total_paid = sum((self._resolve_money_amount(payroll.total_amount) for payroll in payrolls if payroll.financial_movement and payroll.financial_movement.is_paid), start=Decimal("0.00"))
+        commissions_forecast = sum((self._resolve_money_amount(entry.commission_amount) for entry in commissions), start=Decimal("0.00"))
+        commissions_paid = sum((self._resolve_money_amount(entry.commission_amount) for entry in commissions if entry.status == CollaboratorCommissionEntry.Status.PAID), start=Decimal("0.00"))
+
+        return {
+            "title": "Folha e Comissões do Mês",
+            "is_placeholder": False,
+            "rows": [
+                {"label": "Folhas previstas", "value": str(payrolls.count()), "small": False, "tone": "neutral"},
+                {"label": "Folhas pagas", "value": str(sum(1 for payroll in payrolls if payroll.financial_movement and payroll.financial_movement.is_paid)), "small": True, "tone": "neutral"},
+                {"label": "Comissões previstas", "value": format_money(commissions_forecast), "small": False, "tone": "debit"},
+                {"label": "Comissões pagas", "value": format_money(commissions_paid), "small": True, "tone": "debit"},
+            ],
+            "results": [
+                {"label": "Total previsto", "value": format_money(total_forecast), "accent": True, "tone": "debit"},
+                {"label": "Total pago", "value": format_money(total_paid), "accent": False, "tone": "debit"},
+            ],
+        }
+
+    def _build_collaborator_payroll_rows(self) -> list[dict[str, object]]:
+        reference_date = timezone.localdate()
+        payrolls = CollaboratorPayroll.objects.filter(workshop=self.workshop, reference_year=reference_date.year, reference_month=reference_date.month).select_related("collaborator", "financial_movement").order_by("collaborator__name", "id")
+        rows: list[dict[str, object]] = []
+        for payroll in payrolls:
+            rows.append(
+                {
+                    "collaborator_name": payroll.collaborator.name,
+                    "due_date": payroll.due_date,
+                    "salary_amount": payroll.salary_amount,
+                    "transport_allowance_amount": payroll.transport_allowance_amount,
+                    "benefits_amount": payroll.benefits_amount,
+                    "commission_amount": payroll.commission_amount,
+                    "total_amount": payroll.total_amount,
+                    "paid_amount": payroll.paid_amount,
+                    "status": payroll.status,
+                    "status_label": payroll.status_label,
+                    "history_url": f"{reverse('collaborators:collaborator_update', kwargs={'pk': payroll.collaborator.pk})}?tab=historico&history_month={payroll.reference_month}&history_year={payroll.reference_year}",
+                    "receipt_url": reverse("collaborators:collaborator_payroll_receipt", kwargs={"pk": payroll.collaborator.pk, "payroll_id": payroll.pk}),
+                }
+            )
+        return rows
+
     def _build_financial_movement_row(self, movement: FinancialMovement) -> dict[str, object]:
         workorder = getattr(movement, "workorder", None)
         payment_manager = getattr(workorder, "payments", None)
         payments = list(payment_manager.all()) if payment_manager is not None else []
         latest_payment_date = max((payment.due_date for payment in payments if payment.due_date), default=None)
         total_paid = sum((self._resolve_money_amount(payment.total_paid) for payment in payments), start=Decimal("0.00"))
-        customer = getattr(getattr(workorder, "budget", None), "customer", None) if workorder is not None else None
+        paid_status = movement.report_paid_indicator
+        agent = movement.report_agent_display
+        due_date = movement.due_date
+        description = movement.report_description_display
+        payment_type = movement.report_payment_method_display
+        details = []
+        edit_modal_url = reverse("finance:report_movement_edit", kwargs={"pk": movement.pk})
+        is_workorder = False
+
+        if movement.workorder_id:
+            edit_modal_url = reverse("workorder:workorder_detail", kwargs={"pk": movement.workorder_id})
+            is_workorder = True
 
         if workorder is not None and movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
             total_amount = self._resolve_money_amount(workorder.total_budget_value)
             paid_status: str | dict[str, str] = self._resolve_paid_status(total_paid=total_paid, total_amount=self._resolve_money_amount(workorder.total_budget_value))
             due_date = latest_payment_date
-            agent = getattr(customer, "name", "-") or "-"
-            origin = f"OS #{workorder.pk}"
             description = self._resolve_workorder_description(workorder)
             payment_type = self._resolve_payment_method_summary(payments)
             remaining_amount = total_amount
@@ -236,22 +301,6 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
                         "pending_class": "text-success" if remaining_amount == Decimal("0.00") else "text-warning",
                     }
                 )
-        elif workorder is not None:
-            paid_status = movement.report_paid_indicator
-            due_date = movement.due_date
-            agent = getattr(customer, "name", "-") or "-"
-            origin = f"OS #{workorder.pk}"
-            description = movement.report_description_display
-            payment_type = movement.report_payment_method_display
-            details = []
-        else:
-            paid_status = movement.report_paid_indicator
-            due_date = movement.due_date
-            agent = movement.report_agent_display
-            origin = movement.report_origin_display
-            description = movement.report_description_display
-            payment_type = movement.report_payment_method_display
-            details = []
 
         return {
             "component": f"financial-movement-{movement.pk}",
@@ -260,13 +309,13 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "type_badge": movement.report_direction_badge,
             "due_date": due_date,
             "agent": agent,
-            "origin": origin,
             "description": description,
             "budget_plan": movement.report_budget_plan_display,
             "account": movement.report_bank_account_display,
             "payment_type": payment_type,
             "edit_url": reverse("finance:financial_movement_update", kwargs={"pk": movement.pk}),
-            "edit_modal_url": reverse("finance:report_movement_edit", kwargs={"pk": movement.pk}),
+            "edit_modal_url": edit_modal_url,
+            "is_workorder": is_workorder,
             "total": movement.report_total_display,
             "details": details,
         }
@@ -297,8 +346,10 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             self._build_summary_card(title="Créditos e Débitos deste Mês", overview=monthly_overview),
             self._build_summary_card(title=f"Balanço Geral {reference_date.year}", overview=yearly_overview),
             self._build_selection_summary_card(),
+            self._build_collaborator_payroll_summary_card(),
         ]
         context["financial_movement_report_rows"] = self._get_financial_movement_report_rows(movements=page_obj.object_list)
+        context["collaborator_payroll_rows"] = self._build_collaborator_payroll_rows()
         context["financial_group_filters"] = self._get_financial_groups_queryset()
         context["bank_account_filters"] = self._get_bank_accounts_queryset()
         context["direction_filter_choices"] = self.FILTER_DIRECTION_CHOICES
@@ -326,6 +377,7 @@ class ReportMovementEditView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView
 
     def get_form_class(self):
         from apps.finance.forms.financial_movement import ReportMovementEditForm
+
         return ReportMovementEditForm
 
     def get_queryset(self):
@@ -344,11 +396,42 @@ class ReportMovementEditView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView
 
     def form_valid(self, form):
         self.object = form.save()
+        if self.object.workorder_id:
+            sync_workorder_collaborator_payrolls(workorder=self.object.workorder, reference_date=self.object.due_date)
         if self.request.htmx:
             response = HttpResponse()
             response["HX-Refresh"] = "true"
             return response
         return super().form_valid(form)
+
+    def get_success_url(self):
+        return reverse("finance:reports_home")
+
+
+class ReportMovementDeleteView(LoginRequiredMixin, WorkshopScopedMixin, DeleteView):
+    model = FinancialMovement
+    workshop_permission_codename = "delete_financialmovement"
+
+    def get_queryset(self):
+        return super().get_queryset().filter(workshop=self.workshop)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["hx_target"] = "#edit-modal-container"
+        return context
+
+    def get(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        context = self.get_context_data(object=self.object)
+        return render(request, "finance/partials/financial_movement/financial_movement_delete_modal.html", context)
+
+    def form_valid(self, form):
+        self.object.delete()
+        if self.request.htmx:
+            response = HttpResponse()
+            response["HX-Refresh"] = "true"
+            return response
+        return HttpResponseRedirect(self.get_success_url())
 
     def get_success_url(self):
         return reverse("finance:reports_home")

@@ -84,6 +84,7 @@ class Product(TimeStampedModel):
     # --- Financeiro ---
     cost_price = MoneyField(verbose_name="Valor de Custo", max_digits=14, decimal_places=2)
     selling_price = MoneyField(verbose_name="Valor de Venda", max_digits=14, decimal_places=2)
+    last_purchase_price = MoneyField(verbose_name="Ultimo Valor de Compra", max_digits=14, decimal_places=2, null=True, blank=True)
     last_used_price = MoneyField(verbose_name="Ultimo Valor Utilizado", max_digits=14, decimal_places=2, null=True, blank=True)
 
     # Margem armazenada para facilidade de consulta, mas calculada no form
@@ -105,6 +106,24 @@ class Product(TimeStampedModel):
     def current_stock(self):
         stock = getattr(self, "stock_products", None)
         return stock.current_quantity if stock else 0
+
+    @property
+    def is_used(self) -> bool:
+        # Verifica se já foi usado em orçamentos, ordens de serviço ou movimentações de estoque
+        if self.budgetitem_set.exists():
+            return True
+        if self.workorderitem_set.exists():
+            return True
+        stock = getattr(self, "stock_products", None)
+        if stock and stock.movements.exists():
+            return True
+        if self.budgetkititemoverride_set.exists():
+            return True
+        if self.workorderkititemoverride_set.exists():
+            return True
+        if self.product_kits.exists():
+            return True
+        return False
 
     class Meta:
         verbose_name = "Produto"

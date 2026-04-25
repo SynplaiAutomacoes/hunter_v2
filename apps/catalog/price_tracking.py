@@ -36,6 +36,17 @@ def build_product_price_warning(*, product: Product, attempted_price: Money | No
     return None
 
 
+def record_product_last_purchase_price(*, product: Product | None, price: Money | None) -> None:
+    if product is None or price is None:
+        return
+
+    if getattr(product, "last_purchase_price", None) == price:
+        return
+
+    product.last_purchase_price = Money(price.amount, price.currency)
+    product.save(update_fields=["last_purchase_price", "last_purchase_price_currency"])
+
+
 def record_product_last_used_price(*, product: Product | None, price: Money | None) -> None:
     if product is None or price is None:
         return

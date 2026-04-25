@@ -1,0 +1,25 @@
+<div class="modal-box max-w-md relative">
+    <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick="closeBudgetParentModal()">✕</button>
+
+    <h3 class="font-bold text-2xl mb-4">Criar orçamento a partir deste</h3>
+    <p class="text-lg text-base-content/70 mb-4">
+        Deseja relacionar o novo orçamento a este?
+    </p>
+
+    <form method="post" action="{% url 'budget:budget_reference_modal' pk=budget.pk %}" hx-post="{% url 'budget:budget_reference_modal' pk=budget.pk %}" hx-target="#modal-container" hx-swap="outerHTML">
+        {% csrf_token %}
+        <div class="form-control w-full mb-6">
+            <select class="select select-bordered w-full" id="relate_budget" name="relate_budget" required>
+                <option value="yes" selected>Sim</option>
+                <option value="no">Não</option>
+            </select>
+        </div>
+
+        <div class="modal-action">
+            <button type="button" class="btn" onclick="closeBudgetParentModal()">Cancelar</button>
+            <button type="submit" class="btn btn-primary">
+                <span class="material-icons" style="vertical-align: middle;">content_copy</span> Finalizar cópia
+            </button>
+        </div>
+    </form>
+</div>

@@ -14,7 +14,7 @@
             </a>
         </div>
 
-        <div class="grid items-start gap-4 lg:grid-cols-3">
+        <div class="grid items-start gap-4 lg:grid-cols-2 2xl:grid-cols-4">
             {% for card in top_summary_cards %}
                 <div class="card self-start border border-base-300 bg-base-100 shadow-xl">
                     <div x-data="{ open: false }" class="group">
@@ -99,7 +99,7 @@
                                     <form method="get" action="{% url 'finance:reports_home' %}">
                                         <h3 class="text-base font-semibold text-base-content">Filtrar relatórios</h3>
 
-                                        <div class="mt-4 max-h-[65vh] space-y-5 overflow-y-auto pr-1">
+                                        <div class="mt-4 max-h-[65vh] space-y-5 overflow-y-auto px-4">
                                             <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                                                 <div>
                                                     <label for="reports-filter-data-inicial">Data inicial</label>
@@ -231,7 +231,7 @@
                                                     </label>
                                                 </div>
 
-                                                <div class="max-h-64 space-y-2 overflow-y-auto pr-1">
+                                                <div class="max-h-64 space-y-2 overflow-y-auto px-2">
                                                     {% for financial_group in financial_group_filters %}
                                                         <label class="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition hover:bg-base-100/70">
                                                             <input
@@ -265,6 +265,67 @@
                     </div>
                 </div>
 
+                <div class="rounded-xl border border-base-300 bg-base-100 p-4 md:p-5">
+                    <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                        <div>
+                            <h2 class="text-lg font-semibold text-base-content">Folha consolidada por colaborador</h2>
+                            <p class="text-sm text-base-content/65">Resumo da competencia atual com acesso rapido ao historico e ao holerite.</p>
+                        </div>
+                    </div>
+
+                    {% if collaborator_payroll_rows %}
+                        <div class="overflow-x-auto">
+                            <table class="table table-sm md:table-md">
+                                <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
+                                    <tr>
+                                        <th>Colaborador</th>
+                                        <th>Vencimento</th>
+                                        <th>Status</th>
+                                        <th>Salario</th>
+                                        <th>VT</th>
+                                        <th>Beneficios</th>
+                                        <th>Comissoes</th>
+                                        <th>Total</th>
+                                        <th class="text-right">Acoes</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for row in collaborator_payroll_rows %}
+                                        <tr>
+                                            <td>{{ row.collaborator_name }}</td>
+                                            <td>{{ row.due_date|date:"d/m/Y" }}</td>
+                                            <td>
+                                                <span class="badge {% if row.status == 'PAID' %}badge-success{% else %}badge-warning{% endif %}">{{ row.status_label }}</span>
+                                            </td>
+                                            <td>{{ row.salary_amount }}</td>
+                                            <td>{{ row.transport_allowance_amount }}</td>
+                                            <td>{{ row.benefits_amount }}</td>
+                                            <td>{{ row.commission_amount }}</td>
+                                            <td class="font-semibold">{{ row.total_amount }}</td>
+                                            <td>
+                                                <div class="flex justify-end gap-2">
+                                                    <a href="{{ row.history_url }}" class="btn btn-ghost btn-xs">Historico</a>
+                                                    <button
+                                                        type="button"
+                                                        class="btn btn-primary btn-xs"
+                                                        onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Holerite do colaborador', url: '{{ row.receipt_url }}' } }))"
+                                                    >
+                                                        Holerite
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="rounded-xl border border-dashed border-base-300 px-6 py-8 text-center text-sm text-base-content/60">
+                            Nenhuma folha consolidada encontrada para a competencia atual.
+                        </div>
+                    {% endif %}
+                </div>
+
                 <div id="financial-reports-movements-section">
                     {% if financial_movement_report_rows %}
                         <div class="overflow-hidden rounded-xl border border-base-300 bg-base-100">
@@ -276,7 +337,6 @@
                                             <th>Tipo</th>
                                             <th>Vencimento</th>
                                             <th>Agente</th>
-                                            <th>Origem</th>
                                             <th>Descrição</th>
                                             <th>Plano Orçamentário</th>
                                             <th>Conta</th>
@@ -306,18 +366,26 @@
                                                 <td><span class="badge {{ row.type_badge.class }} badge-sm whitespace-nowrap">{{ row.type_badge.text }}</span></td>
                                                 <td>{{ row.due_date|date:"d/m/Y"|default:"-" }}</td>
                                                 <td>{{ row.agent }}</td>
-                                                <td>{{ row.origin }}</td>
                                                 <td>{{ row.description }}</td>
                                                 <td>{{ row.budget_plan }}</td>
                                                 <td>{{ row.account }}</td>
                                                 <td>{{ row.payment_type }}</td>
                                                 <td class="text-center">
-                                                    <button type="button" class="btn btn-ghost btn-xs" title="Editar Movimentação Financeira" aria-label="Editar Movimentação Financeira"
+                                                    {% if row.is_workorder %}
+                                                        <button type="button" class="btn btn-ghost btn-xs"
+                                                            title="Abrir Ordem de Serviço"
+                                                            onclick="window.location.href='{{ row.edit_modal_url }}'">
+                                                            <span class="material-icons text-sm">open_in_new</span>
+                                                        </button>
+                                                    {% else %}
+                                                        <button type="button" class="btn btn-ghost btn-xs"
+                                                            title="Editar Movimentação Financeira"
                                                             hx-get="{{ row.edit_modal_url }}"
                                                             hx-target="#edit-modal-container"
                                                             hx-swap="innerHTML">
-                                                        <span class="material-icons text-sm">edit</span>
-                                                    </button>
+                                                            <span class="material-icons text-sm">edit</span>
+                                                        </button>
+                                                    {% endif %}
                                                 </td>
                                                 <td class="text-right"><span class="{{ row.total.class }}">{{ row.total.text }}</span></td>
                                             </tr>
@@ -369,4 +437,44 @@
     </div>
 
     <div id="edit-modal-container"></div>
+
+    <dialog
+        id="pdfModal"
+        class="modal"
+        x-data="{ url: '', downloadUrl: '', title: 'Visualização do holerite' }"
+        @open-pdf-modal.window="url = $event.detail.url; downloadUrl = $event.detail.downloadUrl || ''; title = $event.detail.title || 'Visualização do holerite'; $el.showModal()"
+    >
+        <div class="modal-box flex h-[90vh] w-full max-w-5xl flex-col p-0">
+            <div class="flex items-center justify-between border-b bg-base-200 px-6 py-4">
+                <h3 class="flex items-center gap-2 text-xl font-bold">
+                    <span class="material-icons">description</span>
+                    <span x-text="title"></span>
+                </h3>
+
+                <div class="flex gap-2">
+                    <button
+                        type="button"
+                        class="btn btn-sm btn-primary"
+                        onclick="const frame = document.querySelector('#pdfModal iframe'); if (frame && frame.contentWindow) { frame.contentWindow.focus(); frame.contentWindow.print(); }"
+                    >
+                        Imprimir
+                    </button>
+
+                    <button type="button" class="btn btn-sm" onclick="document.getElementById('pdfModal').close()">
+                        Fechar
+                    </button>
+                </div>
+            </div>
+
+            <div class="flex-1 bg-gray-100">
+                <template x-if="url">
+                    <iframe :src="url" class="h-full w-full" frameborder="0"></iframe>
+                </template>
+            </div>
+        </div>
+
+        <form method="dialog" class="modal-backdrop">
+            <button>close</button>
+        </form>
+    </dialog>
 {% endblock %}

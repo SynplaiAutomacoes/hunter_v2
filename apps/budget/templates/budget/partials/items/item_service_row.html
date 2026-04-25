@@ -39,17 +39,17 @@
     <td class="text-right">{{ item.service_cost_price }}</td>
     <td class="text-right">
         {% if step6 %}
-            {{ slider_price }}
+            {% if budget.is_warranty_budget %}R$ 0,00{% else %}{{ slider_price }}{% endif %}
         {% else %}
-            {{ item.service_selling_price }}
+            {{ item.display_service_selling_price }}
         {% endif %}
     </td>
-    <td class="text-center">{{ item.duration_display }}</td>
+    <td class="text-center">{{ duration_display|default:item.duration_display }}</td>
     <td class="font-bold text-right">
         {% if step6 %}
             {{ slider_total_price }}
         {% else %}
-            {{ item.total_price }}
+            {{ item.display_total_price }}
         {% endif %}
     </td>
     {% if not step6 %}

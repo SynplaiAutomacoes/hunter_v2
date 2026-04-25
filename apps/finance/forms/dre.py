@@ -5,7 +5,7 @@ from django import forms
 
 from crispy_forms.helper import FormHelper, Layout
 
-from apps.core.widgets import CalendarDateInput, SelectInput
+from apps.core.widgets import CalendarDateInput, SearchableSelectInput
 from apps.finance.models import FinancialGroup
 
 
@@ -18,13 +18,13 @@ class DreForm(forms.Form):
         ("A", "AMBOS"),
     )
 
-    filial = forms.ChoiceField(widget=SelectInput(), choices=[], required=True, label="Selecione a filial")
+    filial = forms.ChoiceField(widget=SearchableSelectInput(), choices=[], required=True, label="Selecione a filial")
 
     data_inicial = forms.DateField(widget=CalendarDateInput(), required=True, label="Data Inicial")
 
     data_final = forms.DateField(widget=CalendarDateInput(), required=True, label="Data Final")
 
-    tipo_data = forms.ChoiceField(widget=SelectInput(), choices=TIPO_DATA_CHOICES, required=True, label="Selecione o tipo da data")
+    tipo_data = forms.ChoiceField(widget=SearchableSelectInput(), choices=TIPO_DATA_CHOICES, required=True, label="Selecione o tipo da data")
 
     financial_groups = forms.ModelMultipleChoiceField(
         queryset=FinancialGroup.objects.none(),

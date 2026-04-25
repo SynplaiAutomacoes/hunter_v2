@@ -1,36 +1,84 @@
 {% extends 'crud/list_page.html' %}
 
 {% block crud_title %}Central de Notas Emitidas{% endblock %}
-{% block crud_subtitle %}Filtre NF-e e NFS-e por periodo e baixe XMLs ou PDFs em arquivo ZIP.{% endblock %}
+{% block crud_subtitle %}Filtre Nota Fiscal e Nota Fiscal de Serviço por periodo e baixe XMLs ou PDFs em arquivo ZIP.{% endblock %}
 
 {% block crud_header_actions %}
     <div class="flex w-full flex-col gap-3 lg:items-end">
-        <form method="get" class="flex w-full flex-col gap-3 xl:w-auto xl:flex-row xl:items-end xl:justify-end">
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-3 xl:min-w-[42rem]">
-                <div>
-                    <label for="issued-documents-start-date" class="label pt-0 pb-1">
-                        <span class="label-text text-xs">Data inicial</span>
-                    </label>
-                    <input
-                        type="date"
-                        id="issued-documents-start-date"
-                        name="data_inicial"
-                        value="{{ filter_state.start_raw }}"
-                        class="input input-bordered input-sm w-full"
-                    />
-                </div>
+        <div class="flex flex-wrap gap-2 xl:justify-end">
+            <button type="button" class="btn btn-outline btn-sm gap-2" onclick="document.getElementById('issued-documents-filter-modal').showModal()">
+                <span class="material-icons text-sm">filter_alt</span>
+                Filtrar
+            </button>
+            {% if filter_state.has_selected_period or filter_state.selected_note_type != 'all' %}
+                <a href="{% url 'finance:issued_documents_list' %}" class="btn btn-ghost btn-sm">Limpar Filtros</a>
+            {% endif %}
 
-                <div>
-                    <label for="issued-documents-end-date" class="label pt-0 pb-1">
-                        <span class="label-text text-xs">Data final</span>
-                    </label>
-                    <input
-                        type="date"
-                        id="issued-documents-end-date"
-                        name="data_final"
-                        value="{{ filter_state.end_raw }}"
-                        class="input input-bordered input-sm w-full"
-                    />
+            {% if can_download_xml and download_xml_url %}
+                <a href="{{ download_xml_url }}" data-issued-download="true" data-download-label="XML" class="btn btn-primary btn-sm gap-2 shadow-sm">
+                    <span class="material-icons text-sm">folder_zip</span>
+                    Baixar XML
+                </a>
+            {% else %}
+                <span class="btn btn-outline btn-sm btn-disabled gap-2 shadow-sm">
+                    <span class="material-icons text-sm">folder_zip</span>
+                    Baixar XML
+                </span>
+            {% endif %}
+
+            {% if can_download_pdfs and download_pdfs_url %}
+                <a href="{{ download_pdfs_url }}" data-issued-download="true" data-download-label="PDF" class="btn btn-secondary btn-sm gap-2 shadow-sm">
+                    <span class="material-icons text-sm">picture_as_pdf</span>
+                    Baixar PDFs
+                </a>
+            {% else %}
+                <span class="btn btn-outline btn-sm btn-disabled gap-2 shadow-sm">
+                    <span class="material-icons text-sm">picture_as_pdf</span>
+                    Baixar PDFs
+                </span>
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}
+
+{% block crud_table_wrapper_id %}issued-documents-results-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'finance:issued_documents_list' %}{% endblock %}
+{% block crud_table_hx_trigger %}issued-documents-refresh from:body{% endblock %}
+
+{% block crud_table %}
+    {% include 'finance/partials/issued_documents_results.html' %}
+
+    <dialog id="issued-documents-filter-modal" class="modal">
+        <div class="modal-box w-11/12 max-w-md">
+            <h3 class="font-bold text-lg mb-4">Filtrar Notas Emitidas</h3>
+            
+            <form method="get" class="flex flex-col gap-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                        <label for="issued-documents-start-date" class="label pt-0 pb-1">
+                            <span class="label-text text-xs">Data inicial</span>
+                        </label>
+                        <input
+                            type="date"
+                            id="issued-documents-start-date"
+                            name="data_inicial"
+                            value="{{ filter_state.start_raw }}"
+                            class="input input-bordered input-sm w-full"
+                        />
+                    </div>
+    
+                    <div>
+                        <label for="issued-documents-end-date" class="label pt-0 pb-1">
+                            <span class="label-text text-xs">Data final</span>
+                        </label>
+                        <input
+                            type="date"
+                            id="issued-documents-end-date"
+                            name="data_final"
+                            value="{{ filter_state.end_raw }}"
+                            class="input input-bordered input-sm w-full"
+                        />
+                    </div>
                 </div>
 
                 <div>
@@ -43,42 +91,17 @@
                         {% endfor %}
                     </select>
                 </div>
-            </div>
-
-            <div class="flex flex-wrap gap-2 xl:justify-end">
-                <button type="submit" class="btn btn-primary btn-sm">Filtrar</button>
-                <a href="{% url 'finance:issued_documents_list' %}" class="btn btn-ghost btn-sm">Limpar</a>
-            </div>
-        </form>
-
-        <div class="flex flex-wrap gap-2 xl:justify-end">
-            {% if can_download_xml and download_xml_url %}
-                <a href="{{ download_xml_url }}" data-issued-download="true" data-download-label="XML" class="btn btn-primary btn-sm gap-2 shadow-sm">
-                    <span class="material-icons text-sm">folder_zip</span>
-                    Baixar XML
-                </a>
-            {% else %}
-                <span class="btn btn-outline btn-sm btn-disabled">Baixar XML</span>
-            {% endif %}
-
-            {% if can_download_pdfs and download_pdfs_url %}
-                <a href="{{ download_pdfs_url }}" data-issued-download="true" data-download-label="PDF" class="btn btn-secondary btn-sm gap-2 shadow-sm">
-                    <span class="material-icons text-sm">picture_as_pdf</span>
-                    Baixar PDFs
-                </a>
-            {% else %}
-                <span class="btn btn-outline btn-sm btn-disabled">Baixar PDFs</span>
-            {% endif %}
+                
+                <div class="modal-action">
+                    <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('issued-documents-filter-modal').close()">Cancelar</button>
+                    <button type="submit" class="btn btn-primary btn-sm">Aplicar Filtro</button>
+                </div>
+            </form>
         </div>
-    </div>
-{% endblock %}
-
-{% block crud_table_wrapper_id %}issued-documents-results-wrapper{% endblock %}
-{% block crud_table_hx_get %}{% url 'finance:issued_documents_list' %}{% endblock %}
-{% block crud_table_hx_trigger %}issued-documents-refresh from:body{% endblock %}
-
-{% block crud_table %}
-    {% include 'finance/partials/issued_documents_results.html' %}
+        <form method="dialog" class="modal-backdrop">
+            <button type="submit">close</button>
+        </form>
+    </dialog>
 
     <dialog id="issued-documents-download-modal" class="modal">
         <div class="modal-box max-w-md border border-base-300 bg-base-100 shadow-2xl">

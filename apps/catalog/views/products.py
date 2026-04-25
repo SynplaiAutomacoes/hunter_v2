@@ -48,7 +48,12 @@ class ProductListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespo
         search_query = self.request.GET.get("q", "").strip()
 
         if search_query:
-            queryset = queryset.filter(Q(name__icontains=search_query) | Q(code__icontains=search_query) | Q(brand__icontains=search_query))
+            search_filters = Q(name__icontains=search_query) | Q(code__icontains=search_query) | Q(brand__icontains=search_query)
+
+            if queryset.filter(code__iexact=search_query).exists():
+                search_filters |= Q(equivalent_parts__workshop=self.workshop, equivalent_parts__code__iexact=search_query)
+
+            queryset = queryset.filter(search_filters).distinct()
 
         queryset = apply_is_active_filter(queryset, params=self.request.GET)
 
@@ -75,20 +80,20 @@ class ProductListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespo
         context = super().get_context_data(**kwargs)
 
         context["fields"] = [
-            TableColumn(Product.code.field.verbose_name, attr="code"),
-            TableColumn(Product.name.field.verbose_name, attr="name"),
-            TableColumn(Product.brand.field.verbose_name, attr="brand"),
-            TableColumn(Product.unit.field.verbose_name, attr="unit"),
-            TableColumn(Product.cost_price.field.verbose_name, attr="cost_price"),
-            TableColumn(Product.selling_price.field.verbose_name, attr="selling_price"),
-            TableColumn("Estoque Atual", attr="current_stock"),
-            TableColumn(Product.location.field.verbose_name, attr="location"),
-            TableColumn(Product.is_active.field.verbose_name, attr="is_active"),
+            TableColumn(Product.code.field.verbose_name, attr="code", searchable=False),
+            TableColumn(Product.name.field.verbose_name, attr="name", searchable=False),
+            TableColumn(Product.brand.field.verbose_name, attr="brand", searchable=False),
+            TableColumn(Product.unit.field.verbose_name, attr="unit", searchable=False),
+            TableColumn(Product.cost_price.field.verbose_name, attr="cost_price", searchable=False),
+            TableColumn(Product.selling_price.field.verbose_name, attr="selling_price", searchable=False),
+            TableColumn("Estoque Atual", attr="current_stock", searchable=False),
+            TableColumn(Product.location.field.verbose_name, attr="location", searchable=False),
+            TableColumn(Product.is_active.field.verbose_name, attr="is_active", searchable=False),
         ]
 
         context["actions"] = [
             TableActionDefaults.edit("catalog:product_update"),
-            TableActionDefaults.delete("catalog:product_delete"),
+            TableActionDefaults.delete("catalog:product_delete", visible=lambda obj: not obj.is_used),
         ]
 
         context["group_choices"] = [(str(group_id), name) for group_id, name in CatalogGroup.objects.filter(workshop=self.workshop).order_by("name").values_list("id", "name")]

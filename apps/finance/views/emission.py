@@ -28,7 +28,9 @@ from apps.finance.forms import (
 from apps.finance.models.finance import NfeRequest, NfeRequestStatus, NfseRequest, NfseRequestStatus
 from apps.finance.services.emission import NfseEmissionError, emit_nfse_request, sync_emission_response
 from apps.finance.services.nfe_emission import NfeEmissionError, emit_nfe_request, sync_nfe_emission_response
+from apps.finance.services.pricing import build_slider_allocation_for_workorder
 from apps.finance.services.tax_classes import TaxClassServiceError, list_tax_classes
+from apps.finance.views.request_workflow import build_preview_hidden_fields, render_emission_preview_modal
 from apps.finance.views.ncm_validation import (
     NFE_INVALID_NCM_MODAL_ERROR,
     build_invalid_ncm_modal_context,
@@ -86,11 +88,11 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
     ]
 
     dynamic_steps_by_mode = {
-        "nfe": [{"key": "nfe_config", "title": "NF-e", "form_class": EmissionNfeConfigForm}],
-        "nfse": [{"key": "nfse_config", "title": "NFS-e", "form_class": EmissionNfseConfigForm}],
+        "nfe": [{"key": "nfe_config", "title": "Nota Fiscal", "form_class": EmissionNfeConfigForm}],
+        "nfse": [{"key": "nfse_config", "title": "Nota Fiscal de Serviço", "form_class": EmissionNfseConfigForm}],
         "both": [
-            {"key": "nfe_config", "title": "NF-e", "form_class": EmissionNfeConfigForm},
-            {"key": "nfse_config", "title": "NFS-e", "form_class": EmissionNfseConfigForm},
+            {"key": "nfe_config", "title": "Nota Fiscal", "form_class": EmissionNfeConfigForm},
+            {"key": "nfse_config", "title": "Nota Fiscal de Serviço", "form_class": EmissionNfseConfigForm},
         ],
     }
 
@@ -121,8 +123,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             "workorder_id": None,
             "pricing_slider": None,
             "note_mode": "",
-            "nfe_config": {"tax_class": ""},
-            "nfse_config": {"tax_class": "", "service_description": ""},
+            "nfe_config": {"tax_class": "", "additional_information": ""},
+            "nfse_config": {"tax_class": "", "service_description": "", "additional_information": ""},
             "nfe_request_id": None,
             "nfse_request_id": None,
             "nfe_done": False,
@@ -136,9 +138,9 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             state.update(stored_state)
 
         if not isinstance(state.get("nfe_config"), dict):
-            state["nfe_config"] = {"tax_class": ""}
+            state["nfe_config"] = {"tax_class": "", "additional_information": ""}
         if not isinstance(state.get("nfse_config"), dict):
-            state["nfse_config"] = {"tax_class": "", "service_description": ""}
+            state["nfse_config"] = {"tax_class": "", "service_description": "", "additional_information": ""}
 
         state["note_mode"] = _normalize_note_mode(state.get("note_mode"))
         state["nfe_done"] = bool(state.get("nfe_done"))
@@ -177,9 +179,9 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         nfse_request_id = state.get("nfse_request_id")
 
         if nfe_request_id:
-            actions.append({"label": "Abrir NF-e criada", "url": reverse("finance:nfe_update", kwargs={"pk": int(nfe_request_id)})})
+            actions.append({"label": "Abrir Nota Fiscal criada", "url": reverse("finance:nfe_update", kwargs={"pk": int(nfe_request_id)})})
         if nfse_request_id:
-            actions.append({"label": "Abrir NFS-e criada", "url": reverse("finance:nfse_update", kwargs={"pk": int(nfse_request_id)})})
+            actions.append({"label": "Abrir Nota Fiscal de Serviço criada", "url": reverse("finance:nfse_update", kwargs={"pk": int(nfse_request_id)})})
 
         return actions
 
@@ -259,6 +261,19 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             return int(state["pricing_slider"])
         return int(getattr(getattr(workorder, "budget", None), "slider", 0) or 0)
 
+    def _note_mode_availability(self, *, workorder: WorkOrder, selected_slider: int) -> tuple[set[str], str]:
+        allocation = build_slider_allocation_for_workorder(workorder=workorder, slider_override=selected_slider)
+        has_products = allocation.products_target > 0
+        has_services = allocation.services_target > 0
+
+        if has_products and has_services:
+            return {"nfe", "nfse", "both"}, ""
+        if has_products:
+            return {"nfe"}, "Nao ha saldo de servicos para emitir Nota Fiscal de Serviço com a configuracao atual."
+        if has_services:
+            return {"nfse"}, "Nao ha saldo de produtos para emitir Nota Fiscal com a configuracao atual."
+        return set(), "Nao ha saldo de produtos ou servicos para emitir nota com a configuracao atual."
+
     def get_initial(self) -> dict[str, Any]:
         initial = super().get_initial()
         state = self._load_state()
@@ -272,7 +287,19 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             initial["pricing_slider"] = self._selected_slider(state=state, workorder=workorder)
 
         if step_key == "note_mode":
-            initial["note_mode"] = state.get("note_mode") or _normalize_note_mode(self.request.GET.get("tipo")) or "nfe"
+            selected_slider = self._selected_slider(state=state, workorder=workorder)
+            allowed_note_modes, _ = self._note_mode_availability(workorder=workorder, selected_slider=selected_slider) if workorder is not None else ({"nfe", "nfse", "both"}, "")
+            preferred_mode = state.get("note_mode") or _normalize_note_mode(self.request.GET.get("tipo"))
+            if preferred_mode not in allowed_note_modes:
+                if "both" in allowed_note_modes:
+                    preferred_mode = "both"
+                elif "nfe" in allowed_note_modes:
+                    preferred_mode = "nfe"
+                elif "nfse" in allowed_note_modes:
+                    preferred_mode = "nfse"
+                else:
+                    preferred_mode = ""
+            initial["note_mode"] = preferred_mode or "nfe"
 
         if step_key == "nfe_config":
             initial.update(state.get("nfe_config") or {})
@@ -329,6 +356,13 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             kwargs["workorder"] = workorder
         elif step_key == "note_mode":
             kwargs["note_mode_choices"] = EMISSION_NOTE_MODE_CHOICES
+            if workorder is not None:
+                allowed_note_modes, availability_message = self._note_mode_availability(
+                    workorder=workorder,
+                    selected_slider=self._selected_slider(state=state, workorder=workorder),
+                )
+                kwargs["allowed_note_modes"] = allowed_note_modes
+                kwargs["availability_message"] = availability_message
         elif step_key == "nfe_config":
             kwargs["workorder"] = workorder
             kwargs["tax_class_choices"] = tax_class_choices["nfe"]
@@ -344,16 +378,21 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         if step_key in {"workorder", "customer", "items", "summary", "note_mode"}:
             return "Salvar e continuar"
         if step_key == "nfe_config":
-            return "Salvar e continuar" if state.get("note_mode") == "both" else "Emitir NF-e"
+            return "Salvar e continuar" if state.get("note_mode") == "both" else "Ver prévia"
         if step_key == "nfse_config":
-            if state.get("note_mode") == "both":
-                return "Reenviar NFS-e" if state.get("nfe_done") and not state.get("nfse_done") else "Emitir notas"
-            return "Emitir NFS-e"
+            return "Ver prévia"
         return "Salvar e continuar"
+
+    def _submit_button_intent(self, *, state: dict[str, Any], step_key: str) -> str:
+        if step_key == "nfe_config" and state.get("note_mode") != "both":
+            return "preview"
+        if step_key == "nfse_config":
+            return "preview"
+        return ""
 
     def _retry_notice(self, *, state: dict[str, Any], step_key: str) -> str:
         if step_key == "nfse_config" and state.get("note_mode") == "both" and state.get("nfe_done") and not state.get("nfse_done"):
-            return "A NF-e ja foi emitida com sucesso. Este reenvio tentara apenas a NFS-e pendente."
+            return "A Nota Fiscal ja foi emitida com sucesso. Este reenvio tentara apenas a Nota Fiscal de Serviço pendente."
         return ""
 
     def get_context_data(self, **kwargs):
@@ -372,6 +411,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         context["previous_step"] = current_step - 1 if current_step > min_accessible_step else None
         context["is_final_step"] = current_step == len(steps)
         context["submit_button_label"] = self._submit_button_label(state=state, step_key=current_step_key)
+        context["submit_button_intent"] = self._submit_button_intent(state=state, step_key=current_step_key)
         context["retry_notice"] = self._retry_notice(state=state, step_key=current_step_key)
         context["wizard_state"] = state
         context["selected_workorder"] = self._selected_workorder(state)
@@ -450,6 +490,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         nfe_request.current_step = 3
         nfe_request.status = NfeRequestStatus.CHECKING_PRODUCTS
         nfe_request.tax_class = str((state.get("nfe_config") or {}).get("tax_class") or "")
+        nfe_request.additional_information = str((state.get("nfe_config") or {}).get("additional_information") or "")
         nfe_request.pricing_slider = self._selected_slider(state=state, workorder=workorder)
         nfe_request.save()
 
@@ -471,6 +512,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         nfse_request.status = NfseRequestStatus.CHECKING_SERVICES
         nfse_request.tax_class = str((state.get("nfse_config") or {}).get("tax_class") or "")
         nfse_request.service_description = str((state.get("nfse_config") or {}).get("service_description") or "")
+        nfse_request.additional_information = str((state.get("nfse_config") or {}).get("additional_information") or "")
         nfse_request.pricing_slider = self._selected_slider(state=state, workorder=workorder)
         nfse_request.save()
 
@@ -487,8 +529,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         if not self._acquire_submission_lock(state=state, note_key="nfe"):
             existing_request_id = state.get("nfe_request_id")
             if existing_request_id:
-                return False, "Ja existe um envio de NF-e em andamento para esta emissao. Aguarde a conclusao antes de tentar novamente."
-            return False, "A emissao da NF-e ja esta sendo processada. Aguarde alguns instantes e tente novamente."
+                return False, "Ja existe um envio de Nota Fiscal em andamento para esta emissao. Aguarde a conclusao antes de tentar novamente."
+            return False, "A emissao da Nota Fiscal ja esta sendo processada. Aguarde alguns instantes e tente novamente."
 
         nfe_request = self._get_or_create_nfe_request(state=state, workorder=workorder)
         try:
@@ -515,8 +557,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         if not self._acquire_submission_lock(state=state, note_key="nfse"):
             existing_request_id = state.get("nfse_request_id")
             if existing_request_id:
-                return False, "Ja existe um envio de NFS-e em andamento para esta emissao. Aguarde a conclusao antes de tentar novamente."
-            return False, "A emissao da NFS-e ja esta sendo processada. Aguarde alguns instantes e tente novamente."
+                return False, "Ja existe um envio de Nota Fiscal de Serviço em andamento para esta emissao. Aguarde a conclusao antes de tentar novamente."
+            return False, "A emissao da Nota Fiscal de Serviço ja esta sendo processada. Aguarde alguns instantes e tente novamente."
 
         nfse_request = self._get_or_create_nfse_request(state=state, workorder=workorder)
         try:
@@ -541,7 +583,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
 
     @staticmethod
     def _note_label(*, note_key: str) -> str:
-        return "NF-e" if note_key == "nfe" else "NFS-e"
+        return "Nota Fiscal" if note_key == "nfe" else "Nota Fiscal de Serviço"
 
     def _add_note_success_message(self, *, note_key: str) -> None:
         messages.success(self.request, f"{self._note_label(note_key=note_key)} enviada com sucesso.")
@@ -555,6 +597,49 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             messages.error(self.request, f"Falha ao enviar {label}: {details}")
             return
         messages.error(self.request, f"Falha ao enviar {label}.")
+
+    def _preview_nfe(self, *, state: dict[str, Any], workorder: WorkOrder) -> tuple[dict[str, Any] | None, str | None]:
+        invalid_ncm_modal = build_invalid_ncm_modal_context(workorder=workorder, return_url=self.request.get_full_path())
+        if invalid_ncm_modal is not None:
+            store_invalid_ncm_modal_context(request=self.request, modal_context=invalid_ncm_modal)
+            return None, NFE_INVALID_NCM_MODAL_ERROR
+
+        nfe_request = self._get_or_create_nfe_request(state=state, workorder=workorder)
+        return {"embed_url": reverse("finance:nfe_preview_pdf", kwargs={"pk": nfe_request.pk})}, None
+
+    def _preview_nfse(self, *, state: dict[str, Any], workorder: WorkOrder) -> tuple[dict[str, Any] | None, str | None]:
+        nfse_request = self._get_or_create_nfse_request(state=state, workorder=workorder)
+        return {"embed_url": reverse("finance:nfse_preview_pdf", kwargs={"pk": nfse_request.pk})}, None
+
+    def _build_preview_response(self, *, state: dict[str, Any], workorder: WorkOrder, cleaned_data: dict[str, Any], current_step: int):
+        note_mode = str(state.get("note_mode") or "")
+        branches = ["nfe", "nfse"] if note_mode == "both" else [note_mode]
+        previews: list[dict[str, str]] = []
+
+        for branch in branches:
+            if state.get(f"{branch}_done"):
+                continue
+
+            preview_payload, error_message = self._preview_nfe(state=state, workorder=workorder) if branch == "nfe" else self._preview_nfse(state=state, workorder=workorder)
+            if preview_payload is None:
+                self._add_note_error_message(note_key=branch, error_message=error_message)
+                return self._redirect_after_finalize_error(state=state, note_key=branch)
+
+            previews.append(
+                {
+                    "label": "DANFE" if branch == "nfe" else "Nota Fiscal de Serviço",
+                    "embed_url": str(preview_payload.get("embed_url") or ""),
+                }
+            )
+
+        return render_emission_preview_modal(
+            request=self.request,
+            title="Previa da emissao",
+            description="Confira os documentos antes de transmitir as notas fiscais para a Webmania.",
+            previews=previews,
+            transmit_url=self._step_url(current_step),
+            hidden_fields=build_preview_hidden_fields(cleaned_data=cleaned_data),
+        )
 
     def _finalize_selected_notes(self, *, state: dict[str, Any], workorder: WorkOrder):
         note_mode = str(state.get("note_mode") or "")
@@ -593,8 +678,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
                         "workorder_id": workorder.pk,
                         "pricing_slider": None,
                         "note_mode": _normalize_note_mode(self.request.GET.get("tipo")),
-                        "nfe_config": {"tax_class": ""},
-                        "nfse_config": {"tax_class": "", "service_description": ""},
+                        "nfe_config": {"tax_class": "", "additional_information": ""},
+                        "nfse_config": {"tax_class": "", "service_description": "", "additional_information": ""},
                     }
                 )
                 self._clear_submission_progress(state)
@@ -621,6 +706,13 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             if state.get("pricing_slider") != selected_slider:
                 state["pricing_slider"] = selected_slider
                 self._clear_submission_progress(state)
+
+            allowed_note_modes, _ = self._note_mode_availability(workorder=workorder, selected_slider=selected_slider)
+            if not allowed_note_modes:
+                messages.error(self.request, "Nao ha saldo de produtos ou servicos para emitir nota com a configuracao atual.")
+                self._write_state(state)
+                return self._redirect_to_step(self._current_step())
+
             next_step = self._set_current_step(state=state, step_key="note_mode")
             self._write_state(state)
             return self._redirect_to_step(next_step)
@@ -631,9 +723,9 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             if selected_mode != previous_mode:
                 self._clear_submission_progress(state)
                 if selected_mode == "nfe":
-                    state["nfse_config"] = {"tax_class": "", "service_description": ""}
+                    state["nfse_config"] = {"tax_class": "", "service_description": "", "additional_information": ""}
                 elif selected_mode == "nfse":
-                    state["nfe_config"] = {"tax_class": ""}
+                    state["nfe_config"] = {"tax_class": "", "additional_information": ""}
             state["note_mode"] = selected_mode
             next_key = "nfe_config" if selected_mode in {"nfe", "both"} else "nfse_config"
             next_step = self._set_current_step(state=state, step_key=next_key)
@@ -641,20 +733,28 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             return self._redirect_to_step(next_step)
 
         if current_step_key == "nfe_config":
-            state["nfe_config"] = {"tax_class": form.cleaned_data["tax_class"]}
+            state["nfe_config"] = {
+                "tax_class": form.cleaned_data["tax_class"],
+                "additional_information": form.cleaned_data.get("additional_information", ""),
+            }
             self._write_state(state)
             if state.get("note_mode") == "both":
                 next_step = self._set_current_step(state=state, step_key="nfse_config")
                 self._write_state(state)
                 return self._redirect_to_step(next_step)
+            if self.request.POST.get("intent") == "preview":
+                return self._build_preview_response(state=state, workorder=workorder, cleaned_data=form.cleaned_data, current_step=self._current_step())
             return self._finalize_selected_notes(state=state, workorder=workorder)
 
         if current_step_key == "nfse_config":
             state["nfse_config"] = {
                 "tax_class": form.cleaned_data["tax_class"],
                 "service_description": form.cleaned_data["service_description"],
+                "additional_information": form.cleaned_data.get("additional_information", ""),
             }
             self._write_state(state)
+            if self.request.POST.get("intent") == "preview":
+                return self._build_preview_response(state=state, workorder=workorder, cleaned_data=form.cleaned_data, current_step=self._current_step())
             return self._finalize_selected_notes(state=state, workorder=workorder)
 
         return self._redirect_to_step(self._current_step())
@@ -801,7 +901,7 @@ class EmissionWorkOrderKitComponentUpdateView(LoginRequiredMixin, WorkshopScoped
             initial={
                 "quantity": override.quantity if override else kit_service.quantity,
                 "cost": override.service_cost_price if override else (kit_service.service.suggested_cost or Money(0, "BRL")),
-                "price": override.service_selling_price if override else kit_service.service.selling_price,
+                "price": override.service_selling_price if override else kit_service.resolved_selling_price,
                 "duration": override.duration if override and override.duration else kit_service.service.duration,
             },
             parent_quantity=parent_quantity,

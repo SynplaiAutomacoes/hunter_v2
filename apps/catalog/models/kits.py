@@ -6,8 +6,9 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import F, Q
 from djmoney.models.fields import MoneyField
+from djmoney.money import Money
 
-from apps.catalog.kit_applications import build_kit_application_label, build_kit_applications_summary, build_kit_application_preview_lines, build_powertrain_display
+from apps.catalog.kit_applications import KitApplicationsTableValue, build_kit_application_label, build_kit_applications_summary, build_kit_application_preview_lines, build_kit_applications_table_value, build_powertrain_display
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.core.models import TimeStampedModel
@@ -15,6 +16,10 @@ from apps.workshops.models.workshops import Workshop
 
 
 class Kit(TimeStampedModel):
+    class ServicePricingMode(models.TextChoices):
+        BY_DURATION = "by_duration", "Valor de venda por duração"
+        INSERTED_VALUE = "inserted_value", "Valor de venda inserido"
+
     workshop = models.ForeignKey(
         Workshop,
         on_delete=models.CASCADE,
@@ -40,6 +45,12 @@ class Kit(TimeStampedModel):
 
     total_price = MoneyField(verbose_name="Preço Total", max_digits=14, decimal_places=2, default=0.00)
     total_duration = models.DurationField(verbose_name="Duração Total", null=True, blank=True)
+    service_pricing_mode = models.CharField(
+        verbose_name="Modo de precificação de serviços",
+        max_length=20,
+        choices=ServicePricingMode.choices,
+        default=ServicePricingMode.BY_DURATION,
+    )
 
     class Meta:
         verbose_name = "Kit"
@@ -65,6 +76,18 @@ class Kit(TimeStampedModel):
 
     def application_preview_lines(self, *, limit: int = 3) -> list[str]:
         return build_kit_application_preview_lines(self.ordered_applications(), limit=limit)
+
+    def applications_table_value(self, *, preview_limit: int = 2) -> KitApplicationsTableValue:
+        return build_kit_applications_table_value(self.ordered_applications(), preview_limit=preview_limit)
+
+    @property
+    def is_used(self) -> bool:
+        # Verifica se já foi usado em orçamentos ou ordens de serviço
+        if self.budgetitem_set.exists():
+            return True
+        if self.workorderitem_set.exists():
+            return True
+        return False
 
 
 class KitApplication(TimeStampedModel):
@@ -122,6 +145,9 @@ class KitService(TimeStampedModel):
     service = models.ForeignKey(Service, on_delete=models.CASCADE, related_name="service_kits")
     quantity = models.PositiveIntegerField(verbose_name="Quantidade", default=1)
     duration = models.DurationField(verbose_name="Duração", default=timedelta)
+    cost_price = MoneyField(verbose_name="Custo", max_digits=14, decimal_places=2, null=True, blank=True, default_currency="BRL")
+    duration_selling_price = MoneyField(verbose_name="Valor de Venda por Duração", max_digits=14, decimal_places=2, null=True, blank=True, default_currency="BRL")
+    selling_price = MoneyField(verbose_name="Valor de Venda", max_digits=14, decimal_places=2, null=True, blank=True, default_currency="BRL")
 
     class Meta:
         verbose_name = "Item de Kit (Serviço)"
@@ -135,3 +161,15 @@ class KitService(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.kit} - {self.service}"
+
+    @property
+    def resolved_selling_price(self) -> Money:
+        return self.selling_price if self.selling_price is not None else self.service.selling_price
+
+    @property
+    def resolved_cost_price(self) -> Money:
+        return self.cost_price if self.cost_price is not None else self.service.suggested_cost
+
+    @property
+    def resolved_duration_selling_price(self) -> Money:
+        return self.duration_selling_price if self.duration_selling_price is not None else self.service.selling_price

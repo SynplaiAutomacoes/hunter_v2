@@ -20,7 +20,7 @@ from djmoney.money import Money
 from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
 from apps.budget.documents.provider import build_budget_status_report_pdf_render_request, render_budget_status_report_pdf_document
 from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
-from apps.budget.models import Budget, BudgetItem, BudgetStatus, SignatureStatus
+from apps.budget.models import Budget, BudgetItem, BudgetStatus, SignatureStatus, BudgetType
 from apps.budget.pdf_context import build_workshop_logo_data_uri
 from apps.budget.service import SuperSignError, send_budget_for_signature
 from apps.core.documents.http import build_pdf_http_response
@@ -99,6 +99,12 @@ BUDGET_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
         lookup="criado_em__date",
         kind="date_lte",
     ),
+    QueryParamFilter(
+        param_name="budget_type",
+        lookup="budget_type",
+        kind="choice",
+        allowed_values=frozenset(str(choice.value) for choice in BudgetType),
+    ),
 )
 
 BUDGET_STATUS_REPORT_FILTERS: tuple[QueryParamFilter, ...] = (
@@ -115,6 +121,7 @@ BUDGET_STATUS_REPORT_FILTERS: tuple[QueryParamFilter, ...] = (
 )
 
 BUDGET_STATUS_CHOICES = tuple((status.value, str(status.label)) for status in BudgetStatus)
+BUDGET_TYPE_CHOICES = tuple((choice.value, str(choice.label)) for choice in BudgetType)
 BUDGET_STATUS_BADGE_CLASSES = {
     BudgetStatus.DRAFT: "badge-neutral min-w-sm",
     BudgetStatus.WAITING_CLIENT: "badge-warning min-w-sm",
@@ -228,6 +235,7 @@ class BudgetStatusReportDataMixin:
             TableColumn("ID", attr="id"),
             TableColumn(str(Budget.customer.field.verbose_name), attr=Budget.customer.field.name, search_by="customer__name"),
             TableColumn(str(Budget.vehicle.field.verbose_name), attr=Budget.vehicle.field.name, search_by=("vehicle__plate", "vehicle__model", "vehicle__brand")),
+            TableColumn(str(Budget.budget_type.field.verbose_name), attr="type_budget_badge", searchable=False, format="status_badge"),
             TableColumn("Criado em", attr="criado_em"),
             TableColumn("Valor Total", attr="total_budget_value", searchable=False),
             TableColumn(str(Budget.status.field.verbose_name), attr="budget_status_badge", search_by="status", format="status_badge"),
@@ -299,6 +307,7 @@ class BudgetListView(LoginRequiredMixin, BudgetStatusReportDataMixin, WorkshopSc
             TableActionDefaults.edit("budget:budget_update"),
         ]
         context["status_choices"] = BUDGET_STATUS_CHOICES
+        context["budget_type_choices"] = BUDGET_TYPE_CHOICES
         context["selected_status_report"] = self._get_selected_status_report()
         context["status_report_period_label"] = self._get_status_report_period_label()
         context["status_report_querystring"] = self._get_status_report_querystring()
@@ -707,8 +716,9 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 error_message = str(exc)
                 messages.error(request, error_message)
                 return JsonResponse({"success": False, "error": error_message}, status=400)
-            except Exception:
-                error_message = "Erro interno ao processar aprovação automática de estoque."
+            except Exception as e:
+                print(f"E: {e}")
+                error_message = "Erro interno ao processar aprovação do orçamento."
                 messages.error(request, error_message)
                 return JsonResponse({"success": False, "error": error_message}, status=500)
 
@@ -742,20 +752,20 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
             budget.save(update_fields=["slider"])
 
         html = f"""
-                <span id="display-venda-pecas" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300 whitespace-nowrap step5-accent-text" data-base-val="{budget.get_total_products_by_slider.amount}" data-cost-val="{budget.total_costs_products_value.amount}" data-frete-val="{budget.total_products_shipping.amount}">
-                    {budget.get_total_products_by_slider}
+                <span id="display-venda-pecas" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300 whitespace-nowrap step5-accent-text" data-base-val="{0 if budget.is_warranty_budget else budget.get_total_products_by_slider.amount}" data-cost-val="{budget.total_costs_products_value.amount}" data-frete-val="{budget.total_products_shipping.amount}">
+                    {Money(0, "BRL") if budget.is_warranty_budget else budget.get_total_products_by_slider}
                 </span>
-                <span id="display-venda-mo" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300 step5-accent-text" data-base-val="{budget.get_total_labor_by_slider.amount}" data-cost-val="{budget.total_labor_cost_value.amount}">
-                    {budget.get_total_labor_by_slider}
+                <span id="display-venda-mo" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300 step5-accent-text" data-base-val="{0 if budget.is_warranty_budget else budget.get_total_labor_by_slider.amount}" data-cost-val="{budget.total_labor_cost_value.amount}">
+                    {Money(0, "BRL") if budget.is_warranty_budget else budget.get_total_labor_by_slider}
                 </span>
-                <span id="step5-subtotal-display" hx-swap-oob="true" data-base-total="{budget.total_base_value.amount}">
-                    {budget.total_base_value}
+                <span id="step5-subtotal-display" hx-swap-oob="true" data-base-total="{budget.display_total_base_value.amount}">
+                    {budget.display_total_base_value}
                 </span>
                 <span id="step5-discount-display" hx-swap-oob="true">
-                    {budget.resolved_discount_value}
+                    {budget.display_resolved_discount_value}
                 </span>
                 <span id="valor-final-display" hx-swap-oob="true">
-                    {budget.total_budget_value}
+                    {budget.display_total_budget_value}
                 </span>
                 """
         return HttpResponse(html)
@@ -788,3 +798,54 @@ class SaveObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return JsonResponse({"success": True})
         except (TypeError, ValueError, json.JSONDecodeError, AttributeError, Http404):
             return JsonResponse({"success": False}, status=400)
+
+
+class BudgetReferenceModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "change_budget"
+
+    def get(self, request, pk):
+        budget = _get_budget_for_workshop(self.workshop, pk)
+        context = {
+            "budget": budget,
+        }
+        return render(request, "budget/partials/budget_reference_modal.html", context)
+
+    def post(self, request, pk):
+        current_budget = _get_budget_for_workshop(self.workshop, pk)
+        relate = request.POST.get("relate_budget") == "yes"
+        
+        try:
+            with transaction.atomic():
+                new_budget = Budget(
+                    workshop=current_budget.workshop,
+                    customer=current_budget.customer,
+                    vehicle=current_budget.vehicle,
+                    cost_estimator=request.user,
+                    collaborator=current_budget.collaborator,
+                    checklist=current_budget.checklist,
+                    expiration_date=current_budget.expiration_date,
+                    entry_date=timezone.now().date(),
+                    problem_description=current_budget.problem_description,
+                    technical_diagnosis=current_budget.technical_diagnosis,
+                    notes=current_budget.notes,
+                    pdf_observation=current_budget.pdf_observation,
+                    fuel_level=current_budget.fuel_level,
+                    defect=current_budget.defect,
+                    discount_value=current_budget.discount_value,
+                    discount_percentage=current_budget.discount_percentage,
+                    reference_budget=current_budget if relate else None,
+                )
+                new_budget.save()
+        except Exception as e:
+            return HttpResponse(f"Erro ao criar orçamento: {str(e)}", status=400)
+            
+        # Redirect or trigger HTMX reload
+        response = HttpResponse("", status=200)
+        redirect_url = f"{reverse('budget:budget_update', kwargs={'pk': new_budget.pk})}?step=1"
+        triggers = {
+            "showToast": {"message": "Orçamento criado com sucesso.", "type": "success"},
+            "redirectAfterToast": {"url": redirect_url, "delay": 500}
+        }
+        response["HX-Trigger"] = json.dumps(triggers)
+        return response

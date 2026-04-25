@@ -2,22 +2,22 @@
     <div class="alert alert-error">
         <span>{{ filter_state.filter_error }}</span>
     </div>
-{% elif not filter_state.has_selected_period %}
-    <div class="alert alert-info">
-        <span>Selecione a data inicial, a data final e o tipo de nota para listar os documentos emitidos.</span>
-    </div>
 {% else %}
     <div class="mb-6 grid gap-3 md:grid-cols-2">
         <div class="rounded-xl border border-base-300 bg-base-200/40 p-4">
             <p class="text-xs uppercase tracking-[0.14em] text-base-content/60">Filtro</p>
             <p class="mt-2 text-sm font-semibold text-base-content">{{ filter_state.selected_note_type_label }}</p>
+            {% if filter_state.has_selected_period %}
             <p class="mt-1 text-xs text-base-content/70">{{ filter_state.start_raw }} ate {{ filter_state.end_raw }}</p>
+            {% else %}
+            <p class="mt-1 text-xs text-base-content/70">Todo o periodo</p>
+            {% endif %}
         </div>
 
         <div class="rounded-xl border border-base-300 bg-base-200/40 p-4">
             <p class="text-xs uppercase tracking-[0.14em] text-base-content/60">Resultado</p>
             <p class="mt-2 text-sm font-semibold text-base-content">{{ issued_notes_total }} nota{{ issued_notes_total|pluralize }}</p>
-            <p class="mt-1 text-xs text-base-content/70">NF-e: {{ issued_nfe_total }} | NFS-e: {{ issued_nfse_total }}</p>
+            <p class="mt-1 text-xs text-base-content/70">Nota Fiscal: {{ issued_nfe_total }} | Nota Fiscal de Serviço: {{ issued_nfse_total }}</p>
         </div>
     </div>
 
@@ -26,21 +26,21 @@
             <table class="table table-zebra w-full">
                 <thead>
                     <tr>
-                        <th>Tipo</th>
-                        <th>Numero</th>
-                        <th>Referencia</th>
+                        <th class="min-w-[200px]">Tipo</th>
+                        <th>Nº da Nota</th>
+                        <th>Referência</th>
                         <th>OS</th>
                         <th>Cliente</th>
                         <th>Emitida em</th>
                         <th>Status</th>
                         <th>Documentos</th>
-                        <th class="text-right">Acoes</th>
+                        <th class="text-right">Ações</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for row in issued_note_rows %}
                         <tr>
-                            <td>
+                            <td class="w-32">
                                 <span class="badge {{ row.note_type_badge_class }}">{{ row.note_type_label }}</span>
                             </td>
                             <td class="font-semibold">{{ row.number }}</td>

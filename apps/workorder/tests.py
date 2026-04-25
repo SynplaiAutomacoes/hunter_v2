@@ -997,10 +997,9 @@ class WorkOrderTotalsConsistencyTests(TestCase):
             quantity=1,
         )
 
-        with patch.object(WorkOrder, "calculate_pricing_methods", side_effect=AssertionError("Nao deve usar metodo de precificacao para total_base_value")):
-            self.assertEqual(workorder.total_products_value, Money("205.00", "BRL"))
-            self.assertEqual(workorder.total_services_value, Money("0.01", "BRL"))
-            self.assertEqual(workorder.total_base_value, Money("205.01", "BRL"))
+        self.assertEqual(workorder.total_products_value, Money("205.00", "BRL"))
+        self.assertEqual(workorder.total_services_value, Money("0.01", "BRL"))
+        self.assertEqual(workorder.total_base_value, Money("205.01", "BRL"))
 
     def test_total_budget_value_applies_discount_over_item_totals(self) -> None:
         workshop = create_workshop(suffix=82)
@@ -1030,6 +1029,60 @@ class WorkOrderTotalsConsistencyTests(TestCase):
 
         self.assertEqual(workorder.total_base_value, Money("15.00", "BRL"))
         self.assertEqual(workorder.total_budget_value, Money("10.00", "BRL"))
+
+    def test_pricing_snapshot_uses_traditional_labor_value_when_traditional_method_is_selected(self) -> None:
+        workshop = create_workshop(suffix=18)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+
+        service = Service.objects.create(
+            workshop=workshop,
+            name="Servico Tradicional",
+            duration=timedelta(hours=2),
+            suggested_cost=Money("40.00", "BRL"),
+            selling_price=Money("100.00", "BRL"),
+        )
+        WorkOrderItem.objects.create(
+            workshop=workshop,
+            workorder=workorder,
+            service=service,
+            quantity=1,
+        )
+
+        with patch.object(WorkOrder, "calculate_pricing_methods", return_value={"method_name": "Tradicional", "venda_mao_obra": Money("160.00", "BRL")}):
+            snapshot = workorder.pricing_snapshot
+
+        self.assertEqual(snapshot.total_services_value, Money("100.00", "BRL"))
+        self.assertEqual(snapshot.total_labor_selling_value, Money("160.00", "BRL"))
+        self.assertEqual(snapshot.total_labor_by_slider, Money("160.00", "BRL"))
+        self.assertEqual(workorder.total_base_value, Money("160.00", "BRL"))
+
+    def test_pricing_snapshot_keeps_hunter_labor_sum_when_hunter_method_is_selected(self) -> None:
+        workshop = create_workshop(suffix=19)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+
+        service = Service.objects.create(
+            workshop=workshop,
+            name="Servico Hunter",
+            duration=timedelta(hours=2),
+            suggested_cost=Money("40.00", "BRL"),
+            selling_price=Money("100.00", "BRL"),
+        )
+        WorkOrderItem.objects.create(
+            workshop=workshop,
+            workorder=workorder,
+            service=service,
+            quantity=1,
+        )
+
+        with patch.object(WorkOrder, "calculate_pricing_methods", return_value={"method_name": "Hunter", "venda_mao_obra": Money("160.00", "BRL")}):
+            snapshot = workorder.pricing_snapshot
+
+        self.assertEqual(snapshot.total_services_value, Money("100.00", "BRL"))
+        self.assertEqual(snapshot.total_labor_selling_value, Money("100.00", "BRL"))
+        self.assertEqual(snapshot.total_labor_by_slider, Money("100.00", "BRL"))
+        self.assertEqual(workorder.total_base_value, Money("100.00", "BRL"))
 
     def test_sync_from_budget_uses_resolved_discount_value_from_percentage(self) -> None:
         workshop = create_workshop(suffix=83)
@@ -1441,6 +1494,19 @@ class WorkOrderDuplicateKitProductTests(TestCase):
         self.assertEqual(workorder.total_services_value, budget.total_services_value)
         self.assertEqual(workorder.get_total_services_by_slider, budget.get_total_services_by_slider)
         self.assertEqual(workorder.pricing_snapshot.service_lines[0].quantity, 3)
+
+    def test_workorder_item_uses_kit_service_custom_selling_price(self) -> None:
+        workshop = create_workshop(suffix=13)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        service = create_service(workshop=workshop, suffix=130)
+        kit = create_kit(workshop=workshop, suffix=1301, products=[])
+        KitService.objects.create(kit=kit, service=service, quantity=2, duration=service.duration, selling_price=Money("33.00", "BRL"))
+
+        item = WorkOrderItem.objects.create(workshop=workshop, workorder=workorder, kit=kit, quantity=1)
+
+        self.assertEqual(item.service_selling_price, Money("66.00", "BRL"))
+        self.assertEqual(item.get_kit_services_total(), Money("66.00", "BRL"))
 
     def test_stock_approval_uses_consolidated_product_quantity(self) -> None:
         workshop = create_workshop(suffix=11)

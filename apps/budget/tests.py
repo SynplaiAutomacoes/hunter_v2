@@ -6,7 +6,7 @@ from datetime import timedelta
 from decimal import Decimal
 from typing import cast
 from urllib.parse import urlparse
-from unittest.mock import PropertyMock, patch
+from unittest.mock import ANY, PropertyMock, patch
 
 import requests
 from django import forms
@@ -25,7 +25,7 @@ from djmoney.money import Money
 
 from apps.budget.forms import BudgetStep1Form, BudgetStep4Form, BudgetStep6Form
 from apps.budget.forms.shared import _render_budget_items_rows
-from apps.budget.models import Budget, BudgetItem, BudgetStatus, SignatureStatus
+from apps.budget.models import Budget, BudgetItem, BudgetKitItemOverride, BudgetStatus, SignatureStatus
 from apps.budget.pdf_context import build_budget_pdf_context
 from apps.budget.service import (
     BUDGET_SIGNATURE_DOCUMENT_ID_KEY,
@@ -48,13 +48,16 @@ from apps.collaborators.models import WorkshopCollaborator
 from apps.core.query_filters import apply_query_param_filters
 from apps.customer.models import Customer, Vehicle
 from apps.collaborators.models import WorkshopMember
+from apps.collaborators.services import freeze_existing_pricing_history, sync_current_month_salary_costs
 from apps.iam.utils import get_or_create_director_role
 from apps.stock.models import StockProduct
 from apps.workorder.models import WorkOrder
 from apps.budget.views.pdf_views import signature_file, signature_preview, visualizar_pdf_assinatura
 from apps.budget.views.workflow_views import BUDGET_LIST_FILTERS, trigger_signature_send_if_needed
 from apps.workshops.models.workshops import Workshop
-from apps.workshops.models.workshop_costs import WorkshopCost
+from apps.workshops.models.monthly_costs import MonthlyCost
+from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
+from apps.workshops.util.monthly_costs import ADMIN_SALARY_MONTHLY_COST_NAME, MECHANIC_SALARY_MONTHLY_COST_NAME
 from apps.workshops.services.files import StoredWorkshopFile
 from apps.scheduling.models import Appointment
 
@@ -153,6 +156,12 @@ def create_collaborator(*, workshop: Workshop, suffix: int = 1, name: str | None
     )
 
 
+def create_salary_monthly_costs(*, workshop: Workshop) -> tuple[MonthlyCost, MonthlyCost]:
+    productive_cost, _ = MonthlyCost.objects.get_or_create(workshop=workshop, name=MECHANIC_SALARY_MONTHLY_COST_NAME, defaults={"is_active": True})
+    administrative_cost, _ = MonthlyCost.objects.get_or_create(workshop=workshop, name=ADMIN_SALARY_MONTHLY_COST_NAME, defaults={"is_active": True})
+    return productive_cost, administrative_cost
+
+
 def create_product(*, workshop: Workshop, suffix: int = 1, application: str = "") -> Product:
     group = CatalogGroup.objects.create(workshop=workshop, name=f"Grupo {suffix}")
     return Product.objects.create(
@@ -223,6 +232,43 @@ class BudgetStep1FormTests(TestCase):
         self.assertIn(str(vehicle), rendered_vehicle_field)
         self.assertIn(reverse("budget:vehicle-detail"), rendered_vehicle_field)
         self.assertIn(':disabled="!customerId"', rendered_vehicle_field)
+
+    def test_accepts_warranty_budget_toggle(self) -> None:
+        user, workshop = create_director_user_with_workshop(suffix=67)
+        customer = create_customer(workshop=workshop, suffix=67)
+        vehicle = create_vehicle(workshop=workshop, customer=customer, suffix=67, plate="BDG6767")
+
+        request = RequestFactory().post(reverse("budget:budget_create"))
+        request.user = user
+
+        form = BudgetStep1Form(
+            data={
+                "entry_date": timezone.now().date().isoformat(),
+                "is_warranty_budget": "on",
+                "customer": str(customer.pk),
+                "vehicle": str(vehicle.pk),
+                "current_km": "15000",
+                "fuel_level": "5",
+            },
+            workshop=workshop,
+            request=request,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        self.assertTrue(form.cleaned_data["is_warranty_budget"])
+
+    def test_renders_solid_red_no_badge_for_warranty_toggle_when_unchecked(self) -> None:
+        user, workshop = create_director_user_with_workshop(suffix=66)
+
+        request = RequestFactory().get(reverse("budget:budget_create"))
+        request.user = user
+
+        form = BudgetStep1Form(workshop=workshop, request=request)
+        form_html = Template("{% load crispy_forms_tags %}{% crispy form %}").render(Context({"form": form}))
+
+        self.assertIn("O orçamento é de garantia?", form_html)
+        self.assertIn("badge-error", form_html)
+        self.assertIn(">Não</span>", form_html)
 
     def test_accepts_current_km_with_thousands_separator(self) -> None:
         user, workshop = create_director_user_with_workshop(suffix=68)
@@ -566,6 +612,25 @@ class BudgetCreateViewAppointmentSyncTests(TestCase):
         self.assertEqual(appointment.budget.customer, self.customer)
         self.assertEqual(response.headers.get("Location"), f"{reverse('budget:budget_create')}?step=2&pk={budget.pk}&appointment_id={appointment.pk}")
 
+    def test_create_persists_warranty_budget_flag_from_step_1(self) -> None:
+        response = self.client.post(
+            f"{reverse('budget:budget_create')}?step=1",
+            {
+                "entry_date": timezone.now().date().isoformat(),
+                "is_warranty_budget": "on",
+                "customer": str(self.customer.pk),
+                "vehicle": str(self.vehicle.pk),
+                "current_km": "12000",
+                "fuel_level": "5",
+            },
+        )
+
+        budget = Budget.objects.get(workshop=self.workshop)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(budget.is_warranty_budget)
+        self.assertEqual(response.headers.get("Location"), f"{reverse('budget:budget_create')}?step=2&pk={budget.pk}")
+
 
 class BudgetListFiltersTests(TestCase):
     def test_budget_list_filters_support_client_vehicle_collaborator_and_status(self) -> None:
@@ -658,6 +723,22 @@ class BudgetListFiltersTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertQuerySetEqual(response.context["budget"].order_by("pk"), [approved_budget], transform=lambda obj: obj)
         self.assertNotIn(cancelled_budget, response.context["budget"])
+
+    def test_budget_list_displays_warranty_budget_badges(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=81)
+        warranty_budget = create_budget(workshop=workshop)
+        warranty_budget.is_warranty_budget = True
+        warranty_budget.save(update_fields=["is_warranty_budget"])
+        regular_budget = create_budget(workshop=workshop)
+        regular_budget.is_warranty_budget = False
+        regular_budget.save(update_fields=["is_warranty_budget"])
+
+        response = self.client.get(reverse("budget:budget_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, str(Budget.is_warranty_budget.field.verbose_name))
+        self.assertContains(response, '<span class="badge badge-success badge-sm whitespace-nowrap">Sim</span>', html=True)
+        self.assertContains(response, '<span class="badge badge-error badge-sm whitespace-nowrap">Não</span>', html=True)
 
     def test_budget_list_shows_cancelled_when_cancelled_filter_is_selected(self) -> None:
         workshop = self._login_with_active_workshop(suffix=73)
@@ -949,10 +1030,9 @@ class BudgetTotalsConsistencyTests(TestCase):
             service_selling_price=Money("0.01", "BRL"),
         )
 
-        with patch.object(Budget, "calculate_pricing_methods", side_effect=AssertionError("Nao deve usar metodo de precificacao para total_base_value")):
-            self.assertEqual(budget.total_products_value, Money("205.00", "BRL"))
-            self.assertEqual(budget.total_services_value, Money("0.01", "BRL"))
-            self.assertEqual(budget.total_base_value, Money("205.01", "BRL"))
+        self.assertEqual(budget.total_products_value, Money("205.00", "BRL"))
+        self.assertEqual(budget.total_services_value, Money("0.01", "BRL"))
+        self.assertEqual(budget.total_base_value, Money("205.01", "BRL"))
 
     def test_total_budget_value_applies_discount_over_item_totals(self) -> None:
         workshop = create_workshop(suffix=72)
@@ -1017,6 +1097,90 @@ class BudgetTotalsConsistencyTests(TestCase):
         self.assertEqual(budget.discount_value, Money("50.00", "BRL"))
         self.assertEqual(budget.discount_percentage, Decimal("0.200000"))
         self.assertEqual(budget.total_budget_value, Money("200.00", "BRL"))
+
+    def test_pricing_snapshot_uses_traditional_labor_value_when_traditional_method_is_selected(self) -> None:
+        workshop = create_workshop(suffix=75)
+        budget = create_budget(workshop=workshop)
+
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            is_local=True,
+            description="Servico tradicional",
+            quantity=1,
+            service_cost_price=Money("40.00", "BRL"),
+            service_selling_price=Money("100.00", "BRL"),
+            duration=timedelta(hours=2),
+        )
+
+        with patch.object(Budget, "calculate_pricing_methods", return_value={"method_name": "Tradicional", "venda_mao_obra": Money("160.00", "BRL")}):
+            snapshot = budget.pricing_snapshot
+
+        self.assertEqual(snapshot.total_services_value, Money("100.00", "BRL"))
+        self.assertEqual(snapshot.total_labor_selling_value, Money("160.00", "BRL"))
+        self.assertEqual(snapshot.total_labor_by_slider, Money("160.00", "BRL"))
+        self.assertEqual(budget.total_base_value, Money("160.00", "BRL"))
+
+    def test_pricing_snapshot_keeps_hunter_labor_sum_when_hunter_method_is_selected(self) -> None:
+        workshop = create_workshop(suffix=76)
+        budget = create_budget(workshop=workshop)
+
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            is_local=True,
+            description="Servico hunter",
+            quantity=1,
+            service_cost_price=Money("40.00", "BRL"),
+            service_selling_price=Money("100.00", "BRL"),
+            duration=timedelta(hours=2),
+        )
+
+        with patch.object(Budget, "calculate_pricing_methods", return_value={"method_name": "Hunter", "venda_mao_obra": Money("160.00", "BRL")}):
+            snapshot = budget.pricing_snapshot
+
+        self.assertEqual(snapshot.total_services_value, Money("100.00", "BRL"))
+        self.assertEqual(snapshot.total_labor_selling_value, Money("100.00", "BRL"))
+        self.assertEqual(snapshot.total_labor_by_slider, Money("100.00", "BRL"))
+        self.assertEqual(budget.total_base_value, Money("100.00", "BRL"))
+
+    def test_warranty_budget_display_totals_use_costs_without_changing_stored_sales(self) -> None:
+        workshop = create_workshop(suffix=41)
+        budget = create_budget(workshop=workshop)
+        budget.is_warranty_budget = True
+        budget.save(update_fields=["is_warranty_budget"])
+
+        product_item = BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            is_local=True,
+            description="Peca garantia",
+            quantity=2,
+            product_cost_price=Money("50.00", "BRL"),
+            product_selling_price=Money("100.00", "BRL"),
+            shipping=Money("5.00", "BRL"),
+        )
+        service_item = BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            is_local=True,
+            description="Servico garantia",
+            quantity=1,
+            service_cost_price=Money("30.00", "BRL"),
+            service_selling_price=Money("90.00", "BRL"),
+        )
+        budget.discount_value = Money("5.00", "BRL")
+
+        product_item.refresh_from_db()
+        service_item.refresh_from_db()
+
+        self.assertEqual(product_item.product_selling_price, Money("100.00", "BRL"))
+        self.assertEqual(service_item.service_selling_price, Money("90.00", "BRL"))
+        self.assertEqual(budget.display_total_products_by_slider_without_shipping, Money("100.00", "BRL"))
+        self.assertEqual(budget.display_total_services_by_slider, Money("30.00", "BRL"))
+        self.assertEqual(budget.display_total_base_value, Money("135.00", "BRL"))
+        self.assertEqual(budget.display_resolved_discount_value, Money("5.00", "BRL"))
+        self.assertEqual(budget.display_total_budget_value, Money("130.00", "BRL"))
 
 
 class BudgetDiscountUpdateViewTests(TestCase):
@@ -1220,6 +1384,129 @@ class BudgetPdfContextTests(TestCase):
 
         self.assertTrue(context["produtos"][0]["is_customer_supplied"])
 
+    def test_build_budget_pdf_context_includes_soma_markup(self) -> None:
+        workshop = create_workshop(suffix=95)
+        budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=95)
+        service = create_service(workshop=workshop, suffix=95)
+
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            product=product,
+            quantity=1,
+        )
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            service=service,
+            quantity=1,
+        )
+
+        context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste")
+
+        self.assertEqual(context["soma_markup"], Decimal("2.33"))
+        self.assertEqual(context["soma_markup_display"], "2,33x")
+
+    def test_build_budget_pdf_context_uses_cost_only_display_for_warranty_budget(self) -> None:
+        workshop = create_workshop(suffix=51)
+        budget = create_budget(workshop=workshop)
+        budget.is_warranty_budget = True
+        budget.save(update_fields=["is_warranty_budget"])
+
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            is_local=True,
+            description="Produto garantia",
+            quantity=2,
+            product_cost_price=Money("50.00", "BRL"),
+            product_selling_price=Money("100.00", "BRL"),
+            shipping=Money("5.00", "BRL"),
+        )
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            is_local=True,
+            description="Servico garantia",
+            quantity=1,
+            service_cost_price=Money("30.00", "BRL"),
+            service_selling_price=Money("90.00", "BRL"),
+        )
+        budget.discount_value = Money("5.00", "BRL")
+
+        context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste")
+
+        self.assertEqual(context["produtos"][0]["unit_price"], Money("0.00", "BRL"))
+        self.assertEqual(context["produtos"][0]["total_price"], Money("105.00", "BRL"))
+        self.assertEqual(context["servicos"][0]["unit_price"], Money("0.00", "BRL"))
+        self.assertEqual(context["servicos"][0]["total_price"], Money("30.00", "BRL"))
+        self.assertEqual(context["desconto"], Money("5.00", "BRL"))
+        self.assertEqual(context["total_geral"], Money("130.00", "BRL"))
+        self.assertEqual(context["total_profit_product_value"], Money("0.00", "BRL"))
+        self.assertEqual(context["total_profit_service_value"], Money("0.00", "BRL"))
+
+    def test_build_budget_pdf_context_zeroes_client_visible_warranty_prices(self) -> None:
+        workshop = create_workshop(suffix=15)
+        budget = create_budget(workshop=workshop)
+        budget.is_warranty_budget = True
+        budget.save(update_fields=["is_warranty_budget"])
+
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            is_local=True,
+            description="Produto garantia cliente",
+            quantity=2,
+            product_cost_price=Money("50.00", "BRL"),
+            product_selling_price=Money("100.00", "BRL"),
+            shipping=Money("5.00", "BRL"),
+        )
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            is_local=True,
+            description="Servico garantia cliente",
+            quantity=1,
+            service_cost_price=Money("30.00", "BRL"),
+            service_selling_price=Money("90.00", "BRL"),
+        )
+        budget.discount_value = Money("5.00", "BRL")
+
+        context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste", zero_warranty_prices=True)
+
+        self.assertEqual(context["produtos"][0]["unit_price"], Money("0.00", "BRL"))
+        self.assertEqual(context["produtos"][0]["shipping"], Money("0.00", "BRL"))
+        self.assertEqual(context["produtos"][0]["total_price"], Money("0.00", "BRL"))
+        self.assertEqual(context["servicos"][0]["unit_price"], Money("0.00", "BRL"))
+        self.assertEqual(context["servicos"][0]["total_price"], Money("0.00", "BRL"))
+        self.assertEqual(context["desconto"], Money("0.00", "BRL"))
+        self.assertEqual(context["total_produtos"], Money("0.00", "BRL"))
+        self.assertEqual(context["total_servicos"], Money("0.00", "BRL"))
+        self.assertEqual(context["total_geral"], Money("0.00", "BRL"))
+
+    def test_customer_budget_pdf_hides_kit_section(self) -> None:
+        workshop = create_workshop(suffix=16)
+        budget = create_budget(workshop=workshop)
+        direct_product = create_product(workshop=workshop, suffix=161, application="Gol")
+        direct_service = create_service(workshop=workshop, suffix=162)
+        kit_product = create_product(workshop=workshop, suffix=163, application="Fox")
+        kit_service = create_service(workshop=workshop, suffix=164)
+        kit = create_kit(workshop=workshop, suffix=165, products=[(kit_product, 1)])
+        KitService.objects.create(kit=kit, service=kit_service, quantity=2, duration=kit_service.duration)
+
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=direct_product, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, service=direct_service, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
+
+        context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste", presentation="selected_items")
+        html = render_to_string("budget/partials/pdf/visualizarPDF.html", context)
+
+        self.assertEqual(len(context["kits"]), 1)
+        self.assertEqual(context["kits"][0]["description"], kit.name)
+        self.assertNotIn('<h4 class="font-bold mb-1 uppercase">Kits</h4>', html)
+        self.assertNotIn(kit.name, html)
+
     def test_budget_pdf_template_allows_long_freeform_text_to_wrap(self) -> None:
         workshop = create_workshop(suffix=94)
         customer = create_customer(workshop=workshop, suffix=94)
@@ -1303,6 +1590,30 @@ class BudgetPdfViewTests(TestCase):
         expected_logo_data_uri = f"data:image/png;base64,{base64.b64encode(logo_bytes).decode('ascii')}"
         self.assertContains(response, f'src="{expected_logo_data_uri}"', html=False)
 
+    def test_visualizar_pdf_gestor_renders_soma_markup(self) -> None:
+        budget = self._create_budget_with_customer_and_vehicle(suffix=105)
+        product = create_product(workshop=self.workshop, suffix=105)
+        service = create_service(workshop=self.workshop, suffix=105)
+
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            product=product,
+            quantity=1,
+        )
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            service=service,
+            quantity=1,
+        )
+
+        response = self.client.get(reverse("budget:visualizar_pdf_gestor", args=[budget.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "SOMA MARKUP")
+        self.assertContains(response, "2,33x")
+
     @patch("apps.budget.pdf_context.get_workshop_logo_file")
     def test_visualizar_pdf_mecanico_renders_workshop_logo(self, get_workshop_logo_file_mock) -> None:
         budget = self._create_budget_with_customer_and_vehicle(suffix=99)
@@ -1351,9 +1662,138 @@ class BudgetPdfViewTests(TestCase):
             response = self.client.get(reverse(url_name, args=[budget.pk]))
 
             self.assertEqual(response.status_code, 200)
-            self.assertContains(response, "Trago pelo cliente?")
+            self.assertContains(response, "Fornecido pelo cliente?")
             self.assertRegex(response.content.decode(), r">\s*Sim\s*<")
             self.assertRegex(response.content.decode(), r">\s*Não\s*<")
+
+    def test_visualizar_pdf_gestor_product_table_headers_match_rendered_columns(self) -> None:
+        budget = self._create_budget_with_customer_and_vehicle(suffix=108)
+        product = create_product(workshop=self.workshop, suffix=108)
+
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            product=product,
+            quantity=1,
+        )
+
+        response = self.client.get(reverse("budget:visualizar_pdf_gestor", args=[budget.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertEqual(content.count("Fornecido pelo cliente?"), 1)
+        self.assertEqual(content.count("Valor Unitário"), 1)
+        self.assertContains(response, "Frete")
+        self.assertContains(response, "Custo")
+        self.assertContains(response, "Lucro")
+        self.assertNotContains(response, '<th class="p-1 font-semibold text-center whitespace-normal leading-tight">Fornecido pelo cliente</th>', html=False)
+
+    def test_visualizar_pdf_mecanico_product_table_headers_match_rendered_columns(self) -> None:
+        budget = self._create_budget_with_customer_and_vehicle(suffix=109)
+        product = create_product(workshop=self.workshop, suffix=109)
+
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            product=product,
+            quantity=1,
+        )
+
+        response = self.client.get(reverse("budget:visualizar_pdf_mecanico", args=[budget.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertEqual(content.count("Fornecido pelo cliente?"), 1)
+        self.assertContains(response, "Referência")
+        self.assertContains(response, "Localização")
+        self.assertContains(response, "Descrição")
+        self.assertNotContains(response, '<th class="p-1 font-semibold w-[14%] text-center whitespace-normal leading-tight">Fornecido pelo cliente</th>', html=False)
+
+    def test_pdf_views_display_warranty_label_for_warranty_budget(self) -> None:
+        budget = self._create_budget_with_customer_and_vehicle(suffix=106)
+        budget.is_warranty_budget = True
+        budget.save(update_fields=["is_warranty_budget"])
+
+        for url_name in ["budget:visualizar_pdf", "budget:visualizar_pdf_gestor", "budget:visualizar_pdf_mecanico"]:
+            response = self.client.get(reverse(url_name, args=[budget.pk]))
+
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, "Orçamento de Garantia")
+
+    def test_visualizar_pdf_zeroes_client_prices_for_warranty_budget(self) -> None:
+        budget = self._create_budget_with_customer_and_vehicle(suffix=206)
+        budget.is_warranty_budget = True
+        budget.save(update_fields=["is_warranty_budget"])
+
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            is_local=True,
+            description="Produto garantia PDF cliente",
+            quantity=2,
+            product_cost_price=Money("50.00", "BRL"),
+            product_selling_price=Money("100.00", "BRL"),
+            shipping=Money("5.00", "BRL"),
+        )
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            is_local=True,
+            description="Servico garantia PDF cliente",
+            quantity=1,
+            service_cost_price=Money("30.00", "BRL"),
+            service_selling_price=Money("90.00", "BRL"),
+        )
+
+        response = self.client.get(reverse("budget:visualizar_pdf", args=[budget.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "TOTAL DAS PEÇAS: R$")
+        self.assertContains(response, "TOTAL DOS SERVIÇOS: R$")
+        self.assertContains(response, "TOTAL GERAL:")
+        self.assertNotContains(response, "R$ 105,00")
+        self.assertNotContains(response, "R$ 30,00")
+        self.assertGreaterEqual(response.content.decode().count("R$\xa00,00"), 5)
+
+    def test_visualizar_pdf_gestor_keeps_internal_warranty_totals(self) -> None:
+        budget = self._create_budget_with_customer_and_vehicle(suffix=207)
+        budget.is_warranty_budget = True
+        budget.save(update_fields=["is_warranty_budget"])
+
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            is_local=True,
+            description="Produto garantia PDF gestor",
+            quantity=2,
+            product_cost_price=Money("50.00", "BRL"),
+            product_selling_price=Money("100.00", "BRL"),
+            shipping=Money("5.00", "BRL"),
+        )
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            is_local=True,
+            description="Servico garantia PDF gestor",
+            quantity=1,
+            service_cost_price=Money("30.00", "BRL"),
+            service_selling_price=Money("90.00", "BRL"),
+        )
+
+        response = self.client.get(reverse("budget:visualizar_pdf_gestor", args=[budget.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "R$\xa0105,00", html=False)
+        self.assertContains(response, "R$\xa030,00", html=False)
+
+    def test_pdf_views_hide_warranty_label_for_regular_budget(self) -> None:
+        budget = self._create_budget_with_customer_and_vehicle(suffix=107)
+
+        for url_name in ["budget:visualizar_pdf", "budget:visualizar_pdf_gestor", "budget:visualizar_pdf_mecanico"]:
+            response = self.client.get(reverse(url_name, args=[budget.pk]))
+
+            self.assertEqual(response.status_code, 200)
+            self.assertNotContains(response, "Orçamento de Garantia")
 
     def test_visualizar_pdf_uses_budget_observation_only(self) -> None:
         budget_a = self._create_budget_with_customer_and_vehicle(suffix=101)
@@ -1445,6 +1885,23 @@ class BudgetStep6FormTests(TestCase):
         self.assertNotIn("Existem pecas com quantidade acima do estoque disponivel", html)
         self.assertIn("signatureBlocked: false", html)
         self.assertIn(f"onclick=\"updateBudgetStatus({budget.pk}, 'approve')\"", html)
+
+    def test_step6_service_table_keeps_kit_services_out_of_direct_service_rows(self) -> None:
+        workshop = create_workshop(suffix=66)
+        budget = create_budget(workshop=workshop)
+        direct_service = create_service(workshop=workshop, suffix=661)
+        kit_service = create_service(workshop=workshop, suffix=662)
+        kit = create_kit(workshop=workshop, suffix=663, products=[])
+        KitService.objects.create(kit=kit, service=kit_service, quantity=2, duration=kit_service.duration)
+
+        BudgetItem.objects.create(workshop=workshop, budget=budget, service=direct_service, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
+
+        rows = _render_budget_items_rows(budget, step6=True)
+
+        self.assertIn(direct_service.name, rows["service"])
+        self.assertNotIn(kit_service.name, rows["service"])
+        self.assertIn(kit.name, rows["kit"])
 
     def test_step6_uses_budget_observation_without_inheriting_workshop_value(self) -> None:
         workshop = create_workshop(suffix=69)
@@ -2064,6 +2521,37 @@ class BudgetQuickCreateProductValidationTests(TestCase):
         self.assertIn(">Sim<", rows["product"])
         self.assertIn('<td class="text-center">', rows["product"])
 
+    def test_warranty_budget_rows_show_zero_sale_and_cost_based_totals(self) -> None:
+        self.budget.is_warranty_budget = True
+        self.budget.save(update_fields=["is_warranty_budget"])
+
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            is_local=True,
+            description="Produto garantia",
+            quantity=2,
+            product_cost_price=Money("10.00", "BRL"),
+            product_selling_price=Money("40.00", "BRL"),
+            shipping=Money("5.00", "BRL"),
+        )
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            is_local=True,
+            description="Servico garantia",
+            quantity=1,
+            service_cost_price=Money("30.00", "BRL"),
+            service_selling_price=Money("80.00", "BRL"),
+        )
+
+        rows = _render_budget_items_rows(self.budget, step6=False)
+
+        self.assertIn("R$\xa00,00", rows["product"])
+        self.assertIn("R$\xa025,00", rows["product"])
+        self.assertIn("R$\xa00,00", rows["service"])
+        self.assertIn("R$\xa030,00", rows["service"])
+
     def test_product_row_shows_not_customer_supplied_badge_by_default(self) -> None:
         product = create_product(workshop=self.workshop, suffix=107)
         BudgetItem.objects.create(
@@ -2349,6 +2837,169 @@ class BudgetDuplicateKitProductTests(TestCase):
         self.assertEqual(context["servicos"][0]["quantity"], 3)
         self.assertEqual(context["servicos"][0]["total_price"], Money("60.00", "BRL"))
 
+    def test_budget_item_uses_kit_service_custom_selling_price(self) -> None:
+        workshop = create_workshop(suffix=94)
+        budget = create_budget(workshop=workshop)
+        service = create_service(workshop=workshop, suffix=94)
+        kit = create_kit(workshop=workshop, suffix=941, products=[])
+        KitService.objects.create(kit=kit, service=service, quantity=2, duration=service.duration, selling_price=Money("33.00", "BRL"))
+
+        item = BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
+
+        self.assertEqual(item.service_selling_price, Money("66.00", "BRL"))
+        self.assertEqual(item.get_kit_services_total(), Money("66.00", "BRL"))
+
+    def test_budget_item_uses_duration_pricing_mode_when_workshop_cost_exists(self) -> None:
+        workshop = create_workshop(suffix=95)
+        budget = create_budget(workshop=workshop)
+        service = create_service(workshop=workshop, suffix=95)
+        kit = create_kit(workshop=workshop, suffix=951, products=[])
+        kit.service_pricing_mode = Kit.ServicePricingMode.BY_DURATION
+        kit.save(update_fields=["service_pricing_mode"])
+        KitService.objects.create(kit=kit, service=service, quantity=1, duration=timedelta(hours=2), selling_price=Money("33.00", "BRL"))
+
+        reference_date = budget.criado_em if budget.criado_em else timezone.now()
+        WorkshopCost.objects.create(
+            workshop=workshop,
+            month=reference_date.month,
+            year=reference_date.year,
+            mechanic_quantity=1,
+            minimum_hourly_cost=Money("30.00", "BRL"),
+            hourly_cost_value=Money("80.00", "BRL"),
+        )
+
+        item = BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
+
+        self.assertEqual(item.service_cost_price, Money("60.00", "BRL"))
+        self.assertEqual(item.service_selling_price, Money("160.00", "BRL"))
+
+    def test_budget_item_duration_mode_falls_back_to_inserted_value_without_workshop_cost(self) -> None:
+        workshop = create_workshop(suffix=96)
+        budget = create_budget(workshop=workshop)
+        service = create_service(workshop=workshop, suffix=96)
+        kit = create_kit(workshop=workshop, suffix=961, products=[])
+        kit.service_pricing_mode = Kit.ServicePricingMode.BY_DURATION
+        kit.save(update_fields=["service_pricing_mode"])
+        KitService.objects.create(kit=kit, service=service, quantity=1, duration=timedelta(hours=2), selling_price=Money("45.00", "BRL"))
+
+        item = BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
+
+        self.assertEqual(item.service_selling_price, Money("45.00", "BRL"))
+
+    def test_budget_item_inserted_mode_uses_inserted_value_even_with_workshop_cost(self) -> None:
+        workshop = create_workshop(suffix=97)
+        budget = create_budget(workshop=workshop)
+        service = create_service(workshop=workshop, suffix=97)
+        kit = create_kit(workshop=workshop, suffix=971, products=[])
+        kit.service_pricing_mode = Kit.ServicePricingMode.INSERTED_VALUE
+        kit.save(update_fields=["service_pricing_mode"])
+        KitService.objects.create(kit=kit, service=service, quantity=1, duration=timedelta(hours=2), selling_price=Money("55.00", "BRL"))
+
+        reference_date = budget.criado_em if budget.criado_em else timezone.now()
+        WorkshopCost.objects.create(
+            workshop=workshop,
+            month=reference_date.month,
+            year=reference_date.year,
+            mechanic_quantity=1,
+            minimum_hourly_cost=Money("25.00", "BRL"),
+            hourly_cost_value=Money("90.00", "BRL"),
+        )
+
+        item = BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
+
+        self.assertEqual(item.service_cost_price, Money("50.00", "BRL"))
+        self.assertEqual(item.service_selling_price, Money("55.00", "BRL"))
+
+    def test_budget_item_uses_manual_kit_service_cost_when_present(self) -> None:
+        workshop = create_workshop(suffix=98)
+        budget = create_budget(workshop=workshop)
+        service = create_service(workshop=workshop, suffix=98)
+        kit = create_kit(workshop=workshop, suffix=981, products=[])
+        kit.service_pricing_mode = Kit.ServicePricingMode.BY_DURATION
+        kit.save(update_fields=["service_pricing_mode"])
+        KitService.objects.create(kit=kit, service=service, quantity=1, duration=timedelta(hours=2), cost_price=Money("77.00", "BRL"), selling_price=Money("55.00", "BRL"))
+
+        reference_date = budget.criado_em if budget.criado_em else timezone.now()
+        WorkshopCost.objects.create(
+            workshop=workshop,
+            month=reference_date.month,
+            year=reference_date.year,
+            mechanic_quantity=1,
+            minimum_hourly_cost=Money("25.00", "BRL"),
+            hourly_cost_value=Money("90.00", "BRL"),
+        )
+
+        item = BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
+
+        self.assertEqual(item.service_cost_price, Money("77.00", "BRL"))
+        self.assertEqual(item.service_selling_price, Money("180.00", "BRL"))
+
+    def test_budget_item_uses_manual_kit_service_duration_selling_when_present(self) -> None:
+        workshop = create_workshop(suffix=99)
+        budget = create_budget(workshop=workshop)
+        service = create_service(workshop=workshop, suffix=99)
+        kit = create_kit(workshop=workshop, suffix=991, products=[])
+        kit.service_pricing_mode = Kit.ServicePricingMode.BY_DURATION
+        kit.save(update_fields=["service_pricing_mode"])
+        KitService.objects.create(
+            kit=kit,
+            service=service,
+            quantity=1,
+            duration=timedelta(hours=2),
+            duration_selling_price=Money("210.00", "BRL"),
+            selling_price=Money("55.00", "BRL"),
+        )
+
+        reference_date = budget.criado_em if budget.criado_em else timezone.now()
+        WorkshopCost.objects.create(
+            workshop=workshop,
+            month=reference_date.month,
+            year=reference_date.year,
+            mechanic_quantity=1,
+            minimum_hourly_cost=Money("25.00", "BRL"),
+            hourly_cost_value=Money("90.00", "BRL"),
+        )
+
+        item = BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
+
+        self.assertEqual(item.service_selling_price, Money("210.00", "BRL"))
+
+    def test_budget_item_freezes_kit_values_after_creation(self) -> None:
+        workshop = create_workshop(suffix=10)
+        budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=110)
+        service = create_service(workshop=workshop, suffix=110)
+        kit = create_kit(workshop=workshop, suffix=101, products=[(product, 2)])
+        kit.service_pricing_mode = Kit.ServicePricingMode.INSERTED_VALUE
+        kit.save(update_fields=["service_pricing_mode"])
+        kit_service = KitService.objects.create(kit=kit, service=service, quantity=1, duration=service.duration, selling_price=Money("85.00", "BRL"))
+
+        item = BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
+        original_total = item.total_price
+
+        self.assertTrue(item.kit_snapshot_frozen)
+        self.assertEqual(BudgetKitItemOverride.objects.filter(budget_item=item, product=product).count(), 1)
+        self.assertEqual(BudgetKitItemOverride.objects.filter(budget_item=item, service=service).count(), 1)
+        self.assertEqual(original_total, Money("115.00", "BRL"))
+
+        product.selling_price = Money("99.00", "BRL")
+        product.cost_price = Money("50.00", "BRL")
+        product.save(update_fields=["selling_price", "selling_price_currency", "cost_price", "cost_price_currency"])
+        kit.service_pricing_mode = Kit.ServicePricingMode.BY_DURATION
+        kit.save(update_fields=["service_pricing_mode"])
+        kit_service.selling_price = Money("140.00", "BRL")
+        kit_service.duration_selling_price = Money("210.00", "BRL")
+        kit_service.cost_price = Money("70.00", "BRL")
+        kit_service.save(update_fields=["selling_price", "selling_price_currency", "duration_selling_price", "duration_selling_price_currency", "cost_price", "cost_price_currency"])
+
+        item.refresh_from_db()
+        item._clear_kit_snapshot_caches()
+
+        self.assertEqual(item.total_price, original_total)
+        self.assertEqual(item.get_kit_products_total(), Money("30.00", "BRL"))
+        self.assertEqual(item.get_kit_services_total(), Money("85.00", "BRL"))
+        self.assertEqual(item.kit_unit_cost, Money("25.00", "BRL"))
+
     def test_duplicate_service_warning_is_rendered_for_direct_item_present_in_kit(self) -> None:
         workshop = create_workshop(suffix=93)
         budget = create_budget(workshop=workshop)
@@ -2362,6 +3013,168 @@ class BudgetDuplicateKitProductTests(TestCase):
         rows = _render_budget_items_rows(budget, step6=False)
 
         self.assertIn("Serviço já registrado em um kit", rows["service"])
+
+
+class BudgetKitServiceCalculateViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=83)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+        self.budget = create_budget(workshop=self.workshop)
+        self.service = create_service(workshop=self.workshop, suffix=83)
+        self.kit = create_kit(workshop=self.workshop, suffix=831, products=[])
+        self.kit.service_pricing_mode = Kit.ServicePricingMode.INSERTED_VALUE
+        self.kit.save(update_fields=["service_pricing_mode"])
+        self.kit_service = KitService.objects.create(kit=self.kit, service=self.service, quantity=1, duration=timedelta(hours=1), selling_price=Money("55.00", "BRL"))
+
+        reference_date = self.budget.criado_em if self.budget.criado_em else timezone.now()
+        WorkshopCost.objects.create(
+            workshop=self.workshop,
+            month=reference_date.month,
+            year=reference_date.year,
+            mechanic_quantity=1,
+            minimum_hourly_cost=Money("25.00", "BRL"),
+            hourly_cost_value=Money("90.00", "BRL"),
+        )
+
+        self.item = BudgetItem.objects.create(workshop=self.workshop, budget=self.budget, kit=self.kit, quantity=1)
+
+    def test_duration_change_recalculates_service_price_even_in_inserted_mode(self) -> None:
+        response = self.client.post(
+            reverse("budget:calculate_kit_service", args=[self.budget.pk, self.item.pk, self.service.pk]),
+            data={
+                "changed_field": "duration",
+                "duration": "02:00:00",
+                "quantity": "1",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+
+        override = BudgetKitItemOverride.objects.get(budget_item=self.item, service=self.service)
+        self.item.refresh_from_db()
+
+        self.assertEqual(payload["price"], "180.00")
+        self.assertEqual(override.service_selling_price, Money("180.00", "BRL"))
+        self.assertEqual(override.service_cost_price, Money("50.00", "BRL"))
+        self.assertEqual(override.duration, timedelta(hours=2))
+        self.assertEqual(self.item.service_selling_price, Money("180.00", "BRL"))
+
+    def test_duration_change_without_workshop_cost_uses_frozen_budget_snapshot(self) -> None:
+        WorkshopCost.objects.filter(workshop=self.workshop).delete()
+
+        response = self.client.post(
+            reverse("budget:calculate_kit_service", args=[self.budget.pk, self.item.pk, self.service.pk]),
+            data={
+                "changed_field": "duration",
+                "duration": "02:00:00",
+                "quantity": "1",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+
+        override = BudgetKitItemOverride.objects.get(budget_item=self.item, service=self.service)
+
+        self.assertFalse(payload["workshop_cost_missing"])
+        self.assertEqual(payload["price"], "180.00")
+        self.assertEqual(override.service_selling_price, Money("180.00", "BRL"))
+        self.assertEqual(override.service_cost_price, Money("50.00", "BRL"))
+
+
+class BudgetPricingSnapshotTests(TestCase):
+    def test_budget_snapshot_preserves_old_values_after_workshop_cost_change(self) -> None:
+        workshop = create_workshop(suffix=11)
+        budget = create_budget(workshop=workshop)
+        mechanic_cost, _ = create_salary_monthly_costs(workshop=workshop)
+        reference_date = budget.criado_em if budget.criado_em else timezone.now()
+
+        workshop_cost = WorkshopCost.objects.create(
+            workshop=workshop,
+            month=reference_date.month,
+            year=reference_date.year,
+            mechanic_quantity=1,
+            working_hours_per_month=Decimal("100.00"),
+            minimum_hourly_cost=Money("30.00", "BRL"),
+            hourly_cost_value=Money("80.00", "BRL"),
+            profitability_multiplier=Decimal("2.50"),
+        )
+        WorkshopCostItem.objects.create(workshop_cost=workshop_cost, monthly_cost=mechanic_cost, amount=Money("1000.00", "BRL"))
+
+        budget.freeze_pricing_snapshot()
+
+        WorkshopCostItem.objects.filter(workshop_cost=workshop_cost, monthly_cost=mechanic_cost).update(amount=Money("2000.00", "BRL"))
+        WorkshopCost.objects.filter(pk=workshop_cost.pk).update(
+            working_hours_per_month=Decimal("200.00"),
+            minimum_hourly_cost=Money("40.00", "BRL"),
+            hourly_cost_value=Money("120.00", "BRL"),
+            profitability_multiplier=Decimal("3.00"),
+        )
+        budget.refresh_from_db()
+
+        self.assertEqual(budget.pricing_productive_salary_total, Money("1000.00", "BRL"))
+        self.assertEqual(budget.mechanic_hour_cost_value, Money("10.00", "BRL"))
+        self.assertEqual(budget.get_mlr, Decimal("2.50"))
+
+
+class CollaboratorSalarySyncTests(TestCase):
+    def test_new_collaborator_updates_current_month_and_preserves_existing_budget_and_workorder(self) -> None:
+        _, workshop = create_director_user_with_workshop(suffix=12)
+        mechanic_cost, admin_cost = create_salary_monthly_costs(workshop=workshop)
+        today = timezone.localdate()
+        workshop_cost = WorkshopCost.objects.create(
+            workshop=workshop,
+            month=today.month,
+            year=today.year,
+            mechanic_quantity=1,
+            work_hours_per_day=timedelta(hours=10),
+            work_days_per_month=20,
+            productivity_average=Decimal("0.50"),
+            working_hours_per_month=Decimal("100.00"),
+            minimum_hourly_cost=Money("10.00", "BRL"),
+            hourly_cost_value=Money("20.00", "BRL"),
+            profitability_multiplier=Decimal("2.00"),
+        )
+        WorkshopCostItem.objects.create(workshop_cost=workshop_cost, monthly_cost=mechanic_cost, amount=Money("1000.00", "BRL"))
+        WorkshopCostItem.objects.create(workshop_cost=workshop_cost, monthly_cost=admin_cost, amount=Money("500.00", "BRL"))
+
+        previous_budget = create_budget(workshop=workshop)
+        previous_workorder = WorkOrder.objects.create(workshop=workshop, budget=previous_budget)
+
+        collaborator = WorkshopCollaborator.objects.create(
+            workshop=workshop,
+            name="Novo Produtivo",
+            cpf="52998224725",
+            birth_date=today,
+            position="Mecanico",
+            salary=Money("500.00", "BRL"),
+            admission_date=today,
+            collaborator_type=WorkshopCollaborator.CollaboratorType.PRODUCTIVE,
+            is_active=True,
+        )
+
+        freeze_existing_pricing_history(workshop=workshop, cutoff=collaborator.criado_em)
+        sync_current_month_salary_costs(workshop=workshop)
+
+        workshop_cost.refresh_from_db()
+        previous_budget.refresh_from_db()
+        previous_workorder.refresh_from_db()
+
+        mechanic_item = WorkshopCostItem.objects.get(workshop_cost=workshop_cost, monthly_cost=mechanic_cost)
+        self.assertEqual(mechanic_item.amount, Money("500.00", "BRL"))
+        self.assertEqual(previous_budget.pricing_productive_salary_total, Money("1000.00", "BRL"))
+        self.assertEqual(previous_budget.mechanic_hour_cost_value, Money("10.00", "BRL"))
+        self.assertEqual(previous_workorder.mechanic_hour_cost_value, Money("10.00", "BRL"))
+
+        future_budget = create_budget(workshop=workshop)
+
+        self.assertEqual(future_budget.mechanic_hour_cost_value, Money("5.00", "BRL"))
 
 
 class BudgetSignaturePublicViewTests(TestCase):
@@ -2386,6 +3199,7 @@ class BudgetSignaturePublicViewTests(TestCase):
         render_mock.assert_called_once()
         self.assertEqual(render_mock.call_args.args[1], "budget/partials/pdf/visualizarPDF.html")
         self.assertEqual(render_mock.call_args.args[2], {"budget": budget, "observacao": budget.pdf_observation})
+        build_context_mock.assert_called_once_with(budget=budget, observacao=budget.pdf_observation, request=ANY, zero_warranty_prices=True, presentation="selected_items")
 
     def test_signature_preview_rejects_inactive_token(self) -> None:
         workshop = create_workshop(suffix=79)

@@ -3,6 +3,7 @@ from django.db.models import Prefetch
 from django.template.loader import render_to_string
 
 from apps.catalog.product_issues import annotate_product_issues
+from apps.budget.review_display import build_budget_review_display
 
 MAX_BUDGET_IMAGES = 10
 MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024
@@ -77,7 +78,6 @@ def _render_budget_items_rows(budget, step6=False):
     rows = {"product": "", "service": "", "kit": ""}
 
     budget_for_render = _get_budget_with_prefetched_items(budget)
-    pricing_snapshot = budget_for_render.pricing_snapshot if budget_for_render and budget_for_render.pk else None
 
     kit_product_ids = set()
     kit_service_ids = set()
@@ -100,38 +100,41 @@ def _render_budget_items_rows(budget, step6=False):
                     kit_service_ids.add(kit_service.service_id)
 
     if budget_for_render.pk:
-        if step6 and pricing_snapshot is not None:
-            annotate_product_issues(workshop=budget_for_render.workshop, items=pricing_snapshot.product_lines)
+        if step6:
+            review_display = build_budget_review_display(budget=budget_for_render)
+            annotate_product_issues(workshop=budget_for_render.workshop, items=[line.item for line in review_display.direct_products])
 
-            for item in pricing_snapshot.product_lines:
+            for line in review_display.direct_products:
                 rows["product"] += render_to_string(
                     "budget/partials/items/item_product_row.html",
                     {
-                        "item": item,
+                        "item": line.item,
                         "budget": budget_for_render,
                         "is_full_render": True,
                         "step6": True,
-                        "slider_price": item.adjusted_unit_price,
-                        "slider_total_price": item.total_price,
+                        "show_kit_duplicate_warning": bool((line.item.product_id and line.item.product_id in kit_product_ids) and not line.item.is_local),
+                        "slider_price": line.unit_price,
+                        "slider_total_price": (line.warranty_total_price if budget_for_render.is_warranty_budget else line.total_price),
                     },
                 )
 
-            for item in pricing_snapshot.service_lines:
+            for line in review_display.direct_services:
                 rows["service"] += render_to_string(
                     "budget/partials/items/item_service_row.html",
                     {
-                        "item": item,
+                        "item": line.item,
                         "budget": budget_for_render,
                         "is_full_render": True,
                         "step6": True,
-                        "slider_price": item.adjusted_unit_price,
-                        "slider_total_price": item.total_price,
+                        "show_kit_duplicate_warning": bool((line.item.service_id and line.item.service_id in kit_service_ids) and not line.item.is_local),
+                        "slider_price": line.unit_price,
+                        "slider_total_price": (line.warranty_total_price if budget_for_render.is_warranty_budget else line.total_price),
+                        "duration_display": line.duration_display,
                     },
                 )
 
-            for item in budget_for_render.items.all():
-                if _budget_item_type(item) == "kit":
-                    rows["kit"] += render_to_string("budget/partials/items/item_kit_row.html", {"item": item, "budget": budget_for_render, "is_full_render": True, "step6": True})
+            for line in review_display.kits:
+                rows["kit"] += render_to_string("budget/partials/items/item_kit_row.html", {"item": line.item, "budget": budget_for_render, "is_full_render": True, "step6": True})
         else:
             annotate_product_issues(
                 workshop=budget_for_render.workshop,

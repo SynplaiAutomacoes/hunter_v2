@@ -5,21 +5,23 @@ from crispy_forms.layout import HTML, Div, Field, Layout, Submit
 from django import forms
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.forms import BaseInlineFormSet, inlineformset_factory
 from django.urls import reverse
 
-from apps.collaborators.models import WorkshopCollaborator, WorkshopMember
+from apps.collaborators.models import CollaboratorBenefit, WorkshopCollaborator, WorkshopMember
 from apps.core.widgets import (
     CalendarDateInput,
     CheckboxInput,
     CPForCNPJInput,
     EmailInput,
     MoneyInput,
+    NumberInput,
     PasswordInput,
     PercentageInput,
     PhoneInput,
     RGInput,
-    SelectInput,
     TextInput,
+    SearchableSelectInput,
 )
 from apps.iam.models import WorkshopRole
 from apps.workshops.models.workshops import Workshop
@@ -43,6 +45,9 @@ class BaseWorkshopCollaboratorForm(forms.ModelForm):
             "email",
             "position",
             "salary",
+            "payment_day_type",
+            "payment_day_of_month",
+            "transport_allowance_daily",
             "admission_date",
             "termination_date",
             "collaborator_type",
@@ -56,14 +61,17 @@ class BaseWorkshopCollaboratorForm(forms.ModelForm):
             "cpf": CPForCNPJInput(mode="cpf"),
             "rg": RGInput(),
             "birth_date": CalendarDateInput(),
-            "sex": SelectInput(),
+            "sex": SearchableSelectInput(),
             "phone": PhoneInput(),
             "email": EmailInput(),
             "position": TextInput(attrs={"placeholder": "Cargo"}),
             "salary": MoneyInput(),
+            "payment_day_type": SearchableSelectInput(),
+            "payment_day_of_month": NumberInput(attrs={"min": 1, "max": 31, "placeholder": "Ex: 10"}),
+            "transport_allowance_daily": MoneyInput(),
             "admission_date": CalendarDateInput(),
             "termination_date": CalendarDateInput(),
-            "collaborator_type": SelectInput(),
+            "collaborator_type": SearchableSelectInput(),
             "receives_commission": CheckboxInput(),
             "commission_percentage": PercentageInput(),
             "is_active": CheckboxInput(),
@@ -79,7 +87,7 @@ class BaseWorkshopCollaboratorForm(forms.ModelForm):
 
         roles_qs = WorkshopRole.objects.filter(account=account).order_by("name") if account else WorkshopRole.objects.none()
         self.fields["role"].queryset = roles_qs
-        self.fields["role"].widget = SelectInput(choices=[(str(r.pk), r.name) for r in roles_qs])
+        self.fields["role"].widget = SearchableSelectInput(choices=[(str(r.pk), r.name) for r in roles_qs])
 
         if self.instance and getattr(self.instance, "user_id", None):
             self.fields["system_username"].initial = self.instance.user.username
@@ -89,6 +97,7 @@ class BaseWorkshopCollaboratorForm(forms.ModelForm):
 
         receives_commission = self._get_checkbox_state("receives_commission")
         system_access = self._get_checkbox_state("system_access")
+        payment_day_type = self.data.get("payment_day_type") if self.is_bound else (self.initial.get("payment_day_type") or getattr(self.instance, "payment_day_type", WorkshopCollaborator.PaymentDayType.FIFTH_BUSINESS_DAY))
 
         self.fields["receives_commission"].widget.attrs["x-model"] = "receives_commission"
         self.fields["commission_percentage"].widget.attrs["x-bind:disabled"] = "!receives_commission"
@@ -99,6 +108,11 @@ class BaseWorkshopCollaboratorForm(forms.ModelForm):
         self.fields["system_username"].widget.attrs["x-bind:disabled"] = "!system_access"
         if not system_access:
             self.fields["system_username"].widget.attrs["disabled"] = True
+
+        self.fields["payment_day_type"].widget.attrs["x-model"] = "payment_day_type"
+        self.fields["payment_day_of_month"].widget.attrs["x-bind:disabled"] = "payment_day_type !== 'FIXED_DAY'"
+        if payment_day_type != WorkshopCollaborator.PaymentDayType.FIXED_DAY:
+            self.fields["payment_day_of_month"].widget.attrs["disabled"] = True
 
         if "password1" in self.fields:
             self.fields["password1"].widget.attrs["x-bind:disabled"] = "!system_access"
@@ -154,6 +168,16 @@ class BaseWorkshopCollaboratorForm(forms.ModelForm):
                 #
                 Div(
                     HTML('<div class="col-span-12 divider"></div>'),
+                    HTML(
+                        """
+                        <div class="col-span-12">
+                            <div class="flex items-center gap-3 bg-base-300 border border-base-100 rounded-lg px-4 py-3">
+                                <span class="material-icons text-primary">manage_accounts</span>
+                                <p class="text-sm font-semibold">Crie o usuário e selecione o grupo de permissão</p>
+                            </div>
+                        </div>
+                        """
+                    ),
                     Field("system_username", wrapper_class="col-span-12 lg:col-span-6"),
                     Field("role", wrapper_class="col-span-12 lg:col-span-6"),
                     *self.get_access_extra_layout_fields(),
@@ -208,6 +232,22 @@ class BaseWorkshopCollaboratorForm(forms.ModelForm):
             self.add_error("commission_percentage", "Informe o percentual de comissão.")
         if not receives_commission:
             cleaned["commission_percentage"] = None
+
+        payment_day_type = cleaned.get("payment_day_type")
+        payment_day_of_month = cleaned.get("payment_day_of_month")
+
+        if payment_day_type == WorkshopCollaborator.PaymentDayType.FIXED_DAY and payment_day_of_month is None:
+            self.add_error("payment_day_of_month", "Informe o dia do pagamento.")
+        if payment_day_type == WorkshopCollaborator.PaymentDayType.FIFTH_BUSINESS_DAY:
+            cleaned["payment_day_of_month"] = None
+
+        cpf = cleaned.get("cpf")
+        if cpf and self.workshop is not None:
+            cpf_queryset = WorkshopCollaborator.objects.filter(workshop=self.workshop, cpf=cpf)
+            if self.instance.pk:
+                cpf_queryset = cpf_queryset.exclude(pk=self.instance.pk)
+            if cpf_queryset.exists():
+                self.add_error("cpf", "Já existe um colaborador com este CPF.")
 
         if cleaned.get("system_access"):
             username = cleaned.get("system_username")
@@ -308,7 +348,7 @@ class WorkshopCollaboratorModalForm(forms.ModelForm):
             "phone": PhoneInput(),
             "birth_date": CalendarDateInput(),
             "position": TextInput(attrs={"placeholder": "Ex: Mecânico Chefe"}),
-            "collaborator_type": SelectInput(),
+            "collaborator_type": SearchableSelectInput(),
             "admission_date": CalendarDateInput(),
         }
 
@@ -337,3 +377,42 @@ class WorkshopCollaboratorModalForm(forms.ModelForm):
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-x-4 gap-y-2",
             )
         )
+
+
+class CollaboratorBenefitInlineForm(forms.ModelForm):
+    class Meta:
+        model = CollaboratorBenefit
+        fields = ["name", "description", "monthly_amount", "is_active"]
+        widgets = {
+            "name": TextInput(attrs={"placeholder": "Nome do beneficio"}),
+            "description": TextInput(attrs={"placeholder": "Descricao"}),
+            "monthly_amount": MoneyInput(),
+            "is_active": CheckboxInput(),
+        }
+
+
+class CollaboratorBenefitInlineFormSet(BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+        has_duplicate_names: set[str] = set()
+        for form in self.forms:
+            if not hasattr(form, "cleaned_data") or form.cleaned_data.get("DELETE"):
+                continue
+            name = str(form.cleaned_data.get("name") or "").strip().casefold()
+            if not name:
+                continue
+            if name in has_duplicate_names:
+                form.add_error("name", "Nao e permitido repetir o mesmo beneficio.")
+                continue
+            has_duplicate_names.add(name)
+
+
+CollaboratorBenefitFormSet = inlineformset_factory(
+    parent_model=WorkshopCollaborator,
+    model=CollaboratorBenefit,
+    form=CollaboratorBenefitInlineForm,
+    formset=CollaboratorBenefitInlineFormSet,
+    fields=["name", "description", "monthly_amount", "is_active"],
+    extra=1,
+    can_delete=True,
+)

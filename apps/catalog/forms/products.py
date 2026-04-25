@@ -14,11 +14,10 @@ from apps.catalog.price_tracking import build_product_price_warning
 from apps.core.widgets import (
     TextInput,
     MoneyInput,
-    SelectInput,
     PercentageInput,
     CheckboxInput,
     TextareaInput,
-    ImageInput,
+    ImageInput, SearchableSelectInput,
 )
 from apps.workshops.models.workshops import Workshop
 
@@ -62,8 +61,8 @@ class ProductForm(forms.ModelForm):
             "code": TextInput(),
             "name": TextInput(),
             "description": TextareaInput(attrs={"class": "!bg-transparent"}),
-            "unit": SelectInput(),
-            "group": SelectInput(),
+            "unit": SearchableSelectInput(),
+            "group": SearchableSelectInput(),
             "brand": TextInput(),
             "model": TextInput(),
             "sku": TextInput(),
@@ -74,8 +73,8 @@ class ProductForm(forms.ModelForm):
             "profit_margin": PercentageInput(attrs={"readonly": True}),
             "ncm": TextInput(),
             "cest": TextInput(),
-            "origin_cst": SelectInput(),
-            "purpose": SelectInput(),
+            "origin_cst": SearchableSelectInput(),
+            "purpose": SearchableSelectInput(),
             "image": ImageInput(),
             "application": TextareaInput(),
             "is_active": CheckboxInput(),
@@ -114,23 +113,48 @@ class ProductForm(forms.ModelForm):
             lastUsedPrice: {json.dumps(last_used_amount)},
             priceError: false,
             lowerPriceConfirmed: false,
-            lowerPriceWarning: false,
             priceHelpMessage: '',
             getRawMoneyValue(fieldId) {{
                 const field = document.getElementById(fieldId);
                 if (!field) return 0;
                 return Number.parseFloat(field.value || '0') || 0;
             }},
+            getLowerPriceModal() {{
+                return this.$refs.lowerPriceModal || document.getElementById('product-lower-price-modal');
+            }},
+            openLowerPriceModal() {{
+                const modal = this.getLowerPriceModal();
+                if (modal && typeof modal.showModal === 'function') {{
+                    if (!modal.open) {{
+                        modal.showModal();
+                    }}
+                    return;
+                }}
+
+                if (window.confirm('O valor informado esta abaixo do ultimo valor utilizado para este produto. Deseja continuar mesmo assim?')) {{
+                    this.continueWithLowerPrice();
+                    return;
+                }}
+
+                this.cancelLowerPrice();
+            }},
+            closeLowerPriceModal() {{
+                const modal = this.getLowerPriceModal();
+                if (modal && modal.open) {{
+                    modal.close();
+                }}
+            }},
             formatCurrency(value) {{
                 const numericValue = Number.parseFloat(value || '0');
                 return numericValue.toLocaleString('pt-BR', {{ style: 'currency', currency: 'BRL' }});
             }},
-            calculateMargin() {{
+            calculateMargin(resetLowerPriceConfirmation = true) {{
                 const cost = this.getRawMoneyValue('id_cost_price_0');
                 const sell = this.getRawMoneyValue('id_selling_price_0');
                 this.priceError = sell > 0 && sell < cost;
-                this.lowerPriceConfirmed = false;
-                this.lowerPriceWarning = false;
+                if (resetLowerPriceConfirmation) {{
+                    this.lowerPriceConfirmed = false;
+                }}
 
                 const marginEl = document.getElementById('id_profit_margin_display');
                 if (sell > 0) {{
@@ -155,22 +179,23 @@ class ProductForm(forms.ModelForm):
                 return sell < (Number.parseFloat(this.lastUsedPrice) || 0);
             }},
             handleSubmit(event) {{
-                this.calculateMargin();
+                this.calculateMargin(false);
                 if (this.shouldWarnForLowerPrice() && !this.lowerPriceConfirmed) {{
                     event.preventDefault();
-                    this.lowerPriceWarning = true;
                     this.priceHelpMessage = '';
+                    this.openLowerPriceModal();
                 }}
             }},
             continueWithLowerPrice() {{
                 this.lowerPriceConfirmed = true;
-                this.lowerPriceWarning = false;
                 this.priceHelpMessage = '';
+                this.closeLowerPriceModal();
                 this.$nextTick(() => this.$root.requestSubmit());
             }},
             cancelLowerPrice() {{
                 const amountField = document.getElementById('id_selling_price_0');
                 const displayField = document.getElementById('id_selling_price_0_display');
+                this.closeLowerPriceModal();
                 if (amountField) {{
                     amountField.value = '';
                     amountField.dispatchEvent(new Event('input', {{ bubbles: true }}));
@@ -183,9 +208,8 @@ class ProductForm(forms.ModelForm):
                 }}
 
                 this.lowerPriceConfirmed = false;
-                this.lowerPriceWarning = false;
                 this.priceHelpMessage = `Último valor usado: ${{this.formatCurrency(this.lastUsedPrice)}}`;
-                this.calculateMargin();
+                this.calculateMargin(false);
             }}
         }}"""
 
@@ -252,18 +276,23 @@ class ProductForm(forms.ModelForm):
                                      x-transition>
                                     ⚠️ O preço de venda está menor que o custo!
                                 </div>
-                                <div class="alert alert-warning mt-3" x-show="lowerPriceWarning" x-cloak x-transition>
-                                    <span class="material-icons">warning</span>
-                                    <div class="flex-1">
-                                        <div class="font-semibold">O valor informado está abaixo do ultimo valor utilizado.</div>
-                                        <div class="text-sm">Revise o preço ou confirme para continuar mesmo assim.</div>
-                                        <div class="mt-3 flex flex-wrap gap-2">
-                                            <button type="button" class="btn btn-ghost btn-sm" @click="cancelLowerPrice()">Cancelar</button>
-                                            <button type="button" class="btn btn-warning btn-sm" @click="continueWithLowerPrice()">Continuar mesmo assim</button>
+                                <div class="text-warning text-xs mt-2" x-show="priceHelpMessage" x-text="priceHelpMessage" x-cloak></div>
+                                <dialog id="product-lower-price-modal" class="modal" x-ref="lowerPriceModal" @click="if ($event.target === $el) cancelLowerPrice()">
+                                    <div class="modal-box max-w-md bg-base-100 p-0 overflow-hidden">
+                                        <div class="p-6 border-b border-base-200 flex items-start gap-3 bg-base-50">
+                                            <span class="material-icons text-warning text-3xl">warning</span>
+                                            <div>
+                                                <h3 class="font-bold text-xl">Confirmar valor abaixo do ultimo uso</h3>
+                                                <p class="text-sm text-base-content/80 mt-2">O valor informado esta abaixo do ultimo valor utilizado para este produto.</p>
+                                                <p class="text-sm text-base-content/80 mt-1">Deseja continuar mesmo assim?</p>
+                                            </div>
+                                        </div>
+                                        <div class="p-6 flex justify-end gap-3">
+                                            <button type="button" class="btn btn-ghost" @click="cancelLowerPrice()">Cancelar</button>
+                                            <button type="button" class="btn btn-warning" @click="continueWithLowerPrice()">Continuar mesmo assim</button>
                                         </div>
                                     </div>
-                                </div>
-                                <div class="text-warning text-xs mt-2" x-show="priceHelpMessage" x-text="priceHelpMessage" x-cloak></div>
+                                </dialog>
                             """),
                             css_class="col-span-12 lg:col-span-4",
                         ),

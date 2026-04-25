@@ -13,12 +13,12 @@ from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from djmoney.money import Money
 
-from apps.budget.models import Budget, BudgetImage, BudgetImageType, Defect, SignatureStatus
+from apps.budget.models import Budget, BudgetImage, BudgetImageType, BudgetStatus, Defect, SignatureStatus
 from apps.budget.pricing import resolve_discount_fields
 from apps.checklist.models import Checklist
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.utils import alert_confirm_layout
-from apps.core.widgets import CalendarDateInput, MoneyInput, NumberInput, PercentageInput, SearchableSelectInput, SelectInput, TextInput, TextareaInput
+from apps.core.widgets import CalendarDateInput, MoneyInput, NumberInput, PercentageInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.customer.models import Customer, Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
 
@@ -270,12 +270,13 @@ class BudgetStep1Form(forms.ModelForm):
 
     class Meta:
         model = Budget
-        fields = ["workshop", "cost_estimator", "entry_date", "customer", "vehicle", "current_km", "fuel_level"]
+        fields = ["workshop", "cost_estimator", "entry_date", "budget_type", "customer", "vehicle", "current_km", "fuel_level"]
         widgets = {
             "entry_date": CalendarDateInput(),
+            "budget_type": SearchableSelectInput(),
             "customer": SearchableSelectInput(attrs={"x-model": "customerId", "@change": "customerId = $el.value; vehicleId = '';"}),
             "current_km": NumberInput(),
-            "fuel_level": SelectInput(),
+            "fuel_level": SearchableSelectInput(),
         }
 
     def __init__(self, *args, **kwargs):
@@ -510,8 +511,70 @@ class BudgetStep1Form(forms.ModelForm):
             Div(
                 # Coluna Esquerda
                 Div(
-                    # Orçamento
+                    # Tipo Orçamento
                     Div(
+                        HTML("""
+                            <div
+                                class="mb-5 rounded-2xl border border-base-300/80 bg-base-200/30 p-4 shadow-sm"
+                                x-data="{
+                                    budgetType: '{{ form.budget_type.value|default:"sale" }}'
+                                }"
+                            >
+                                <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                                    <div class="space-y-1">
+                                        <div class="text-lg font-semibold text-base-content">Tipo do Orçamento</div>
+                                        <p class="text-sm leading-relaxed text-base-content/70">
+                                            Escolha entre as opções disponíveis.
+                                        </p>
+                                    </div>
+
+                                    <div class="flex w-full items-center justify-between gap-4 bg-base-100 px-4 py-3 transition-all hover:border-primary/40 hover:shadow-sm lg:max-w-xs">
+                                        <div class="flex w-full flex-col gap-2">
+                                            <select
+                                                name="budget_type"
+                                                id="id_budget_type"
+                                                class="select select-bordered w-full"
+                                                x-model="budgetType"
+                                            >
+                                                <option value="sale" {% if form.budget_type.value == "sale" %}selected{% endif %}>Venda</option>
+                                                <option value="warranty" {% if form.budget_type.value == "warranty" %}selected{% endif %}>Garantia</option>
+                                                <option value="courtesy" {% if form.budget_type.value == "courtesy" %}selected{% endif %}>Cortesia</option>
+                                            </select>
+                                        </div>
+
+                                        <span
+                                            class="badge min-w-20 px-3 py-3 text-sm font-semibold transition-colors"
+                                            :class="{
+                                                'badge-success': budgetType === 'sale',
+                                                'badge-error': budgetType === 'warranty',
+                                                'badge-info': budgetType === 'courtesy'
+                                            }"
+                                            x-text="
+                                                budgetType === 'warranty'
+                                                    ? 'Garantia'
+                                                    : budgetType === 'courtesy'
+                                                        ? 'Cortesia'
+                                                        : 'Venda'
+                                            "
+                                        >
+                                            {% if form.budget_type.value == "warranty" %}
+                                                Garantia
+                                            {% elif form.budget_type.value == "courtesy" %}
+                                                Cortesia
+                                            {% else %}
+                                                Venda
+                                            {% endif %}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {% if form.budget_type.errors %}
+                                    <span class="mt-3 block text-sm text-error">
+                                        {{ form.budget_type.errors|join:', ' }}
+                                    </span>
+                                {% endif %}
+                            </div>
+                        """),
                         HTML('<h3 class="text-2xl font-bold mb-2">Orçamento</h3>'),
                         Div(
                             Field("workshop", wrapper_class="col-span-12 lg:col-span-12"),
@@ -664,7 +727,7 @@ class BudgetStep2Form(forms.ModelForm):
             # Definir o tipo de campo
             if q.response_type == InvestigativeQuestion.ResponseType.BOOLEAN:
                 choices = [("", "Selecione..."), ("Sim", "Sim"), ("Não", "Não")]
-                self.fields[field_name] = forms.ChoiceField(label=q.text, choices=choices, required=False, initial=initial_value, widget=SelectInput(choices=choices))
+                self.fields[field_name] = forms.ChoiceField(label=q.text, choices=choices, required=False, initial=initial_value, widget=SearchableSelectInput(choices=choices))
             elif q.response_type == InvestigativeQuestion.ResponseType.SCALE:
                 display_id = f"display_{field_name}"
                 self.fields[field_name] = forms.IntegerField(
@@ -679,7 +742,7 @@ class BudgetStep2Form(forms.ModelForm):
             elif q.response_type == InvestigativeQuestion.ResponseType.MULTIPLE_CHOICE:
                 choices = [(opt, opt) for opt in q.options]
                 choices1 = [("", "Selecione...")] + choices
-                self.fields[field_name] = forms.ChoiceField(label=q.text, choices=choices1, required=False, initial=initial_value, widget=SelectInput(choices=choices1))
+                self.fields[field_name] = forms.ChoiceField(label=q.text, choices=choices1, required=False, initial=initial_value, widget=SearchableSelectInput(choices=choices1))
             else:  # FREE_TEXT
                 self.fields[field_name] = forms.CharField(label=q.text, required=False, initial=initial_value, widget=TextInput())
 
@@ -1561,6 +1624,11 @@ class BudgetStep3Form(forms.ModelForm):
             else:
                 budget.collaborators.clear()
 
+            if budget.status == BudgetStatus.APPROVED:
+                workorder = budget.workorders.order_by("id").first()
+                if workorder is not None:
+                    workorder.sync_from_budget()
+
         # Processamento dos Defeitos (Somente no Save final)
         if "defects_list" in self.request.POST:
             defect_names = self.request.POST.getlist("defects_list")
@@ -1667,7 +1735,19 @@ class BudgetStep4Form(forms.ModelForm):
             Div(
                 # Coluna Esquerda: Seleção
                 Div(
-                    HTML('<h2 class="text-2xl font-bold mb-6">Seleção de Produtos e Serviços</h2>'),
+                    HTML(f'''
+                        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
+                            <h2 class="text-2xl font-bold">Seleção de Produtos, Serviços e Kits</h2>
+                            <button
+                                type="button"
+                                class="btn btn-primary text-base btn-base mt-2 sm:mt-0"
+                                hx-get="{reverse('budget:import_items_search_modal', kwargs={'pk': budget.pk})}"
+                                hx-target="#modal-container"
+                                onclick="form_modal.showModal()">
+                                Trazer itens de outro orçamento
+                            </button>
+                        </div>
+                    '''),
                     # Seção de Produtos
                     Div(
                         Div(
@@ -1702,15 +1782,16 @@ class BudgetStep4Form(forms.ModelForm):
                                     <thead class="bg-primary text-primary-content">
                                         <tr>
                                             <th class="budget-step4-select-col text-center">
-                                                <input type="checkbox" id="select-all-products" class="checkbox checkbox-primary checkbox-sm" aria-label="Selecionar todas as peças">
+                                                <input type="checkbox" id="select-all-products" class="checkbox text-white checkbox-sm" 
+                                                       style="border-color: white; color: white;" aria-label="Selecionar todas as peças">
                                             </th>
                                             <th class="w-[16%] text-left">DESCRIÇÃO</th>
-                                            <th class="w-[16%] text-left">APLICAÇÃO</th>
-                                            <th class="w-[10%] text-center whitespace-normal break-words leading-tight">Trago pelo cliente?</th>
+                                            <th class="w-[12%] text-left">APLICAÇÃO</th>
+                                            <th class="w-[14%] text-center whitespace-normal break-words leading-tight">FORNECIDO PELO CLIENTE</th>
                                             <th class="w-[8%] text-center">QTD.</th>
                                             <th class="w-[10%] text-right">CUSTO</th>
-                                            <th class="w-[12%] text-right">VALOR VENDA</th>
-                                            <th class="w-[8%] text-right">FRETE</th>
+                                            <th class="w-[10%] text-right">VALOR VENDA</th>
+                                            <th class="w-[10%] text-right">FRETE</th>
                                             <th class="w-[10%] text-right">TOTAL</th>
                                             <th class="w-[10%] text-center budget-step4-actions">AÇÕES</th>
                                         </tr>
@@ -1758,7 +1839,8 @@ class BudgetStep4Form(forms.ModelForm):
                                     <thead class="bg-primary text-primary-content">
                                         <tr>
                                             <th class="budget-step4-select-col text-center">
-                                                <input type="checkbox" id="select-all-services" class="checkbox checkbox-primary checkbox-sm" aria-label="Selecionar todos os serviços">
+                                                <input type="checkbox" id="select-all-services" class="checkbox text-white checkbox-sm" 
+                                                       style="border-color: white; color: white;" aria-label="Selecionar todos os serviços">
                                             </th>
                                             <th class="w-[24%] text-left">DESCRIÇÃO</th>
                                             <th class="w-[8%] text-center">QTD.</th>
@@ -1812,7 +1894,8 @@ class BudgetStep4Form(forms.ModelForm):
                                     <thead class="bg-primary text-primary-content">
                                         <tr>
                                             <th class="budget-step4-select-col text-center">
-                                                <input type="checkbox" id="select-all-kits" class="checkbox checkbox-primary checkbox-sm" aria-label="Selecionar todos os kits">
+                                                <input type="checkbox" id="select-all-kits" class="checkbox text-white checkbox-sm" 
+                                                       style="border-color: white; color: white;" aria-label="Selecionar todos os kits">
                                             </th>
                                             <th class="w-[22%] text-left">NOME</th>
                                             <th class="w-[8%] text-center">QTD.</th>
@@ -2004,14 +2087,14 @@ class BudgetStep5Form(forms.ModelForm):
         custo_total_mao_obra = custo_hora_mecanico * duracao_em_horas
 
         # Valores de venda baseados sempre nos itens do orçamento
-        venda_servico_terceiros = budget.total_third_party_services_selling
-        venda_pecas = budget.get_total_products_by_slider
-        venda_mao_obra = budget.get_total_labor_by_slider
+        venda_servico_terceiros = Money(0, "BRL") if budget.is_warranty_budget else budget.total_third_party_services_selling
+        venda_pecas = Money(0, "BRL") if budget.is_warranty_budget else budget.get_total_products_by_slider
+        venda_mao_obra = Money(0, "BRL") if budget.is_warranty_budget else budget.get_total_labor_by_slider
 
         # Extra
-        metodo_precificacao = dados.get("method_name") or ""
-        lucro_operacional = dados.get("lucro_operacional") or zerado
-        rentabilidade = dados.get("rentabilidade") or 0
+        metodo_precificacao = "Garantia" if budget.is_warranty_budget else (dados.get("method_name") or "")
+        lucro_operacional = zerado if budget.is_warranty_budget else (dados.get("lucro_operacional") or zerado)
+        rentabilidade = Decimal("0") if budget.is_warranty_budget else (dados.get("rentabilidade") or 0)
         mlr = budget.get_mlr
         mlo = budget.get_mlo
 
@@ -2028,10 +2111,10 @@ class BudgetStep5Form(forms.ModelForm):
             rentabilidade_class = "rentabilidade-medio"
             rentabilidade_bg = "bg-rentabilidade-medio"
 
-        discount_amount = budget.resolved_discount_value.amount if budget.resolved_discount_value else Decimal("0")
-        discount_display = budget.resolved_discount_value if discount_amount != Decimal("0") else Money(0, "BRL")
-        self.initial["discount_percentage"] = budget.resolved_discount_percentage
-        self.initial["discount_value"] = budget.resolved_discount_value
+        discount_amount = budget.display_resolved_discount_value.amount if budget.display_resolved_discount_value else Decimal("0")
+        discount_display = budget.display_resolved_discount_value if discount_amount != Decimal("0") else Money(0, "BRL")
+        self.initial["discount_percentage"] = budget.display_resolved_discount_percentage
+        self.initial["discount_value"] = budget.display_resolved_discount_value
         step5_calculation_done = bool(budget.pk and (budget.step5_calculation_viewed or budget.current_step > 5))
         step5_loading_hidden_class = "hidden" if step5_calculation_done else ""
         step5_method_hidden_class = "" if step5_calculation_done else "hidden"
@@ -2547,7 +2630,7 @@ class BudgetStep5Form(forms.ModelForm):
                         Div(
                             HTML(f"""<div class="text-center text-base-content mt-6">
                                     <p class="text-2xl font-bold">Valor do Orçamento</p>
-                                    <p class="text-3xl font-black step5-accent-text">{budget.total_base_value}</p>
+                                    <p class="text-3xl font-black step5-accent-text">{budget.display_total_base_value}</p>
                                 </div>""")
                         ),
                         id="step5-method-card",
@@ -2588,7 +2671,7 @@ class BudgetStep5Form(forms.ModelForm):
                             HTML(f"""<div class="space-y-3">
                                         <div class="flex justify-between text-xl font-semibold">
                                             <span>Subtotal:</span>
-                                            <span id="step5-subtotal-display" data-base-total="{budget.total_base_value.amount}">{budget.total_base_value}</span>
+                                            <span id="step5-subtotal-display" data-base-total="{budget.display_total_base_value.amount}">{budget.display_total_base_value}</span>
                                         </div>
                                         <div class="flex justify-between text-xl font-semibold">
                                             <span>Desconto:</span>
@@ -2596,7 +2679,7 @@ class BudgetStep5Form(forms.ModelForm):
                                         </div>
                                         <div class="flex justify-between text-xl font-black">
                                             <span>Valor Final:</span>
-                                            <span id="valor-final-display">{budget.total_budget_value}</span>
+                                            <span id="valor-final-display">{budget.display_total_budget_value}</span>
                                         </div>
                                     </div>"""),
                             css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
@@ -2632,7 +2715,7 @@ class BudgetStep5Form(forms.ModelForm):
         budget = super().save(commit=False)
         budget.invalidate_pricing_snapshot_cache()
         resolved_discount_value, resolved_discount_percentage = resolve_discount_fields(
-            total_base_value=budget.total_base_value,
+            total_base_value=budget.display_total_base_value,
             discount_value=budget.discount_value,
             discount_percentage=budget.discount_percentage,
         )
@@ -2903,10 +2986,10 @@ class BudgetStep6Form(forms.ModelForm):
                             <table class="table table-zebra table-fixed w-full">
                               <thead class="bg-primary text-primary-content">
                                 <tr>
-                                  <th class="w-[20%]">NOME</th>
+                                  <th class="w-[18%]">NOME</th>
                                   <th class="w-[18%]">APLICAÇÃO</th>
-                                  <th class="w-[14%] text-center whitespace-normal break-words leading-tight" title="Fornecido pelo Cliente">FORNECIDO</th>
-                                  <th class="w-[8%] text-center">QTD.</th>
+                                  <th class="w-[18%] text-center whitespace-normal break-words leading-tight">FORNECIDO PELO CLIENTE</th>
+                                  <th class="w-[6%] text-center">QTD.</th>
                                   <th class="w-[10%]">CUSTO</th>
                                   <th class="w-[12%]">VALOR</th>
                                   <th class="w-[8%]">FRETE</th>

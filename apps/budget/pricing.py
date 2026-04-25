@@ -307,6 +307,7 @@ def build_pricing_snapshot(
     discount_value: Money,
     discount_percentage: Decimal | None = None,
     labor_cost_value: Money | None = None,
+    labor_selling_value_override: Money | None = None,
     is_local_product_item: Callable[[Any], bool] | None = None,
     is_local_service_item: Callable[[Any], bool] | None = None,
 ) -> PricingSnapshot:
@@ -449,15 +450,21 @@ def build_pricing_snapshot(
                 service_aggregates[key] = service_aggregate
 
             if consolidated_quantity > service_aggregate.kit_quantity:
-                unit_price = override.service_selling_price if override else service.selling_price
-                unit_cost = override.service_cost_price if override else (service.suggested_cost or zero_money())
+                if override:
+                    unit_price = override.service_selling_price
+                    unit_cost = override.service_cost_price
+                else:
+                    try:
+                        unit_cost, unit_price = item.resolve_kit_service_base_prices(kit_service=kit_service)
+                    except AttributeError:
+                        unit_cost, unit_price = item.service_cost_price, item.service_selling_price
                 service_duration = timedelta(0)
 
                 if override:
                     if override.duration:
                         service_duration = override.duration * consolidated_quantity
-                elif service.duration:
-                    service_duration = service.duration * consolidated_quantity
+                elif kit_service.duration:
+                    service_duration = kit_service.duration * consolidated_quantity
 
                 service_aggregate.kit_quantity = consolidated_quantity
                 service_aggregate.kit_raw_total = unit_price * consolidated_quantity
@@ -534,7 +541,7 @@ def build_pricing_snapshot(
     third_party_service_lines = [line for line in service_lines if line.third_party]
 
     total_third_party_services_cost = sum((line.cost_total for line in third_party_service_lines), zero_money())
-    total_labor_selling_value = sum((line.raw_total for line in service_lines if not line.third_party), zero_money())
+    total_labor_selling_value = labor_selling_value_override if labor_selling_value_override is not None else sum((line.raw_total for line in service_lines if not line.third_party), zero_money())
     resolved_labor_cost_value = labor_cost_value if labor_cost_value is not None and labor_cost_value.amount > 0 else sum((line.cost_total for line in service_lines if not line.third_party), zero_money())
     labor_cost_weights = [Decimal(int(line.duration.total_seconds())) for line in labor_service_lines]
     if not any(weight > 0 for weight in labor_cost_weights):

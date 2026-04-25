@@ -9,7 +9,7 @@ from django import forms
 from django.urls import reverse
 
 from apps.core.webmania.util import is_webmania_homolog_environment
-from apps.core.widgets import CEPInput, CPForCNPJInput, CheckboxInput, EmailInput, PasswordInput, PhoneInput, SelectInput, TextInput, TextareaInput
+from apps.core.widgets import CEPInput, CPForCNPJInput, CheckboxInput, EmailInput, PasswordInput, PhoneInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.models.finance import WebmaniaCompany, WebmaniaCompanyTaxType
 from apps.finance.services.webmania_secrets import encrypt_secret
 
@@ -67,12 +67,12 @@ class WebmaniaCompanyUpdateForm(forms.ModelForm):
         "email_automatico_nfse",
     )
 
-    tipo_tributacao = forms.ChoiceField(required=False, choices=[("", "Selecione"), *WebmaniaCompanyTaxType.choices], widget=SelectInput(choices=[("", "Selecione"), *WebmaniaCompanyTaxType.choices]))
-    regime_tributario = forms.ChoiceField(required=False, choices=WEBMANIA_REGIME_TRIBUTARIO_CHOICES, widget=SelectInput(choices=WEBMANIA_REGIME_TRIBUTARIO_CHOICES))
-    unidade_empresa = forms.ChoiceField(required=False, choices=WEBMANIA_UNIDADE_EMPRESA_CHOICES, widget=SelectInput(choices=WEBMANIA_UNIDADE_EMPRESA_CHOICES))
-    orientacao_danfe = forms.ChoiceField(required=False, choices=WEBMANIA_ORIENTACAO_DANFE_CHOICES, widget=SelectInput(choices=WEBMANIA_ORIENTACAO_DANFE_CHOICES))
-    desativar_epec = forms.ChoiceField(required=False, choices=WEBMANIA_ENABLED_FLAG_CHOICES, widget=SelectInput(choices=WEBMANIA_ENABLED_FLAG_CHOICES))
-    ocultar_total_etiqueta = forms.ChoiceField(required=False, choices=WEBMANIA_ENABLED_FLAG_CHOICES, widget=SelectInput(choices=WEBMANIA_ENABLED_FLAG_CHOICES))
+    tipo_tributacao = forms.ChoiceField(required=False, choices=[("", "Selecione"), *WebmaniaCompanyTaxType.choices], widget=SearchableSelectInput(choices=[("", "Selecione"), *WebmaniaCompanyTaxType.choices]))
+    regime_tributario = forms.ChoiceField(required=False, choices=WEBMANIA_REGIME_TRIBUTARIO_CHOICES, widget=SearchableSelectInput(choices=WEBMANIA_REGIME_TRIBUTARIO_CHOICES))
+    unidade_empresa = forms.ChoiceField(required=False, choices=WEBMANIA_UNIDADE_EMPRESA_CHOICES, widget=SearchableSelectInput(choices=WEBMANIA_UNIDADE_EMPRESA_CHOICES))
+    orientacao_danfe = forms.ChoiceField(required=False, choices=WEBMANIA_ORIENTACAO_DANFE_CHOICES, widget=SearchableSelectInput(choices=WEBMANIA_ORIENTACAO_DANFE_CHOICES))
+    desativar_epec = forms.ChoiceField(required=False, choices=WEBMANIA_ENABLED_FLAG_CHOICES, widget=SearchableSelectInput(choices=WEBMANIA_ENABLED_FLAG_CHOICES))
+    ocultar_total_etiqueta = forms.ChoiceField(required=False, choices=WEBMANIA_ENABLED_FLAG_CHOICES, widget=SearchableSelectInput(choices=WEBMANIA_ENABLED_FLAG_CHOICES))
 
     class Meta:
         model = WebmaniaCompany

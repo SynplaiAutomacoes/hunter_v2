@@ -70,7 +70,20 @@ class ServiceForm(forms.ModelForm):
                 # Linha 2: Valores e Duração
                 Field("duration", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("suggested_cost", wrapper_class="col-span-12 lg:col-span-4"),
-                Field("selling_price", wrapper_class="col-span-12 lg:col-span-4"),
+                Div(
+                    Field("selling_price"),
+                    HTML(
+                        '''
+                        <div class="flex items-start gap-2 text-sm text-warning mt-1">
+                            <span class="material-icons text-warning">warning</span>
+                            <span>
+                                O valor acima foi calculado seguindo o preço da hora, você pode alterar caso ache necessário.
+                            </span>
+                        </div>
+                        '''
+                    ),
+                    css_class="col-span-12 lg:col-span-4"
+                ),
                 # Linha 3: Descrição e Ativo
                 Field("description", wrapper_class="col-span-12"),
                 Field("is_active", wrapper_class="col-span-12"),

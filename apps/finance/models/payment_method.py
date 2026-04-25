@@ -9,8 +9,8 @@ from apps.workshops.models.workshops import Workshop
 
 class PaymentMethod(TimeStampedModel):
     class PaymentType(models.TextChoices):
-        CREDIT = "CREDIT", "Crédito"
-        DEBIT = "DEBIT", "Débito"
+        CREDIT = "CREDIT", "Entrada de Receita"
+        DEBIT = "DEBIT", "Saída de Receita"
         BOTH = "BOTH", "Ambos"
 
     workshop = models.ForeignKey(Workshop, on_delete=models.CASCADE, related_name="payment_methods")

@@ -3,19 +3,25 @@ from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 from django import forms
 from django.urls import reverse
 
-from apps.core.widgets import CheckboxInput, MoneyInput, NumberInput, PercentageInput, SelectInput, TextInput
+from apps.core.widgets import CheckboxInput, MoneyInput, NumberInput, PercentageInput, SearchableSelectInput, TextInput
 from apps.finance.models.payment_method import PaymentMethod
 
 
 class PaymentMethodForm(forms.ModelForm):
+    tax_percentage = forms.DecimalField(
+        required=False,
+        max_digits=9,
+        decimal_places=6,
+        widget=PercentageInput(),
+    )
+
     class Meta:
         model = PaymentMethod
         fields = ["description", "payment_type", "installments_count", "tax_percentage", "tax_value", "is_active"]
         widgets = {
             "description": TextInput(attrs={"placeholder": "Ex: Cartão de Crédito, Pix..."}),
-            "payment_type": SelectInput(),
+            "payment_type": SearchableSelectInput(),
             "installments_count": NumberInput(),
-            "tax_percentage": PercentageInput(),
             "tax_value": MoneyInput(),
             "is_active": CheckboxInput(),
         }
@@ -23,6 +29,11 @@ class PaymentMethodForm(forms.ModelForm):
     def __init__(self, *args, workshop=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.workshop = workshop
+        
+        if self.instance.pk and self.instance.tax_percentage is not None:
+            from decimal import Decimal
+            self.initial["tax_percentage"] = (Decimal(str(self.instance.tax_percentage)) / Decimal("100")).quantize(Decimal("0.000001"))
+
         self.helper = FormHelper()
 
         self.helper.layout = Layout(
@@ -94,6 +105,13 @@ class PaymentMethodForm(forms.ModelForm):
                 })();
             </script>"""),
         )
+
+    def clean_tax_percentage(self):
+        tax_percentage = self.cleaned_data.get("tax_percentage")
+        if tax_percentage is not None:
+            from decimal import Decimal
+            return (tax_percentage * Decimal("100")).quantize(Decimal("0.01"))
+        return None
 
     def clean(self) -> dict[str, object]:
         cleaned_data = super().clean()

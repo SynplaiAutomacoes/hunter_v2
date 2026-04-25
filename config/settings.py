@@ -103,8 +103,8 @@ INSTALLED_APPS = [
     "apps.workshops",
     "apps.collaborators",
     "apps.catalog",
-    "apps.suppliers",
     "apps.sources",
+    "apps.suppliers",
     "apps.quote",
     "apps.checklist",
     "apps.budget",
@@ -148,6 +148,7 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 # Local
                 "apps.workshops.context_processors.active_workshops",
+                "apps.core.context_processors.navbar",
             ],
             "builtins": [
                 "crispy_forms.templatetags.crispy_forms_tags",
