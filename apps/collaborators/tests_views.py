@@ -113,6 +113,66 @@ class CollaboratorUpdateViewTests(TestCase):
         self.assertContains(response, "04/2026")
         self.assertNotContains(response, "05/2025")
 
+    def test_update_view_history_shows_unlocalized_year_and_filter_actions_inside_card(self) -> None:
+        collaborator = create_collaborator(workshop=self.workshop, suffix=12)
+        WorkshopCost.objects.create(workshop=self.workshop, month=4, year=2026, mechanic_quantity=1, work_days_per_month=22)
+        sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 4, 1))
+
+        response = self.client.get(reverse("collaborators:collaborator_update", args=[collaborator.pk]), {"tab": "historico"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "04/2026")
+        self.assertNotContains(response, "04/2.026")
+        self.assertContains(response, 'class="btn btn-ghost w-full sm:w-auto">Limpar</a>', html=False)
+
+    def test_update_view_respects_historico_tab_query_param(self) -> None:
+        collaborator = create_collaborator(workshop=self.workshop, suffix=13)
+
+        response = self.client.get(reverse("collaborators:collaborator_update", args=[collaborator.pk]), {"tab": "historico"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "x-data=\"{ activeTab: 'historico'}\"", html=False)
+
+    def test_create_view_renders_new_payment_and_transport_fields(self) -> None:
+        WorkshopCost.objects.create(workshop=self.workshop, month=4, year=2026, mechanic_quantity=1, work_days_per_month=22)
+
+        response = self.client.get(reverse("collaborators:collaborator_create"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Salarios e beneficios")
+        self.assertContains(response, "Vale Transporte")
+        self.assertContains(response, "5o dia util")
+
+    def test_create_view_creates_collaborator_with_payment_and_transport_fields(self) -> None:
+        response = self.client.post(
+            reverse("collaborators:collaborator_create"),
+            {
+                "name": "Novo Colaborador",
+                "cpf": "12345678909",
+                "rg": "1234567",
+                "email": "novo@example.com",
+                "phone": "+5511999999999",
+                "birth_date": "1990-01-01",
+                "position": "Mecanico",
+                "collaborator_type": WorkshopCollaborator.CollaboratorType.PRODUCTIVE,
+                "sex": WorkshopCollaborator.Sex.MALE,
+                "admission_date": "2026-04-24",
+                "termination_date": "",
+                "is_active": "on",
+                "salary_0": "1500.00",
+                "salary_1": "BRL",
+                "payment_day_type": WorkshopCollaborator.PaymentDayType.FIFTH_BUSINESS_DAY,
+                "payment_day_of_month": "",
+                "transport_allowance_daily_0": "5.00",
+                "transport_allowance_daily_1": "BRL",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        collaborator = WorkshopCollaborator.objects.get(name="Novo Colaborador")
+        self.assertEqual(collaborator.payment_day_type, WorkshopCollaborator.PaymentDayType.FIFTH_BUSINESS_DAY)
+        self.assertEqual(str(collaborator.transport_allowance_daily.amount), "5.00")
+
 
 class WorkOrderCollaboratorUpdateViewTests(TestCase):
     def setUp(self) -> None:

@@ -88,6 +88,12 @@ class WorkshopCollaboratorCreateView(LoginRequiredMixin, WorkshopScopedMixin, Cr
         kwargs["workshop"] = self.workshop
         return kwargs
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["current_work_days"] = get_reference_work_days(collaborator=WorkshopCollaborator(workshop=self.workshop))
+        context["current_transport_total"] = "R$ 0,00"
+        return context
+
     def form_valid(self, form):
         with transaction.atomic():
             form.instance.workshop = self.workshop
