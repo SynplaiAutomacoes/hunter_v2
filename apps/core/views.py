@@ -163,18 +163,18 @@ def metricas_dashboard(request) -> dict[str, Any]:
 
     # Métricas
     qtd_carros_mes: int = Budget.objects.filter(workshop=workshop, status__in=[BudgetStatus.APPROVED], entry_date__month=mes_atual).exclude(reference_budget__isnull=False).count()
-    ticket_medio = ""
-    projecao = ""
-    total_vendido_ate_a_data = ""
+    ticket_medio = "faturamento_total / quantidade_carros_mes (faturamento_total é a soma de valores pagos nas ordens de serviço do mês)"
+    projecao = "(total_vendido/dias_transcorridos*dias_faltantes)+total_vendido"
+    total_vendido_ate_a_data = "é a soma total de valores pagos nas Ordens de Serviço até a data atual"
     rentabilidade_acumulada_mes = ""
-    indice_retorno_em_garantia_mes = ""
-    taxa_aprovacao = ""
+    indice_retorno_em_garantia_mes = "É a quantidade de garantias no mês / quantidade total de veículos no mês"
+    taxa_aprovacao = "é a quantidade de orçamentos aprovados / quantidade de orçamentos criados (sem levar em consideração garantia e cortesia)"
 
     # Financeiro (R$)
-    total_os_a_receber_em_execucao = ""
+    total_os_a_receber_em_execucao = "é a soma total de valores de ordens de serviço a receber em reais"
     total_orcamentos_aguardando_aprovacao = Budget.objects.filter(workshop=workshop, status__in=[BudgetStatus.WAITING_APPROVAL]
                                                                   ).aggregate(total_value=Sum('total_budget_value'))['total_budget_value']
-    total_orcamentos_reprovados = ""
+    total_orcamentos_reprovados = "é a soma total de orçamentos reprovados em reais"
 
     return {
         'workshop': workshop,
