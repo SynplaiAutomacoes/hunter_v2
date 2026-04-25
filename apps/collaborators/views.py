@@ -13,7 +13,7 @@ from django.urls import reverse, reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView, View
 
 from apps.collaborators.forms import CollaboratorBenefitFormSet, WorkshopCollaboratorCreateForm, WorkshopCollaboratorModalForm, WorkshopCollaboratorUpdateForm
-from apps.collaborators.models import CollaboratorPayroll, WorkshopCollaborator, WorkshopMember
+from apps.collaborators.models import CollaboratorBenefit, CollaboratorPayroll, WorkshopCollaborator, WorkshopMember
 from apps.collaborators.services import calculate_transport_allowance_total, get_reference_work_days, sync_collaborator_payroll
 from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
@@ -329,6 +329,18 @@ class CollaboratorPayrollReceiptView(LoginRequiredMixin, WorkshopScopedMixin, Vi
                 "payroll": payroll,
             },
         )
+
+
+class CollaboratorBenefitDeleteView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkshopCollaborator
+    workshop_permission_codename = "change_workshopcollaborator"
+
+    def post(self, request, pk, benefit_id):
+        collaborator = get_object_or_404(WorkshopCollaborator, pk=pk, workshop=self.workshop)
+        benefit = get_object_or_404(CollaboratorBenefit, pk=benefit_id, collaborator=collaborator)
+        benefit.delete()
+        sync_collaborator_payroll(collaborator=collaborator)
+        return HttpResponseRedirect(f"{reverse('collaborators:collaborator_update', kwargs={'pk': collaborator.pk})}?tab=cadastro")
 
 
 class WorkshopCollaboratorModalCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):

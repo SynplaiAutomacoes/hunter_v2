@@ -12,8 +12,7 @@ from djmoney.money import Money
 from apps.accounts.models import Account, User
 from apps.budget.models import Budget, BudgetStatus
 from apps.catalog.models.services import Service
-from apps.collaborators.models import WorkshopCollaborator, WorkshopMember
-from apps.collaborators.models import CollaboratorPayroll
+from apps.collaborators.models import CollaboratorBenefit, CollaboratorPayroll, WorkshopCollaborator, WorkshopMember
 from apps.collaborators.services import sync_collaborator_payroll
 from apps.iam.utils import get_or_create_director_role
 from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderPaymentMethod
@@ -125,6 +124,16 @@ class CollaboratorUpdateViewTests(TestCase):
         self.assertNotContains(response, "04/2.026")
         self.assertContains(response, 'class="btn btn-ghost w-full sm:w-auto">Limpar</a>', html=False)
 
+    def test_update_view_keeps_initial_transport_total_loaded(self) -> None:
+        collaborator = create_collaborator(workshop=self.workshop, suffix=14)
+        WorkshopCost.objects.create(workshop=self.workshop, month=4, year=2026, mechanic_quantity=1, work_days_per_month=22)
+
+        response = self.client.get(reverse("collaborators:collaborator_update", args=[collaborator.pk]))
+        content = response.content.decode("utf-8").replace("\xa0", " ")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("transportTotalDisplay: 'R$ 88,00'", content)
+
     def test_update_view_respects_historico_tab_query_param(self) -> None:
         collaborator = create_collaborator(workshop=self.workshop, suffix=13)
 
@@ -172,6 +181,16 @@ class CollaboratorUpdateViewTests(TestCase):
         collaborator = WorkshopCollaborator.objects.get(name="Novo Colaborador")
         self.assertEqual(collaborator.payment_day_type, WorkshopCollaborator.PaymentDayType.FIFTH_BUSINESS_DAY)
         self.assertEqual(str(collaborator.transport_allowance_daily.amount), "5.00")
+
+    def test_post_benefit_delete_removes_benefit_immediately(self) -> None:
+        collaborator = create_collaborator(workshop=self.workshop, suffix=15)
+        benefit = CollaboratorBenefit.objects.create(collaborator=collaborator, name="Vale Alimentacao", monthly_amount=Money("120.00", "BRL"), is_active=True)
+
+        response = self.client.post(reverse("collaborators:collaborator_benefit_delete", args=[collaborator.pk, benefit.pk]))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(CollaboratorBenefit.objects.filter(pk=benefit.pk).exists())
+        self.assertIn("tab=cadastro", response.headers["Location"])
 
 
 class WorkOrderCollaboratorUpdateViewTests(TestCase):
