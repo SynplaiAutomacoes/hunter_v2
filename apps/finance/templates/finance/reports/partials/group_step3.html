@@ -13,6 +13,13 @@
     {% endfor %}
 
     <div class="modal-body py-6">
+        <div class="alert alert-info mb-6 shadow-sm">
+            <div class="flex justify-between w-full items-center">
+                <span class="font-bold">Valor Total do Agrupamento:</span>
+                <span class="text-xl font-black text-primary">R$ {{ total_amount|floatformat:2 }}</span>
+            </div>
+        </div>
+        
         {{ form|crispy }}
     </div>
     

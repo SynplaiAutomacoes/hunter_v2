@@ -111,12 +111,17 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 })
             
             # Step 3 form
+            total_amount = Decimal('0.00')
+            for mv in selected_movements:
+                total_amount += Decimal(str(mv.amount.amount))
+                
             form = GroupMovementStep3Form()
             return render(request, "finance/reports/partials/group_step3.html", {
                 "form": form,
                 "movement_ids": movement_ids,
                 "entity_type": entity_type,
-                "entity_id": entity_id
+                "entity_id": entity_id,
+                "total_amount": total_amount
             })
 
         elif step == '3':

@@ -278,6 +278,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         details = []
         edit_modal_url = reverse("finance:report_movement_edit", kwargs={"pk": movement.pk})
         is_workorder = False
+        is_group_parent = False
 
         if movement.workorder_id:
             edit_modal_url = reverse("workorder:workorder_detail", kwargs={"pk": movement.workorder_id})
@@ -303,6 +304,19 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
                         "pending_class": "text-success" if remaining_amount == Decimal("0.00") else "text-warning",
                     }
                 )
+        elif movement.movement_kind == FinancialMovement.MovementKind.GROUP_PARENT and movement.movement_group_id:
+            is_group_parent = True
+            children = movement.movement_group.financial_movements.exclude(pk=movement.pk)
+            for child in children:
+                details.append(
+                    {
+                        "payment_date": child.due_date,
+                        "payment_type": child.description or "-",
+                        "amount": format_money(child.amount),
+                        "pending_amount": "Pago" if child.is_paid else "Pendente",
+                        "pending_class": "text-success" if child.is_paid else "text-warning",
+                    }
+                )
 
         return {
             "component": f"financial-movement-{movement.pk}",
@@ -318,6 +332,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "edit_url": reverse("finance:financial_movement_update", kwargs={"pk": movement.pk}),
             "edit_modal_url": edit_modal_url,
             "is_workorder": is_workorder,
+            "is_group_parent": is_group_parent,
             "total": movement.report_total_display,
             "details": details,
         }

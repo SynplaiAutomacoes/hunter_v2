@@ -403,10 +403,9 @@
                                                                 <table class="table table-sm">
                                                                     <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
                                                                         <tr>
-                                                                            <th>Data do Pagamento</th>
-                                                                            <th>Tipo Pagamento</th>
+                                                                            <th>{% if row.is_group_parent %}Data Vencimento{% else %}Data do Pagamento{% endif %}</th>
+                                                                            <th>{% if row.is_group_parent %}Descrição{% else %}Tipo Pagamento{% endif %}</th>
                                                                             <th class="text-right">Valor</th>
-                                                                            <th class="text-right">Pendente</th>
                                                                         </tr>
                                                                     </thead>
                                                                     <tbody>
@@ -414,8 +413,11 @@
                                                                             <tr>
                                                                                 <td>{{ detail.payment_date|date:"d/m/Y"|default:"-" }}</td>
                                                                                 <td>{{ detail.payment_type }}</td>
-                                                                                <td class="text-right font-semibold text-success">+ {{ detail.amount }}</td>
-                                                                                <td class="text-right font-semibold {{ detail.pending_class }}">{{ detail.pending_amount }}</td>
+                                                                                {% if row.is_group_parent %}
+                                                                                    <td class="text-right font-semibold">{{ detail.amount }}</td>
+                                                                                {% else %}
+                                                                                    <td class="text-right font-semibold text-success">+ {{ detail.amount }}</td>
+                                                                                {% endif %}
                                                                             </tr>
                                                                         {% endfor %}
                                                                     </tbody>
