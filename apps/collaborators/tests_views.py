@@ -182,6 +182,49 @@ class CollaboratorUpdateViewTests(TestCase):
         self.assertEqual(collaborator.payment_day_type, WorkshopCollaborator.PaymentDayType.FIFTH_BUSINESS_DAY)
         self.assertEqual(str(collaborator.transport_allowance_daily.amount), "5.00")
 
+    def test_create_view_shows_toast_and_form_error_for_duplicate_cpf(self) -> None:
+        existing = WorkshopCollaborator.objects.create(
+            workshop=self.workshop,
+            name="Colaborador Existente",
+            cpf="70930284038",
+            birth_date=date(1990, 1, 1),
+            salary=Money("1000.00", "BRL"),
+            payment_day_type=WorkshopCollaborator.PaymentDayType.FIFTH_BUSINESS_DAY,
+            transport_allowance_daily=Money("4.00", "BRL"),
+            admission_date=date(2024, 1, 1),
+            collaborator_type=WorkshopCollaborator.CollaboratorType.PRODUCTIVE,
+            is_active=True,
+        )
+
+        response = self.client.post(
+            reverse("collaborators:collaborator_create"),
+            {
+                "name": "Colaborador Duplicado",
+                "cpf": "70930284038",
+                "rg": "1234567",
+                "email": "duplicado@example.com",
+                "phone": "+5511999999999",
+                "birth_date": "1990-01-01",
+                "position": "Mecânico",
+                "collaborator_type": WorkshopCollaborator.CollaboratorType.PRODUCTIVE,
+                "sex": WorkshopCollaborator.Sex.MALE,
+                "admission_date": "2026-04-24",
+                "termination_date": "",
+                "is_active": "on",
+                "salary_0": "1500.00",
+                "salary_1": "BRL",
+                "payment_day_type": WorkshopCollaborator.PaymentDayType.FIFTH_BUSINESS_DAY,
+                "payment_day_of_month": "",
+                "transport_allowance_daily_0": "5.00",
+                "transport_allowance_daily_1": "BRL",
+            },
+            follow=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("cpf", response.context["form"].errors)
+        self.assertIn("Já existe um colaborador com este CPF.", response.context["form"].errors["cpf"])
+        self.assertEqual(WorkshopCollaborator.objects.filter(workshop=self.workshop, cpf=existing.cpf).count(), 1)
+
     def test_post_benefit_delete_removes_benefit_immediately(self) -> None:
         collaborator = create_collaborator(workshop=self.workshop, suffix=15)
         benefit = CollaboratorBenefit.objects.create(collaborator=collaborator, name="Vale Alimentacao", monthly_amount=Money("120.00", "BRL"), is_active=True)

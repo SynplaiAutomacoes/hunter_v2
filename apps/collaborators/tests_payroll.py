@@ -12,6 +12,7 @@ from apps.budget.models import Budget
 from apps.catalog.models.services import Service
 from apps.collaborators.models import CollaboratorBenefit, CollaboratorCommissionEntry, CollaboratorPayroll, CollaboratorPayrollItem, WorkshopCollaborator
 from apps.collaborators.services import sync_collaborator_payroll, sync_workorder_collaborator_payrolls
+from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
 from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderStatus
@@ -171,3 +172,81 @@ class CollaboratorPayrollServiceTests(TestCase):
         self.assertEqual(frozen_payroll.transport_allowance_amount, Money("88.00", "BRL"))
         self.assertEqual(frozen_payroll.benefits_amount, Money("50.00", "BRL"))
         self.assertEqual(frozen_payroll.total_amount, Money("1138.00", "BRL"))
+
+    def test_sync_collaborator_payroll_moves_new_values_to_next_month_when_current_payroll_is_paid(self) -> None:
+        workshop = create_workshop(suffix=6)
+        collaborator = create_collaborator(workshop=workshop, suffix=6)
+        today = timezone.localdate()
+        next_month = date(today.year + 1, 1, 1) if today.month == 12 else date(today.year, today.month + 1, 1)
+        WorkshopCost.objects.create(workshop=workshop, month=today.month, year=today.year, mechanic_quantity=1, work_days_per_month=22)
+        WorkshopCost.objects.create(workshop=workshop, month=next_month.month, year=next_month.year, mechanic_quantity=1, work_days_per_month=20)
+
+        current_payroll = CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            reference_year=today.year,
+            reference_month=today.month,
+            due_date=date(today.year, today.month, 5),
+            salary_amount=Money("1000.00", "BRL"),
+            transport_allowance_amount=Money("88.00", "BRL"),
+            benefits_amount=Money("0.00", "BRL"),
+            commission_amount=Money("0.00", "BRL"),
+            total_amount=Money("1088.00", "BRL"),
+        )
+        current_payroll.financial_movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description=f"Folha {collaborator.name} - {today.month:02d}/{today.year}",
+            amount=Money("1088.00", "BRL"),
+            due_date=date(today.year, today.month, 5),
+            is_paid=True,
+        )
+        current_payroll.save(update_fields=["financial_movement"])
+
+        collaborator.salary = Money("2000.00", "BRL")
+        collaborator.transport_allowance_daily = Money("10.00", "BRL")
+        collaborator.save(update_fields=["salary", "transport_allowance_daily"])
+
+        next_payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=today)
+
+        self.assertEqual(CollaboratorPayroll.objects.filter(collaborator=collaborator, reference_year=today.year, reference_month=today.month).count(), 1)
+        self.assertEqual(next_payroll.reference_year, next_month.year)
+        self.assertEqual(next_payroll.reference_month, next_month.month)
+        self.assertEqual(next_payroll.salary_amount, Money("2000.00", "BRL"))
+        self.assertEqual(next_payroll.transport_allowance_amount, Money("200.00", "BRL"))
+
+    def test_sync_collaborator_payroll_starts_in_next_month_when_created_in_current_month(self) -> None:
+        workshop = create_workshop(suffix=7)
+        collaborator = create_collaborator(workshop=workshop, suffix=7)
+        today = timezone.localdate()
+        next_month = date(today.year + 1, 1, 1) if today.month == 12 else date(today.year, today.month + 1, 1)
+        WorkshopCost.objects.create(workshop=workshop, month=today.month, year=today.year, mechanic_quantity=1, work_days_per_month=22)
+        WorkshopCost.objects.create(workshop=workshop, month=next_month.month, year=next_month.year, mechanic_quantity=1, work_days_per_month=20)
+
+        payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=today)
+
+        self.assertEqual(payroll.reference_year, next_month.year)
+        self.assertEqual(payroll.reference_month, next_month.month)
+        self.assertEqual(CollaboratorPayroll.objects.filter(collaborator=collaborator, reference_year=today.year, reference_month=today.month).count(), 0)
+
+    def test_sync_workorder_collaborator_commission_goes_to_next_month_for_new_collaborator(self) -> None:
+        workshop = create_workshop(suffix=8)
+        collaborator = create_collaborator(workshop=workshop, suffix=8, receives_commission=True)
+        today = timezone.localdate()
+        next_month = date(today.year + 1, 1, 1) if today.month == 12 else date(today.year, today.month + 1, 1)
+        WorkshopCost.objects.create(workshop=workshop, month=today.month, year=today.year, mechanic_quantity=1, work_days_per_month=22)
+        WorkshopCost.objects.create(workshop=workshop, month=next_month.month, year=next_month.year, mechanic_quantity=1, work_days_per_month=20)
+        budget = create_budget(workshop=workshop)
+        budget.status = "approved"
+        budget.save(update_fields=["status"])
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        workorder.collaborators.add(collaborator)
+        service = Service.objects.create(workshop=workshop, name="Servico Mes Seguinte", duration=timedelta(hours=1), suggested_cost=Money("50.00", "BRL"), selling_price=Money("200.00", "BRL"))
+        WorkOrderItem.objects.create(workshop=workshop, workorder=workorder, service=service, quantity=1)
+
+        payroll = sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=today)[0]
+
+        self.assertEqual(payroll.reference_year, next_month.year)
+        self.assertEqual(payroll.reference_month, next_month.month)
+        self.assertEqual(payroll.commission_amount, Money("20.00", "BRL"))

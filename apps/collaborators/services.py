@@ -26,6 +26,26 @@ def _resolve_reference_date(reference_date: date | None = None) -> date:
     return date(resolved.year, resolved.month, 1)
 
 
+def _get_next_month_reference(reference_date: date) -> date:
+    if reference_date.month == 12:
+        return date(reference_date.year + 1, 1, 1)
+    return date(reference_date.year, reference_date.month + 1, 1)
+
+
+def _resolve_payroll_reference_date(*, collaborator: WorkshopCollaborator, reference_date: date | None = None) -> date:
+    resolved = _resolve_reference_date(reference_date)
+    current_month_reference = _resolve_reference_date()
+    existing_payroll = CollaboratorPayroll.objects.filter(collaborator=collaborator, reference_year=resolved.year, reference_month=resolved.month).select_related("financial_movement").first()
+
+    if resolved.year == current_month_reference.year and resolved.month == current_month_reference.month and existing_payroll is None:
+        return _get_next_month_reference(resolved)
+
+    if existing_payroll and existing_payroll.financial_movement and existing_payroll.financial_movement.is_paid and resolved.year == current_month_reference.year and resolved.month == current_month_reference.month:
+        return _get_next_month_reference(resolved)
+
+    return resolved
+
+
 def get_reference_work_days(*, collaborator: WorkshopCollaborator, reference_date: date | None = None) -> int:
     resolved = _resolve_reference_date(reference_date)
     workshop_cost = WorkshopCost.objects.filter(workshop=collaborator.workshop, year=resolved.year, month=resolved.month).only("work_days_per_month").first()
@@ -83,7 +103,8 @@ def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, 
 
     for workorder in workorders:
         commission_reference = _resolve_commission_reference_date(workorder=workorder)
-        if commission_reference.year != resolved.year or commission_reference.month != resolved.month:
+        effective_reference = _resolve_payroll_reference_date(collaborator=collaborator, reference_date=commission_reference)
+        if effective_reference.year != resolved.year or effective_reference.month != resolved.month:
             continue
 
         active_workorder_ids.add(workorder.pk)
@@ -143,7 +164,7 @@ def _create_or_update_financial_movement(*, payroll: CollaboratorPayroll) -> Fin
 
 @transaction.atomic
 def sync_collaborator_payroll(*, collaborator: WorkshopCollaborator, reference_date: date | None = None) -> CollaboratorPayroll:
-    resolved = _resolve_reference_date(reference_date)
+    resolved = _resolve_payroll_reference_date(collaborator=collaborator, reference_date=reference_date)
     existing_payroll = CollaboratorPayroll.objects.filter(collaborator=collaborator, reference_year=resolved.year, reference_month=resolved.month).select_related("financial_movement").first()
     if existing_payroll and existing_payroll.financial_movement and existing_payroll.financial_movement.is_paid:
         return existing_payroll

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import date
 
+from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
@@ -138,6 +139,12 @@ class WorkshopCollaboratorCreateView(LoginRequiredMixin, WorkshopScopedMixin, Cr
             sync_collaborator_payroll(collaborator=self.object)
 
         return response
+
+    def form_invalid(self, form):
+        cpf_errors = form.errors.get("cpf")
+        if cpf_errors and any("Já existe um colaborador com este CPF." in error for error in cpf_errors):
+            messages.error(self.request, "Já existe um colaborador com este CPF.")
+        return super().form_invalid(form)
 
 
 class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):

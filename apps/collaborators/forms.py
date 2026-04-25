@@ -241,6 +241,14 @@ class BaseWorkshopCollaboratorForm(forms.ModelForm):
         if payment_day_type == WorkshopCollaborator.PaymentDayType.FIFTH_BUSINESS_DAY:
             cleaned["payment_day_of_month"] = None
 
+        cpf = cleaned.get("cpf")
+        if cpf and self.workshop is not None:
+            cpf_queryset = WorkshopCollaborator.objects.filter(workshop=self.workshop, cpf=cpf)
+            if self.instance.pk:
+                cpf_queryset = cpf_queryset.exclude(pk=self.instance.pk)
+            if cpf_queryset.exists():
+                self.add_error("cpf", "Já existe um colaborador com este CPF.")
+
         if cleaned.get("system_access"):
             username = cleaned.get("system_username")
             role = cleaned.get("role")
