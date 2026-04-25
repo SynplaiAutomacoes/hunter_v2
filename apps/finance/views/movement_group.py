@@ -158,7 +158,7 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
                         user=request.user,
                         movement_kind=FinancialMovement.MovementKind.GROUP_PARENT,
                         movement_group=group,
-                        description=group.name,
+                        description=f"Agrupamento - {group.name}",
                         financial_observation=group.description,
                         due_date=group.due_date,
                         amount=total_amount,
