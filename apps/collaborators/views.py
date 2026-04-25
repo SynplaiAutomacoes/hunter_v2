@@ -11,7 +11,9 @@ from django.forms import BaseInlineFormSet
 from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse, reverse_lazy
+from django.utils.decorators import method_decorator
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView, View
+from django.views.decorators.clickjacking import xframe_options_exempt
 
 from apps.collaborators.forms import CollaboratorBenefitFormSet, WorkshopCollaboratorCreateForm, WorkshopCollaboratorModalForm, WorkshopCollaboratorUpdateForm
 from apps.collaborators.models import CollaboratorBenefit, CollaboratorPayroll, WorkshopCollaborator, WorkshopMember
@@ -317,6 +319,7 @@ class CollaboratorPayrollMarkPaidView(LoginRequiredMixin, WorkshopScopedMixin, V
         return HttpResponseRedirect(redirect_url)
 
 
+@method_decorator(xframe_options_exempt, name="dispatch")
 class CollaboratorPayrollReceiptView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = WorkshopCollaborator
     workshop_permission_codename = "view_financialmovement"
