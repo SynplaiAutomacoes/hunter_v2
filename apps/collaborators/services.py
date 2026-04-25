@@ -144,6 +144,10 @@ def _create_or_update_financial_movement(*, payroll: CollaboratorPayroll) -> Fin
 @transaction.atomic
 def sync_collaborator_payroll(*, collaborator: WorkshopCollaborator, reference_date: date | None = None) -> CollaboratorPayroll:
     resolved = _resolve_reference_date(reference_date)
+    existing_payroll = CollaboratorPayroll.objects.filter(collaborator=collaborator, reference_year=resolved.year, reference_month=resolved.month).select_related("financial_movement").first()
+    if existing_payroll and existing_payroll.financial_movement and existing_payroll.financial_movement.is_paid:
+        return existing_payroll
+
     commission_entries = sync_collaborator_commission_entries(collaborator=collaborator, reference_date=resolved)
 
     salary_amount = Money(_quantize(collaborator.salary_amount), "BRL")

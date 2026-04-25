@@ -145,3 +145,29 @@ class CollaboratorPayrollServiceTests(TestCase):
         self.assertEqual(entry.status, CollaboratorCommissionEntry.Status.PAID)
         self.assertEqual(payroll.commission_amount, Money("30.00", "BRL"))
         self.assertEqual(CollaboratorPayrollItem.objects.filter(payroll=payroll, item_type=CollaboratorPayrollItem.ItemType.COMMISSION).count(), 1)
+
+    def test_sync_collaborator_payroll_does_not_change_paid_payroll_history(self) -> None:
+        workshop = create_workshop(suffix=5)
+        collaborator = create_collaborator(workshop=workshop, suffix=5)
+        CollaboratorBenefit.objects.create(collaborator=collaborator, name="Vale Alimentacao", monthly_amount=Money("50.00", "BRL"), is_active=True)
+        WorkshopCost.objects.create(workshop=workshop, month=8, year=2026, mechanic_quantity=1, work_days_per_month=22)
+
+        payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 8, 1))
+        assert payroll.financial_movement is not None
+        payroll.financial_movement.is_paid = True
+        payroll.financial_movement.save(update_fields=["is_paid"])
+
+        collaborator.salary = Money("2000.00", "BRL")
+        collaborator.transport_allowance_daily = Money("10.00", "BRL")
+        collaborator.save(update_fields=["salary", "transport_allowance_daily"])
+        benefit = CollaboratorBenefit.objects.get(collaborator=collaborator, name="Vale Alimentacao")
+        benefit.monthly_amount = Money("150.00", "BRL")
+        benefit.save(update_fields=["monthly_amount"])
+
+        frozen_payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 8, 1))
+
+        self.assertEqual(frozen_payroll.pk, payroll.pk)
+        self.assertEqual(frozen_payroll.salary_amount, Money("1000.00", "BRL"))
+        self.assertEqual(frozen_payroll.transport_allowance_amount, Money("88.00", "BRL"))
+        self.assertEqual(frozen_payroll.benefits_amount, Money("50.00", "BRL"))
+        self.assertEqual(frozen_payroll.total_amount, Money("1138.00", "BRL"))
