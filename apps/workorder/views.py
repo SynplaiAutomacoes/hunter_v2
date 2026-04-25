@@ -29,6 +29,7 @@ from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.models.kits import Kit
 from apps.budget.pdf_context import build_workshop_logo_data_uri
+from apps.collaborators.services import sync_workorder_collaborator_payrolls
 from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
 from apps.core.documents.http import build_pdf_http_response
@@ -46,6 +47,7 @@ from apps.workorder.documents.provider import (
 )
 from apps.workorder.forms import (
     WorkOrderCustomerApprovalForm,
+    WorkOrderCollaboratorForm,
     WorkOrderItemEditForm,
     WorkOrderKitProductEditRowForm,
     WorkOrderKitServiceEditRowForm,
@@ -448,6 +450,7 @@ class WorkOrderDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
             .get_queryset()
             .select_related("workshop", "budget", "budget__customer", "budget__vehicle")
             .prefetch_related(
+                "collaborators",
                 "payments",
                 "attachments",
                 Prefetch(
@@ -466,6 +469,7 @@ class WorkOrderDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["payment_form"] = WorkOrderPaymentForm(workorder=self.object)
+        context["collaborator_form"] = WorkOrderCollaboratorForm(instance=self.object, workorder=self.object)
         context.update(_build_customer_approvement_context(self.object))
         context.update(_build_edit_items_context(self.object))
         return context
@@ -478,6 +482,28 @@ class WorkOrderResumeSectionView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def get(self, request, pk):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
         context = _build_edit_items_context(workorder)
+        context["workorder"] = workorder
+        context["collaborator_form"] = WorkOrderCollaboratorForm(instance=workorder, workorder=workorder)
+        response = render(request, "workorder/partials/resume_section.html", context)
+        response["Cache-Control"] = "no-store"
+        return response
+
+
+class UpdateWorkOrderCollaboratorsView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkOrder
+    workshop_permission_codename = "change_workorder"
+
+    def post(self, request, pk):
+        workorder = _get_workorder_for_workshop(self.workshop, pk)
+        form = WorkOrderCollaboratorForm(request.POST, instance=workorder, workorder=workorder)
+        if form.is_valid():
+            form.save()
+            reference_date = max((payment.due_date for payment in workorder.payments.all() if payment.due_date), default=None)
+            sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=reference_date)
+
+        context = _build_edit_items_context(workorder)
+        context["workorder"] = workorder
+        context["collaborator_form"] = form
         response = render(request, "workorder/partials/resume_section.html", context)
         response["Cache-Control"] = "no-store"
         return response
