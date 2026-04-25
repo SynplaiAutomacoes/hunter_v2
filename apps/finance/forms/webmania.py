@@ -213,6 +213,10 @@ class WebmaniaCompanyUpdateForm(forms.ModelForm):
                 self.fields[field_name].disabled = True
                 self.fields[field_name].help_text = certificate_management_help
 
+        if "logomarca" in self.fields:
+            self.fields["logomarca"].disabled = True
+            self.fields["logomarca"].help_text = "A URL da logomarca e sincronizada automaticamente com o upload da logo da oficina."
+
         for field_name in self.secret_fields:
             if field_name in self.fields:
                 self.initial[field_name] = ""

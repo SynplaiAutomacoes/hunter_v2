@@ -9,7 +9,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.core.management import call_command
-from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -31,20 +30,57 @@ from apps.stock.models import SefazZipCache, StockImport, StockMovement, StockPa
 from apps.stock.utils import NFParser
 from apps.suppliers.models import Supplier
 from apps.workshops.models.workshops import Workshop
+from apps.workshops.services.files import StoredWorkshopFile
+
+
+class FakeWorkshopFileService:
+    def __init__(self) -> None:
+        self.files: dict[str, dict[str, StoredWorkshopFile]] = {"certificate": {}, "logo": {}}
+
+    def save_file(self, *, kind: str, content: bytes, filename: str, content_type: str, workshop_id: int) -> StoredWorkshopFile:
+        stored_file = StoredWorkshopFile(
+            file_id=f"{kind}-{workshop_id}",
+            filename=filename,
+            content_type=content_type,
+            content=content,
+            uploaded_at=timezone.now(),
+        )
+        self.files[kind][stored_file.file_id] = stored_file
+        return stored_file
+
+    def read_file(self, *, kind: str, file_id: str) -> StoredWorkshopFile:
+        return self.files[kind][file_id]
+
+    def delete_file(self, *, kind: str, file_id: str) -> None:
+        self.files[kind].pop(file_id, None)
 
 
 class StockSefazTests(TestCase):
     def setUp(self) -> None:
         self.factory = RequestFactory()
+        self.file_service = FakeWorkshopFileService()
         self.workshop = Workshop.objects.create(
             name="Oficina Teste",
             cnpj="11.222.333/0001-81",
             phone="+5511999999999",
             address="Rua Teste, 123",
             uf="SP",
-            pfx_certificate=SimpleUploadedFile("teste.pfx", b"certificado-teste", content_type="application/x-pkcs12"),
+            certificate_file_key="certificate-1",
+            certificate_file_name="teste.pfx",
+            certificate_content_type="application/x-pkcs12",
+            certificate_uploaded_at=timezone.now(),
             certificate_password="segredo",
         )
+        self.file_service.files["certificate"]["certificate-1"] = StoredWorkshopFile(
+            file_id="certificate-1",
+            filename="teste.pfx",
+            content_type="application/x-pkcs12",
+            content=b"certificado-teste",
+            uploaded_at=timezone.now(),
+        )
+        self.file_service_patcher = patch("apps.workshops.services.files.get_workshop_file_service", return_value=self.file_service)
+        self.file_service_patcher.start()
+        self.addCleanup(self.file_service_patcher.stop)
 
     @staticmethod
     def _build_access_key(*, nf_number: int) -> str:

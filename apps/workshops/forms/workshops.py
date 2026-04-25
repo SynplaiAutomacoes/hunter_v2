@@ -232,6 +232,8 @@ class WorkshopCompanySectionForm(BaseWebmaniaCompanySectionForm):
     def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
         super().__init__(*args, workshop=workshop, **kwargs)
         self.fields["email"].required = True
+        self.fields["logomarca"].disabled = True
+        self.fields["logomarca"].help_text = "A URL da logomarca e sincronizada automaticamente com o upload da logo da oficina."
         if self.workshop is not None:
             self.initial["workshop_is_active"] = bool(self.workshop.is_active)
 
@@ -285,7 +287,7 @@ class WorkshopLogoForm(forms.Form):
     logo = forms.FileField(
         required=False,
         label="Logo da oficina",
-        validators=[FileExtensionValidator(allowed_extensions=["png", "jpg", "jpeg", "gif", "webp", "svg"])],
+        validators=[FileExtensionValidator(allowed_extensions=["png", "jpg", "jpeg", "webp", "svg"], message="Permitido logomarca somente nos formatos JPEG, PNG, WEBP ou SVG.")],
         widget=ImageInput(),
     )
 
@@ -295,6 +297,18 @@ class WorkshopLogoForm(forms.Form):
 
         if preview_url:
             self.initial["logo"] = _PreviewableFileValue(preview_url)
+
+    def clean_logo(self):
+        logo = self.cleaned_data.get("logo")
+        if logo in (None, False):
+            return logo
+
+        allowed_content_types = {"image/jpeg", "image/png", "image/webp", "image/svg+xml"}
+        content_type = str(getattr(logo, "content_type", "") or "").strip().lower()
+        if content_type and content_type not in allowed_content_types:
+            raise forms.ValidationError("Permitido logomarca somente nos formatos JPEG, PNG, WEBP ou SVG.")
+
+        return logo
 
     def has_new_upload(self) -> bool:
         uploaded_file = self.cleaned_data.get("logo")

@@ -3,10 +3,10 @@
     x-data="formatters.widget.imageInput('{{ widget.value.url|default:"" }}', '{{ widget.checkbox_name }}')"
     class="flex flex-col gap-3"
 >
-    <div class="relative w-full max-w-xs aspect-video bg-base-200 rounded-box border border-base-300 flex items-center justify-center overflow-hidden group">
+    <div class="relative w-full max-w-[120px] h-[65px] bg-base-200 rounded-box border border-base-300 flex items-center justify-center overflow-hidden group">
 
         <template x-if="previewUrl">
-            <img :src="previewUrl" class="w-full h-full object-cover" alt="Preview">
+            <img :src="previewUrl" class="max-w-[120px] max-h-[65px] w-auto h-auto object-contain" alt="Preview">
         </template>
 
         <template x-if="!previewUrl">

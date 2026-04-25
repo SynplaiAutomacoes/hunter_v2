@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import secrets
 from datetime import timedelta
 
 from django.core.exceptions import ObjectDoesNotExist
-from django.core.validators import FileExtensionValidator
 from django.db import models
 from django.db.models import CharField, BooleanField
 from django.utils import timezone
@@ -11,6 +11,10 @@ from localflavor.br.models import BRCNPJField
 from phonenumber_field.modelfields import PhoneNumberField
 
 from apps.core.models import TimeStampedModel
+
+
+def generate_workshop_logo_public_token() -> str:
+    return secrets.token_hex(16)
 
 
 class Workshop(TimeStampedModel):
@@ -27,21 +31,14 @@ class Workshop(TimeStampedModel):
     address = CharField(verbose_name="Endereço", max_length=255, null=False, blank=False)
     uf = models.CharField(verbose_name="UF", max_length=2, null=False, blank=False, default="SP")
     pdf_observation = CharField(verbose_name="Observação", max_length=250, null=False, blank=False, default="")
-    logo = models.FileField(
-        verbose_name="Logo da oficina",
-        upload_to="workshops/logos/",
-        null=True,
-        blank=True,
-        validators=[FileExtensionValidator(allowed_extensions=["png", "jpg", "jpeg", "gif", "webp", "svg"])],
-    )
-    logo_mongo_file_id = models.CharField(max_length=64, blank=True, default="")
+    logo_file_key = models.CharField(max_length=512, blank=True, default="")
     logo_file_name = models.CharField(max_length=255, blank=True, default="")
     logo_content_type = models.CharField(max_length=100, blank=True, default="")
     logo_uploaded_at = models.DateTimeField(null=True, blank=True)
+    logo_public_token = models.CharField(max_length=32, unique=True, default=generate_workshop_logo_public_token, editable=False)
     is_active = BooleanField(verbose_name="Ativa", default=True)
     # Sefaz
-    pfx_certificate = models.FileField(verbose_name="Certificado PFX", upload_to="certificados/", null=True, blank=True)
-    certificate_mongo_file_id = models.CharField(max_length=64, blank=True, default="")
+    certificate_file_key = models.CharField(max_length=512, blank=True, default="")
     certificate_file_name = models.CharField(max_length=255, blank=True, default="")
     certificate_content_type = models.CharField(max_length=100, blank=True, default="")
     certificate_uploaded_at = models.DateTimeField(null=True, blank=True)
@@ -54,7 +51,7 @@ class Workshop(TimeStampedModel):
         verbose_name_plural = "Oficinas"
 
     @property
-    def can_search_sefaz(self):
+    def can_search_sefaz(self) -> bool:
         if not self.last_sefaz_search_date:
             return True
         return timezone.now() > self.last_sefaz_search_date + timedelta(hours=1)
@@ -68,25 +65,21 @@ class Workshop(TimeStampedModel):
 
     @property
     def has_logo_file(self) -> bool:
-        return bool(self.logo_mongo_file_id or self.logo)
+        return bool(self.logo_file_key)
 
     @property
     def current_logo_file_name(self) -> str:
-        if self.logo_file_name:
-            return self.logo_file_name
-        return self._extract_file_name(getattr(self.logo, "name", ""))
+        return self.logo_file_name
 
     @property
     def has_certificate_file(self) -> bool:
-        return bool(self.certificate_mongo_file_id or self.pfx_certificate)
+        return bool(self.certificate_file_key)
 
     @property
     def current_certificate_file_name(self) -> str:
-        if self.certificate_file_name:
-            return self.certificate_file_name
-        return self._extract_file_name(getattr(self.pfx_certificate, "name", ""))
+        return self.certificate_file_name
 
-    def _get_webmania_company(self):
+    def _get_webmania_company(self) -> object | None:
         cache_attr = "_cached_webmania_company"
         if hasattr(self, cache_attr):
             return getattr(self, cache_attr)
@@ -113,11 +106,11 @@ class Workshop(TimeStampedModel):
         return "-"
 
     @property
-    def webmania_company_pk(self):
+    def webmania_company_pk(self) -> int | None:
         company = self._get_webmania_company()
         if company is None:
             return None
-        return company.pk
+        return int(getattr(company, "pk", None)) if getattr(company, "pk", None) is not None else None
 
     @property
     def webmania_company_name_display(self) -> str:
@@ -181,5 +174,5 @@ class Workshop(TimeStampedModel):
         tax_type = str(company.get_tipo_tributacao_display() or company.tipo_tributacao or "").strip()
         return tax_type or "-"
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.name

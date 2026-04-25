@@ -54,7 +54,7 @@ Principais capacidades do sistema:
 - Gerenciador JS: `npm`
 - App server: Gunicorn
 - Static files: WhiteNoise
-- Arquivos de oficina: MongoDB/GridFS
+- Arquivos de oficina: Railway Storage Bucket (S3 compativel)
 - PDF / automacao: `xhtml2pdf` e Playwright
 - Deploy: Docker + Railway
 
@@ -189,7 +189,7 @@ Para a versao detalhada do fluxo, leia [Fluxo principal do sistema](docs/04-flux
 
 - Webmania: emissao fiscal, status, conciliacao e webhook
 - SuperSign: assinatura digital e webhook de conclusao
-- MongoDB/GridFS: armazenamento de certificado e logo de oficina
+- Railway Storage Bucket: armazenamento privado de certificado e logo de oficina
 - Playwright: runtime de navegador usado no build e em geracao/automacao
 
 Essas integracoes nao sao detalhe periferico. Elas influenciam configuracao, deploy, startup e parte importante da modelagem do dominio.
@@ -235,7 +235,7 @@ Indice completo: [abrir documentacao tecnica](docs/README.md).
 - `apps/budget/urls.py`: centro do fluxo comercial
 - `apps/workorder/approval.py`: aprovacao da OS com baixa de estoque
 - `apps/finance/urls.py`: financeiro, DRE, fiscal e Webmania
-- `apps/workshops/services/files.py`: logo/certificado via MongoDB e sincronizacao com Webmania
+- `apps/workshops/services/files.py`: logo/certificado via bucket S3 compativel e sincronizacao com Webmania
 - `apps/core/management/commands/seed_demo_data.py`: seed de desenvolvimento
 
 ## Notas operacionais importantes
