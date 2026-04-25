@@ -84,6 +84,7 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     def _get_financial_movements_queryset(self):
         queryset = (
             FinancialMovement.objects.filter(workshop=self.workshop)
+            .filter(Q(movement_group__isnull=True) | Q(movement_kind=FinancialMovement.MovementKind.GROUP_PARENT))
             .select_related(
                 "source",
                 "budget_plan",
