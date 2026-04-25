@@ -13,7 +13,7 @@ from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from djmoney.money import Money
 
-from apps.budget.models import Budget, BudgetImage, BudgetImageType, Defect, SignatureStatus
+from apps.budget.models import Budget, BudgetImage, BudgetImageType, BudgetStatus, Defect, SignatureStatus
 from apps.budget.pricing import resolve_discount_fields
 from apps.checklist.models import Checklist
 from apps.collaborators.models import WorkshopCollaborator
@@ -1623,6 +1623,11 @@ class BudgetStep3Form(forms.ModelForm):
                 budget.collaborators.set(collaborator_ids)
             else:
                 budget.collaborators.clear()
+
+            if budget.status == BudgetStatus.APPROVED:
+                workorder = budget.workorders.order_by("id").first()
+                if workorder is not None:
+                    workorder.sync_from_budget()
 
         # Processamento dos Defeitos (Somente no Save final)
         if "defects_list" in self.request.POST:

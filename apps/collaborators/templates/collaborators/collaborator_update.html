@@ -1,5 +1,431 @@
 {% extends 'crud/form_page.html' %}
+{% load crispy_forms_tags %}
+{% load l10n %}
 
 {% block crud_title %}Editar colaborador{% endblock %}
-{% block crud_subtitle %}Edição do cadastro. Na primeira liberação de acesso ao sistema, defina a senha do usuário.{% endblock %}
+{% block crud_subtitle %}Edite dados cadastrais, salários, benefícios e acompanhe o histórico mensal do colaborador.{% endblock %}
 {% block crud_back_url %}{% url 'collaborators:collaborator_list' %}{% endblock %}
+
+{% block crud_tabs_form %}
+<div class="tabs tabs-bordered mt-7">
+    <input type="radio" name="collaborator_tabs" value="cadastro" class="tab !border-b-2 checked:!border-primary checked:!text-primary font-medium transition-colors" aria-label="Dados" x-model="activeTab" {% if active_tab != 'historico' %}checked{% endif %}>
+    <input type="radio" name="collaborator_tabs" value="historico" class="tab !border-b-2 checked:!border-primary checked:!text-primary font-medium transition-colors" aria-label="Histórico" x-model="activeTab" {% if active_tab == 'historico' %}checked{% endif %}>
+</div>
+{% endblock %}
+
+{% block crud_form %}
+<div
+    x-data="{
+        receives_commission: {{ form.receives_commission.value|yesno:'true,false,false' }},
+        system_access: {{ form.system_access.value|yesno:'true,false,false' }},
+        payment_day_type: '{{ form.payment_day_type.value|default:form.instance.payment_day_type|default:'FIFTH_BUSINESS_DAY' }}',
+        transportDailyDisplay: '',
+        workDays: {{ current_work_days }},
+        transportTotalDisplay: '{{ current_transport_total }}',
+        parseMoney(value) {
+            let normalized = String(value || '').trim().replace(/[^0-9,.-]/g, '');
+            if (normalized.includes(',')) {
+                normalized = normalized.replace(/\./g, '').replace(',', '.');
+            }
+            const parsed = Number.parseFloat(normalized);
+            return Number.isFinite(parsed) ? parsed : 0;
+        },
+        formatMoney(value) {
+            return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
+        },
+        updateTransportTotal() {
+            const total = this.parseMoney(this.transportDailyDisplay) * this.workDays;
+            this.transportTotalDisplay = this.formatMoney(total);
+        },
+        init() {
+            const displayInput = document.getElementById('id_transport_allowance_daily_0_display');
+            const amountInput = document.getElementById('id_transport_allowance_daily_0');
+            const initialValue = (displayInput && displayInput.value) || (amountInput && amountInput.value) || '';
+
+            this.transportDailyDisplay = initialValue;
+            this.updateTransportTotal();
+
+            if (displayInput) {
+                displayInput.addEventListener('input', (event) => {
+                    this.transportDailyDisplay = event.target.value || '';
+                    this.updateTransportTotal();
+                });
+                displayInput.addEventListener('change', (event) => {
+                    this.transportDailyDisplay = event.target.value || '';
+                    this.updateTransportTotal();
+                });
+            }
+        }
+    }"
+    class="space-y-6"
+>
+    <form method="post" novalidate>
+        {% csrf_token %}
+        <input type="hidden" name="tab" value="cadastro">
+
+        {% if form.non_field_errors or benefit_formset.non_form_errors %}
+            <div class="alert alert-error">
+                <div>
+                    {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+                    {% for error in benefit_formset.non_form_errors %}<p>{{ error }}</p>{% endfor %}
+                </div>
+            </div>
+        {% endif %}
+
+        <section class="space-y-6">
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                <div class="col-span-12 lg:col-span-4">{{ form.name|as_crispy_field }}</div>
+                <div class="col-span-12 lg:col-span-4">{{ form.cpf|as_crispy_field }}</div>
+                <div class="col-span-12 lg:col-span-4">{{ form.rg|as_crispy_field }}</div>
+
+                <div class="col-span-12 lg:col-span-4">{{ form.email|as_crispy_field }}</div>
+                <div class="col-span-12 lg:col-span-4">{{ form.phone|as_crispy_field }}</div>
+                <div class="col-span-12 lg:col-span-4">{{ form.birth_date|as_crispy_field }}</div>
+
+                <div class="col-span-12 lg:col-span-4">{{ form.position|as_crispy_field }}</div>
+                <div class="col-span-12 lg:col-span-4">{{ form.collaborator_type|as_crispy_field }}</div>
+                <div class="col-span-12 lg:col-span-4">{{ form.sex|as_crispy_field }}</div>
+
+                <div class="col-span-12 lg:col-span-4">{{ form.admission_date|as_crispy_field }}</div>
+                <div class="col-span-12 lg:col-span-4">{{ form.termination_date|as_crispy_field }}</div>
+                <div class="col-span-12 lg:col-span-4">{{ form.is_active|as_crispy_field }}</div>
+            </div>
+
+            <div class="divider">Salários e benefícios</div>
+
+            <div class="alert alert-warning text-sm">
+                <span>Quando o salário for inserido, o Contas a Pagar será calculado automaticamente.</span>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                <div class="col-span-12 lg:col-span-4">{{ form.salary|as_crispy_field }}</div>
+                <div class="col-span-12 lg:col-span-4">{{ form.payment_day_type|as_crispy_field }}</div>
+                <div class="col-span-12 lg:col-span-4" x-show="payment_day_type === 'FIXED_DAY'" x-cloak>{{ form.payment_day_of_month|as_crispy_field }}</div>
+
+                <div class="col-span-12 lg:col-span-4">{{ form.transport_allowance_daily|as_crispy_field }}</div>
+                <div class="col-span-12 lg:col-span-4">
+                    <label class="label pb-1"><span class="label-text text-xs">Dias úteis do mês atual</span></label>
+                    <div class="input input-bordered flex items-center bg-base-200">{{ current_work_days }}</div>
+                </div>
+                <div class="col-span-12 lg:col-span-4">
+                    <label class="label pb-1"><span class="label-text text-xs">Total previsto do vale transporte</span></label>
+                    <div class="input input-bordered flex items-center bg-base-200" x-text="transportTotalDisplay"></div>
+                </div>
+            </div>
+
+            <div class="rounded-xl border border-base-300 p-4 space-y-4" x-data="collaboratorBenefitsManager()">
+                <div class="flex items-center justify-between gap-3">
+                    <div>
+                        <h3 class="text-base font-semibold">Benefícios adicionais</h3>
+                        <p class="text-sm text-base-content/70">Cadastre benefícios mensais extras para compor o valor da folha.</p>
+                    </div>
+                    <button type="button" class="btn btn-outline btn-sm" @click="addBenefit()">Adicionar benefício</button>
+                </div>
+
+                {{ benefit_formset.management_form }}
+
+                <div id="benefit-form-list" class="space-y-4">
+                    {% for benefit_form in benefit_formset %}
+                        <div class="rounded-xl border border-base-300 p-4 benefit-form-item">
+                            {% for hidden in benefit_form.hidden_fields %}
+                                {% if hidden.name == 'DELETE' %}
+                                    <div class="hidden">{{ hidden }}</div>
+                                {% else %}
+                                    {{ hidden }}
+                                {% endif %}
+                            {% endfor %}
+                            <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                                <div class="col-span-12 lg:col-span-3">{{ benefit_form.name|as_crispy_field }}</div>
+                                <div class="col-span-12 lg:col-span-5">{{ benefit_form.description|as_crispy_field }}</div>
+                                <div class="col-span-12 lg:col-span-2">{{ benefit_form.monthly_amount|as_crispy_field }}</div>
+                                <div class="col-span-12 lg:col-span-1">{{ benefit_form.is_active|as_crispy_field }}</div>
+                                <div class="col-span-12 lg:col-span-1 flex items-center justify-end lg:min-h-full">
+                                    {% if benefit_form.instance.pk %}
+                                        <button type="button" class="btn btn-ghost btn-sm text-error" onclick="document.getElementById('delete-benefit-modal-{{ benefit_form.instance.pk }}').showModal()">Remover</button>
+                                        <dialog id="delete-benefit-modal-{{ benefit_form.instance.pk }}" class="modal" onclick="if (event.target === this) this.close()">
+                                            <div class="modal-box max-w-md">
+                                                <h3 class="text-lg font-bold text-base-content">Remover benefício</h3>
+                                                <p class="mt-2 text-sm text-base-content/70">Deseja realmente remover este benefício? A exclusão será aplicada imediatamente.</p>
+                                                <div class="alert alert-warning mt-4 text-sm">
+                                                    <span>Esta ação atualiza a folha do colaborador assim que for confirmada.</span>
+                                                </div>
+                                                <div class="modal-action">
+                                                    <form method="dialog">
+                                                        <button type="submit" class="btn btn-ghost">Cancelar</button>
+                                                    </form>
+                                                    <form method="post" action="{% url 'collaborators:collaborator_benefit_delete' form.instance.pk benefit_form.instance.pk %}">
+                                                        {% csrf_token %}
+                                                        <button type="submit" class="btn btn-error">Confirmar remoção</button>
+                                                    </form>
+                                                </div>
+                                            </div>
+                                        </dialog>
+                                    {% else %}
+                                        <button type="button" class="btn btn-ghost btn-sm text-error" @click="removeUnsavedBenefit($event)">Remover</button>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    {% empty %}
+                        <div class="rounded-xl border border-dashed border-base-300 p-4 text-sm text-base-content/70">
+                            Nenhum benefício cadastrado ainda.
+                        </div>
+                    {% endfor %}
+                </div>
+
+                <p class="text-xs text-base-content/60">Use a última linha em branco para adicionar um novo benefício mensal.</p>
+
+                <template id="benefit-empty-form-template">
+                    <div class="rounded-xl border border-base-300 p-4 benefit-form-item">
+                        {% for hidden in benefit_empty_form.hidden_fields %}
+                            {% if hidden.name == 'DELETE' %}
+                                <div class="hidden">{{ hidden }}</div>
+                            {% else %}
+                                {{ hidden }}
+                            {% endif %}
+                        {% endfor %}
+                        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                            <div class="col-span-12 lg:col-span-3">{{ benefit_empty_form.name|as_crispy_field }}</div>
+                            <div class="col-span-12 lg:col-span-5">{{ benefit_empty_form.description|as_crispy_field }}</div>
+                            <div class="col-span-12 lg:col-span-2">{{ benefit_empty_form.monthly_amount|as_crispy_field }}</div>
+                            <div class="col-span-12 lg:col-span-1">{{ benefit_empty_form.is_active|as_crispy_field }}</div>
+                            <div class="col-span-12 lg:col-span-1 flex items-center justify-end lg:min-h-full">
+                                <button type="button" class="btn btn-ghost btn-sm text-error" @click="removeUnsavedBenefit($event)">Remover</button>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                <div class="col-span-12 lg:col-span-3">{{ form.receives_commission|as_crispy_field }}</div>
+                <div class="col-span-12 lg:col-span-3" x-show="receives_commission" x-cloak>{{ form.commission_percentage|as_crispy_field }}</div>
+                <div class="col-span-12 lg:col-span-3">{{ form.system_access|as_crispy_field }}</div>
+            </div>
+
+            <div x-show="system_access" x-cloak class="rounded-xl border border-base-300 p-4">
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                    <div class="col-span-12 lg:col-span-4">{{ form.system_username|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ form.role|as_crispy_field }}</div>
+                    {% if form.password1 %}<div class="col-span-12 lg:col-span-4">{{ form.password1|as_crispy_field }}</div>{% endif %}
+                    {% if form.password2 %}<div class="col-span-12 lg:col-span-4">{{ form.password2|as_crispy_field }}</div>{% endif %}
+                </div>
+            </div>
+        </section>
+
+        <div class="divider"></div>
+        <div class="flex items-center justify-end gap-2">
+            <a href="{% url 'collaborators:collaborator_list' %}" class="btn-form-cancel">Cancelar</a>
+            <button type="submit" class="btn-form-save">Salvar</button>
+        </div>
+    </form>
+</div>
+
+<script>
+    function collaboratorBenefitsManager() {
+        return {
+            addBenefit() {
+                const totalFormsInput = document.getElementById('id_benefits-TOTAL_FORMS');
+                const formList = document.getElementById('benefit-form-list');
+                const template = document.getElementById('benefit-empty-form-template');
+                if (!totalFormsInput || !formList || !template) {
+                    return;
+                }
+
+                const formIndex = Number.parseInt(totalFormsInput.value || '0', 10);
+                const html = template.innerHTML.replace(/__prefix__/g, String(formIndex));
+                formList.insertAdjacentHTML('beforeend', html);
+                totalFormsInput.value = String(formIndex + 1);
+            },
+            removeUnsavedBenefit(event) {
+                const item = event.target.closest('.benefit-form-item');
+                if (!item) {
+                    return;
+                }
+
+                const deleteInput = item.querySelector('input[name$="-DELETE"]');
+                if (deleteInput) {
+                    deleteInput.checked = true;
+                }
+                item.remove();
+            },
+        };
+    }
+</script>
+{% endblock %}
+
+{% block section_product_history %}
+<div class="space-y-4">
+    <div class="alert alert-info text-sm">
+        <span>O histórico mostra a folha mensal consolidada do colaborador, incluindo salário, vale-transporte, benefícios e comissões.</span>
+    </div>
+
+    <form method="get" class="rounded-xl border border-base-300 p-4 bg-base-100">
+        <input type="hidden" name="tab" value="historico">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-end">
+            <div class="col-span-12 lg:col-span-3">
+                <label class="label pb-1"><span class="label-text text-xs">Mes</span></label>
+                <select name="history_month" class="select select-bordered w-full">
+                    <option value="">Todos</option>
+                    {% for month in history_month_choices %}
+                        <option value="{{ month }}" {% if selected_history_month == month|stringformat:'s' %}selected{% endif %}>{{ month|stringformat:'02d' }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-span-12 lg:col-span-3">
+                <label class="label pb-1"><span class="label-text text-xs">Ano</span></label>
+                <select name="history_year" class="select select-bordered w-full">
+                    <option value="">Todos</option>
+                    {% for year in history_year_choices %}
+                        <option value="{{ year|unlocalize }}" {% if selected_history_year == year|stringformat:'s' %}selected{% endif %}>{{ year|unlocalize }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-span-12 lg:col-span-3">
+                <label class="label pb-1"><span class="label-text text-xs">Status</span></label>
+                <select name="history_status" class="select select-bordered w-full">
+                    <option value="" {% if not selected_history_status %}selected{% endif %}>Todos</option>
+                    <option value="forecast" {% if selected_history_status == 'forecast' %}selected{% endif %}>Previstos</option>
+                    <option value="paid" {% if selected_history_status == 'paid' %}selected{% endif %}>Pagos</option>
+                </select>
+            </div>
+            <div class="col-span-12 lg:col-span-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+                <button type="submit" class="btn btn-primary w-full sm:flex-1">Filtrar</button>
+                <a href="{% url 'collaborators:collaborator_update' form.instance.pk %}?tab=historico" class="btn btn-ghost w-full sm:w-auto">Limpar</a>
+            </div>
+        </div>
+    </form>
+
+    {% for payroll in payroll_history %}
+        <details class="rounded-xl border border-base-300 p-4 bg-base-100 group" {% if forloop.first %}open{% endif %}>
+            <summary class="list-none cursor-pointer">
+            <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                    <h3 class="font-semibold">{{ payroll.reference_month|stringformat:'02d' }}/{{ payroll.reference_year|unlocalize }}</h3>
+                    <p class="text-sm text-base-content/70">Data: {{ payroll.due_date|date:'d/m/Y' }}</p>
+                </div>
+                <div class="text-right">
+                    <p class="font-semibold">Valor previsto: {{ payroll.total_amount }}</p>
+                    <p class="text-sm text-base-content/70">Valor pago: {{ payroll.paid_amount }}</p>
+                    <span class="badge {% if payroll.status == 'PAID' %}badge-success{% else %}badge-warning{% endif %}">{{ payroll.status_label }}</span>
+                </div>
+            </div>
+            </summary>
+
+            <div class="mt-4 rounded-xl border border-base-200 bg-base-50/40 p-4">
+                <div class="mb-4 flex items-center justify-between gap-2">
+                    <div>
+                        <h4 class="font-semibold">Holerite simplificado</h4>
+                        <p class="text-sm text-base-content/70">Competencia {{ payroll.reference_month|stringformat:'02d' }}/{{ payroll.reference_year|unlocalize }}</p>
+                    </div>
+                    <div class="flex flex-col items-end gap-2 text-right text-sm">
+                        <div>
+                            <div>Total previsto: <strong>{{ payroll.total_amount }}</strong></div>
+                            <div>Total pago: <strong>{{ payroll.paid_amount }}</strong></div>
+                        </div>
+                        <div class="flex flex-wrap justify-end gap-2">
+                            <button
+                                type="button"
+                                class="btn btn-primary btn-xs"
+                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Holerite do colaborador', url: '{% url 'collaborators:collaborator_payroll_receipt' form.instance.pk payroll.pk %}' } }))"
+                            >
+                                Holerite
+                            </button>
+                            {% if payroll.financial_movement %}
+                                <a href="{% url 'finance:reports_home' %}?search={{ payroll.financial_movement.description|urlencode }}" class="btn btn-ghost btn-xs">Ver no financeiro</a>
+                            {% endif %}
+                            {% if payroll.financial_movement and payroll.status != 'PAID' %}
+                                <form method="post" action="{% url 'collaborators:collaborator_payroll_mark_paid' form.instance.pk payroll.pk %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="tab" value="historico">
+                                    <input type="hidden" name="history_month" value="{{ selected_history_month }}">
+                                    <input type="hidden" name="history_year" value="{{ selected_history_year }}">
+                                    <input type="hidden" name="history_status" value="{{ selected_history_status }}">
+                                    <button type="submit" class="btn btn-success btn-xs text-white">Marcar como pago</button>
+                                </form>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="table table-zebra w-full">
+                        <thead>
+                            <tr>
+                                <th>Descricao</th>
+                                <th>Detalhes</th>
+                                <th>Valor</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in payroll.items.all %}
+                                <tr>
+                                    <td>{{ item.title }}</td>
+                                    <td>{{ item.description|default:'-' }}</td>
+                                    <td>{{ item.amount }}</td>
+                                </tr>
+                            {% empty %}
+                                <tr>
+                                    <td colspan="3" class="text-center text-base-content/60">Nenhum item detalhado.</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-5 gap-3 text-sm mt-4">
+                    <div class="rounded-lg bg-base-200 px-3 py-2">Salario: <strong>{{ payroll.salary_amount }}</strong></div>
+                    <div class="rounded-lg bg-base-200 px-3 py-2">VT: <strong>{{ payroll.transport_allowance_amount }}</strong></div>
+                    <div class="rounded-lg bg-base-200 px-3 py-2">Beneficios: <strong>{{ payroll.benefits_amount }}</strong></div>
+                    <div class="rounded-lg bg-base-200 px-3 py-2">Comissoes: <strong>{{ payroll.commission_amount }}</strong></div>
+                    <div class="rounded-lg bg-base-200 px-3 py-2">Total: <strong>{{ payroll.total_amount }}</strong></div>
+                </div>
+            </div>
+        </details>
+    {% empty %}
+        <div class="rounded-xl border border-dashed border-base-300 p-6 text-center text-base-content/70">
+            Nenhum histórico de pagamento disponível para este colaborador ainda.
+        </div>
+    {% endfor %}
+</div>
+
+<dialog
+    id="pdfModal"
+    class="modal"
+    x-data="{ url: '', downloadUrl: '', title: 'Visualização do holerite' }"
+    @open-pdf-modal.window="url = $event.detail.url; downloadUrl = $event.detail.downloadUrl || ''; title = $event.detail.title || 'Visualização do holerite'; $el.showModal()"
+>
+    <div class="modal-box flex h-[90vh] w-full max-w-5xl flex-col p-0">
+        <div class="flex items-center justify-between border-b bg-base-200 px-6 py-4">
+            <h3 class="flex items-center gap-2 text-xl font-bold">
+                <span class="material-icons">description</span>
+                <span x-text="title"></span>
+            </h3>
+
+            <div class="flex gap-2">
+                <button
+                    type="button"
+                    class="btn btn-sm btn-primary"
+                    onclick="const frame = document.querySelector('#pdfModal iframe'); if (frame && frame.contentWindow) { frame.contentWindow.focus(); frame.contentWindow.print(); }"
+                >
+                    Imprimir
+                </button>
+
+                <button type="button" class="btn btn-sm" onclick="document.getElementById('pdfModal').close()">
+                    Fechar
+                </button>
+            </div>
+        </div>
+
+        <div class="flex-1 bg-gray-100">
+            <template x-if="url">
+                <iframe :src="url" class="h-full w-full" frameborder="0"></iframe>
+            </template>
+        </div>
+    </div>
+
+    <form method="dialog" class="modal-backdrop">
+        <button>close</button>
+    </form>
+</dialog>
+{% endblock %}

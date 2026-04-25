@@ -11,11 +11,12 @@ from djmoney.forms import MoneyField
 from djmoney.money import Money
 
 from apps.budget.pricing import resolve_discount_fields
+from apps.collaborators.models import WorkshopCollaborator
 from apps.budget.forms.widgets import MultipleFileInput
 from apps.core.utils import alert_confirm_layout
 from apps.core.widgets import CalendarDateInput, DurationInput, MoneyInput, NumberInput, PercentageInput, SearchableSelectInput, TextInput
 from apps.finance.models.payment_method import PaymentMethod
-from apps.workorder.models import WorkOrderAttachment, WorkOrderItem, WorkOrderPaymentMethod
+from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderItem, WorkOrderPaymentMethod
 
 
 MONEY_ZERO = Decimal("0.00")
@@ -27,6 +28,24 @@ class _BoundDataProtocol(Protocol):
 
 def _format_brl_amount(value: Decimal) -> str:
     return f"{value:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
+
+
+class WorkOrderCollaboratorForm(forms.ModelForm):
+    collaborators = forms.ModelMultipleChoiceField(label="Colaboradores da O.S.", queryset=WorkshopCollaborator.objects.none(), required=False, widget=forms.SelectMultiple(attrs={"class": "select select-bordered min-h-40 w-full"}))
+
+    class Meta:
+        model = WorkOrder
+        fields = ["collaborators"]
+
+    def __init__(self, *args, workorder: WorkOrder | None = None, **kwargs) -> None:
+        self.workorder = workorder or kwargs.get("instance")
+        super().__init__(*args, **kwargs)
+        workshop = getattr(self.workorder, "workshop", None)
+        queryset = WorkshopCollaborator.objects.none()
+        if workshop is not None:
+            queryset = WorkshopCollaborator.objects.filter(workshop=workshop, is_active=True).order_by("name")
+        self.fields["collaborators"].queryset = queryset
+        self.fields["collaborators"].help_text = "Selecione os colaboradores responsaveis por esta O.S. A comissao prevista sera calculada a partir desta vinculacao."
 
 
 class WorkOrderPaymentForm(forms.ModelForm):

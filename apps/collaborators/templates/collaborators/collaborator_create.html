@@ -1,5 +1,134 @@
 {% extends 'crud/form_page.html' %}
+{% load crispy_forms_tags %}
 
 {% block crud_title %}Criar colaborador{% endblock %}
-{% block crud_subtitle %}Cadastro do colaborador para a oficina ativa.{% endblock %}
+{% block crud_subtitle %}Cadastre os dados do colaborador para a oficina ativa.{% endblock %}
 {% block crud_back_url %}{% url 'collaborators:collaborator_list' %}{% endblock %}
+
+{% block crud_form %}
+<div
+    x-data="{
+        receives_commission: {{ form.receives_commission.value|yesno:'true,false,false' }},
+        system_access: {{ form.system_access.value|yesno:'true,false,false' }},
+        payment_day_type: '{{ form.payment_day_type.value|default:'FIFTH_BUSINESS_DAY' }}',
+        transportDailyDisplay: '',
+        workDays: {{ current_work_days }},
+        transportTotalDisplay: '{{ current_transport_total }}',
+        parseMoney(value) {
+            let normalized = String(value || '').trim().replace(/[^0-9,.-]/g, '');
+            if (normalized.includes(',')) {
+                normalized = normalized.replace(/\./g, '').replace(',', '.');
+            }
+            const parsed = Number.parseFloat(normalized);
+            return Number.isFinite(parsed) ? parsed : 0;
+        },
+        formatMoney(value) {
+            return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
+        },
+        updateTransportTotal() {
+            const total = this.parseMoney(this.transportDailyDisplay) * this.workDays;
+            this.transportTotalDisplay = this.formatMoney(total);
+        },
+        init() {
+            const displayInput = document.getElementById('id_transport_allowance_daily_0_display');
+            const amountInput = document.getElementById('id_transport_allowance_daily_0');
+            const initialValue = (displayInput && displayInput.value) || (amountInput && amountInput.value) || '';
+
+            this.transportDailyDisplay = initialValue;
+            this.updateTransportTotal();
+
+            if (!displayInput) {
+                return;
+            }
+            displayInput.addEventListener('input', (event) => {
+                this.transportDailyDisplay = event.target.value || '';
+                this.updateTransportTotal();
+            });
+            displayInput.addEventListener('change', (event) => {
+                this.transportDailyDisplay = event.target.value || '';
+                this.updateTransportTotal();
+            });
+        }
+    }"
+    class="space-y-6"
+>
+    <form method="post" novalidate>
+        {% csrf_token %}
+
+        {% if form.non_field_errors %}
+            <div class="alert alert-error">
+                <div>
+                    {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+                </div>
+            </div>
+        {% endif %}
+
+        <section class="space-y-6">
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                <div class="col-span-12 lg:col-span-4">{{ form.name|as_crispy_field }}</div>
+                <div class="col-span-12 lg:col-span-4">{{ form.cpf|as_crispy_field }}</div>
+                <div class="col-span-12 lg:col-span-4">{{ form.rg|as_crispy_field }}</div>
+
+                <div class="col-span-12 lg:col-span-4">{{ form.email|as_crispy_field }}</div>
+                <div class="col-span-12 lg:col-span-4">{{ form.phone|as_crispy_field }}</div>
+                <div class="col-span-12 lg:col-span-4">{{ form.birth_date|as_crispy_field }}</div>
+
+                <div class="col-span-12 lg:col-span-4">{{ form.position|as_crispy_field }}</div>
+                <div class="col-span-12 lg:col-span-4">{{ form.collaborator_type|as_crispy_field }}</div>
+                <div class="col-span-12 lg:col-span-4">{{ form.sex|as_crispy_field }}</div>
+
+                <div class="col-span-12 lg:col-span-4">{{ form.admission_date|as_crispy_field }}</div>
+                <div class="col-span-12 lg:col-span-4">{{ form.termination_date|as_crispy_field }}</div>
+                <div class="col-span-12 lg:col-span-4">{{ form.is_active|as_crispy_field }}</div>
+            </div>
+
+            <div class="divider">Salários e benefícios</div>
+
+            <div class="alert alert-warning text-sm">
+                <span>Quando o salário for inserido, o Contas a Pagar será calculado automaticamente.</span>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                <div class="col-span-12 lg:col-span-4">{{ form.salary|as_crispy_field }}</div>
+                <div class="col-span-12 lg:col-span-4">{{ form.payment_day_type|as_crispy_field }}</div>
+                <div class="col-span-12 lg:col-span-4" x-show="payment_day_type === 'FIXED_DAY'" x-cloak>{{ form.payment_day_of_month|as_crispy_field }}</div>
+
+                <div class="col-span-12 lg:col-span-4">{{ form.transport_allowance_daily|as_crispy_field }}</div>
+                <div class="col-span-12 lg:col-span-4">
+                    <label class="label pb-1"><span class="label-text text-xs">Dias úteis do mês atual</span></label>
+                    <div class="input input-bordered flex items-center bg-base-200">{{ current_work_days }}</div>
+                </div>
+                <div class="col-span-12 lg:col-span-4">
+                    <label class="label pb-1"><span class="label-text text-xs">Total previsto do vale transporte</span></label>
+                    <div class="input input-bordered flex items-center bg-base-200" x-text="transportTotalDisplay"></div>
+                </div>
+            </div>
+
+            <div class="rounded-xl border border-dashed border-base-300 p-4 text-sm text-base-content/70">
+                Benefícios adicionais podem ser cadastrados logo após salvar o colaborador.
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                <div class="col-span-12 lg:col-span-3">{{ form.receives_commission|as_crispy_field }}</div>
+                <div class="col-span-12 lg:col-span-3" x-show="receives_commission" x-cloak>{{ form.commission_percentage|as_crispy_field }}</div>
+                <div class="col-span-12 lg:col-span-3">{{ form.system_access|as_crispy_field }}</div>
+            </div>
+
+            <div x-show="system_access" x-cloak class="rounded-xl border border-base-300 p-4">
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                    <div class="col-span-12 lg:col-span-4">{{ form.system_username|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ form.role|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ form.password1|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ form.password2|as_crispy_field }}</div>
+                </div>
+            </div>
+        </section>
+
+        <div class="divider"></div>
+        <div class="flex items-center justify-end gap-2">
+            <a href="{% url 'collaborators:collaborator_list' %}" class="btn-form-cancel">Cancelar</a>
+            <button type="submit" class="btn-form-save">Salvar</button>
+        </div>
+    </form>
+</div>
+{% endblock %}
