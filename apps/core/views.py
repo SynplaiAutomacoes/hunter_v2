@@ -63,6 +63,11 @@ class HtmxDeleteResponseMixin:
 class DashboardView(HtmxTemplateResponseMixin, TemplateView):
     template_name = "partials/dashboard.html"
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update(metricas_dashboard(self.request))
+        return context
+
 
 class CEPLookupView(TemplateView):
     template_name = "partials/address_fields.html"
