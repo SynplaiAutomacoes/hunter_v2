@@ -736,6 +736,11 @@ class SendBudgetSignatureView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def post(self, request, budget_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
         toast_type, toast_message, _ = trigger_signature_send_if_needed(request=request, budget=budget)
+
+        if toast_type in {"success", "info"}:
+            budget.status = BudgetStatus.WAITING_APPROVAL
+            budget.save(update_fields=["status"])
+
         status_code = 200 if toast_type in {"success", "info"} else 400
         return JsonResponse({"success": toast_type in {"success", "info"}, "type": toast_type, "message": toast_message}, status=status_code)
 
