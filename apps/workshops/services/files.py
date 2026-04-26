@@ -4,6 +4,7 @@ import base64
 import io
 import logging
 import mimetypes
+import time
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -19,6 +20,7 @@ from django.db import transaction
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.text import get_valid_filename
+import requests
 
 from apps.core.documents.signature import build_absolute_app_url
 from apps.core.services.storage_service import StorageConfigurationError, StorageServiceError, get_storage_service
@@ -33,6 +35,8 @@ logger = logging.getLogger(__name__)
 StoredFileKind = Literal["certificate", "logo"]
 MAX_LOGO_WIDTH_PX = 120
 MAX_LOGO_HEIGHT_PX = 65
+PUBLIC_LOGO_READINESS_TIMEOUT_SECONDS = 8.0
+PUBLIC_LOGO_READINESS_INTERVAL_SECONDS = 0.5
 
 
 class WorkshopFileStorageError(Exception):
@@ -239,7 +243,10 @@ def _rasterize_svg_to_png(content: bytes) -> bytes:
     try:
         import cairosvg  # type: ignore[import-untyped]
 
-        return bytes(cairosvg.svg2png(bytestring=content))
+        png_bytes = cairosvg.svg2png(bytestring=content)
+        if png_bytes is None:
+            raise WorkshopFileStorageError("Nao foi possivel converter a logomarca SVG para PNG.")
+        return bytes(png_bytes)
     except OSError as exc:
         raise WorkshopFileStorageError("Nao foi possivel converter a logomarca SVG para PNG porque a biblioteca nativa do Cairo nao esta instalada neste ambiente. Use PNG, JPEG ou WEBP, ou instale o runtime do Cairo.") from exc
     except Exception as exc:
@@ -269,6 +276,42 @@ def build_workshop_logo_public_url(*, workshop: Workshop, request=None) -> str:
     if not _is_public_url(public_url):
         raise WorkshopFileStorageError("Configure APP_BASE_URL com uma URL publica para sincronizar a logomarca com a Webmania.")
     return public_url
+
+
+def wait_for_public_logo_url(*, public_logo_url: str, timeout_seconds: float = PUBLIC_LOGO_READINESS_TIMEOUT_SECONDS) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    last_status_code: int | None = None
+    last_error: str = ""
+
+    while time.monotonic() < deadline:
+        try:
+            response = requests.head(public_logo_url, timeout=5, allow_redirects=True)
+            last_status_code = response.status_code
+            content_type = str(response.headers.get("Content-Type") or "").strip().lower()
+            if response.status_code == 200 and (not content_type or content_type.startswith("image/")):
+                logger.info("workshop_logo_public_url_ready url=%s status=%s content_type=%s", public_logo_url, response.status_code, content_type)
+                return
+
+            if response.status_code in {405, 501}:
+                get_response = requests.get(public_logo_url, timeout=5, allow_redirects=True)
+                last_status_code = get_response.status_code
+                get_content_type = str(get_response.headers.get("Content-Type") or "").strip().lower()
+                if get_response.status_code == 200 and get_content_type.startswith("image/"):
+                    logger.info("workshop_logo_public_url_ready url=%s status=%s content_type=%s via=get", public_logo_url, get_response.status_code, get_content_type)
+                    return
+        except requests.RequestException as exc:
+            last_error = str(exc)
+
+        time.sleep(PUBLIC_LOGO_READINESS_INTERVAL_SECONDS)
+
+    logger.warning(
+        "workshop_logo_public_url_not_ready url=%s last_status=%s last_error=%s timeout_seconds=%.2f",
+        public_logo_url,
+        last_status_code,
+        last_error,
+        timeout_seconds,
+    )
+    raise WorkshopFileSyncError("A logomarca ainda nao ficou disponivel publicamente. Tente novamente em instantes.")
 
 
 def _is_public_url(url: str) -> bool:
@@ -359,6 +402,21 @@ def save_workshop_logo_atomic(
     except Exception as exc:
         _safe_delete_file(kind="logo", file_id=staged_file.file_id)
         raise WorkshopFileSyncError("Falha ao concluir o salvamento da logo. Nenhuma alteracao foi mantida.") from exc
+
+    try:
+        wait_for_public_logo_url(public_logo_url=public_logo_url)
+    except Exception:
+        _rollback_logo_upload(
+            workshop=workshop,
+            company=company,
+            previous_file_id=previous_file_id,
+            previous_file_name=previous_file_name,
+            previous_content_type=previous_content_type,
+            previous_uploaded_at=previous_uploaded_at,
+            previous_company_logo_url=previous_company_logo_url,
+        )
+        _safe_delete_file(kind="logo", file_id=staged_file.file_id)
+        raise
 
     try:
         update_webmania_company(company=company, payload={"logomarca": public_logo_url})

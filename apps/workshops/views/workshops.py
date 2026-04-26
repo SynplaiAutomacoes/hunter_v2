@@ -609,6 +609,9 @@ class PublicWorkshopLogoView(View):
         response["Cache-Control"] = "public, max-age=300"
         return response
 
+    def head(self, request, *args, **kwargs):
+        return self.get(request, *args, **kwargs)
+
 
 class WorkshopDeleteView(LoginRequiredMixin, HtmxDeleteResponseMixin, DeleteView):
     model = Workshop

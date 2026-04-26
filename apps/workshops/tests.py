@@ -16,7 +16,7 @@ from apps.finance.models.finance import WebmaniaCompany
 from apps.iam.models import WorkshopRole
 from apps.iam.utils import get_or_create_director_role
 from apps.workshops.models.workshops import Workshop
-from apps.workshops.services.files import StoredWorkshopFile
+from apps.workshops.services.files import StoredWorkshopFile, WorkshopFileSyncError
 from apps.workshops.util.workshops import is_workshop_director, is_workshop_manager
 
 
@@ -205,6 +205,7 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
 
         with (
             patch("apps.workshops.services.files.get_workshop_file_service", return_value=file_service),
+            patch("apps.workshops.services.files.wait_for_public_logo_url"),
             patch("apps.workshops.services.files.update_webmania_company", return_value={"success": True}) as update_mock,
         ):
             response = self.client.post(
@@ -305,6 +306,7 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
 
         with (
             patch("apps.workshops.services.files.get_workshop_file_service", return_value=file_service),
+            patch("apps.workshops.services.files.wait_for_public_logo_url"),
             patch("apps.workshops.services.files.update_webmania_company", return_value={"success": True}),
             patch("apps.workshops.services.files._rasterize_svg_to_png", return_value=rasterized_png),
         ):
@@ -344,6 +346,55 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertJSONEqual(response.content, {"ok": False, "message": "Permitido logomarca somente nos formatos JPEG, PNG, WEBP ou SVG."})
+
+    @override_settings(APP_BASE_URL="https://app.example.com")
+    def test_logo_autoupload_waits_for_public_logo_before_sync(self) -> None:
+        logo_file = SimpleUploadedFile(
+            "logo.png",
+            self._build_png(width=320, height=160),
+            content_type="image/png",
+        )
+        file_service = FakeWorkshopFileService()
+
+        with (
+            patch("apps.workshops.services.files.get_workshop_file_service", return_value=file_service),
+            patch("apps.workshops.services.files.wait_for_public_logo_url") as wait_mock,
+            patch("apps.workshops.services.files.update_webmania_company", return_value={"success": True}) as update_mock,
+        ):
+            response = self.client.post(
+                reverse("workshops:update", kwargs={"pk": self.workshop.pk}),
+                data={"tab": "logo_autoupload", "logo": logo_file},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        wait_mock.assert_called_once()
+        update_mock.assert_called_once()
+        self.assertEqual(wait_mock.call_args.kwargs["public_logo_url"], update_mock.call_args.kwargs["payload"]["logomarca"])
+
+    @override_settings(APP_BASE_URL="https://app.example.com")
+    def test_logo_autoupload_rolls_back_when_public_logo_never_becomes_ready(self) -> None:
+        logo_file = SimpleUploadedFile(
+            "logo.png",
+            self._build_png(width=320, height=160),
+            content_type="image/png",
+        )
+        file_service = FakeWorkshopFileService()
+
+        with (
+            patch("apps.workshops.services.files.get_workshop_file_service", return_value=file_service),
+            patch("apps.workshops.services.files.wait_for_public_logo_url", side_effect=WorkshopFileSyncError("A logomarca ainda nao ficou disponivel publicamente. Tente novamente em instantes.")),
+            patch("apps.workshops.services.files.update_webmania_company") as update_mock,
+        ):
+            response = self.client.post(
+                reverse("workshops:update", kwargs={"pk": self.workshop.pk}),
+                data={"tab": "logo_autoupload", "logo": logo_file},
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.workshop.refresh_from_db()
+        self.assertEqual(self.workshop.logo_file_key, "")
+        self.assertEqual(self.workshop.logo_file_name, "")
+        update_mock.assert_not_called()
 
     @staticmethod
     def _build_png(*, width: int, height: int) -> bytes:
