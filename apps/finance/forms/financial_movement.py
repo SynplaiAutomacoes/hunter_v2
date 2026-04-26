@@ -322,7 +322,7 @@ class MovementStep3Form(FinancialMovementBaseForm):
                 #
                 Div("nf_number", css_class="col-span-6"),
                 Div(
-                    Div(Field("repeat_count", wrapper_class="mb-0"), HTML('<span class="text-sm font-semibold">vezes</span>'), HTML(repeat_html), css_class="flex items-center gap-4mb-4 col-span-6"),
+                    Div(Field("repeat_count", wrapper_class="mb-0"), HTML('<span class="text-sm font-semibold">vezes</span>'), HTML(repeat_html), css_class="flex items-center gap-4 mb-4 col-span-6"),
                     css_class="col-span-6",
                 ),
                 #

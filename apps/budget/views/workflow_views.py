@@ -235,6 +235,7 @@ class BudgetStatusReportDataMixin:
             TableColumn("ID", attr="id"),
             TableColumn(str(Budget.customer.field.verbose_name), attr=Budget.customer.field.name, search_by="customer__name"),
             TableColumn(str(Budget.vehicle.field.verbose_name), attr=Budget.vehicle.field.name, search_by=("vehicle__plate", "vehicle__model", "vehicle__brand")),
+            TableColumn("Vinculado à", attr="reference_budget_id", search_by="reference_budget__id"),
             TableColumn(str(Budget.budget_type.field.verbose_name), attr="type_budget_badge", searchable=False, format="status_badge"),
             TableColumn("Criado em", attr="criado_em"),
             TableColumn("Valor Total", attr="total_budget_value", searchable=False),
