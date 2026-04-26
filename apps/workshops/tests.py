@@ -270,7 +270,7 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
 
             self.workshop.refresh_from_db()
             self.assertTrue(self.workshop.logo_file_key)
-            self.assertEqual(self.workshop.logo_file_name, "logo.png")
+            self.assertEqual(self.workshop.logo_file_name, "logo.jpg")
 
             company = WebmaniaCompany.objects.get(workshop=self.workshop)
             public_logo_path = reverse("workshops:logo_public", kwargs={"token": self.workshop.logo_public_token})
@@ -282,21 +282,21 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
             public_response = self.client.get(reverse("workshops:logo_public", kwargs={"token": self.workshop.logo_public_token}))
 
         self.assertEqual(preview_response.status_code, 200)
-        self.assertEqual(preview_response["Content-Type"], "image/png")
-        self.assertEqual(preview_response.content[:8], b"\x89PNG\r\n\x1a\n")
+        self.assertEqual(preview_response["Content-Type"], "image/jpeg")
+        self.assertEqual(preview_response.content[:2], b"\xff\xd8")
         self.assertEqual(public_response.status_code, 200)
-        self.assertEqual(public_response["Content-Type"], "image/png")
-        self.assertEqual(public_response.content[:8], b"\x89PNG\r\n\x1a\n")
+        self.assertEqual(public_response["Content-Type"], "image/jpeg")
+        self.assertEqual(public_response.content[:2], b"\xff\xd8")
 
         normalized_logo = file_service.files["logo"][self.workshop.logo_file_key]
-        self.assertEqual(normalized_logo.filename, "logo.png")
-        self.assertEqual(normalized_logo.content_type, "image/png")
+        self.assertEqual(normalized_logo.filename, "logo.jpg")
+        self.assertEqual(normalized_logo.content_type, "image/jpeg")
         with Image.open(io.BytesIO(normalized_logo.content)) as image:
             self.assertLessEqual(image.width, 120)
             self.assertLessEqual(image.height, 65)
 
     @override_settings(APP_BASE_URL="https://app.example.com")
-    def test_logo_autoupload_converts_svg_to_png_with_size_limit(self) -> None:
+    def test_logo_autoupload_converts_svg_to_jpeg_with_size_limit(self) -> None:
         logo_file = SimpleUploadedFile(
             "logo.svg",
             b"""<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" width="320" height="160"><rect width="320" height="160" fill="#ff0000"/></svg>""",
@@ -321,11 +321,11 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.workshop.refresh_from_db()
-        self.assertEqual(self.workshop.logo_file_name, "logo.png")
+        self.assertEqual(self.workshop.logo_file_name, "logo.jpg")
 
         normalized_logo = file_service.files["logo"][self.workshop.logo_file_key]
-        self.assertEqual(normalized_logo.filename, "logo.png")
-        self.assertEqual(normalized_logo.content_type, "image/png")
+        self.assertEqual(normalized_logo.filename, "logo.jpg")
+        self.assertEqual(normalized_logo.content_type, "image/jpeg")
         with Image.open(io.BytesIO(normalized_logo.content)) as image:
             self.assertLessEqual(image.width, 120)
             self.assertLessEqual(image.height, 65)

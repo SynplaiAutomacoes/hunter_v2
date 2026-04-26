@@ -226,14 +226,17 @@ def _normalize_logo_upload(*, content: bytes, filename: str, content_type: str) 
             normalized_image = image.convert("RGBA")
             normalized_image.thumbnail((MAX_LOGO_WIDTH_PX, MAX_LOGO_HEIGHT_PX), Image.Resampling.LANCZOS)
 
+            background = Image.new("RGB", normalized_image.size, (255, 255, 255))
+            background.paste(normalized_image, mask=normalized_image.getchannel("A"))
+
             output = io.BytesIO()
-            normalized_image.save(output, format="PNG")
+            background.save(output, format="JPEG", quality=85, optimize=True)
     except (UnidentifiedImageError, OSError, ValueError) as exc:
         raise WorkshopFileStorageError("Nao foi possivel processar a logomarca enviada. Use um arquivo de imagem valido.") from exc
 
-    normalized_name = f"{filename.rsplit('.', 1)[0] if '.' in filename else filename}.png"
-    safe_name = _normalize_filename(normalized_name, fallback_name="logo.png")
-    return output.getvalue(), safe_name, "image/png"
+    normalized_name = f"{filename.rsplit('.', 1)[0] if '.' in filename else filename}.jpg"
+    safe_name = _normalize_filename(normalized_name, fallback_name="logo.jpg")
+    return output.getvalue(), safe_name, "image/jpeg"
 
 
 def _rasterize_svg_to_png(content: bytes) -> bytes:
