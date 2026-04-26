@@ -254,6 +254,7 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
 
         with (
             patch("apps.workshops.services.files.get_workshop_file_service", return_value=file_service),
+            patch("apps.workshops.services.files.ensure_logo_is_readable_from_storage"),
             patch("apps.workshops.services.files.update_webmania_company", return_value={"success": True}) as update_mock,
         ):
             response = self.client.post(
@@ -306,7 +307,7 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
 
         with (
             patch("apps.workshops.services.files.get_workshop_file_service", return_value=file_service),
-            patch("apps.workshops.services.files.wait_for_public_logo_url"),
+            patch("apps.workshops.services.files.ensure_logo_is_readable_from_storage"),
             patch("apps.workshops.services.files.update_webmania_company", return_value={"success": True}),
             patch("apps.workshops.services.files._rasterize_svg_to_png", return_value=rasterized_png),
         ):
@@ -348,7 +349,7 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
         self.assertJSONEqual(response.content, {"ok": False, "message": "Permitido logomarca somente nos formatos JPEG, PNG, WEBP ou SVG."})
 
     @override_settings(APP_BASE_URL="https://app.example.com")
-    def test_logo_autoupload_waits_for_public_logo_before_sync(self) -> None:
+    def test_logo_autoupload_checks_storage_readiness_before_sync(self) -> None:
         logo_file = SimpleUploadedFile(
             "logo.png",
             self._build_png(width=320, height=160),
@@ -358,7 +359,7 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
 
         with (
             patch("apps.workshops.services.files.get_workshop_file_service", return_value=file_service),
-            patch("apps.workshops.services.files.wait_for_public_logo_url") as wait_mock,
+            patch("apps.workshops.services.files.ensure_logo_is_readable_from_storage") as readiness_mock,
             patch("apps.workshops.services.files.update_webmania_company", return_value={"success": True}) as update_mock,
         ):
             response = self.client.post(
@@ -367,12 +368,12 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        wait_mock.assert_called_once()
+        readiness_mock.assert_called_once_with(file_id=self.workshop.logo_file_key)
         update_mock.assert_called_once()
-        self.assertEqual(wait_mock.call_args.kwargs["public_logo_url"], update_mock.call_args.kwargs["payload"]["logomarca"])
+        self.assertTrue(update_mock.call_args.kwargs["payload"]["logomarca"].endswith(reverse("workshops:logo_public", kwargs={"token": self.workshop.logo_public_token})))
 
     @override_settings(APP_BASE_URL="https://app.example.com")
-    def test_logo_autoupload_rolls_back_when_public_logo_never_becomes_ready(self) -> None:
+    def test_logo_autoupload_rolls_back_when_storage_readiness_fails(self) -> None:
         logo_file = SimpleUploadedFile(
             "logo.png",
             self._build_png(width=320, height=160),
@@ -382,7 +383,7 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
 
         with (
             patch("apps.workshops.services.files.get_workshop_file_service", return_value=file_service),
-            patch("apps.workshops.services.files.wait_for_public_logo_url", side_effect=WorkshopFileSyncError("A logomarca ainda nao ficou disponivel publicamente. Tente novamente em instantes.")),
+            patch("apps.workshops.services.files.ensure_logo_is_readable_from_storage", side_effect=WorkshopFileSyncError("A logomarca salva ainda nao ficou disponivel no bucket. Tente novamente em instantes.")),
             patch("apps.workshops.services.files.update_webmania_company") as update_mock,
         ):
             response = self.client.post(
@@ -391,6 +392,7 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
             )
 
         self.assertEqual(response.status_code, 400)
+        self.assertJSONEqual(response.content, {"ok": False, "message": "A logomarca salva ainda nao ficou disponivel no bucket. Tente novamente em instantes."})
         self.workshop.refresh_from_db()
         self.assertEqual(self.workshop.logo_file_key, "")
         self.assertEqual(self.workshop.logo_file_name, "")

@@ -4,7 +4,6 @@ import base64
 import io
 import logging
 import mimetypes
-import time
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -20,7 +19,6 @@ from django.db import transaction
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.text import get_valid_filename
-import requests
 
 from apps.core.documents.signature import build_absolute_app_url
 from apps.core.services.storage_service import StorageConfigurationError, StorageServiceError, get_storage_service
@@ -35,8 +33,7 @@ logger = logging.getLogger(__name__)
 StoredFileKind = Literal["certificate", "logo"]
 MAX_LOGO_WIDTH_PX = 120
 MAX_LOGO_HEIGHT_PX = 65
-PUBLIC_LOGO_READINESS_TIMEOUT_SECONDS = 8.0
-PUBLIC_LOGO_READINESS_INTERVAL_SECONDS = 0.5
+STORAGE_LOGO_READINESS_ATTEMPTS = 3
 
 
 class WorkshopFileStorageError(Exception):
@@ -278,40 +275,24 @@ def build_workshop_logo_public_url(*, workshop: Workshop, request=None) -> str:
     return public_url
 
 
-def wait_for_public_logo_url(*, public_logo_url: str, timeout_seconds: float = PUBLIC_LOGO_READINESS_TIMEOUT_SECONDS) -> None:
-    deadline = time.monotonic() + timeout_seconds
-    last_status_code: int | None = None
-    last_error: str = ""
-
-    while time.monotonic() < deadline:
+def ensure_logo_is_readable_from_storage(*, file_id: str, attempts: int = STORAGE_LOGO_READINESS_ATTEMPTS) -> None:
+    last_error = ""
+    for attempt in range(1, attempts + 1):
         try:
-            response = requests.head(public_logo_url, timeout=5, allow_redirects=True)
-            last_status_code = response.status_code
-            content_type = str(response.headers.get("Content-Type") or "").strip().lower()
-            if response.status_code == 200 and (not content_type or content_type.startswith("image/")):
-                logger.info("workshop_logo_public_url_ready url=%s status=%s content_type=%s", public_logo_url, response.status_code, content_type)
-                return
-
-            if response.status_code in {405, 501}:
-                get_response = requests.get(public_logo_url, timeout=5, allow_redirects=True)
-                last_status_code = get_response.status_code
-                get_content_type = str(get_response.headers.get("Content-Type") or "").strip().lower()
-                if get_response.status_code == 200 and get_content_type.startswith("image/"):
-                    logger.info("workshop_logo_public_url_ready url=%s status=%s content_type=%s via=get", public_logo_url, get_response.status_code, get_content_type)
-                    return
-        except requests.RequestException as exc:
+            stored_logo = get_workshop_file_service().read_file(kind="logo", file_id=file_id)
+        except WorkshopFileStorageError as exc:
             last_error = str(exc)
+            logger.warning("workshop_logo_storage_read_retry file_id=%s attempt=%s error=%s", file_id, attempt, last_error)
+            continue
 
-        time.sleep(PUBLIC_LOGO_READINESS_INTERVAL_SECONDS)
+        if stored_logo.content:
+            logger.info("workshop_logo_storage_ready file_id=%s attempt=%s content_type=%s", file_id, attempt, stored_logo.content_type)
+            return
 
-    logger.warning(
-        "workshop_logo_public_url_not_ready url=%s last_status=%s last_error=%s timeout_seconds=%.2f",
-        public_logo_url,
-        last_status_code,
-        last_error,
-        timeout_seconds,
-    )
-    raise WorkshopFileSyncError("A logomarca ainda nao ficou disponivel publicamente. Tente novamente em instantes.")
+        last_error = "empty logo content"
+        logger.warning("workshop_logo_storage_read_empty file_id=%s attempt=%s", file_id, attempt)
+
+    raise WorkshopFileSyncError("A logomarca salva ainda nao ficou disponivel no bucket. Tente novamente em instantes.")
 
 
 def _is_public_url(url: str) -> bool:
@@ -404,7 +385,7 @@ def save_workshop_logo_atomic(
         raise WorkshopFileSyncError("Falha ao concluir o salvamento da logo. Nenhuma alteracao foi mantida.") from exc
 
     try:
-        wait_for_public_logo_url(public_logo_url=public_logo_url)
+        ensure_logo_is_readable_from_storage(file_id=staged_file.file_id)
     except Exception:
         _rollback_logo_upload(
             workshop=workshop,
