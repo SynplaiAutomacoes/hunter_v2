@@ -36,10 +36,70 @@
                 <button type="button" class="btn btn-sm" :class="activeTab === 'item' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'item'">Sobre o Item</button>
                 <button type="button" class="btn btn-sm" :class="activeTab === 'payment' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'payment'">Sobre o Pagamento</button>
                 <button type="button" class="btn btn-sm" :class="activeTab === 'attachment' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'attachment'">Anexo</button>
+                {% if movement.movement_kind == 'GROUP_PARENT' and movement.movement_group %}
+                <button type="button" class="btn btn-sm" :class="activeTab === 'group' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'group'">Agrupamento</button>
+                {% endif %}
             </div>
 
             <div class="max-h-[60vh] overflow-y-auto px-4 md:px-16 space-y-6 py-4">
                 {% crispy form %}
+
+                {% if movement.movement_kind == 'GROUP_PARENT' and movement.movement_group %}
+                <section x-show="activeTab === 'group'" x-cloak class="space-y-6">
+                    <h3 class="text-base font-semibold text-base-content flex items-center gap-2 mb-3">
+                        <span class="material-icons text-sm">layers</span> 
+                        Lançamentos Agrupados
+                    </h3>
+                    
+                    <div class="overflow-x-auto bg-base-100 rounded-xl border border-base-200">
+                        <table class="table table-zebra table-sm w-full">
+                            <thead class="bg-base-200/50">
+                                <tr>
+                                    <th>Vencimento</th>
+                                    <th>Descrição</th>
+                                    <th>Status</th>
+                                    <th class="text-right">Valor</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for child in movement.movement_group.financial_movements.all %}
+                                {% if child.pk != movement.pk %}
+                                <tr>
+                                    <td>{{ child.due_date|date:"d/m/Y" }}</td>
+                                    <td>{{ child.description }}</td>
+                                    <td>
+                                        {% if child.is_paid %}
+                                            <span class="badge badge-success badge-sm badge-outline">Pago</span>
+                                        {% else %}
+                                            <span class="badge badge-warning badge-sm badge-outline">Pendente</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="font-semibold text-right">{{ child.amount }}</td>
+                                </tr>
+                                {% endif %}
+                                {% empty %}
+                                <tr>
+                                    <td colspan="4" class="text-center text-sm opacity-50 py-4">Nenhum lançamento encontrado neste grupo.</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="flex justify-end mt-4">
+                        <button 
+                            type="button" 
+                            class="btn btn-error btn-outline"
+                            hx-post="{% url 'finance:group_movement_delete' pk=movement.movement_group.pk %}"
+                            hx-confirm="Tem certeza que deseja desagrupar estes lançamentos? O agrupamento será excluído."
+                            hx-target="body"
+                        >
+                            <span class="material-icons text-sm">link_off</span>
+                            Desagrupar
+                        </button>
+                    </div>
+                </section>
+                {% endif %}
             </div>
 
             <div class="modal-action mt-10 flex items-center justify-between border-t border-base-200 pt-8">

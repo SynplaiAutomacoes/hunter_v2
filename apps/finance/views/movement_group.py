@@ -206,8 +206,15 @@ class GroupMovementDeleteView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk, *args, **kwargs):
         group = get_object_or_404(MovementGroup, pk=pk, workshop=self.workshop)
-        # cascade will handle associated movements
-        group.delete()
+        
+        with transaction.atomic():
+            # Detach original children so they are not deleted
+            children = group.financial_movements.exclude(movement_kind=FinancialMovement.MovementKind.GROUP_PARENT)
+            children.update(movement_group=None)
+            
+            # This will delete the MovementGroup and the GROUP_PARENT FinancialMovement (due to CASCADE)
+            group.delete()
+
         
         response = HttpResponse()
         response["HX-Refresh"] = "true"
