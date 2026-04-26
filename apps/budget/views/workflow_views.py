@@ -235,6 +235,7 @@ class BudgetStatusReportDataMixin:
             TableColumn("ID", attr="id"),
             TableColumn(str(Budget.customer.field.verbose_name), attr=Budget.customer.field.name, search_by="customer__name"),
             TableColumn(str(Budget.vehicle.field.verbose_name), attr=Budget.vehicle.field.name, search_by=("vehicle__plate", "vehicle__model", "vehicle__brand")),
+            TableColumn("Vinculado à", attr="reference_budget_id", search_by="reference_budget__id"),
             TableColumn(str(Budget.budget_type.field.verbose_name), attr="type_budget_badge", searchable=False, format="status_badge"),
             TableColumn("Criado em", attr="criado_em"),
             TableColumn("Valor Total", attr="total_budget_value", searchable=False),
@@ -736,6 +737,11 @@ class SendBudgetSignatureView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def post(self, request, budget_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
         toast_type, toast_message, _ = trigger_signature_send_if_needed(request=request, budget=budget)
+
+        if toast_type in {"success", "info"}:
+            budget.status = BudgetStatus.WAITING_APPROVAL
+            budget.save(update_fields=["status"])
+
         status_code = 200 if toast_type in {"success", "info"} else 400
         return JsonResponse({"success": toast_type in {"success", "info"}, "type": toast_type, "message": toast_message}, status=status_code)
 

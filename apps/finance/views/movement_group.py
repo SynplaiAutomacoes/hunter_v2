@@ -55,11 +55,29 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     movements = movements.filter(collaborator_id=entity_id)
                     entity_name = str(WorkshopCollaborator.objects.get(id=entity_id))
                 
+                # Apply filters
+                filter_direction = request.POST.get('filter_direction', '')
+                filter_start_date = request.POST.get('filter_start_date', '')
+                filter_end_date = request.POST.get('filter_end_date', '')
+
+                if filter_direction:
+                    movements = movements.filter(direction=filter_direction)
+                if filter_start_date:
+                    movements = movements.filter(due_date__gte=filter_start_date)
+                if filter_end_date:
+                    movements = movements.filter(due_date__lte=filter_end_date)
+                
+                # Ensure ordered for consistent display
+                movements = movements.order_by('due_date', 'id')
+                
                 return render(request, "finance/reports/partials/group_step2.html", {
                     "movements": movements,
                     "entity_type": entity_type,
                     "entity_id": entity_id,
-                    "entity_name": entity_name
+                    "entity_name": entity_name,
+                    "filter_direction": filter_direction,
+                    "filter_start_date": filter_start_date,
+                    "filter_end_date": filter_end_date,
                 })
             
             return render(request, "finance/reports/partials/group_step1.html", {"form": form})
@@ -188,8 +206,15 @@ class GroupMovementDeleteView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk, *args, **kwargs):
         group = get_object_or_404(MovementGroup, pk=pk, workshop=self.workshop)
-        # cascade will handle associated movements
-        group.delete()
+        
+        with transaction.atomic():
+            # Detach original children so they are not deleted
+            children = group.financial_movements.exclude(movement_kind=FinancialMovement.MovementKind.GROUP_PARENT)
+            children.update(movement_group=None)
+            
+            # This will delete the MovementGroup and the GROUP_PARENT FinancialMovement (due to CASCADE)
+            group.delete()
+
         
         response = HttpResponse()
         response["HX-Refresh"] = "true"
