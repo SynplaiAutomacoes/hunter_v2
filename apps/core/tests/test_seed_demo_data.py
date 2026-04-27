@@ -19,6 +19,7 @@ from apps.core.management.commands.seed_demo_data import (
     BANK_ACCOUNT_SPECS,
     CHECKLIST_BLUEPRINTS,
     COLLABORATOR_NAMES,
+    EXTRA_MONTHLY_COSTS,
     FINANCIAL_MOVEMENT_SPECS,
     KIT_SPECS,
     NFE_TAX_CLASS_SPECS,
@@ -30,9 +31,11 @@ from apps.core.management.commands.seed_demo_data import (
     SERVICE_SPECS,
     SOURCE_SPECS,
     SUPPLIER_SPECS,
+    WORKSHOP_COST_REFERENCE_MONTHS,
     WORKSHOP_ID,
 )
-from apps.customer.models import Customer
+from apps.customer.models import Customer, Vehicle
+from apps.budget.models import Budget
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.finance import TaxClassNfe, TaxClassNfse, TaxClassPreset, TaxClassSyncState
 from apps.finance.models.financial_movement import FinancialMovement
@@ -67,11 +70,13 @@ class SeedDemoDataCommandTests(TestCase):
         self.assertEqual(Kit.objects.filter(workshop=self.workshop).count(), len(KIT_SPECS))
         self.assertEqual(Supplier.objects.filter(workshop=self.workshop).count(), len(SUPPLIER_SPECS))
         self.assertEqual(Customer.objects.filter(workshop=self.workshop).count(), len(PF_CUSTOMERS) + len(PJ_CUSTOMERS))
+        self.assertEqual(Vehicle.objects.filter(workshop=self.workshop).count(), len(PF_CUSTOMERS) + (2 * len(PJ_CUSTOMERS)))
+        self.assertEqual(Budget.objects.filter(workshop=self.workshop).count(), Vehicle.objects.filter(workshop=self.workshop).count())
         self.assertEqual(WorkshopCollaborator.objects.filter(workshop=self.workshop).count(), len(COLLABORATOR_NAMES))
         self.assertEqual(Checklist.objects.filter(workshop=self.workshop).count(), len(CHECKLIST_BLUEPRINTS))
         self.assertEqual(cast(Any, InvestigativeQuestion).objects.filter(workshop=self.workshop).count(), len(QUESTION_SPECS))
-        self.assertEqual(MonthlyCost.objects.filter(workshop=self.workshop).count(), len(DEFAULT_MONTHLY_COSTS))
-        self.assertEqual(WorkshopCost.objects.filter(workshop=self.workshop).count(), 6)
+        self.assertEqual(MonthlyCost.objects.filter(workshop=self.workshop).count(), len(DEFAULT_MONTHLY_COSTS) + len(EXTRA_MONTHLY_COSTS))
+        self.assertEqual(WorkshopCost.objects.filter(workshop=self.workshop).count(), WORKSHOP_COST_REFERENCE_MONTHS)
         self.assertEqual(Source.objects.filter(workshop=self.workshop).count(), len(SOURCE_SPECS))
         self.assertEqual(BankAccount.objects.filter(workshop=self.workshop).count(), len(BANK_ACCOUNT_SPECS))
         self.assertEqual(FinancialMovement.objects.filter(workshop=self.workshop).count(), len(FINANCIAL_MOVEMENT_SPECS))
@@ -175,6 +180,8 @@ class SeedDemoDataCommandTests(TestCase):
             "kits": Kit.objects.filter(workshop=self.workshop).count(),
             "suppliers": Supplier.objects.filter(workshop=self.workshop).count(),
             "customers": Customer.objects.filter(workshop=self.workshop).count(),
+            "vehicles": Vehicle.objects.filter(workshop=self.workshop).count(),
+            "budgets": Budget.objects.filter(workshop=self.workshop).count(),
             "collaborators": WorkshopCollaborator.objects.filter(workshop=self.workshop).count(),
             "checklists": Checklist.objects.filter(workshop=self.workshop).count(),
             "checklist_items": ChecklistItem.objects.filter(checklist__workshop=self.workshop).count(),
