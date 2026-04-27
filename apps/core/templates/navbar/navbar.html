@@ -28,19 +28,9 @@
                                             <li>
                                                 <div class="flex items-center justify-between gap-2">
                                                     <a class="flex-1" href="{{ item.href }}">{{ item.label }}</a>
-                                                    <button
-                                                        type="button"
-                                                        class="btn btn-ghost btn-circle btn-xs text-base-content/60 hover:text-warning"
-                                                        hx-post="{% url 'core:favorite_page_toggle' %}"
-                                                        hx-swap="none"
-                                                        hx-vals='{"url": "{{ item.href|escapejs }}"}'
-                                                        data-page-path="{{ item.href }}"
-                                                        title="{% if item.href in navbar_favorite_urls %}Remover dos favoritos{% else %}Adicionar aos favoritos{% endif %}"
-                                                        aria-label="{% if item.href in navbar_favorite_urls %}Remover {{ item.label }} dos favoritos{% else %}Adicionar {{ item.label }} aos favoritos{% endif %}"
-                                                        aria-pressed="{% if item.href in navbar_favorite_urls %}true{% else %}false{% endif %}"
-                                                    >
-                                                        <span class="material-icons text-[18px] leading-none transition-colors {% if item.href in navbar_favorite_urls %}text-warning{% endif %}">{% if item.href in navbar_favorite_urls %}star{% else %}star_border{% endif %}</span>
-                                                    </button>
+                                                    {% if item.favoritable %}
+                                                        {% include 'favorites/partials/favorite_button.html' with favorite_url=item.href favorite_label=item.label %}
+                                                    {% endif %}
                                                 </div>
                                             </li>
                                         {% endfor %}
@@ -49,19 +39,9 @@
                             {% else %}
                                 <div class="flex items-center justify-between gap-2">
                                     <a class="flex-1" href="{{ menu.href }}">{{ menu.label }}</a>
-                                    <button
-                                        type="button"
-                                        class="btn btn-ghost btn-circle btn-xs text-base-content/60 hover:text-warning"
-                                        hx-post="{% url 'core:favorite_page_toggle' %}"
-                                        hx-swap="none"
-                                        hx-vals='{"url": "{{ menu.href|escapejs }}"}'
-                                        data-page-path="{{ menu.href }}"
-                                        title="{% if menu.href in navbar_favorite_urls %}Remover dos favoritos{% else %}Adicionar aos favoritos{% endif %}"
-                                        aria-label="{% if menu.href in navbar_favorite_urls %}Remover {{ menu.label }} dos favoritos{% else %}Adicionar {{ menu.label }} aos favoritos{% endif %}"
-                                        aria-pressed="{% if menu.href in navbar_favorite_urls %}true{% else %}false{% endif %}"
-                                    >
-                                        <span class="material-icons text-[18px] leading-none transition-colors {% if menu.href in navbar_favorite_urls %}text-warning{% endif %}">{% if menu.href in navbar_favorite_urls %}star{% else %}star_border{% endif %}</span>
-                                    </button>
+                                    {% if menu.favoritable %}
+                                        {% include 'favorites/partials/favorite_button.html' with favorite_url=menu.href favorite_label=menu.label %}
+                                    {% endif %}
                                 </div>
                             {% endif %}
                         </li>
@@ -97,19 +77,9 @@
                                         <li>
                                             <div class="flex items-center justify-between gap-2">
                                                 <a class="flex-1" href="{{ item.href }}">{{ item.label }}</a>
-                                                <button
-                                                    type="button"
-                                                    class="btn btn-ghost btn-circle btn-xs text-base-content/60 hover:text-warning"
-                                                    hx-post="{% url 'core:favorite_page_toggle' %}"
-                                                    hx-swap="none"
-                                                    hx-vals='{"url": "{{ item.href|escapejs }}"}'
-                                                    data-page-path="{{ item.href }}"
-                                                    title="{% if item.href in navbar_favorite_urls %}Remover dos favoritos{% else %}Adicionar aos favoritos{% endif %}"
-                                                    aria-label="{% if item.href in navbar_favorite_urls %}Remover {{ item.label }} dos favoritos{% else %}Adicionar {{ item.label }} aos favoritos{% endif %}"
-                                                    aria-pressed="{% if item.href in navbar_favorite_urls %}true{% else %}false{% endif %}"
-                                                >
-                                                    <span class="material-icons text-[18px] leading-none transition-colors {% if item.href in navbar_favorite_urls %}text-warning{% endif %}">{% if item.href in navbar_favorite_urls %}star{% else %}star_border{% endif %}</span>
-                                                </button>
+                                                {% if item.favoritable %}
+                                                    {% include 'favorites/partials/favorite_button.html' with favorite_url=item.href favorite_label=item.label %}
+                                                {% endif %}
                                             </div>
                                         </li>
                                     {% endfor %}
@@ -118,19 +88,9 @@
                         {% else %}
                             <div class="flex items-center justify-between gap-2">
                                 <a class="flex-1 text-base font-medium" href="{{ menu.href }}">{{ menu.label }}</a>
-                                <button
-                                    type="button"
-                                    class="btn btn-ghost btn-circle btn-xs text-navbar-text/80 hover:text-warning"
-                                    hx-post="{% url 'core:favorite_page_toggle' %}"
-                                    hx-swap="none"
-                                    hx-vals='{"url": "{{ menu.href|escapejs }}"}'
-                                    data-page-path="{{ menu.href }}"
-                                    title="{% if menu.href in navbar_favorite_urls %}Remover dos favoritos{% else %}Adicionar aos favoritos{% endif %}"
-                                    aria-label="{% if menu.href in navbar_favorite_urls %}Remover {{ menu.label }} dos favoritos{% else %}Adicionar {{ menu.label }} aos favoritos{% endif %}"
-                                    aria-pressed="{% if menu.href in navbar_favorite_urls %}true{% else %}false{% endif %}"
-                                >
-                                    <span class="material-icons text-[18px] leading-none transition-colors {% if menu.href in navbar_favorite_urls %}text-warning{% endif %}">{% if menu.href in navbar_favorite_urls %}star{% else %}star_border{% endif %}</span>
-                                </button>
+                                {% if menu.favoritable %}
+                                    {% include 'favorites/partials/favorite_button.html' with favorite_url=menu.href favorite_label=menu.label favorite_button_class='btn btn-ghost btn-circle btn-xs text-navbar-text/80 hover:text-warning' %}
+                                {% endif %}
                             </div>
                         {% endif %}
                     </li>
@@ -187,19 +147,7 @@
                                         class="flex items-center gap-2 rounded-full border border-base-100/20 bg-base-100 px-3 shadow-sm transition-shadow hover:shadow-md"
                                     >
                                         <a href="{{ favorite.href }}" class="whitespace-nowrap py-2 pr-2 text-sm font-medium text-base-content">{{ favorite.label }}</a>
-                                        <button
-                                            type="button"
-                                            class="btn btn-ghost btn-circle btn-xs text-warning hover:text-warning"
-                                            hx-post="{% url 'core:favorite_page_toggle' %}"
-                                            hx-swap="none"
-                                            hx-vals='{"url": "{{ favorite.href|escapejs }}"}'
-                                            data-page-path="{{ favorite.href }}"
-                                            title="Remover dos favoritos"
-                                            aria-label="Remover {{ favorite.label }} dos favoritos"
-                                            aria-pressed="true"
-                                        >
-                                            <span class="material-icons text-[18px] leading-none">star</span>
-                                        </button>
+                                        {% include 'favorites/partials/favorite_button.html' with favorite_url=favorite.href favorite_label=favorite.label favorite_button_class='btn btn-ghost btn-circle btn-xs text-warning hover:text-warning' favorite_icon_class='material-icons text-[18px] leading-none' %}
                                     </li>
                                 {% endfor %}
                             </ul>

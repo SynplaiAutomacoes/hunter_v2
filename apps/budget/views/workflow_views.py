@@ -25,10 +25,11 @@ from apps.budget.pdf_context import build_workshop_logo_data_uri
 from apps.budget.service import SuperSignError, send_budget_for_signature
 from apps.core.documents.http import build_pdf_http_response
 from apps.core.forms import MultiStepFormMixin
+from apps.core.navigation import BUDGET_CREATE_FAVORITE_PAGE
 from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
+from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
 from apps.scheduling.models import Appointment
 from apps.workorder.discount_sync import sync_budget_discount_to_workorder
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -343,9 +344,10 @@ class BudgetStatusReportPdfView(LoginRequiredMixin, BudgetStatusReportDataMixin,
         return build_pdf_http_response(document=document, download=request.GET.get("download") == "1")
 
 
-class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixin, CreateView):
+class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixin, CreateView):
     model = Budget
     template_name = "budget/budget_form.html"
+    favorite_page_definition = BUDGET_CREATE_FAVORITE_PAGE
 
     steps_definition = [
         {"title": "Dados do Cliente", "form_class": BudgetStep1Form, "status": BudgetStatus.WAITING_CLIENT, "auto_apply": True},
@@ -567,6 +569,8 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
 
 
 class BudgetUpdateView(BudgetCreateView):
+    favorite_page_definition = None
+
     def get(self, request, *args, **kwargs):
         self.object = self.get_object()
         if self.object is None:
@@ -820,7 +824,7 @@ class BudgetReferenceModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def post(self, request, pk):
         current_budget = _get_budget_for_workshop(self.workshop, pk)
         relate = request.POST.get("relate_budget") == "yes"
-        
+
         try:
             with transaction.atomic():
                 new_budget = Budget(
@@ -845,13 +849,10 @@ class BudgetReferenceModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 new_budget.save()
         except Exception as e:
             return HttpResponse(f"Erro ao criar orçamento: {str(e)}", status=400)
-            
+
         # Redirect or trigger HTMX reload
         response = HttpResponse("", status=200)
         redirect_url = f"{reverse('budget:budget_update', kwargs={'pk': new_budget.pk})}?step=1"
-        triggers = {
-            "showToast": {"message": "Orçamento criado com sucesso.", "type": "success"},
-            "redirectAfterToast": {"url": redirect_url, "delay": 500}
-        }
+        triggers = {"showToast": {"message": "Orçamento criado com sucesso.", "type": "success"}, "redirectAfterToast": {"url": redirect_url, "delay": 500}}
         response["HX-Trigger"] = json.dumps(triggers)
         return response
