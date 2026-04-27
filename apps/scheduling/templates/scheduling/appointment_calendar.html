@@ -10,13 +10,19 @@
             </div>
 
             <div class="flex flex-wrap items-center gap-2">
-                <button
-                    type="button"
-                    class="btn btn-primary"
-                    onclick="window.openAppointmentCreateModal()"
-                >
-                    Novo Agendamento
-                </button>
+                {% url 'scheduling:appointment_calendar' as appointment_calendar_url %}
+                <div class="relative inline-flex items-center">
+                    <button
+                        type="button"
+                        class="btn btn-primary pr-14"
+                        onclick="window.openAppointmentCreateModal()"
+                    >
+                        Novo Agendamento
+                    </button>
+                    <div class="absolute inset-y-0 right-1 z-10 flex items-center">
+                        {% include 'favorites/partials/favorite_button.html' with favorite_url=appointment_calendar_url|add:'?open=create' favorite_label='Novo Agendamento' favorite_button_class='btn btn-ghost btn-circle btn-xs h-8 min-h-0 w-8 border-0 bg-transparent p-0 text-primary-content/75 shadow-none hover:bg-transparent hover:text-warning focus-visible:bg-transparent focus-visible:text-warning' favorite_icon_class='material-icons text-[18px] leading-none transition-colors' %}
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -444,6 +450,16 @@
             window.openAppointmentCreateModal = function () {
                 openModalFromUrl('{{ create_url }}');
             };
+
+            const pageParams = new URLSearchParams(window.location.search);
+            if (pageParams.get('open') === 'create') {
+                window.openAppointmentCreateModal();
+                pageParams.delete('open');
+
+                const nextSearch = pageParams.toString();
+                const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}`;
+                window.history.replaceState({}, '', nextUrl);
+            }
 
             document.body.addEventListener('appointmentsCalendarRefresh', function () {
                 if (appointmentModal.open) {

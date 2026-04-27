@@ -8,10 +8,6 @@ from django.test import RequestFactory, SimpleTestCase, TestCase, override_setti
 from django.urls import reverse
 from phonenumber_field.phonenumber import PhoneNumber
 
-from apps.budget.views.workflow_views import BudgetCreateView
-from apps.customer.views import CustomerCreateView
-from apps.finance.views.financial_movement import FinancialMovementCreateView
-from apps.stock.views import StockImportCreateView
 from apps.core.documents.signature import SIGNATURE_POSITION, build_absolute_app_url, normalize_signature_phone_number
 from apps.core.templatetags.table_tags import TableColumn, render_table
 from apps.workshops.models.workshops import Workshop
@@ -129,17 +125,7 @@ class CrudWrapperTemplateTests(SimpleTestCase):
         self.assertIn("Remover Cliente dos favoritos", html)
         self.assertNotIn("Adicionar Orcamentos aos favoritos", html)
 
-    def test_budget_create_view_page_favorite_uses_base_create_url(self):
-        request = self.factory.get("/budget/create/?step=2&pk=17")
-        view = BudgetCreateView()
-        view.request = request
-
-        self.assertEqual(
-            view.get_page_favorite(),
-            {"label": "Novo Orçamento", "href": reverse("budget:budget_create"), "favoritable": True},
-        )
-
-    def test_form_page_renders_page_favorite_button_when_present(self):
+    def test_form_page_does_not_render_page_favorite_button_when_present(self):
         request = self.factory.get("/customer/create/")
         template = Template(
             """
@@ -163,38 +149,17 @@ class CrudWrapperTemplateTests(SimpleTestCase):
             )
         )
 
-        self.assertIn("Remover Criar Cliente dos favoritos", html)
+        self.assertNotIn("Remover Criar Cliente dos favoritos", html)
+
+    def test_favoritable_action_link_renders_embedded_star_button(self):
+        request = self.factory.get("/customer/")
+        template = Template("{% include 'favorites/partials/favoritable_action_link.html' with action_url='/customer/create/' action_label='Criar Cliente' favorite_url='/customer/create/' favorite_label='Criar Cliente' %}")
+
+        html = template.render(Context({"request": request, "navbar_favorite_urls": {"/customer/create/"}}))
+
+        self.assertIn("btn btn-primary pr-11", html)
         self.assertIn(reverse("core:favorite_page_toggle"), html)
-
-    def test_customer_create_view_page_favorite_uses_base_create_url(self):
-        request = self.factory.get("/customer/create/?source=budget")
-        view = CustomerCreateView()
-        view.request = request
-
-        self.assertEqual(
-            view.get_page_favorite(),
-            {"label": "Criar Cliente", "href": reverse("customer:customer_create"), "favoritable": True},
-        )
-
-    def test_stock_import_create_view_page_favorite_uses_base_create_url(self):
-        request = self.factory.get("/stock/import/?step=2&pk=17")
-        view = StockImportCreateView()
-        view.request = request
-
-        self.assertEqual(
-            view.get_page_favorite(),
-            {"label": "Nova Importação", "href": reverse("stock:import"), "favoritable": True},
-        )
-
-    def test_financial_movement_create_view_page_favorite_uses_base_create_url(self):
-        request = self.factory.get("/finance/financial-movement/create/?step=2&pk=17&next=/finance/reports/")
-        view = FinancialMovementCreateView()
-        view.request = request
-
-        self.assertEqual(
-            view.get_page_favorite(),
-            {"label": "Nova Movimentação Financeira", "href": reverse("finance:financial_movement_create"), "favoritable": True},
-        )
+        self.assertIn("Remover Criar Cliente dos favoritos", html)
 
     def test_detail_wrapper_only_syncs_query_params_for_its_own_requests(self):
         request = self.factory.get("/workshops/1/?q=Oficina&page=2")

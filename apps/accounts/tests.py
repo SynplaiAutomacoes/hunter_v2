@@ -40,6 +40,7 @@ class FavoritePageViewTests(TestCase):
             reverse("catalog:kits_create"),
             reverse("catalog:group_create"),
             reverse("checklist:checklist_create"),
+            f"{reverse('scheduling:appointment_calendar')}?open=create",
             reverse("stock:import"),
             reverse("finance:financial_movement_create"),
         ]
