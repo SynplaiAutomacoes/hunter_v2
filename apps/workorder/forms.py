@@ -207,6 +207,7 @@ class WorkOrderPaymentForm(forms.ModelForm):
                 ),
                 HTML("</div>"),
             ),
+            HTML('<div class="mb-3 flex justify-end"><span id="workorder-discount-save-status" class="text-xs text-base-content/60" aria-live="polite"></span></div>'),
             Div(
                 Field("total_value", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("paid_value", wrapper_class="col-span-12 lg:col-span-4"),
@@ -252,7 +253,11 @@ class WorkOrderPaymentForm(forms.ModelForm):
                         const discountDisplay = document.getElementById('workorder-discount-display');
                         const totalDisplay = document.getElementById('workorder-total-final-display');
                         const percentageChip = document.getElementById('workorder-discount-percentage-display');
+                        const discountSaveStatus = document.getElementById('workorder-discount-save-status');
+                        const discountPersistUrl = '{reverse("workorder:update_discount", args=[self.workorder.pk]) if self.workorder else ""}';
                         let discountTimeout = null;
+                        let discountRequestController = null;
+                        let discountRequestId = 0;
 
                         if (!paymentMethodInput || !activeAmountInput || !btnSave) {{
                             return;
@@ -323,21 +328,88 @@ class WorkOrderPaymentForm(forms.ModelForm):
                             discountPercentageDisplay.value = formatPercentageDisplay(fraction);
                             updateDiscountSummary(amount, fraction);
                         }};
+                        const setDiscountStatus = (status, message = '') => {{
+                            if (!discountSaveStatus) {{
+                                return;
+                            }}
+                            discountSaveStatus.textContent = message;
+                            discountSaveStatus.classList.remove('text-base-content/60', 'text-success', 'text-error');
+                            if (status === 'saved') {{
+                                discountSaveStatus.classList.add('text-success');
+                            }} else if (status === 'error') {{
+                                discountSaveStatus.classList.add('text-error');
+                            }} else {{
+                                discountSaveStatus.classList.add('text-base-content/60');
+                            }}
+                        }};
+                        const sendDiscountRequest = () => {{
+                            if (!discountPersistUrl || !discountMoneyHidden || !discountPercentageHidden) {{
+                                return;
+                            }}
+
+                            if (discountRequestController) {{
+                                discountRequestController.abort();
+                            }}
+
+                            const csrfInput = formElement ? formElement.querySelector('input[name="csrfmiddlewaretoken"]') : null;
+                            const csrfToken = csrfInput ? csrfInput.value : '';
+                            const requestId = discountRequestId + 1;
+                            discountRequestId = requestId;
+                            discountRequestController = new AbortController();
+                            setDiscountStatus('saving', 'Salvando...');
+
+                            const payload = new URLSearchParams();
+                            payload.set('discount_value_0', discountMoneyHidden.value);
+                            payload.set('discount_percentage', discountPercentageHidden.value);
+
+                            fetch(discountPersistUrl, {{
+                                method: 'POST',
+                                headers: {{
+                                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                                    'X-Requested-With': 'XMLHttpRequest',
+                                    ...(csrfToken ? {{ 'X-CSRFToken': csrfToken }} : {{}}),
+                                }},
+                                body: payload.toString(),
+                                signal: discountRequestController.signal,
+                            }})
+                                .then((response) => response.json().then((data) => ({{ response, data }})))
+                                .then(({{ response, data }}) => {{
+                                    if (requestId !== discountRequestId) {{
+                                        return;
+                                    }}
+                                    if (!response.ok || !data.ok) {{
+                                        throw new Error(data.error || 'Falha ao salvar desconto.');
+                                    }}
+                                    setDiscountStatus('saved', 'Salvo');
+                                    window.setTimeout(() => {{
+                                        if (requestId === discountRequestId) {{
+                                            setDiscountStatus('idle', '');
+                                        }}
+                                    }}, 1200);
+                                }})
+                                .catch((error) => {{
+                                    if (error && error.name === 'AbortError') {{
+                                        return;
+                                    }}
+                                    if (requestId !== discountRequestId) {{
+                                        return;
+                                    }}
+                                    setDiscountStatus('error', error?.message || 'Falha ao salvar desconto.');
+                                }});
+                        }};
                         const persistDiscount = () => {{
                             if (!discountMoneyHidden || !discountPercentageHidden) {{
                                 return;
                             }}
                             clearTimeout(discountTimeout);
-                            discountTimeout = setTimeout(() => {{
-                                htmx.ajax('POST', '{reverse("workorder:update_discount", args=[self.workorder.pk]) if self.workorder else ""}', {{
-                                    target: '#payment-section',
-                                    swap: 'innerHTML',
-                                    values: {{
-                                        discount_value_0: discountMoneyHidden.value,
-                                        discount_percentage: discountPercentageHidden.value,
-                                    }},
-                                }});
-                            }}, 700);
+                            discountTimeout = setTimeout(sendDiscountRequest, 1000);
+                        }};
+                        const persistDiscountNow = () => {{
+                            if (!discountMoneyHidden || !discountPercentageHidden) {{
+                                return;
+                            }}
+                            clearTimeout(discountTimeout);
+                            sendDiscountRequest();
                         }};
                         const updatePaymentPlan = () => {{
                             const activeAmount = parseFloat(activeAmountInput.value) || 0;
@@ -389,8 +461,14 @@ class WorkOrderPaymentForm(forms.ModelForm):
                                     persistDiscount();
                                 }}, 0);
                             }};
+                            const handleMoneyBlur = () => {{
+                                window.setTimeout(() => {{
+                                    syncFromValue(false);
+                                    persistDiscountNow();
+                                }}, 0);
+                            }};
                             discountMoneyDisplay.addEventListener('input', handleMoneyInput);
-                            discountMoneyDisplay.addEventListener('blur', handleMoneyInput);
+                            discountMoneyDisplay.addEventListener('blur', handleMoneyBlur);
                             discountMoneyDisplay.dataset.discountSyncBound = 'true';
                         }}
 
@@ -401,7 +479,14 @@ class WorkOrderPaymentForm(forms.ModelForm):
                                     persistDiscount();
                                 }}, 0);
                             }};
+                            const handlePercentageBlur = () => {{
+                                window.setTimeout(() => {{
+                                    syncFromPercentage();
+                                    persistDiscountNow();
+                                }}, 0);
+                            }};
                             discountPercentageHidden.addEventListener('widget:formatted-change', handlePercentageInput);
+                            discountPercentageHidden.addEventListener('blur', handlePercentageBlur);
                             discountPercentageHidden.dataset.discountSyncBound = 'true';
                         }}
 

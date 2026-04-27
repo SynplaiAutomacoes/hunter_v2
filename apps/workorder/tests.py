@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date, timedelta
 from decimal import Decimal
 from urllib.parse import urlparse
@@ -1843,9 +1844,12 @@ class AddPaymentMethodViewTests(TestCase):
 
         self.workorder.refresh_from_db()
         self.budget.refresh_from_db()
+        payload = json.loads(response.content)
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Configuração das Formas de Pagamento")
+        self.assertTrue(response["Content-Type"].startswith("application/json"))
+        self.assertTrue(payload["ok"])
+        self.assertIn("discount_value", payload)
         self.assertEqual(self.workorder.discount_value, Money("10.00", "BRL"))
         self.assertEqual(self.budget.discount_value, Money("10.00", "BRL"))
         self.assertEqual(self.budget.discount_percentage, Decimal("0.100000"))
