@@ -205,11 +205,14 @@
                 <div class="min-w-0">
                     {% if workorder.payments.all %}
                         <h4 class="font-bold mb-1">CONDIÇÕES DE PAGAMENTO</h4>
-                        {% for payment in workorder.payments.all %}
-                            <p class="text-sm">
-                                {{ payment.payment_method.description }} -
-                                Vencimento {{ payment.due_date|date:"d/m/Y" }} -
-                                {{ payment.total_paid }}
+                        {% for payment in workorder.payments.all|dictsort:"pk" %}
+                            <p class="text-sm flex flex-wrap items-center gap-2">
+                                <span>{{ payment.payment_method.description }}</span>
+                                <span>-</span>
+                                <span>Vencimento {{ payment.due_date|date:"d/m/Y" }}</span>
+                                <span>-</span>
+                                <span>{% if forloop.first %}Valor de entrada{% else %}Valor a ser pago{% endif %}: {{ payment.total_paid }}</span>
+                                <span class="badge badge-success badge-sm badge-outline">Pago</span>
                             </p>
                         {% endfor %}
                     {% endif %}
