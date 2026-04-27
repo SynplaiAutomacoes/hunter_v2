@@ -550,12 +550,16 @@ class UpdateWorkOrderDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View)
                     "raw_discount_percentage": request.POST.get("discount_percentage"),
                 },
             )
+            return JsonResponse({"ok": False, "error": "Valor de desconto invalido."}, status=400)
 
-        context = {
-            "workorder": workorder,
-            "payment_form": WorkOrderPaymentForm(workorder=workorder),
-        }
-        return render(request, "workorder/partials/payment_section.html", context)
+        return JsonResponse(
+            {
+                "ok": True,
+                "discount_value": str(workorder.discount_value),
+                "discount_percentage": str(workorder.discount_percentage),
+                "total_budget_value": str(workorder.total_budget_value),
+            }
+        )
 
 
 class WorkOrderEditItemsModalView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):

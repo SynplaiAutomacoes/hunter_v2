@@ -6,13 +6,16 @@
             <h1 class="text-3xl font-bold text-base-content">Novo Orçamento</h1>
             <p class="text-base-content/70 mt-1">Crie um novo orçamento seguindo as etapas abaixo</p>
         </div>
-        {% if form.instance.pk %}
-        <div>
+        <div class="flex items-center gap-2">
+            {% if page_favorite %}
+                {% include 'favorites/partials/favorite_button.html' with favorite_url=page_favorite.href favorite_label=page_favorite.label favorite_button_class='btn btn-outline btn-circle btn-sm shrink-0 text-base-content/70 hover:text-warning' favorite_icon_class='material-icons text-[20px] leading-none transition-colors' %}
+            {% endif %}
+            {% if form.instance.pk %}
             <button class="btn btn-outline" hx-get="{% url 'budget:budget_reference_modal' pk=form.instance.pk %}" hx-target="#modal-container" onclick="form_modal.showModal()">
                 <span class="material-icons" style="vertical-align: middle;">content_copy</span> Criar orçamento a partir deste
             </button>
+            {% endif %}
         </div>
-        {% endif %}
     </div>
 
     <div class="card bg-base-100 shadow-xl">

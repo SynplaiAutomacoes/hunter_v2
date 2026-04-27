@@ -19,6 +19,7 @@ from apps.finance.models.financial_movement import FinancialMovement
 from apps.workorder.models import WorkOrderStatus
 import calendar
 from apps.core.favorites import FavoritePageLimitError, InvalidFavoritePageError, reorder_favorite_pages, toggle_favorite_page
+from apps.core.navigation import build_favoritable_page
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
@@ -123,6 +124,20 @@ class BaseModalFormView:
         return super().form_valid(form)
 
 
+class PageFavoriteMixin:
+    favorite_page_definition: dict[str, Any] | None = None
+
+    def get_page_favorite(self) -> dict[str, Any] | None:
+        if self.favorite_page_definition is None:
+            return None
+        return build_favoritable_page(self.favorite_page_definition)
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["page_favorite"] = self.get_page_favorite()
+        return context
+
+
 class FavoritePageToggleView(LoginRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         url = request.POST.get("url", "")
@@ -181,77 +196,77 @@ def metricas_dashboard(request) -> dict[str, Any]:
 
     # Auxiliares (valores que não serão retornados no dict, mas que servem para auxílio nas contas das métricas)
     faturamento_result = FinancialMovement.objects.filter(
-        workshop=workshop, 
+        workshop=workshop,
         direction=FinancialMovement.MovementDirection.CREDIT,
         due_date__month=mes_atual,
         due_date__year=ano_atual,
         workorder__isnull=False
     ).aggregate(total=Sum('amount'))['total']
-    
+
     faturamento_total = getattr(faturamento_result, 'amount', faturamento_result) or 0
     dias_transcorridos = FinancialMovement.objects.filter(
-        workshop=workshop, 
+        workshop=workshop,
         direction=FinancialMovement.MovementDirection.CREDIT,
         due_date__month=mes_atual,
         due_date__year=ano_atual,
         workorder__isnull=False
     ).values('due_date').distinct().count()
-    
+
     _, dias_no_mes = calendar.monthrange(hoje.year, hoje.month)
     dias_faltantes = dias_no_mes - hoje.day
-    
+
     orcamentos_aprovados_mes = Budget.objects.filter(
-        workshop=workshop, 
-        status=BudgetStatus.APPROVED, 
+        workshop=workshop,
+        status=BudgetStatus.APPROVED,
         entry_date__month=mes_atual,
         entry_date__year=ano_atual
     )
-    
+
     rentabilidades = [b.rentability for b in orcamentos_aprovados_mes if b.rentability is not None]
-    
+
     qtd_garantias_mes = Budget.objects.filter(
-        workshop=workshop, 
-        is_warranty_budget=True, 
+        workshop=workshop,
+        is_warranty_budget=True,
         entry_date__month=mes_atual,
         entry_date__year=ano_atual
     ).count()
-    
+
     qtd_veiculos_mes = Budget.objects.filter(
-        workshop=workshop, 
+        workshop=workshop,
         entry_date__month=mes_atual,
         entry_date__year=ano_atual
     ).values('vehicle').distinct().count()
-    
+
     orcamentos_base = Budget.objects.filter(
-        workshop=workshop, 
-        entry_date__month=mes_atual, 
+        workshop=workshop,
+        entry_date__month=mes_atual,
         entry_date__year=ano_atual,
         budget_type=BudgetType.SALE
     ).exclude(reference_budget__isnull=False)
-    
+
     qtd_orcamentos_criados = orcamentos_base.count()
     qtd_orcamentos_aprovados = orcamentos_base.filter(status=BudgetStatus.APPROVED).count()
-    
+
     total_os_a_receber_result = FinancialMovement.objects.filter(
-        workshop=workshop, 
+        workshop=workshop,
         direction=FinancialMovement.MovementDirection.CREDIT,
-        is_paid=False, 
+        is_paid=False,
         workorder__status=WorkOrderStatus.APPROVED
     ).aggregate(total=Sum('amount'))['total']
-    
+
     orcamentos_aguardando = Budget.objects.filter(workshop=workshop, status=BudgetStatus.WAITING_APPROVAL)
-    
+
     orcamentos_reprovados = Budget.objects.filter(
-        workshop=workshop, 
-        status=BudgetStatus.REJECTED, 
+        workshop=workshop,
+        status=BudgetStatus.REJECTED,
         entry_date__month=mes_atual,
         entry_date__year=ano_atual
     )
 
     # Métricas
     qtd_carros_mes: int = Budget.objects.filter(
-        workshop=workshop, 
-        status__in=[BudgetStatus.APPROVED], 
+        workshop=workshop,
+        status__in=[BudgetStatus.APPROVED],
         entry_date__month=mes_atual,
         entry_date__year=ano_atual
     ).exclude(reference_budget__isnull=False).count()
