@@ -1,7 +1,7 @@
 {% if action_url and action_label and favorite_url and favorite_label %}
     <div class="relative inline-flex items-center">
         <a href="{{ action_url }}" class="{{ action_button_class|default:'btn btn-primary pr-14' }}">{{ action_label }}</a>
-        <div class="absolute inset-y-0 right-1 z-10 flex items-center">
+        <div class="absolute inset-y-0 right-2 z-10 flex items-center">
             {% include 'favorites/partials/favorite_button.html' with favorite_url=favorite_url favorite_label=favorite_label favorite_button_class=favorite_button_class|default:'btn btn-ghost btn-circle btn-xs h-8 min-h-0 w-8 border-0 bg-transparent p-0 text-primary-content/75 shadow-none hover:bg-transparent hover:text-warning focus-visible:bg-transparent focus-visible:text-warning' favorite_icon_class=favorite_icon_class|default:'material-icons text-[18px] leading-none transition-colors' favorite_active_icon_class=favorite_active_icon_class|default:'text-warning' %}
         </div>
     </div>
