@@ -807,7 +807,14 @@ class BudgetStep3Form(forms.ModelForm):
 
         if self.workshop:
             self.fields["collaborator"].queryset = WorkshopCollaborator.objects.filter(workshop=self.workshop, is_active=True)
-            self.fields["checklist"].queryset = Checklist.objects.filter(workshop=self.workshop).order_by("name")
+            diagnostic_checklists = Checklist.objects.filter(
+                workshop=self.workshop,
+                checklist_type=Checklist.ChecklistType.AUTOMOTIVE_DIAGNOSTIC,
+            )
+            if self.instance.pk and self.instance.checklist_id:
+                self.fields["checklist"].queryset = (diagnostic_checklists | Checklist.objects.filter(workshop=self.workshop, pk=self.instance.checklist_id)).order_by("name").distinct()
+            else:
+                self.fields["checklist"].queryset = diagnostic_checklists.order_by("name")
 
         initial_collaborators = []
         if self.instance.pk:
@@ -1741,7 +1748,7 @@ class BudgetStep4Form(forms.ModelForm):
                             <button
                                 type="button"
                                 class="btn btn-primary text-base btn-base mt-2 sm:mt-0"
-                                hx-get="{reverse('budget:import_items_search_modal', kwargs={'pk': budget.pk})}"
+                                hx-get="{reverse("budget:import_items_search_modal", kwargs={"pk": budget.pk})}"
                                 hx-target="#modal-container"
                                 onclick="form_modal.showModal()">
                                 Trazer itens de outro orçamento

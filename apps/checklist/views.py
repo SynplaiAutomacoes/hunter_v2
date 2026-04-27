@@ -1,6 +1,8 @@
+from typing import cast
+
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse_lazy
 from django.views import View
@@ -13,6 +15,7 @@ from apps.workshops.mixin import WorkshopScopedMixin
 
 from .forms import ChecklistForm
 from .models import Checklist, ChecklistItem
+from .services.files import ChecklistFileStorageError, StoredChecklistFile, delete_checklist_pdf_file, save_checklist_pdf_file
 from .util import extract_checklist_items, VALID_RESPONSE_TYPES, build_showtoast_trigger
 
 
@@ -28,8 +31,9 @@ class ChecklistListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRes
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["fields"] = [
-            TableColumn(Checklist.name.field.verbose_name, attr=Checklist.name.field.name),
-            TableColumn(Checklist.criado_em.field.verbose_name, attr=Checklist.criado_em.field.name),
+            TableColumn(str(Checklist.name.field.verbose_name), attr=Checklist.name.field.name),
+            TableColumn(str(Checklist.checklist_type.field.verbose_name), attr="get_checklist_type_display"),
+            TableColumn(str(Checklist.criado_em.field.verbose_name), attr=Checklist.criado_em.field.name),
         ]
         context["actions"] = [
             TableActionDefaults.edit("checklist:checklist_update"),
@@ -44,6 +48,11 @@ class ChecklistCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
     template_name = "checklists/checklist_create.html"
     success_url = reverse_lazy("checklist:checklist_list")
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["workshop"] = self.workshop
+        return kwargs
+
     def form_valid(self, form):
         try:
             checklist_items = extract_checklist_items(self.request.POST)
@@ -51,23 +60,64 @@ class ChecklistCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
             form.add_error(None, str(error))
             return self.form_invalid(form)
 
-        with transaction.atomic():
-            form.instance.workshop = self.workshop
-            response = super().form_valid(form)
+        checklist_source = form.cleaned_data["source"]
+        uploaded_pdf = form.cleaned_data.get("imported_pdf")
 
-            ChecklistItem.objects.bulk_create(
-                [
-                    ChecklistItem(
-                        checklist=self.object,
-                        group=item["group"],
-                        description=item["description"],
-                        response_type=item["response_type"],
-                        order=index,
+        if checklist_source == Checklist.ChecklistSource.MANUAL and not checklist_items:
+            form.add_error(None, "Adicione itens para criar o checklist manual.")
+            return self.form_invalid(form)
+
+        if checklist_source == Checklist.ChecklistSource.PDF and uploaded_pdf is None:
+            form.add_error("imported_pdf", "Envie um arquivo PDF para importar o checklist.")
+            return self.form_invalid(form)
+
+        staged_file: StoredChecklistFile | None = None
+        if checklist_source == Checklist.ChecklistSource.PDF and uploaded_pdf is not None:
+            try:
+                staged_file = save_checklist_pdf_file(workshop_id=self.workshop.pk, uploaded_file=uploaded_pdf)
+            except ChecklistFileStorageError as error:
+                form.add_error("imported_pdf", str(error))
+                return self.form_invalid(form)
+
+        with transaction.atomic():
+            try:
+                checklist_obj = cast(Checklist, form.save(commit=False))
+                checklist_obj.workshop = self.workshop
+                checklist_obj.source = checklist_source
+
+                if checklist_source == Checklist.ChecklistSource.PDF and staged_file is not None:
+                    checklist_obj.pdf_file_key = staged_file.file_id
+                    checklist_obj.pdf_file_name = staged_file.filename
+                    checklist_obj.pdf_content_type = staged_file.content_type
+                    checklist_obj.pdf_uploaded_at = staged_file.uploaded_at
+                else:
+                    checklist_obj.pdf_file_key = ""
+                    checklist_obj.pdf_file_name = ""
+                    checklist_obj.pdf_content_type = ""
+                    checklist_obj.pdf_uploaded_at = None
+
+                checklist_obj.save()
+                self.object = checklist_obj
+
+                if checklist_source == Checklist.ChecklistSource.MANUAL:
+                    ChecklistItem.objects.bulk_create(
+                        [
+                            ChecklistItem(
+                                checklist=checklist_obj,
+                                group=item["group"],
+                                description=item["description"],
+                                response_type=item["response_type"],
+                                order=index,
+                            )
+                            for index, item in enumerate(checklist_items)
+                        ]
                     )
-                    for index, item in enumerate(checklist_items)
-                ]
-            )
-            return response
+            except Exception:
+                if staged_file is not None:
+                    _safe_delete_checklist_file(file_id=staged_file.file_id)
+                raise
+
+        return HttpResponseRedirect(self.get_success_url())
 
 
 class ChecklistUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
@@ -76,6 +126,11 @@ class ChecklistUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
     template_name = "checklists/checklist_update.html"
     success_url = reverse_lazy("checklist:checklist_list")
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["workshop"] = self.workshop
+        return kwargs
+
     def form_valid(self, form):
         try:
             checklist_items = extract_checklist_items(self.request.POST)
@@ -83,23 +138,76 @@ class ChecklistUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
             form.add_error(None, str(error))
             return self.form_invalid(form)
 
-        with transaction.atomic():
-            response = super().form_valid(form)
-            self.object.items.all().delete()
+        previous_file_id = str(self.object.pdf_file_key or "").strip()
+        checklist_source = form.cleaned_data["source"]
+        uploaded_pdf = form.cleaned_data.get("imported_pdf")
 
-            ChecklistItem.objects.bulk_create(
-                [
-                    ChecklistItem(
-                        checklist=self.object,
-                        group=item["group"],
-                        description=item["description"],
-                        response_type=item["response_type"],
-                        order=index,
+        if checklist_source == Checklist.ChecklistSource.MANUAL and not checklist_items:
+            form.add_error(None, "Adicione itens para criar o checklist manual.")
+            return self.form_invalid(form)
+
+        if checklist_source == Checklist.ChecklistSource.PDF and uploaded_pdf is None and not previous_file_id:
+            form.add_error("imported_pdf", "Envie um arquivo PDF para importar o checklist.")
+            return self.form_invalid(form)
+
+        staged_file: StoredChecklistFile | None = None
+        if checklist_source == Checklist.ChecklistSource.PDF and uploaded_pdf is not None:
+            try:
+                staged_file = save_checklist_pdf_file(workshop_id=self.workshop.pk, uploaded_file=uploaded_pdf)
+            except ChecklistFileStorageError as error:
+                form.add_error("imported_pdf", str(error))
+                return self.form_invalid(form)
+
+        with transaction.atomic():
+            try:
+                checklist_obj = cast(Checklist, form.save(commit=False))
+                checklist_obj.workshop = self.workshop
+                checklist_obj.source = checklist_source
+                checklist_obj.save()
+                self.object = checklist_obj
+
+                ChecklistItem.objects.filter(checklist=checklist_obj).delete()
+                files_to_remove_after_commit: list[str] = []
+
+                if checklist_source == Checklist.ChecklistSource.MANUAL:
+                    ChecklistItem.objects.bulk_create(
+                        [
+                            ChecklistItem(
+                                checklist=checklist_obj,
+                                group=item["group"],
+                                description=item["description"],
+                                response_type=item["response_type"],
+                                order=index,
+                            )
+                            for index, item in enumerate(checklist_items)
+                        ]
                     )
-                    for index, item in enumerate(checklist_items)
-                ]
-            )
-            return response
+
+                    if previous_file_id:
+                        files_to_remove_after_commit.append(previous_file_id)
+
+                    checklist_obj.pdf_file_key = ""
+                    checklist_obj.pdf_file_name = ""
+                    checklist_obj.pdf_content_type = ""
+                    checklist_obj.pdf_uploaded_at = None
+                    checklist_obj.save(update_fields=["pdf_file_key", "pdf_file_name", "pdf_content_type", "pdf_uploaded_at"])
+                elif staged_file is not None:
+                    checklist_obj.pdf_file_key = staged_file.file_id
+                    checklist_obj.pdf_file_name = staged_file.filename
+                    checklist_obj.pdf_content_type = staged_file.content_type
+                    checklist_obj.pdf_uploaded_at = staged_file.uploaded_at
+                    checklist_obj.save(update_fields=["pdf_file_key", "pdf_file_name", "pdf_content_type", "pdf_uploaded_at"])
+                    if previous_file_id and previous_file_id != staged_file.file_id:
+                        files_to_remove_after_commit.append(previous_file_id)
+
+                if files_to_remove_after_commit:
+                    transaction.on_commit(lambda: _delete_files_after_commit(files_to_remove_after_commit))
+            except Exception:
+                if staged_file is not None:
+                    _safe_delete_checklist_file(file_id=staged_file.file_id)
+                raise
+
+        return HttpResponseRedirect(self.get_success_url())
 
 
 class ChecklistDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResponseMixin, DeleteView):
@@ -107,6 +215,13 @@ class ChecklistDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteRes
     success_url = reverse_lazy("checklist:checklist_list")
     htmx_template_name = "checklists/partials/checklist_delete_modal.html"
     htmx_trigger = "checklists-table-refresh"
+
+    def delete(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        file_id = str(self.object.pdf_file_key or "").strip()
+        response = super().delete(request, *args, **kwargs)
+        _safe_delete_checklist_file(file_id=file_id)
+        return response
 
 
 class AddChecklistItemRowView(LoginRequiredMixin, View):
@@ -140,3 +255,18 @@ class AddChecklistItemRowView(LoginRequiredMixin, View):
         }
 
         return render(request, "checklists/partials/item_row.html", context)
+
+
+def _safe_delete_checklist_file(*, file_id: str) -> None:
+    if not str(file_id or "").strip():
+        return
+
+    try:
+        delete_checklist_pdf_file(file_id=file_id)
+    except ChecklistFileStorageError:
+        return
+
+
+def _delete_files_after_commit(file_ids: list[str]) -> None:
+    for file_id in file_ids:
+        _safe_delete_checklist_file(file_id=file_id)

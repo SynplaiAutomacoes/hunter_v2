@@ -6,7 +6,7 @@ from datetime import timedelta
 from decimal import Decimal
 from typing import cast
 from urllib.parse import urlparse
-from unittest.mock import ANY, PropertyMock, patch
+from unittest.mock import ANY, Mock, PropertyMock, patch
 
 import requests
 from django import forms
@@ -24,6 +24,7 @@ from django.utils import timezone
 from djmoney.money import Money
 
 from apps.budget.forms import BudgetStep1Form, BudgetStep4Form, BudgetStep6Form
+from apps.budget.forms.step_forms import BudgetStep3Form
 from apps.budget.forms.shared import _render_budget_items_rows
 from apps.budget.models import Budget, BudgetItem, BudgetKitItemOverride, BudgetStatus, SignatureStatus
 from apps.budget.pdf_context import build_budget_pdf_context
@@ -292,6 +293,54 @@ class BudgetStep1FormTests(TestCase):
 
         self.assertTrue(form.is_valid(), form.errors.as_json())
         self.assertEqual(form.cleaned_data["current_km"], 15000)
+
+
+class BudgetStep3FormChecklistFilterTests(TestCase):
+    def test_shows_only_diagnostic_checklists_for_selection(self) -> None:
+        _, workshop = create_director_user_with_workshop(suffix=121)
+        budget = create_budget(workshop=workshop)
+
+        diagnostic_checklist = Checklist.objects.create(
+            workshop=workshop,
+            name="Checklist Diagnostico",
+            checklist_type=Checklist.ChecklistType.AUTOMOTIVE_DIAGNOSTIC,
+        )
+        Checklist.objects.create(
+            workshop=workshop,
+            name="Checklist Interno",
+            checklist_type=Checklist.ChecklistType.INTERNAL,
+        )
+
+        form = BudgetStep3Form(instance=budget, workshop=workshop)
+        checklist_field = cast(forms.ModelChoiceField, form.fields["checklist"])
+        checklist_queryset = checklist_field.queryset
+
+        assert checklist_queryset is not None
+        self.assertQuerySetEqual(checklist_queryset.order_by("pk"), [diagnostic_checklist], transform=lambda obj: obj)
+
+    def test_keeps_current_non_diagnostic_checklist_visible_for_legacy_budget(self) -> None:
+        _, workshop = create_director_user_with_workshop(suffix=122)
+        budget = create_budget(workshop=workshop)
+
+        diagnostic_checklist = Checklist.objects.create(
+            workshop=workshop,
+            name="Checklist Diagnostico",
+            checklist_type=Checklist.ChecklistType.AUTOMOTIVE_DIAGNOSTIC,
+        )
+        internal_checklist = Checklist.objects.create(
+            workshop=workshop,
+            name="Checklist Interno",
+            checklist_type=Checklist.ChecklistType.INTERNAL,
+        )
+        budget.checklist = internal_checklist
+        budget.save(update_fields=["checklist"])
+
+        form = BudgetStep3Form(instance=budget, workshop=workshop)
+        checklist_field = cast(forms.ModelChoiceField, form.fields["checklist"])
+        checklist_queryset = checklist_field.queryset
+
+        assert checklist_queryset is not None
+        self.assertQuerySetEqual(checklist_queryset.order_by("pk"), [diagnostic_checklist, internal_checklist], transform=lambda obj: obj)
 
 
 class BudgetKitSelectionCompatibilityTests(TestCase):
@@ -1637,6 +1686,27 @@ class BudgetPdfViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'src="data:image/png;base64,bW9uZ28tbG9nbw=="', html=False)
         build_workshop_logo_data_uri_mock.assert_called_once_with(workshop=self.workshop)
+
+    @patch("apps.budget.views.pdf_views.read_checklist_pdf_file")
+    def test_visualizar_pdf_checklist_returns_original_imported_pdf(self, read_checklist_pdf_file_mock) -> None:
+        budget = self._create_budget_with_customer_and_vehicle(suffix=110)
+        checklist = Checklist.objects.create(
+            workshop=self.workshop,
+            name="Checklist Importado",
+            source=Checklist.ChecklistSource.PDF,
+            pdf_file_key="workshop/1/pdfs/checklist.pdf",
+            pdf_file_name="checklist.pdf",
+            pdf_content_type="application/pdf",
+        )
+        read_checklist_pdf_file_mock.return_value = Mock(content=b"%PDF-1.4 test", filename="checklist.pdf")
+
+        response = self.client.get(reverse("budget:visualizar_pdf_checklist", args=[budget.pk]), {"checklist": checklist.pk})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn('inline; filename="checklist.pdf"', response["Content-Disposition"])
+        self.assertEqual(response.content, b"%PDF-1.4 test")
+        read_checklist_pdf_file_mock.assert_called_once_with(file_id="workshop/1/pdfs/checklist.pdf")
 
     def test_pdf_views_render_customer_supplied_product_info(self) -> None:
         budget = self._create_budget_with_customer_and_vehicle(suffix=103)

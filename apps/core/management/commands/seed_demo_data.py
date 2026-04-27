@@ -1496,7 +1496,23 @@ class Command(BaseCommand):
 
     def _seed_checklists(self, *, workshop: Workshop) -> None:
         for index, blueprint in enumerate(CHECKLIST_BLUEPRINTS):
-            checklist, _ = Checklist.objects.get_or_create(workshop=workshop, name=blueprint.name)
+            checklist, _ = Checklist.objects.get_or_create(
+                workshop=workshop,
+                name=blueprint.name,
+                defaults={
+                    "checklist_type": Checklist.ChecklistType.AUTOMOTIVE_DIAGNOSTIC,
+                    "source": Checklist.ChecklistSource.MANUAL,
+                },
+            )
+            checklist_update_fields = _merge_missing_seed_fields(
+                checklist,
+                defaults={
+                    "checklist_type": Checklist.ChecklistType.AUTOMOTIVE_DIAGNOSTIC,
+                    "source": Checklist.ChecklistSource.MANUAL,
+                },
+            )
+            if checklist_update_fields:
+                checklist.save(update_fields=checklist_update_fields)
             items = self._build_checklist_items(blueprint=blueprint, seed_index=index)
             existing_items = {(item.group, item.description): item for item in ChecklistItem.objects.filter(checklist=checklist)}
             for order, (group, description, response_type) in enumerate(items):
