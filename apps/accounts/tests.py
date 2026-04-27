@@ -30,6 +30,19 @@ class FavoritePageViewTests(TestCase):
             reverse("workshops:list"),
         ]
         self.page_favorite_url = reverse("budget:budget_create")
+        self.extra_favorite_urls = [
+            reverse("budget:budget_create"),
+            reverse("customer:customer_create"),
+            reverse("collaborators:collaborator_create"),
+            reverse("suppliers:supplier_create"),
+            reverse("catalog:product_create"),
+            reverse("catalog:services_create"),
+            reverse("catalog:kits_create"),
+            reverse("catalog:group_create"),
+            reverse("checklist:checklist_create"),
+            reverse("stock:import"),
+            reverse("finance:financial_movement_create"),
+        ]
         self.non_favoritable_urls = [
             reverse("budget:budget_list"),
             reverse("workorder:workorder_list"),
@@ -87,12 +100,16 @@ class FavoritePageViewTests(TestCase):
 
         self.assertFalse(FavoritePage.objects.filter(user=self.user).exists())
 
-    def test_toggle_view_accepts_registered_non_navbar_page(self) -> None:
-        response = self._toggle(self.page_favorite_url)
+    def test_toggle_view_accepts_registered_non_navbar_pages(self) -> None:
+        for url in self.extra_favorite_urls:
+            with self.subTest(url=url):
+                response = self._toggle(url)
 
-        self.assertEqual(response.status_code, 204)
-        favorite = FavoritePage.objects.get(user=self.user, url=self.page_favorite_url)
-        self.assertEqual(favorite.position, 1)
+                self.assertEqual(response.status_code, 204)
+                favorite = FavoritePage.objects.get(user=self.user, url=url)
+                self.assertEqual(favorite.position, 1)
+
+                FavoritePage.objects.filter(user=self.user).delete()
 
     def test_toggle_view_rejects_querystring_variant_of_page_level_favorite(self) -> None:
         response = self._toggle(f"{self.page_favorite_url}?step=2&pk=17")

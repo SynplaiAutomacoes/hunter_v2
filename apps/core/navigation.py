@@ -17,6 +17,16 @@ def _is_director_or_manager(request: HttpRequest, flags: dict[str, Any]) -> bool
 
 
 BUDGET_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Orçamento", "view_name": "budget:budget_create"}
+CREATE_CLIENT_FAVORITE_PAGE: dict[str, Any] = {"label": "Criar Cliente", "view_name": "customer:customer_create"}
+COLLABORATOR_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Criar colaborador", "view_name": "collaborators:collaborator_create"}
+SUPPLIER_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Criar fornecedor", "view_name": "suppliers:supplier_create"}
+PRODUCT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Produto", "view_name": "catalog:product_create"}
+SERVICE_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Serviço", "view_name": "catalog:services_create"}
+KIT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Kit", "view_name": "catalog:kits_create"}
+CATALOG_GROUP_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Criar grupo", "view_name": "catalog:group_create"}
+CHECKLIST_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Checklist", "view_name": "checklist:checklist_create"}
+STOCK_IMPORT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Nova Importação", "view_name": "stock:import"}
+FINANCIAL_MOVEMENT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Nova Movimentação Financeira", "view_name": "finance:financial_movement_create"}
 
 
 NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
@@ -78,7 +88,19 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
     },
 )
 
-EXTRA_FAVORITABLE_PAGE_DEFINITIONS: tuple[dict[str, Any], ...] = (BUDGET_CREATE_FAVORITE_PAGE,)
+EXTRA_FAVORITABLE_PAGE_DEFINITIONS: tuple[dict[str, Any], ...] = (
+    BUDGET_CREATE_FAVORITE_PAGE,
+    CREATE_CLIENT_FAVORITE_PAGE,
+    COLLABORATOR_CREATE_FAVORITE_PAGE,
+    SUPPLIER_CREATE_FAVORITE_PAGE,
+    PRODUCT_CREATE_FAVORITE_PAGE,
+    SERVICE_CREATE_FAVORITE_PAGE,
+    KIT_CREATE_FAVORITE_PAGE,
+    CATALOG_GROUP_CREATE_FAVORITE_PAGE,
+    CHECKLIST_CREATE_FAVORITE_PAGE,
+    STOCK_IMPORT_CREATE_FAVORITE_PAGE,
+    FINANCIAL_MOVEMENT_CREATE_FAVORITE_PAGE,
+)
 
 
 def _resolve_href(entry_definition: dict[str, Any]) -> str:

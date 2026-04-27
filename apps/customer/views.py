@@ -7,12 +7,12 @@ from django.views.generic import CreateView, DeleteView, DetailView, ListView, T
 
 from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
 from apps.workshops.mixin import WorkshopScopedMixin
-from apps.core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin, BaseModalFormView
+from apps.core.navigation import CREATE_CLIENT_FAVORITE_PAGE
+from apps.core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin, BaseModalFormView, PageFavoriteMixin
 from .forms import QuickCustomerForm, QuickVehicleForm
 from .util import fetch_vehicle_data, build_vehicle_saved_trigger, build_customer_saved_trigger
 from .vehicle_engine import normalize_vehicle_engine_choice
 from .vehicle_fuel import normalize_vehicle_fuel_choice
-
 from ..core.tables import TableActionDefaults
 from ..core.templatetags.table_tags import TableColumn
 from .forms import CustomerForm, VehicleFormSet
@@ -76,11 +76,12 @@ class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
         return context
 
 
-class CustomerCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
+class CustomerCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixin, CreateView):
     model = Customer
     form_class = CustomerForm
     template_name = "customer/customer_create.html"
     success_url = reverse_lazy("customer:customer_list")
+    favorite_page_definition = CREATE_CLIENT_FAVORITE_PAGE
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()

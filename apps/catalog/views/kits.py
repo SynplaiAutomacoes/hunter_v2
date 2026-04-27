@@ -22,11 +22,12 @@ from apps.catalog.models.kits import Kit, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.util import calculate_catalog_service_prices, get_current_workshop_cost
+from apps.core.navigation import KIT_CREATE_FAVORITE_PAGE
 from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.utils import clean_id
-from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
+from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
 from apps.workshops.mixin import WorkshopScopedMixin
 
 logger = logging.getLogger(__name__)
@@ -78,11 +79,12 @@ class KitListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseM
         return context
 
 
-class KitCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
+class KitCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixin, CreateView):
     model = Kit
     form_class = KitForm
     template_name = "kits/kits_create.html"
     success_url = reverse_lazy("catalog:kits_list")
+    favorite_page_definition = KIT_CREATE_FAVORITE_PAGE
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
