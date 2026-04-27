@@ -1,0 +1,150 @@
+<div class="modal-box w-full max-w-[95vw] relative overflow-hidden flex flex-col h-[90vh]" style="width: 65vw;">
+    <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick="form_modal.close()">✕</button>
+
+    <h3 class="font-bold text-lg mb-2 flex-shrink-0">Selecionar itens do Orçamento #{{ reference_budget.pk }}</h3>
+    <p class="text-sm text-base-content/70 mb-4 flex-shrink-0">
+        Selecione os itens que deseja copiar para o orçamento atual (#{{ budget.pk }}).
+    </p>
+
+    <form method="post" action="{% url 'budget:import_items_process' pk=budget.pk %}" hx-post="{% url 'budget:import_items_process' pk=budget.pk %}" hx-target="#modal-container" hx-swap="innerHTML" class="flex-grow flex flex-col min-h-0">
+        {% csrf_token %}
+        
+        <div class="overflow-y-auto flex-grow bg-base-100 rounded-lg shadow-inner p-2 border border-base-200">
+            {% if products %}
+            <div class="mb-6">
+                <h4 class="text-md font-semibold text-gray-700 mb-2">Produtos</h4>
+                <div class="overflow-x-auto rounded-lg border border-base-200">
+                    <table class="table table-sm table-zebra w-full">
+                        <thead class="bg-primary text-primary-content">
+                            <tr>
+                                <th class="w-12 text-center">
+                                    <input type="checkbox" id="import-all-products" class="checkbox text-white checkbox-sm" style="border-color: white;">
+                                </th>
+                                <th>Descrição</th>
+                                <th class="text-center">Qtd.</th>
+                                <th class="text-right">Valor Venda</th>
+                            </tr>
+                        </thead>
+                        <tbody id="import-products-body">
+                            {% for item in products %}
+                            <tr>
+                                <td class="text-center">
+                                    <input type="checkbox" name="selected_items" value="{{ item.id }}" class="checkbox checkbox-sm import-product-cb">
+                                </td>
+                                <td>{{ item.description }}</td>
+                                <td class="text-center">{{ item.quantity }}</td>
+                                <td class="text-right">{{ item.display_product_selling_price }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if services %}
+            <div class="mb-6">
+                <h4 class="text-md font-semibold text-gray-700 mb-2">Serviços</h4>
+                <div class="overflow-x-auto rounded-lg border border-base-200">
+                    <table class="table table-sm table-zebra w-full">
+                        <thead class="bg-primary text-primary-content">
+                            <tr>
+                                <th class="w-12 text-center">
+                                    <input type="checkbox" id="import-all-services" class="checkbox text-white checkbox-sm" style="border-color: white;">
+                                </th>
+                                <th>Descrição</th>
+                                <th class="text-center">Qtd.</th>
+                                <th class="text-center">Tempo</th>
+                                <th class="text-right">Valor Venda</th>
+                            </tr>
+                        </thead>
+                        <tbody id="import-services-body">
+                            {% for item in services %}
+                            <tr>
+                                <td class="text-center">
+                                    <input type="checkbox" name="selected_items" value="{{ item.id }}" class="checkbox checkbox-sm import-service-cb">
+                                </td>
+                                <td>{{ item.description }}</td>
+                                <td class="text-center">{{ item.quantity }}</td>
+                                <td class="text-center">{{ item.duration_display }}</td>
+                                <td class="text-right">{{ item.display_service_selling_price }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if kits %}
+            <div class="mb-6">
+                <h4 class="text-md font-semibold text-gray-700 mb-2">Kits</h4>
+                <div class="overflow-x-auto rounded-lg border border-base-200">
+                    <table class="table table-sm table-zebra w-full">
+                        <thead class="bg-primary text-primary-content">
+                            <tr>
+                                <th class="w-12 text-center">
+                                    <input type="checkbox" id="import-all-kits" class="checkbox text-white checkbox-sm" style="border-color: white;">
+                                </th>
+                                <th>Nome</th>
+                                <th class="text-center">Qtd.</th>
+                                <th class="text-right">Preço</th>
+                            </tr>
+                        </thead>
+                        <tbody id="import-kits-body">
+                            {% for item in kits %}
+                            <tr>
+                                <td class="text-center">
+                                    <input type="checkbox" name="selected_items" value="{{ item.id }}" class="checkbox checkbox-sm import-kit-cb">
+                                </td>
+                                <td>{{ item.description }}</td>
+                                <td class="text-center">{{ item.quantity }}</td>
+                                <td class="text-right">{{ item.display_total_price }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if not products and not services and not kits %}
+            <div class="text-center py-8 text-base-content/60">
+                <p>Nenhum item encontrado neste orçamento.</p>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="modal-action flex-shrink-0 mt-4">
+            <button type="button" class="btn" onclick="form_modal.close()">Cancelar</button>
+            <button type="submit" class="btn btn-primary" id="import-confirm-btn" {% if not products and not services and not kits %}disabled{% endif %}>
+                <span class="material-icons" style="vertical-align: middle;">download</span> Importar Itens Selecionados
+            </button>
+        </div>
+    </form>
+</div>
+
+<script>
+    function setupImportSelection(selectAllId, checkboxClass) {
+        const selectAll = document.getElementById(selectAllId);
+        if (!selectAll) return;
+        
+        const checkboxes = document.querySelectorAll('.' + checkboxClass);
+        
+        selectAll.addEventListener('change', function(e) {
+            checkboxes.forEach(cb => cb.checked = e.target.checked);
+        });
+
+        checkboxes.forEach(cb => {
+            cb.addEventListener('change', function() {
+                const checkedCount = document.querySelectorAll('.' + checkboxClass + ':checked').length;
+                selectAll.checked = checkedCount === checkboxes.length;
+                selectAll.indeterminate = checkedCount > 0 && checkedCount < checkboxes.length;
+            });
+        });
+    }
+
+    setupImportSelection('import-all-products', 'import-product-cb');
+    setupImportSelection('import-all-services', 'import-service-cb');
+    setupImportSelection('import-all-kits', 'import-kit-cb');
+</script>

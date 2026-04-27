@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+from typing import cast
 from django import forms
 from django.urls import reverse
 
@@ -20,9 +21,15 @@ from apps.core.widgets import (
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from apps.workshops.models.monthly_costs import MonthlyCost
 from apps.workshops.models.workshops import Workshop
+from apps.workshops.util.monthly_costs import ADMIN_SALARY_MONTHLY_COST_NAME, MECHANIC_SALARY_MONTHLY_COST_NAME
 
 
 class WorkshopCostForm(forms.ModelForm):
+    EDIT_WARNING_MESSAGES = {
+        MECHANIC_SALARY_MONTHLY_COST_NAME: "Esta é a soma total dos salários dos colaboradores produtivos, deseja manter?",
+        ADMIN_SALARY_MONTHLY_COST_NAME: "Esta é a soma total dos salários dos colaboradores administrativos, deseja manter?",
+    }
+
     class Meta:
         model = WorkshopCost
         fields = [
@@ -87,25 +94,31 @@ class WorkshopCostForm(forms.ModelForm):
         self.active_costs = MonthlyCost.objects.filter(workshop=workshop, is_active=True)
 
         # Se for edição, busca os valores já salvos nos Items
-        saved_values = {}
+        saved_values: dict[int, object] = {}
         if self.instance.pk:
             saved_values = {item.monthly_cost_id: item.amount for item in self.instance.items.all()}
 
         self.cost_fields_names = []
         for cost in self.active_costs:
-            field_name = f"cost_item_{cost.id}"
+            cost_id = cost.pk
+            if cost_id is None:
+                continue
+
+            field_name = f"cost_item_{cost_id}"
             self.cost_fields_names.append(field_name)
 
             self.fields[field_name] = MoneyField(label=cost.name, required=False, widget=MoneyInput())
 
-            if cost.id in saved_values:
-                self.initial[field_name] = saved_values[cost.id]
+            if cost_id in saved_values:
+                self.initial[field_name] = saved_values[cost_id]
+
+            self._set_cost_field_restore_metadata(field_name=field_name, cost_name=cost.name, original_value=saved_values.get(cost_id))
 
         self.helper = FormHelper()
         self.helper.form_method = "post"
         self.helper.layout = self.get_layout()
 
-    def get_layout(self):
+    def get_layout(self) -> Layout:
         cancel_url = reverse("workshops:workshop_cost_list")
         calculate_url = reverse("workshops:workshop_cost_calculate")
 
@@ -148,14 +161,13 @@ class WorkshopCostForm(forms.ModelForm):
                     Field("parts_purchase_cap", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("freight_cost", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("third_party_service_cap", wrapper_class="col-span-12 lg:col-span-4"),
-                    
                     # Atributos HTMX no container de inputs
                     # hx-include="closest form": Garante que todos os dados do form sejam enviados
                     hx_post=calculate_url,
                     hx_trigger="input delay:100ms, change delay:100ms",
                     hx_target="#calculation-results",
                     hx_include="closest form",
-                    css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start col-span-12"
+                    css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start col-span-12",
                 ),
                 # Campos calculados (Desabilitados visualmente)
                 Div(
@@ -170,7 +182,6 @@ class WorkshopCostForm(forms.ModelForm):
                 ),
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
             ),
-
             HTML('<div class="divider"></div>'),
             Div(
                 HTML(f'<a href="{cancel_url}" class="btn-form-cancel">Cancelar</a>'),
@@ -179,8 +190,31 @@ class WorkshopCostForm(forms.ModelForm):
             ),
         )
 
+    def _set_cost_field_restore_metadata(self, *, field_name: str, cost_name: str, original_value: object | None) -> None:
+        if not self.instance.pk:
+            return
+
+        warning_message = self.EDIT_WARNING_MESSAGES.get(cost_name)
+        if warning_message is None:
+            return
+
+        field = self.fields.get(field_name)
+        if field is None:
+            return
+
+        field.widget.attrs["restore_original_value"] = self._serialize_money_value(original_value)
+        field.widget.attrs["restore_warning_message"] = warning_message
+
+    @staticmethod
+    def _serialize_money_value(value: object | None) -> str:
+        if value is None:
+            return ""
+
+        amount = getattr(value, "amount", value)
+        return str(amount)
+
     def clean(self):
-        cleaned_data = super().clean()
+        cleaned_data = cast(dict[str, object], super().clean() or {})
         month = cleaned_data.get("month")
         year = cleaned_data.get("year")
 
@@ -201,13 +235,15 @@ class WorkshopCostForm(forms.ModelForm):
             instance.save()
 
             for cost in self.active_costs:
-                field_name = f"cost_item_{cost.id}"
+                cost_id = cost.pk
+                if cost_id is None:
+                    continue
+
+                field_name = f"cost_item_{cost_id}"
                 amount = self.cleaned_data.get(field_name)
 
                 if amount is not None:
-                    WorkshopCostItem.objects.update_or_create(
-                        workshop_cost=instance, monthly_cost=cost, defaults={"amount": amount}
-                    )
+                    WorkshopCostItem.objects.update_or_create(workshop_cost=instance, monthly_cost=cost, defaults={"amount": amount})
 
             instance.calculate_all()
             instance.save()

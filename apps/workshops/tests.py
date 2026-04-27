@@ -1,21 +1,22 @@
 from __future__ import annotations
 
 import base64
+import io
 from unittest.mock import Mock, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
+from PIL import Image
 
 from apps.accounts.models import Account, User
 from apps.collaborators.models import WorkshopMember
 from apps.finance.models.finance import WebmaniaCompany
-from apps.finance.services.webmania_secrets import decrypt_secret
 from apps.iam.models import WorkshopRole
 from apps.iam.utils import get_or_create_director_role
-from apps.workshops.services.files import StoredWorkshopFile
 from apps.workshops.models.workshops import Workshop
+from apps.workshops.services.files import StoredWorkshopFile, WorkshopFileSyncError
 from apps.workshops.util.workshops import is_workshop_director, is_workshop_manager
 
 
@@ -204,6 +205,7 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
 
         with (
             patch("apps.workshops.services.files.get_workshop_file_service", return_value=file_service),
+            patch("apps.workshops.services.files.wait_for_public_logo_url"),
             patch("apps.workshops.services.files.update_webmania_company", return_value={"success": True}) as update_mock,
         ):
             response = self.client.post(
@@ -223,16 +225,14 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
         self.assertEqual(payload.get("certificado_senha"), "senha-certificado")
 
         company = WebmaniaCompany.objects.get(workshop=self.workshop)
-        self.assertEqual(decrypt_secret(company.certificado), base64.b64encode(certificate_bytes).decode())
-        self.assertEqual(decrypt_secret(company.certificado_senha), "senha-certificado")
+        self.assertEqual(company.certificado, "")
 
         self.workshop.refresh_from_db()
         self.assertEqual(self.workshop.certificate_password, "senha-certificado")
-        self.assertTrue(self.workshop.certificate_mongo_file_id)
+        self.assertTrue(self.workshop.certificate_file_key)
         self.assertEqual(self.workshop.certificate_file_name, "certificado.pfx")
-        self.assertFalse(bool(self.workshop.pfx_certificate))
 
-        stored_certificate = file_service.files["certificate"][self.workshop.certificate_mongo_file_id]
+        stored_certificate = file_service.files["certificate"][self.workshop.certificate_file_key]
         self.assertEqual(stored_certificate.content, certificate_bytes)
 
         page_response = self.client.get(f"{reverse('workshops:update', kwargs={'pk': self.workshop.pk})}?tab=certificado")
@@ -242,8 +242,9 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
         self.assertNotContains(page_response, "certificados/")
         self.assertNotContains(page_response, "Atualmente:")
 
-    def test_logo_autoupload_saves_logo_in_mongo_and_serves_preview(self) -> None:
-        logo_bytes = b"fake-logo-bytes"
+    @override_settings(APP_BASE_URL="https://app.example.com")
+    def test_logo_autoupload_saves_logo_in_bucket_and_syncs_public_url(self) -> None:
+        logo_bytes = self._build_png(width=320, height=160)
         logo_file = SimpleUploadedFile(
             "logo.png",
             logo_bytes,
@@ -251,7 +252,11 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
         )
         file_service = FakeWorkshopFileService()
 
-        with patch("apps.workshops.services.files.get_workshop_file_service", return_value=file_service):
+        with (
+            patch("apps.workshops.services.files.get_workshop_file_service", return_value=file_service),
+            patch("apps.workshops.services.files.ensure_logo_is_readable_from_storage"),
+            patch("apps.workshops.services.files.update_webmania_company", return_value={"success": True}) as update_mock,
+        ):
             response = self.client.post(
                 reverse("workshops:update", kwargs={"pk": self.workshop.pk}),
                 data={
@@ -264,15 +269,141 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
             self.assertJSONEqual(response.content, {"ok": True, "message": "Logo da oficina atualizada."})
 
             self.workshop.refresh_from_db()
-            self.assertTrue(self.workshop.logo_mongo_file_id)
-            self.assertEqual(self.workshop.logo_file_name, "logo.png")
-            self.assertFalse(bool(self.workshop.logo))
+            self.assertTrue(self.workshop.logo_file_key)
+            self.assertEqual(self.workshop.logo_file_name, "logo.jpg")
+
+            company = WebmaniaCompany.objects.get(workshop=self.workshop)
+            public_logo_path = reverse("workshops:logo_public", kwargs={"token": self.workshop.logo_public_token})
+            self.assertTrue(company.logomarca.endswith(public_logo_path))
+            update_mock.assert_called_once_with(company=company, payload={"logomarca": company.logomarca})
 
             preview_response = self.client.get(reverse("workshops:logo", kwargs={"pk": self.workshop.pk}))
+            self.client.logout()
+            public_response = self.client.get(reverse("workshops:logo_public", kwargs={"token": self.workshop.logo_public_token}))
 
         self.assertEqual(preview_response.status_code, 200)
-        self.assertEqual(preview_response["Content-Type"], "image/png")
-        self.assertEqual(preview_response.content, logo_bytes)
+        self.assertEqual(preview_response["Content-Type"], "image/jpeg")
+        self.assertEqual(preview_response.content[:2], b"\xff\xd8")
+        self.assertEqual(public_response.status_code, 200)
+        self.assertEqual(public_response["Content-Type"], "image/jpeg")
+        self.assertEqual(public_response.content[:2], b"\xff\xd8")
+
+        normalized_logo = file_service.files["logo"][self.workshop.logo_file_key]
+        self.assertEqual(normalized_logo.filename, "logo.jpg")
+        self.assertEqual(normalized_logo.content_type, "image/jpeg")
+        with Image.open(io.BytesIO(normalized_logo.content)) as image:
+            self.assertLessEqual(image.width, 120)
+            self.assertLessEqual(image.height, 65)
+
+    @override_settings(APP_BASE_URL="https://app.example.com")
+    def test_logo_autoupload_converts_svg_to_jpeg_with_size_limit(self) -> None:
+        logo_file = SimpleUploadedFile(
+            "logo.svg",
+            b"""<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" width="320" height="160"><rect width="320" height="160" fill="#ff0000"/></svg>""",
+            content_type="image/svg+xml",
+        )
+        file_service = FakeWorkshopFileService()
+        rasterized_png = self._build_png(width=320, height=160)
+
+        with (
+            patch("apps.workshops.services.files.get_workshop_file_service", return_value=file_service),
+            patch("apps.workshops.services.files.ensure_logo_is_readable_from_storage"),
+            patch("apps.workshops.services.files.update_webmania_company", return_value={"success": True}),
+            patch("apps.workshops.services.files._rasterize_svg_to_png", return_value=rasterized_png),
+        ):
+            response = self.client.post(
+                reverse("workshops:update", kwargs={"pk": self.workshop.pk}),
+                data={
+                    "tab": "logo_autoupload",
+                    "logo": logo_file,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.workshop.refresh_from_db()
+        self.assertEqual(self.workshop.logo_file_name, "logo.jpg")
+
+        normalized_logo = file_service.files["logo"][self.workshop.logo_file_key]
+        self.assertEqual(normalized_logo.filename, "logo.jpg")
+        self.assertEqual(normalized_logo.content_type, "image/jpeg")
+        with Image.open(io.BytesIO(normalized_logo.content)) as image:
+            self.assertLessEqual(image.width, 120)
+            self.assertLessEqual(image.height, 65)
+
+    def test_logo_autoupload_rejects_non_supported_logo_format(self) -> None:
+        logo_file = SimpleUploadedFile(
+            "logo.gif",
+            b"GIF89a",
+            content_type="image/gif",
+        )
+
+        response = self.client.post(
+            reverse("workshops:update", kwargs={"pk": self.workshop.pk}),
+            data={
+                "tab": "logo_autoupload",
+                "logo": logo_file,
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertJSONEqual(response.content, {"ok": False, "message": "Permitido logomarca somente nos formatos JPEG, PNG, WEBP ou SVG."})
+
+    @override_settings(APP_BASE_URL="https://app.example.com")
+    def test_logo_autoupload_checks_storage_readiness_before_sync(self) -> None:
+        logo_file = SimpleUploadedFile(
+            "logo.png",
+            self._build_png(width=320, height=160),
+            content_type="image/png",
+        )
+        file_service = FakeWorkshopFileService()
+
+        with (
+            patch("apps.workshops.services.files.get_workshop_file_service", return_value=file_service),
+            patch("apps.workshops.services.files.ensure_logo_is_readable_from_storage") as readiness_mock,
+            patch("apps.workshops.services.files.update_webmania_company", return_value={"success": True}) as update_mock,
+        ):
+            response = self.client.post(
+                reverse("workshops:update", kwargs={"pk": self.workshop.pk}),
+                data={"tab": "logo_autoupload", "logo": logo_file},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        readiness_mock.assert_called_once_with(file_id=self.workshop.logo_file_key)
+        update_mock.assert_called_once()
+        self.assertTrue(update_mock.call_args.kwargs["payload"]["logomarca"].endswith(reverse("workshops:logo_public", kwargs={"token": self.workshop.logo_public_token})))
+
+    @override_settings(APP_BASE_URL="https://app.example.com")
+    def test_logo_autoupload_rolls_back_when_storage_readiness_fails(self) -> None:
+        logo_file = SimpleUploadedFile(
+            "logo.png",
+            self._build_png(width=320, height=160),
+            content_type="image/png",
+        )
+        file_service = FakeWorkshopFileService()
+
+        with (
+            patch("apps.workshops.services.files.get_workshop_file_service", return_value=file_service),
+            patch("apps.workshops.services.files.ensure_logo_is_readable_from_storage", side_effect=WorkshopFileSyncError("A logomarca salva ainda nao ficou disponivel no bucket. Tente novamente em instantes.")),
+            patch("apps.workshops.services.files.update_webmania_company") as update_mock,
+        ):
+            response = self.client.post(
+                reverse("workshops:update", kwargs={"pk": self.workshop.pk}),
+                data={"tab": "logo_autoupload", "logo": logo_file},
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertJSONEqual(response.content, {"ok": False, "message": "A logomarca salva ainda nao ficou disponivel no bucket. Tente novamente em instantes."})
+        self.workshop.refresh_from_db()
+        self.assertEqual(self.workshop.logo_file_key, "")
+        self.assertEqual(self.workshop.logo_file_name, "")
+        update_mock.assert_not_called()
+
+    @staticmethod
+    def _build_png(*, width: int, height: int) -> bytes:
+        image = Image.new("RGBA", (width, height), color=(255, 0, 0, 255))
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        return buffer.getvalue()
 
     def test_delete_workshop_removes_local_records_only(self) -> None:
         company = WebmaniaCompany.objects.create(workshop=self.workshop, webmania_company_id="DEL-01")

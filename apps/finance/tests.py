@@ -28,6 +28,7 @@ from apps.catalog.models.kits import Kit, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.collaborators.models import WorkshopCollaborator, WorkshopMember
+from apps.collaborators.services import sync_collaborator_payroll
 from apps.core.documents.contract import DocumentPayload
 from apps.customer.models import Customer, Vehicle
 from apps.finance.documents.provider import build_dre_excel_document, build_dre_pdf_render_request
@@ -42,8 +43,20 @@ from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
-from apps.finance.services.emission import NfseEmissionError, _build_taker_payload, _default_service_description, _service_total_value, build_nfse_payload, build_webmania_webhook_token, cancel_nfse_document, emit_nfse_request, sync_emission_response
-from apps.finance.services.nfe_emission import NfeEmissionError, _build_nfe_products_payload, _extract_product_lines, build_nfe_payload, build_nfe_preview_rows, build_nfe_preview_warning_message, build_nfe_preview_warning_messages, cancel_nfe_document, sync_nfe_emission_response
+from apps.finance.services.emission import (
+    NfseEmissionError,
+    _build_taker_payload,
+    _default_service_description,
+    _service_total_value,
+    build_nfse_payload,
+    build_webmania_webhook_token,
+    cancel_nfse_document,
+    download_nfse_preview_document,
+    emit_nfse_request,
+    preview_nfse_request,
+    sync_emission_response,
+)
+from apps.finance.services.nfe_emission import NfeEmissionError, _build_nfe_products_payload, _extract_product_lines, build_nfe_payload, build_nfe_preview_rows, build_nfe_preview_warning_message, build_nfe_preview_warning_messages, cancel_nfe_document, preview_nfe_request, sync_nfe_emission_response
 from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfe_request_number, reserve_nfse_request_rps_number
 from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder, compute_slider_allocation, distribute_total_proportionally
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
@@ -1188,11 +1201,14 @@ class EmissionRequestNumberReservationTests(TestCase):
     def test_build_nfe_payload_includes_reserved_number_and_series(self) -> None:
         _, _, nfe_request, _ = self._build_requests(suffix=72)
         reserve_nfe_request_number(nfe_request=nfe_request)
+        nfe_request.additional_information = "Observacao complementar da NF-e"
+        nfe_request.save(update_fields=["additional_information"])
 
         payload = build_nfe_payload(nfe_request=nfe_request)
 
         self.assertEqual(payload.get("numero"), 9000)
         self.assertEqual(payload.get("serie"), 1)
+        self.assertEqual(payload.get("pedido", {}).get("informacoes_complementares"), "Observacao complementar da NF-e")
 
     @override_settings(WEBMANIA_AMBIENT="2")
     def test_build_nfe_payload_rounds_unit_price_up_with_two_decimal_places(self) -> None:
@@ -1217,12 +1233,15 @@ class EmissionRequestNumberReservationTests(TestCase):
     def test_build_nfse_payload_includes_reserved_rps_number_and_series(self) -> None:
         _, _, _, nfse_request = self._build_requests(suffix=73)
         reserve_nfse_request_rps_number(nfse_request=nfse_request)
+        nfse_request.additional_information = "Observacao complementar da NFS-e"
+        nfse_request.save(update_fields=["additional_information"])
 
         payload = build_nfse_payload(nfse_request=nfse_request)
         first_rps = payload.get("rps", [{}])[0]
 
         self.assertEqual(first_rps.get("numero"), 8000)
         self.assertEqual(first_rps.get("serie"), "A1")
+        self.assertEqual(first_rps.get("servico", {}).get("informacoes_complementares"), "Observacao complementar da NFS-e")
 
     @override_settings(WEBMANIA_AMBIENT="2")
     def test_sync_nfe_emission_response_backfills_reserved_number_when_api_omits_it(self) -> None:
@@ -1372,6 +1391,110 @@ class NfeProductExtractionTests(TestCase):
         self.assertEqual(len(lines), 1)
         self.assertEqual(lines[0].quantity, Decimal("3"))
         self.assertEqual(lines[0].base_total, Decimal("45.00"))
+
+
+class WebmaniaPreviewServiceTests(TestCase):
+    def test_preview_nfe_request_sends_previa_danfe_without_reserving_number(self) -> None:
+        nfe_request = SimpleNamespace(
+            pk=12,
+            workshop=SimpleNamespace(pk=1),
+            workorder=SimpleNamespace(pk=10),
+            tax_class="REFPREVIEWNFE",
+        )
+        headers = {
+            "Content-Type": "application/json",
+            "X-Consumer-Key": "consumer-key",
+        }
+        tax_class_response = _mock_response([{"referencia": "REFPREVIEWNFE", "tipo": "nfe", "status": "ativo"}])
+        preview_response = _mock_response({"danfe": "https://files.test/nfe-preview.pdf"})
+
+        with (
+            patch("apps.finance.services.nfe_emission.build_nfe_payload", return_value={"ID": "12", "pedido": {}}),
+            patch("apps.finance.services.nfe_emission._build_tax_class_url", return_value="https://webmania.com.br/api/1/nfe/classe-imposto/"),
+            patch("apps.finance.services.nfe_emission._build_emit_url", return_value="https://webmania.com.br/api/1/nfe/emissao/"),
+            patch("apps.finance.services.nfe_emission._build_headers", return_value=headers),
+            patch("apps.finance.services.nfe_emission.requests.get", return_value=tax_class_response),
+            patch("apps.finance.services.nfe_emission.requests.post", return_value=preview_response) as post_mock,
+            patch("apps.finance.services.nfe_emission.reserve_nfe_request_number") as reserve_mock,
+        ):
+            response_payload = preview_nfe_request(nfe_request=nfe_request)  # type: ignore[arg-type]
+
+        self.assertEqual(response_payload.get("preview_url"), "https://files.test/nfe-preview.pdf")
+        sent_payload = post_mock.call_args.kwargs.get("json", {})
+        self.assertTrue(sent_payload.get("previa_danfe"))
+        reserve_mock.assert_not_called()
+
+    def test_preview_nfse_request_sends_previa_danfe_without_reserving_rps(self) -> None:
+        nfse_request = SimpleNamespace(
+            pk=13,
+            workshop=SimpleNamespace(pk=1),
+            workorder=SimpleNamespace(pk=10),
+            tax_class="REFPREVIEWNFSE",
+        )
+        headers = {
+            "Content-Type": "application/json",
+            "X-Consumer-Key": "consumer-key",
+        }
+        tax_class_response = _mock_response([{"referencia": "REFPREVIEWNFSE", "tipo": "nfse", "status": "ativo", "codigo_servico": "01.05"}])
+        preview_response = _mock_response({"pdf_nfse": "https://files.test/nfse-preview.pdf"})
+
+        with (
+            patch("apps.finance.services.emission.build_nfse_payload", return_value={"rps": [{"servico": {"classe_imposto": "REFPREVIEWNFSE"}}]}),
+            patch("apps.finance.services.emission._build_tax_class_url", return_value="https://webmania.com.br/api/1/nfe/classe-imposto/"),
+            patch("apps.finance.services.emission._build_emit_url", return_value="https://api.webmania.com.br/2/nfse/emissao/"),
+            patch("apps.finance.services.emission._build_headers", return_value=headers),
+            patch("apps.finance.services.emission.requests.get", return_value=tax_class_response),
+            patch("apps.finance.services.emission.requests.post", return_value=preview_response) as post_mock,
+            patch("apps.finance.services.emission.reserve_nfse_request_rps_number") as reserve_mock,
+        ):
+            response_payload = preview_nfse_request(nfse_request=nfse_request)  # type: ignore[arg-type]
+
+        self.assertEqual(response_payload.get("preview_url"), "https://files.test/nfse-preview.pdf")
+        sent_payload = post_mock.call_args.kwargs.get("json", {})
+        self.assertTrue(sent_payload.get("previa_danfe"))
+        reserve_mock.assert_not_called()
+
+    def test_download_nfse_preview_document_retries_after_pending_message(self) -> None:
+        nfse_request = SimpleNamespace(
+            pk=14,
+            workshop=SimpleNamespace(pk=1),
+            workorder=SimpleNamespace(pk=10),
+            tax_class="REFWAITNFSE",
+        )
+        headers = {
+            "Content-Type": "application/json",
+            "X-Consumer-Key": "consumer-key",
+        }
+        tax_class_response = _mock_response([{"referencia": "REFWAITNFSE", "tipo": "nfse", "status": "ativo", "codigo_servico": "01.05"}])
+        ready_response = _mock_response({"pdf_nfse": "https://files.test/nfse-ready-preview.pdf"})
+        ready_response.headers = {"Content-Type": "application/json"}
+        pending_download_response = _mock_response({"msg": "Aguardando PDF do municipio. Ultima atualizacao: 23/04/2026 15:29:42 (Estimativa: 5 minutos)"})
+        pending_download_response.headers = {"Content-Type": "application/json"}
+        pdf_download_response = Mock()
+        pdf_download_response.status_code = 200
+        pdf_download_response.headers = {"Content-Type": "application/pdf", "Content-Disposition": "inline; filename=preview.pdf"}
+        pdf_download_response.content = b"%PDF-ready"
+        pdf_download_response.text = ""
+        pdf_download_response.raise_for_status.return_value = None
+
+        with (
+            patch("apps.finance.services.emission.build_nfse_payload", return_value={"rps": [{"servico": {"classe_imposto": "REFWAITNFSE"}}]}),
+            patch("apps.finance.services.emission._build_tax_class_url", return_value="https://webmania.com.br/api/1/nfe/classe-imposto/"),
+            patch("apps.finance.services.emission._build_emit_url", return_value="https://api.webmania.com.br/2/nfse/emissao/"),
+            patch("apps.finance.services.emission._build_headers", return_value=headers),
+            patch("apps.finance.services.emission.requests.post", return_value=ready_response) as post_mock,
+            patch("apps.finance.services.emission.requests.get", side_effect=[tax_class_response, pending_download_response, pdf_download_response]) as get_mock,
+            patch("apps.finance.services.emission.time.sleep") as sleep_mock,
+        ):
+            downloaded = download_nfse_preview_document(nfse_request=nfse_request)  # type: ignore[arg-type]
+
+        self.assertEqual(downloaded.content, b"%PDF-ready")
+        self.assertEqual(post_mock.call_count, 1)
+        self.assertEqual(get_mock.call_count, 3)
+        sleep_mock.assert_called_once_with(10)
+        preview_get_call = get_mock.call_args_list[-1]
+        self.assertEqual(preview_get_call.kwargs.get("headers"), headers)
+        self.assertEqual(preview_get_call.kwargs.get("timeout"), 60)
 
 
 class NfseEmissionServiceTests(TestCase):
@@ -1926,7 +2049,7 @@ class WebmaniaB2BServiceTests(TestCase):
 
         self.assertEqual(filtered_ids, {"ACC-A-001"})
 
-    def test_sync_b2b_companies_encrypts_nfse_sensitive_fields(self) -> None:
+    def test_sync_b2b_companies_encrypts_nfse_sensitive_fields_without_storing_certificate_blob(self) -> None:
         response_payload = [
             {
                 "id": "9999",
@@ -1951,11 +2074,10 @@ class WebmaniaB2BServiceTests(TestCase):
         company = WebmaniaCompany.objects.get(webmania_company_id="9999")
         self.assertTrue(is_encrypted_secret(company.nfse_password))
         self.assertTrue(is_encrypted_secret(company.nfse_token))
-        self.assertTrue(is_encrypted_secret(company.certificado))
         self.assertTrue(is_encrypted_secret(company.certificado_senha))
         self.assertEqual(decrypt_secret(company.nfse_password), "senha_nfse")
         self.assertEqual(decrypt_secret(company.nfse_token), "token_nfse")
-        self.assertEqual(decrypt_secret(company.certificado), "certificado-base64")
+        self.assertEqual(company.certificado, "")
         self.assertEqual(decrypt_secret(company.certificado_senha), "senha_certificado")
 
     def test_encrypt_secret_roundtrip(self) -> None:
@@ -2708,6 +2830,27 @@ class UnifiedEmissionWizardTests(TestCase):
         workorder.sync_from_budget()
         return workorder
 
+    def _build_product_only_workorder(self, *, suffix: int) -> WorkOrder:
+        budget = Budget(workshop=self.workshop, entry_date=timezone.now().date())
+        budget.save()
+
+        product_group = CatalogGroup.objects.create(workshop=self.workshop, name=f"Grupo Produto Only {suffix}")
+        product = Product.objects.create(
+            workshop=self.workshop,
+            code=f"P-ONLY-{suffix}",
+            unit=Product.Unit.UND,
+            name=f"Produto Only {suffix}",
+            ncm="87089990",
+            group=product_group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+        )
+        BudgetItem.objects.create(workshop=self.workshop, budget=budget, product=product, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        workorder.sync_from_budget()
+        return workorder
+
     def _build_workorder_with_kit(self, *, suffix: int, kit_service_selling_price: str | None = None) -> tuple[WorkOrder, WorkOrderItem, Product, Service]:
         budget = Budget(workshop=self.workshop, entry_date=timezone.now().date())
         budget.save()
@@ -2881,6 +3024,7 @@ class UnifiedEmissionWizardTests(TestCase):
                 {
                     "tax_class": "REFNFSE901",
                     "service_description": "Servico executado na OS unificada",
+                    "additional_information": "Observacao complementar da emissao unificada",
                 },
             )
 
@@ -2892,10 +3036,75 @@ class UnifiedEmissionWizardTests(TestCase):
         self.assertEqual(nfse_request.pricing_slider, 25)
         self.assertEqual(nfse_request.tax_class, "REFNFSE901")
         self.assertEqual(nfse_request.service_description, "Servico executado na OS unificada")
+        self.assertEqual(nfse_request.additional_information, "Observacao complementar da emissao unificada")
         self.assertEqual(nfse_request.current_step, 3)
         self.assertEqual(nfse_request.status, NfseRequestStatus.PROCESSING)
         emit_mock.assert_called_once_with(nfse_request=nfse_request, request=ANY)
         sync_mock.assert_called_once()
+
+    def test_unified_wizard_opens_nfe_preview_modal_before_transmission(self) -> None:
+        tax_classes = [{"referencia": "REFNFE902", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e"}]
+
+        with (
+            patch("apps.finance.views.emission.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.emission.emit_nfe_request") as emit_mock,
+        ):
+            self._advance_to_step_5(pricing_slider="-15")
+
+            response = self.client.post(self._wizard_url(step=5), {"note_mode": "nfe"})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), self._wizard_url(step=6))
+
+            response = self.client.post(
+                self._wizard_url(step=6),
+                {
+                    "tax_class": "REFNFE902",
+                    "intent": "preview",
+                },
+            )
+
+        nfe_request = NfeRequest.objects.get(workorder=self.workorder)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Previa da emissao")
+        self.assertContains(response, "Transmitir")
+        self.assertContains(response, reverse("finance:nfe_preview_pdf", kwargs={"pk": nfe_request.pk}))
+        emit_mock.assert_not_called()
+
+    def test_unified_wizard_shows_note_mode_with_only_nfse_enabled_when_products_total_is_zero(self) -> None:
+        self.workorder = self._build_service_only_workorder(suffix=120)
+
+        self._advance_to_step_4(tipo="nfse")
+
+        response = self.client.post(self._wizard_url(step=4), {"pricing_slider": "0"}, follow=True)
+
+        self.assertEqual(response.redirect_chain[-1][0], self._wizard_url(step=5))
+        self.assertContains(response, "Nao ha saldo de produtos para emitir NF-e com a configuracao atual.")
+        self.assertContains(response, 'name="note_mode" value="nfse"', html=False)
+        self.assertContains(response, 'name="note_mode" value="nfse" class="radio radio-primary mt-1" checked', html=False)
+        self.assertContains(response, 'name="note_mode" value="nfe" class="radio radio-primary mt-1"  disabled', html=False)
+        self.assertContains(response, 'name="note_mode" value="both" class="radio radio-primary mt-1"  disabled', html=False)
+
+        session = self.client.session
+        wizard_state = session.get(self._wizard_session_key(), {})
+        self.assertEqual(wizard_state.get("note_mode"), "nfse")
+
+    def test_unified_wizard_shows_note_mode_with_only_nfe_enabled_when_services_total_is_zero(self) -> None:
+        self.workorder = self._build_product_only_workorder(suffix=121)
+
+        self._advance_to_step_4(tipo="nfe")
+
+        response = self.client.post(self._wizard_url(step=4), {"pricing_slider": "0"}, follow=True)
+
+        self.assertEqual(response.redirect_chain[-1][0], self._wizard_url(step=5))
+        self.assertContains(response, "Nao ha saldo de servicos para emitir NFS-e com a configuracao atual.")
+        self.assertContains(response, 'name="note_mode" value="nfe"', html=False)
+        self.assertContains(response, 'name="note_mode" value="nfe" class="radio radio-primary mt-1" checked', html=False)
+        self.assertContains(response, 'name="note_mode" value="nfse" class="radio radio-primary mt-1"  disabled', html=False)
+        self.assertContains(response, 'name="note_mode" value="both" class="radio radio-primary mt-1"  disabled', html=False)
+
+        session = self.client.session
+        wizard_state = session.get(self._wizard_session_key(), {})
+        self.assertEqual(wizard_state.get("note_mode"), "nfe")
 
     def test_unified_summary_step_uses_step5_layout_and_slider_preview_updates_partial_regions(self) -> None:
         self._advance_to_step_4()
@@ -3416,6 +3625,35 @@ class CompatibilityEmissionUpdateFlowTests(TestCase):
         nfe_request.refresh_from_db()
         self.assertEqual(nfe_request.pricing_slider, -100)
 
+    def test_nfe_update_step_three_opens_preview_modal_before_transmission(self) -> None:
+        workorder = self._build_workorder_with_product_and_service(suffix=105)
+        nfe_request = NfeRequest.objects.create(
+            workshop=self.workshop,
+            workorder=workorder,
+            current_step=3,
+            status=NfeRequestStatus.CHECKING_PRODUCTS,
+            tax_class="REFNFE952",
+            pricing_slider=0,
+        )
+        tax_classes = [{"referencia": "REFNFE952", "tipo": "nfe", "status": "ativo", "descricao": "Classe NF-e preview"}]
+
+        with (
+            patch("apps.finance.views.request_workflow.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.nfe.emit_nfe_request") as emit_mock,
+        ):
+            response = self.client.post(
+                f"{reverse('finance:nfe_update', kwargs={'pk': nfe_request.pk})}?step=3",
+                data={"pricing_slider": -100, "tax_class": "REFNFE952", "intent": "preview"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Previa da NF-e")
+        self.assertContains(response, "Transmitir")
+        self.assertContains(response, reverse("finance:nfe_preview_pdf", kwargs={"pk": nfe_request.pk}))
+        emit_mock.assert_not_called()
+        nfe_request.refresh_from_db()
+        self.assertEqual(nfe_request.pricing_slider, -100)
+
     def test_nfe_update_blocks_emission_when_product_has_invalid_ncm(self) -> None:
         workorder = self._build_workorder_with_product_and_service(suffix=104)
         product = Product.objects.get(workshop=self.workshop, code="P-UP-104")
@@ -3513,6 +3751,41 @@ class CompatibilityEmissionUpdateFlowTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.headers.get("Location"), reverse("finance:nfse_list"))
+        nfse_request.refresh_from_db()
+        self.assertEqual(nfse_request.pricing_slider, 100)
+        self.assertEqual(nfse_request.service_description, "Descricao atualizada")
+
+    def test_nfse_update_step_three_opens_preview_modal_before_transmission(self) -> None:
+        workorder = self._build_workorder_with_product_and_service(suffix=106)
+        nfse_request = NfseRequest.objects.create(
+            workshop=self.workshop,
+            workorder=workorder,
+            current_step=3,
+            status=NfseRequestStatus.CHECKING_SERVICES,
+            tax_class="REFNFSE952",
+            pricing_slider=0,
+        )
+        tax_classes = [{"referencia": "REFNFSE952", "tipo": "nfse", "status": "ativo", "descricao": "Classe NFS-e preview", "codigo_servico": "01.05"}]
+
+        with (
+            patch("apps.finance.views.request_workflow.list_tax_classes", return_value=tax_classes),
+            patch("apps.finance.views.nfse.emit_nfse_request") as emit_mock,
+        ):
+            response = self.client.post(
+                f"{reverse('finance:nfse_update', kwargs={'pk': nfse_request.pk})}?step=3",
+                data={
+                    "pricing_slider": 100,
+                    "tax_class": "REFNFSE952",
+                    "service_description": "Descricao atualizada",
+                    "intent": "preview",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Previa da NFS-e")
+        self.assertContains(response, "Transmitir")
+        self.assertContains(response, reverse("finance:nfse_preview_pdf", kwargs={"pk": nfse_request.pk}))
+        emit_mock.assert_not_called()
         nfse_request.refresh_from_db()
         self.assertEqual(nfse_request.pricing_slider, 100)
         self.assertEqual(nfse_request.service_description, "Descricao atualizada")
@@ -3683,6 +3956,26 @@ class FiscalDocumentDetailFlowTests(TestCase):
         self.assertIn("nfe-danfe-12345.pdf", response["Content-Disposition"])
         self.assertEqual(response.content, b"pdf-content")
 
+    def test_nfe_preview_pdf_view_returns_inline_pdf(self) -> None:
+        nfe_request = NfeRequest.objects.create(workshop=self.workshop, workorder=self.workorder, tax_class="REFNFEPREVIEW")
+
+        with patch(
+            "apps.finance.views.nfe.download_nfe_preview_document",
+            return_value=DownloadedWebmaniaDocument(
+                content=b"preview-pdf-content",
+                content_type="application/pdf",
+                content_disposition="",
+            ),
+        ):
+            response = self.client.get(reverse("finance:nfe_preview_pdf", kwargs={"pk": nfe_request.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn('inline; filename="nfe-previa-', response["Content-Disposition"])
+        self.assertEqual(response["Cache-Control"], "no-store")
+        self.assertIsNone(response.headers.get("X-Frame-Options"))
+        self.assertEqual(response.content, b"preview-pdf-content")
+
     def test_nfe_cancel_view_cancels_document_and_updates_status(self) -> None:
         nfe_request = NfeRequest.objects.create(workshop=self.workshop, workorder=self.workorder, tax_class="REFNFE122")
         item = NfeItem.objects.create(
@@ -3826,6 +4119,51 @@ class FiscalDocumentDetailFlowTests(TestCase):
         self.assertEqual(response["Content-Type"], "application/pdf")
         self.assertIn("nfse-pdf_nfse-54321.pdf", response["Content-Disposition"])
         self.assertEqual(response.content, b"pdf-content-nfse")
+
+    def test_nfse_preview_pdf_view_returns_inline_pdf(self) -> None:
+        nfse_request = NfseRequest.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            tax_class="REFNFSEPREVIEW",
+            service_description="Servico preview",
+        )
+
+        with patch(
+            "apps.finance.views.nfse.download_nfse_preview_document",
+            return_value=DownloadedWebmaniaDocument(
+                content=b"preview-pdf-content-nfse",
+                content_type="application/pdf",
+                content_disposition="",
+            ),
+        ):
+            response = self.client.get(reverse("finance:nfse_preview_pdf", kwargs={"pk": nfse_request.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn('inline; filename="nfse-previa-', response["Content-Disposition"])
+        self.assertEqual(response["Cache-Control"], "no-store")
+        self.assertIsNone(response.headers.get("X-Frame-Options"))
+        self.assertEqual(response.content, b"preview-pdf-content-nfse")
+
+    def test_nfse_preview_pdf_view_renders_friendly_error_page(self) -> None:
+        nfse_request = NfseRequest.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            tax_class="REFNFSEERROR",
+            service_description="Servico com erro",
+        )
+
+        with patch(
+            "apps.finance.views.nfse.download_nfse_preview_document",
+            side_effect=NfseEmissionError("O PDF da previa da NFS-e ainda esta sendo gerado pelo municipio. Tente novamente em alguns segundos."),
+        ):
+            response = self.client.get(reverse("finance:nfse_preview_pdf", kwargs={"pk": nfse_request.pk}))
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response["Cache-Control"], "no-store")
+        self.assertIsNone(response.headers.get("X-Frame-Options"))
+        self.assertContains(response, "Previa da NFS-e indisponivel", status_code=502)
+        self.assertContains(response, "Tente novamente em alguns segundos", status_code=502)
 
 
 class IssuedDocumentsViewTests(TestCase):
@@ -4823,6 +5161,28 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertEqual(monthly_card["results"][1]["tone"], "neutral")
         self.assertContains(response, 'style="color: #166534;"')
         self.assertContains(response, 'style="color: #991b1b;"')
+
+    def test_reports_home_view_displays_collaborator_payroll_summary_card(self) -> None:
+        collaborator = self._create_collaborator(suffix=55, name="Colaborador Folha")
+        collaborator.salary = Money("1000.00", "BRL")
+        collaborator.transport_allowance_daily = Money("5.00", "BRL")
+        collaborator.save(update_fields=["salary", "transport_allowance_daily"])
+        today = timezone.localdate()
+        WorkshopCost.objects.create(workshop=self.workshop, month=today.month, year=today.year, mechanic_quantity=1, work_days_per_month=20)
+
+        payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=today)
+        assert payroll.financial_movement is not None
+        payroll.financial_movement.is_paid = True
+        payroll.financial_movement.save(update_fields=["is_paid"])
+
+        response = self.client.get(reverse("finance:reports_home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Folha e Comissões do Mês")
+        self.assertContains(response, "Folhas previstas")
+        self.assertContains(response, "R$ 1.100,00")
+        self.assertContains(response, "Folha consolidada por colaborador")
+        self.assertContains(response, "Holerite")
 
     def test_reports_home_view_displays_current_year_totals_in_second_card(self) -> None:
         today = timezone.localdate()

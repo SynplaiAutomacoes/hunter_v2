@@ -4,6 +4,8 @@ from copy import deepcopy
 import json
 import logging
 import re
+import time
+import unicodedata
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 from urllib.parse import urlencode, urlparse
@@ -26,6 +28,7 @@ from apps.finance.services.webmania_auth import (
     sanitize_webmania_setting,
     should_use_global_webmania_auth,
 )
+from apps.finance.services.webmania_documents import DownloadedWebmaniaDocument
 from apps.finance.services.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
 
 
@@ -167,7 +170,7 @@ def _is_nfse_tax_class(payload: dict[str, Any]) -> bool:
 def _validate_tax_class_for_emission(*, nfse_request: NfseRequest, headers: dict[str, str]) -> dict[str, Any]:
     reference = str(nfse_request.tax_class or "").strip()
     if not reference:
-        raise NfseEmissionError("Selecione uma classe de imposto para emitir a NFS-e.")
+        raise NfseEmissionError("Selecione uma classe de imposto para emitir a Nota Fiscal de Serviço.")
 
     endpoint = _build_tax_class_url()
     _debug_print("Validando classe de imposto para emissao", {"reference": reference, "endpoint": endpoint})
@@ -209,7 +212,7 @@ def _validate_tax_class_for_emission(*, nfse_request: NfseRequest, headers: dict
         raise NfseEmissionError("A classe de imposto selecionada não está disponível para estas credenciais da Webmania. Atualize as classes e selecione uma referência válida.")
 
     if not _is_nfse_tax_class(matched_tax_class):
-        raise NfseEmissionError("A classe de imposto selecionada não é do tipo NFS-e.")
+        raise NfseEmissionError("A classe de imposto selecionada não é do tipo Nota Fiscal de Serviço.")
 
     _debug_print(
         "Classe de imposto validada para emissao",
@@ -325,14 +328,14 @@ def _build_taker_payload(nfse_request: NfseRequest) -> dict[str, str]:
     if len(document) == 14:
         razao_social = (customer.name or "").strip()
         if not razao_social:
-            raise NfseEmissionError("Razão social do cliente é obrigatória para emissão da NFS-e com CNPJ.")
+            raise NfseEmissionError("Razão social do cliente é obrigatória para emissão da Nota Fiscal de Serviço com CNPJ.")
 
         return {
             "cnpj": customer.cpf_or_cnpj,
             "razao_social": razao_social,
         }
 
-    raise NfseEmissionError("Documento do cliente inválido para emissão da NFS-e.")
+    raise NfseEmissionError("Documento do cliente inválido para emissão da Nota Fiscal de Serviço.")
 
 
 def _default_service_description(nfse_request: NfseRequest) -> str:
@@ -340,6 +343,10 @@ def _default_service_description(nfse_request: NfseRequest) -> str:
         return nfse_request.service_description.strip()
 
     return build_default_service_description_for_workorder(workorder=nfse_request.workorder)
+
+
+def _additional_information(nfse_request: NfseRequest) -> str:
+    return str(getattr(nfse_request, "additional_information", "") or "").strip()
 
 
 def _service_total_value(nfse_request: NfseRequest, *, slider_override: int | None = None) -> str:
@@ -351,7 +358,7 @@ def _service_total_value(nfse_request: NfseRequest, *, slider_override: int | No
     amount = allocation.services_target.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     if amount <= 0:
-        raise NfseEmissionError("A OS selecionada nao possui saldo de servicos para emissao de NFS-e com a configuracao atual do slider.")
+        raise NfseEmissionError("A OS selecionada nao possui saldo de servicos para emissao de Nota Fiscal de Serviço com a configuracao atual do slider.")
 
     return str(amount)
 
@@ -368,6 +375,9 @@ def build_nfse_payload(*, nfse_request: NfseRequest, request: HttpRequest | None
         },
         "tomador": _build_taker_payload(nfse_request),
     }
+    additional_information = _additional_information(nfse_request)
+    if additional_information:
+        first_rps["servico"]["informacoes_complementares"] = additional_information
     if nfse_request.reserved_rps_number is not None:
         first_rps["numero"] = int(nfse_request.reserved_rps_number)
     if str(nfse_request.reserved_rps_series or "").strip():
@@ -407,6 +417,198 @@ def build_nfse_payload(*, nfse_request: NfseRequest, request: HttpRequest | None
     return payload
 
 
+def _extract_nfse_preview_url(data: dict[str, Any]) -> str:
+    for key in ("pdf_nfse", "danfe", "pdf", "url", "pdf_rps"):
+        value = str(data.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _is_json_content_type(content_type: str) -> bool:
+    normalized_content_type = content_type.lower()
+    return "application/json" in normalized_content_type or "text/json" in normalized_content_type
+
+
+def _normalize_preview_message(text: str) -> str:
+    normalized = unicodedata.normalize("NFKD", text)
+    return "".join(char for char in normalized if not unicodedata.combining(char)).lower()
+
+
+def _is_preview_pending_message(message: str) -> bool:
+    normalized_message = _normalize_preview_message(message)
+    return "aguardando pdf" in normalized_message and "municipio" in normalized_message
+
+
+def _extract_preview_pending_message_from_response(response: requests.Response) -> str:
+    content_type = str(response.headers.get("Content-Type") or "").lower()
+
+    if _is_json_content_type(content_type):
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        if isinstance(payload, dict):
+            message = str(payload.get("msg") or payload.get("message") or payload.get("error") or "").strip()
+            if message and _is_preview_pending_message(message):
+                return message
+        return ""
+
+    body_text = response.text.strip()
+    if body_text and _is_preview_pending_message(body_text):
+        return body_text
+
+    return ""
+
+
+NFSE_PREVIEW_RETRY_DELAY_SECONDS = 10
+NFSE_PREVIEW_MAX_ATTEMPTS = 5
+
+
+def preview_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None = None, slider_override: int | None = None) -> dict[str, Any]:
+    emit_url = _build_emit_url()
+    headers = _build_headers(workshop=nfse_request.workshop)
+
+    tax_class_payload = _validate_tax_class_for_emission(nfse_request=nfse_request, headers=headers)
+    payload = build_nfse_payload(nfse_request=nfse_request, request=request, slider_override=slider_override)
+    payload["previa_danfe"] = True
+
+    def _post_preview(current_payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            response = requests.post(
+                emit_url,
+                json=current_payload,
+                headers=headers,
+                timeout=30,
+            )
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            error_message = build_webmania_request_exception_message(exc, default="Falha ao gerar previa da Nota Fiscal de Serviço", scope="nfse")
+            raise NfseEmissionError(error_message) from exc
+
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise NfseEmissionError("Resposta invalida da API de previa da Nota Fiscal de Serviço.") from exc
+
+        if not isinstance(data, dict):
+            raise NfseEmissionError("Resposta invalida da API de previa da Nota Fiscal de Serviço.")
+
+        return data
+
+    data = _post_preview(payload)
+    error_message = extract_webmania_error_message(data.get("error") or data.get("msg") or data.get("message"), scope="nfse")
+    if error_message and _is_tax_class_not_found_error(error_message):
+        fallback_payload = _build_fallback_payload_with_explicit_tax_data(payload=payload, tax_class_payload=tax_class_payload)
+        data = _post_preview(fallback_payload)
+        error_message = extract_webmania_error_message(data.get("error") or data.get("msg") or data.get("message"), scope="nfse")
+
+    if error_message:
+        raise NfseEmissionError(error_message)
+
+    preview_url = _extract_nfse_preview_url(data)
+    if not preview_url:
+        raise NfseEmissionError("A API da Webmania nao retornou a URL da previa da Nota Fiscal de Serviço.")
+
+    return {**data, "preview_url": preview_url}
+
+
+def download_nfse_preview_document(*, nfse_request: NfseRequest, request: HttpRequest | None = None, slider_override: int | None = None) -> DownloadedWebmaniaDocument:
+    emit_url = _build_emit_url()
+    headers = _build_headers(workshop=nfse_request.workshop)
+
+    tax_class_payload = _validate_tax_class_for_emission(nfse_request=nfse_request, headers=headers)
+    payload = build_nfse_payload(nfse_request=nfse_request, request=request, slider_override=slider_override)
+    payload["previa_danfe"] = True
+
+    def _post_preview(current_payload: dict[str, Any]) -> requests.Response:
+        try:
+            response = requests.post(
+                emit_url,
+                json=current_payload,
+                headers=headers,
+                timeout=60,
+            )
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            error_message = build_webmania_request_exception_message(exc, default="Falha ao gerar previa da Nota Fiscal de Serviço", scope="nfse")
+            raise NfseEmissionError(error_message) from exc
+        return response
+
+    def _parse_json(current_response: requests.Response) -> dict[str, Any]:
+        try:
+            data = current_response.json()
+        except ValueError as exc:
+            raise NfseEmissionError("Resposta invalida da API de previa da Nota Fiscal de Serviço.") from exc
+
+        if not isinstance(data, dict):
+            raise NfseEmissionError("Resposta invalida da API de previa da Nota Fiscal de Serviço.")
+        return data
+
+    def _response_to_document(current_response: requests.Response, *, current_payload: dict[str, Any]) -> DownloadedWebmaniaDocument | None:
+        content_type = str(current_response.headers.get("Content-Type") or "application/pdf")
+        if not _is_json_content_type(content_type):
+            pending_message = _extract_preview_pending_message_from_response(current_response)
+            if pending_message:
+                return None
+
+        data = _parse_json(current_response)
+        raw_message = str(data.get("msg") or data.get("message") or "").strip()
+        if raw_message and _is_preview_pending_message(raw_message):
+            return None
+
+        error_message = extract_webmania_error_message(data.get("error") or data.get("msg") or data.get("message"), scope="nfse")
+        if error_message and _is_tax_class_not_found_error(error_message):
+            fallback_payload = _build_fallback_payload_with_explicit_tax_data(payload=current_payload, tax_class_payload=tax_class_payload)
+            fallback_response = _post_preview(fallback_payload)
+            return _response_to_document(fallback_response, current_payload=fallback_payload)
+
+        if error_message:
+            raise NfseEmissionError(error_message)
+
+        preview_url = _extract_nfse_preview_url(data)
+        if not preview_url:
+            raise NfseEmissionError("A API da Webmania nao retornou o PDF da previa da Nota Fiscal de Serviço.")
+
+        for download_attempt in range(1, NFSE_PREVIEW_MAX_ATTEMPTS + 1):
+            try:
+                download_response = requests.get(preview_url, headers=headers, timeout=60)
+                download_response.raise_for_status()
+            except requests.RequestException as exc:
+                error_message = build_webmania_request_exception_message(exc, default="Falha ao baixar previa da Nota Fiscal de Serviço", scope="nfse")
+                raise NfseEmissionError(error_message) from exc
+
+            pending_message = _extract_preview_pending_message_from_response(download_response)
+            if pending_message:
+                if download_attempt < NFSE_PREVIEW_MAX_ATTEMPTS:
+                    time.sleep(NFSE_PREVIEW_RETRY_DELAY_SECONDS)
+                    continue
+                raise NfseEmissionError("O PDF da previa da Nota Fiscal de Serviço ainda esta sendo gerado pelo municipio. Tente novamente em alguns segundos.")
+
+            download_content_type = str(download_response.headers.get("Content-Type") or "application/octet-stream")
+            if "application/pdf" not in download_content_type.lower() and not download_response.content.startswith(b"%PDF"):
+                raise NfseEmissionError("A previa da Nota Fiscal de Serviço ainda nao retornou um PDF valido. Tente novamente em alguns segundos.")
+
+            return DownloadedWebmaniaDocument(
+                content=download_response.content,
+                content_type=download_content_type,
+                content_disposition=str(download_response.headers.get("Content-Disposition") or ""),
+            )
+
+        raise NfseEmissionError("O PDF da previa da Nota Fiscal de Serviço ainda esta sendo gerado pelo municipio. Tente novamente em alguns segundos.")
+
+    for attempt in range(1, NFSE_PREVIEW_MAX_ATTEMPTS + 1):
+        response = _post_preview(payload)
+        document = _response_to_document(response, current_payload=payload)
+        if document is not None:
+            return document
+
+        if attempt < NFSE_PREVIEW_MAX_ATTEMPTS:
+            time.sleep(NFSE_PREVIEW_RETRY_DELAY_SECONDS)
+
+    raise NfseEmissionError("O PDF da previa da Nota Fiscal de Serviço ainda esta sendo gerado pelo municipio. Tente novamente em alguns segundos.")
+
+
 def emit_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None = None, slider_override: int | None = None) -> dict[str, Any]:
     emit_url = _build_emit_url()
     headers = _build_headers(workshop=nfse_request.workshop)
@@ -422,7 +624,7 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None 
     payload = build_nfse_payload(nfse_request=nfse_request, request=request, slider_override=slider_override)
 
     _debug_print(
-        "Iniciando emissao de NFS-e",
+        "Iniciando emissao de Nota Fiscal de Serviço",
         {
             "nfse_request_id": nfse_request.pk,
             "workorder_id": nfse_request.workorder.pk,
@@ -449,9 +651,9 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None 
         _debug_print("Body bruto da emissao", response.text)
         response.raise_for_status()
     except requests.RequestException as exc:
-        error_message = build_webmania_request_exception_message(exc, default="Falha ao emitir NFS-e", scope="nfse")
+        error_message = build_webmania_request_exception_message(exc, default="Falha ao emitir Nota Fiscal de Serviço", scope="nfse")
         _debug_print("Falha HTTP na emissao", error_message)
-        logger.exception("Erro ao emitir NFS-e", extra={"workorder_id": nfse_request.workorder.pk})
+        logger.exception("Erro ao emitir Nota Fiscal de Serviço", extra={"workorder_id": nfse_request.workorder.pk})
         logger.warning(
             "nfse_emission_http_error nfse_request_id=%s workshop_id=%s error=%s",
             getattr(nfse_request, "pk", None),
@@ -464,12 +666,12 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None 
         data = response.json()
     except ValueError as exc:
         _debug_print("Resposta nao e JSON", response.text)
-        raise NfseEmissionError("Resposta inválida da API de emissão de NFS-e.") from exc
+        raise NfseEmissionError("Resposta inválida da API de emissão de Nota Fiscal de Serviço.") from exc
 
     _debug_print("JSON parseado da emissao", data)
 
     if not isinstance(data, dict):
-        raise NfseEmissionError("Resposta inválida da API de emissão de NFS-e.")
+        raise NfseEmissionError("Resposta inválida da API de emissão de Nota Fiscal de Serviço.")
 
     error_message = extract_webmania_error_message(data.get("error") or data.get("msg") or data.get("message"), scope="nfse")
     if error_message:
@@ -501,7 +703,7 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None 
                 _debug_print("Body bruto da emissao com impostos explicitos", fallback_response.text)
                 fallback_response.raise_for_status()
             except requests.RequestException as exc:
-                fallback_error_message = build_webmania_request_exception_message(exc, default="Falha ao emitir NFS-e", scope="nfse")
+                fallback_error_message = build_webmania_request_exception_message(exc, default="Falha ao emitir Nota Fiscal de Serviço", scope="nfse")
                 _debug_print("Falha HTTP na emissao com impostos explicitos", fallback_error_message)
                 logger.warning(
                     "nfse_emission_retry_http_error nfse_request_id=%s workshop_id=%s error=%s",
@@ -515,11 +717,11 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None 
                 fallback_data = fallback_response.json()
             except ValueError as exc:
                 _debug_print("Resposta da emissao com impostos explicitos nao e JSON", fallback_response.text)
-                raise NfseEmissionError("Resposta inválida da API de emissão de NFS-e.") from exc
+                raise NfseEmissionError("Resposta inválida da API de emissão de Nota Fiscal de Serviço.") from exc
 
             _debug_print("JSON parseado da emissao com impostos explicitos", fallback_data)
             if not isinstance(fallback_data, dict):
-                raise NfseEmissionError("Resposta inválida da API de emissão de NFS-e.")
+                raise NfseEmissionError("Resposta inválida da API de emissão de Nota Fiscal de Serviço.")
 
             fallback_business_error = extract_webmania_error_message(
                 fallback_data.get("error") or fallback_data.get("msg") or fallback_data.get("message"),
@@ -543,7 +745,7 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None 
                 raise NfseEmissionError(fallback_message)
 
             _debug_print(
-                "Emissao de NFS-e aceita com impostos explicitos",
+                "Emissao de Nota Fiscal de Serviço aceita com impostos explicitos",
                 {
                     "modelo": fallback_data.get("modelo"),
                     "status": fallback_data.get("status"),
@@ -570,7 +772,7 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None 
         raise NfseEmissionError(message)
 
     _debug_print(
-        "Emissao de NFS-e aceita",
+        "Emissao de Nota Fiscal de Serviço aceita",
         {
             "modelo": data.get("modelo"),
             "status": data.get("status"),
@@ -595,7 +797,7 @@ def cancel_nfse_document(*, workshop, event_uuid: str, reason_code: int) -> dict
 
     event_uuid_value = str(event_uuid or "").strip()
     if not event_uuid_value:
-        raise NfseEmissionError("Nao foi possivel identificar a NFS-e para cancelamento.")
+        raise NfseEmissionError("Nao foi possivel identificar a Nota Fiscal de Serviço para cancelamento.")
 
     try:
         motivo = int(reason_code)
@@ -611,16 +813,16 @@ def cancel_nfse_document(*, workshop, event_uuid: str, reason_code: int) -> dict
         response = requests.put(cancel_url, json=payload, headers=headers, timeout=30)
         response.raise_for_status()
     except requests.RequestException as exc:
-        message = build_webmania_request_exception_message(exc, default="Falha ao cancelar NFS-e", scope="nfse")
+        message = build_webmania_request_exception_message(exc, default="Falha ao cancelar Nota Fiscal de Serviço", scope="nfse")
         raise NfseEmissionError(message) from exc
 
     try:
         data = response.json()
     except ValueError as exc:
-        raise NfseEmissionError("Resposta invalida da API de cancelamento de NFS-e.") from exc
+        raise NfseEmissionError("Resposta invalida da API de cancelamento de Nota Fiscal de Serviço.") from exc
 
     if not isinstance(data, dict):
-        raise NfseEmissionError("Resposta invalida da API de cancelamento de NFS-e.")
+        raise NfseEmissionError("Resposta invalida da API de cancelamento de Nota Fiscal de Serviço.")
 
     error_message = extract_webmania_error_message(data.get("error") or data.get("msg") or data.get("message"), scope="nfse")
     if error_message:
@@ -798,7 +1000,7 @@ def sync_emission_response(*, nfse_request: NfseRequest, response_payload: dict[
             mapped_item["number"] = str(nfse_request.reserved_rps_number)
         item_uuid = mapped_item.pop("uuid", None)
         if not item_uuid:
-            _debug_print("NFS-e sem UUID, sincronizacao ignorada", response_payload)
+            _debug_print("Nota Fiscal de Serviço sem UUID, sincronizacao ignorada", response_payload)
             return
 
         item, item_created = NfseItem.objects.update_or_create(
@@ -813,7 +1015,7 @@ def sync_emission_response(*, nfse_request: NfseRequest, response_payload: dict[
             },
         )
         _debug_print(
-            "Item de NFS-e sincronizado",
+            "Item de Nota Fiscal de Serviço sincronizado",
             {
                 "uuid": str(item.uuid),
                 "created": item_created,

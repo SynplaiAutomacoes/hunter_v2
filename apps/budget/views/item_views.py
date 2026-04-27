@@ -724,7 +724,10 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     )
 
                 for item_id in selected_ids:
-                    BudgetItem.objects.get_or_create(workshop=self.workshop, budget=budget, kit_id=item_id, defaults={"quantity": 1})
+                    item, created = BudgetItem.objects.get_or_create(workshop=self.workshop, budget=budget, kit_id=item_id, defaults={"quantity": 1})
+                    if not created:
+                        item.quantity += 1
+                        item.save()
 
                 # Reset etapas 5 e 6 após modificar a etapa 4
                 reset_steps_after_step_4(budget)
@@ -736,6 +739,9 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 item_filter = {f"{item_type}_id": item_id}
 
                 budget_item, created = BudgetItem.objects.get_or_create(workshop=self.workshop, budget=budget, **item_filter, defaults={"quantity": 1})
+                if not created:
+                    budget_item.quantity += 1
+                    budget_item.save()
 
                 created_items.append(budget_item.pk)
         except Exception:

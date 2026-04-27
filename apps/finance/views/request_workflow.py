@@ -3,7 +3,7 @@ from __future__ import annotations
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views.generic import CreateView
 
@@ -11,6 +11,45 @@ from apps.core.forms import MultiStepFormMixin
 from apps.finance.services.tax_classes import TaxClassServiceError, list_tax_classes
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import get_active_workshop_or_404
+
+
+def build_preview_hidden_fields(*, cleaned_data: dict[str, object]) -> list[dict[str, str]]:
+    hidden_fields: list[dict[str, str]] = []
+    for name, value in cleaned_data.items():
+        if value is None:
+            normalized_value = ""
+        elif isinstance(value, bool):
+            normalized_value = "1" if value else ""
+        else:
+            normalized_value = str(value)
+        hidden_fields.append({"name": str(name), "value": normalized_value})
+    return hidden_fields
+
+
+def render_emission_preview_modal(
+    *,
+    request,
+    title: str,
+    previews: list[dict[str, str]],
+    transmit_url: str,
+    hidden_fields: list[dict[str, str]],
+    description: str = "",
+) -> HttpResponse:
+    response = render(
+        request,
+        "finance/partials/emission_preview_modal.html",
+        {
+            "title": title,
+            "previews": previews,
+            "transmit_url": transmit_url,
+            "hidden_fields": hidden_fields,
+            "description": description,
+        },
+    )
+    if getattr(request, "htmx", False):
+        response["HX-Retarget"] = "#modal-container"
+        response["HX-Reswap"] = "innerHTML"
+    return response
 
 
 class SharedEmissionRequestCreateBaseView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixin, CreateView):
@@ -117,6 +156,9 @@ class SharedEmissionRequestCreateBaseView(LoginRequiredMixin, WorkshopScopedMixi
     def _finalize_emission(self) -> bool:
         raise NotImplementedError
 
+    def _build_preview_response(self, *, form) -> HttpResponse:
+        raise NotImplementedError
+
     def form_valid(self, form):
         form.instance.workshop = self.workshop
         self.object = form.save()
@@ -138,6 +180,9 @@ class SharedEmissionRequestCreateBaseView(LoginRequiredMixin, WorkshopScopedMixi
                 response["HX-Push-Url"] = success_url
                 return response
             return redirect(success_url)
+
+        if self.request.POST.get("intent") == "preview":
+            return self._build_preview_response(form=form)
 
         if not self._finalize_emission():
             step_url = self._step_url(step=current_step)

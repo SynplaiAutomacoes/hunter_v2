@@ -35,7 +35,6 @@ _SENSITIVE_COMPANY_FIELDS = (
     "nfse_password",
     "nfse_token",
     "certificado_senha",
-    "certificado",
 )
 
 

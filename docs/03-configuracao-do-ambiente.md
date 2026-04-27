@@ -16,6 +16,29 @@ Instale antes de qualquer coisa:
 - `npm`
 - Docker / Docker Compose
 
+### Dependencia nativa para conversao de logo SVG
+
+O fluxo de logomarca usa `CairoSVG` para converter SVG em PNG antes de salvar no bucket e sincronizar com a Webmania. No Windows, isso exige o runtime nativo do Cairo.
+
+Opcao recomendada no Windows:
+
+1. instale o GTK3 Runtime ou outro pacote que forneca `libcairo-2.dll`
+2. adicione a pasta `bin` desse runtime ao `PATH`
+3. feche e abra o terminal novamente
+4. rode `uv sync`
+
+Exemplo comum de pasta esperada no `PATH`:
+
+- `C:\Program Files\GTK3-Runtime Win64\bin`
+
+Validacao rapida:
+
+```bash
+uv run python -c "import cairosvg; print('ok')"
+```
+
+Se esse comando falhar com erro sobre `libcairo-2.dll`, o runtime do Cairo ainda nao esta disponivel para o Python.
+
 ## Setup local minimo
 
 No root do projeto:
@@ -26,6 +49,12 @@ npm ci
 docker compose up -d postgres
 uv run python manage.py migrate
 uv run python manage.py runserver
+```
+
+Se voce pretende subir logomarca em SVG no ambiente local, valide tambem:
+
+```bash
+uv run python -c "import cairosvg; print('cairosvg pronto')"
 ```
 
 Se quiser base inicial com dados de demonstracao:
@@ -105,14 +134,15 @@ O projeto usa `os.getenv(...)` diretamente em `config/settings.py` e em alguns p
 | `SUPERSIGN_API_KEY` | chave de integracao |
 | `SUPERSIGN_FOLDER_ID` | pasta/container de documentos |
 
-### MongoDB
+### Storage Bucket S3 compativel
 
 | Variavel | Uso |
 | --- | --- |
-| `MONGODB_URI` | conexao com o MongoDB |
-| `MONGODB_DB_NAME` | nome da base |
-| `MONGODB_CERT_BUCKET` | bucket GridFS para certificados |
-| `MONGODB_LOGO_BUCKET` | bucket GridFS para logos |
+| `ACCESS_KEY_ID` | chave de acesso do bucket |
+| `SECRET_ACCESS_KEY` | segredo do bucket |
+| `BUCKET` | nome do bucket |
+| `ENDPOINT` | endpoint S3 compativel |
+| `REGION` | regiao do bucket, normalmente `auto` |
 
 ### Seguranca e log em producao
 
@@ -171,10 +201,11 @@ SUPERSIGN_ACCOUNT_ID=
 SUPERSIGN_API_KEY=
 SUPERSIGN_FOLDER_ID=
 
-MONGODB_URI=
-MONGODB_DB_NAME=hunter
-MONGODB_CERT_BUCKET=certificado
-MONGODB_LOGO_BUCKET=logo
+ACCESS_KEY_ID=
+SECRET_ACCESS_KEY=
+BUCKET=
+ENDPOINT=https://storage.railway.app
+REGION=auto
 
 DJANGO_LOG_LEVEL=DEBUG
 DJANGO_ROOT_LOG_LEVEL=DEBUG
@@ -236,7 +267,7 @@ uv run mypy .
 
 - confirme credenciais Webmania
 - confirme certificado e senha da oficina
-- confirme `MONGODB_URI` se o certificado estiver no fluxo novo com GridFS
+- confirme `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY`, `BUCKET` e `ENDPOINT`
 
 ### CSS nao reflete mudancas
 

@@ -19,8 +19,6 @@ from apps.catalog.price_tracking import record_product_last_used_price
 from apps.catalog.product_issues import ProductIssueSummary, annotate_product_issues
 from apps.core.models import TimeStampedModel
 from apps.finance.models.payment_method import PaymentMethod
-from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
-from apps.workshops.util.monthly_costs import get_mechanic_salary_monthly_cost
 
 
 class WorkOrderStatus(models.TextChoices):
@@ -41,10 +39,10 @@ class WorkOrderSignatureStatus(models.TextChoices):
 class WorkOrder(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="workorders")
     budget = models.ForeignKey("budget.Budget", on_delete=models.CASCADE, related_name="workorders", help_text="Orçamento Aprovado vinculado à esta O.S.")
+    collaborators = models.ManyToManyField("collaborators.WorkshopCollaborator", verbose_name="Colaboradores", related_name="workorders", blank=True)
     status = models.CharField(verbose_name="Status", max_length=20, choices=WorkOrderStatus.choices, default=WorkOrderStatus.DRAFT)
     discount_value = MoneyField(verbose_name="Desconto da O.S. (R$)", max_digits=14, decimal_places=2, default=0.00)
-    discount_percentage = models.DecimalField(verbose_name="Desconto da O.S. (%)", max_digits=7,
-        decimal_places=6, default=Decimal("0.00"), validators=[MinValueValidator(0), MaxValueValidator(1)])
+    discount_percentage = models.DecimalField(verbose_name="Desconto da O.S. (%)", max_digits=7, decimal_places=6, default=Decimal("0.00"), validators=[MinValueValidator(0), MaxValueValidator(1)])
     signature_token_version = models.PositiveIntegerField(verbose_name="ID do PDF da Ordem de Serviço", default=1)
     signature_token_active = models.BooleanField(verbose_name="Token de Assinatura Ativo", default=True)
     signature_request_status = models.CharField(max_length=30, choices=WorkOrderSignatureStatus.choices, default=WorkOrderSignatureStatus.NOT_SENT)
@@ -109,25 +107,9 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def mechanic_hour_cost_value(self) -> Money:
-        reference_date = self.criado_em if self.criado_em else timezone.now()
-        try:
-            workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=reference_date.month, year=reference_date.year)
-        except WorkshopCost.DoesNotExist:
-            try:
-                workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=timezone.now().month, year=timezone.now().year)
-            except WorkshopCost.DoesNotExist:
-                return Money(0, "BRL")
-
-        mechanic_salary_obj = get_mechanic_salary_monthly_cost(workshop=self.workshop)
-        if mechanic_salary_obj is None:
-            return Money(0, "BRL")
-
-        try:
-            salario_mecanicos = WorkshopCostItem.objects.get(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_obj).amount
-        except WorkshopCostItem.DoesNotExist:
-            return Money(0, "BRL")
-
-        horas_uteis_mes = workshop_cost.working_hours_per_month
+        pricing_context = self.budget.get_frozen_pricing_context()
+        salario_mecanicos = pricing_context.productive_salary_total
+        horas_uteis_mes = pricing_context.working_hours_per_month
         if not horas_uteis_mes or horas_uteis_mes == 0:
             return Money(0, "BRL")
 
@@ -309,28 +291,11 @@ class WorkOrder(TimeStampedModel):
 
     def calculate_pricing_methods(self):
         fallback_data = self._build_pricing_fallback_data()
-
-        try:
-            reference_date = self.criado_em if self.criado_em else timezone.now()
-            workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=reference_date.month, year=reference_date.year)
-        except WorkshopCost.DoesNotExist:
-            try:
-                workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=timezone.now().month, year=timezone.now().year)
-            except WorkshopCost.DoesNotExist:
-                return fallback_data
-
-        mechanic_salary_obj = get_mechanic_salary_monthly_cost(workshop=self.workshop)
-        if mechanic_salary_obj is None:
-            return fallback_data
-
-        try:
-            salario_mecanicos = WorkshopCostItem.objects.get(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_obj).amount
-        except WorkshopCostItem.DoesNotExist:
-            return fallback_data
-
-        mlr = workshop_cost.profitability_multiplier
+        pricing_context = self.budget.get_frozen_pricing_context()
+        salario_mecanicos = pricing_context.productive_salary_total
+        mlr = pricing_context.profitability_multiplier
         duracao_total = Decimal(self.total_duration.total_seconds()) / Decimal(3600)
-        horas_uteis_mes = workshop_cost.working_hours_per_month
+        horas_uteis_mes = pricing_context.working_hours_per_month
 
         if not horas_uteis_mes or horas_uteis_mes == 0:
             return fallback_data
@@ -348,7 +313,7 @@ class WorkOrder(TimeStampedModel):
         soma_base_orcamento = venda_pecas + custo_frete_pecas + venda_servico_terceiro
         subtracao_base_lucro = custo_pecas + custo_frete_pecas + custo_total_mao_obra + custo_servico_terceiro
 
-        valor_hora_vendida_trad = workshop_cost.hourly_cost_value
+        valor_hora_vendida_trad = pricing_context.hourly_cost_value
         venda_mao_obra_trad = valor_hora_vendida_trad * duracao_total
         valor_orcamento_trad = soma_base_orcamento + venda_mao_obra_trad
         lucro_operacional_trad = valor_orcamento_trad - subtracao_base_lucro
@@ -516,6 +481,11 @@ class WorkOrder(TimeStampedModel):
             self.discount_value = self.budget.resolved_discount_value
             self.discount_percentage = self.budget.resolved_discount_percentage
             self.save(update_fields=["discount_value", "discount_percentage"])
+
+            collaborator_ids = list(self.budget.collaborators.values_list("id", flat=True))
+            if not collaborator_ids and self.budget.collaborator_id:
+                collaborator_ids = [self.budget.collaborator_id]
+            self.collaborators.set(collaborator_ids)
 
             self.invalidate_pricing_snapshot_cache()
 

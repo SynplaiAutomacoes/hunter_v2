@@ -9,12 +9,18 @@
                 <p class="text-base-content/70">Acompanhe os principais indicadores financeiros da oficina a partir deste painel.</p>
             </div>
 
-            <a href="{% url 'finance:financial_movement_create' %}" class="btn btn-primary">
-                Nova Movimentação Financeira
-            </a>
+            <div class="flex items-center gap-2">
+                <button type="button" class="btn btn-secondary" onclick="group_modal.showModal()" hx-get="{% url 'finance:group_movement_wizard' %}?step=1" hx-target="#group-modal-content">
+                    <span class="material-icons">layers</span>
+                    Agrupar
+                </button>
+                <a href="{% url 'finance:financial_movement_create' %}" class="btn btn-primary">
+                    Nova Movimentação Financeira
+                </a>
+            </div>
         </div>
 
-        <div class="grid items-start gap-4 lg:grid-cols-3">
+        <div class="grid items-start gap-4 lg:grid-cols-2 2xl:grid-cols-4">
             {% for card in top_summary_cards %}
                 <div class="card self-start border border-base-300 bg-base-100 shadow-xl">
                     <div x-data="{ open: false }" class="group">
@@ -265,6 +271,67 @@
                     </div>
                 </div>
 
+                <div class="rounded-xl border border-base-300 bg-base-100 p-4 md:p-5">
+                    <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                        <div>
+                            <h2 class="text-lg font-semibold text-base-content">Folha consolidada por colaborador</h2>
+                            <p class="text-sm text-base-content/65">Resumo da competencia atual com acesso rapido ao historico e ao holerite.</p>
+                        </div>
+                    </div>
+
+                    {% if collaborator_payroll_rows %}
+                        <div class="overflow-x-auto">
+                            <table class="table table-sm md:table-md">
+                                <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
+                                    <tr>
+                                        <th>Colaborador</th>
+                                        <th>Vencimento</th>
+                                        <th>Status</th>
+                                        <th>Salario</th>
+                                        <th>VT</th>
+                                        <th>Beneficios</th>
+                                        <th>Comissoes</th>
+                                        <th>Total</th>
+                                        <th class="text-right">Acoes</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for row in collaborator_payroll_rows %}
+                                        <tr>
+                                            <td>{{ row.collaborator_name }}</td>
+                                            <td>{{ row.due_date|date:"d/m/Y" }}</td>
+                                            <td>
+                                                <span class="badge {% if row.status == 'PAID' %}badge-success{% else %}badge-warning{% endif %}">{{ row.status_label }}</span>
+                                            </td>
+                                            <td>{{ row.salary_amount }}</td>
+                                            <td>{{ row.transport_allowance_amount }}</td>
+                                            <td>{{ row.benefits_amount }}</td>
+                                            <td>{{ row.commission_amount }}</td>
+                                            <td class="font-semibold">{{ row.total_amount }}</td>
+                                            <td>
+                                                <div class="flex justify-end gap-2">
+                                                    <a href="{{ row.history_url }}" class="btn btn-ghost btn-xs">Historico</a>
+                                                    <button
+                                                        type="button"
+                                                        class="btn btn-primary btn-xs"
+                                                        onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Holerite do colaborador', url: '{{ row.receipt_url }}' } }))"
+                                                    >
+                                                        Holerite
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="rounded-xl border border-dashed border-base-300 px-6 py-8 text-center text-sm text-base-content/60">
+                            Nenhuma folha consolidada encontrada para a competencia atual.
+                        </div>
+                    {% endif %}
+                </div>
+
                 <div id="financial-reports-movements-section">
                     {% if financial_movement_report_rows %}
                         <div class="overflow-hidden rounded-xl border border-base-300 bg-base-100">
@@ -336,10 +403,9 @@
                                                                 <table class="table table-sm">
                                                                     <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
                                                                         <tr>
-                                                                            <th>Data do Pagamento</th>
-                                                                            <th>Tipo Pagamento</th>
+                                                                            <th>{% if row.is_group_parent %}Data Vencimento{% else %}Data do Pagamento{% endif %}</th>
+                                                                            <th>{% if row.is_group_parent %}Descrição{% else %}Tipo Pagamento{% endif %}</th>
                                                                             <th class="text-right">Valor</th>
-                                                                            <th class="text-right">Pendente</th>
                                                                         </tr>
                                                                     </thead>
                                                                     <tbody>
@@ -347,8 +413,11 @@
                                                                             <tr>
                                                                                 <td>{{ detail.payment_date|date:"d/m/Y"|default:"-" }}</td>
                                                                                 <td>{{ detail.payment_type }}</td>
-                                                                                <td class="text-right font-semibold text-success">+ {{ detail.amount }}</td>
-                                                                                <td class="text-right font-semibold {{ detail.pending_class }}">{{ detail.pending_amount }}</td>
+                                                                                {% if row.is_group_parent %}
+                                                                                    <td class="text-right font-semibold">{{ detail.amount }}</td>
+                                                                                {% else %}
+                                                                                    <td class="text-right font-semibold text-success">+ {{ detail.amount }}</td>
+                                                                                {% endif %}
                                                                             </tr>
                                                                         {% endfor %}
                                                                     </tbody>
@@ -376,4 +445,57 @@
     </div>
 
     <div id="edit-modal-container"></div>
+
+    <dialog
+        id="pdfModal"
+        class="modal"
+        x-data="{ url: '', downloadUrl: '', title: 'Visualização do holerite' }"
+        @open-pdf-modal.window="url = $event.detail.url; downloadUrl = $event.detail.downloadUrl || ''; title = $event.detail.title || 'Visualização do holerite'; $el.showModal()"
+    >
+        <div class="modal-box flex h-[90vh] w-full max-w-5xl flex-col p-0">
+            <div class="flex items-center justify-between border-b bg-base-200 px-6 py-4">
+                <h3 class="flex items-center gap-2 text-xl font-bold">
+                    <span class="material-icons">description</span>
+                    <span x-text="title"></span>
+                </h3>
+
+                <div class="flex gap-2">
+                    <button
+                        type="button"
+                        class="btn btn-sm btn-primary"
+                        onclick="const frame = document.querySelector('#pdfModal iframe'); if (frame && frame.contentWindow) { frame.contentWindow.focus(); frame.contentWindow.print(); }"
+                    >
+                        Imprimir
+                    </button>
+
+                    <button type="button" class="btn btn-sm" onclick="document.getElementById('pdfModal').close()">
+                        Fechar
+                    </button>
+                </div>
+            </div>
+
+            <div class="flex-1 bg-gray-100">
+                <template x-if="url">
+                    <iframe :src="url" class="h-full w-full" frameborder="0"></iframe>
+                </template>
+            </div>
+        </div>
+
+        <form method="dialog" class="modal-backdrop">
+            <button>close</button>
+        </form>
+    </dialog>
+    <!-- Grouping Modal -->
+    <dialog id="group_modal" class="modal">
+        <div class="modal-box max-w-4xl border border-base-300 bg-base-100 p-0 shadow-2xl">
+            <div id="group-modal-content">
+                <div class="flex justify-center py-10">
+                    <span class="loading loading-spinner loading-lg"></span>
+                </div>
+            </div>
+        </div>
+        <form method="dialog" class="modal-backdrop bg-black/50">
+            <button>close</button>
+        </form>
+    </dialog>
 {% endblock %}
