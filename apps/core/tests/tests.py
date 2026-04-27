@@ -8,6 +8,7 @@ from django.test import RequestFactory, SimpleTestCase, TestCase, override_setti
 from django.urls import reverse
 from phonenumber_field.phonenumber import PhoneNumber
 
+from apps.budget.views.workflow_views import BudgetCreateView
 from apps.core.documents.signature import SIGNATURE_POSITION, build_absolute_app_url, normalize_signature_phone_number
 from apps.core.templatetags.table_tags import TableColumn, render_table
 from apps.workshops.models.workshops import Workshop
@@ -109,8 +110,8 @@ class CrudWrapperTemplateTests(SimpleTestCase):
                     "active_workshops": [],
                     "active_workshop_is_director": False,
                     "navbar_menus": [
-                        {"label": "Cadastros", "children": [{"label": "Cliente", "href": "/customer/"}]},
-                        {"label": "Orcamentos", "href": "/budget/"},
+                        {"label": "Cadastros", "children": [{"label": "Cliente", "href": "/customer/", "favoritable": True}]},
+                        {"label": "Orcamentos", "href": "/budget/", "favoritable": False},
                     ],
                     "navbar_favorites": [{"id": 1, "label": "Cliente", "href": "/customer/"}],
                     "navbar_favorite_urls": {"/customer/"},
@@ -123,8 +124,17 @@ class CrudWrapperTemplateTests(SimpleTestCase):
         self.assertIn('x-sort="reorderFavorites()"', html)
         self.assertIn('data-favorite-id="1"', html)
         self.assertIn("Remover Cliente dos favoritos", html)
-        self.assertIn("Adicionar Orcamentos aos favoritos", html)
-        self.assertIn("Favoritos", html)
+        self.assertNotIn("Adicionar Orcamentos aos favoritos", html)
+
+    def test_budget_create_view_page_favorite_uses_base_create_url(self):
+        request = self.factory.get("/budget/create/?step=2&pk=17")
+        view = BudgetCreateView()
+        view.request = request
+
+        self.assertEqual(
+            view.get_page_favorite(),
+            {"label": "Novo Orçamento", "href": reverse("budget:budget_create"), "favoritable": True},
+        )
 
     def test_detail_wrapper_only_syncs_query_params_for_its_own_requests(self):
         request = self.factory.get("/workshops/1/?q=Oficina&page=2")

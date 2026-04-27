@@ -16,6 +16,9 @@ def _is_director_or_manager(request: HttpRequest, flags: dict[str, Any]) -> bool
     return bool(flags.get("active_workshop_is_director") or flags.get("active_workshop_is_manager"))
 
 
+BUDGET_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Orçamento", "view_name": "budget:budget_create"}
+
+
 NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
     {
         "label": "Cadastros",
@@ -33,9 +36,9 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
             {"label": "Checklist", "view_name": "checklist:checklist_list"},
         ),
     },
-    {"label": "Orçamentos", "view_name": "budget:budget_list"},
-    {"label": "Ordens de Serviço", "view_name": "workorder:workorder_list"},
-    {"label": "Agendamentos", "view_name": "scheduling:appointment_calendar"},
+    {"label": "Orçamentos", "view_name": "budget:budget_list", "favoritable": False},
+    {"label": "Ordens de Serviço", "view_name": "workorder:workorder_list", "favoritable": False},
+    {"label": "Agendamentos", "view_name": "scheduling:appointment_calendar", "favoritable": False},
     {
         "label": "Estoque",
         "items": (
@@ -75,6 +78,8 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
     },
 )
 
+EXTRA_FAVORITABLE_PAGE_DEFINITIONS: tuple[dict[str, Any], ...] = (BUDGET_CREATE_FAVORITE_PAGE,)
+
 
 def _resolve_href(entry_definition: dict[str, Any]) -> str:
     href = reverse(entry_definition["view_name"])
@@ -82,6 +87,14 @@ def _resolve_href(entry_definition: dict[str, Any]) -> str:
     if not query:
         return href
     return f"{href}?{urlencode(query, doseq=True)}"
+
+
+def build_favoritable_page(entry_definition: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "label": entry_definition["label"],
+        "href": _resolve_href(entry_definition),
+        "favoritable": bool(entry_definition.get("favoritable", True)),
+    }
 
 
 def _is_visible(entry_definition: dict[str, Any], *, request: HttpRequest, flags: dict[str, Any]) -> bool:
@@ -106,24 +119,34 @@ def _build_navbar_payload(request: HttpRequest) -> dict[str, Any]:
 
         item_definitions = menu_definition.get("items")
         if item_definitions:
-            items: list[dict[str, str]] = []
+            items: list[dict[str, Any]] = []
             for item_definition in item_definitions:
                 if not _is_visible(item_definition, request=request, flags=flags):
                     continue
 
-                href = _resolve_href(item_definition)
-                item = {"label": item_definition["label"], "href": href}
+                item = build_favoritable_page(item_definition)
+                href = item["href"]
                 items.append(item)
-                pages_by_url[href] = item
+                if item["favoritable"]:
+                    pages_by_url[href] = {"label": item["label"], "href": href}
 
             if items:
                 menus.append({"label": menu_definition["label"], "children": items})
             continue
 
-        href = _resolve_href(menu_definition)
-        menu = {"label": menu_definition["label"], "href": href}
+        menu = build_favoritable_page(menu_definition)
+        href = menu["href"]
         menus.append(menu)
-        pages_by_url[href] = menu
+        if menu["favoritable"]:
+            pages_by_url[href] = {"label": menu["label"], "href": href}
+
+    for page_definition in EXTRA_FAVORITABLE_PAGE_DEFINITIONS:
+        if not _is_visible(page_definition, request=request, flags=flags):
+            continue
+
+        page = build_favoritable_page(page_definition)
+        if page["favoritable"]:
+            pages_by_url.setdefault(page["href"], {"label": page["label"], "href": page["href"]})
 
     payload = {"menus": menus, "pages_by_url": pages_by_url}
     setattr(request, "_navbar_navigation_payload", payload)

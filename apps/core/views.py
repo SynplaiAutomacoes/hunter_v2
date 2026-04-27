@@ -19,6 +19,7 @@ from apps.finance.models.financial_movement import FinancialMovement
 from apps.workorder.models import WorkOrderStatus
 import calendar
 from apps.core.favorites import FavoritePageLimitError, InvalidFavoritePageError, reorder_favorite_pages, toggle_favorite_page
+from apps.core.navigation import build_favoritable_page
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
@@ -121,6 +122,20 @@ class BaseModalFormView:
             return response
 
         return super().form_valid(form)
+
+
+class PageFavoriteMixin:
+    favorite_page_definition: dict[str, Any] | None = None
+
+    def get_page_favorite(self) -> dict[str, str] | None:
+        if self.favorite_page_definition is None:
+            return None
+        return build_favoritable_page(self.favorite_page_definition)
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["page_favorite"] = self.get_page_favorite()
+        return context
 
 
 class FavoritePageToggleView(LoginRequiredMixin, View):
