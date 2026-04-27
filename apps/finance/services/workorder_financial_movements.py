@@ -99,7 +99,7 @@ def sync_workorder_financial_movement(*, workorder: WorkOrder) -> FinancialMovem
         "direction": FinancialMovement.MovementDirection.CREDIT,
         "description": str(workorder.budget.problem_description or workorder.budget.notes or f"OS Nº {workorder.pk}"),
         "amount": workorder.total_budget_value,
-        "due_date": workorder.criado_em.date() if workorder.criado_em else None,
+        "due_date": (workorder.criado_em or timezone.now()).date(),
         "movement_kind": FinancialMovement.MovementKind.WORKORDER_PARENT,
     }
 
