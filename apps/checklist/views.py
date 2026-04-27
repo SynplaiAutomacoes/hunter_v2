@@ -3,8 +3,10 @@ from typing import cast
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.http import HttpResponse, HttpResponseRedirect
-from django.shortcuts import render
-from django.urls import reverse_lazy
+from django.shortcuts import get_object_or_404, render
+from django.urls import reverse, reverse_lazy
+from django.utils.decorators import method_decorator
+from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
@@ -15,7 +17,13 @@ from apps.workshops.mixin import WorkshopScopedMixin
 
 from .forms import ChecklistForm
 from .models import Checklist, ChecklistItem
-from .services.files import ChecklistFileStorageError, StoredChecklistFile, delete_checklist_pdf_file, save_checklist_pdf_file
+from .services.files import (
+    ChecklistFileStorageError,
+    StoredChecklistFile,
+    delete_checklist_pdf_file,
+    read_checklist_pdf_file,
+    save_checklist_pdf_file,
+)
 from .util import extract_checklist_items, VALID_RESPONSE_TYPES, build_showtoast_trigger
 
 
@@ -36,10 +44,86 @@ class ChecklistListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRes
             TableColumn(str(Checklist.criado_em.field.verbose_name), attr=Checklist.criado_em.field.name),
         ]
         context["actions"] = [
+            TableActionDefaults.view(
+                "checklist:checklist_preview_modal",
+                hx_target="#modal-container",
+                hx_swap="innerHTML",
+                hx_push_url="false",
+            ),
             TableActionDefaults.edit("checklist:checklist_update"),
             TableActionDefaults.delete("checklist:checklist_delete"),
         ]
         return context
+
+
+class ChecklistPreviewModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Checklist
+    workshop_permission_codename = "view_checklist"
+
+    def get(self, request, pk):
+        checklist = get_object_or_404(Checklist, pk=pk, workshop=self.workshop)
+        context = {
+            "checklist": checklist,
+            "preview_url": reverse("checklist:checklist_preview", args=[checklist.pk]),
+        }
+        return render(request, "checklists/partials/checklist_preview_modal.html", context)
+
+
+@method_decorator(xframe_options_exempt, name="dispatch")
+class ChecklistPreviewView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Checklist
+    workshop_permission_codename = "view_checklist"
+
+    def get(self, request, pk):
+        checklist = get_object_or_404(Checklist.objects.prefetch_related("items"), pk=pk, workshop=self.workshop)
+
+        if checklist.source == Checklist.ChecklistSource.PDF:
+            file_id = str(checklist.pdf_file_key or "").strip()
+            if not file_id:
+                return HttpResponse("Checklist sem PDF importado.", status=404)
+
+            try:
+                stored_pdf = read_checklist_pdf_file(file_id=file_id)
+            except ChecklistFileStorageError as exc:
+                return HttpResponse(str(exc), status=404)
+
+            response = HttpResponse(stored_pdf.content, content_type="application/pdf")
+            response["Content-Disposition"] = f'inline; filename="{stored_pdf.filename}"'
+            return response
+
+        checklist_rows = []
+        group_number_by_name: dict[str, int] = {}
+        item_counter_by_group: dict[str, int] = {}
+        next_group_number = 1
+
+        for checklist_item in checklist.items.all().order_by("order", "id"):
+            group_name = (checklist_item.group or "").strip() or "Geral"
+            item_description = (checklist_item.description or "").strip() or "-"
+
+            if group_name not in group_number_by_name:
+                group_number_by_name[group_name] = next_group_number
+                item_counter_by_group[group_name] = 0
+                next_group_number += 1
+
+            item_counter_by_group[group_name] += 1
+            group_number = group_number_by_name[group_name]
+            item_number_in_group = item_counter_by_group[group_name]
+            checklist_rows.append(
+                {
+                    "index": f"{group_number}.{item_number_in_group}",
+                    "description": f"{group_name} - {item_description}",
+                    "response_type": checklist_item.response_type,
+                }
+            )
+
+        return render(
+            request,
+            "checklists/checklist_preview.html",
+            {
+                "checklist": checklist,
+                "checklist_rows": checklist_rows,
+            },
+        )
 
 
 class ChecklistCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):

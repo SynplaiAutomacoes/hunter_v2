@@ -1694,7 +1694,7 @@ class BudgetPdfViewTests(TestCase):
             workshop=self.workshop,
             name="Checklist Importado",
             source=Checklist.ChecklistSource.PDF,
-            pdf_file_key="workshop/1/pdfs/checklist.pdf",
+            pdf_file_key="workshops/1/pdfs/checklist.pdf",
             pdf_file_name="checklist.pdf",
             pdf_content_type="application/pdf",
         )
@@ -1706,7 +1706,7 @@ class BudgetPdfViewTests(TestCase):
         self.assertEqual(response["Content-Type"], "application/pdf")
         self.assertIn('inline; filename="checklist.pdf"', response["Content-Disposition"])
         self.assertEqual(response.content, b"%PDF-1.4 test")
-        read_checklist_pdf_file_mock.assert_called_once_with(file_id="workshop/1/pdfs/checklist.pdf")
+        read_checklist_pdf_file_mock.assert_called_once_with(file_id="workshops/1/pdfs/checklist.pdf")
 
     def test_pdf_views_render_customer_supplied_product_info(self) -> None:
         budget = self._create_budget_with_customer_and_vehicle(suffix=103)

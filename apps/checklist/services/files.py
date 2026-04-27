@@ -123,7 +123,7 @@ def _normalize_content_type(*, filename: str, content_type: object) -> str:
 
 
 def _build_storage_key(*, workshop_id: int, filename: str) -> str:
-    return f"workshop/{workshop_id}/pdfs/{uuid.uuid4().hex}-{filename}"
+    return f"workshops/{workshop_id}/pdfs/{uuid.uuid4().hex}-{filename}"
 
 
 def _read_uploaded_pdf(uploaded_file: UploadedFile) -> tuple[bytes, str, str]:

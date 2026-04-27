@@ -1,0 +1,34 @@
+<input type="checkbox" id="checklist-preview-modal" class="modal-toggle" checked />
+
+<div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-box h-[92vh] w-[98vw] max-w-7xl p-0 overflow-hidden">
+        <div class="flex items-center justify-between border-b border-base-200 px-6 py-4 bg-base-100">
+            <div>
+                <h3 class="text-lg font-bold text-base-content">{{ checklist.name }}</h3>
+                <p class="text-sm text-base-content/70">Visualizar e imprimir checklist</p>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <button
+                    type="button"
+                    class="btn btn-sm btn-primary"
+                    onclick="const frame = document.getElementById('checklist-preview-iframe-{{ checklist.pk }}'); if (frame && frame.contentWindow) { frame.contentWindow.focus(); frame.contentWindow.print(); }"
+                >
+                    Imprimir
+                </button>
+                <label for="checklist-preview-modal" class="btn btn-sm btn-ghost">Fechar</label>
+            </div>
+        </div>
+
+        <div class="h-[calc(92vh-73px)] bg-base-200/40">
+            <iframe
+                id="checklist-preview-iframe-{{ checklist.pk }}"
+                src="{{ preview_url }}"
+                class="h-full w-full bg-white"
+                frameborder="0"
+            ></iframe>
+        </div>
+    </div>
+
+    <label class="modal-backdrop" for="checklist-preview-modal">Close</label>
+</div>

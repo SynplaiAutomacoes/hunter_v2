@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ checklist.name }} - Visualizacao</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 24px;
+            color: #1f2937;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+
+        .meta {
+            margin: 4px 0 0;
+            color: #6b7280;
+            font-size: 14px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th,
+        td {
+            border: 1px solid #d1d5db;
+            padding: 8px;
+            text-align: left;
+            vertical-align: top;
+            font-size: 13px;
+        }
+
+        th {
+            background: #f3f4f6;
+            font-weight: 700;
+        }
+
+        .col-seq {
+            width: 80px;
+            text-align: center;
+        }
+
+        .col-annotation {
+            width: 30%;
+        }
+
+        .response-options {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .option {
+            white-space: nowrap;
+        }
+
+        .box {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 1px solid #111827;
+            margin-right: 6px;
+            vertical-align: middle;
+        }
+
+        .line {
+            border-bottom: 1px solid #374151;
+            height: 14px;
+            margin-top: 4px;
+        }
+
+        .line + .line {
+            margin-top: 8px;
+        }
+
+        @media print {
+            body {
+                margin: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            <h1>{{ checklist.name }}</h1>
+            <p class="meta">{{ checklist.get_checklist_type_display }}</p>
+        </div>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th class="col-seq">Indice</th>
+                <th>Item</th>
+                <th class="col-annotation">Anotacao</th>
+                <th>Resposta</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in checklist_rows %}
+                <tr>
+                    <td class="col-seq">{{ row.index }}</td>
+                    <td>{{ row.description }}</td>
+                    <td></td>
+                    <td>
+                        {% if row.response_type == "SIM_NAO" %}
+                            <div class="response-options">
+                                <span class="option"><span class="box"></span>Sim</span>
+                                <span class="option"><span class="box"></span>Nao</span>
+                            </div>
+                        {% elif row.response_type == "BOM_REGULAR_RUIM" %}
+                            <div class="response-options">
+                                <span class="option"><span class="box"></span>Bom</span>
+                                <span class="option"><span class="box"></span>Regular</span>
+                                <span class="option"><span class="box"></span>Ruim</span>
+                            </div>
+                        {% elif row.response_type == "NIVEL" %}
+                            <div class="response-options">
+                                <span class="option"><span class="box"></span>Vazio</span>
+                                <span class="option"><span class="box"></span>1/4</span>
+                                <span class="option"><span class="box"></span>1/2</span>
+                                <span class="option"><span class="box"></span>3/4</span>
+                                <span class="option"><span class="box"></span>Cheio</span>
+                            </div>
+                        {% else %}
+                            <div class="line"></div>
+                            <div class="line"></div>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td class="col-seq">-</td>
+                    <td>Nenhum item cadastrado.</td>
+                    <td></td>
+                    <td></td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>
