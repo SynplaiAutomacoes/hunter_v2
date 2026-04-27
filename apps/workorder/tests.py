@@ -1641,8 +1641,8 @@ class WorkOrderPaymentFormTests(TestCase):
         form = WorkOrderPaymentForm(
             data={
                 "payment_method": str(payment_method.pk),
-                "first_installment_amount_0": "40.00",
-                "first_installment_amount_1": "BRL",
+                "entry_amount_0": "40.00",
+                "entry_amount_1": "BRL",
                 "due_date": "2026-03-20",
             },
             workorder=self.workorder,
@@ -1669,8 +1669,8 @@ class WorkOrderPaymentFormTests(TestCase):
         form = WorkOrderPaymentForm(
             data={
                 "payment_method": str(payment_method.pk),
-                "first_installment_amount_0": "100.00",
-                "first_installment_amount_1": "BRL",
+                "entry_amount_0": "100.00",
+                "entry_amount_1": "BRL",
                 "due_date": "2026-03-21",
             },
             workorder=self.workorder,
@@ -1690,8 +1690,8 @@ class WorkOrderPaymentFormTests(TestCase):
         form = WorkOrderPaymentForm(
             data={
                 "payment_method": str(payment_method.pk),
-                "first_installment_amount_0": "50.00",
-                "first_installment_amount_1": "BRL",
+                "entry_amount_0": "50.00",
+                "entry_amount_1": "BRL",
                 "due_date": "",
             },
             workorder=self.workorder,
@@ -1707,15 +1707,52 @@ class WorkOrderPaymentFormTests(TestCase):
         form = WorkOrderPaymentForm(
             data={
                 "payment_method": str(payment_method.pk),
-                "first_installment_amount_0": "100.01",
-                "first_installment_amount_1": "BRL",
+                "entry_amount_0": "100.01",
+                "entry_amount_1": "BRL",
                 "due_date": "2026-03-22",
             },
             workorder=self.workorder,
         )
 
         self.assertFalse(form.is_valid())
-        self.assertIn("O valor a ser pago não pode exceder o saldo pendente", str(form.errors["first_installment_amount"][0]))
+        self.assertIn("O valor de entrada não pode exceder o saldo pendente", str(form.errors["entry_amount"][0]))
+
+    def test_form_uses_valor_a_ser_pago_for_additional_payments(self) -> None:
+        self._set_workorder_total("100.00", suffix=29)
+        first_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix", installments_count=1)
+        second_method = PaymentMethod.objects.create(workshop=self.workshop, description="Cartão", installments_count=2)
+
+        WorkOrderPaymentMethod.objects.create(
+            workorder=self.workorder,
+            payment_method=first_method,
+            first_installment_amount=Money("20.00", "BRL"),
+            remaining_installments_amount=Money("0.00", "BRL"),
+            installments_count=1,
+            due_date=date(2026, 3, 20),
+        )
+
+        form = WorkOrderPaymentForm(
+            data={
+                "payment_method": str(second_method.pk),
+                "entry_amount_0": "80.00",
+                "entry_amount_1": "BRL",
+                "first_installment_amount_0": "30.00",
+                "first_installment_amount_1": "BRL",
+                "due_date": "2026-03-22",
+            },
+            workorder=self.workorder,
+        )
+
+        self.assertTrue(form.fields["entry_amount"].disabled)
+        self.assertFalse(form.fields["first_installment_amount"].disabled)
+        self.assertTrue(form.is_valid(), form.errors)
+
+        payment = form.save(commit=False)
+        payment.workorder = self.workorder
+        payment.save()
+
+        self.assertEqual(payment.first_installment_amount, Money("30.00", "BRL"))
+        self.assertEqual(payment.total_paid, Money("30.00", "BRL"))
 
 
 class AddPaymentMethodViewTests(TestCase):
@@ -1739,8 +1776,8 @@ class AddPaymentMethodViewTests(TestCase):
             reverse("workorder:add_payment", args=[self.workorder.pk]),
             data={
                 "payment_method": str(payment_method.pk),
-                "first_installment_amount_0": "40.00",
-                "first_installment_amount_1": "BRL",
+                "entry_amount_0": "40.00",
+                "entry_amount_1": "BRL",
                 "due_date": "2026-03-24",
             },
             HTTP_HX_REQUEST="true",
@@ -1749,6 +1786,9 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Cartão Master/Visa")
         self.assertContains(response, "24/03/2026")
+        self.assertContains(response, "Valor de entrada")
+        self.assertContains(response, "Valor a ser pago")
+        self.assertContains(response, "Pago")
         self.assertContains(response, "alert_confirm_modal")
         self.assertContains(response, 'data-confirm="Deseja remover esta forma de pagamento?"', html=False)
 
@@ -1757,6 +1797,35 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertEqual(payment.remaining_installments_amount, Money("0.00", "BRL"))
         self.assertEqual(payment.total_paid, Money("40.00", "BRL"))
         self.assertEqual(payment.due_date, date(2026, 3, 24))
+
+    def test_post_with_existing_payments_uses_valor_a_ser_pago(self) -> None:
+        first_method = PaymentMethod.objects.create(workshop=self.workshop, description="Dinheiro", installments_count=1)
+        second_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix", installments_count=1)
+        WorkOrderPaymentMethod.objects.create(
+            workorder=self.workorder,
+            payment_method=first_method,
+            first_installment_amount=Money("30.00", "BRL"),
+            remaining_installments_amount=Money("0.00", "BRL"),
+            installments_count=1,
+            due_date=date(2026, 3, 20),
+        )
+
+        response = self.client.post(
+            reverse("workorder:add_payment", args=[self.workorder.pk]),
+            data={
+                "payment_method": str(second_method.pk),
+                "first_installment_amount_0": "20.00",
+                "first_installment_amount_1": "BRL",
+                "due_date": "2026-03-24",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(WorkOrderPaymentMethod.objects.filter(workorder=self.workorder).count(), 2)
+        last_payment = WorkOrderPaymentMethod.objects.filter(workorder=self.workorder).order_by("-pk").first()
+        self.assertIsNotNone(last_payment)
+        self.assertEqual(last_payment.first_installment_amount, Money("20.00", "BRL"))
 
     def test_update_discount_syncs_budget_and_rerenders_payment_section(self) -> None:
         BudgetItem.objects.create(
@@ -1776,7 +1845,7 @@ class AddPaymentMethodViewTests(TestCase):
         self.budget.refresh_from_db()
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Condição comercial da O.S.")
+        self.assertContains(response, "Configuração das Formas de Pagamento")
         self.assertEqual(self.workorder.discount_value, Money("10.00", "BRL"))
         self.assertEqual(self.budget.discount_value, Money("10.00", "BRL"))
         self.assertEqual(self.budget.discount_percentage, Decimal("0.100000"))
@@ -1789,8 +1858,8 @@ class AddPaymentMethodViewTests(TestCase):
         form = WorkOrderPaymentForm(
             data={
                 "payment_method": str(payment_method.pk),
-                "first_installment_amount_0": "95.00",
-                "first_installment_amount_1": "BRL",
+                "entry_amount_0": "95.00",
+                "entry_amount_1": "BRL",
                 "due_date": "2026-03-24",
                 "discount_value_0": "10.00",
                 "discount_value_1": "BRL",
@@ -1800,4 +1869,4 @@ class AddPaymentMethodViewTests(TestCase):
         )
 
         self.assertFalse(form.is_valid())
-        self.assertIn("saldo pendente da O.S.", str(form.errors["first_installment_amount"][0]))
+        self.assertIn("saldo pendente da O.S.", str(form.errors["entry_amount"][0]))
