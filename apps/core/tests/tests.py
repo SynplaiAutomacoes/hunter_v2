@@ -9,6 +9,9 @@ from django.urls import reverse
 from phonenumber_field.phonenumber import PhoneNumber
 
 from apps.budget.views.workflow_views import BudgetCreateView
+from apps.customer.views import CustomerCreateView
+from apps.finance.views.financial_movement import FinancialMovementCreateView
+from apps.stock.views import StockImportCreateView
 from apps.core.documents.signature import SIGNATURE_POSITION, build_absolute_app_url, normalize_signature_phone_number
 from apps.core.templatetags.table_tags import TableColumn, render_table
 from apps.workshops.models.workshops import Workshop
@@ -134,6 +137,63 @@ class CrudWrapperTemplateTests(SimpleTestCase):
         self.assertEqual(
             view.get_page_favorite(),
             {"label": "Novo Orçamento", "href": reverse("budget:budget_create"), "favoritable": True},
+        )
+
+    def test_form_page_renders_page_favorite_button_when_present(self):
+        request = self.factory.get("/customer/create/")
+        template = Template(
+            """
+            {% extends 'crud/form_page.html' %}
+            {% block crud_title %}Criar cliente{% endblock %}
+            {% block crud_subtitle %}Cadastro{% endblock %}
+            {% block crud_back_url %}/clientes/{% endblock %}
+            {% block crud_form %}<div>Formulario</div>{% endblock %}
+            """
+        )
+
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "active_workshops": [],
+                    "active_workshop_is_director": False,
+                    "page_favorite": {"label": "Criar Cliente", "href": reverse("customer:customer_create"), "favoritable": True},
+                    "navbar_favorite_urls": {reverse("customer:customer_create")},
+                }
+            )
+        )
+
+        self.assertIn("Remover Criar Cliente dos favoritos", html)
+        self.assertIn(reverse("core:favorite_page_toggle"), html)
+
+    def test_customer_create_view_page_favorite_uses_base_create_url(self):
+        request = self.factory.get("/customer/create/?source=budget")
+        view = CustomerCreateView()
+        view.request = request
+
+        self.assertEqual(
+            view.get_page_favorite(),
+            {"label": "Criar Cliente", "href": reverse("customer:customer_create"), "favoritable": True},
+        )
+
+    def test_stock_import_create_view_page_favorite_uses_base_create_url(self):
+        request = self.factory.get("/stock/import/?step=2&pk=17")
+        view = StockImportCreateView()
+        view.request = request
+
+        self.assertEqual(
+            view.get_page_favorite(),
+            {"label": "Nova Importação", "href": reverse("stock:import"), "favoritable": True},
+        )
+
+    def test_financial_movement_create_view_page_favorite_uses_base_create_url(self):
+        request = self.factory.get("/finance/financial-movement/create/?step=2&pk=17&next=/finance/reports/")
+        view = FinancialMovementCreateView()
+        view.request = request
+
+        self.assertEqual(
+            view.get_page_favorite(),
+            {"label": "Nova Movimentação Financeira", "href": reverse("finance:financial_movement_create"), "favoritable": True},
         )
 
     def test_detail_wrapper_only_syncs_query_params_for_its_own_requests(self):

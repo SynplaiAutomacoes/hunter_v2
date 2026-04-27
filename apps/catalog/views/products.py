@@ -14,10 +14,11 @@ from apps.budget.models import BudgetItem
 from apps.catalog.forms.products import ProductForm
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
+from apps.core.navigation import PRODUCT_CREATE_FAVORITE_PAGE
 from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
+from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
 from apps.stock.models import StockMovement, StockProduct
 from apps.workorder.models import WorkOrderItem
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -102,11 +103,12 @@ class ProductListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespo
         return context
 
 
-class ProductCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
+class ProductCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixin, CreateView):
     model = Product
     form_class = ProductForm
     template_name = "products/product_create.html"
     success_url = reverse_lazy("catalog:product_list")
+    favorite_page_definition = PRODUCT_CREATE_FAVORITE_PAGE
 
     def get(self, request, *args, **kwargs):
         if not CatalogGroup.objects.filter(workshop=self.workshop).exists():

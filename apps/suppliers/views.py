@@ -3,10 +3,11 @@ from django.db.models import Q, Prefetch
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
+from apps.core.navigation import SUPPLIER_CREATE_FAVORITE_PAGE
 from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
+from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
 from apps.stock.models import StockMovement
 from apps.suppliers.forms import SupplierForm
 from apps.suppliers.models import Supplier
@@ -65,11 +66,12 @@ class SupplierListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
         return context
 
 
-class SupplierCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
+class SupplierCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixin, CreateView):
     model = Supplier
     form_class = SupplierForm
     template_name = "suppliers/supplier_create.html"
     success_url = reverse_lazy("suppliers:supplier_list")
+    favorite_page_definition = SUPPLIER_CREATE_FAVORITE_PAGE
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
@@ -88,16 +90,7 @@ class SupplierUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
     success_url = reverse_lazy("suppliers:supplier_list")
 
     def get_queryset(self):
-        return (
-            super()
-            .get_queryset()
-            .prefetch_related(
-                Prefetch(
-                    "movements",
-                    queryset=StockMovement.objects.order_by("-criado_em")
-                )
-            )
-        )
+        return super().get_queryset().prefetch_related(Prefetch("movements", queryset=StockMovement.objects.order_by("-criado_em")))
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()

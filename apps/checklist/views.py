@@ -10,9 +10,10 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
+from apps.core.navigation import CHECKLIST_CREATE_FAVORITE_PAGE
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
+from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
 from apps.workshops.mixin import WorkshopScopedMixin
 
 from .forms import ChecklistForm
@@ -126,11 +127,12 @@ class ChecklistPreviewView(LoginRequiredMixin, WorkshopScopedMixin, View):
         )
 
 
-class ChecklistCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
+class ChecklistCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixin, CreateView):
     model = Checklist
     form_class = ChecklistForm
     template_name = "checklists/checklist_create.html"
     success_url = reverse_lazy("checklist:checklist_list")
+    favorite_page_definition = CHECKLIST_CREATE_FAVORITE_PAGE
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()

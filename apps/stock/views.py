@@ -47,11 +47,12 @@ from ..catalog.models.products import Product
 from ..budget.pdf_context import build_workshop_logo_data_uri
 from ..core.documents.http import build_pdf_http_response
 from ..core.forms import MultiStepFormMixin
+from ..core.navigation import STOCK_IMPORT_CREATE_FAVORITE_PAGE
 from ..core.query_filters import QueryParamFilter, apply_query_param_filters
 from ..core.tables import TableActionDefaults
 from ..core.templatetags.table_tags import TableColumn
 from ..core.utils import clean_id
-from ..core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin
+from ..core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin, PageFavoriteMixin
 from ..finance.models.payment_method import PaymentMethod
 from ..finance.services.payment_method_fees import calculate_payment_method_fee_amount
 from ..suppliers.models import Supplier
@@ -475,10 +476,11 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
         return context
 
 
-class StockImportCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixin, CreateView):
+class StockImportCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixin, CreateView):
     model = StockImport
     template_name = "stock/import_form.html"
     workshop_permission_codename = "add_stockimport"
+    favorite_page_definition = STOCK_IMPORT_CREATE_FAVORITE_PAGE
 
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
@@ -587,6 +589,8 @@ class StockImportCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFo
 
 
 class StockImportUpdateView(StockImportCreateView):
+    favorite_page_definition = None
+
     def get(self, request, *args, **kwargs):
         self.object = self.get_object()
         step_na_url = int(request.GET.get("step", 0))

@@ -1,8 +1,14 @@
 {% extends 'crud/page.html' %}
 {% block crud_content %}
-<div class="mb-6">
-    <h1 class="text-3xl font-bold">Importação de Estoque</h1>
-    <p class="text-base-content/70">Siga as etapas para dar entrada em mercadorias via Nota Fiscal.</p>
+<div class="mb-6 flex items-center justify-between gap-4">
+    <div>
+        <h1 class="text-3xl font-bold">Importação de Estoque</h1>
+        <p class="text-base-content/70">Siga as etapas para dar entrada em mercadorias via Nota Fiscal.</p>
+    </div>
+
+    {% if page_favorite %}
+        {% include 'favorites/partials/favorite_button.html' with favorite_url=page_favorite.href favorite_label=page_favorite.label favorite_button_class='btn btn-outline btn-circle btn-sm shrink-0 text-base-content/70 hover:text-warning' favorite_icon_class='material-icons text-[20px] leading-none transition-colors' %}
+    {% endif %}
 </div>
 
 <div class="card bg-base-100 shadow-xl" x-data="{ method: 'XML' }">
