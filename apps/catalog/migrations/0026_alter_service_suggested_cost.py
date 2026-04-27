@@ -5,15 +5,14 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('catalog', '0025_kitservice_duration_selling_price_and_more'),
+        ("catalog", "0025_kitservice_duration_selling_price_and_more"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='service',
-            name='suggested_cost',
-            field=djmoney.models.fields.MoneyField(blank=True, decimal_places=2, max_digits=14, null=True, verbose_name='Custo do tempo do serviço'),
+            model_name="service",
+            name="suggested_cost",
+            field=djmoney.models.fields.MoneyField(blank=True, decimal_places=2, max_digits=14, null=True, verbose_name="Custo do tempo do serviço"),
         ),
     ]
