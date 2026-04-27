@@ -4,7 +4,8 @@
 {% block crud_subtitle %}Gerenciamento de peças e produtos do estoque.{% endblock %}
 
 {% block crud_header_actions %}
-    <a href="{% url 'catalog:product_create' %}" class="btn btn-primary">Novo Produto</a>
+    {% url 'catalog:product_create' as product_create_url %}
+    {% include 'favorites/partials/favoritable_action_link.html' with action_url=product_create_url action_label='Novo Produto' favorite_url=product_create_url favorite_label='Novo Produto' %}
 {% endblock %}
 
 {% block crud_table_wrapper_id %}products-table-wrapper{% endblock %}

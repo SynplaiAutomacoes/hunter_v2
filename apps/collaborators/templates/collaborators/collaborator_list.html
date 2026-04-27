@@ -4,7 +4,8 @@
 {% block crud_subtitle %}Colaboradores cadastrados na oficina ativa.{% endblock %}
 
 {% block crud_header_actions %}
-    <a href="{% url 'collaborators:collaborator_create' %}" class="btn btn-primary">Criar colaborador</a>
+    {% url 'collaborators:collaborator_create' as collaborator_create_url %}
+    {% include 'favorites/partials/favoritable_action_link.html' with action_url=collaborator_create_url action_label='Criar colaborador' favorite_url=collaborator_create_url favorite_label='Criar colaborador' %}
 {% endblock %}
 
 {% block crud_table_wrapper_id %}collaborators-table-wrapper{% endblock %}

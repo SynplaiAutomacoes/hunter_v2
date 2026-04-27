@@ -4,7 +4,8 @@
 {% block crud_subtitle %}Grupos cadastrados na oficina ativa.{% endblock %}
 
 {% block crud_header_actions %}
-    <a href="{% url 'catalog:group_create' %}" class="btn btn-primary">Criar grupo</a>
+    {% url 'catalog:group_create' as group_create_url %}
+    {% include 'favorites/partials/favoritable_action_link.html' with action_url=group_create_url action_label='Criar grupo' favorite_url=group_create_url favorite_label='Criar grupo' %}
 {% endblock %}
 
 {% block crud_table_wrapper_id %}groups-table-wrapper{% endblock %}
