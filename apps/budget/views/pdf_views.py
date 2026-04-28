@@ -10,6 +10,7 @@ from apps.budget.models import Budget, SignatureStatus
 from apps.budget.pdf_context import build_budget_pdf_context, build_workshop_logo_data_uri
 from apps.budget.service import BUDGET_SIGNATURE_DOCUMENT_ID_KEY, BUDGET_SIGNATURE_TOKEN_SALT
 from apps.checklist.models import Checklist
+from apps.checklist.services.files import ChecklistFileStorageError, read_checklist_pdf_file
 from apps.core.documents.contract import DocumentPayload
 from apps.core.documents.http import build_pdf_http_response
 from apps.core.documents.services import SignatureDeliveryServiceError, download_signed_document_content
@@ -65,6 +66,20 @@ def visualizar_pdf_checklist(request, pk):
         raise Http404("Checklist invalido")
 
     checklist = get_object_or_404(Checklist.objects.prefetch_related("items"), pk=checklist_id_int, workshop=workshop)
+
+    if checklist.source == Checklist.ChecklistSource.PDF:
+        file_id = str(checklist.pdf_file_key or "").strip()
+        if not file_id:
+            raise Http404("Checklist sem PDF importado")
+        try:
+            stored_pdf = read_checklist_pdf_file(file_id=file_id)
+        except ChecklistFileStorageError as exc:
+            raise Http404(str(exc)) from exc
+
+        response = HttpResponse(stored_pdf.content, content_type="application/pdf")
+        response["Content-Disposition"] = f'inline; filename="{stored_pdf.filename}"'
+        return response
+
     checklist_items = checklist.items.all().order_by("order", "id")
     checklist_rows = []
     group_number_by_name = {}

@@ -4,7 +4,8 @@
 {% block crud_subtitle %}Catálogo de serviços prestados pela oficina.{% endblock %}
 
 {% block crud_header_actions %}
-    <a href="{% url 'catalog:services_create' %}" class="btn btn-primary">Novo Serviço</a>
+    {% url 'catalog:services_create' as service_create_url %}
+    {% include 'favorites/partials/favoritable_action_link.html' with action_url=service_create_url action_label='Novo Serviço' favorite_url=service_create_url favorite_label='Novo Serviço' %}
 {% endblock %}
 
 {% block crud_table_wrapper_id %}services-table-wrapper{% endblock %}

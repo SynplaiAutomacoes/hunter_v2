@@ -4,7 +4,8 @@
 {% block crud_subtitle %}Clientes cadastrados na oficina ativa.{% endblock %}
 
 {% block crud_header_actions %}
-    <a href="{% url 'customer:customer_create' %}" class="btn btn-primary">Criar Cliente</a>
+    {% url 'customer:customer_create' as customer_create_url %}
+    {% include 'favorites/partials/favoritable_action_link.html' with action_url=customer_create_url action_label='Criar Cliente' favorite_url=customer_create_url favorite_label='Criar Cliente' %}
 {% endblock %}
 
 {% block crud_table_wrapper_id %}customer-table-wrapper{% endblock %}

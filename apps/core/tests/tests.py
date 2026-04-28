@@ -109,8 +109,8 @@ class CrudWrapperTemplateTests(SimpleTestCase):
                     "active_workshops": [],
                     "active_workshop_is_director": False,
                     "navbar_menus": [
-                        {"label": "Cadastros", "children": [{"label": "Cliente", "href": "/customer/"}]},
-                        {"label": "Orcamentos", "href": "/budget/"},
+                        {"label": "Cadastros", "children": [{"label": "Cliente", "href": "/customer/", "favoritable": True}]},
+                        {"label": "Orcamentos", "href": "/budget/", "favoritable": False},
                     ],
                     "navbar_favorites": [{"id": 1, "label": "Cliente", "href": "/customer/"}],
                     "navbar_favorite_urls": {"/customer/"},
@@ -123,8 +123,43 @@ class CrudWrapperTemplateTests(SimpleTestCase):
         self.assertIn('x-sort="reorderFavorites()"', html)
         self.assertIn('data-favorite-id="1"', html)
         self.assertIn("Remover Cliente dos favoritos", html)
-        self.assertIn("Adicionar Orcamentos aos favoritos", html)
-        self.assertIn("Favoritos", html)
+        self.assertNotIn("Adicionar Orcamentos aos favoritos", html)
+
+    def test_form_page_does_not_render_page_favorite_button_when_present(self):
+        request = self.factory.get("/customer/create/")
+        template = Template(
+            """
+            {% extends 'crud/form_page.html' %}
+            {% block crud_title %}Criar cliente{% endblock %}
+            {% block crud_subtitle %}Cadastro{% endblock %}
+            {% block crud_back_url %}/clientes/{% endblock %}
+            {% block crud_form %}<div>Formulario</div>{% endblock %}
+            """
+        )
+
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "active_workshops": [],
+                    "active_workshop_is_director": False,
+                    "page_favorite": {"label": "Criar Cliente", "href": reverse("customer:customer_create"), "favoritable": True},
+                    "navbar_favorite_urls": {reverse("customer:customer_create")},
+                }
+            )
+        )
+
+        self.assertNotIn("Remover Criar Cliente dos favoritos", html)
+
+    def test_favoritable_action_link_renders_embedded_star_button(self):
+        request = self.factory.get("/customer/")
+        template = Template("{% include 'favorites/partials/favoritable_action_link.html' with action_url='/customer/create/' action_label='Criar Cliente' favorite_url='/customer/create/' favorite_label='Criar Cliente' %}")
+
+        html = template.render(Context({"request": request, "navbar_favorite_urls": {"/customer/create/"}}))
+
+        self.assertIn("btn btn-primary pr-11", html)
+        self.assertIn(reverse("core:favorite_page_toggle"), html)
+        self.assertIn("Remover Criar Cliente dos favoritos", html)
 
     def test_detail_wrapper_only_syncs_query_params_for_its_own_requests(self):
         request = self.factory.get("/workshops/1/?q=Oficina&page=2")

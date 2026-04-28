@@ -1,7 +1,8 @@
 {% extends 'crud/list_page.html' %}
 {% block crud_title %}Orçamentos{% endblock %}
 {% block crud_header_actions %}
-    <a href="{% url 'budget:budget_create' %}" class="btn btn-primary">Novo Orçamento</a>
+    {% url 'budget:budget_create' as budget_create_url %}
+    {% include 'favorites/partials/favoritable_action_link.html' with action_url=budget_create_url action_label='Novo Orçamento' favorite_url=budget_create_url favorite_label='Novo Orçamento' %}
     <dialog id="budgetStatusReportPdfModal"
             class="modal"
             x-data="{ url: '', downloadUrl: '', title: 'Relatorio de Orcamentos por Status' }"

@@ -6,7 +6,7 @@ from datetime import timedelta
 from decimal import Decimal
 from typing import cast
 from urllib.parse import urlparse
-from unittest.mock import ANY, PropertyMock, patch
+from unittest.mock import ANY, Mock, PropertyMock, patch
 
 import requests
 from django import forms
@@ -24,6 +24,7 @@ from django.utils import timezone
 from djmoney.money import Money
 
 from apps.budget.forms import BudgetStep1Form, BudgetStep4Form, BudgetStep6Form
+from apps.budget.forms.step_forms import BudgetStep3Form
 from apps.budget.forms.shared import _render_budget_items_rows
 from apps.budget.models import Budget, BudgetItem, BudgetKitItemOverride, BudgetStatus, SignatureStatus
 from apps.budget.pdf_context import build_budget_pdf_context
@@ -292,6 +293,54 @@ class BudgetStep1FormTests(TestCase):
 
         self.assertTrue(form.is_valid(), form.errors.as_json())
         self.assertEqual(form.cleaned_data["current_km"], 15000)
+
+
+class BudgetStep3FormChecklistFilterTests(TestCase):
+    def test_shows_only_diagnostic_checklists_for_selection(self) -> None:
+        _, workshop = create_director_user_with_workshop(suffix=121)
+        budget = create_budget(workshop=workshop)
+
+        diagnostic_checklist = Checklist.objects.create(
+            workshop=workshop,
+            name="Checklist Diagnostico",
+            checklist_type=Checklist.ChecklistType.AUTOMOTIVE_DIAGNOSTIC,
+        )
+        Checklist.objects.create(
+            workshop=workshop,
+            name="Checklist Interno",
+            checklist_type=Checklist.ChecklistType.INTERNAL,
+        )
+
+        form = BudgetStep3Form(instance=budget, workshop=workshop)
+        checklist_field = cast(forms.ModelChoiceField, form.fields["checklist"])
+        checklist_queryset = checklist_field.queryset
+
+        assert checklist_queryset is not None
+        self.assertQuerySetEqual(checklist_queryset.order_by("pk"), [diagnostic_checklist], transform=lambda obj: obj)
+
+    def test_keeps_current_non_diagnostic_checklist_visible_for_legacy_budget(self) -> None:
+        _, workshop = create_director_user_with_workshop(suffix=122)
+        budget = create_budget(workshop=workshop)
+
+        diagnostic_checklist = Checklist.objects.create(
+            workshop=workshop,
+            name="Checklist Diagnostico",
+            checklist_type=Checklist.ChecklistType.AUTOMOTIVE_DIAGNOSTIC,
+        )
+        internal_checklist = Checklist.objects.create(
+            workshop=workshop,
+            name="Checklist Interno",
+            checklist_type=Checklist.ChecklistType.INTERNAL,
+        )
+        budget.checklist = internal_checklist
+        budget.save(update_fields=["checklist"])
+
+        form = BudgetStep3Form(instance=budget, workshop=workshop)
+        checklist_field = cast(forms.ModelChoiceField, form.fields["checklist"])
+        checklist_queryset = checklist_field.queryset
+
+        assert checklist_queryset is not None
+        self.assertQuerySetEqual(checklist_queryset.order_by("pk"), [diagnostic_checklist, internal_checklist], transform=lambda obj: obj)
 
 
 class BudgetKitSelectionCompatibilityTests(TestCase):
@@ -1638,6 +1687,27 @@ class BudgetPdfViewTests(TestCase):
         self.assertContains(response, 'src="data:image/png;base64,bW9uZ28tbG9nbw=="', html=False)
         build_workshop_logo_data_uri_mock.assert_called_once_with(workshop=self.workshop)
 
+    @patch("apps.budget.views.pdf_views.read_checklist_pdf_file")
+    def test_visualizar_pdf_checklist_returns_original_imported_pdf(self, read_checklist_pdf_file_mock) -> None:
+        budget = self._create_budget_with_customer_and_vehicle(suffix=110)
+        checklist = Checklist.objects.create(
+            workshop=self.workshop,
+            name="Checklist Importado",
+            source=Checklist.ChecklistSource.PDF,
+            pdf_file_key="workshops/1/pdfs/checklist.pdf",
+            pdf_file_name="checklist.pdf",
+            pdf_content_type="application/pdf",
+        )
+        read_checklist_pdf_file_mock.return_value = Mock(content=b"%PDF-1.4 test", filename="checklist.pdf")
+
+        response = self.client.get(reverse("budget:visualizar_pdf_checklist", args=[budget.pk]), {"checklist": checklist.pk})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn('inline; filename="checklist.pdf"', response["Content-Disposition"])
+        self.assertEqual(response.content, b"%PDF-1.4 test")
+        read_checklist_pdf_file_mock.assert_called_once_with(file_id="workshops/1/pdfs/checklist.pdf")
+
     def test_pdf_views_render_customer_supplied_product_info(self) -> None:
         budget = self._create_budget_with_customer_and_vehicle(suffix=103)
         supplied_product = create_product(workshop=self.workshop, suffix=103)
@@ -2836,6 +2906,54 @@ class BudgetDuplicateKitProductTests(TestCase):
         self.assertEqual(len(context["servicos"]), 1)
         self.assertEqual(context["servicos"][0]["quantity"], 3)
         self.assertEqual(context["servicos"][0]["total_price"], Money("60.00", "BRL"))
+
+    def test_budget_duplicate_service_tie_uses_higher_total_source(self) -> None:
+        workshop = create_workshop(suffix=923)
+        budget = create_budget(workshop=workshop)
+        service = create_service(workshop=workshop, suffix=923)
+        kit_1 = create_kit(workshop=workshop, suffix=9231, products=[])
+        kit_2 = create_kit(workshop=workshop, suffix=9232, products=[])
+        KitService.objects.create(kit=kit_1, service=service, quantity=1, duration=service.duration, selling_price=Money("30.00", "BRL"))
+        KitService.objects.create(kit=kit_2, service=service, quantity=1, duration=service.duration, selling_price=Money("20.00", "BRL"))
+
+        BudgetItem.objects.create(workshop=workshop, budget=budget, service=service, quantity=2)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit_1, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit_2, quantity=1)
+
+        context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste")
+
+        self.assertEqual(len(context["servicos"]), 1)
+        self.assertEqual(context["servicos"][0]["quantity"], 2)
+        self.assertEqual(context["servicos"][0]["total_price"], Money("50.00", "BRL"))
+
+    def test_budget_sums_same_service_from_multiple_kits_with_override_price(self) -> None:
+        workshop = create_workshop(suffix=920)
+        budget = create_budget(workshop=workshop)
+        service = create_service(workshop=workshop, suffix=920)
+        kit_1 = create_kit(workshop=workshop, suffix=9201, products=[])
+        kit_2 = create_kit(workshop=workshop, suffix=9202, products=[])
+        kit_3 = create_kit(workshop=workshop, suffix=9203, products=[])
+
+        KitService.objects.create(kit=kit_1, service=service, quantity=1, duration=service.duration, selling_price=Money("20.00", "BRL"))
+        KitService.objects.create(kit=kit_2, service=service, quantity=1, duration=service.duration, selling_price=Money("20.00", "BRL"))
+        KitService.objects.create(kit=kit_3, service=service, quantity=1, duration=service.duration, selling_price=Money("0.00", "BRL"))
+
+        BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit_1, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit_2, quantity=1)
+        kit_item_3 = BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit_3, quantity=1)
+
+        override = BudgetKitItemOverride.objects.get(budget_item=kit_item_3, service=service)
+        override.service_selling_price = Money("40.00", "BRL")
+        override.save(update_fields=["service_selling_price", "service_selling_price_currency"])
+        kit_item_3.refresh_kit_snapshot_totals()
+
+        context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste")
+
+        self.assertEqual(budget.total_services_value, Money("80.00", "BRL"))
+        self.assertEqual(context["total_servicos"], Money("80.00", "BRL"))
+        self.assertEqual(len(context["servicos"]), 1)
+        self.assertEqual(context["servicos"][0]["quantity"], 3)
+        self.assertEqual(context["servicos"][0]["total_price"], Money("80.00", "BRL"))
 
     def test_budget_item_uses_kit_service_custom_selling_price(self) -> None:
         workshop = create_workshop(suffix=94)

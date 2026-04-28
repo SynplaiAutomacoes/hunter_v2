@@ -18,10 +18,11 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView, V
 from apps.collaborators.forms import CollaboratorBenefitFormSet, WorkshopCollaboratorCreateForm, WorkshopCollaboratorModalForm, WorkshopCollaboratorUpdateForm
 from apps.collaborators.models import CollaboratorBenefit, CollaboratorPayroll, WorkshopCollaborator, WorkshopMember
 from apps.collaborators.services import calculate_transport_allowance_total, freeze_existing_pricing_history, get_reference_work_days, sync_collaborator_payroll, sync_current_month_salary_costs
+from apps.core.navigation import COLLABORATOR_CREATE_FAVORITE_PAGE
 from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
+from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
 from apps.workshops.mixin import WorkshopScopedMixin
 
 AuthUser = get_user_model()
@@ -79,11 +80,12 @@ class WorkshopCollaboratorListView(LoginRequiredMixin, WorkshopScopedMixin, Htmx
         return context
 
 
-class WorkshopCollaboratorCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
+class WorkshopCollaboratorCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixin, CreateView):
     model = WorkshopCollaborator
     form_class = WorkshopCollaboratorCreateForm
     template_name = "collaborators/collaborator_create.html"
     success_url = reverse_lazy("collaborators:collaborator_list")
+    favorite_page_definition = COLLABORATOR_CREATE_FAVORITE_PAGE
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()

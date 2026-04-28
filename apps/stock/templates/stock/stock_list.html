@@ -1,9 +1,8 @@
 {% extends 'crud/list_page.html' %}
 {% block crud_title %}Importações de Estoque{% endblock %}
 {% block crud_header_actions %}
-    <div class="flex items-center gap-2">
-        <a href="{% url 'stock:import' %}" class="btn btn-primary">Nova Importação</a>
-    </div>
+    {% url 'stock:import' as stock_import_url %}
+    {% include 'favorites/partials/favoritable_action_link.html' with action_url=stock_import_url action_label='Nova Importação' favorite_url=stock_import_url favorite_label='Nova Importação' %}
 {% endblock %}
 {% block crud_table_wrapper_id %}stock-table-wrapper{% endblock %}
 {% block crud_table_hx_get %}{% url 'stock:stock_list' %}{% endblock %}

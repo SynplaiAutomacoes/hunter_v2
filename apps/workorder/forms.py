@@ -49,6 +49,7 @@ class WorkOrderCollaboratorForm(forms.ModelForm):
 
 
 class WorkOrderPaymentForm(forms.ModelForm):
+    entry_amount = MoneyField(label="Valor de entrada", required=False, widget=MoneyInput)
     total_value = forms.CharField(label="Valor Total", required=False, widget=MoneyInput)
     paid_value = forms.CharField(label="Valor Pago", required=False, widget=MoneyInput)
     pending_value = forms.CharField(label="Valor Pendente", required=False, widget=MoneyInput)
@@ -84,8 +85,18 @@ class WorkOrderPaymentForm(forms.ModelForm):
         payment_method_field.queryset = payment_methods
         payment_method_field.required = True
         payment_method_field.label_from_instance = lambda obj: obj.description
+        self.is_first_payment = bool(self.workorder and not self.workorder.payments.exists())
+        self.fields["entry_amount"].required = self.is_first_payment
         self.fields["first_installment_amount"].label = "Valor a ser pago"
+        self.fields["first_installment_amount"].required = not self.is_first_payment
         self.fields["due_date"].required = False
+
+        if self.is_first_payment:
+            self.fields["first_installment_amount"].disabled = True
+            self.fields["first_installment_amount"].widget.attrs.update({"readonly": True, "class": "cursor-not-allowed opacity-75"})
+        else:
+            self.fields["entry_amount"].disabled = True
+            self.fields["entry_amount"].widget.attrs.update({"readonly": True, "class": "cursor-not-allowed opacity-75"})
 
         total_os = self.workorder.total_budget_value.amount if self.workorder else MONEY_ZERO
         paid_amount = self._get_paid_amount() if self.workorder else MONEY_ZERO
@@ -134,6 +145,8 @@ class WorkOrderPaymentForm(forms.ModelForm):
         pending_amount_js = format(pending_amount, "f")
         pending_amount_display_text = _format_brl_amount(pending_amount_display)
         today_iso = timezone.localdate().isoformat()
+        active_amount_label = "entrada" if self.is_first_payment else "a ser pago"
+        is_first_payment_js = "true" if self.is_first_payment else "false"
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -144,12 +157,12 @@ class WorkOrderPaymentForm(forms.ModelForm):
                     <div class="alert alert-error shadow-lg border-2 border-error">
                         <span class="material-icons">error_outline</span>
                         <div>
-                            <h3 class="font-bold text-sm">Valor Não Permitido</h3>
-                            <div class="text-xs payment-warning-message">
-                                O valor a ser pago não pode exceder o saldo disponível de <strong>R$ {pending_amount_display_text}</strong>.
-                            </div>
-                        </div>
-                    </div>
+                             <h3 class="font-bold text-sm">Valor Não Permitido</h3>
+                             <div class="text-xs payment-warning-message">
+                                O valor {active_amount_label} não pode exceder o saldo disponível de <strong>R$ {pending_amount_display_text}</strong>.
+                             </div>
+                         </div>
+                     </div>
                 </div>
             """),
             Div(
@@ -194,6 +207,7 @@ class WorkOrderPaymentForm(forms.ModelForm):
                 ),
                 HTML("</div>"),
             ),
+            HTML('<div class="mb-3 flex justify-end"><span id="workorder-discount-save-status" class="text-xs text-base-content/60" aria-live="polite"></span></div>'),
             Div(
                 Field("total_value", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("paid_value", wrapper_class="col-span-12 lg:col-span-4"),
@@ -201,9 +215,10 @@ class WorkOrderPaymentForm(forms.ModelForm):
                 css_class="grid grid-cols-12 gap-4 mb-2 pb-4 border-b-2 border-base-50",
             ),
             Div(
-                Field("payment_method", wrapper_class="col-span-12 lg:col-span-4"),
-                Field("first_installment_amount", wrapper_class="col-span-12 lg:col-span-4"),
-                Field("due_date", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("entry_amount", wrapper_class="col-span-12 lg:col-span-3"),
+                Field("first_installment_amount", wrapper_class="col-span-12 lg:col-span-3"),
+                Field("payment_method", wrapper_class="col-span-12 lg:col-span-3"),
+                Field("due_date", wrapper_class="col-span-12 lg:col-span-3"),
                 css_class="grid grid-cols-12 gap-4 mb-2 mt-4",
             ),
             Div(Submit("submit", "Salvar Plano de Pagamento", css_class="btn-form-save btn-primary"), css_class="flex justify-end mt-4"),
@@ -217,9 +232,14 @@ class WorkOrderPaymentForm(forms.ModelForm):
                         }}
 
                         const formElement = paymentForm.closest('form');
+                        const isFirstPayment = {is_first_payment_js};
                         const paymentMethodInput = document.getElementById('id_payment_method');
+                        const entryAmountInput = document.getElementById('id_entry_amount_0');
+                        const entryAmountDisplay = document.getElementById('id_entry_amount_0_display');
                         const firstAmountInput = document.getElementById('id_first_installment_amount_0');
                         const firstAmountDisplay = document.getElementById('id_first_installment_amount_0_display');
+                        const activeAmountInput = isFirstPayment ? entryAmountInput : firstAmountInput;
+                        const activeAmountDisplay = isFirstPayment ? entryAmountDisplay : firstAmountDisplay;
                         const dueDateInput = document.getElementById('id_due_date');
                         const btnSave = formElement ? formElement.querySelector('.btn-form-save') : null;
                         const warningDiv = document.getElementById('payment-warning-workorder-js');
@@ -233,9 +253,13 @@ class WorkOrderPaymentForm(forms.ModelForm):
                         const discountDisplay = document.getElementById('workorder-discount-display');
                         const totalDisplay = document.getElementById('workorder-total-final-display');
                         const percentageChip = document.getElementById('workorder-discount-percentage-display');
+                        const discountSaveStatus = document.getElementById('workorder-discount-save-status');
+                        const discountPersistUrl = '{reverse("workorder:update_discount", args=[self.workorder.pk]) if self.workorder else ""}';
                         let discountTimeout = null;
+                        let discountRequestController = null;
+                        let discountRequestId = 0;
 
-                        if (!paymentMethodInput || !firstAmountInput || !btnSave) {{
+                        if (!paymentMethodInput || !activeAmountInput || !btnSave) {{
                             return;
                         }}
 
@@ -304,24 +328,94 @@ class WorkOrderPaymentForm(forms.ModelForm):
                             discountPercentageDisplay.value = formatPercentageDisplay(fraction);
                             updateDiscountSummary(amount, fraction);
                         }};
+                        const setDiscountStatus = (status, message = '') => {{
+                            if (!discountSaveStatus) {{
+                                return;
+                            }}
+                            discountSaveStatus.textContent = message;
+                            discountSaveStatus.classList.remove('text-base-content/60', 'text-success', 'text-error');
+                            if (status === 'saved') {{
+                                discountSaveStatus.classList.add('text-success');
+                            }} else if (status === 'error') {{
+                                discountSaveStatus.classList.add('text-error');
+                            }} else {{
+                                discountSaveStatus.classList.add('text-base-content/60');
+                            }}
+                        }};
+                        const sendDiscountRequest = () => {{
+                            if (!discountPersistUrl || !discountMoneyHidden || !discountPercentageHidden) {{
+                                return;
+                            }}
+
+                            if (discountRequestController) {{
+                                discountRequestController.abort();
+                            }}
+
+                            const csrfInput = formElement ? formElement.querySelector('input[name="csrfmiddlewaretoken"]') : null;
+                            const csrfToken = csrfInput ? csrfInput.value : '';
+                            const requestId = discountRequestId + 1;
+                            discountRequestId = requestId;
+                            discountRequestController = new AbortController();
+                            setDiscountStatus('saving', 'Salvando...');
+
+                            const payload = new URLSearchParams();
+                            payload.set('discount_value_0', discountMoneyHidden.value);
+                            payload.set('discount_percentage', discountPercentageHidden.value);
+
+                            fetch(discountPersistUrl, {{
+                                method: 'POST',
+                                headers: {{
+                                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                                    'X-Requested-With': 'XMLHttpRequest',
+                                    ...(csrfToken ? {{ 'X-CSRFToken': csrfToken }} : {{}}),
+                                }},
+                                body: payload.toString(),
+                                signal: discountRequestController.signal,
+                            }})
+                                .then((response) => response.json().then((data) => ({{ response, data }})))
+                                .then(({{ response, data }}) => {{
+                                    if (requestId !== discountRequestId) {{
+                                        return;
+                                    }}
+                                    if (!response.ok || !data.ok) {{
+                                        throw new Error(data.error || 'Falha ao salvar desconto.');
+                                    }}
+                                    setDiscountStatus('saved', 'Salvo');
+                                    window.setTimeout(() => {{
+                                        if (requestId === discountRequestId) {{
+                                            setDiscountStatus('idle', '');
+                                        }}
+                                    }}, 1200);
+                                }})
+                                .catch((error) => {{
+                                    if (error && error.name === 'AbortError') {{
+                                        return;
+                                    }}
+                                    if (requestId !== discountRequestId) {{
+                                        return;
+                                    }}
+                                    setDiscountStatus('error', error?.message || 'Falha ao salvar desconto.');
+                                }});
+                        }};
                         const persistDiscount = () => {{
                             if (!discountMoneyHidden || !discountPercentageHidden) {{
                                 return;
                             }}
                             clearTimeout(discountTimeout);
-                            discountTimeout = setTimeout(() => {{
-                                htmx.ajax('POST', '{reverse("workorder:update_discount", args=[self.workorder.pk]) if self.workorder else ""}', {{
-                                    target: '#payment-section',
-                                    swap: 'innerHTML',
-                                    values: {{
-                                        discount_value_0: discountMoneyHidden.value,
-                                        discount_percentage: discountPercentageHidden.value,
-                                    }},
-                                }});
-                            }}, 700);
+                            discountTimeout = setTimeout(sendDiscountRequest, 1000);
+                        }};
+                        const persistDiscountNow = () => {{
+                            if (!discountMoneyHidden || !discountPercentageHidden) {{
+                                return;
+                            }}
+                            clearTimeout(discountTimeout);
+                            sendDiscountRequest();
                         }};
                         const updatePaymentPlan = () => {{
-                            const firstAmount = parseFloat(firstAmountInput.value) || 0;
+                            const activeAmount = parseFloat(activeAmountInput.value) || 0;
+                            const amountErrorMessage = isFirstPayment
+                                ? 'O valor de entrada não pode exceder o saldo disponível da ordem de serviço.'
+                                : 'O valor a ser pago não pode exceder o saldo disponível da ordem de serviço.';
 
                             if (pendingValue <= 0) {{
                                 btnSave.disabled = true;
@@ -330,10 +424,10 @@ class WorkOrderPaymentForm(forms.ModelForm):
                                 return;
                             }}
 
-                            if (firstAmount > (pendingValue + 0.001)) {{
+                            if (activeAmount > (pendingValue + 0.001)) {{
                                 btnSave.disabled = true;
                                 btnSave.classList.add('btn-disabled', 'opacity-50');
-                                toggleWarning(true, 'O valor a ser pago não pode exceder o saldo disponível da ordem de serviço.');
+                                toggleWarning(true, amountErrorMessage);
                                 return;
                             }}
 
@@ -351,11 +445,11 @@ class WorkOrderPaymentForm(forms.ModelForm):
                             updatePaymentPlan();
                         }});
 
-                        if (firstAmountDisplay) {{
-                            firstAmountDisplay.addEventListener('input', function() {{
+                        if (activeAmountDisplay) {{
+                            activeAmountDisplay.addEventListener('input', function() {{
                                 requestAnimationFrame(updatePaymentPlan);
                             }});
-                            firstAmountDisplay.addEventListener('blur', function() {{
+                            activeAmountDisplay.addEventListener('blur', function() {{
                                 setTimeout(updatePaymentPlan, 0);
                             }});
                         }}
@@ -367,8 +461,14 @@ class WorkOrderPaymentForm(forms.ModelForm):
                                     persistDiscount();
                                 }}, 0);
                             }};
+                            const handleMoneyBlur = () => {{
+                                window.setTimeout(() => {{
+                                    syncFromValue(false);
+                                    persistDiscountNow();
+                                }}, 0);
+                            }};
                             discountMoneyDisplay.addEventListener('input', handleMoneyInput);
-                            discountMoneyDisplay.addEventListener('blur', handleMoneyInput);
+                            discountMoneyDisplay.addEventListener('blur', handleMoneyBlur);
                             discountMoneyDisplay.dataset.discountSyncBound = 'true';
                         }}
 
@@ -379,7 +479,14 @@ class WorkOrderPaymentForm(forms.ModelForm):
                                     persistDiscount();
                                 }}, 0);
                             }};
+                            const handlePercentageBlur = () => {{
+                                window.setTimeout(() => {{
+                                    syncFromPercentage();
+                                    persistDiscountNow();
+                                }}, 0);
+                            }};
                             discountPercentageHidden.addEventListener('widget:formatted-change', handlePercentageInput);
+                            discountPercentageHidden.addEventListener('blur', handlePercentageBlur);
                             discountPercentageHidden.dataset.discountSyncBound = 'true';
                         }}
 
@@ -430,10 +537,24 @@ class WorkOrderPaymentForm(forms.ModelForm):
             return cleaned_data
 
         payment_method = cleaned_data.get("payment_method")
+        entry_amount = cleaned_data.get("entry_amount")
         first_amount = cleaned_data.get("first_installment_amount")
         due_date = cleaned_data.get("due_date")
 
-        if payment_method is None or first_amount is None:
+        if payment_method is None:
+            return cleaned_data
+
+        if self.is_first_payment:
+            effective_amount = entry_amount
+            amount_field_name = "entry_amount"
+            amount_label = "valor de entrada"
+        else:
+            effective_amount = first_amount
+            amount_field_name = "first_installment_amount"
+            amount_label = "valor a ser pago"
+
+        if effective_amount is None:
+            self.add_error(amount_field_name, f"Informe o {amount_label}.")
             return cleaned_data
 
         if due_date is None:
@@ -447,14 +568,15 @@ class WorkOrderPaymentForm(forms.ModelForm):
         if pending_amount <= MONEY_ZERO:
             raise ValidationError("A ordem de serviço não possui saldo pendente para um novo plano de pagamento.")
 
-        if first_amount.amount <= MONEY_ZERO:
-            self.add_error("first_installment_amount", "Informe um valor maior que zero para o valor a ser pago.")
+        if effective_amount.amount <= MONEY_ZERO:
+            self.add_error(amount_field_name, f"Informe um valor maior que zero para o {amount_label}.")
             return cleaned_data
 
-        if first_amount.amount > pending_amount:
-            self.add_error("first_installment_amount", f"O valor a ser pago não pode exceder o saldo pendente da O.S. (R$ {_format_brl_amount(pending_amount)}).")
+        if effective_amount.amount > pending_amount:
+            self.add_error(amount_field_name, f"O {amount_label} não pode exceder o saldo pendente da O.S. (R$ {_format_brl_amount(pending_amount)}).")
             return cleaned_data
 
+        cleaned_data["effective_payment_amount"] = effective_amount
         installments_count = self._resolve_installments_count(payment_method)
 
         cleaned_data["installments_count"] = installments_count
@@ -465,10 +587,13 @@ class WorkOrderPaymentForm(forms.ModelForm):
     def save(self, commit: bool = True) -> WorkOrderPaymentMethod:
         instance = super().save(commit=False)
         payment_method = self.cleaned_data.get("payment_method")
+        effective_payment_amount = self.cleaned_data.get("effective_payment_amount")
         installments_count = self.cleaned_data.get("installments_count", 1)
         remaining_amount = self.cleaned_data.get("remaining_installments_amount", Money(MONEY_ZERO, "BRL"))
 
         instance.payment_method = payment_method
+        if effective_payment_amount is not None:
+            instance.first_installment_amount = effective_payment_amount
         instance.installments_count = int(installments_count)
         instance.remaining_installments_amount = remaining_amount
 

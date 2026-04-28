@@ -1,0 +1,15 @@
+{% if favorite_url and favorite_label %}
+    <button
+        type="button"
+        class="{{ favorite_button_class|default:'btn btn-ghost btn-circle btn-xs text-base-content/60 hover:text-warning' }}"
+        hx-post="{% url 'core:favorite_page_toggle' %}"
+        hx-swap="none"
+        hx-vals='{"url": "{{ favorite_url|escapejs }}"}'
+        data-page-path="{{ favorite_url }}"
+        title="{% if favorite_url in navbar_favorite_urls %}{% firstof favorite_remove_title 'Remover dos favoritos' %}{% else %}{% firstof favorite_add_title 'Adicionar aos favoritos' %}{% endif %}"
+        aria-label="{% if favorite_url in navbar_favorite_urls %}Remover {{ favorite_label }} dos favoritos{% else %}Adicionar {{ favorite_label }} aos favoritos{% endif %}"
+        aria-pressed="{% if favorite_url in navbar_favorite_urls %}true{% else %}false{% endif %}"
+    >
+        <span class="{{ favorite_icon_class|default:'material-icons text-[18px] leading-none transition-colors' }} {% if favorite_url in navbar_favorite_urls %}{{ favorite_active_icon_class|default:'text-warning' }}{% endif %}">{% if favorite_url in navbar_favorite_urls %}star{% else %}star_border{% endif %}</span>
+    </button>
+{% endif %}
