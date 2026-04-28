@@ -45,7 +45,7 @@
             <div class="flex justify-between items-center">
                 <div>
                     <p class="text-lg font-medium">{{ vehicle.customer.name }}</p>
-                    <p class="text-sm text-base-content/70">CPF: {{ vehicle.customer.cpf }}</p>
+                    <p class="text-sm text-base-content/70">CPF/CNPJ: {{ vehicle.customer.cpf_or_cnpj_formatted }}</p>
                 </div>
                 <a href="{% url 'customer:customer_history_detail' vehicle.customer.pk %}" class="btn btn-primary btn-sm">
                     Ver Cliente
