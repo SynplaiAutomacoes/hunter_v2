@@ -158,7 +158,7 @@ def name_case(text: str) -> str:
         if not token:
             continue
         if WORD_REGEX.fullmatch(token):
-            if _is_excluded_token(token) or _should_preserve_upper_token(token):
+            if _is_excluded_token(token):
                 output.append(token)
                 first_word = False
                 continue
