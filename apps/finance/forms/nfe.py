@@ -19,6 +19,7 @@ from apps.finance.forms.emission_ui import (
 from apps.finance.forms.request_steps_shared import SharedEmissionCustomerReviewForm, SharedEmissionWorkorderSelectionForm
 from apps.finance.models.finance import NfeRequest
 from apps.finance.services.nfe_emission import build_nfe_preview_rows, build_nfe_preview_warning_messages
+from apps.core.text_normalization import sentence_case
 
 
 class NfeRequestStep1Form(SharedEmissionWorkorderSelectionForm):
@@ -189,3 +190,7 @@ class NfeRequestStep3Form(forms.ModelForm):
         if self._valid_tax_class_refs and tax_class not in self._valid_tax_class_refs:
             raise forms.ValidationError("Selecione uma classe de imposto valida da lista.")
         return tax_class
+
+    def clean_additional_information(self) -> str:
+        value = str(self.cleaned_data.get("additional_information") or "").strip()
+        return sentence_case(value) if value else value

@@ -19,8 +19,8 @@ from apps.catalog.models.kits import Kit, KitApplication, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.util import calculate_catalog_service_prices, get_current_workshop_cost
-from apps.core.widgets import CheckboxInput, TextInput, TextareaInput, MoneyInput, PercentageInput, ImageInput, DurationInput, \
-    SearchableSelectInput
+from apps.core.text_normalization import sentence_case
+from apps.core.widgets import CheckboxInput, TextInput, TextareaInput, MoneyInput, PercentageInput, ImageInput, DurationInput, SearchableSelectInput
 from apps.customer.vehicle_engine import normalize_vehicle_engine_choice, vehicle_engine_form_choices
 from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice, vehicle_fuel_form_choices
 from apps.workshops.models.workshops import Workshop
@@ -51,7 +51,7 @@ class KitForm(forms.ModelForm):
         self.helper.layout = self.get_layout()
 
     def clean_name(self) -> str:
-        name = str(self.cleaned_data.get("name", "")).strip()
+        name = sentence_case(str(self.cleaned_data.get("name", "")).strip())
         if not name or not self.workshop:
             return name
 

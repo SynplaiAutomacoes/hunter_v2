@@ -30,13 +30,13 @@ from apps.catalog.models.products import Product
 from apps.catalog.price_tracking import build_product_price_warning, record_product_last_purchase_price, record_product_last_used_price
 from apps.core.forms import address_layout, AddressFormMixin
 from apps.core.utils import alert_confirm_layout
-from apps.core.widgets import TextInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput, PhoneInput, EmailInput, TextareaInput, \
-    SearchableSelectInput
+from apps.core.widgets import TextInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput, PhoneInput, EmailInput, TextareaInput, SearchableSelectInput
 from apps.finance.models.payment_method import PaymentMethod
 
 from apps.stock.financial_entries import ADDITIONAL_CHARGE_ENTRY_TYPE, PAYMENT_ENTRY_TYPE, calculate_import_totals, get_entry_amount, get_entry_reason, normalize_entry_type
 from apps.stock.models import StockPaymentMethod, StockImport, StockProduct, StockMovement, SefazZipCache
 from apps.stock.models import StockTransfer
+from apps.core.text_normalization import name_case, sentence_case
 
 from apps.stock.utils import NFParser, extract_nf_number_from_access_key, parse_sefaz_distribution_doc_metadata
 from apps.suppliers.models import Supplier
@@ -881,7 +881,7 @@ class AdditionalChargeSessionForm(forms.Form):
         reason = str(self.cleaned_data.get("reason") or "").strip()
         if not reason:
             raise forms.ValidationError("Informe o motivo do valor adicional.")
-        return reason
+        return sentence_case(reason)
 
 
 class ImportSefazListForm(forms.ModelForm):
@@ -1995,6 +1995,10 @@ class TransferStepReasonForm(forms.ModelForm):
 
         return cleaned_data
 
+    def clean_reason(self):
+        value = self.cleaned_data.get("reason")
+        return sentence_case(value) if value else value
+
 
 class TransferStepWorkshopsForm(forms.ModelForm):
     source_workshop = forms.ModelChoiceField(queryset=Workshop.objects.none(), label="Oficina de Origem", widget=SearchableSelectInput())
@@ -2615,6 +2619,10 @@ class QuickProductForm(forms.ModelForm):
             )
         )
 
+    def clean_name(self):
+        value = self.cleaned_data.get("name")
+        return sentence_case(value) if value else value
+
 
 class QuickSupplierForm(AddressFormMixin, forms.ModelForm):
     class Meta:
@@ -2676,6 +2684,30 @@ class QuickSupplierForm(AddressFormMixin, forms.ModelForm):
 
         return cleaned_data
 
+    def clean_name(self):
+        value = self.cleaned_data.get("name")
+        return name_case(value) if value else value
+
+    def clean_contact_person(self):
+        value = self.cleaned_data.get("contact_person")
+        return name_case(value) if value else value
+
+    def clean_logradouro(self):
+        value = self.cleaned_data.get("logradouro")
+        return sentence_case(value) if value else value
+
+    def clean_complemento(self):
+        value = self.cleaned_data.get("complemento")
+        return sentence_case(value) if value else value
+
+    def clean_bairro(self):
+        value = self.cleaned_data.get("bairro")
+        return sentence_case(value) if value else value
+
+    def clean_cidade(self):
+        value = self.cleaned_data.get("cidade")
+        return sentence_case(value) if value else value
+
 
 class CatalogGroupQuickForm(forms.ModelForm):
     class Meta:
@@ -2699,4 +2731,4 @@ class CatalogGroupQuickForm(forms.ModelForm):
                 qs = qs.exclude(pk=self.instance.pk)
             if qs.exists():
                 raise forms.ValidationError("Já existe um grupo com este nome.")
-        return name
+        return sentence_case(name) if name else name

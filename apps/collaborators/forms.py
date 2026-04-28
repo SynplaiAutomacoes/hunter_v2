@@ -25,6 +25,7 @@ from apps.core.widgets import (
 )
 from apps.iam.models import WorkshopRole
 from apps.workshops.models.workshops import Workshop
+from apps.core.text_normalization import name_case, sentence_case
 
 User = get_user_model()
 
@@ -269,6 +270,14 @@ class BaseWorkshopCollaboratorForm(forms.ModelForm):
 
         return cleaned
 
+    def clean_name(self):
+        value = self.cleaned_data.get("name")
+        return name_case(value) if value else value
+
+    def clean_position(self):
+        value = self.cleaned_data.get("position")
+        return sentence_case(value) if value else value
+
 
 class WorkshopCollaboratorCreateForm(BaseWorkshopCollaboratorForm):
     password1 = forms.CharField(label="Senha", required=False, widget=PasswordInput())
@@ -378,6 +387,14 @@ class WorkshopCollaboratorModalForm(forms.ModelForm):
             )
         )
 
+    def clean_name(self):
+        value = self.cleaned_data.get("name")
+        return name_case(value) if value else value
+
+    def clean_position(self):
+        value = self.cleaned_data.get("position")
+        return sentence_case(value) if value else value
+
 
 class CollaboratorBenefitInlineForm(forms.ModelForm):
     class Meta:
@@ -389,6 +406,14 @@ class CollaboratorBenefitInlineForm(forms.ModelForm):
             "monthly_amount": MoneyInput(),
             "is_active": CheckboxInput(),
         }
+
+    def clean_name(self):
+        value = self.cleaned_data.get("name")
+        return sentence_case(value) if value else value
+
+    def clean_description(self):
+        value = self.cleaned_data.get("description")
+        return sentence_case(value) if value else value
 
 
 class CollaboratorBenefitInlineFormSet(BaseInlineFormSet):

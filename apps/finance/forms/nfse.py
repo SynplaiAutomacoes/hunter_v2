@@ -19,6 +19,7 @@ from apps.finance.forms.emission_ui import (
 from apps.finance.forms.request_steps_shared import SharedEmissionCustomerReviewForm, SharedEmissionWorkorderSelectionForm
 from apps.finance.models.finance import NfseRequest
 from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder
+from apps.core.text_normalization import sentence_case
 from apps.workorder.models import WorkOrder
 
 
@@ -224,3 +225,11 @@ class NfseRequestStep3Form(forms.ModelForm):
         if self._valid_tax_class_refs and tax_class not in self._valid_tax_class_refs:
             raise forms.ValidationError("Selecione uma classe de imposto valida da lista.")
         return tax_class
+
+    def clean_service_description(self) -> str:
+        value = str(self.cleaned_data.get("service_description") or "").strip()
+        return sentence_case(value) if value else value
+
+    def clean_additional_information(self) -> str:
+        value = str(self.cleaned_data.get("additional_information") or "").strip()
+        return sentence_case(value) if value else value

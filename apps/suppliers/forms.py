@@ -6,6 +6,7 @@ from django.urls import reverse
 from apps.core.forms import AddressFormMixin, address_layout
 from apps.core.widgets import CPForCNPJInput, CalendarDateInput, TextInput, CheckboxInput, EmailInput, PhoneInput
 from apps.suppliers.models import Supplier
+from apps.core.text_normalization import name_case, sentence_case
 from apps.workshops.models.workshops import Workshop
 
 
@@ -97,3 +98,27 @@ class SupplierForm(AddressFormMixin, forms.ModelForm):
                 self.add_error("cnpj", "Já existe um fornecedor cadastrado com este CNPJ nesta oficina.")
 
         return cleaned_data
+
+    def clean_name(self):
+        value = self.cleaned_data.get("name")
+        return name_case(value) if value else value
+
+    def clean_contact_person(self):
+        value = self.cleaned_data.get("contact_person")
+        return name_case(value) if value else value
+
+    def clean_logradouro(self):
+        value = self.cleaned_data.get("logradouro")
+        return sentence_case(value) if value else value
+
+    def clean_complemento(self):
+        value = self.cleaned_data.get("complemento")
+        return sentence_case(value) if value else value
+
+    def clean_bairro(self):
+        value = self.cleaned_data.get("bairro")
+        return sentence_case(value) if value else value
+
+    def clean_cidade(self):
+        value = self.cleaned_data.get("cidade")
+        return sentence_case(value) if value else value

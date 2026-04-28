@@ -11,6 +11,7 @@ from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.services.financial_movement import generate_card_fee_movement
 from apps.suppliers.models import Supplier
+from apps.core.text_normalization import sentence_case
 
 
 class FinancialMovementBaseForm(forms.ModelForm):
@@ -252,6 +253,14 @@ class MovementStep2Form(FinancialMovementBaseForm):
         self.helper = FormHelper()
         self.helper.form_tag = False
 
+    def clean_description(self):
+        value = self.cleaned_data.get("description")
+        return sentence_case(value) if value else value
+
+    def clean_items_observation(self):
+        value = self.cleaned_data.get("items_observation")
+        return sentence_case(value) if value else value
+
 
 class MovementStep3Form(FinancialMovementBaseForm):
     is_paid = forms.TypedChoiceField(label="Pago", required=True, initial=False, coerce=lambda value: str(value).lower() == "true", choices=((False, "Não"), (True, "Sim")), widget=SearchableSelectInput(choices=[(False, "Não"), (True, "Sim")]))
@@ -346,6 +355,10 @@ class MovementStep3Form(FinancialMovementBaseForm):
                     self.request.session.pop(f"repeat_count_{instance.pk}", None)
                     self.request.session.pop(f"repeat_type_{instance.pk}", None)
         return instance
+
+    def clean_financial_observation(self):
+        value = self.cleaned_data.get("financial_observation")
+        return sentence_case(value) if value else value
 
 
 class MovementStep4Form(FinancialMovementBaseForm):
@@ -656,6 +669,18 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
             ),
             HTML("</section>"),
         )
+
+    def clean_description(self):
+        value = self.cleaned_data.get("description")
+        return sentence_case(value) if value else value
+
+    def clean_items_observation(self):
+        value = self.cleaned_data.get("items_observation")
+        return sentence_case(value) if value else value
+
+    def clean_financial_observation(self):
+        value = self.cleaned_data.get("financial_observation")
+        return sentence_case(value) if value else value
 
     def _build_entity_details_context(self) -> dict[str, object]:
         supplier_id = self.data.get("supplier") or (self.instance.supplier_id if self.instance.pk else None)

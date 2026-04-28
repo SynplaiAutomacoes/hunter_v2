@@ -22,6 +22,7 @@ from apps.finance.forms.emission_ui import (
 )
 from apps.finance.services.emission import build_default_service_description_for_workorder
 from apps.finance.services.nfe_emission import build_nfe_preview_rows, build_nfe_preview_warning_messages
+from apps.core.text_normalization import sentence_case
 from apps.finance.services.pricing import build_emission_pricing_snapshot_for_workorder, build_nfse_service_preview_rows, build_slider_allocation_for_workorder
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 
@@ -843,6 +844,10 @@ class EmissionNfeConfigForm(forms.Form):
             raise forms.ValidationError("Selecione uma classe de imposto valida da lista.")
         return tax_class
 
+    def clean_additional_information(self) -> str:
+        value = str(self.cleaned_data.get("additional_information") or "").strip()
+        return sentence_case(value) if value else value
+
 
 class EmissionNfseConfigForm(forms.Form):
     tax_class = forms.ChoiceField(label="Classe de imposto", choices=[])
@@ -911,3 +916,11 @@ class EmissionNfseConfigForm(forms.Form):
         if not service_description:
             self.add_error("service_description", "Informe a descricao do servico para emitir Nota Fiscal de Serviço.")
         return cleaned_data
+
+    def clean_service_description(self) -> str:
+        value = str(self.cleaned_data.get("service_description") or "").strip()
+        return sentence_case(value) if value else value
+
+    def clean_additional_information(self) -> str:
+        value = str(self.cleaned_data.get("additional_information") or "").strip()
+        return sentence_case(value) if value else value

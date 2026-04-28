@@ -8,6 +8,7 @@ from crispy_forms.layout import Layout, Div, Field, HTML, Submit, Button
 from django.urls import reverse
 
 from .models import Customer, Vehicle
+from apps.core.text_normalization import name_case, plate_case, sentence_case
 from apps.core.widgets import CPForCNPJInput, CalendarDateInput, TextInput, SearchableSelectInput, RGInput, PhoneInput, EmailInput, CheckboxInput, NumberInput, PlateInput
 from .cpf_cnpj_validator import is_valid_cpf, is_valid_cnpj
 from .vehicle_engine import normalize_vehicle_engine_choice, vehicle_engine_form_choices
@@ -41,7 +42,7 @@ class VehicleInlineForm(forms.ModelForm):
             _set_normalized_initial_choice(self, "fuel", self.initial.get("fuel") or getattr(self.instance, "fuel", None), normalize_vehicle_fuel_choice)
 
     def clean_plate(self):
-        plate = (self.cleaned_data.get("plate") or "").strip().upper()
+        plate = plate_case(self.cleaned_data.get("plate") or "")
         workshop = self.workshop or getattr(self.instance, "workshop", None)
 
         if not plate or not workshop:
@@ -378,6 +379,30 @@ class CustomerForm(AddressFormMixin, forms.ModelForm):
 
         return cleaned_data
 
+    def clean_name(self):
+        value = self.cleaned_data.get("name")
+        return name_case(value) if value else value
+
+    def clean_fantasy_name(self):
+        value = self.cleaned_data.get("fantasy_name")
+        return name_case(value) if value else value
+
+    def clean_logradouro(self):
+        value = self.cleaned_data.get("logradouro")
+        return sentence_case(value) if value else value
+
+    def clean_complemento(self):
+        value = self.cleaned_data.get("complemento")
+        return sentence_case(value) if value else value
+
+    def clean_bairro(self):
+        value = self.cleaned_data.get("bairro")
+        return sentence_case(value) if value else value
+
+    def clean_cidade(self):
+        value = self.cleaned_data.get("cidade")
+        return sentence_case(value) if value else value
+
 
 class QuickCustomerForm(AddressFormMixin, forms.ModelForm):
     class Meta:
@@ -500,6 +525,22 @@ class QuickCustomerForm(AddressFormMixin, forms.ModelForm):
                 self.add_error("cpf_or_cnpj", "Já existe um cliente cadastrado com este documento nesta oficina.")
 
         return cleaned_data
+
+    def clean_name(self):
+        value = self.cleaned_data.get("name")
+        return name_case(value) if value else value
+
+    def clean_logradouro(self):
+        value = self.cleaned_data.get("logradouro")
+        return sentence_case(value) if value else value
+
+    def clean_bairro(self):
+        value = self.cleaned_data.get("bairro")
+        return sentence_case(value) if value else value
+
+    def clean_cidade(self):
+        value = self.cleaned_data.get("cidade")
+        return sentence_case(value) if value else value
 
 
 class QuickVehicleForm(forms.ModelForm):

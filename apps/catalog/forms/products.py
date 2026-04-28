@@ -17,9 +17,11 @@ from apps.core.widgets import (
     PercentageInput,
     CheckboxInput,
     TextareaInput,
-    ImageInput, SearchableSelectInput,
+    ImageInput,
+    SearchableSelectInput,
 )
 from apps.workshops.models.workshops import Workshop
+from apps.core.text_normalization import sentence_case
 
 
 # TODO: Improve equivalent products to use a modal similar to Kits. Probably make a reusable modal for it.
@@ -103,6 +105,18 @@ class ProductForm(forms.ModelForm):
             "@submit": "handleSubmit($event)",
         }
         self.helper.layout = self.get_layout()
+
+    def clean_description(self) -> str:
+        value = str(self.cleaned_data.get("description") or "").strip()
+        return sentence_case(value) if value else value
+
+    def clean_brand(self) -> str:
+        value = str(self.cleaned_data.get("brand") or "").strip()
+        return sentence_case(value) if value else value
+
+    def clean_model(self) -> str:
+        value = str(self.cleaned_data.get("model") or "").strip()
+        return sentence_case(value) if value else value
 
     def _build_form_alpine_data(self) -> str:
         last_used_amount = ""
@@ -404,8 +418,9 @@ class ProductForm(forms.ModelForm):
 
         return code
 
-    def clean_name(self):
-        name = self.cleaned_data.get("name")
+    def clean_name(self) -> str:
+        name = str(self.cleaned_data.get("name") or "").strip()
+        name = sentence_case(name) if name else name
 
         if name and self.workshop:
             qs = Product.objects.filter(workshop=self.workshop, name__iexact=name)

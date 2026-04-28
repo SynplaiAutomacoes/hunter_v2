@@ -18,6 +18,7 @@ from apps.budget.pricing import resolve_discount_fields
 from apps.checklist.models import Checklist
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.utils import alert_confirm_layout
+from apps.core.text_normalization import sentence_case
 from apps.core.widgets import CalendarDateInput, MoneyInput, NumberInput, PercentageInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.customer.models import Customer, Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
@@ -779,6 +780,14 @@ class BudgetStep2Form(forms.ModelForm):
             if response_text:
                 InvestigativeResponse.objects.update_or_create(budget=budget, question_id=question_id, defaults={"workshop": self.workshop, "response": str(response_text)})
         return budget
+
+    def clean_problem_description(self):
+        value = self.cleaned_data.get("problem_description")
+        return sentence_case(value) if value else value
+
+    def clean_notes(self):
+        value = self.cleaned_data.get("notes")
+        return sentence_case(value) if value else value
 
 
 class BudgetStep3Form(forms.ModelForm):
@@ -1572,6 +1581,10 @@ class BudgetStep3Form(forms.ModelForm):
                     </script>
                     """)
                 )
+
+    def clean_technical_diagnosis(self):
+        value = self.cleaned_data.get("technical_diagnosis")
+        return sentence_case(value) if value else value
 
     def clean(self):
         cleaned_data = super().clean()

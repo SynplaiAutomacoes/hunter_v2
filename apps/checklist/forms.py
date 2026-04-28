@@ -7,6 +7,7 @@ from django.urls import reverse
 from .models import Checklist, ChecklistItem
 from apps.core.widgets import TextInput, SearchableSelectInput
 from ..workshops.models.workshops import Workshop
+from apps.core.text_normalization import sentence_case
 
 
 class ChecklistForm(forms.ModelForm):
@@ -244,3 +245,7 @@ class ChecklistForm(forms.ModelForm):
             raise forms.ValidationError("Envie um arquivo PDF valido.")
 
         return uploaded_pdf
+
+    def clean_name(self):
+        value = self.cleaned_data.get("name")
+        return sentence_case(value) if value else value

@@ -153,6 +153,7 @@ TEMPLATES = [
             "builtins": [
                 "crispy_forms.templatetags.crispy_forms_tags",
                 "crispy_tailwind.templatetags.tailwind_filters",
+                "apps.core.templatetags.text_filters",
             ],
         },
     },

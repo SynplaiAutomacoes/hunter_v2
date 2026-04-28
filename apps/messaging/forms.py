@@ -6,6 +6,7 @@ from django import forms
 from django.db.models import Q
 
 from apps.core.widgets import CheckboxInput, TextInput, TextareaInput
+from apps.core.text_normalization import sentence_case
 from apps.messaging.models import CustomerMessageGroup, MessageTemplate
 from apps.workshops.models.workshops import Workshop
 
@@ -31,6 +32,8 @@ class MessageTemplateForm(forms.ModelForm):
         name = str(self.cleaned_data.get("name") or "").strip()
         if not name:
             return name
+
+        name = sentence_case(name)
 
         if self.workshop is None:
             return name
@@ -84,6 +87,8 @@ class CustomerMessageGroupForm(forms.ModelForm):
         if not name:
             return name
 
+        name = sentence_case(name)
+
         if self.workshop is None:
             return name
 
@@ -100,4 +105,8 @@ class CustomerMessageGroupForm(forms.ModelForm):
         message = str(self.cleaned_data.get("message") or "").strip()
         if not message:
             raise forms.ValidationError("Informe a mensagem que será usada neste grupo.")
-        return message
+        return sentence_case(message)
+
+    def clean_description(self) -> str:
+        description = str(self.cleaned_data.get("description") or "").strip()
+        return sentence_case(description) if description else description

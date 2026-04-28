@@ -14,6 +14,7 @@ from apps.budget.pricing import resolve_discount_fields
 from apps.collaborators.models import WorkshopCollaborator
 from apps.budget.forms.widgets import MultipleFileInput
 from apps.core.utils import alert_confirm_layout
+from apps.core.text_normalization import sentence_case
 from apps.core.widgets import CalendarDateInput, DurationInput, MoneyInput, NumberInput, PercentageInput, SearchableSelectInput, TextInput
 from apps.finance.models.payment_method import PaymentMethod
 from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderItem, WorkOrderPaymentMethod
@@ -709,6 +710,10 @@ class WorkOrderItemEditForm(forms.ModelForm):
             self.fields.pop("product_selling_price")
             self.fields.pop("product_cost_price")
             self.fields.pop("shipping")
+
+    def clean_description(self):
+        value = self.cleaned_data.get("description")
+        return sentence_case(value) if value else value
 
 
 class WorkOrderKitProductEditRowForm(forms.Form):
