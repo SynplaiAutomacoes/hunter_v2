@@ -14,9 +14,8 @@
                     <span class="material-icons">layers</span>
                     Agrupar
                 </button>
-                <a href="{% url 'finance:financial_movement_create' %}" class="btn btn-primary">
-                    Nova Movimentação Financeira
-                </a>
+                {% url 'finance:financial_movement_create' as financial_movement_create_url %}
+                {% include 'favorites/partials/favoritable_action_link.html' with action_url=financial_movement_create_url action_label='Nova Movimentação Financeira' favorite_url=financial_movement_create_url favorite_label='Nova Movimentação Financeira' %}
             </div>
         </div>
 
