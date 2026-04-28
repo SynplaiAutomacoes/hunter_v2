@@ -12,8 +12,11 @@ from djmoney.money import Money
 from apps.accounts.models import Account, User
 from apps.budget.models import Budget, BudgetStatus
 from apps.catalog.models.services import Service
+from django.contrib.messages import get_messages
+
 from apps.collaborators.models import CollaboratorBenefit, CollaboratorPayroll, WorkshopCollaborator, WorkshopMember
 from apps.collaborators.services import sync_collaborator_payroll
+from apps.finance.models.financial_movement import FinancialMovement
 from apps.iam.utils import get_or_create_director_role
 from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderPaymentMethod
 from apps.workshops.models.workshop_costs import WorkshopCost
@@ -79,6 +82,33 @@ class CollaboratorUpdateViewTests(TestCase):
         session["active_workshop_id"] = self.workshop.pk
         session.save()
 
+    def _build_update_payload(self, *, collaborator: WorkshopCollaborator, termination_date: str = "") -> dict[str, object]:
+        return {
+            "name": collaborator.name,
+            "cpf": "70930284038",
+            "rg": collaborator.rg or "",
+            "email": collaborator.email or "",
+            "phone": str(collaborator.phone or ""),
+            "birth_date": collaborator.birth_date.isoformat(),
+            "position": collaborator.position or "",
+            "collaborator_type": collaborator.collaborator_type,
+            "sex": collaborator.sex or "",
+            "admission_date": collaborator.admission_date.isoformat(),
+            "termination_date": termination_date,
+            "is_active": "on" if collaborator.is_active else "",
+            "salary_0": str(collaborator.salary.amount),
+            "salary_1": "BRL",
+            "payment_day_type": collaborator.payment_day_type,
+            "payment_day_of_month": str(collaborator.payment_day_of_month or ""),
+            "transport_allowance_daily_0": str(collaborator.transport_allowance_daily.amount),
+            "transport_allowance_daily_1": "BRL",
+            "tab": "cadastro",
+            "benefits-TOTAL_FORMS": "0",
+            "benefits-INITIAL_FORMS": "0",
+            "benefits-MIN_NUM_FORMS": "0",
+            "benefits-MAX_NUM_FORMS": "1000",
+        }
+
     def test_update_view_renders_tabs_salary_warning_and_payroll_history(self) -> None:
         collaborator = create_collaborator(workshop=self.workshop, suffix=1)
         WorkshopCost.objects.create(workshop=self.workshop, month=4, year=2026, mechanic_quantity=1, work_days_per_month=22)
@@ -141,6 +171,109 @@ class CollaboratorUpdateViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "x-data=\"{ activeTab: 'historico'}\"", html=False)
+
+    def test_update_view_renders_pending_movements_modal_data(self) -> None:
+        collaborator = create_collaborator(workshop=self.workshop, suffix=16)
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            collaborator=collaborator,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Recorrencia futura 1",
+            amount=Money("120.00", "BRL"),
+            due_date=date(2026, 7, 10),
+            is_paid=False,
+        )
+
+        response = self.client.get(reverse("collaborators:collaborator_update", args=[collaborator.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Apagar lançamentos pendentes")
+        self.assertContains(response, "Recorrencia futura 1")
+
+    def test_update_view_post_deletes_only_selected_pending_movements(self) -> None:
+        collaborator = create_collaborator(workshop=self.workshop, suffix=17)
+        selected_1 = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            collaborator=collaborator,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Recorrencia futura selecionada 1",
+            amount=Money("90.00", "BRL"),
+            due_date=date(2026, 7, 5),
+            is_paid=False,
+        )
+        selected_2 = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            collaborator=collaborator,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Recorrencia futura selecionada 2",
+            amount=Money("95.00", "BRL"),
+            due_date=date(2026, 8, 5),
+            is_paid=False,
+        )
+        non_selected = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            collaborator=collaborator,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Recorrencia futura mantida",
+            amount=Money("100.00", "BRL"),
+            due_date=date(2026, 9, 5),
+            is_paid=False,
+        )
+
+        payload = self._build_update_payload(collaborator=collaborator, termination_date="2026-06-20")
+        payload["delete_movement_ids"] = [str(selected_1.pk), str(selected_2.pk)]
+
+        response = self.client.post(reverse("collaborators:collaborator_update", args=[collaborator.pk]), payload)
+
+        self.assertEqual(response.status_code, 302, msg=str(response.context["form"].errors) if hasattr(response, "context") and response.context else "")
+        messages = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertTrue(any("lançamento" in message for message in messages))
+        self.assertFalse(FinancialMovement.objects.filter(pk=selected_1.pk).exists())
+        self.assertFalse(FinancialMovement.objects.filter(pk=selected_2.pk).exists())
+        self.assertTrue(FinancialMovement.objects.filter(pk=non_selected.pk).exists())
+
+    def test_update_view_post_ignores_invalid_or_foreign_selected_movement_ids(self) -> None:
+        collaborator = create_collaborator(workshop=self.workshop, suffix=18)
+        foreign_collaborator = create_collaborator(workshop=self.workshop, suffix=19)
+        valid_movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            collaborator=collaborator,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Recorrencia valida",
+            amount=Money("130.00", "BRL"),
+            due_date=date(2026, 10, 5),
+            is_paid=False,
+        )
+        foreign_movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            collaborator=foreign_collaborator,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Recorrencia de outro colaborador",
+            amount=Money("140.00", "BRL"),
+            due_date=date(2026, 10, 6),
+            is_paid=False,
+        )
+        paid_movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            collaborator=collaborator,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Recorrencia ja paga",
+            amount=Money("150.00", "BRL"),
+            due_date=date(2026, 10, 7),
+            is_paid=True,
+        )
+
+        payload = self._build_update_payload(collaborator=collaborator, termination_date="2026-06-20")
+        payload["delete_movement_ids"] = [str(valid_movement.pk), str(foreign_movement.pk), str(paid_movement.pk), "abc"]
+
+        response = self.client.post(reverse("collaborators:collaborator_update", args=[collaborator.pk]), payload)
+
+        self.assertEqual(response.status_code, 302, msg=str(response.context["form"].errors) if hasattr(response, "context") and response.context else "")
+        messages = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertTrue(any("lançamento" in message for message in messages))
+        self.assertFalse(FinancialMovement.objects.filter(pk=valid_movement.pk).exists())
+        self.assertTrue(FinancialMovement.objects.filter(pk=foreign_movement.pk).exists())
+        self.assertTrue(FinancialMovement.objects.filter(pk=paid_movement.pk).exists())
 
     def test_create_view_renders_new_payment_and_transport_fields(self) -> None:
         WorkshopCost.objects.create(workshop=self.workshop, month=4, year=2026, mechanic_quantity=1, work_days_per_month=22)
