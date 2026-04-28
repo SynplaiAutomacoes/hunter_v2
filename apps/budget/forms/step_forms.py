@@ -3114,7 +3114,7 @@ class BudgetStep6Form(forms.ModelForm):
                         <div class="grid grid-cols-12 gap-3 text-center mb-8">
                             <button type="button" class="btn btn-success col-span-4"
                                 onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{signed_pdf_url}', downloadUrl: '{signed_pdf_download_url}', showSignatureBtn: true, signatureButtonLabel: '{signature_button_label}', isSignatureResend: {"true" if is_signature_resend else "false"}, signatureBlocked: {signature_blocked_json}, signatureBlockedReason: {signature_blocked_reason_json}, showPdfVariantToggle: {"true" if can_toggle_signed_pdf else "false"}, pdfVariant: 'signed', signedPdfUrl: '{signed_pdf_url}', basePdfUrl: '{base_pdf_url}', signedDownloadUrl: '{signed_pdf_download_url}', baseDownloadUrl: '{base_pdf_download_url}' }} }}))">
-                                Visualizar PDF
+                                PDF Cliente
                             </button>
 
                             <button type="button" class="btn btn-success col-span-4"
