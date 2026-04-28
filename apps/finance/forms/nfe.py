@@ -7,6 +7,8 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
 
+from apps.core.forms import CoreModelForm
+from apps.core.text_normalization import sentence_case
 from apps.core.widgets import SearchableSelectInput, TextareaInput
 from apps.finance.forms.emission_ui import (
     build_slider_widget_attrs,
@@ -19,7 +21,6 @@ from apps.finance.forms.emission_ui import (
 from apps.finance.forms.request_steps_shared import SharedEmissionCustomerReviewForm, SharedEmissionWorkorderSelectionForm
 from apps.finance.models.finance import NfeRequest
 from apps.finance.services.nfe_emission import build_nfe_preview_rows, build_nfe_preview_warning_messages
-from apps.core.text_normalization import sentence_case
 
 
 class NfeRequestStep1Form(SharedEmissionWorkorderSelectionForm):
@@ -36,7 +37,7 @@ class NfeRequestStep2Form(SharedEmissionCustomerReviewForm):
         fields: list[str] = []
 
 
-class NfeRequestStep3Form(forms.ModelForm):
+class NfeRequestStep3Form(CoreModelForm):
     class Meta:
         model = NfeRequest
         fields = ["pricing_slider", "tax_class", "additional_information"]

@@ -9,9 +9,10 @@ from .shared import _get_budget_for_workshop
 from apps.core.widgets import SearchableSelectInput
 from django import forms
 from django.urls import reverse
+from apps.core.forms import CoreForm
 
 
-class ImportItemsSearchForm(forms.Form):
+class ImportItemsSearchForm(CoreForm):
     model = Budget
     workshop_permission_codename = "view_budget"
 

@@ -2,9 +2,10 @@ from django import forms
 from apps.core.widgets import CalendarDateInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.models import MovementGroup
 from apps.core.text_normalization import sentence_case
+from apps.core.forms import CoreForm, CoreModelForm
 
 
-class GroupMovementStep1Form(forms.Form):
+class GroupMovementStep1Form(CoreForm):
     entity = forms.ChoiceField(label="Fornecedor ou Colaborador", widget=SearchableSelectInput(), required=True)
 
     def __init__(self, *args, **kwargs):
@@ -23,7 +24,7 @@ class GroupMovementStep1Form(forms.Form):
         self.fields["entity"].choices = choices
 
 
-class GroupMovementStep3Form(forms.ModelForm):
+class GroupMovementStep3Form(CoreModelForm):
     class Meta:
         model = MovementGroup
         fields = ["name", "description", "due_date"]

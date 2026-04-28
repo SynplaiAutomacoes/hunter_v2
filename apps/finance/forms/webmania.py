@@ -13,6 +13,7 @@ from apps.core.widgets import CEPInput, CPForCNPJInput, CheckboxInput, EmailInpu
 from apps.finance.models.finance import WebmaniaCompany, WebmaniaCompanyTaxType
 from apps.finance.services.webmania_secrets import encrypt_secret
 from apps.core.text_normalization import name_case, sentence_case
+from apps.core.forms import CoreModelForm
 
 
 WEBMANIA_REGIME_TRIBUTARIO_CHOICES = [
@@ -53,7 +54,7 @@ def _format_decimal(value: Decimal, *, places: int = 2) -> str:
     return f"{value.quantize(quantizer):f}"
 
 
-class WebmaniaCompanyUpdateForm(forms.ModelForm):
+class WebmaniaCompanyUpdateForm(CoreModelForm):
     secret_fields = ("nfse_password", "nfse_token", "certificado", "certificado_senha")
     nullable_boolean_fields = (
         "partilha_icms_contribuinte",

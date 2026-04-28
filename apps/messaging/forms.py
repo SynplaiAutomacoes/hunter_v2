@@ -9,12 +9,13 @@ from apps.core.widgets import CheckboxInput, TextInput, TextareaInput
 from apps.core.text_normalization import sentence_case
 from apps.messaging.models import CustomerMessageGroup, MessageTemplate
 from apps.workshops.models.workshops import Workshop
+from apps.core.forms import CoreModelForm
 
 
 MESSAGE_PLACEHOLDER = "Ex: Olá %%nome%%, vimos que seu veículo %%modelo%% (%%placa%%) está próximo da revisão. Seu orçamento %%orcamento_numero%% está com status %%orcamento_status%%."
 
 
-class MessageTemplateForm(forms.ModelForm):
+class MessageTemplateForm(CoreModelForm):
     class Meta:
         model = MessageTemplate
         fields = ["name", "message", "is_active"]
@@ -52,7 +53,7 @@ class QuickMessageTemplateForm(MessageTemplateForm):
     pass
 
 
-class CustomerMessageGroupForm(forms.ModelForm):
+class CustomerMessageGroupForm(CoreModelForm):
     class Meta:
         model = CustomerMessageGroup
         fields = ["name", "description", "message_template", "message", "is_active"]

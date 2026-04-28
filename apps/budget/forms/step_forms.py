@@ -25,6 +25,7 @@ from apps.quote.models.investigative_questions import InvestigativeQuestion, Inv
 
 from .shared import MAX_BUDGET_IMAGES, _get_budget_with_prefetched_items, _render_budget_items_rows, _validate_uploaded_files, _validate_uploaded_images
 from .widgets import MultipleFileField, MultipleFileInput
+from apps.core.forms import CoreModelForm
 
 
 SLOT_IMAGE_TYPES = [
@@ -264,7 +265,7 @@ def _build_step3_images_initial_html(budget, slot_placeholder_urls):
     return "".join(slots_html), "".join(additional_html)
 
 
-class BudgetStep1Form(forms.ModelForm):
+class BudgetStep1Form(CoreModelForm):
     workshop = forms.CharField(label="Empresa", widget=TextInput(attrs={"readonly": "readonly"}), required=False)
     cost_estimator = forms.CharField(label="Orçamentista", widget=TextInput(attrs={"readonly": "readonly"}), required=False)
     vehicle = forms.ModelChoiceField(label="Veículo", queryset=Vehicle.objects.none(), required=False, widget=SearchableSelectInput())
@@ -685,7 +686,7 @@ class BudgetStep1Form(forms.ModelForm):
         return int(digits)
 
 
-class BudgetStep2Form(forms.ModelForm):
+class BudgetStep2Form(CoreModelForm):
     class Meta:
         model = Budget
         fields = ["problem_description", "notes"]
@@ -790,7 +791,7 @@ class BudgetStep2Form(forms.ModelForm):
         return sentence_case(value) if value else value
 
 
-class BudgetStep3Form(forms.ModelForm):
+class BudgetStep3Form(CoreModelForm):
     new_defect = forms.CharField(label=False, required=False, widget=TextInput(attrs={"id": "id_new_defect", "placeholder": "Digite um defeito e clique em Adicionar", "onkeypress": "if(event.keyCode==13){ event.preventDefault(); addDefectRow(); }"}))
     collaborator = forms.ModelMultipleChoiceField(label="Selecione os colaboradores", required=False, queryset=WorkshopCollaborator.objects.none())
     images = MultipleFileField(label=None, required=False, widget=MultipleFileInput(attrs={"class": "file-input file-input-bordered w-full"}))
@@ -1703,7 +1704,7 @@ class BudgetStep3Form(forms.ModelForm):
         return budget
 
 
-class BudgetStep4Form(forms.ModelForm):
+class BudgetStep4Form(CoreModelForm):
     class Meta:
         model = Budget
         fields = []
@@ -2057,7 +2058,7 @@ class BudgetStep4Form(forms.ModelForm):
         return super().save(commit=commit)
 
 
-class BudgetStep5Form(forms.ModelForm):
+class BudgetStep5Form(CoreModelForm):
     slider = forms.IntegerField(required=False, widget=forms.NumberInput(attrs={"class": "w-full centered-range", "type": "range", "min": "-100", "max": "100", "step": "5"}))
 
     class Meta:
@@ -2748,7 +2749,7 @@ class BudgetStep5Form(forms.ModelForm):
         return budget
 
 
-class BudgetStep6Form(forms.ModelForm):
+class BudgetStep6Form(CoreModelForm):
     class Meta:
         model = Budget
         fields = []

@@ -1,9 +1,136 @@
+from __future__ import annotations
+
+from django import forms
+from django.db import transaction
 from django.shortcuts import redirect, render
 from django.urls import reverse
+
 from crispy_forms.layout import Div, Field, HTML
-from apps.core.widgets import CEPInput, TextInput, SearchableSelectInput
-from django.db import transaction
+
 from apps.budget.models import BudgetStatus
+from apps.core.text_normalization import name_case, plate_case, sentence_case
+from apps.core.widgets import CEPInput, SearchableSelectInput, TextInput
+
+NAME_FIELD_NAMES = {
+    "name",
+    "fantasy_name",
+    "contact_person",
+    "guest_customer_name",
+    "razao_social",
+    "nome_completo",
+    "nome_fantasia",
+}
+
+PLATE_FIELD_NAMES = {
+    "plate",
+    "guest_vehicle_plate",
+}
+
+EXCLUDED_FIELD_NAME_PARTS = {
+    "email",
+    "cpf",
+    "cnpj",
+    "rg",
+    "url",
+    "link",
+    "token",
+    "secret",
+    "password",
+    "key",
+    "uuid",
+    "external_id",
+    "document_id",
+    "content_type",
+    "content_name",
+    "file",
+    "filename",
+    "attachment",
+    "xml",
+    "pdf",
+    "nf",
+    "nfe",
+    "nfse",
+    "barcode",
+    "ean",
+    "sku",
+    "code",
+    "ncm",
+    "cest",
+    "renavam",
+    "chassi",
+    "cep",
+    "phone",
+    "mobile",
+    "whatsapp",
+    "serie",
+    "series",
+    "number",
+    "numero",
+    "protocol",
+    "receipt",
+    "agency",
+    "agencia",
+    "account",
+    "conta",
+    "bank_digit",
+    "digito",
+}
+
+
+class TextNormalizationFormMixin:
+    normalization_name_fields = NAME_FIELD_NAMES
+    normalization_plate_fields = PLATE_FIELD_NAMES
+    normalization_excluded_name_parts = EXCLUDED_FIELD_NAME_PARTS
+
+    def clean(self) -> dict[str, object]:
+        cleaned_data = super().clean()
+        if not isinstance(cleaned_data, dict):
+            return cleaned_data
+        return self._normalize_cleaned_data(cleaned_data)
+
+    def _normalize_cleaned_data(self, cleaned_data: dict[str, object]) -> dict[str, object]:
+        normalized_data = cleaned_data.copy()
+        for field_name, value in cleaned_data.items():
+            if not self._should_normalize_field(field_name, value):
+                continue
+            normalized_data[field_name] = self._normalize_field_value(field_name, value)
+        return normalized_data
+
+    def _should_normalize_field(self, field_name: str, value: object) -> bool:
+        if not isinstance(value, str):
+            return False
+        if not value.strip():
+            return False
+
+        field = self.fields.get(field_name)
+        if field is None:
+            return False
+        if getattr(field, "choices", None):
+            return False
+        if isinstance(field, (forms.FileField, forms.ImageField)):
+            return False
+
+        lowered_name = field_name.lower()
+        if any(part in lowered_name for part in self.normalization_excluded_name_parts):
+            return False
+
+        return True
+
+    def _normalize_field_value(self, field_name: str, value: str) -> str:
+        lowered_name = field_name.lower()
+        if lowered_name in self.normalization_plate_fields:
+            return plate_case(value)
+        if lowered_name in self.normalization_name_fields:
+            return name_case(value)
+        return sentence_case(value)
+
+
+class CoreForm(TextNormalizationFormMixin, forms.Form):
+    pass
+
+
+class CoreModelForm(TextNormalizationFormMixin, forms.ModelForm):
+    pass
 
 
 class AddressFormMixin:

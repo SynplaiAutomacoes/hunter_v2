@@ -79,6 +79,20 @@ def _capitalize_word(word: str) -> str:
     return lower
 
 
+def _should_preserve_upper_token(token: str) -> bool:
+    stripped = token.strip()
+    if len(stripped) < 2:
+        return False
+    if stripped != stripped.upper():
+        return False
+
+    alpha_count = sum(char.isalpha() for char in stripped)
+    if alpha_count < 2:
+        return False
+
+    return bool(re.fullmatch(r"[A-Z0-9À-Ý'\-/]+", stripped))
+
+
 def _title_case_word(word: str) -> str:
     if not word:
         return word
@@ -116,7 +130,7 @@ def sentence_case(text: str) -> str:
             if not token:
                 continue
             if WORD_REGEX.fullmatch(token):
-                if _is_excluded_token(token):
+                if _is_excluded_token(token) or _should_preserve_upper_token(token):
                     segment_output.append(token)
                 else:
                     if first_word:
@@ -144,7 +158,7 @@ def name_case(text: str) -> str:
         if not token:
             continue
         if WORD_REGEX.fullmatch(token):
-            if _is_excluded_token(token):
+            if _is_excluded_token(token) or _should_preserve_upper_token(token):
                 output.append(token)
                 first_word = False
                 continue

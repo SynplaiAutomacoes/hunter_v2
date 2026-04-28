@@ -15,6 +15,7 @@ from .vehicle_engine import normalize_vehicle_engine_choice, vehicle_engine_form
 from .vehicle_fuel import normalize_vehicle_fuel_choice, vehicle_fuel_form_choices
 from ..core.forms import AddressFormMixin, address_layout
 from ..workshops.models.workshops import Workshop
+from apps.core.forms import CoreModelForm
 
 
 def _set_normalized_initial_choice(form: forms.BaseForm, field_name: str, current_value: object, normalizer: Callable[[object], str]) -> None:
@@ -24,7 +25,7 @@ def _set_normalized_initial_choice(form: forms.BaseForm, field_name: str, curren
         form.fields[field_name].initial = normalized_value
 
 
-class VehicleInlineForm(forms.ModelForm):
+class VehicleInlineForm(CoreModelForm):
     engine = forms.CharField(label="Motor", required=False, widget=SearchableSelectInput(choices=vehicle_engine_form_choices()))
     fuel = forms.CharField(label="Combustível", required=False, widget=SearchableSelectInput(choices=vehicle_fuel_form_choices()))
 
@@ -130,7 +131,7 @@ VehicleFormSet = inlineformset_factory(
 )
 
 
-class CustomerForm(AddressFormMixin, forms.ModelForm):
+class CustomerForm(AddressFormMixin, CoreModelForm):
     class Meta:
         model = Customer
         fields = [
@@ -404,7 +405,7 @@ class CustomerForm(AddressFormMixin, forms.ModelForm):
         return sentence_case(value) if value else value
 
 
-class QuickCustomerForm(AddressFormMixin, forms.ModelForm):
+class QuickCustomerForm(AddressFormMixin, CoreModelForm):
     class Meta:
         model = Customer
         fields = [
@@ -543,7 +544,7 @@ class QuickCustomerForm(AddressFormMixin, forms.ModelForm):
         return sentence_case(value) if value else value
 
 
-class QuickVehicleForm(forms.ModelForm):
+class QuickVehicleForm(CoreModelForm):
     engine = forms.CharField(label="Motor", required=False, widget=SearchableSelectInput(choices=vehicle_engine_form_choices()))
     fuel = forms.CharField(label="Combustível", required=False, widget=SearchableSelectInput(choices=vehicle_fuel_form_choices()))
 

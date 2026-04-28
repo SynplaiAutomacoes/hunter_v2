@@ -12,9 +12,10 @@ from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.services.financial_movement import generate_card_fee_movement
 from apps.suppliers.models import Supplier
 from apps.core.text_normalization import sentence_case
+from apps.core.forms import CoreModelForm
 
 
-class FinancialMovementBaseForm(forms.ModelForm):
+class FinancialMovementBaseForm(CoreModelForm):
     def __init__(self, *args, **kwargs):
         self.request = kwargs.pop("request", None)
         self.workshop = kwargs.pop("workshop", None)

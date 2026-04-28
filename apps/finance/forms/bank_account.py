@@ -1,13 +1,13 @@
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
-from django import forms
 from django.urls import reverse
 
 from apps.core.widgets import TextInput, CheckboxInput, SearchableSelectInput
 from apps.finance.models.bank_account import BankAccount
+from apps.core.forms import CoreModelForm
 
 
-class BankAccountForm(forms.ModelForm):
+class BankAccountForm(CoreModelForm):
     class Meta:
         model = BankAccount
         fields = ["bank_code", "bank_name", "account_type", "agency", "account_number", "is_active"]

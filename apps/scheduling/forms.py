@@ -20,6 +20,7 @@ from apps.core.text_normalization import name_case, plate_case, sentence_case
 from apps.scheduling.models import Appointment, AppointmentStatus
 from apps.workorder.models import WorkOrder
 from apps.workshops.models.workshops import Workshop
+from apps.core.forms import CoreForm, CoreModelForm
 
 
 def _uppercase_text_input() -> TextInput:
@@ -70,7 +71,7 @@ def _build_readonly_vehicle_field(*, field_id: str, label: str, value: str, wrap
     '''
 
 
-class AppointmentForm(forms.ModelForm):
+class AppointmentForm(CoreModelForm):
     is_customer_registered = forms.BooleanField(label="Cliente cadastrado", required=False, initial=True, widget=CheckboxInput())
     customer = forms.ModelChoiceField(label="Cliente", queryset=Customer.objects.none(), widget=SearchableSelectInput(), required=False)
     vehicle = forms.ModelChoiceField(label="Veiculo", queryset=Vehicle.objects.none(), widget=SearchableSelectInput(), required=False)
@@ -824,7 +825,7 @@ class AppointmentForm(forms.ModelForm):
         return super().save(commit=commit)
 
 
-class AppointmentCalendarFilterForm(forms.Form):
+class AppointmentCalendarFilterForm(CoreForm):
     date_from = forms.DateField(
         required=False,
         label="Data Início",
@@ -881,7 +882,7 @@ class AppointmentCalendarFilterForm(forms.Form):
             vehicle_field.queryset = Vehicle.objects.none()
 
 
-class AppointmentMoveForm(forms.Form):
+class AppointmentMoveForm(CoreForm):
     starts_at = forms.DateTimeField()
     ends_at = forms.DateTimeField()
 

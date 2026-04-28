@@ -9,23 +9,24 @@ from django.urls import reverse
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 
+from apps.core.forms import CoreModelForm
 from apps.catalog.models.products import Product
 from apps.catalog.price_tracking import build_product_price_warning
 from apps.core.widgets import (
-    TextInput,
+    CheckboxInput,
+    ImageInput,
     MoneyInput,
     PercentageInput,
-    CheckboxInput,
-    TextareaInput,
-    ImageInput,
     SearchableSelectInput,
+    TextInput,
+    TextareaInput,
 )
-from apps.workshops.models.workshops import Workshop
 from apps.core.text_normalization import sentence_case
+from apps.workshops.models.workshops import Workshop
 
 
 # TODO: Improve equivalent products to use a modal similar to Kits. Probably make a reusable modal for it.
-class ProductForm(forms.ModelForm):
+class ProductForm(CoreModelForm):
     equivalent_search = forms.CharField(required=False, label="Produtos Equivalentes")
     profit_margin = forms.DecimalField(required=False, max_digits=9, decimal_places=6, widget=PercentageInput(attrs={"readonly": True}))
 
