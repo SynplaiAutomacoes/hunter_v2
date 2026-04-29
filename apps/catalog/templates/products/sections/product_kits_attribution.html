@@ -1,41 +1,75 @@
-<section id="tab-kits">
-    <div class="card bg-base-200 shadow-xl">
-        <div
-            class="card-body p-6 md:p-8 space-y-6"
-            x-data="{
-                search: '',
-            }"
-        >
+<section
+    id="product-kits-assignment-section"
+    x-data="{
+        selectedKitIds: {{ pending_selected_kit_ids_json|safe }},
+        currentPage: {{ kits_page_obj.number|default:1 }},
+        init() {
+            this.selectedKitIds = this.selectedKitIds.map(id => String(id));
+        },
+        isSelected(kitId) {
+            return this.selectedKitIds.includes(String(kitId));
+        },
+        toggleSelection(kitId, checked) {
+            const normalizedId = String(kitId);
+            if (checked) {
+                if (!this.isSelected(normalizedId)) {
+                    this.selectedKitIds.push(normalizedId);
+                }
+                return;
+            }
 
-            <!-- TÍTULO -->
+            this.selectedKitIds = this.selectedKitIds.filter(id => id !== normalizedId);
+        }
+    }"
+>
+    <div class="card bg-base-200 shadow-xl">
+        <div class="card-body p-6 md:p-8 space-y-6">
             <div>
-                <h2 class="text-xl font-bold text-base-content">
-                    Atribuição a Kits
-                </h2>
+                <h2 class="text-xl font-bold text-base-content">Atribuição a Kits</h2>
                 <div class="mt-2 border-b-2 border-primary w-full"></div>
             </div>
 
-            <!-- BUSCA -->
-            <div class="form-control">
-                <input
-                    type="text"
-                    placeholder="Buscar kits pelo nome"
-                    class="input input-bordered w-full"
-                    x-model="search"
-                />
-            </div>
-
-            <!-- LISTA COM FILTRO -->
-            <div
-                id="kits-list"
-                class="border border-base-300 rounded-box bg-base-100
-                       h-[240px] overflow-y-auto divide-y divide-base-200"
-                hx-get="{% url 'catalog:kits-by-product-hx' %}?product_id={{ object.id }}"
-                hx-trigger="load"
+            <form
+                id="product-kits-assignment-form"
+                class="space-y-4"
+                hx-post="{% url 'catalog:product-kits-assign-hx' object.id %}"
+                hx-target="#product-kits-assignment-section"
+                hx-swap="outerHTML"
             >
-                {% include "kits/partials/kits_related_to_products_list.html" %}
-            </div>
+                {% csrf_token %}
 
+                <input type="hidden" name="page" :value="currentPage" />
+
+                <template x-for="kitId in selectedKitIds" :key="kitId">
+                    <input type="hidden" name="selected_kits" :value="kitId" />
+                </template>
+
+                <div class="form-control">
+                    <input
+                        type="search"
+                        name="q"
+                        value="{{ kits_query }}"
+                        placeholder="Buscar kits pelo nome"
+                        class="input input-bordered w-full"
+                        @input="currentPage = 1"
+                        @keydown.enter.prevent
+                        hx-get="{% url 'catalog:kits-by-product-hx' object.id %}"
+                        hx-trigger="input changed delay:300ms, search"
+                        hx-target="#product-kits-assignment-section"
+                        hx-swap="outerHTML"
+                        hx-include="#product-kits-assignment-form"
+                    />
+                </div>
+
+                {% include "kits/partials/kits_related_to_products_list.html" %}
+
+                <div class="flex flex-wrap items-center justify-between gap-3 pt-1">
+                    <p class="text-sm text-base-content/70" x-text="selectedKitIds.length === 0 ? 'Selecione um ou mais kits para atribuir.' : `${selectedKitIds.length} kit(s) selecionado(s) para atribuição.`"></p>
+                    <button type="submit" class="btn btn-sm btn-primary" :disabled="selectedKitIds.length === 0">
+                        Atribuir produto ao(s) kit(s)
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 </section>

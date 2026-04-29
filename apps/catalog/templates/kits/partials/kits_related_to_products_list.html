@@ -1,25 +1,90 @@
-{% for kit in kits_disponiveis %}
-    <label
-        class="flex items-center gap-3 p-3 cursor-pointer
-               hover:bg-base-200 transition"
-        x-show="'{{ kit.name|lower }}'.includes(search.toLowerCase())"
-    >
-        <input
-            type="checkbox"
-            name="kits"
-            value="{{ kit.id }}"
-            class="checkbox checkbox-sm checkbox-primary"
-            {% if kit.id in kits_selecionados_ids %}
-                checked
-            {% endif %}
-        />
+<div class="border border-base-300 rounded-box bg-base-100 overflow-hidden">
+    <div class="max-h-[360px] overflow-y-auto divide-y divide-base-200">
+        {% for kit in kits_page_obj.object_list %}
+            <div class="flex items-start gap-3 p-4 {% if kit.is_product_assigned %}bg-success/10{% endif %}">
+                <input
+                    type="checkbox"
+                    id="kit-checkbox-{{ kit.pk }}"
+                    class="checkbox checkbox-sm mt-1 {% if kit.is_product_assigned %}checkbox-success{% else %}checkbox-primary{% endif %}"
+                    {% if kit.is_product_assigned %}
+                        checked
+                        disabled
+                    {% else %}
+                        :checked="isSelected('{{ kit.pk }}')"
+                        @change="toggleSelection('{{ kit.pk }}', $event.target.checked)"
+                    {% endif %}
+                />
 
-        <span class="text-base-content">
-            {{ kit.name }}
-        </span>
-    </label>
-{% empty %}
-    <div class="p-4 text-sm text-base-content/60">
-        Nenhum kit contém este produto.
+                <div class="min-w-0 flex-1">
+                    {% if kit.is_product_assigned %}
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                            <div class="min-w-0 flex-1">
+                                <span class="block font-medium text-base-content">{{ kit.name }}</span>
+                                <span class="mt-1 block text-sm font-medium text-success">Produto já atribuído</span>
+                            </div>
+                            <div class="shrink-0">
+                                <button
+                                    type="button"
+                                    class="btn btn-xs btn-error text-white"
+                                    @click="selectedKitIds = selectedKitIds.filter(id => id !== '{{ kit.pk }}')"
+                                    hx-post="{% url 'catalog:product-kit-unassign-hx' product.id kit.id %}"
+                                    hx-target="#product-kits-assignment-section"
+                                    hx-swap="outerHTML"
+                                    hx-include="#product-kits-assignment-form"
+                                >
+                                    Remover atribuição
+                                </button>
+                            </div>
+                        </div>
+                    {% else %}
+                        <label for="kit-checkbox-{{ kit.pk }}" class="block cursor-pointer space-y-1">
+                            <span class="block font-medium text-base-content">{{ kit.name }}</span>
+                            {% if kit.is_pending_product_assignment %}
+                                <span class="block text-sm text-primary">Selecionado para atribuição</span>
+                            {% endif %}
+                        </label>
+                    {% endif %}
+                </div>
+            </div>
+        {% empty %}
+            <div class="p-4 text-sm text-base-content/60">
+                Nenhum kit encontrado para os filtros informados.
+            </div>
+        {% endfor %}
     </div>
-{% endfor %}
+
+    <div class="flex items-center justify-between gap-3 border-t border-base-300 px-4 py-3">
+        <div class="text-sm text-base-content/70">
+            Página {{ kits_page_obj.number }} de {{ kits_page_obj.paginator.num_pages }}
+        </div>
+
+        <div class="join">
+            <button
+                type="button"
+                class="btn btn-sm btn-primary join-item"
+                {% if kits_page_obj.has_previous %}
+                    @click="currentPage = {{ kits_page_obj.previous_page_number }}"
+                    hx-get="{% url 'catalog:kits-by-product-hx' object.id %}"
+                    hx-target="#product-kits-assignment-section"
+                    hx-swap="outerHTML"
+                    hx-include="#product-kits-assignment-form"
+                {% else %}
+                    disabled
+                {% endif %}
+            >Anterior</button>
+            <button
+                type="button"
+                class="btn btn-sm btn-primary join-item"
+                {% if kits_page_obj.has_next %}
+                    @click="currentPage = {{ kits_page_obj.next_page_number }}"
+                    hx-get="{% url 'catalog:kits-by-product-hx' object.id %}"
+                    hx-target="#product-kits-assignment-section"
+                    hx-swap="outerHTML"
+                    hx-include="#product-kits-assignment-form"
+                {% else %}
+                    disabled
+                {% endif %}
+            >Próxima</button>
+        </div>
+    </div>
+</div>

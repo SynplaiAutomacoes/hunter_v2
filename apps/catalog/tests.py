@@ -16,9 +16,10 @@ from apps.catalog.kit_applications import evaluate_kit_vehicle_compatibility
 from apps.catalog.forms.kits import KitForm
 from apps.catalog.forms.products import ProductForm
 from apps.catalog.models.groups import CatalogGroup
-from apps.catalog.models.kits import Kit, KitApplication, KitService
+from apps.catalog.models.kits import Kit, KitApplication, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
+from apps.catalog.util import recalculate_kit_totals
 from apps.customer.models import Customer, Vehicle
 from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.tests import create_director_user_with_workshop
@@ -1354,3 +1355,110 @@ class ProductUpdateNavigationTests(TestCase):
         self.assertContains(response, 'id="product-lower-price-modal"', html=False)
         self.assertContains(response, '@click="continueWithLowerPrice()"', html=False)
         self.assertNotContains(response, 'x-show="lowerPriceWarning"', html=False)
+
+
+class ProductKitAssignmentTabTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=32)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+        self.group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo Atribuicao Kit")
+        self.product = Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-KIT-001",
+            name="Produto Kit",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("25.00", "BRL"),
+            profit_margin=Decimal("60.00"),
+            ncm="87089990",
+        )
+
+    def test_product_update_tab_lists_all_kits_with_pagination_and_assigned_state(self) -> None:
+        [Kit.objects.create(workshop=self.workshop, name=f"Kit {index:02d}", description="", is_active=True) for index in range(1, 11)]
+        assigned_kit = Kit.objects.create(workshop=self.workshop, name="Kit Zebra", description="", is_active=True)
+        Kit.objects.create(workshop=self.workshop, name="Kit ZZ Extra", description="", is_active=True)
+        KitProduct.objects.create(kit=assigned_kit, product=self.product, quantity=1)
+
+        response = self.client.get(reverse("catalog:product_update", kwargs={"pk": self.product.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Kit Zebra")
+        self.assertContains(response, "Kit 01")
+        self.assertNotContains(response, "Kit ZZ Extra")
+        self.assertContains(response, "Página 1 de 2")
+        self.assertContains(response, "Produto já atribuído")
+        self.assertContains(response, "Remover atribuição")
+        self.assertContains(response, 'class="flex flex-wrap items-center justify-between gap-3 pt-1"', html=False)
+        self.assertContains(response, 'class="btn btn-sm btn-primary"', html=False)
+        self.assertContains(response, 'class="flex flex-wrap items-center justify-between gap-3"', html=False)
+        self.assertContains(response, 'class="min-w-0 flex-1"', html=False)
+        self.assertContains(response, 'class="shrink-0"', html=False)
+        self.assertContains(response, 'class="btn btn-xs btn-error"', html=False)
+        self.assertLess(response.content.decode().find("Kit Zebra"), response.content.decode().find("Kit 01"))
+
+    def test_product_kits_list_endpoint_filters_by_search_and_preserves_pending_selection(self) -> None:
+        Kit.objects.create(workshop=self.workshop, name="Kit Alinhamento", description="", is_active=True)
+        selected_kit = Kit.objects.create(workshop=self.workshop, name="Kit Freio Premium", description="", is_active=True)
+
+        response = self.client.get(
+            reverse("catalog:kits-by-product-hx", kwargs={"product_id": self.product.pk}),
+            data={"q": "Freio", "selected_kits": [str(selected_kit.pk)]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Kit Freio Premium")
+        self.assertNotContains(response, "Kit Alinhamento")
+        self.assertContains(response, "Selecionado para atribuição")
+        self.assertContains(response, "selectedKitIds: [")
+
+    def test_product_kits_assign_endpoint_creates_assignment_and_recalculates_total(self) -> None:
+        kit = Kit.objects.create(workshop=self.workshop, name="Kit Suspensao", description="", is_active=True)
+
+        response = self.client.post(
+            reverse("catalog:product-kits-assign-hx", kwargs={"product_id": self.product.pk}),
+            data={"selected_kits": [str(kit.pk)], "page": "1", "q": ""},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(KitProduct.objects.filter(kit=kit, product=self.product, quantity=1).exists())
+
+        kit.refresh_from_db()
+        self.assertEqual(kit.total_price, Money("25.00", "BRL"))
+        self.assertContains(response, "Produto já atribuído")
+        self.assertIn("Produto atribuido a 1 kit(s) com sucesso.", response.headers.get("HX-Trigger", ""))
+
+    def test_product_kit_unassign_endpoint_removes_assignment_and_recalculates_total(self) -> None:
+        kit = Kit.objects.create(workshop=self.workshop, name="Kit Revisao", description="", is_active=True)
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name="Servico Base",
+            description="",
+            duration=datetime.timedelta(minutes=30),
+            selling_price=Money("15.00", "BRL"),
+            suggested_cost=Money("5.00", "BRL"),
+            is_third_party=False,
+            is_active=True,
+        )
+        KitService.objects.create(kit=kit, service=service, quantity=1, duration=datetime.timedelta(minutes=30))
+        KitProduct.objects.create(kit=kit, product=self.product, quantity=1)
+        recalculate_kit_totals(kit)
+
+        response = self.client.post(
+            reverse("catalog:product-kit-unassign-hx", kwargs={"product_id": self.product.pk, "kit_id": kit.pk}),
+            data={"page": "1", "q": ""},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(KitProduct.objects.filter(kit=kit, product=self.product).exists())
+
+        kit.refresh_from_db()
+        self.assertEqual(kit.total_price, Money("15.00", "BRL"))
+        self.assertNotContains(response, "Produto já atribuído")
+        self.assertIn("Atribuicao removida com sucesso.", response.headers.get("HX-Trigger", ""))

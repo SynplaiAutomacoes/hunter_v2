@@ -14,6 +14,7 @@ from apps.budget.models import BudgetItem
 from apps.catalog.forms.products import ProductForm
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
+from apps.catalog.util import build_product_kits_assignment_context
 from apps.core.navigation import PRODUCT_CREATE_FAVORITE_PAGE
 from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
@@ -191,6 +192,12 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         history_list = sorted(history_dict.values(), key=lambda x: x["date"], reverse=True)
         context["history_list"] = history_list
         context["back_url"] = self._get_next_url() or reverse_lazy("catalog:product_list")
+        context.update(
+            build_product_kits_assignment_context(
+                workshop=self.workshop,
+                product=product,
+            )
+        )
 
         return context
 
