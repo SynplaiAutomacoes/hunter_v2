@@ -15,7 +15,6 @@ import gzip
 import base64
 
 from django.core.paginator import Paginator
-from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils.safestring import mark_safe
 from lxml.etree import fromstring
@@ -29,6 +28,7 @@ from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.catalog.price_tracking import build_product_price_warning, record_product_last_purchase_price, record_product_last_used_price
 from apps.core.forms import address_layout, AddressFormMixin, CoreForm, CoreModelForm
+from apps.core.search import apply_text_search
 from apps.core.utils import alert_confirm_layout
 from apps.core.widgets import TextInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput, PhoneInput, EmailInput, TextareaInput, SearchableSelectInput
 from apps.finance.models.payment_method import PaymentMethod
@@ -1827,7 +1827,7 @@ class TransferStepReasonForm(CoreModelForm):
         queryset = Product.objects.filter(workshop=self.instance.source_workshop, is_active=True, stock_products__current_quantity__gt=0).select_related("stock_products").order_by("name")
 
         if search_query:
-            queryset = queryset.filter(Q(code__icontains=search_query) | Q(name__icontains=search_query))
+            queryset = apply_text_search(queryset, search_value=search_query, lookups=("code", "name"))
 
         selected_ids = {str(item.get("source_product_id")) for item in (self.instance.items_data or [])}
 
@@ -2100,7 +2100,7 @@ class TransferItemsForm(CoreModelForm):
         search_query = self.request.GET.get("source_search", "").strip() if self.request is not None else ""
         queryset = Product.objects.filter(workshop=self.instance.source_workshop, is_active=True, stock_products__current_quantity__gt=0).select_related("group", "stock_products").order_by("name")
         if search_query:
-            queryset = queryset.filter(Q(code__icontains=search_query) | Q(name__icontains=search_query) | Q(brand__icontains=search_query))
+            queryset = apply_text_search(queryset, search_value=search_query, lookups=("code", "name", "brand"))
         return queryset, search_query
 
     def _render_source_column(self) -> str:

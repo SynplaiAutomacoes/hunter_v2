@@ -12,6 +12,7 @@ from django.urls import reverse, reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
+from apps.core.search import apply_text_search
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
@@ -148,7 +149,7 @@ class MessageTemplateListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempl
 
         search_query = str(self.request.GET.get("q") or "").strip()
         if search_query:
-            queryset = queryset.filter(name__icontains=search_query)
+            queryset = apply_text_search(queryset, search_value=search_query, lookups=("name",))
 
         queryset = apply_is_active_filter(queryset, params=self.request.GET)
         return queryset.order_by("-criado_em")
@@ -257,7 +258,7 @@ class CustomerMessageGroupListView(LoginRequiredMixin, WorkshopScopedMixin, Htmx
 
         search_query = str(self.request.GET.get("q") or "").strip()
         if search_query:
-            queryset = queryset.filter(Q(name__icontains=search_query) | Q(description__icontains=search_query))
+            queryset = apply_text_search(queryset, search_value=search_query, lookups=("name", "description"))
 
         queryset = apply_is_active_filter(queryset, params=self.request.GET)
         return queryset.order_by("-criado_em")

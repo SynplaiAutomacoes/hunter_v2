@@ -1,6 +1,6 @@
 from typing import Any
 
-from django.db.models import Prefetch, Q
+from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse, JsonResponse
@@ -9,6 +9,7 @@ from django.views.generic import CreateView, DeleteView, DetailView, ListView, T
 
 from apps.budget.models import Budget
 from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
+from apps.core.search import apply_text_search
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.core.navigation import CREATE_CLIENT_FAVORITE_PAGE
 from apps.core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin, BaseModalFormView, PageFavoriteMixin
@@ -108,7 +109,7 @@ class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
         search_query = self.request.GET.get("q", "").strip()
 
         if search_query:
-            queryset = queryset.filter(Q(name__icontains=search_query) | Q(fantasy_name__icontains=search_query) | Q(cpf_or_cnpj__icontains=search_query) | Q(phone__icontains=search_query) | Q(rg__icontains=search_query) | Q(email__icontains=search_query))
+            queryset = apply_text_search(queryset, search_value=search_query, lookups=("name", "fantasy_name", "cpf_or_cnpj", "phone", "rg", "email"))
 
         queryset = apply_is_active_filter(queryset, params=self.request.GET)
 

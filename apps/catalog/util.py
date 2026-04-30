@@ -11,6 +11,7 @@ from djmoney.money import Money
 
 from apps.catalog.models.kits import Kit, KitProduct, KitService
 from apps.catalog.models.products import Product
+from apps.core.search import apply_text_search
 from apps.workshops.models.workshop_costs import WorkshopCost
 
 
@@ -75,7 +76,7 @@ def build_product_kits_assignment_context(
 
     kits_queryset: QuerySet[Kit] = Kit.objects.filter(workshop=workshop)
     if cleaned_query:
-        kits_queryset = kits_queryset.filter(name__icontains=cleaned_query)
+        kits_queryset = apply_text_search(kits_queryset, search_value=cleaned_query, lookups=("name",))
 
     if assigned_kit_ids:
         kits_queryset = kits_queryset.annotate(

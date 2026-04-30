@@ -7,7 +7,6 @@ from datetime import UTC, date, datetime, time
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
-from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse, reverse_lazy
@@ -17,6 +16,7 @@ from django.views import View
 from django.views.generic import CreateView, DeleteView, TemplateView, UpdateView
 
 from apps.budget.models import Budget
+from apps.core.search import apply_text_search
 from apps.customer.models import Vehicle
 from apps.customer.vehicle_engine import normalize_vehicle_engine_choice
 from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice
@@ -148,14 +148,14 @@ class AppointmentEventsView(LoginRequiredMixin, WorkshopScopedMixin, View):
             if customer_filter.isdigit():
                 queryset = queryset.filter(customer_id=customer_filter)
             else:
-                queryset = queryset.filter(Q(customer__name__icontains=customer_filter) | Q(guest_customer_name__icontains=customer_filter))
+                queryset = apply_text_search(queryset, search_value=customer_filter, lookups=("customer__name", "guest_customer_name"))
 
         vehicle_filter = (request.GET.get("vehicle") or "").strip()
         if vehicle_filter:
             if vehicle_filter.isdigit():
                 queryset = queryset.filter(vehicle_id=vehicle_filter)
             else:
-                queryset = queryset.filter(Q(vehicle__plate__icontains=vehicle_filter) | Q(vehicle__model__icontains=vehicle_filter) | Q(guest_vehicle_plate__icontains=vehicle_filter) | Q(guest_vehicle_brand__icontains=vehicle_filter) | Q(guest_vehicle_model__icontains=vehicle_filter))
+                queryset = apply_text_search(queryset, search_value=vehicle_filter, lookups=("vehicle__plate", "vehicle__model", "guest_vehicle_plate", "guest_vehicle_brand", "guest_vehicle_model"))
 
         status_filter = (request.GET.get("status") or "").strip()
         if status_filter:

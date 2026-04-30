@@ -986,6 +986,68 @@ class KitSearchPartialTests(TestCase):
         self.assertContains(response, "id: '1296'", html=False)
         self.assertNotContains(response, "id: '1.296'", html=False)
 
+    def test_product_search_partial_matches_without_accents_and_case(self) -> None:
+        Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-KIT-2001",
+            name="Bomba Dagua",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+            is_active=True,
+        )
+        Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-KIT-2002",
+            name="Filtro de Ar",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+            is_active=True,
+        )
+
+        response = self.client.get(reverse("catalog:kits_product_search"), data={"product_search": "ÁGUA"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Bomba dagua")
+        self.assertNotContains(response, "Filtro de Ar")
+
+    def test_service_search_partial_matches_without_accents_and_case(self) -> None:
+        Service.objects.create(
+            workshop=self.workshop,
+            name="Revisao Basica",
+            description="",
+            duration=datetime.timedelta(minutes=30),
+            selling_price=Money(10, "BRL"),
+            suggested_cost=Money(5, "BRL"),
+            is_third_party=False,
+            is_active=True,
+        )
+        Service.objects.create(
+            workshop=self.workshop,
+            name="Alinhamento",
+            description="",
+            duration=datetime.timedelta(minutes=30),
+            selling_price=Money(10, "BRL"),
+            suggested_cost=Money(5, "BRL"),
+            is_third_party=False,
+            is_active=True,
+        )
+
+        response = self.client.get(reverse("catalog:kits_service_search"), data={"service_search": "REVISÃO"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Revisao Basica")
+        self.assertNotContains(response, "Alinhamento")
+
 
 class KitCompatibilityEvaluationTests(TestCase):
     def setUp(self) -> None:

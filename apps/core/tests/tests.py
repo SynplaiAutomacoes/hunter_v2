@@ -596,6 +596,58 @@ class TestRenderTableTag(TestCase):
         self.assertIn("Beta - Avenida Industrial", html)
         self.assertNotIn("Alpha - Rua Central", html)
 
+    def test_search_filters_queryset_rows_without_accents_and_case(self):
+        create_workshop(name="Sao Bento", cnpj="10.000.000/0001-05")
+        create_workshop(name="Alpha", cnpj="10.000.000/0001-06")
+
+        request = self.factory.get("/workshops/?q=SÃO")
+        template = Template(
+            """
+            {% load table_tags %}
+            {% render_table workshops fields table_id='t' per_page=10 %}
+            """
+        )
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "workshops": Workshop.objects.all(),
+                    "fields": [
+                        TableColumn(label="Nome", attr="name"),
+                    ],
+                }
+            )
+        )
+
+        self.assertIn("Sao Bento", html)
+        self.assertNotIn("Alpha", html)
+
+    def test_search_filters_sequence_rows_without_accents_and_case(self):
+        create_workshop(name="Sao Bento", cnpj="10.000.000/0001-07")
+        create_workshop(name="Alpha", cnpj="10.000.000/0001-08")
+
+        request = self.factory.get("/workshops/?q=são")
+        template = Template(
+            """
+            {% load table_tags %}
+            {% render_table workshops fields table_id='t' per_page=10 %}
+            """
+        )
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "workshops": list(Workshop.objects.order_by("pk")),
+                    "fields": [
+                        TableColumn(label="Nome", attr="name"),
+                    ],
+                }
+            )
+        )
+
+        self.assertIn("Sao Bento", html)
+        self.assertNotIn("Alpha", html)
+
     def test_search_query_is_kept_in_pagination_links(self):
         for i in range(1, 26):
             create_workshop(name=f"Oficina {i:02d}")
