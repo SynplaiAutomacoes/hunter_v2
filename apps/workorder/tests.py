@@ -225,6 +225,21 @@ class WorkOrderListFiltersTests(TestCase):
         self.assertQuerySetEqual(response.context["workorder"].order_by("pk"), [approved_workorder], transform=lambda obj: obj)
         self.assertNotIn(cancelled_workorder, response.context["workorder"])
 
+    def test_workorder_list_recovers_missing_active_workshop_from_user_membership(self) -> None:
+        user, workshop = create_director_user_with_workshop(suffix=81)
+        self.client.force_login(user)
+
+        WorkOrder.objects.create(workshop=workshop, budget=create_budget(workshop=workshop), status=WorkOrderStatus.APPROVED)
+
+        session = self.client.session
+        session.pop("active_workshop_id", None)
+        session.save()
+
+        response = self.client.get(reverse("workorder:workorder_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.session.get("active_workshop_id"), workshop.pk)
+
     def test_workorder_list_shows_cancelled_when_cancelled_filter_is_selected(self) -> None:
         workshop = self._login_with_active_workshop(suffix=73)
         approved_workorder = WorkOrder.objects.create(workshop=workshop, budget=create_budget(workshop=workshop), status=WorkOrderStatus.APPROVED)

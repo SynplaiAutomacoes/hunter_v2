@@ -966,12 +966,9 @@ class NavbarWorkshopSelectView(LoginRequiredMixin, View):
 
             if workshop_id_int is not None and Workshop.objects.filter(pk=workshop_id_int, account=getattr(user, "account", None), is_active=True).exists():
                 if not WorkshopMember.objects.filter(user=request.user, workshop_id=workshop_id_int, is_active=True, workshop__is_active=True).exists():
-                    request.session.pop("active_workshop_id", None)
                     return TemplateResponse(request, "navbar/partials/workshop_select.html", {})
 
                 request.session["active_workshop_id"] = workshop_id_int
-            else:
-                request.session.pop("active_workshop_id", None)
 
         redirect_url = reverse("budget:budget_list")
         if request.headers.get("HX-Request"):
