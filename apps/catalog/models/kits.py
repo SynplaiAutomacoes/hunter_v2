@@ -97,6 +97,22 @@ class Kit(TimeStampedModel):
             return True
         return False
 
+    def recalculate_total_price(self) -> None:
+        product_total = Money(0, "BRL")
+        for kit_product in self.kit_products.select_related("product"):
+            product_total += (kit_product.product.selling_price or Money(0, "BRL")) * kit_product.quantity
+
+        service_total = Money(0, "BRL")
+        services_total_duration = timedelta()
+        for item in self.kit_services.select_related("service"):
+            unit_sell = item.resolved_duration_selling_price if self.service_pricing_mode == self.ServicePricingMode.BY_DURATION else item.resolved_selling_price
+            service_total += unit_sell * item.quantity
+            services_total_duration += (item.duration or timedelta()) * item.quantity
+
+        self.total_price = product_total + service_total
+        self.total_duration = services_total_duration
+        self.save(update_fields=["total_price", "total_duration", "atualizado_em"])
+
 
 class KitApplication(TimeStampedModel):
     kit = models.ForeignKey(Kit, on_delete=models.CASCADE, related_name="applications")

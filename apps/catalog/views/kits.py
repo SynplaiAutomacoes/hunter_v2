@@ -10,7 +10,7 @@ from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
-from django.shortcuts import render
+from django.shortcuts import render, get_object_or_404
 from django.urls import reverse_lazy
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
@@ -18,7 +18,7 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 from djmoney.money import Money
 
 from apps.catalog.forms.kits import KitForm, QuickProductEditForm, QuickServiceEditForm
-from apps.catalog.models.kits import Kit, KitService
+from apps.catalog.models.kits import Kit, KitService, KitProduct
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.util import calculate_catalog_service_prices, get_current_workshop_cost
@@ -559,21 +559,46 @@ class KitsByProductHXView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def get(self, request, *args, **kwargs):
         product_id = clean_id(request.GET.get("product_id"))
 
-        kits = (
-            Kit.objects.filter(
-                workshop=self.workshop,
-                is_active=True,
-                products__id=product_id,
+        # Todos os kits ativos da oficina
+        kits = Kit.objects.filter(workshop=self.workshop, is_active=True).order_by("name")
+
+        # IDs dos kits que já possuem este produto
+        selected_kit_ids = []
+        if product_id:
+            selected_kit_ids = list(
+                Kit.objects.filter(
+                    workshop=self.workshop,
+                    products__id=product_id
+                ).values_list("id", flat=True)
             )
-            .distinct()
-            .order_by("name")
-        )
 
         return render(
             request,
             "kits/partials/kits_related_to_products_list.html",
             {
                 "kits_disponiveis": kits,
-                "kits_selecionados_ids": [],  # ajuste se houver edição
+                "kits_selecionados_ids": selected_kit_ids,
+                "product_id": product_id,
             },
         )
+
+    def post(self, request, *args, **kwargs):
+        product_id = clean_id(request.POST.get("product_id"))
+        kit_id = clean_id(request.POST.get("kit_id"))
+        is_checked = request.POST.get("is_checked") == "true"
+
+        if not product_id or not kit_id:
+            return HttpResponse("Faltando ID do produto ou kit", status=400)
+
+        product = get_object_or_404(Product, id=product_id, workshop=self.workshop)
+        kit = get_object_or_404(Kit, id=kit_id, workshop=self.workshop)
+
+        if is_checked:
+            KitProduct.objects.get_or_create(kit=kit, product=product)
+        else:
+            KitProduct.objects.filter(kit=kit, product=product).delete()
+
+        # Recalcular o preço total do kit
+        kit.recalculate_total_price()
+
+        return HttpResponse(status=204)

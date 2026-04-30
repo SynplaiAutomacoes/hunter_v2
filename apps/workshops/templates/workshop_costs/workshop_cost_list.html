@@ -4,7 +4,10 @@
 {% block crud_subtitle %}Calculo mensal dos custos.{% endblock %}
 
 {% block crud_header_actions %}
-    <a href="{% url 'workshops:workshop_cost_create' %}" class="btn btn-primary">Novo Custo Mensal</a>
+    <div>
+        <a href="{% url 'workshops:cost_list' %}" class="btn btn-primary">Inserir Nova Despesa Mensal</a>
+        <a href="{% url 'workshops:workshop_cost_create' %}" class="btn btn-primary">Novo Custo Mensal</a>
+    </div>
 {% endblock %}
 
 {% block crud_table_wrapper_id %}workshop-costs-table-wrapper{% endblock %}

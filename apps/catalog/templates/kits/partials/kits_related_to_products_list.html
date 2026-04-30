@@ -12,6 +12,9 @@
             {% if kit.id in kits_selecionados_ids %}
                 checked
             {% endif %}
+            hx-post="{% url 'catalog:kits-by-product-hx' %}"
+            hx-vals='js:{"product_id": "{{ product_id }}", "kit_id": "{{ kit.id }}", "is_checked": event.target.checked}'
+            hx-trigger="change"
         />
 
         <span class="text-base-content">
@@ -20,6 +23,6 @@
     </label>
 {% empty %}
     <div class="p-4 text-sm text-base-content/60">
-        Nenhum kit contém este produto.
+        Nenhum kit encontrado.
     </div>
 {% endfor %}
