@@ -9,21 +9,24 @@ from django.urls import reverse
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 
+from apps.core.forms import CoreModelForm
 from apps.catalog.models.products import Product
 from apps.catalog.price_tracking import build_product_price_warning
 from apps.core.widgets import (
-    TextInput,
+    CheckboxInput,
+    ImageInput,
     MoneyInput,
     PercentageInput,
-    CheckboxInput,
+    SearchableSelectInput,
+    TextInput,
     TextareaInput,
-    ImageInput, SearchableSelectInput,
 )
+from apps.core.text_normalization import sentence_case
 from apps.workshops.models.workshops import Workshop
 
 
 # TODO: Improve equivalent products to use a modal similar to Kits. Probably make a reusable modal for it.
-class ProductForm(forms.ModelForm):
+class ProductForm(CoreModelForm):
     equivalent_search = forms.CharField(required=False, label="Produtos Equivalentes")
     profit_margin = forms.DecimalField(required=False, max_digits=9, decimal_places=6, widget=PercentageInput(attrs={"readonly": True}))
 
@@ -103,6 +106,18 @@ class ProductForm(forms.ModelForm):
             "@submit": "handleSubmit($event)",
         }
         self.helper.layout = self.get_layout()
+
+    def clean_description(self) -> str:
+        value = str(self.cleaned_data.get("description") or "").strip()
+        return sentence_case(value) if value else value
+
+    def clean_brand(self) -> str:
+        value = str(self.cleaned_data.get("brand") or "").strip()
+        return sentence_case(value) if value else value
+
+    def clean_model(self) -> str:
+        value = str(self.cleaned_data.get("model") or "").strip()
+        return sentence_case(value) if value else value
 
     def _build_form_alpine_data(self) -> str:
         last_used_amount = ""
@@ -404,8 +419,9 @@ class ProductForm(forms.ModelForm):
 
         return code
 
-    def clean_name(self):
-        name = self.cleaned_data.get("name")
+    def clean_name(self) -> str:
+        name = str(self.cleaned_data.get("name") or "").strip()
+        name = sentence_case(name) if name else name
 
         if name and self.workshop:
             qs = Product.objects.filter(workshop=self.workshop, name__iexact=name)

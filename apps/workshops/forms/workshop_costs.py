@@ -9,14 +9,15 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 from djmoney.forms import MoneyField
 
+from apps.core.forms import CoreModelForm
 from apps.core.widgets import (
-    TextInput,
-    SearchableSelectInput,
-    DurationInput,
-    PercentageInput,
-    MoneyInput,
-    NumberInput,
     DecimalInput,
+    DurationInput,
+    NumberInput,
+    MoneyInput,
+    PercentageInput,
+    SearchableSelectInput,
+    TextInput,
 )
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from apps.workshops.models.monthly_costs import MonthlyCost
@@ -24,7 +25,7 @@ from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.monthly_costs import ADMIN_SALARY_MONTHLY_COST_NAME, MECHANIC_SALARY_MONTHLY_COST_NAME
 
 
-class WorkshopCostForm(forms.ModelForm):
+class WorkshopCostForm(CoreModelForm):
     EDIT_WARNING_MESSAGES = {
         MECHANIC_SALARY_MONTHLY_COST_NAME: "Esta é a soma total dos salários dos colaboradores produtivos, deseja manter?",
         ADMIN_SALARY_MONTHLY_COST_NAME: "Esta é a soma total dos salários dos colaboradores administrativos, deseja manter?",

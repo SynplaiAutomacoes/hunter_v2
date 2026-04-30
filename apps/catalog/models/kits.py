@@ -12,6 +12,7 @@ from apps.catalog.kit_applications import KitApplicationsTableValue, build_kit_a
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.core.models import TimeStampedModel
+from apps.core.text_normalization import sentence_case
 from apps.workshops.models.workshops import Workshop
 
 
@@ -64,6 +65,13 @@ class Kit(TimeStampedModel):
 
     def __str__(self) -> str:
         return self.name
+
+    def save(self, *args: object, **kwargs: object) -> None:
+        if self.name:
+            self.name = sentence_case(self.name)
+        if self.description:
+            self.description = sentence_case(self.description)
+        super().save(*args, **kwargs)
 
     def ordered_applications(self) -> list[KitApplication]:
         prefetched = getattr(self, "_prefetched_objects_cache", {}).get("applications")

@@ -13,6 +13,7 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views import View
 from django.views.generic import DetailView, ListView
 
+from apps.core.forms import CoreForm
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxTemplateResponseMixin
@@ -35,7 +36,7 @@ from apps.workshops.mixin import WorkshopScopedMixin
 logger = logging.getLogger(__name__)
 
 
-class NfeCancelForm(forms.Form):
+class NfeCancelForm(CoreForm):
     reason = forms.CharField(min_length=15, max_length=255)
 
 

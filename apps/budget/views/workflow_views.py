@@ -30,6 +30,7 @@ from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
+from apps.core.text_normalization import sentence_case
 from apps.scheduling.models import Appointment
 from apps.workorder.discount_sync import sync_budget_discount_to_workorder
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -801,7 +802,7 @@ class SaveObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
         try:
             data = json.loads(request.body)
             budget_id = int(data.get("budget_id"))
-            observation = data.get("observation", "").strip()
+            observation = sentence_case(str(data.get("observation", "")).strip())
             budget = _get_budget_for_workshop(self.workshop, budget_id)
             budget.pdf_observation = observation
             budget.save(update_fields=["pdf_observation"])

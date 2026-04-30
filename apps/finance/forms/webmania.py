@@ -12,6 +12,8 @@ from apps.core.webmania.util import is_webmania_homolog_environment
 from apps.core.widgets import CEPInput, CPForCNPJInput, CheckboxInput, EmailInput, PasswordInput, PhoneInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.models.finance import WebmaniaCompany, WebmaniaCompanyTaxType
 from apps.finance.services.webmania_secrets import encrypt_secret
+from apps.core.text_normalization import name_case, sentence_case
+from apps.core.forms import CoreModelForm
 
 
 WEBMANIA_REGIME_TRIBUTARIO_CHOICES = [
@@ -52,7 +54,7 @@ def _format_decimal(value: Decimal, *, places: int = 2) -> str:
     return f"{value.quantize(quantizer):f}"
 
 
-class WebmaniaCompanyUpdateForm(forms.ModelForm):
+class WebmaniaCompanyUpdateForm(CoreModelForm):
     secret_fields = ("nfse_password", "nfse_token", "certificado", "certificado_senha")
     nullable_boolean_fields = (
         "partilha_icms_contribuinte",
@@ -394,6 +396,46 @@ class WebmaniaCompanyUpdateForm(forms.ModelForm):
             self.add_error("nome_completo", "Ao informar CPF, o Nome Completo é obrigatório.")
 
         return cleaned_data
+
+    def clean_razao_social(self) -> str:
+        value = self.cleaned_data.get("razao_social")
+        return name_case(value) if value else value
+
+    def clean_nome_completo(self) -> str:
+        value = self.cleaned_data.get("nome_completo")
+        return name_case(value) if value else value
+
+    def clean_nome_fantasia(self) -> str:
+        value = self.cleaned_data.get("nome_fantasia")
+        return name_case(value) if value else value
+
+    def clean_conta_bancaria_banco(self) -> str:
+        value = self.cleaned_data.get("conta_bancaria_banco")
+        return sentence_case(value) if value else value
+
+    def clean_contabilidade(self) -> str:
+        value = self.cleaned_data.get("contabilidade")
+        return sentence_case(value) if value else value
+
+    def clean_endereco(self) -> str:
+        value = self.cleaned_data.get("endereco")
+        return sentence_case(value) if value else value
+
+    def clean_complemento(self) -> str:
+        value = self.cleaned_data.get("complemento")
+        return sentence_case(value) if value else value
+
+    def clean_bairro(self) -> str:
+        value = self.cleaned_data.get("bairro")
+        return sentence_case(value) if value else value
+
+    def clean_cidade(self) -> str:
+        value = self.cleaned_data.get("cidade")
+        return sentence_case(value) if value else value
+
+    def clean_informacoes_fisco(self) -> str:
+        value = self.cleaned_data.get("informacoes_fisco")
+        return sentence_case(value) if value else value
 
     def build_api_payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {}

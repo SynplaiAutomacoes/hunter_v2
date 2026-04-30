@@ -14,9 +14,11 @@ from apps.budget.pricing import resolve_discount_fields
 from apps.collaborators.models import WorkshopCollaborator
 from apps.budget.forms.widgets import MultipleFileInput
 from apps.core.utils import alert_confirm_layout
+from apps.core.text_normalization import sentence_case
 from apps.core.widgets import CalendarDateInput, DurationInput, MoneyInput, NumberInput, PercentageInput, SearchableSelectInput, TextInput
 from apps.finance.models.payment_method import PaymentMethod
 from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderItem, WorkOrderPaymentMethod
+from apps.core.forms import CoreForm, CoreModelForm
 
 
 MONEY_ZERO = Decimal("0.00")
@@ -30,7 +32,7 @@ def _format_brl_amount(value: Decimal) -> str:
     return f"{value:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
 
 
-class WorkOrderCollaboratorForm(forms.ModelForm):
+class WorkOrderCollaboratorForm(CoreModelForm):
     collaborators = forms.ModelMultipleChoiceField(label="Colaboradores da O.S.", queryset=WorkshopCollaborator.objects.none(), required=False, widget=forms.SelectMultiple(attrs={"class": "select select-bordered min-h-40 w-full"}))
 
     class Meta:
@@ -48,7 +50,7 @@ class WorkOrderCollaboratorForm(forms.ModelForm):
         self.fields["collaborators"].help_text = "Selecione os colaboradores responsaveis por esta O.S. A comissao prevista sera calculada a partir desta vinculacao."
 
 
-class WorkOrderPaymentForm(forms.ModelForm):
+class WorkOrderPaymentForm(CoreModelForm):
     entry_amount = MoneyField(label="Valor de entrada", required=False, widget=MoneyInput)
     total_value = forms.CharField(label="Valor Total", required=False, widget=MoneyInput)
     paid_value = forms.CharField(label="Valor Pago", required=False, widget=MoneyInput)
@@ -603,7 +605,7 @@ class WorkOrderPaymentForm(forms.ModelForm):
         return instance
 
 
-class WorkOrderAttachmentForm(forms.ModelForm):
+class WorkOrderAttachmentForm(CoreModelForm):
     file_upload = forms.FileField(
         required=False,
         widget=MultipleFileInput(
@@ -632,7 +634,7 @@ class WorkOrderAttachmentForm(forms.ModelForm):
         self.helper.layout = Layout(Field("file_upload"))
 
 
-class WorkOrderCustomerApprovalForm(forms.Form):
+class WorkOrderCustomerApprovalForm(CoreForm):
     km_initial = forms.IntegerField(label="KM inicial", required=False, widget=NumberInput(attrs={"readonly": "readonly"}))
     km_final = forms.IntegerField(label="KM final", required=True, min_value=0, widget=NumberInput())
 
@@ -675,7 +677,7 @@ class WorkOrderCustomerApprovalForm(forms.Form):
         return km_final
 
 
-class WorkOrderItemEditForm(forms.ModelForm):
+class WorkOrderItemEditForm(CoreModelForm):
     class Meta:
         model = WorkOrderItem
         fields = ["description", "quantity", "product_selling_price", "product_cost_price", "shipping", "service_selling_price", "service_cost_price", "duration"]
@@ -710,15 +712,19 @@ class WorkOrderItemEditForm(forms.ModelForm):
             self.fields.pop("product_cost_price")
             self.fields.pop("shipping")
 
+    def clean_description(self):
+        value = self.cleaned_data.get("description")
+        return sentence_case(value) if value else value
 
-class WorkOrderKitProductEditRowForm(forms.Form):
+
+class WorkOrderKitProductEditRowForm(CoreForm):
     quantity = forms.IntegerField(min_value=0, widget=NumberInput(attrs={"data-field": "quantity", "min": "0"}))
     cost = MoneyField(required=False, widget=MoneyInput(attrs={"data-field": "cost"}))
     price = MoneyField(required=False, widget=MoneyInput(attrs={"data-field": "price"}))
     shipping = MoneyField(required=False, widget=MoneyInput(attrs={"data-field": "shipping"}))
 
 
-class WorkOrderKitServiceEditRowForm(forms.Form):
+class WorkOrderKitServiceEditRowForm(CoreForm):
     quantity = forms.IntegerField(min_value=0, widget=NumberInput(attrs={"data-field": "quantity", "min": "0"}))
     cost = MoneyField(required=False, widget=MoneyInput(attrs={"data-field": "cost"}))
     price = MoneyField(required=False, widget=MoneyInput(attrs={"data-field": "price"}))
