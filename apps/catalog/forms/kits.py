@@ -2238,7 +2238,7 @@ class QuickProductEditForm(CoreModelForm):
                         Div(
                             Field(
                                 "equivalent_search",
-                                css_class="input-theme border-none !bg-transparent",
+                                css_class="input-theme border-none bg-base-100",
                                 wrapper_class="w-full !bg-transparent",
                                 autocomplete="off",
                                 placeholder="Buscar...",

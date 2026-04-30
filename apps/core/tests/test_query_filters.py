@@ -55,3 +55,18 @@ class QueryParamFiltersDateTests(TestCase):
         )
 
         self.assertQuerySetEqual(filtered.order_by("pk"), [first_workshop, second_workshop], transform=lambda obj: obj)
+
+    def test_apply_query_param_filters_matches_without_accents_and_case(self) -> None:
+        matched_workshop = create_workshop(suffix=6)
+        matched_workshop.name = "Jose Centro"
+        matched_workshop.save(update_fields=["name"])
+        other_workshop = create_workshop(suffix=7)
+
+        filtered = apply_query_param_filters(
+            Workshop.objects.all(),
+            params=QueryDict("name=JOSÉ"),
+            filter_configs=(QueryParamFilter(param_name="name", lookup="name", kind="icontains"),),
+        )
+
+        self.assertQuerySetEqual(filtered.order_by("pk"), [matched_workshop], transform=lambda obj: obj)
+        self.assertNotIn(other_workshop, filtered)

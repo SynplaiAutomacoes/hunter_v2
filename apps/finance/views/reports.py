@@ -13,6 +13,7 @@ from django.utils import timezone
 from django.views.generic import DeleteView, TemplateView, UpdateView
 from django.db.models import Q
 
+from apps.core.search import build_text_search_query
 from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorPayroll
 from apps.collaborators.services import sync_workorder_collaborator_payrolls
 from apps.finance.forms.emission_ui import format_money
@@ -181,22 +182,24 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         if direction:
             queryset = queryset.filter(direction=direction)
 
-        from django.db.models import Q
-
         search = str(self.request.GET.get("search") or "").strip()
         if search:
-            queryset = queryset.filter(
-                Q(description__icontains=search)
-                | Q(items_observation__icontains=search)
-                | Q(financial_observation__icontains=search)
-                | Q(nf_number__icontains=search)
-                | Q(source__name__icontains=search)
-                | Q(supplier__name__icontains=search)
-                | Q(collaborator__name__icontains=search)
-                | Q(budget_plan__name__icontains=search)
-                | Q(bank_account__bank_name__icontains=search)
-                | Q(workorder__id__icontains=search)
+            search_query = build_text_search_query(
+                search_value=search,
+                lookups=(
+                    "description",
+                    "items_observation",
+                    "financial_observation",
+                    "nf_number",
+                    "source__name",
+                    "supplier__name",
+                    "collaborator__name",
+                    "budget_plan__name",
+                    "bank_account__bank_name",
+                ),
             )
+            search_query = search_query | Q(workorder__id__icontains=search) if search_query.children else Q(workorder__id__icontains=search)
+            queryset = queryset.filter(search_query)
 
         return queryset
 

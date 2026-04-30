@@ -37,6 +37,11 @@ def _strip_accents(value: str) -> str:
     return unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("utf-8")
 
 
+def normalize_search_text(value: object) -> str:
+    normalized = _strip_accents(str(value or ""))
+    return normalized.casefold().strip()
+
+
 def _normalize_token(token: str) -> str:
     cleaned = token.strip("'\"()[]{}<>.,;:!?\n\r\t")
     return _strip_accents(cleaned).lower()
