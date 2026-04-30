@@ -142,8 +142,8 @@ class WorkshopCostForm(CoreModelForm):
                     Field("work_days_per_month", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("productivity_average", wrapper_class="col-span-12 lg:col-span-12"),
                     HTML('<div class="col-span-12 divider my-2"></div>'),
-                    # --- SEÇÃO 3: Custos Mensais (Dinâmico) ---
-                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Custos Mensais</h3>'),
+                    # --- SEÇÃO 3: Despesas Mensais (Dinâmico) ---
+                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Despesas Mensais</h3>'),
                     Div(
                         *cost_fields_layout,
                         css_class="contents",  # Permite que os filhos obedeçam ao Grid pai
