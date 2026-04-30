@@ -2185,6 +2185,7 @@ class QuickProductEditForm(EquivalentProductsFormMixin, CoreModelForm):
 
     def get_layout(self):
         search_product_url = reverse("catalog:product_search")
+        equivalent_sync_url = reverse("catalog:product-equivalents-sync-hx", kwargs={"product_id": self.instance.pk}) if self.instance.pk else ""
 
         return Layout(
             Div(
@@ -2229,7 +2230,7 @@ class QuickProductEditForm(EquivalentProductsFormMixin, CoreModelForm):
                     Field("barcode", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("sku", wrapper_class="col-span-12 lg:col-span-4"),
                     # --- Peças Equivalentes ---
-                    self.build_equivalent_products_section(search_url=search_product_url),
+                    self.build_equivalent_products_section(search_url=search_product_url, sync_url=equivalent_sync_url),
                     HTML('<div class="col-span-12 divider my-1"></div>'),
                     # --- FISCAL ---
                     HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Fiscal</h3>'),

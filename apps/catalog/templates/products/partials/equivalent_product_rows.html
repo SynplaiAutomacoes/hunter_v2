@@ -26,6 +26,7 @@
             <button
                 type="button"
                 class="btn btn-xs btn-error text-white"
+                :disabled="isPersistingEquivalentProducts"
                 @click="removeAppliedEquivalent('{{ product.id|stringformat:'d' }}')"
             >
                 Remover

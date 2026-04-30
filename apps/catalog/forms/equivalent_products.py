@@ -1,26 +1,18 @@
 from __future__ import annotations
 
 import json
+from urllib.parse import quote
 
 from django.db.models import QuerySet
 from django.template.loader import render_to_string
 
 from crispy_forms.layout import Div, Field, HTML
 
-from apps.catalog.equivalent_products import get_equivalent_products_queryset
+from apps.catalog.equivalent_products import get_equivalent_products_queryset, serialize_equivalent_product, serialize_equivalent_products
 from apps.catalog.models.products import Product
 
 
 class EquivalentProductsFormMixin:
-    @staticmethod
-    def _serialize_equivalent_product(product: Product) -> dict[str, str]:
-        return {
-            "id": str(product.pk),
-            "code": product.code,
-            "name": product.name,
-            "brand": product.brand or "",
-        }
-
     def _get_equivalent_ignore_id(self) -> int | None:
         instance = getattr(self, "instance", None)
         return int(instance.pk) if instance and instance.pk else None
@@ -51,7 +43,7 @@ class EquivalentProductsFormMixin:
                 return []
 
             products_by_id = {
-                str(product.pk): self._serialize_equivalent_product(product)
+                str(product.pk): serialize_equivalent_product(product)
                 for product in get_equivalent_products_queryset(
                     workshop=workshop,
                     ignore_product_id=self._get_equivalent_ignore_id(),
@@ -62,7 +54,7 @@ class EquivalentProductsFormMixin:
         if not instance or not instance.pk:
             return []
 
-        return [self._serialize_equivalent_product(product) for product in instance.equivalent_parts.only("id", "code", "name", "brand").order_by("name", "code")]
+        return serialize_equivalent_products(instance.equivalent_parts.only("id", "code", "name", "brand").order_by("name", "code"))
 
     def _render_equivalent_product_rows(self) -> str:
         products: QuerySet[Product] = Product.objects.none()
@@ -76,12 +68,27 @@ class EquivalentProductsFormMixin:
 
         return render_to_string("products/partials/equivalent_product_rows.html", {"products": products})
 
-    def build_equivalent_products_section(self, *, search_url: str):
+    def build_equivalent_products_section(self, *, search_url: str, sync_url: str = ""):
         initial_equivalents = self._build_initial_equivalent_products()
         equivalents_json = json.dumps(initial_equivalents)
         rendered_rows = self._render_equivalent_product_rows()
         instance = getattr(self, "instance", None)
         instance_pk = instance.pk if instance and instance.pk else None
+        can_persist_equivalent_products = bool(instance_pk and sync_url)
+        save_button_html = ""
+        if can_persist_equivalent_products:
+            save_button_html = """
+                <button
+                    type=\"button\"
+                    class=\"btn btn-primary w-full sm:w-auto\"
+                    :disabled=\"isPersistingEquivalentProducts || !hasPendingEquivalentChanges()\"
+                    @click=\"applyEquivalentProducts()\"
+                >
+                    <span x-show=\"!isPersistingEquivalentProducts\">Salvar Produtos Equivalentes</span>
+                    <span x-show=\"isPersistingEquivalentProducts\">Salvando...</span>
+                </button>
+            """
+        encoded_sync_url = quote(sync_url, safe="/:?=&")
 
         return Div(
             Div(
@@ -124,12 +131,12 @@ class EquivalentProductsFormMixin:
                             <p class=\"text-sm font-medium text-base-content/80\" x-text=\"`${{pendingEquivalentProducts.length}} produto(s) marcado(s) na tabela.`\"></p>
                             <p
                                 class=\"text-xs\"
-                                :class=\"hasPendingEquivalentChanges() ? 'text-warning' : 'text-base-content/60'\"
-                                x-text=\"hasPendingEquivalentChanges() ? 'Existem alterações pendentes. Clique em salvar produtos equivalentes para aplicar ao formulário.' : 'Seleção sincronizada com o formulário.'\"
+                                :class=\"equivalentHelperTextClass()\"
+                                x-text=\"equivalentHelperText()\"
                             ></p>
                         </div>
 
-                        <button type=\"button\" class=\"btn btn-primary w-full sm:w-auto\" @click=\"applyEquivalentProducts()\">Salvar Produtos Equivalentes</button>
+                        {save_button_html}
                     </div>
                 </div>
                 """
@@ -137,7 +144,7 @@ class EquivalentProductsFormMixin:
             HTML(
                 """
                 <select name="equivalent_parts" multiple class="hidden">
-                    <template x-for="item in appliedEquivalentProducts" :key="'equivalent-option-' + item.id">
+                    <template x-for="item in submittedEquivalentProducts()" :key="'equivalent-option-' + item.id">
                         <option :value="item.id" selected></option>
                     </template>
                 </select>
@@ -147,6 +154,9 @@ class EquivalentProductsFormMixin:
                 "x-data": f"""{{
                     appliedEquivalentProducts: {equivalents_json},
                     pendingEquivalentProducts: {equivalents_json},
+                    canPersistEquivalentProducts: {str(can_persist_equivalent_products).lower()},
+                    equivalentSyncUrl: '{encoded_sync_url}',
+                    isPersistingEquivalentProducts: false,
                     init() {{
                         this.appliedEquivalentProducts = this.normalizeEquivalentProducts(this.appliedEquivalentProducts);
                         this.pendingEquivalentProducts = this.normalizeEquivalentProducts(this.pendingEquivalentProducts);
@@ -162,14 +172,79 @@ class EquivalentProductsFormMixin:
                     equivalentSelectionSignature(items) {{
                         return JSON.stringify(this.normalizeEquivalentProducts(items).map((item) => item.id).sort());
                     }},
+                    submittedEquivalentProducts() {{
+                        return this.canPersistEquivalentProducts ? this.appliedEquivalentProducts : this.pendingEquivalentProducts;
+                    }},
                     hasPendingEquivalentChanges() {{
                         return this.equivalentSelectionSignature(this.appliedEquivalentProducts) !== this.equivalentSelectionSignature(this.pendingEquivalentProducts);
+                    }},
+                    equivalentHelperText() {{
+                        if (!this.canPersistEquivalentProducts) {{
+                            return 'Os produtos equivalentes serão salvos quando você salvar o produto.';
+                        }}
+
+                        if (this.hasPendingEquivalentChanges()) {{
+                            return 'Existem alterações pendentes. Clique em salvar produtos equivalentes para persistir no banco de dados.';
+                        }}
+
+                        return 'Seleção sincronizada com o banco de dados.';
+                    }},
+                    equivalentHelperTextClass() {{
+                        if (!this.canPersistEquivalentProducts) {{
+                            return 'text-base-content/60';
+                        }}
+
+                        return this.hasPendingEquivalentChanges() ? 'text-warning' : 'text-base-content/60';
                     }},
                     isAppliedEquivalent(productId) {{
                         return this.appliedEquivalentProducts.some((item) => item.id === String(productId));
                     }},
                     isPendingEquivalent(productId) {{
                         return this.pendingEquivalentProducts.some((item) => item.id === String(productId));
+                    }},
+                    getCsrfToken() {{
+                        const csrfField = document.querySelector('input[name="csrfmiddlewaretoken"]');
+                        return csrfField ? csrfField.value : '';
+                    }},
+                    showToast(message, type = 'warning') {{
+                        document.body.dispatchEvent(new CustomEvent('showToast', {{
+                            detail: {{ message, type }},
+                        }}));
+                    }},
+                    async syncEquivalentProducts(selectedItems, successMessage, pendingItemsOnSuccess = null) {{
+                        if (!this.canPersistEquivalentProducts || !this.equivalentSyncUrl) {{
+                            return this.normalizeEquivalentProducts(selectedItems);
+                        }}
+
+                        this.isPersistingEquivalentProducts = true;
+
+                        try {{
+                            const response = await fetch(this.equivalentSyncUrl, {{
+                                method: 'POST',
+                                headers: {{
+                                    'Content-Type': 'application/json',
+                                    'X-CSRFToken': this.getCsrfToken(),
+                                    'X-Requested-With': 'XMLHttpRequest',
+                                }},
+                                credentials: 'same-origin',
+                                body: JSON.stringify({{
+                                    equivalent_ids: this.normalizeEquivalentProducts(selectedItems).map((item) => item.id),
+                                }}),
+                            }});
+
+                            const payload = await response.json().catch(() => ({{}}));
+                            if (!response.ok) {{
+                                throw new Error(payload.message || 'Não foi possível salvar os produtos equivalentes.');
+                            }}
+
+                            const normalizedEquivalents = this.normalizeEquivalentProducts(payload.equivalents || []);
+                            this.appliedEquivalentProducts = normalizedEquivalents;
+                            this.pendingEquivalentProducts = this.normalizeEquivalentProducts(pendingItemsOnSuccess ?? normalizedEquivalents);
+                            this.showToast(successMessage || payload.message || 'Produtos equivalentes salvos com sucesso.', payload.type || 'success');
+                            return normalizedEquivalents;
+                        }} finally {{
+                            this.isPersistingEquivalentProducts = false;
+                        }}
                     }},
                     togglePendingEquivalent(product, checked) {{
                         const normalizedProduct = {{
@@ -188,13 +263,42 @@ class EquivalentProductsFormMixin:
 
                         this.pendingEquivalentProducts = this.pendingEquivalentProducts.filter((item) => item.id !== normalizedProduct.id);
                     }},
-                    removeAppliedEquivalent(productId) {{
+                    async removeAppliedEquivalent(productId) {{
                         const normalizedId = String(productId);
-                        this.appliedEquivalentProducts = this.appliedEquivalentProducts.filter((item) => item.id !== normalizedId);
-                        this.pendingEquivalentProducts = this.pendingEquivalentProducts.filter((item) => item.id !== normalizedId);
+                        const previousAppliedEquivalentProducts = this.normalizeEquivalentProducts(this.appliedEquivalentProducts);
+                        const previousPendingEquivalentProducts = this.normalizeEquivalentProducts(this.pendingEquivalentProducts);
+                        const nextAppliedEquivalentProducts = previousAppliedEquivalentProducts.filter((item) => item.id !== normalizedId);
+                        const nextPendingEquivalentProducts = previousPendingEquivalentProducts.filter((item) => item.id !== normalizedId);
+
+                        this.appliedEquivalentProducts = nextAppliedEquivalentProducts;
+                        this.pendingEquivalentProducts = nextPendingEquivalentProducts;
+
+                        if (!this.canPersistEquivalentProducts) {{
+                            return;
+                        }}
+
+                        try {{
+                            await this.syncEquivalentProducts(nextAppliedEquivalentProducts, 'Produto equivalente removido com sucesso.', nextPendingEquivalentProducts);
+                        }} catch (error) {{
+                            this.appliedEquivalentProducts = previousAppliedEquivalentProducts;
+                            this.pendingEquivalentProducts = previousPendingEquivalentProducts;
+                            this.showToast(error.message || 'Não foi possível remover o produto equivalente.', 'error');
+                        }}
                     }},
-                    applyEquivalentProducts() {{
-                        this.appliedEquivalentProducts = this.normalizeEquivalentProducts(this.pendingEquivalentProducts);
+                    async applyEquivalentProducts() {{
+                        if (!this.canPersistEquivalentProducts) {{
+                            return;
+                        }}
+
+                        if (!this.hasPendingEquivalentChanges()) {{
+                            return;
+                        }}
+
+                        try {{
+                            await this.syncEquivalentProducts(this.pendingEquivalentProducts, 'Produtos equivalentes salvos com sucesso.');
+                        }} catch (error) {{
+                            this.showToast(error.message || 'Não foi possível salvar os produtos equivalentes.', 'error');
+                        }}
                     }},
                 }}""",
                 "id": "equivalents-manager",

@@ -21,6 +21,7 @@ from apps.catalog.views.products import (
     ProductCreateView,
     ProductUpdateView,
     ProductDeleteView,
+    ProductEquivalentSyncHXView,
     ProductSearchSelectView,
     StockFieldsUpdateView,
 )
@@ -64,6 +65,7 @@ urlpatterns = [
     path("products/<int:pk>/edit/", ProductUpdateView.as_view(), name="product_update"),
     path("products/<int:pk>/delete/", ProductDeleteView.as_view(), name="product_delete"),
     path("products/search/", ProductSearchSelectView.as_view(), name="product_search"),
+    path("products/<int:product_id>/equivalents/sync/", ProductEquivalentSyncHXView.as_view(), name="product-equivalents-sync-hx"),
     path("update_stock_fields/", StockFieldsUpdateView.as_view(), name="update_stock_fields"),
     path("edit_product_modal_form/<int:pk>/", ProductQuickUpdateView.as_view(), name="edit_product_modal_form"),
     # Kits

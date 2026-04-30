@@ -1425,7 +1425,7 @@ class ProductFormTests(TestCase):
         self.assertIn('id="submit-id-submit"', html)
         self.assertIn('class="input-theme border-none bg-base-100 textinput', html)
 
-    def test_product_form_renders_equivalent_products_table_and_save_button(self) -> None:
+    def test_product_form_create_hides_equivalent_products_save_button(self) -> None:
         Product.objects.create(
             workshop=self.workshop,
             code="PROD-EQ-FORM-001",
@@ -1443,16 +1443,70 @@ class ProductFormTests(TestCase):
 
         html = render_crispy_form(ProductForm(workshop=self.workshop))
 
-        self.assertIn("Salvar Produtos Equivalentes", html)
+        self.assertNotIn("Salvar Produtos Equivalentes", html)
         self.assertIn("isAppliedEquivalent", html)
         self.assertIn("removeAppliedEquivalent", html)
+        self.assertIn("submittedEquivalentProducts()", html)
         self.assertIn("bg-success/10 hover:bg-success/20", html)
         self.assertNotIn("Produtos equivalentes salvos no formulário", html)
+        self.assertIn("Os produtos equivalentes serão salvos quando você salvar o produto.", html)
         self.assertIn("Produto formulario", html)
         self.assertIn("Marca formulario", html)
 
+    def test_product_form_update_renders_equivalent_products_persist_controls(self) -> None:
+        equivalent_product = Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-EQ-FORM-002",
+            name="Produto Persistencia",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            brand="Marca Persistencia",
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+            is_active=True,
+        )
+        product = Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-EQ-FORM-003",
+            name="Produto Atualizacao",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+            is_active=True,
+        )
+        product.equivalent_parts.add(equivalent_product)
+
+        html = render_crispy_form(ProductForm(workshop=self.workshop, instance=product))
+
+        self.assertIn("Salvar Produtos Equivalentes", html)
+        self.assertIn("Produtos equivalentes salvos com sucesso.", html)
+        self.assertIn("isPersistingEquivalentProducts", html)
+        self.assertIn(reverse("catalog:product-equivalents-sync-hx", kwargs={"product_id": product.pk}), html)
+        self.assertIn("Seleção sincronizada com o banco de dados.", html)
+
     def test_quick_product_edit_form_renders_white_equivalent_search_field(self) -> None:
-        html = render_crispy_form(QuickProductEditForm(workshop=self.workshop))
+        product = Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-EQ-FORM-004",
+            name="Produto Modal",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+            is_active=True,
+        )
+
+        html = render_crispy_form(QuickProductEditForm(workshop=self.workshop, instance=product))
 
         self.assertIn('class="input-theme border-none bg-base-100 textinput', html)
         self.assertIn("Salvar Produtos Equivalentes", html)
@@ -1530,6 +1584,111 @@ class ProductUpdateNavigationTests(TestCase):
         self.assertContains(response, 'id="product-lower-price-modal"', html=False)
         self.assertContains(response, '@click="continueWithLowerPrice()"', html=False)
         self.assertNotContains(response, 'x-show="lowerPriceWarning"', html=False)
+
+
+class ProductEquivalentSyncHXViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=33)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+        self.group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo Equivalentes")
+        self.product = Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-EQ-SYNC-001",
+            name="Produto Base",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+        )
+
+    def test_product_equivalent_sync_endpoint_persists_selection(self) -> None:
+        equivalent_product_a = Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-EQ-SYNC-002",
+            name="Produto Equivalente A",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            brand="Marca A",
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+        )
+        equivalent_product_b = Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-EQ-SYNC-003",
+            name="Produto Equivalente B",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            brand="Marca B",
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+        )
+
+        response = self.client.post(
+            reverse("catalog:product-equivalents-sync-hx", kwargs={"product_id": self.product.pk}),
+            data=json.dumps({"equivalent_ids": [str(equivalent_product_b.pk), str(equivalent_product_a.pk)]}),
+            content_type="application/json",
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(list(self.product.equivalent_parts.order_by("name", "code").values_list("id", flat=True)), [equivalent_product_a.pk, equivalent_product_b.pk])
+        self.assertTrue(equivalent_product_a.equivalent_parts.filter(pk=self.product.pk).exists())
+
+        payload = response.json()
+        self.assertEqual(payload["message"], "Produtos equivalentes salvos com sucesso.")
+        self.assertEqual([item["id"] for item in payload["equivalents"]], [str(equivalent_product_b.pk), str(equivalent_product_a.pk)])
+
+    def test_product_equivalent_sync_endpoint_can_clear_existing_relations(self) -> None:
+        equivalent_product = Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-EQ-SYNC-004",
+            name="Produto Equivalente C",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+        )
+        self.product.equivalent_parts.add(equivalent_product)
+
+        response = self.client.post(
+            reverse("catalog:product-equivalents-sync-hx", kwargs={"product_id": self.product.pk}),
+            data=json.dumps({"equivalent_ids": []}),
+            content_type="application/json",
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(self.product.equivalent_parts.exists())
+        self.assertEqual(response.json()["equivalents"], [])
+
+    def test_product_equivalent_sync_endpoint_rejects_self_reference(self) -> None:
+        response = self.client.post(
+            reverse("catalog:product-equivalents-sync-hx", kwargs={"product_id": self.product.pk}),
+            data=json.dumps({"equivalent_ids": [str(self.product.pk)]}),
+            content_type="application/json",
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["message"], "O produto não pode ser equivalente a ele mesmo.")
+        self.assertFalse(self.product.equivalent_parts.exists())
 
 
 class ProductKitAssignmentTabTests(TestCase):

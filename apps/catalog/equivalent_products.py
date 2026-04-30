@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import cast
 
 from django.db.models import QuerySet
@@ -7,6 +8,19 @@ from django.db.models import QuerySet
 from apps.catalog.models.products import Product
 from apps.core.search import apply_text_search
 from apps.workshops.models.workshops import Workshop
+
+
+def serialize_equivalent_product(product: Product) -> dict[str, str]:
+    return {
+        "id": str(product.pk),
+        "code": product.code,
+        "name": product.name,
+        "brand": product.brand or "",
+    }
+
+
+def serialize_equivalent_products(products: Iterable[Product]) -> list[dict[str, str]]:
+    return [serialize_equivalent_product(product) for product in products]
 
 
 def get_equivalent_products_queryset(*, workshop: Workshop, search_value: str = "", ignore_product_id: int | None = None) -> QuerySet[Product]:
