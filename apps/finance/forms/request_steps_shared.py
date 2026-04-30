@@ -4,13 +4,13 @@ from html import escape
 
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
-from django import forms
 
 from apps.core.widgets import SearchableSelectInput
 from apps.workorder.models import WorkOrder, WorkOrderStatus
+from apps.core.forms import CoreModelForm
 
 
-class SharedEmissionWorkorderSelectionForm(forms.ModelForm):
+class SharedEmissionWorkorderSelectionForm(CoreModelForm):
     step_title = "Selecionar Ordem de Servico"
     step_subtitle = "Selecione a ordem de servico aprovada que sera utilizada para emitir a nota fiscal."
     workorder_label = "Ordem de Servico"
@@ -53,7 +53,7 @@ class SharedEmissionWorkorderSelectionForm(forms.ModelForm):
         )
 
 
-class SharedEmissionCustomerReviewForm(forms.ModelForm):
+class SharedEmissionCustomerReviewForm(CoreModelForm):
     step_title = "Conferir dados do cliente"
     step_subtitle = "Valide os dados do cliente antes de avancar para a etapa de emissao."
     empty_value_label = "Nao informado"

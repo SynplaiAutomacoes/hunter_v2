@@ -10,6 +10,7 @@ import stdnum.ean
 
 
 from apps.core.models import TimeStampedModel
+from apps.core.text_normalization import sentence_case
 from apps.stock.models import StockProduct
 from apps.workshops.models.workshops import Workshop
 from apps.catalog.models.groups import CatalogGroup
@@ -137,6 +138,17 @@ class Product(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.code} - {self.name}"
+
+    def save(self, *args: object, **kwargs: object) -> None:
+        if self.name:
+            self.name = sentence_case(self.name)
+        if self.description:
+            self.description = sentence_case(self.description)
+        if self.brand:
+            self.brand = sentence_case(self.brand)
+        if self.model:
+            self.model = sentence_case(self.model)
+        super().save(*args, **kwargs)
 
 
 @receiver(post_save, sender=Product)

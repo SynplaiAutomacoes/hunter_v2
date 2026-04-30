@@ -11,6 +11,7 @@ from django.forms import formset_factory
 
 from apps.core.widgets import CheckboxInput, DecimalInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.models import TaxClassPreset
+from apps.core.forms import CoreForm, CoreModelForm
 
 
 NFE_SCENARIO_CHOICES = (
@@ -110,7 +111,7 @@ def _is_service_code_xxxxx(value: str) -> bool:
     return len(value) == 5 and value.isdigit()
 
 
-class TaxClassFormBase(forms.Form):
+class TaxClassFormBase(CoreForm):
     referencia = forms.CharField(label="Referência", required=False, max_length=30, widget=TextInput())
     descricao = forms.CharField(label="Descrição", required=True, max_length=255, widget=TextInput())
     informacoes_fisco = forms.CharField(label="Informações ao Fisco", required=False, widget=TextareaInput(rows=3))
@@ -143,7 +144,7 @@ class TaxClassFormBase(forms.Form):
         }
 
 
-class TaxClassPresetMetaForm(forms.ModelForm):
+class TaxClassPresetMetaForm(CoreModelForm):
     class Meta:
         model = TaxClassPreset
         fields = ["name", "description", "is_active"]
@@ -465,7 +466,7 @@ class NfseTaxClassForm(TaxClassFormBase):
         return payload
 
 
-class ScenarioFormBase(forms.Form):
+class ScenarioFormBase(CoreForm):
     source_index = forms.IntegerField(required=False, widget=forms.HiddenInput())
 
     payload_fields: tuple[str, ...] = ()

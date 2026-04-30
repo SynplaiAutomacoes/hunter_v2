@@ -9,9 +9,10 @@ from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 from apps.core.widgets import CheckboxInput, TextInput
 from apps.workshops.models.monthly_costs import MonthlyCost
 from apps.workshops.models.workshops import Workshop
+from apps.core.forms import CoreModelForm
 
 
-class MonthlyCostForm(forms.ModelForm):
+class MonthlyCostForm(CoreModelForm):
     class Meta:
         model = MonthlyCost
         fields = ["name", "is_active"]

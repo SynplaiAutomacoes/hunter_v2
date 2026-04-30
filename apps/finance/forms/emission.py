@@ -11,6 +11,8 @@ from django.urls import reverse
 from djmoney.forms import MoneyField
 from djmoney.money import Money
 
+from apps.core.forms import CoreForm
+from apps.core.text_normalization import sentence_case
 from apps.core.widgets import DurationInput, MoneyInput, NumberInput, TextareaInput, SearchableSelectInput
 from apps.finance.forms.emission_ui import (
     build_slider_widget_attrs,
@@ -391,7 +393,7 @@ def _build_nfse_preview_html(*, workorder: WorkOrder, selected_slider: int) -> t
     return warning_html, preview_html
 
 
-class EmissionKitProductComponentForm(forms.Form):
+class EmissionKitProductComponentForm(CoreForm):
     quantity = forms.IntegerField(label="Quantidade por kit", min_value=0, widget=NumberInput())
     cost = MoneyField(label="Custo do produto", required=False, widget=MoneyInput())
     price = MoneyField(label="Valor de venda", required=False, widget=MoneyInput())
@@ -403,7 +405,7 @@ class EmissionKitProductComponentForm(forms.Form):
             self.fields["quantity"].help_text = f"Este kit aparece {parent_quantity}x na O.S.; o total final sera multiplicado por essa quantidade."
 
 
-class EmissionKitServiceComponentForm(forms.Form):
+class EmissionKitServiceComponentForm(CoreForm):
     quantity = forms.IntegerField(label="Quantidade por kit", min_value=0, widget=NumberInput())
     cost = MoneyField(label="Custo do servico", required=False, widget=MoneyInput())
     price = MoneyField(label="Valor de venda", required=False, widget=MoneyInput())
@@ -415,7 +417,7 @@ class EmissionKitServiceComponentForm(forms.Form):
             self.fields["quantity"].help_text = f"Este kit aparece {parent_quantity}x na O.S.; o total final sera multiplicado por essa quantidade."
 
 
-class EmissionStep1Form(forms.Form):
+class EmissionStep1Form(CoreForm):
     workorder = forms.ModelChoiceField(queryset=WorkOrder.objects.none(), label="Ordem de Servico")
 
     def __init__(self, *args, **kwargs):
@@ -453,7 +455,7 @@ class EmissionStep1Form(forms.Form):
         )
 
 
-class EmissionStep2Form(forms.Form):
+class EmissionStep2Form(CoreForm):
     def __init__(self, *args, **kwargs):
         workorder = kwargs.pop("workorder", None)
         super().__init__(*args, **kwargs)
@@ -526,7 +528,7 @@ class EmissionStep2Form(forms.Form):
         )
 
 
-class EmissionStep3Form(forms.Form):
+class EmissionStep3Form(CoreForm):
     def __init__(self, *args, **kwargs):
         workorder = kwargs.pop("workorder", None)
         super().__init__(*args, **kwargs)
@@ -646,7 +648,7 @@ class EmissionStep3Form(forms.Form):
         )
 
 
-class EmissionStep4Form(forms.Form):
+class EmissionStep4Form(CoreForm):
     pricing_slider = forms.IntegerField(label="", min_value=-100, max_value=100)
 
     def __init__(self, *args, **kwargs):
@@ -703,7 +705,7 @@ class EmissionStep4Form(forms.Form):
         return clamp_slider_value(self.cleaned_data.get("pricing_slider"), default=0)
 
 
-class EmissionStep5Form(forms.Form):
+class EmissionStep5Form(CoreForm):
     note_mode = forms.ChoiceField(label="Tipo de notas fiscais", choices=EMISSION_NOTE_MODE_CHOICES)
 
     def __init__(self, *args, **kwargs):
@@ -793,7 +795,7 @@ class EmissionStep5Form(forms.Form):
         return note_mode
 
 
-class EmissionNfeConfigForm(forms.Form):
+class EmissionNfeConfigForm(CoreForm):
     tax_class = forms.ChoiceField(label="Classe de imposto", choices=[])
     additional_information = forms.CharField(label="Observacao da nota", required=False, widget=TextareaInput(rows=4))
 
@@ -843,8 +845,12 @@ class EmissionNfeConfigForm(forms.Form):
             raise forms.ValidationError("Selecione uma classe de imposto valida da lista.")
         return tax_class
 
+    def clean_additional_information(self) -> str:
+        value = str(self.cleaned_data.get("additional_information") or "").strip()
+        return sentence_case(value) if value else value
 
-class EmissionNfseConfigForm(forms.Form):
+
+class EmissionNfseConfigForm(CoreForm):
     tax_class = forms.ChoiceField(label="Classe de imposto", choices=[])
     service_description = forms.CharField(label="Descricao do servico", required=False, widget=TextareaInput(rows=4))
     additional_information = forms.CharField(label="Observacao da nota", required=False, widget=TextareaInput(rows=4))
@@ -911,3 +917,11 @@ class EmissionNfseConfigForm(forms.Form):
         if not service_description:
             self.add_error("service_description", "Informe a descricao do servico para emitir Nota Fiscal de Serviço.")
         return cleaned_data
+
+    def clean_service_description(self) -> str:
+        value = str(self.cleaned_data.get("service_description") or "").strip()
+        return sentence_case(value) if value else value
+
+    def clean_additional_information(self) -> str:
+        value = str(self.cleaned_data.get("additional_information") or "").strip()
+        return sentence_case(value) if value else value

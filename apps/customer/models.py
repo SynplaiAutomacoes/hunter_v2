@@ -1,7 +1,12 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from django.db import models
 from phonenumber_field.modelfields import PhoneNumberField
 
 from apps.core.models import TimeStampedModel, Address
+from apps.core.text_normalization import name_case, plate_case, sentence_case
 
 from .vehicle_engine import VehicleEngine, normalize_vehicle_engine_choice
 from .vehicle_fuel import VehicleFuel, normalize_vehicle_fuel_choice
@@ -44,7 +49,7 @@ class Customer(TimeStampedModel, Address):
         return f"{self.logradouro}, {self.numero} - {self.cidade}/{self.estado}"
 
     @property
-    def cpf_or_cnpj_formatted(self):
+    def cpf_or_cnpj_formatted(self) -> str:
         value = "".join(filter(str.isdigit, self.cpf_or_cnpj))
 
         if len(value) == 11:  # CPF
@@ -56,13 +61,31 @@ class Customer(TimeStampedModel, Address):
     def vehicles_count(self) -> str:
         return str(self.vehicles.count())
 
-    class Meta:
+    if TYPE_CHECKING:
+        vehicles: models.Manager["Vehicle"]
+
+    class Meta:  # pyright: ignore[reportIncompatibleVariableOverride]
         verbose_name = "Cliente"
         verbose_name_plural = "Clientes"
         constraints = [models.UniqueConstraint(fields=("workshop", "cpf_or_cnpj"), name="unique_customer_document_per_workshop")]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.name
+
+    def save(self, *args: object, **kwargs: object) -> None:
+        if self.name:
+            self.name = name_case(self.name)
+        if self.fantasy_name:
+            self.fantasy_name = name_case(self.fantasy_name)
+        if self.logradouro:
+            self.logradouro = sentence_case(self.logradouro)
+        if self.complemento:
+            self.complemento = sentence_case(self.complemento)
+        if self.bairro:
+            self.bairro = sentence_case(self.bairro)
+        if self.cidade:
+            self.cidade = sentence_case(self.cidade)
+        super().save(*args, **kwargs)
 
 
 class Vehicle(TimeStampedModel):
@@ -81,14 +104,22 @@ class Vehicle(TimeStampedModel):
     renavam = models.CharField(verbose_name="Renavam", max_length=500, null=True, blank=True)
     chassi = models.CharField(verbose_name="Chassi", max_length=500, null=True, blank=True)
 
-    class Meta:
+    class Meta:  # pyright: ignore[reportIncompatibleVariableOverride]
         verbose_name = "Veículo"
         verbose_name_plural = "Veículos"
         constraints = [models.UniqueConstraint(fields=("workshop", "plate"), name="unique_vehicle_plate_per_workshop")]
 
-    def save(self, *args, **kwargs):
+    def save(self, *args: object, **kwargs: object) -> None:
         if self.plate:
-            self.plate = self.plate.strip().upper()
+            self.plate = plate_case(self.plate)
+        if self.brand:
+            self.brand = sentence_case(self.brand)
+        if self.model:
+            self.model = sentence_case(self.model)
+        if self.color:
+            self.color = sentence_case(self.color)
+        if self.type:
+            self.type = sentence_case(self.type)
         if self.engine is not None:
             raw_engine = str(self.engine).strip()
             normalized_engine = normalize_vehicle_engine_choice(raw_engine)
@@ -96,7 +127,7 @@ class Vehicle(TimeStampedModel):
                 self.engine = normalized_engine
         if self.fuel is not None:
             self.fuel = normalize_vehicle_fuel_choice(self.fuel) or ""
-        return super().save(*args, **kwargs)
+        super().save(*args, **kwargs)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.plate} - {self.model}"

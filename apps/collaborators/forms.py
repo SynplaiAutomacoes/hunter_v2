@@ -9,6 +9,7 @@ from django.forms import BaseInlineFormSet, inlineformset_factory
 from django.urls import reverse
 
 from apps.collaborators.models import CollaboratorBenefit, WorkshopCollaborator, WorkshopMember
+from apps.core.forms import CoreModelForm
 from apps.core.widgets import (
     CalendarDateInput,
     CheckboxInput,
@@ -20,16 +21,17 @@ from apps.core.widgets import (
     PercentageInput,
     PhoneInput,
     RGInput,
-    TextInput,
     SearchableSelectInput,
+    TextInput,
 )
 from apps.iam.models import WorkshopRole
+from apps.core.text_normalization import name_case, sentence_case
 from apps.workshops.models.workshops import Workshop
 
 User = get_user_model()
 
 
-class BaseWorkshopCollaboratorForm(forms.ModelForm):
+class BaseWorkshopCollaboratorForm(CoreModelForm):
     system_username = forms.CharField(label="Usuário", required=False)
     role = forms.ModelChoiceField(label="Grupo", queryset=WorkshopRole.objects.none(), required=False)
 
@@ -269,6 +271,14 @@ class BaseWorkshopCollaboratorForm(forms.ModelForm):
 
         return cleaned
 
+    def clean_name(self):
+        value = self.cleaned_data.get("name")
+        return name_case(value) if value else value
+
+    def clean_position(self):
+        value = self.cleaned_data.get("position")
+        return sentence_case(value) if value else value
+
 
 class WorkshopCollaboratorCreateForm(BaseWorkshopCollaboratorForm):
     password1 = forms.CharField(label="Senha", required=False, widget=PasswordInput())
@@ -327,7 +337,7 @@ class WorkshopCollaboratorUpdateForm(BaseWorkshopCollaboratorForm):
         return cleaned
 
 
-class WorkshopCollaboratorModalForm(forms.ModelForm):
+class WorkshopCollaboratorModalForm(CoreModelForm):
     class Meta:
         model = WorkshopCollaborator
         fields = ["name", "cpf", "email", "phone", "birth_date", "position", "collaborator_type", "admission_date", "salary"]
@@ -378,8 +388,16 @@ class WorkshopCollaboratorModalForm(forms.ModelForm):
             )
         )
 
+    def clean_name(self):
+        value = self.cleaned_data.get("name")
+        return name_case(value) if value else value
 
-class CollaboratorBenefitInlineForm(forms.ModelForm):
+    def clean_position(self):
+        value = self.cleaned_data.get("position")
+        return sentence_case(value) if value else value
+
+
+class CollaboratorBenefitInlineForm(CoreModelForm):
     class Meta:
         model = CollaboratorBenefit
         fields = ["name", "description", "monthly_amount", "is_active"]
@@ -389,6 +407,14 @@ class CollaboratorBenefitInlineForm(forms.ModelForm):
             "monthly_amount": MoneyInput(),
             "is_active": CheckboxInput(),
         }
+
+    def clean_name(self):
+        value = self.cleaned_data.get("name")
+        return sentence_case(value) if value else value
+
+    def clean_description(self):
+        value = self.cleaned_data.get("description")
+        return sentence_case(value) if value else value
 
 
 class CollaboratorBenefitInlineFormSet(BaseInlineFormSet):

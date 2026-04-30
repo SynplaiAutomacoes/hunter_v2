@@ -9,14 +9,15 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 from djmoney.forms import MoneyField
 
+from apps.core.forms import CoreModelForm
 from apps.core.widgets import (
-    TextInput,
-    SearchableSelectInput,
-    DurationInput,
-    PercentageInput,
-    MoneyInput,
-    NumberInput,
     DecimalInput,
+    DurationInput,
+    NumberInput,
+    MoneyInput,
+    PercentageInput,
+    SearchableSelectInput,
+    TextInput,
 )
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from apps.workshops.models.monthly_costs import MonthlyCost
@@ -24,7 +25,7 @@ from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.monthly_costs import ADMIN_SALARY_MONTHLY_COST_NAME, MECHANIC_SALARY_MONTHLY_COST_NAME
 
 
-class WorkshopCostForm(forms.ModelForm):
+class WorkshopCostForm(CoreModelForm):
     EDIT_WARNING_MESSAGES = {
         MECHANIC_SALARY_MONTHLY_COST_NAME: "Esta é a soma total dos salários dos colaboradores produtivos, deseja manter?",
         ADMIN_SALARY_MONTHLY_COST_NAME: "Esta é a soma total dos salários dos colaboradores administrativos, deseja manter?",
@@ -141,8 +142,8 @@ class WorkshopCostForm(forms.ModelForm):
                     Field("work_days_per_month", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("productivity_average", wrapper_class="col-span-12 lg:col-span-12"),
                     HTML('<div class="col-span-12 divider my-2"></div>'),
-                    # --- SEÇÃO 3: Custos Mensais (Dinâmico) ---
-                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Custos Mensais</h3>'),
+                    # --- SEÇÃO 3: Despesas Mensais (Dinâmico) ---
+                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Despesas Mensais</h3>'),
                     Div(
                         *cost_fields_layout,
                         css_class="contents",  # Permite que os filhos obedeçam ao Grid pai

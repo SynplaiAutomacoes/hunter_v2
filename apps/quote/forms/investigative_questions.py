@@ -10,9 +10,10 @@ from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 from apps.core.widgets import TextInput, SearchableSelectInput, NumberInput, CheckboxInput
 from apps.quote.models.investigative_questions import InvestigativeQuestion
 from apps.workshops.models.workshops import Workshop
+from apps.core.forms import CoreModelForm
 
 
-class InvestigativeQuestionForm(forms.ModelForm):
+class InvestigativeQuestionForm(CoreModelForm):
     # Campo auxiliar para receber o JSON do Alpine.js como string
     options_json = forms.CharField(required=False, widget=forms.HiddenInput())
 

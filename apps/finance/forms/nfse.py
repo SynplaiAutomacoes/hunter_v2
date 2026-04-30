@@ -7,6 +7,8 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
 
+from apps.core.forms import CoreModelForm
+from apps.core.text_normalization import sentence_case
 from apps.core.widgets import SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.forms.emission_ui import (
     build_slider_widget_attrs,
@@ -71,7 +73,7 @@ class NfseRequestStep2Form(SharedEmissionCustomerReviewForm):
         fields: list[str] = []
 
 
-class NfseRequestStep3Form(forms.ModelForm):
+class NfseRequestStep3Form(CoreModelForm):
     class Meta:
         model = NfseRequest
         fields = ["pricing_slider", "tax_class", "service_description", "additional_information"]
@@ -224,3 +226,11 @@ class NfseRequestStep3Form(forms.ModelForm):
         if self._valid_tax_class_refs and tax_class not in self._valid_tax_class_refs:
             raise forms.ValidationError("Selecione uma classe de imposto valida da lista.")
         return tax_class
+
+    def clean_service_description(self) -> str:
+        value = str(self.cleaned_data.get("service_description") or "").strip()
+        return sentence_case(value) if value else value
+
+    def clean_additional_information(self) -> str:
+        value = str(self.cleaned_data.get("additional_information") or "").strip()
+        return sentence_case(value) if value else value

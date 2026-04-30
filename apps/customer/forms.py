@@ -8,12 +8,14 @@ from crispy_forms.layout import Layout, Div, Field, HTML, Submit, Button
 from django.urls import reverse
 
 from .models import Customer, Vehicle
+from apps.core.text_normalization import name_case, plate_case, sentence_case
 from apps.core.widgets import CPForCNPJInput, CalendarDateInput, TextInput, SearchableSelectInput, RGInput, PhoneInput, EmailInput, CheckboxInput, NumberInput, PlateInput
 from .cpf_cnpj_validator import is_valid_cpf, is_valid_cnpj
 from .vehicle_engine import normalize_vehicle_engine_choice, vehicle_engine_form_choices
 from .vehicle_fuel import normalize_vehicle_fuel_choice, vehicle_fuel_form_choices
 from ..core.forms import AddressFormMixin, address_layout
 from ..workshops.models.workshops import Workshop
+from apps.core.forms import CoreModelForm
 
 
 def _set_normalized_initial_choice(form: forms.BaseForm, field_name: str, current_value: object, normalizer: Callable[[object], str]) -> None:
@@ -23,7 +25,7 @@ def _set_normalized_initial_choice(form: forms.BaseForm, field_name: str, curren
         form.fields[field_name].initial = normalized_value
 
 
-class VehicleInlineForm(forms.ModelForm):
+class VehicleInlineForm(CoreModelForm):
     engine = forms.CharField(label="Motor", required=False, widget=SearchableSelectInput(choices=vehicle_engine_form_choices()))
     fuel = forms.CharField(label="Combustível", required=False, widget=SearchableSelectInput(choices=vehicle_fuel_form_choices()))
 
@@ -41,7 +43,7 @@ class VehicleInlineForm(forms.ModelForm):
             _set_normalized_initial_choice(self, "fuel", self.initial.get("fuel") or getattr(self.instance, "fuel", None), normalize_vehicle_fuel_choice)
 
     def clean_plate(self):
-        plate = (self.cleaned_data.get("plate") or "").strip().upper()
+        plate = plate_case(self.cleaned_data.get("plate") or "")
         workshop = self.workshop or getattr(self.instance, "workshop", None)
 
         if not plate or not workshop:
@@ -129,7 +131,7 @@ VehicleFormSet = inlineformset_factory(
 )
 
 
-class CustomerForm(AddressFormMixin, forms.ModelForm):
+class CustomerForm(AddressFormMixin, CoreModelForm):
     class Meta:
         model = Customer
         fields = [
@@ -378,8 +380,32 @@ class CustomerForm(AddressFormMixin, forms.ModelForm):
 
         return cleaned_data
 
+    def clean_name(self):
+        value = self.cleaned_data.get("name")
+        return name_case(value) if value else value
 
-class QuickCustomerForm(AddressFormMixin, forms.ModelForm):
+    def clean_fantasy_name(self):
+        value = self.cleaned_data.get("fantasy_name")
+        return name_case(value) if value else value
+
+    def clean_logradouro(self):
+        value = self.cleaned_data.get("logradouro")
+        return sentence_case(value) if value else value
+
+    def clean_complemento(self):
+        value = self.cleaned_data.get("complemento")
+        return sentence_case(value) if value else value
+
+    def clean_bairro(self):
+        value = self.cleaned_data.get("bairro")
+        return sentence_case(value) if value else value
+
+    def clean_cidade(self):
+        value = self.cleaned_data.get("cidade")
+        return sentence_case(value) if value else value
+
+
+class QuickCustomerForm(AddressFormMixin, CoreModelForm):
     class Meta:
         model = Customer
         fields = [
@@ -501,8 +527,24 @@ class QuickCustomerForm(AddressFormMixin, forms.ModelForm):
 
         return cleaned_data
 
+    def clean_name(self):
+        value = self.cleaned_data.get("name")
+        return name_case(value) if value else value
 
-class QuickVehicleForm(forms.ModelForm):
+    def clean_logradouro(self):
+        value = self.cleaned_data.get("logradouro")
+        return sentence_case(value) if value else value
+
+    def clean_bairro(self):
+        value = self.cleaned_data.get("bairro")
+        return sentence_case(value) if value else value
+
+    def clean_cidade(self):
+        value = self.cleaned_data.get("cidade")
+        return sentence_case(value) if value else value
+
+
+class QuickVehicleForm(CoreModelForm):
     engine = forms.CharField(label="Motor", required=False, widget=SearchableSelectInput(choices=vehicle_engine_form_choices()))
     fuel = forms.CharField(label="Combustível", required=False, widget=SearchableSelectInput(choices=vehicle_fuel_form_choices()))
 

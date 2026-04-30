@@ -19,17 +19,18 @@ from apps.catalog.models.kits import Kit, KitApplication, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.util import calculate_catalog_service_prices, get_current_workshop_cost
-from apps.core.widgets import CheckboxInput, TextInput, TextareaInput, MoneyInput, PercentageInput, ImageInput, DurationInput, \
-    SearchableSelectInput
+from apps.core.text_normalization import sentence_case
+from apps.core.widgets import CheckboxInput, TextInput, TextareaInput, MoneyInput, PercentageInput, ImageInput, DurationInput, SearchableSelectInput
 from apps.customer.vehicle_engine import normalize_vehicle_engine_choice, vehicle_engine_form_choices
 from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice, vehicle_fuel_form_choices
 from apps.workshops.models.workshops import Workshop
+from apps.core.forms import CoreModelForm
 
 logger = logging.getLogger(__name__)
 
 
 # TODO: Improve mobile visibility of table
-class KitForm(forms.ModelForm):
+class KitForm(CoreModelForm):
     product_search = forms.CharField(required=False, label="Produtos")
     service_search = forms.CharField(required=False, label="Serviços")
 
@@ -51,7 +52,7 @@ class KitForm(forms.ModelForm):
         self.helper.layout = self.get_layout()
 
     def clean_name(self) -> str:
-        name = str(self.cleaned_data.get("name", "")).strip()
+        name = sentence_case(str(self.cleaned_data.get("name", "")).strip())
         if not name or not self.workshop:
             return name
 
@@ -2110,7 +2111,7 @@ class KitForm(forms.ModelForm):
         }
 
 
-class QuickProductEditForm(forms.ModelForm):
+class QuickProductEditForm(CoreModelForm):
     equivalent_search = forms.CharField(required=False, label="Produtos Equivalentes")
 
     class Meta:
@@ -2369,7 +2370,7 @@ class QuickProductEditForm(forms.ModelForm):
         return cleaned_data
 
 
-class QuickServiceEditForm(forms.ModelForm):
+class QuickServiceEditForm(CoreModelForm):
     class Meta:
         model = Service
         fields = ["name", "is_third_party", "duration", "selling_price", "suggested_cost", "description", "is_active"]
