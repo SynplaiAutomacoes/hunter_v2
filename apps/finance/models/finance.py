@@ -84,6 +84,7 @@ class NfeRequestStatus(models.TextChoices):
     DENIED = "denied", "Denegado"
     CANCELED = "canceled", "Cancelado"
     CONTINGENCY = "contingency", "Contingência"
+    INVALIDATED = "invalidated", "Inutilizada"
 
 
 class TaxClassNfe(TimeStampedModel):
@@ -475,6 +476,10 @@ class NfeRequest(TimeStampedModel):
     tax_class = models.CharField(verbose_name="Classe de Imposto", max_length=30, default="REF000000")
     reserved_number = models.PositiveIntegerField(verbose_name="Número reservado", null=True, blank=True)
     reserved_series = models.PositiveIntegerField(verbose_name="Série reservada", null=True, blank=True)
+    invalidation_reason = models.TextField(verbose_name="Motivo da inutilização", blank=True, default="")
+    invalidation_xml_url = models.URLField(verbose_name="XML da inutilização", blank=True, default="")
+    invalidation_log_payload = models.JSONField(verbose_name="Log da inutilização", blank=True, default=dict)
+    invalidated_at = models.DateTimeField(verbose_name="Data da inutilização", null=True, blank=True)
 
     def save(self, *args, **kwargs):
         if self.pk is None and self.pricing_slider is None:
@@ -507,6 +512,7 @@ class NfeRequest(TimeStampedModel):
             NfeRequestStatus.DENIED: "badge-soft badge-error",
             NfeRequestStatus.CANCELED: "badge-soft badge-error",
             NfeRequestStatus.CONTINGENCY: "badge-soft badge-warning",
+            NfeRequestStatus.INVALIDATED: "badge-soft badge-error",
         }
 
         return {

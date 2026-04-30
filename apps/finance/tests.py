@@ -56,7 +56,19 @@ from apps.finance.services.emission import (
     preview_nfse_request,
     sync_emission_response,
 )
-from apps.finance.services.nfe_emission import NfeEmissionError, _build_nfe_products_payload, _extract_product_lines, build_nfe_payload, build_nfe_preview_rows, build_nfe_preview_warning_message, build_nfe_preview_warning_messages, cancel_nfe_document, preview_nfe_request, sync_nfe_emission_response
+from apps.finance.services.nfe_emission import (
+    NfeEmissionError,
+    _build_nfe_products_payload,
+    _extract_product_lines,
+    build_nfe_payload,
+    build_nfe_preview_rows,
+    build_nfe_preview_warning_message,
+    build_nfe_preview_warning_messages,
+    cancel_nfe_document,
+    invalidate_nfe_number,
+    preview_nfe_request,
+    sync_nfe_emission_response,
+)
 from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfe_request_number, reserve_nfse_request_rps_number
 from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder, compute_slider_allocation, distribute_total_proportionally
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
@@ -4028,6 +4040,95 @@ class FiscalDocumentDetailFlowTests(TestCase):
         self.assertEqual(response.headers.get("Location"), reverse("finance:nfe_detail", kwargs={"pk": nfe_request.pk}))
         cancel_mock.assert_not_called()
 
+    def test_nfe_invalidate_view_invalidates_reserved_number(self) -> None:
+        nfe_request = NfeRequest.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            tax_class="REFNFE124",
+            reserved_number=456,
+            reserved_series=99,
+            status=NfeRequestStatus.REPROVED,
+        )
+
+        with patch(
+            "apps.finance.views.nfe.invalidate_nfe_number",
+            return_value={
+                "status": "inutilizado",
+                "motivo": "Inutilizacao por problema tecnico na emissao.",
+                "xml": "https://files.test/nfe-inutilizacao.xml",
+                "log": {"codigo": "102"},
+            },
+        ) as invalidate_mock:
+            response = self.client.post(
+                reverse("finance:nfe_invalidate", kwargs={"pk": nfe_request.pk}),
+                data={"reason": "Inutilizacao por problema tecnico na emissao."},
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("finance:nfe_detail", kwargs={"pk": nfe_request.pk}))
+        invalidate_mock.assert_called_once_with(
+            workshop=self.workshop,
+            number=456,
+            reason="Inutilizacao por problema tecnico na emissao.",
+            series=99,
+        )
+
+        nfe_request.refresh_from_db()
+        self.assertEqual(nfe_request.status, NfeRequestStatus.INVALIDATED)
+        self.assertEqual(nfe_request.invalidation_reason, "Inutilizacao por problema tecnico na emissao.")
+        self.assertEqual(nfe_request.invalidation_xml_url, "https://files.test/nfe-inutilizacao.xml")
+        self.assertEqual(nfe_request.invalidation_log_payload, {"codigo": "102"})
+        self.assertIsNotNone(nfe_request.invalidated_at)
+
+    def test_nfe_invalidate_view_rejects_short_reason(self) -> None:
+        nfe_request = NfeRequest.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            tax_class="REFNFE125",
+            reserved_number=789,
+            reserved_series=99,
+            status=NfeRequestStatus.REPROVED,
+        )
+
+        with patch("apps.finance.views.nfe.invalidate_nfe_number") as invalidate_mock:
+            response = self.client.post(
+                reverse("finance:nfe_invalidate", kwargs={"pk": nfe_request.pk}),
+                data={"reason": "curto"},
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("finance:nfe_detail", kwargs={"pk": nfe_request.pk}))
+        invalidate_mock.assert_not_called()
+
+    def test_nfe_invalidate_view_blocks_requests_with_approved_item(self) -> None:
+        nfe_request = NfeRequest.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            tax_class="REFNFE126",
+            reserved_number=790,
+            reserved_series=99,
+        )
+        NfeItem.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            request=nfe_request,
+            uuid="0cc6d8d3-dbf3-4ea7-82cd-861cfc9095c6",
+            status="aprovado",
+        )
+
+        with patch("apps.finance.views.nfe.invalidate_nfe_number") as invalidate_mock:
+            response = self.client.post(
+                reverse("finance:nfe_invalidate", kwargs={"pk": nfe_request.pk}),
+                data={"reason": "Inutilizacao por problema tecnico na emissao."},
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("finance:nfe_detail", kwargs={"pk": nfe_request.pk}))
+        invalidate_mock.assert_not_called()
+
+        messages = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertIn("A numeracao desta Nota Fiscal nao pode ser inutilizada no estado atual.", messages)
+
     def test_nfse_cancel_view_cancels_document_and_updates_status(self) -> None:
         nfse_request = NfseRequest.objects.create(
             workshop=self.workshop,
@@ -4522,6 +4623,37 @@ class NfeCancelServiceTests(TestCase):
         put_mock.assert_called_once_with(
             "https://webmania.com.br/api/1/nfe/cancelar/",
             json={"motivo": "Cancelamento por solicitação administrativa.", "chave": "12345678901234567890123456789012345678901234"},
+            headers={"X-Test": "ok"},
+            timeout=30,
+        )
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_invalidate_nfe_number_uses_put_endpoint_with_reserved_number(self) -> None:
+        workshop = create_workshop(suffix=93)
+        response_payload = {"xml": "https://files.test/nfe-inutilizacao.xml", "log": {"codigo": "102"}}
+
+        with (
+            patch("apps.finance.services.nfe_emission._build_headers", return_value={"X-Test": "ok"}),
+            patch("apps.finance.services.nfe_emission._build_invalidate_url", return_value="https://webmania.com.br/api/1/nfe/inutilizar/"),
+            patch("apps.finance.services.nfe_emission.requests.put", return_value=_mock_response(response_payload)) as put_mock,
+        ):
+            payload = invalidate_nfe_number(
+                workshop=workshop,
+                number=456,
+                reason="Inutilizacao por problema tecnico na emissao.",
+                series=99,
+            )
+
+        self.assertEqual(payload["xml"], "https://files.test/nfe-inutilizacao.xml")
+        put_mock.assert_called_once_with(
+            "https://webmania.com.br/api/1/nfe/inutilizar/",
+            json={
+                "sequencia": "456-456",
+                "motivo": "Inutilizacao por problema tecnico na emissao.",
+                "ambiente": 2,
+                "serie": "99",
+                "modelo": 1,
+            },
             headers={"X-Test": "ok"},
             timeout=30,
         )
