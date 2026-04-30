@@ -215,7 +215,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
 
     def _build_selection_summary_card(self) -> dict[str, object]:
         return self._build_summary_card(
-            title="Créditos e Débitos de Seleção",
+            title="Créditos e Débitos da Filtragem",
             overview=build_financial_overview(workshop=self.workshop, **self._get_filter_params()),
         )
 
