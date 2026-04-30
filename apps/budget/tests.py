@@ -83,7 +83,13 @@ def create_budget(*, workshop: Workshop) -> Budget:
             cursor.execute("ALTER TABLE budget_budget ALTER COLUMN discount_percentage SET DEFAULT 0")
         BUDGET_TEST_DEFAULTS_PREPARED = True
 
-    budget = Budget(workshop=workshop, entry_date=timezone.now().date())
+    now = timezone.now().replace(second=0, microsecond=0)
+    budget = Budget(
+        workshop=workshop,
+        entry_date=now.date(),
+        customer_agreed_departure_at=now + timedelta(days=2),
+        service_expected_completion_at=now + timedelta(days=1),
+    )
     budget.save()
     return budget
 
@@ -1905,6 +1911,59 @@ class BudgetPdfViewTests(TestCase):
 
 
 class BudgetStep6FormTests(TestCase):
+    def test_step6_requires_both_datetime_fields(self) -> None:
+        workshop = create_workshop(suffix=94)
+        budget = create_budget(workshop=workshop)
+
+        request = RequestFactory().post("/")
+        request.user = User.objects.create_user(username="budget-step6-user-94", password="123")
+        form = BudgetStep6Form(
+            data={
+                "customer_agreed_departure_at": "",
+                "service_expected_completion_at": "",
+            },
+            instance=budget,
+            workshop=workshop,
+            request=request,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertEqual(form.errors["customer_agreed_departure_at"], [Budget.CUSTOMER_AGREED_DEPARTURE_REQUIRED_MESSAGE])
+        self.assertEqual(form.errors["service_expected_completion_at"], [Budget.SERVICE_EXPECTED_COMPLETION_REQUIRED_MESSAGE])
+
+    def test_step6_rejects_departure_before_expected_completion(self) -> None:
+        workshop = create_workshop(suffix=93)
+        budget = create_budget(workshop=workshop)
+
+        request = RequestFactory().post("/")
+        request.user = User.objects.create_user(username="budget-step6-user-93", password="123")
+        form = BudgetStep6Form(
+            data={
+                "customer_agreed_departure_at": "2026-05-10T09:00",
+                "service_expected_completion_at": "2026-05-10T10:00",
+            },
+            instance=budget,
+            workshop=workshop,
+            request=request,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertEqual(form.errors["customer_agreed_departure_at"], [Budget.STEP6_DATE_ORDER_ERROR_MESSAGE])
+
+    def test_step6_renders_new_datetime_fields(self) -> None:
+        workshop = create_workshop(suffix=92)
+        budget = create_budget(workshop=workshop)
+
+        request = RequestFactory().get("/")
+        request.user = User.objects.create_user(username="budget-step6-user-92", password="123")
+        form = BudgetStep6Form(instance=budget, workshop=workshop, request=request)
+        html = Template("{% load crispy_forms_tags %}{% crispy form %}").render(Context({"form": form, "csrf_token": "token"}))
+
+        self.assertIn("customer_agreed_departure_at", html)
+        self.assertIn("service_expected_completion_at", html)
+        self.assertIn("Data de saída combinada com o Cliente", html)
+        self.assertIn("Data prevista de término do serviço", html)
+
     def test_step6_pdf_modal_uses_resend_label_for_sent_signature(self) -> None:
         workshop = create_workshop(suffix=95)
         budget = create_budget(workshop=workshop)
@@ -1989,6 +2048,49 @@ class BudgetStep6FormTests(TestCase):
 
         self.assertIn("Observacao do orcamento", html)
         self.assertNotIn("Observacao da oficina", html)
+
+
+class BudgetStep6WorkflowTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=90)
+        self.budget = create_budget(workshop=self.workshop)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_update_step6_saves_review_and_stays_on_same_step(self) -> None:
+        response = self.client.post(
+            f"{reverse('budget:budget_update', kwargs={'pk': self.budget.pk})}?step=6",
+            {
+                "customer_agreed_departure_at": "2026-05-12T18:00",
+                "service_expected_completion_at": "2026-05-12T17:00",
+            },
+        )
+
+        self.budget.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), f"{reverse('budget:budget_update', kwargs={'pk': self.budget.pk})}?step=6")
+        self.assertIsNotNone(self.budget.customer_agreed_departure_at)
+        self.assertIsNotNone(self.budget.service_expected_completion_at)
+
+    def test_update_budget_status_blocks_cancel_when_step6_dates_are_missing(self) -> None:
+        self.budget.customer_agreed_departure_at = None
+        self.budget.service_expected_completion_at = None
+        self.budget.save(update_fields=["customer_agreed_departure_at", "service_expected_completion_at"])
+
+        response = self.client.post(reverse("budget:update_budget_status", args=[self.budget.pk, "cancel"]))
+
+        self.assertEqual(response.status_code, 400)
+        self.assertJSONEqual(
+            response.content,
+            {
+                "success": False,
+                "error": f"{Budget.CUSTOMER_AGREED_DEPARTURE_REQUIRED_MESSAGE} {Budget.SERVICE_EXPECTED_COMPLETION_REQUIRED_MESSAGE}",
+            },
+        )
 
 
 class BudgetProductIssueTests(TestCase):

@@ -533,11 +533,24 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         if block_step5_response:
             return block_step5_response
 
-        if self.object.current_step < current_step + 1:
-            self.object.current_step = current_step + 1
+        total_steps = len(self.steps_definition)
+        next_step_value = min(current_step + 1, total_steps)
+
+        if self.object.current_step < next_step_value:
+            self.object.current_step = next_step_value
             self.object.save(update_fields=["current_step"])
 
-        if current_step < len(self.steps_definition):
+        if current_step == total_steps:
+            review_url = self._build_create_flow_url(step=current_step, budget_id=self.object.pk)
+            toast_type, toast_message = ("success", "Revisão do orçamento salva com sucesso.")
+
+            if bool(getattr(self.request, "htmx", False)):
+                return self._render_htmx_step_response(step=current_step, push_url=review_url, triggers={"showToast": {"message": toast_message, "type": toast_type}})
+
+            messages.success(self.request, toast_message)
+            return redirect(review_url)
+
+        if current_step < total_steps:
             next_step = current_step + 1
             success_url = self._build_create_flow_url(step=next_step, budget_id=self.object.pk)
 
@@ -623,11 +636,24 @@ class BudgetUpdateView(BudgetCreateView):
             return block_step5_response
 
         # Lógica de progressão de etapa (opcional em Update, mas útil se ele puder avançar)
-        if self.object.current_step < current_step + 1:
-            self.object.current_step = current_step + 1
+        total_steps = len(self.steps_definition)
+        next_step_value = min(current_step + 1, total_steps)
+
+        if self.object.current_step < next_step_value:
+            self.object.current_step = next_step_value
             self.object.save(update_fields=["current_step"])
 
-        if current_step < len(self.steps_definition):
+        if current_step == total_steps:
+            success_url = f"{reverse('budget:budget_update', kwargs={'pk': self.object.pk})}?step={current_step}"
+            toast_type, toast_message = ("success", "Revisão do orçamento salva com sucesso.")
+
+            if bool(getattr(self.request, "htmx", False)):
+                return self._render_htmx_step_response(step=current_step, push_url=success_url, triggers={"showToast": {"message": toast_message, "type": toast_type}})
+
+            messages.success(self.request, toast_message)
+            return redirect(success_url)
+
+        if current_step < total_steps:
             next_step = current_step + 1
             # Importante: Apontamos para budget_update para manter o contexto de edição
             success_url = f"{reverse('budget:budget_update', kwargs={'pk': self.object.pk})}?step={next_step}"
@@ -711,6 +737,12 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         if status not in status_map:
             error_message = "Status invalido"
+            messages.error(request, error_message)
+            return JsonResponse({"success": False, "error": error_message}, status=400)
+
+        step6_action_blockers = budget.step6_action_blockers
+        if step6_action_blockers:
+            error_message = " ".join(step6_action_blockers)
             messages.error(request, error_message)
             return JsonResponse({"success": False, "error": error_message}, status=400)
 

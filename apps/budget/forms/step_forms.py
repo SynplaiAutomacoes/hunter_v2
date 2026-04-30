@@ -1,5 +1,6 @@
 import base64
 import json
+from datetime import datetime
 from decimal import Decimal
 from html import escape
 from typing import cast
@@ -1020,6 +1021,7 @@ class BudgetStep3Form(CoreModelForm):
                 </dialog>
             """),
         )
+
         self.helper.layout.append(
             HTML(
                 """
@@ -2752,13 +2754,34 @@ class BudgetStep5Form(CoreModelForm):
 class BudgetStep6Form(CoreModelForm):
     class Meta:
         model = Budget
-        fields = []
-        widgets = {}
+        fields = ["customer_agreed_departure_at", "service_expected_completion_at"]
+        widgets = {
+            "customer_agreed_departure_at": forms.DateTimeInput(format="%Y-%m-%dT%H:%M", attrs={"type": "datetime-local", "class": "input-theme h-12"}),
+            "service_expected_completion_at": forms.DateTimeInput(format="%Y-%m-%dT%H:%M", attrs={"type": "datetime-local", "class": "input-theme h-12"}),
+        }
 
     def __init__(self, *args, **kwargs):
         self.workshop = kwargs.pop("workshop", None)
         self.request = kwargs.pop("request", None)
         super().__init__(*args, **kwargs)
+
+        customer_agreed_departure_at_field = self.fields["customer_agreed_departure_at"]
+        service_expected_completion_at_field = self.fields["service_expected_completion_at"]
+
+        if not isinstance(customer_agreed_departure_at_field, forms.DateTimeField) or not isinstance(service_expected_completion_at_field, forms.DateTimeField):
+            raise TypeError("Campos de data/hora invalidos no BudgetStep6Form")
+
+        for field in (customer_agreed_departure_at_field, service_expected_completion_at_field):
+            field.input_formats = [
+                "%Y-%m-%dT%H:%M",
+                "%Y-%m-%dT%H:%M:%S",
+                "%Y-%m-%d %H:%M",
+                "%Y-%m-%d %H:%M:%S",
+            ]
+            field.required = True
+
+        customer_agreed_departure_at_field.error_messages["required"] = Budget.CUSTOMER_AGREED_DEPARTURE_REQUIRED_MESSAGE
+        service_expected_completion_at_field.error_messages["required"] = Budget.SERVICE_EXPECTED_COMPLETION_REQUIRED_MESSAGE
 
         budget = _get_budget_with_prefetched_items(self.instance)
 
@@ -2767,12 +2790,21 @@ class BudgetStep6Form(CoreModelForm):
         status_class = status_data["class"]
         is_signature_resend = budget.signature_request_status == SignatureStatus.SENT and bool(budget.signature_external_id)
         signature_button_label = "Reenviar Documento" if is_signature_resend else "Enviar para Assinatura"
+        action_blockers = list(budget.step6_action_blockers)
+        action_blockers_display = " ".join(action_blockers)
+        action_blocked_reason_json = escape(json.dumps(action_blockers_display))
         approval_blockers = list(budget.approval_blockers)
         approval_blockers_display = " ".join(approval_blockers)
+        approval_blocked_reason_json = escape(json.dumps(approval_blockers_display))
         signature_blockers = list(budget.signature_blockers)
         signature_blockers_display = " ".join(signature_blockers)
-        approval_button_class = "btn-disabled cursor-not-allowed" if approval_blockers else "btn-success"
-        approval_button_attrs = f'disabled title="{escape(approval_blockers_display)}"' if approval_blockers else f"onclick=\"updateBudgetStatus({budget.pk}, 'approve')\""
+        step6_action_button_state_class = "opacity-60 cursor-not-allowed" if action_blockers else ""
+        blocked_step6_action_attrs = f'''onclick="showBlockedStep6Action({action_blocked_reason_json})" aria-disabled="true" title="{escape(action_blockers_display)}"''' if action_blockers else ""
+        blocked_approval_action_attrs = f'''onclick="showBlockedStep6Action({approval_blocked_reason_json})" aria-disabled="true" title="{escape(approval_blockers_display)}"''' if approval_blockers else ""
+        approval_button_class = "btn-success" if not approval_blockers else "opacity-60 cursor-not-allowed"
+        approval_button_attrs = blocked_approval_action_attrs if approval_blockers else f'''onclick="updateBudgetStatus({budget.pk}, 'approve')"'''
+        cancel_button_attrs = blocked_step6_action_attrs if action_blockers else f'''onclick="updateBudgetStatus({budget.pk}, 'cancel')"'''
+        reject_button_attrs = blocked_step6_action_attrs if action_blockers else f'''onclick="updateBudgetStatus({budget.pk}, 'reject')"'''
         signature_blocked_json = "true" if signature_blockers else "false"
         signature_blocked_reason_json = escape(json.dumps(signature_blockers_display))
         can_toggle_signed_pdf = budget.signature_request_status in {SignatureStatus.SENT, SignatureStatus.APPROVED} and bool(budget.signature_external_id or budget.signature_document_id)
@@ -2821,6 +2853,15 @@ class BudgetStep6Form(CoreModelForm):
                             observation: observation,
                         })
                     });
+                }
+
+                function showBlockedStep6Action(message) {
+                    document.body.dispatchEvent(new CustomEvent('showToast', {
+                        detail: {
+                            type: 'error',
+                            message: message || 'Preencha e salve os campos obrigatorios da revisao antes de continuar.',
+                        },
+                    }));
                 }
                 
                 function openKitModal(button) {
@@ -3121,6 +3162,15 @@ class BudgetStep6Form(CoreModelForm):
                                 </div>
                                 """),
                     ),
+                    Div(
+                        HTML('<h4 class="font-bold text-lg mb-2 border-b">Prazos</h4>'),
+                        Div(
+                            Field("customer_agreed_departure_at", wrapper_class="col-span-12"),
+                            Field("service_expected_completion_at", wrapper_class="col-span-12"),
+                            css_class="grid grid-cols-1 gap-4 mb-8",
+                        ),
+                        css_class="p-4 bg-base-200/50 rounded-lg",
+                    ),
                     # -------- PDF (RESTORED 1:1) --------
                     Div(
                         HTML('<h4 class="font-bold text-lg mb-2 border-b">PDF</h4>'),
@@ -3185,8 +3235,9 @@ class BudgetStep6Form(CoreModelForm):
                         HTML('<h4 class="font-bold text-lg mb-2 border-b">Aprovação</h4>'),
                         HTML(f"""
                         <div class="grid grid-cols-12 gap-3">
-                            <button type="button" class="btn btn-error col-span-4"
-                                onclick="updateBudgetStatus({budget.pk}, 'cancel')">
+                            <button type="button"
+                                class="btn btn-error col-span-4 {step6_action_button_state_class}"
+                                {cancel_button_attrs}>
                                 Cancelar
                             </button>
 
@@ -3196,8 +3247,9 @@ class BudgetStep6Form(CoreModelForm):
                                 Aprovar
                             </button>
 
-                            <button type="button" class="btn btn-warning col-span-4"
-                                onclick="updateBudgetStatus({budget.pk}, 'reject')">
+                            <button type="button"
+                                class="btn btn-warning col-span-4 {step6_action_button_state_class}"
+                                {reject_button_attrs}>
                                 Reprovar
                             </button>
                         </div>
@@ -3232,10 +3284,12 @@ class BudgetStep6Form(CoreModelForm):
                                 x-show="showSignatureBtn"
                                 data-url="{% url 'budget:send_signature' form.instance.pk %}"
                                 :data-is-resend="isSignatureResend ? 'true' : 'false'"
-                                :class="signatureBlocked ? 'btn-disabled cursor-not-allowed' : 'btn-primary'"
-                                :disabled="signatureBlocked"
+                                :data-blocked="signatureBlocked ? 'true' : 'false'"
+                                :data-blocked-reason="signatureBlockedReason"
+                                :class="signatureBlocked ? 'opacity-60 cursor-not-allowed' : 'btn-primary'"
+                                :aria-disabled="signatureBlocked ? 'true' : 'false'"
                                 :title="signatureBlockedReason"
-                                onclick="sendBudgetForSignature(this)">
+                                onclick="if (this.dataset.blocked === 'true') { showBlockedStep6Action(this.dataset.blockedReason); return; } sendBudgetForSignature(this)">
                             <span class="loading loading-spinner loading-xs hidden" id="send-signature-spinner"></span>
                             <span id="send-signature-label" x-text="signatureButtonLabel"></span>
                         </button>
@@ -3403,3 +3457,14 @@ class BudgetStep6Form(CoreModelForm):
                 </dialog>
             """),
         )
+
+    def clean(self):
+        cleaned_data = super().clean() or {}
+
+        customer_agreed_departure_at = cleaned_data.get("customer_agreed_departure_at")
+        service_expected_completion_at = cleaned_data.get("service_expected_completion_at")
+
+        if isinstance(customer_agreed_departure_at, datetime) and isinstance(service_expected_completion_at, datetime) and customer_agreed_departure_at < service_expected_completion_at:
+            self.add_error("customer_agreed_departure_at", Budget.STEP6_DATE_ORDER_ERROR_MESSAGE)
+
+        return cleaned_data

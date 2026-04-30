@@ -79,6 +79,10 @@ class Defect(models.Model):
 
 
 class Budget(TimeStampedModel):
+    CUSTOMER_AGREED_DEPARTURE_REQUIRED_MESSAGE = "Informe a data de saída combinada com o cliente."
+    SERVICE_EXPECTED_COMPLETION_REQUIRED_MESSAGE = "Informe a data prevista de término do serviço."
+    STEP6_DATE_ORDER_ERROR_MESSAGE = "A data de saída combinada com o cliente não pode ser menor que a data prevista de término do serviço."
+
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="budgets")
     customer = models.ForeignKey("customer.Customer", verbose_name="Cliente", on_delete=models.SET_NULL, related_name="budgets", null=True)
     vehicle = models.ForeignKey("customer.Vehicle", verbose_name="Veículo", on_delete=models.SET_NULL, related_name="budgets", null=True)
@@ -91,6 +95,8 @@ class Budget(TimeStampedModel):
     # Datas e Prazos
     expiration_date = models.DateField(verbose_name="Data de Validade", null=True, blank=True)
     entry_date = models.DateField(verbose_name="Data de Entrada")
+    customer_agreed_departure_at = models.DateTimeField(verbose_name="Data de saída combinada com o Cliente", null=True, blank=True)
+    service_expected_completion_at = models.DateTimeField(verbose_name="Data prevista de término do serviço", null=True, blank=True)
     is_warranty_budget = models.BooleanField(verbose_name="Orçamento de Garantia", default=False)
     budget_type = models.CharField(verbose_name="Tipo de Orçamento", max_length=50, choices=BudgetType.choices, default=BudgetType.SALE)
 
@@ -731,8 +737,23 @@ class Budget(TimeStampedModel):
         return self.product_issue_summary.has_invalid_ncm_issues
 
     @property
-    def approval_blockers(self) -> list[str]:
+    def step6_action_blockers(self) -> list[str]:
         blockers: list[str] = []
+        if not self.customer_agreed_departure_at:
+            blockers.append(self.CUSTOMER_AGREED_DEPARTURE_REQUIRED_MESSAGE)
+
+        if not self.service_expected_completion_at:
+            blockers.append(self.SERVICE_EXPECTED_COMPLETION_REQUIRED_MESSAGE)
+
+        if self.customer_agreed_departure_at and self.service_expected_completion_at and self.customer_agreed_departure_at < self.service_expected_completion_at:
+            blockers.append(self.STEP6_DATE_ORDER_ERROR_MESSAGE)
+
+        return blockers
+
+    @property
+    def approval_blockers(self) -> list[str]:
+        blockers = list(self.step6_action_blockers)
+
         if self.has_local_items:
             blockers.append("Existem itens nao cadastrados no sistema.")
 
