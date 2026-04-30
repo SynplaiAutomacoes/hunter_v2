@@ -13,7 +13,7 @@ from django.utils import timezone
 from djmoney.money import Money
 
 from apps.catalog.kit_applications import evaluate_kit_vehicle_compatibility
-from apps.catalog.forms.kits import KitForm
+from apps.catalog.forms.kits import KitForm, QuickProductEditForm
 from apps.catalog.forms.products import ProductForm
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.kits import Kit, KitApplication, KitProduct, KitService
@@ -1343,6 +1343,12 @@ class ProductFormTests(TestCase):
         self.assertEqual(html.count("<form"), 1)
         self.assertNotIn('method="dialog"', html)
         self.assertIn('id="submit-id-submit"', html)
+        self.assertIn('class="input-theme border-none bg-base-100 textinput', html)
+
+    def test_quick_product_edit_form_renders_white_equivalent_search_field(self) -> None:
+        html = render_crispy_form(QuickProductEditForm(workshop=self.workshop))
+
+        self.assertIn('class="input-theme border-none bg-base-100 textinput', html)
 
 
 class ProductUpdateNavigationTests(TestCase):
