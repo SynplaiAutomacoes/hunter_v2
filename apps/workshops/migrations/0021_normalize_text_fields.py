@@ -234,6 +234,59 @@ def _should_exclude_field(field: models.Field) -> bool:
     return False
 
 
+def _get_unique_constraint_field_sets(model: type[models.Model]) -> list[tuple[str, ...]]:
+    unique_field_sets: list[tuple[str, ...]] = []
+
+    for constraint in getattr(model._meta, "constraints", []):
+        if isinstance(constraint, models.UniqueConstraint) and constraint.fields:
+            unique_field_sets.append(tuple(str(field_name) for field_name in constraint.fields))
+
+    unique_together = getattr(model._meta, "unique_together", ()) or ()
+    for field_names in unique_together:
+        if isinstance(field_names, str):
+            unique_field_sets.append((field_names,))
+        else:
+            unique_field_sets.append(tuple(str(field_name) for field_name in field_names))
+
+    return unique_field_sets
+
+
+def _has_unique_conflict(
+    model: type[models.Model],
+    pk_name: str,
+    obj: object,
+    normalized_values: dict[str, str],
+    unique_field_sets: list[tuple[str, ...]],
+    reserved_keys: set[tuple[tuple[str, object], ...]],
+) -> bool:
+    obj_pk = getattr(obj, pk_name)
+
+    for field_names in unique_field_sets:
+        if not any(field_name in normalized_values for field_name in field_names):
+            continue
+
+        lookup_items: list[tuple[str, object]] = []
+        skip_constraint = False
+        for field_name in field_names:
+            value = normalized_values.get(field_name, getattr(obj, field_name, None))
+            if value is None:
+                skip_constraint = True
+                break
+            lookup_items.append((field_name, value))
+
+        if skip_constraint:
+            continue
+
+        lookup_key = tuple(lookup_items)
+        if lookup_key in reserved_keys:
+            return True
+
+        if model.objects.filter(**dict(lookup_items)).exclude(**{pk_name: obj_pk}).exists():
+            return True
+
+    return False
+
+
 def normalize_text_fields(apps, schema_editor):
     batch_size = 500
     for model in apps.get_models():
@@ -249,10 +302,12 @@ def normalize_text_fields(apps, schema_editor):
         pk_name = model._meta.pk.name
         field_names = [field.name for field in string_fields]
         qs = model.objects.all().only(pk_name, *field_names)
+        unique_field_sets = _get_unique_constraint_field_sets(model)
+        reserved_keys: set[tuple[tuple[str, object], ...]] = set()
 
         updates: list[object] = []
         for obj in qs.iterator(chunk_size=batch_size):
-            changed = False
+            normalized_values: dict[str, str] = {}
             for field in string_fields:
                 field_name = field.name
                 raw = getattr(obj, field_name, None)
@@ -272,10 +327,32 @@ def normalize_text_fields(apps, schema_editor):
                     continue
 
                 if new_value != raw:
-                    setattr(obj, field_name, new_value)
-                    changed = True
+                    normalized_values[field_name] = new_value
 
-            if changed:
+            if not normalized_values:
+                continue
+
+            if _has_unique_conflict(model, pk_name, obj, normalized_values, unique_field_sets, reserved_keys):
+                continue
+
+            for field_name, new_value in normalized_values.items():
+                setattr(obj, field_name, new_value)
+
+            for field_names in unique_field_sets:
+                if not any(field_name in normalized_values for field_name in field_names):
+                    continue
+                key_items: list[tuple[str, object]] = []
+                skip_constraint = False
+                for field_name in field_names:
+                    value = getattr(obj, field_name, None)
+                    if value is None:
+                        skip_constraint = True
+                        break
+                    key_items.append((field_name, value))
+                if not skip_constraint:
+                    reserved_keys.add(tuple(key_items))
+
+            if normalized_values:
                 updates.append(obj)
 
             if len(updates) >= batch_size:
