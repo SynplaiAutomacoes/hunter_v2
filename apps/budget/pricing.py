@@ -67,6 +67,7 @@ class ConsolidatedPricingLine:
     has_kit_source: bool = False
     third_party: bool = False
     source_object: Any | None = None
+    fixed_cost_total: Money = field(default_factory=zero_money)
     adjusted_total: Money = field(default_factory=zero_money)
     stock_quantity: int | None = None
     excess_quantity: int = 0
@@ -226,6 +227,7 @@ class _ServiceAggregate:
     kit_quantity: int = 0
     kit_raw_total: Money = field(default_factory=zero_money)
     kit_cost_total: Money = field(default_factory=zero_money)
+    kit_fixed_cost_total: Money = field(default_factory=zero_money)
     kit_duration: timedelta = field(default_factory=timedelta)
     third_party: bool = False
     has_direct_source: bool = False
@@ -451,11 +453,13 @@ def build_pricing_snapshot(
             if override:
                 unit_price = override.service_selling_price
                 unit_cost = override.service_cost_price
+                fixed_cost_total = unit_cost * consolidated_quantity
             else:
                 try:
                     unit_cost, unit_price = item.resolve_kit_service_base_prices(kit_service=kit_service)
                 except AttributeError:
                     unit_cost, unit_price = item.service_cost_price, item.service_selling_price
+                fixed_cost_total = zero_money()
             service_duration = timedelta(0)
 
             if override:
@@ -467,6 +471,7 @@ def build_pricing_snapshot(
             service_aggregate.kit_quantity += consolidated_quantity
             service_aggregate.kit_raw_total += unit_price * consolidated_quantity
             service_aggregate.kit_cost_total += unit_cost * consolidated_quantity
+            service_aggregate.kit_fixed_cost_total += fixed_cost_total
             service_aggregate.kit_duration += service_duration
             service_aggregate.description = str(getattr(service, "name", service_aggregate.description) or service_aggregate.description)
             service_aggregate.source_object = service
@@ -546,16 +551,19 @@ def build_pricing_snapshot(
                 raw_total = service_aggregate.direct_raw_total
                 cost_total = service_aggregate.direct_cost_total
                 duration = service_aggregate.direct_duration
+                fixed_cost_total = zero_money()
             else:
                 quantity = service_aggregate.kit_quantity
                 raw_total = service_aggregate.kit_raw_total
                 cost_total = service_aggregate.kit_cost_total
                 duration = service_aggregate.kit_duration
+                fixed_cost_total = service_aggregate.kit_fixed_cost_total
         else:
             quantity = service_aggregate.direct_quantity + service_aggregate.kit_quantity
             raw_total = service_aggregate.direct_raw_total + service_aggregate.kit_raw_total
             cost_total = service_aggregate.direct_cost_total + service_aggregate.kit_cost_total
             duration = service_aggregate.direct_duration + service_aggregate.kit_duration
+            fixed_cost_total = service_aggregate.kit_fixed_cost_total
 
         if quantity <= 0 and raw_total.amount <= 0:
             continue
@@ -576,6 +584,7 @@ def build_pricing_snapshot(
                 has_kit_source=has_kit_source,
                 third_party=service_aggregate.third_party,
                 source_object=service_aggregate.source_object,
+                fixed_cost_total=fixed_cost_total,
             )
         )
 
@@ -591,20 +600,29 @@ def build_pricing_snapshot(
     total_third_party_services_cost = sum((line.cost_total for line in third_party_service_lines), zero_money())
     total_labor_selling_value = labor_selling_value_override if labor_selling_value_override is not None else sum((line.raw_total for line in service_lines if not line.third_party), zero_money())
     resolved_labor_cost_value = labor_cost_value if labor_cost_value is not None and labor_cost_value.amount > 0 else sum((line.cost_total for line in service_lines if not line.third_party), zero_money())
-    labor_cost_weights = [Decimal(int(line.duration.total_seconds())) for line in labor_service_lines]
+    fixed_labor_service_lines = [line for line in labor_service_lines if line.fixed_cost_total.amount > 0]
+    variable_labor_service_lines = [line for line in labor_service_lines if line.fixed_cost_total.amount <= 0]
+    preserved_labor_cost_value = sum((line.fixed_cost_total for line in fixed_labor_service_lines), zero_money())
+
+    for line in fixed_labor_service_lines:
+        line.cost_total = line.fixed_cost_total
+
+    remaining_labor_cost_value = max(resolved_labor_cost_value - preserved_labor_cost_value, zero_money())
+    labor_cost_weights = [Decimal(int(line.duration.total_seconds())) for line in variable_labor_service_lines]
     if not any(weight > 0 for weight in labor_cost_weights):
-        labor_cost_weights = [line.raw_total.amount for line in labor_service_lines]
+        labor_cost_weights = [line.raw_total.amount for line in variable_labor_service_lines]
     if not any(weight > 0 for weight in labor_cost_weights):
-        labor_cost_weights = [Decimal(max(line.quantity, 0)) for line in labor_service_lines]
+        labor_cost_weights = [Decimal(max(line.quantity, 0)) for line in variable_labor_service_lines]
 
     for line, allocated_cost in zip(
-        labor_service_lines,
-        _distribute_money_by_weights(weights=labor_cost_weights, target_total=resolved_labor_cost_value),
+        variable_labor_service_lines,
+        _distribute_money_by_weights(weights=labor_cost_weights, target_total=remaining_labor_cost_value),
         strict=False,
     ):
         line.cost_total = allocated_cost
 
-    total_costs_services_value = total_third_party_services_cost + resolved_labor_cost_value
+    effective_labor_cost_value = preserved_labor_cost_value + remaining_labor_cost_value
+    total_costs_services_value = total_third_party_services_cost + effective_labor_cost_value
 
     slider_decimal = Decimal(int(slider or 0)) / Decimal(100)
     total_products_by_slider = total_products_value
@@ -612,7 +630,7 @@ def build_pricing_snapshot(
     total_services_by_slider = total_services_value
 
     if slider < 0:
-        available_services = max(total_labor_selling_value - resolved_labor_cost_value, zero_money())
+        available_services = max(total_labor_selling_value - effective_labor_cost_value, zero_money())
         transfer = available_services * abs(slider_decimal)
         total_products_by_slider = total_products_value + transfer
         total_labor_by_slider = total_labor_selling_value - transfer
@@ -637,7 +655,7 @@ def build_pricing_snapshot(
     for line in third_party_service_lines:
         line.adjusted_total = line.raw_total
 
-    remaining_labor_profit = max(total_labor_by_slider - resolved_labor_cost_value, zero_money())
+    remaining_labor_profit = max(total_labor_by_slider - effective_labor_cost_value, zero_money())
     labor_profit_weights = [max(line.raw_total.amount - line.cost_total.amount, Decimal("0.00")) for line in labor_service_lines]
     if not any(weight > 0 for weight in labor_profit_weights):
         labor_profit_weights = [line.raw_total.amount for line in labor_service_lines]
@@ -670,7 +688,7 @@ def build_pricing_snapshot(
         total_third_party_services_selling=total_third_party_services_selling,
         total_costs_services_value=total_costs_services_value,
         total_services_value=total_services_value,
-        total_labor_cost_value=resolved_labor_cost_value,
+        total_labor_cost_value=effective_labor_cost_value,
         total_labor_selling_value=total_labor_selling_value,
         total_labor_by_slider=total_labor_by_slider,
         total_products_by_slider=total_products_by_slider,

@@ -2876,6 +2876,27 @@ class BudgetDuplicateKitProductTests(TestCase):
         self.assertEqual(context["servicos"][0]["quantity"], 3)
         self.assertEqual(context["servicos"][0]["total_price"], Money("80.00", "BRL"))
 
+    @patch.object(Budget, "total_labor_cost_value", new_callable=PropertyMock, return_value=Money("15.29", "BRL"))
+    def test_budget_preserves_kit_service_cost_override_in_pdf_totals(self, _labor_cost_mock) -> None:
+        workshop = create_workshop(suffix=92)
+        budget = create_budget(workshop=workshop)
+        service = create_service(workshop=workshop, suffix=92)
+        kit = create_kit(workshop=workshop, suffix=921, products=[])
+        KitService.objects.create(kit=kit, service=service, quantity=1, duration=service.duration, selling_price=Money("3000.00", "BRL"))
+
+        item = BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
+
+        override = BudgetKitItemOverride.objects.get(budget_item=item, service=service)
+        override.service_cost_price = Money("2050.00", "BRL")
+        override.save(update_fields=["service_cost_price", "service_cost_price_currency"])
+        item.refresh_kit_snapshot_totals()
+
+        context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste")
+
+        self.assertEqual(budget.total_costs_services_value, Money("2050.00", "BRL"))
+        self.assertEqual(context["servicos"][0]["service_cost_price"], Money("2050.00", "BRL"))
+        self.assertEqual(context["soma_markup_display"], "1,46 vezes")
+
     def test_budget_item_uses_kit_service_custom_selling_price(self) -> None:
         workshop = create_workshop(suffix=94)
         budget = create_budget(workshop=workshop)
