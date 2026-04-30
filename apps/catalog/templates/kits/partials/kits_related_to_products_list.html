@@ -30,7 +30,7 @@
                                     hx-post="{% url 'catalog:product-kit-unassign-hx' product.id kit.id %}"
                                     hx-target="#product-kits-assignment-section"
                                     hx-swap="outerHTML"
-                                    hx-include="#product-kits-assignment-form"
+                                    hx-include="#product-kits-assign-form"
                                 >
                                     Remover atribuição
                                 </button>
@@ -67,7 +67,7 @@
                     hx-get="{% url 'catalog:kits-by-product-hx' object.id %}"
                     hx-target="#product-kits-assignment-section"
                     hx-swap="outerHTML"
-                    hx-include="#product-kits-assignment-form"
+                    hx-include="#product-kits-search-form"
                 {% else %}
                     disabled
                 {% endif %}
@@ -80,7 +80,7 @@
                     hx-get="{% url 'catalog:kits-by-product-hx' object.id %}"
                     hx-target="#product-kits-assignment-section"
                     hx-swap="outerHTML"
-                    hx-include="#product-kits-assignment-form"
+                    hx-include="#product-kits-search-form"
                 {% else %}
                     disabled
                 {% endif %}

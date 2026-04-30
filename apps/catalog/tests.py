@@ -1395,12 +1395,16 @@ class ProductKitAssignmentTabTests(TestCase):
         self.assertContains(response, "Página 1 de 2")
         self.assertContains(response, "Produto já atribuído")
         self.assertContains(response, "Remover atribuição")
+        self.assertContains(response, 'id="product-kits-search-form"', html=False)
+        self.assertContains(response, 'id="product-kits-search"', html=False)
+        self.assertContains(response, "Buscar")
+        self.assertNotContains(response, 'hx-trigger="input changed delay:300ms, search"', html=False)
         self.assertContains(response, 'class="flex flex-wrap items-center justify-between gap-3 pt-1"', html=False)
         self.assertContains(response, 'class="btn btn-sm btn-primary"', html=False)
         self.assertContains(response, 'class="flex flex-wrap items-center justify-between gap-3"', html=False)
         self.assertContains(response, 'class="min-w-0 flex-1"', html=False)
         self.assertContains(response, 'class="shrink-0"', html=False)
-        self.assertContains(response, 'class="btn btn-xs btn-error"', html=False)
+        self.assertContains(response, 'class="btn btn-xs btn-error text-white"', html=False)
         self.assertLess(response.content.decode().find("Kit Zebra"), response.content.decode().find("Kit 01"))
 
     def test_product_kits_list_endpoint_filters_by_search_and_preserves_pending_selection(self) -> None:
