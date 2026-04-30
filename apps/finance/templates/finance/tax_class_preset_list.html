@@ -11,7 +11,7 @@
 {% endblock %}
 
 {% block crud_table %}
-    <div class="tabs tabs-lift mb-6">
+    <div class="app-tabs tabs tabs-lift mb-6">
         <a href="{% url 'finance:tax_class_preset_list' %}?tab=nfe{% if request.GET.is_active %}&is_active={{ request.GET.is_active }}{% endif %}" class="tab {% if active_tab == 'nfe' %}tab-active{% endif %}">Nota Fiscal</a>
         <a href="{% url 'finance:tax_class_preset_list' %}?tab=nfse{% if request.GET.is_active %}&is_active={{ request.GET.is_active }}{% endif %}" class="tab {% if active_tab == 'nfse' %}tab-active{% endif %}">Nota Fiscal de Serviço</a>
     </div>
