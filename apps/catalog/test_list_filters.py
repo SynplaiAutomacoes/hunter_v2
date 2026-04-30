@@ -150,6 +150,39 @@ class CatalogListViewFilterTests(TestCase):
         self.assertIn(matched_product, queryset)
         self.assertNotIn(equivalent_product, queryset)
 
+    def test_product_list_search_matches_without_accents_and_case(self) -> None:
+        matched_product = Product.objects.create(
+            workshop=self.workshop,
+            group=self.group,
+            code="P-600",
+            name="Bomba Dagua",
+            unit=Product.Unit.UND,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            brand="Mecanica Sao Jose",
+            is_active=True,
+        )
+        other_product = Product.objects.create(
+            workshop=self.workshop,
+            group=self.group,
+            code="P-601",
+            name="Filtro de Ar",
+            unit=Product.Unit.UND,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            brand="Outro Fabricante",
+            is_active=True,
+        )
+
+        view = ProductListView()
+        view.request = self.factory.get("/catalog/products/", {"q": "ÁGUA"})
+        view.workshop = self.workshop
+
+        queryset = view.get_queryset()
+
+        self.assertIn(matched_product, queryset)
+        self.assertNotIn(other_product, queryset)
+
     def test_product_list_table_columns_disable_generic_search_reapplication(self) -> None:
         view = ProductListView()
         view.request = self.factory.get("/catalog/products/")

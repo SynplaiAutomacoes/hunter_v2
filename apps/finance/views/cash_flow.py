@@ -9,6 +9,7 @@ from django.urls import reverse
 from django.views.generic import TemplateView
 
 from django.db.models import Q
+from apps.core.search import apply_text_search
 from apps.finance.forms.emission_ui import format_money
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.bank_account import BankAccount
@@ -107,8 +108,7 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
 
         # Agent Filter
         if filter_params["agent"]:
-            agent_filter = Q(source__name__icontains=filter_params["agent"]) | Q(workorder__budget__customer__name__icontains=filter_params["agent"])
-            queryset = queryset.filter(agent_filter)
+            queryset = apply_text_search(queryset, search_value=filter_params["agent"], lookups=("source__name", "workorder__budget__customer__name"))
 
         # Payment Method Filter
         if filter_params["payment_method_id"]:
@@ -132,8 +132,7 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
 
         # Global Search
         if filter_params["search"]:
-            search_query = Q(description__icontains=filter_params["search"]) | Q(source__name__icontains=filter_params["search"]) | Q(nf_number__icontains=filter_params["search"]) | Q(workorder__budget__customer__name__icontains=filter_params["search"])
-            queryset = queryset.filter(search_query).distinct()
+            queryset = apply_text_search(queryset, search_value=filter_params["search"], lookups=("description", "source__name", "nf_number", "workorder__budget__customer__name")).distinct()
 
         return queryset
 

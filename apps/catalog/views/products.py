@@ -17,6 +17,7 @@ from apps.catalog.models.products import Product
 from apps.catalog.util import build_product_kits_assignment_context
 from apps.core.navigation import PRODUCT_CREATE_FAVORITE_PAGE
 from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
+from apps.core.search import apply_text_search, build_text_search_query
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
@@ -50,7 +51,7 @@ class ProductListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespo
         search_query = self.request.GET.get("q", "").strip()
 
         if search_query:
-            search_filters = Q(name__icontains=search_query) | Q(code__icontains=search_query) | Q(brand__icontains=search_query)
+            search_filters = build_text_search_query(search_value=search_query, lookups=("name", "code", "brand"))
 
             if queryset.filter(code__iexact=search_query).exists():
                 search_filters |= Q(equivalent_parts__workshop=self.workshop, equivalent_parts__code__iexact=search_query)
@@ -225,10 +226,10 @@ class ProductSearchSelectView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return HttpResponse("")
 
         if is_quick_name_lookup:
-            products = Product.objects.filter(workshop=self.workshop, name__icontains=query).only("id", "code", "name", "brand").order_by("name")[:5]
+            products = apply_text_search(Product.objects.filter(workshop=self.workshop), search_value=query, lookups=("name",)).only("id", "code", "name", "brand").order_by("name")[:5]
             return render(request, "products/partials/name_suggestions.html", {"products": products, "query": query})
 
-        products = Product.objects.filter(Q(code__icontains=query) | Q(name__icontains=query) | Q(brand__icontains=query), workshop=self.workshop).only("code", "name", "brand")
+        products = apply_text_search(Product.objects.filter(workshop=self.workshop), search_value=query, lookups=("code", "name", "brand")).only("code", "name", "brand")
 
         if ignore_id and ignore_id.isdigit():
             products = products.exclude(id=int(ignore_id))

@@ -7,7 +7,6 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
-from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse_lazy
@@ -23,6 +22,7 @@ from apps.catalog.models.services import Service
 from apps.catalog.util import build_product_kits_assignment_context, calculate_catalog_service_prices, get_current_workshop_cost, recalculate_kit_totals
 from apps.core.navigation import KIT_CREATE_FAVORITE_PAGE
 from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
+from apps.core.search import apply_text_search
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.utils import clean_id
@@ -192,7 +192,7 @@ class KitProductSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         qs = Product.objects.filter(workshop=self.workshop, is_active=True)
         if query:
-            qs = qs.filter(Q(code__icontains=query) | Q(name__icontains=query) | Q(brand__icontains=query))
+            qs = apply_text_search(qs, search_value=query, lookups=("code", "name", "brand"))
 
         # djmoney MoneyField usa 2 colunas (valor + moeda). Ao usar `.only(...)`,
         # precisamos incluir também os campos `*_currency` para evitar erros ao
@@ -508,7 +508,7 @@ class KitServiceSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         qs = Service.objects.filter(workshop=self.workshop, is_active=True)
         if query:
-            qs = qs.filter(name__icontains=query)
+            qs = apply_text_search(qs, search_value=query, lookups=("name",))
 
         # djmoney MoneyField usa 2 colunas (valor + moeda). Ao usar `.only(...)`,
         # precisamos incluir também os campos `*_currency` para evitar erros ao

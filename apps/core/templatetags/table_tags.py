@@ -14,7 +14,9 @@ from django.http import HttpRequest, QueryDict
 from django.template import Library
 from django.urls import NoReverseMatch, reverse
 from django.utils.http import urlencode
-from django.utils.text import slugify
+
+from apps.core.search import build_accent_insensitive_lookup
+from apps.core.text_normalization import normalize_search_text
 
 register = Library()
 
@@ -251,7 +253,7 @@ def _matching_choice_values(field: Field | None, *, search_query: str) -> list[A
     if field is None or not getattr(field, "flatchoices", None):
         return []
 
-    normalized_query = slugify(search_query)
+    normalized_query = normalize_search_text(search_query)
     if not normalized_query:
         return []
 
@@ -259,7 +261,7 @@ def _matching_choice_values(field: Field | None, *, search_query: str) -> list[A
     for value, label in field.flatchoices:
         if value in (None, ""):
             continue
-        if normalized_query in slugify(str(label)):
+        if normalized_query in normalize_search_text(label):
             matched_values.append(value)
 
     return matched_values
@@ -345,7 +347,7 @@ def _apply_search(
                 continue
             query_clauses.append(choice_clause)
 
-        contains_clause = Q(**{f"{lookup}__icontains": search_query})
+        contains_clause = Q(**{build_accent_insensitive_lookup(lookup): search_query})
         try:
             qs.filter(contains_clause)
         except FieldError:
@@ -432,7 +434,7 @@ def _apply_search_to_sequence(items: Sequence[Any], *, columns: Sequence[TableCo
     if not search_query:
         return list(items), search_query
 
-    normalized = search_query.strip().lower()
+    normalized = normalize_search_text(search_query)
     truthy_terms = {"sim"}
     falsy_terms = {"nao", "não"}
 
@@ -478,7 +480,7 @@ def _apply_search_to_sequence(items: Sequence[Any], *, columns: Sequence[TableCo
                     break
                 if value is None:
                     continue
-                if normalized in slugify(str(value)):
+                if normalized in normalize_search_text(value):
                     filtered_items.append(item)
                     matched = True
                     break

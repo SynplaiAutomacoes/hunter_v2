@@ -15,6 +15,7 @@ from apps.catalog.forms.services import ServiceForm
 from apps.catalog.models.services import Service
 from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
 from apps.core.navigation import SERVICE_CREATE_FAVORITE_PAGE
+from apps.core.search import apply_text_search
 from apps.catalog.util import get_current_workshop_cost, calculate_catalog_service_prices
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
@@ -111,8 +112,7 @@ class ServiceNameSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if len(query) < 2:
             return HttpResponse()
 
-        # Busca serviços da mesma oficina que contêm o texto (case-insensitive)
-        suggestions = Service.objects.filter(workshop=self.workshop, name__icontains=query).only("id", "name", "duration", "selling_price", "selling_price_currency").order_by("name")[:5]
+        suggestions = apply_text_search(Service.objects.filter(workshop=self.workshop), search_value=query, lookups=("name",)).only("id", "name", "duration", "selling_price", "selling_price_currency").order_by("name")[:5]
 
         return render(
             request,
