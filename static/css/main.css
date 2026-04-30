@@ -148,6 +148,73 @@
         box-shadow: var(--app-tab-shadow-active), 0 0 0 1px color-mix(in oklab, var(--color-primary) 12%, transparent);
     }
 
+    .app-tabs-connected {
+        --app-tab-connected-bg: color-mix(in oklab, var(--color-base-100) 74%, var(--color-base-200));
+        --app-tab-connected-bg-hover: color-mix(in oklab, var(--color-base-100) 82%, var(--color-base-200));
+        --app-tab-connected-border: color-mix(in oklab, var(--color-base-300) 92%, transparent);
+        --app-tab-connected-border-hover: color-mix(in oklab, var(--color-base-content) 16%, var(--color-base-300));
+        --app-tab-connected-border-active: color-mix(in oklab, var(--color-primary) 34%, var(--color-base-300));
+        --app-tab-connected-shadow: 0 1px 2px color-mix(in oklab, var(--color-base-content) 6%, transparent);
+        --app-tab-connected-shadow-active: 0 10px 22px color-mix(in oklab, var(--color-base-content) 8%, transparent);
+        align-items: flex-end;
+        gap: 0.45rem;
+        width: fit-content;
+        max-width: 100%;
+        position: relative;
+        z-index: 2;
+    }
+
+    .app-tabs-connected > .tab {
+        flex: 0 0 auto;
+        position: relative;
+        min-height: 2.75rem;
+        height: auto;
+        padding: 0.7rem 1rem calc(0.7rem + 1px);
+        border: 1px solid var(--app-tab-connected-border);
+        border-bottom-color: color-mix(in oklab, var(--app-tab-connected-border) 72%, transparent);
+        border-radius: 1rem 1rem 0 0;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        color: color-mix(in oklab, var(--color-base-content) 82%, transparent);
+        background: linear-gradient(180deg, color-mix(in oklab, var(--color-base-100) 90%, var(--color-base-200)) 0%, var(--app-tab-connected-bg) 100%);
+        box-shadow: var(--app-tab-connected-shadow);
+        white-space: nowrap;
+        transition:
+            color 180ms ease,
+            background 180ms ease,
+            border-color 180ms ease,
+            box-shadow 180ms ease,
+            transform 180ms ease;
+    }
+
+    .app-tabs-connected > .tab::before {
+        content: none;
+        display: none;
+    }
+
+    @media (hover: hover) {
+        .app-tabs-connected > .tab:hover {
+            color: var(--color-base-content);
+            border-color: var(--app-tab-connected-border-hover);
+            background: linear-gradient(180deg, color-mix(in oklab, var(--color-base-100) 94%, var(--color-base-200)) 0%, var(--app-tab-connected-bg-hover) 100%);
+        }
+    }
+
+    .app-tabs-connected > .tab:focus-visible {
+        outline: 2px solid color-mix(in oklab, var(--color-primary) 70%, var(--color-base-100));
+        outline-offset: 2px;
+    }
+
+    .app-tabs-connected > .tab:is(:checked, label:has(:checked), .tab-active, [aria-selected="true"], [aria-current="true"], [aria-current="page"]) {
+        color: color-mix(in oklab, var(--color-primary) 78%, var(--color-base-content));
+        border-color: var(--app-tab-connected-border-active);
+        border-bottom-color: var(--color-base-100);
+        background: linear-gradient(180deg, color-mix(in oklab, var(--color-base-100) 96%, var(--color-primary) 4%) 0%, var(--color-base-100) 100%);
+        box-shadow: var(--app-tab-connected-shadow-active), 0 1px 0 var(--color-base-100);
+        transform: translateY(1px);
+        z-index: 2;
+    }
+
     /*apps.core.tables.py*/
     .btn-table-edit {
         @apply btn btn-sm btn-primary disabled:opacity-50 disabled:cursor-not-allowed;

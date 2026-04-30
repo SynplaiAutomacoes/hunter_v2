@@ -1,0 +1,40 @@
+{% for product in products %}
+<tr
+    :class="isAppliedEquivalent('{{ product.id|stringformat:'d' }}') ? 'bg-success/10 hover:bg-success/20 transition-colors' : 'hover:bg-base-200/60 transition-colors'"
+>
+    <td class="w-14 text-center">
+        <input
+            type="checkbox"
+            class="checkbox checkbox-sm"
+            :class="isAppliedEquivalent('{{ product.id|stringformat:'d' }}') ? 'checkbox-success' : 'checkbox-primary'"
+            :checked="isAppliedEquivalent('{{ product.id|stringformat:'d' }}') || isPendingEquivalent('{{ product.id|stringformat:'d' }}')"
+            :disabled="isAppliedEquivalent('{{ product.id|stringformat:'d' }}')"
+            @change="togglePendingEquivalent({
+                id: '{{ product.id|stringformat:'d' }}',
+                code: '{{ product.code|escapejs }}',
+                name: '{{ product.name|escapejs }}',
+                brand: '{{ product.brand|default:''|escapejs }}'
+            }, $event.target.checked)"
+            aria-label="Selecionar produto equivalente {{ product.code }} - {{ product.name }}"
+        />
+    </td>
+    <td class="font-mono text-sm whitespace-nowrap">{{ product.code }}</td>
+    <td class="min-w-[16rem]">{{ product.name }}</td>
+    <td class="text-sm text-base-content/70">{{ product.brand|default:"-" }}</td>
+    <td class="pr-4 text-right sm:pr-5">
+        <template x-if="isAppliedEquivalent('{{ product.id|stringformat:'d' }}')">
+            <button
+                type="button"
+                class="btn btn-xs btn-error text-white"
+                @click="removeAppliedEquivalent('{{ product.id|stringformat:'d' }}')"
+            >
+                Remover
+            </button>
+        </template>
+    </td>
+</tr>
+{% empty %}
+<tr>
+    <td colspan="5" class="py-8 text-center text-sm text-base-content/60 italic">Nenhum produto encontrado.</td>
+</tr>
+{% endfor %}

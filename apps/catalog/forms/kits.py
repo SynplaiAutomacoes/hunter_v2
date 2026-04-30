@@ -14,6 +14,7 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 from djmoney.money import Money
 
+from apps.catalog.forms.equivalent_products import EquivalentProductsFormMixin
 from apps.catalog.kit_applications import normalize_vehicle_text
 from apps.catalog.models.kits import Kit, KitApplication, KitProduct, KitService
 from apps.catalog.models.products import Product
@@ -2111,7 +2112,7 @@ class KitForm(CoreModelForm):
         }
 
 
-class QuickProductEditForm(CoreModelForm):
+class QuickProductEditForm(EquivalentProductsFormMixin, CoreModelForm):
     equivalent_search = forms.CharField(required=False, label="Produtos Equivalentes")
 
     class Meta:
@@ -2185,12 +2186,6 @@ class QuickProductEditForm(CoreModelForm):
     def get_layout(self):
         search_product_url = reverse("catalog:product_search")
 
-        initial_equivalents = []
-        if self.instance.pk:
-            initial_equivalents = [{"id": p.id, "name": str(p)} for p in self.instance.equivalent_parts.all()]
-
-        equivalents_json = json.dumps(initial_equivalents)
-
         return Layout(
             Div(
                 Div(
@@ -2234,65 +2229,7 @@ class QuickProductEditForm(CoreModelForm):
                     Field("barcode", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("sku", wrapper_class="col-span-12 lg:col-span-4"),
                     # --- Peças Equivalentes ---
-                    Div(
-                        Div(
-                            Field(
-                                "equivalent_search",
-                                css_class="input-theme border-none bg-base-100",
-                                wrapper_class="w-full !bg-transparent",
-                                autocomplete="off",
-                                placeholder="Buscar...",
-                                hx_get=search_product_url,
-                                hx_trigger="keyup changed delay:500ms",
-                                hx_target="#product-suggestions",
-                                hx_swap="innerHTML",
-                                id="equivalent-search-input",
-                                hx_vals=json.dumps({"ignore_id": self.instance.pk}) if self.instance.pk else "{}",
-                            ),
-                            HTML('<div id="product-suggestions" class="absolute z-50 w-full top-full left-0"></div>'),
-                            css_class="relative w-full mb-3",
-                        ),
-                        HTML("""
-                            <ul class="flex flex-col gap-2">
-                                <template x-for="(item, index) in selecteds" :key="item.id">
-                                    <li class="flex gap-2 items-center">
-                                        <div class="p-2 rounded-md w-full flex items-center bg-base-200 text-base-content cursor-default border border-base-300">
-                                            <span x-text="item.name"></span>
-                                        </div>
-
-                                        <button type="button" class="btn-table-delete" @click="remove(index)" title="Remover">
-                                            <span class="material-icons text-base">delete</span>
-                                        </button>
-                                    </li>
-                                </template>
-
-                                <li x-show="selecteds.length === 0" class="text-sm text-gray-500 italic">
-                                    Nenhum produto equivalente adicionado.
-                                </li>
-                            </ul>
-                            """),
-                        # Select Oculto para salvar
-                        HTML("""
-                            <select name="equivalent_parts" multiple class="hidden">
-                                <template x-for="item in selecteds" :key="item.id">
-                                    <option :value="item.id" selected></option>
-                                </template>
-                            </select>
-                            """),
-                        **{
-                            "x-data": f"""{{ selecteds: {equivalents_json},remove(index) {{ this.selecteds.splice(index, 1); }}}}""",
-                            "id": "equivalents-manager",
-                            "@add-equivalent.window": """
-                                if(!selecteds.find(i=>i.id==$event.detail.id)) {
-                                    selecteds.push($event.detail);
-                                    // Limpa input e sugestões
-                                    document.getElementById('equivalent-search-input').value = '';
-                                    document.getElementById('product-suggestions').innerHTML = '';
-                                }
-                            """,
-                        },
-                        css_class="col-span-12 p-4 bg-base-300 rounded-box",
-                    ),
+                    self.build_equivalent_products_section(search_url=search_product_url),
                     HTML('<div class="col-span-12 divider my-1"></div>'),
                     # --- FISCAL ---
                     HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Fiscal</h3>'),

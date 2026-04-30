@@ -1020,6 +1020,86 @@ class KitSearchPartialTests(TestCase):
         self.assertContains(response, "Bomba dagua")
         self.assertNotContains(response, "Filtro de Ar")
 
+    def test_equivalent_product_search_partial_renders_all_products_when_query_is_empty(self) -> None:
+        Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-EQ-3001",
+            name="Produto Equivalente 1",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            brand="Marca A",
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+            is_active=True,
+        )
+        Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-EQ-3002",
+            name="Produto Equivalente 2",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            brand="Marca B",
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+            is_active=True,
+        )
+
+        response = self.client.get(reverse("catalog:product_search"), data={"equivalent_search": ""}, HTTP_HX_REQUEST="true")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Produto equivalente 1")
+        self.assertContains(response, "Produto equivalente 2")
+        self.assertContains(response, "checkbox-primary")
+        self.assertContains(response, "bg-success/10 hover:bg-success/20", html=False)
+        self.assertContains(response, ":disabled=\"isAppliedEquivalent('", html=False)
+        self.assertContains(response, "btn btn-xs btn-error text-white")
+
+    def test_equivalent_product_search_partial_excludes_ignored_product(self) -> None:
+        ignored_product = Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-EQ-4001",
+            name="Produto Ignorado",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            brand="Marca Ignorada",
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+            is_active=True,
+        )
+        Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-EQ-4002",
+            name="Produto Mantido",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            brand="Marca Mantida",
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+            is_active=True,
+        )
+
+        response = self.client.get(
+            reverse("catalog:product_search"),
+            data={"equivalent_search": "Produto", "ignore_id": str(ignored_product.pk)},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Produto Ignorado")
+        self.assertContains(response, "Produto mantido")
+
     def test_service_search_partial_matches_without_accents_and_case(self) -> None:
         Service.objects.create(
             workshop=self.workshop,
@@ -1345,10 +1425,37 @@ class ProductFormTests(TestCase):
         self.assertIn('id="submit-id-submit"', html)
         self.assertIn('class="input-theme border-none bg-base-100 textinput', html)
 
+    def test_product_form_renders_equivalent_products_table_and_save_button(self) -> None:
+        Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-EQ-FORM-001",
+            name="Produto Formulario",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            brand="Marca Formulario",
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+            is_active=True,
+        )
+
+        html = render_crispy_form(ProductForm(workshop=self.workshop))
+
+        self.assertIn("Salvar Produtos Equivalentes", html)
+        self.assertIn("isAppliedEquivalent", html)
+        self.assertIn("removeAppliedEquivalent", html)
+        self.assertIn("bg-success/10 hover:bg-success/20", html)
+        self.assertNotIn("Produtos equivalentes salvos no formulário", html)
+        self.assertIn("Produto formulario", html)
+        self.assertIn("Marca formulario", html)
+
     def test_quick_product_edit_form_renders_white_equivalent_search_field(self) -> None:
         html = render_crispy_form(QuickProductEditForm(workshop=self.workshop))
 
         self.assertIn('class="input-theme border-none bg-base-100 textinput', html)
+        self.assertIn("Salvar Produtos Equivalentes", html)
 
 
 class ProductUpdateNavigationTests(TestCase):

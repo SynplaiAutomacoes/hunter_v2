@@ -10,6 +10,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
+from apps.catalog.equivalent_products import get_equivalent_products_queryset
 from apps.budget.models import BudgetItem
 from apps.catalog.forms.products import ProductForm
 from apps.catalog.models.groups import CatalogGroup
@@ -212,7 +213,7 @@ class ProductDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteRespo
 
 
 class ProductSearchSelectView(LoginRequiredMixin, WorkshopScopedMixin, View):
-    """View HTMX para buscar produtos e retornar opções clicáveis para o form."""
+    """View HTMX para buscar produtos equivalentes e sugestões de nome."""
 
     model = Product
     workshop_permission_codename = "view_product"
@@ -222,21 +223,20 @@ class ProductSearchSelectView(LoginRequiredMixin, WorkshopScopedMixin, View):
         query = request.GET.get("name" if is_quick_name_lookup else "equivalent_search", "").strip()
         ignore_id = request.GET.get("ignore_id", "")
 
-        if len(query) < 1:
+        if is_quick_name_lookup and len(query) < 1:
             return HttpResponse("")
 
         if is_quick_name_lookup:
             products = apply_text_search(Product.objects.filter(workshop=self.workshop), search_value=query, lookups=("name",)).only("id", "code", "name", "brand").order_by("name")[:5]
             return render(request, "products/partials/name_suggestions.html", {"products": products, "query": query})
 
-        products = apply_text_search(Product.objects.filter(workshop=self.workshop), search_value=query, lookups=("code", "name", "brand")).only("code", "name", "brand")
+        products = get_equivalent_products_queryset(
+            workshop=self.workshop,
+            search_value=query,
+            ignore_product_id=int(ignore_id) if ignore_id.isdigit() else None,
+        )
 
-        if ignore_id and ignore_id.isdigit():
-            products = products.exclude(id=int(ignore_id))
-
-        products = products.only("code", "name", "brand")[:5]
-
-        return render(request, "products/partials/search_suggestions.html", {"products": products})
+        return render(request, "products/partials/equivalent_product_rows.html", {"products": products})
 
 
 class StockFieldsUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
