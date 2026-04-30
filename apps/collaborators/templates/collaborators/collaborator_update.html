@@ -7,7 +7,7 @@
 {% block crud_back_url %}{% url 'collaborators:collaborator_list' %}{% endblock %}
 
 {% block crud_tabs_form %}
-<div class="app-tabs-connected tabs tabs-bordered mt-7">
+<div class="app-tabs tabs tabs-bordered mt-7">
     <input type="radio" name="collaborator_tabs" value="cadastro" class="tab !border-b-2 checked:!border-primary checked:!text-primary font-medium transition-colors" aria-label="Dados" x-model="activeTab" {% if active_tab != 'historico' %}checked{% endif %}>
     <input type="radio" name="collaborator_tabs" value="historico" class="tab !border-b-2 checked:!border-primary checked:!text-primary font-medium transition-colors" aria-label="Histórico" x-model="activeTab" {% if active_tab == 'historico' %}checked{% endif %}>
 </div>

@@ -19,7 +19,7 @@
         x-data="{ activeTab: '{{ active_tab }}', nfTab: '{{ active_nf_subtab }}', showCredentials: false }"
     >
         <div class="card-body p-6 md:p-8 space-y-6">
-            <div class="app-tabs-connected tabs tabs-lift flex-wrap gap-1">
+            <div class="app-tabs tabs tabs-lift flex-wrap gap-1">
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'empresa' }" @click="activeTab = 'empresa'">Empresa</button>
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'endereco' }" @click="activeTab = 'endereco'">Endereco</button>
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'nota_fiscal' }" @click="activeTab = 'nota_fiscal'">Nota Fiscal</button>
