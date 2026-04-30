@@ -6,10 +6,10 @@
     })"
 >
     <div class="sticky top-0 z-100 bg-navbar text-navbar-text shadow-sm">
-        <div class="navbar md:px-10 xl:px-20">
-            <div class="navbar-start">
+        <div class="navbar gap-2 md:px-10 md:gap-3 xl:px-20">
+            <div class="navbar-start w-auto flex-1 gap-2 lg:gap-3">
             <div class="dropdown">
-                <div tabindex="0" role="button" class="pr-5 lg:hidden" aria-label="Abrir menu">
+                <div tabindex="0" role="button" class="pr-1 lg:hidden" aria-label="Abrir menu">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-9 w-9" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
                     </svg>
@@ -49,14 +49,14 @@
                 </ul>
             </div>
 
-            <a href="/core/" class="hidden items-center gap-1 md:flex md:absolute md:left-1/2 md:-translate-x-1/2 lg:static lg:translate-x-0">
+            <a href="/core/" class="hidden min-w-0 items-center gap-1 md:flex md:gap-2">
                 <span class="material-icons !text-4xl text-indigo-300">directions_car</span>
-                <h1 class="text-2xl font-semibold">Hunter</h1>
+                <h1 class="text-xl font-semibold md:text-2xl">Hunter</h1>
             </a>
             </div>
 
-            <div class="navbar-center hidden lg:flex">
-            <ul class="menu menu-horizontal">
+            <div class="navbar-center hidden flex-1 justify-center lg:flex">
+            <ul class="menu menu-horizontal px-0">
                 {% for menu in navbar_menus %}
                     <li>
                         {% if menu.children %}
@@ -98,7 +98,7 @@
             </ul>
             </div>
 
-            <div class="navbar-end gap-2">
+            <div class="navbar-end w-auto flex-1 justify-end gap-1 md:gap-2 lg:gap-3">
             {% include 'navbar/partials/workshop_select.html' %}
 
             <label class="swap swap-rotate px-2 text-navbar-text m-0" aria-label="Alternar tema">
