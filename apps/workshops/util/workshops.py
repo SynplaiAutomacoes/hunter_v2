@@ -12,33 +12,54 @@ def get_active_workshop_or_404(request) -> Workshop:
     if cached_workshop is not None:
         return cached_workshop
 
-    workshop_id = request.session.get("active_workshop_id")
-    if not workshop_id:
+    account_id = getattr(request.user, "account_id", None)
+    if not account_id:
         raise Http404
 
-    if not getattr(request.user, "account_id", None):
+    workshop = _get_valid_active_workshop(request=request, account_id=account_id)
+    if workshop is None:
+        workshop = _get_first_available_workshop(request=request, account_id=account_id)
+
+    if workshop is None:
+        request.session.pop("active_workshop_id", None)
         raise Http404
 
-    qs = Workshop.objects.filter(
-        pk=workshop_id,
-        account_id=request.user.account_id,
-        is_active=True,
-    )
-
-    workshop = qs.first()
-    if not workshop:
-        raise Http404
-
-    # Colaborador precisa ser membro da oficina
-    if not WorkshopMember.objects.filter(
-        user=request.user,
-        workshop=workshop,
-        is_active=True,
-    ).exists():
-        raise Http404
-
+    request.session["active_workshop_id"] = workshop.pk
     setattr(request, "_active_workshop_obj", workshop)
     return workshop
+
+
+def _get_valid_active_workshop(*, request, account_id: int) -> Workshop | None:
+    workshop_id = request.session.get("active_workshop_id")
+    if not workshop_id:
+        return None
+
+    workshop = (
+        Workshop.objects.filter(
+            pk=workshop_id,
+            account_id=account_id,
+            is_active=True,
+            members__user=request.user,
+            members__is_active=True,
+        )
+        .distinct()
+        .first()
+    )
+
+    return workshop
+
+
+def _get_first_available_workshop(*, request, account_id: int) -> Workshop | None:
+    return (
+        Workshop.objects.filter(
+            account_id=account_id,
+            is_active=True,
+            members__user=request.user,
+            members__is_active=True,
+        )
+        .order_by("name", "pk")
+        .first()
+    )
 
 
 def is_workshop_director(*, user: User, workshop: Workshop, request=None) -> bool:

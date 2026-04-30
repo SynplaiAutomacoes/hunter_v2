@@ -6,8 +6,8 @@
     })"
 >
     <div class="sticky top-0 z-100 bg-navbar text-navbar-text shadow-sm">
-        <div class="navbar md:px-10 xl:px-20">
-            <div class="navbar-start">
+        <div class="navbar gap-2 md:grid md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:items-center md:px-10 lg:flex xl:px-20">
+            <div class="navbar-start gap-2 md:w-auto md:min-w-0 lg:w-1/2">
             <div class="dropdown">
                 <div tabindex="0" role="button" class="pr-5 lg:hidden" aria-label="Abrir menu">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-9 w-9" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -49,13 +49,13 @@
                 </ul>
             </div>
 
-            <a href="/core/" class="hidden items-center gap-1 md:flex md:absolute md:left-1/2 md:-translate-x-1/2 lg:static lg:translate-x-0">
+            <a href="/core/" class="hidden items-center gap-1 md:flex md:justify-self-center lg:justify-self-auto">
                 <span class="material-icons !text-4xl text-indigo-300">directions_car</span>
                 <h1 class="text-2xl font-semibold">Hunter</h1>
             </a>
             </div>
 
-            <div class="navbar-center hidden lg:flex">
+            <div class="navbar-center hidden lg:flex lg:flex-none">
             <ul class="menu menu-horizontal">
                 {% for menu in navbar_menus %}
                     <li>
@@ -98,7 +98,7 @@
             </ul>
             </div>
 
-            <div class="navbar-end gap-2">
+            <div class="navbar-end gap-2 md:w-auto md:min-w-0 md:justify-self-end lg:w-1/2">
             {% include 'navbar/partials/workshop_select.html' %}
 
             <label class="swap swap-rotate px-2 text-navbar-text m-0" aria-label="Alternar tema">
