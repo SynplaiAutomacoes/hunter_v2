@@ -27,8 +27,8 @@ from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.kits import Kit, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
-from apps.collaborators.models import WorkshopCollaborator, WorkshopMember
-from apps.collaborators.services import sync_collaborator_payroll
+from apps.collaborators.models import CollaboratorCommissionEntry, WorkshopCollaborator, WorkshopMember
+from apps.collaborators.services import sync_collaborator_payroll, sync_workorder_collaborator_payrolls
 from apps.core.documents.contract import DocumentPayload
 from apps.customer.models import Customer, Vehicle
 from apps.finance.documents.provider import build_dre_excel_document, build_dre_pdf_render_request
@@ -5315,6 +5315,84 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertContains(response, "R$ 1.100,00")
         self.assertContains(response, "Folha consolidada por colaborador")
         self.assertContains(response, "Holerite")
+
+    def test_commission_report_view_displays_concluded_workorder_commissions(self) -> None:
+        collaborator = self._create_collaborator(suffix=56, name="Tecnico Comissao")
+        collaborator.receives_commission = True
+        collaborator.commission_percentage = Decimal("0.100000")
+        collaborator.save(update_fields=["receives_commission", "commission_percentage"])
+        WorkshopCost.objects.create(workshop=self.workshop, month=5, year=2026, mechanic_quantity=1, work_days_per_month=20)
+
+        approved_workorder = self._create_report_workorder(
+            customer_name="Cliente Aprovado",
+            total_value="200.00",
+            problem_description="Troca de oleo",
+            payment_specs=[{"description": "Pix", "amount": "200.00", "due_date": "2026-05-20"}],
+        )
+        approved_workorder.collaborators.add(collaborator)
+        sync_workorder_financial_movement(workorder=approved_workorder)
+        sync_workorder_collaborator_payrolls(workorder=approved_workorder, reference_date=date(2026, 5, 1))
+
+        draft_workorder = self._create_report_workorder(
+            customer_name="Cliente Em Aberto",
+            total_value="300.00",
+            problem_description="Alinhamento",
+            payment_specs=[{"description": "Pix", "amount": "300.00", "due_date": "2026-05-22"}],
+        )
+        draft_workorder.status = WorkOrderStatus.DRAFT
+        draft_workorder.save(update_fields=["status"])
+        draft_workorder.collaborators.add(collaborator)
+        sync_workorder_financial_movement(workorder=draft_workorder)
+        sync_workorder_collaborator_payrolls(workorder=draft_workorder, reference_date=date(2026, 5, 1))
+
+        response = self.client.get(reverse("finance:commission_report"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Apuração de Comissões")
+        self.assertContains(response, "Tecnico Comissao")
+        self.assertContains(response, "Cliente Aprovado")
+        self.assertContains(response, "Troca de oleo")
+        self.assertContains(response, "R$ 20,00")
+        self.assertNotContains(response, "Cliente Em Aberto")
+        self.assertEqual(CollaboratorCommissionEntry.objects.filter(workorder=approved_workorder).count(), 1)
+        self.assertFalse(CollaboratorCommissionEntry.objects.filter(workorder=draft_workorder).exists())
+
+    def test_commission_report_view_filters_by_collaborator(self) -> None:
+        WorkshopCost.objects.create(workshop=self.workshop, month=5, year=2026, mechanic_quantity=1, work_days_per_month=20)
+        selected_collaborator = self._create_collaborator(suffix=57, name="Alice Comissao")
+        selected_collaborator.receives_commission = True
+        selected_collaborator.commission_percentage = Decimal("0.100000")
+        selected_collaborator.save(update_fields=["receives_commission", "commission_percentage"])
+
+        other_collaborator = self._create_collaborator(suffix=58, name="Bruno Comissao")
+        other_collaborator.receives_commission = True
+        other_collaborator.commission_percentage = Decimal("0.100000")
+        other_collaborator.save(update_fields=["receives_commission", "commission_percentage"])
+
+        selected_workorder = self._create_report_workorder(
+            customer_name="Cliente Alice",
+            total_value="150.00",
+            payment_specs=[{"description": "Pix", "amount": "150.00", "due_date": "2026-05-10"}],
+        )
+        selected_workorder.collaborators.add(selected_collaborator)
+        sync_workorder_financial_movement(workorder=selected_workorder)
+        sync_workorder_collaborator_payrolls(workorder=selected_workorder, reference_date=date(2026, 5, 1))
+
+        other_workorder = self._create_report_workorder(
+            customer_name="Cliente Bruno",
+            total_value="180.00",
+            payment_specs=[{"description": "Pix", "amount": "180.00", "due_date": "2026-05-11"}],
+        )
+        other_workorder.collaborators.add(other_collaborator)
+        sync_workorder_financial_movement(workorder=other_workorder)
+        sync_workorder_collaborator_payrolls(workorder=other_workorder, reference_date=date(2026, 5, 1))
+
+        response = self.client.get(reverse("finance:commission_report"), {"collaborator": selected_collaborator.pk})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Alice Comissao")
+        self.assertContains(response, "Cliente Alice")
+        self.assertNotContains(response, "Cliente Bruno")
 
     def test_reports_home_view_displays_current_year_totals_in_second_card(self) -> None:
         today = timezone.localdate()

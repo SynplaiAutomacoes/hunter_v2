@@ -1,0 +1,134 @@
+{% extends 'crud/page.html' %}
+
+{% block crud_content %}
+    <div class="space-y-6">
+        <div class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div>
+                <h1 class="text-3xl font-bold text-base-content">Apuração de Comissões</h1>
+                <p class="text-base-content/70">Acompanhe as comissões geradas a partir das ordens de serviço concluídas.</p>
+            </div>
+        </div>
+
+        <form method="get" action="{% url 'finance:commission_report' %}" class="card border border-base-300 bg-base-100 shadow-xl">
+            <div class="card-body gap-4 p-5 md:p-6">
+                <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+                    <div class="xl:col-span-2">
+                        <label for="commission-search">Pesquisar</label>
+                        <input id="commission-search" type="text" name="search" value="{{ request.GET.search|default:'' }}" placeholder="Colaborador, cliente, OS..." class="input input-bordered w-full" />
+                    </div>
+                    <div>
+                        <label for="commission-start-date">Data inicial</label>
+                        <input id="commission-start-date" type="date" name="data_inicial" value="{{ request.GET.data_inicial|default:'' }}" class="input input-bordered w-full" />
+                    </div>
+                    <div>
+                        <label for="commission-end-date">Data final</label>
+                        <input id="commission-end-date" type="date" name="data_final" value="{{ request.GET.data_final|default:'' }}" class="input input-bordered w-full" />
+                    </div>
+                    <div>
+                        <label for="commission-status">Status</label>
+                        <select id="commission-status" name="status" class="select select-bordered w-full">
+                            {% for value, label in status_choices %}
+                                <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+                    <div>
+                        <label for="commission-collaborator">Colaborador</label>
+                        <select id="commission-collaborator" name="collaborator" class="select select-bordered w-full">
+                            <option value="">Todos</option>
+                            {% for collaborator in collaborator_filters %}
+                                <option value="{{ collaborator.pk }}" {% if selected_collaborator_id == collaborator.pk %}selected{% endif %}>{{ collaborator.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="flex flex-col gap-2 sm:flex-row">
+                        <button type="submit" class="btn btn-primary">Filtrar</button>
+                        {% if has_active_filters %}
+                            <a href="{{ clear_filters_url }}" class="btn btn-error text-white">Limpar</a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </form>
+
+        <div class="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
+            {% for card in summary_cards %}
+                <div class="rounded-2xl border border-base-300 bg-base-100 p-5 shadow-xl">
+                    <p class="text-sm font-medium uppercase tracking-[0.16em] text-base-content/55">{{ card.title }}</p>
+                    <p class="mt-3 text-3xl font-black text-base-content">{{ card.value }}</p>
+                    <p class="mt-2 text-sm text-base-content/65">{{ card.support }}</p>
+                </div>
+            {% endfor %}
+        </div>
+
+        <div class="card border border-base-300 bg-base-100 shadow-xl">
+            <div class="card-body gap-4 p-5 md:p-6">
+                <div>
+                    <h2 class="text-lg font-semibold text-base-content">Comissões por ordem de serviço</h2>
+                    <p class="text-sm text-base-content/65">As linhas abaixo entram na apuração quando a O.S. é concluída.</p>
+                </div>
+
+                {% if commission_rows %}
+                    <div class="overflow-x-auto">
+                        <table class="table table-sm md:table-md">
+                            <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
+                                <tr>
+                                    <th>Colaborador</th>
+                                    <th>O.S.</th>
+                                    <th>Cliente</th>
+                                    <th>Descrição</th>
+                                    <th>Competência</th>
+                                    <th>Apurada em</th>
+                                    <th>Base</th>
+                                    <th>%</th>
+                                    <th>Comissão</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in commission_rows %}
+                                    <tr>
+                                        <td>{{ row.collaborator_name }}</td>
+                                        <td><a href="{{ row.workorder_url }}" class="link link-primary">#{{ row.workorder_id }}</a></td>
+                                        <td>{{ row.customer_name }}</td>
+                                        <td>{{ row.description }}</td>
+                                        <td>{{ row.reference }}</td>
+                                        <td>{{ row.applied_at|date:"d/m/Y"|default:"-" }}</td>
+                                        <td>{{ row.base_amount }}</td>
+                                        <td>{{ row.percentage }}</td>
+                                        <td class="font-semibold">{{ row.commission_amount }}</td>
+                                        <td>
+                                            <span class="badge {% if row.status == 'PAID' %}badge-success{% else %}badge-warning{% endif %}">{{ row.status_label }}</span>
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {% if is_paginated %}
+                        <div class="flex items-center justify-between border-t border-base-300 pt-4 text-sm text-base-content/70">
+                            <span>Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
+                            <div class="flex gap-2">
+                                {% if prev_url %}
+                                    <a href="{{ prev_url }}" class="btn btn-ghost btn-sm">Anterior</a>
+                                {% endif %}
+                                {% if next_url %}
+                                    <a href="{{ next_url }}" class="btn btn-ghost btn-sm">Próxima</a>
+                                {% endif %}
+                            </div>
+                        </div>
+                    {% endif %}
+                {% else %}
+                    <div class="rounded-xl border border-dashed border-base-300 px-6 py-8 text-center text-sm text-base-content/60">
+                        Nenhuma comissão encontrada para os filtros selecionados.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+{% endblock crud_content %}
