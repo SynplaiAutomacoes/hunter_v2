@@ -110,6 +110,24 @@ class CollaboratorPayrollServiceTests(TestCase):
         self.assertEqual(entry.commission_amount, Money("20.00", "BRL"))
         self.assertEqual(payroll.commission_amount, Money("20.00", "BRL"))
 
+    def test_sync_workorder_collaborator_payrolls_ignores_workorder_not_concluded(self) -> None:
+        workshop = create_workshop(suffix=21)
+        collaborator = create_collaborator(workshop=workshop, suffix=21, receives_commission=True)
+        WorkshopCost.objects.create(workshop=workshop, month=5, year=2026, mechanic_quantity=1, work_days_per_month=20)
+        budget = create_budget(workshop=workshop)
+        budget.status = "approved"
+        budget.save(update_fields=["status"])
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.DRAFT)
+        workorder.collaborators.add(collaborator)
+        service = Service.objects.create(workshop=workshop, name="Servico Em Aberto", duration=timedelta(hours=1), suggested_cost=Money("50.00", "BRL"), selling_price=Money("200.00", "BRL"))
+        WorkOrderItem.objects.create(workshop=workshop, workorder=workorder, service=service, quantity=1)
+        WorkOrderPaymentMethod.objects.create(workorder=workorder, due_date=date(2026, 5, 20), first_installment_amount=Money("200.00", "BRL"), remaining_installments_amount=Money("0.00", "BRL"), installments_count=1)
+
+        payroll = sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=date(2026, 5, 1))[0]
+
+        self.assertFalse(CollaboratorCommissionEntry.objects.filter(collaborator=collaborator, workorder=workorder).exists())
+        self.assertEqual(payroll.commission_amount, Money("0.00", "BRL"))
+
     def test_sync_collaborator_payroll_reuses_existing_financial_group_hierarchy(self) -> None:
         workshop = create_workshop(suffix=4)
         collaborator = create_collaborator(workshop=workshop, suffix=4)

@@ -145,7 +145,16 @@ def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, 
         CollaboratorCommissionEntry.objects.filter(collaborator=collaborator, reference_year=resolved.year, reference_month=resolved.month).delete()
         return []
 
-    workorders = WorkOrder.objects.filter(workshop=collaborator.workshop, collaborators=collaborator).exclude(status__in=[WorkOrderStatus.CANCELLED, WorkOrderStatus.REJECTED]).prefetch_related("payments").order_by("id").distinct()
+    workorders = (
+        WorkOrder.objects.filter(
+            workshop=collaborator.workshop,
+            collaborators=collaborator,
+            status=WorkOrderStatus.APPROVED,
+        )
+        .prefetch_related("payments")
+        .order_by("id")
+        .distinct()
+    )
     synced_entries: list[CollaboratorCommissionEntry] = []
     active_workorder_ids: set[int] = set()
     percentage = Decimal(str(collaborator.commission_percentage or 0))
