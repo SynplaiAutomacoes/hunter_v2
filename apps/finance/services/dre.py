@@ -34,6 +34,33 @@ _SOURCE_ROW_COMPONENTS = (
     _ROW_COMPONENT_DESPESAS_FINANCEIRAS,
 )
 _VALID_TIPO_DATA_VALUES = {"PG", "NPG", "A"}
+_COMPONENT_GROUP_NAME_ALIASES = {
+    _ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS: {
+        "receitas",
+        "receitas de servicos",
+        "receitas de pecas",
+        "receita bruta de vendas e servicos",
+        "receita bruta de vendas e serviços",
+    },
+    _ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS: {
+        "custos",
+        "custos de pecas",
+        "custos de servicos",
+        "custos mercadorias vendidas",
+    },
+    _ROW_COMPONENT_RECEITAS_FINANCEIRAS: {
+        "receitas financeiras",
+        "receitas outras",
+    },
+    _ROW_COMPONENT_DESPESAS_FINANCEIRAS: {
+        "despesas",
+        "despesas operacionais",
+        "despesas com pessoal",
+        "despesas administrativas",
+        "despesas financeiras",
+        "folha de pagamento",
+    },
+}
 
 
 def build_dre_calculation(
@@ -103,12 +130,33 @@ def _get_financial_movements(*, workshops: Sequence[Workshop], start_date: date,
     elif tipo_data == "NPG":
         queryset = queryset.filter(is_paid=False)
 
-    return list(queryset.select_related("payment_method", "source", "workshop").order_by("due_date", "pk"))
+    return list(queryset.select_related("payment_method", "source", "workshop", "budget_plan", "budget_plan__parent", "budget_plan__parent__parent").order_by("due_date", "pk"))
 
 
 def _group_financial_movements_by_topic(*, financial_movements: list[FinancialMovement]) -> dict[str, list[FinancialMovement]]:
     grouped_movements: dict[str, list[FinancialMovement]] = {component: [] for component in _SOURCE_ROW_COMPONENTS}
+    for movement in financial_movements:
+        component = _resolve_movement_component(movement=movement)
+        if component is None:
+            continue
+        grouped_movements[component].append(movement)
     return grouped_movements
+
+
+def _resolve_movement_component(*, movement: FinancialMovement) -> str | None:
+    budget_plan = getattr(movement, "budget_plan", None)
+    if budget_plan is None:
+        return None
+
+    current_group = budget_plan
+    while current_group is not None:
+        normalized_name = _normalize_label(str(getattr(current_group, "name", "") or ""))
+        for component, aliases in _COMPONENT_GROUP_NAME_ALIASES.items():
+            if normalized_name in aliases:
+                return component
+        current_group = getattr(current_group, "parent", None)
+
+    return None
 
 
 def _sum_movement_amounts(movements: list[FinancialMovement]) -> Money:
@@ -208,14 +256,14 @@ def _resolve_visible_components(*, selected_financial_groups: list[FinancialGrou
     selected_names = {_normalize_label(group.name) for group in selected_financial_groups}
     visible_components: set[str] = set()
 
-    if {"receitas", "receitas de servicos", "receitas de pecas", "receita bruta de vendas e servicos", "receita bruta de vendas e serviços"} & selected_names:
+    for component, aliases in _COMPONENT_GROUP_NAME_ALIASES.items():
+        if aliases & selected_names:
+            visible_components.add(component)
+
+    if _COMPONENT_GROUP_NAME_ALIASES[_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS] & selected_names:
         visible_components.add(_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS)
-    if {"custos", "custos de pecas", "custos de servicos", "custos mercadorias vendidas"} & selected_names:
-        visible_components.add(_ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS)
-    if {"receitas financeiras", "receitas outras", "receitas"} & selected_names:
+    if {"receitas"} & selected_names:
         visible_components.add(_ROW_COMPONENT_RECEITAS_FINANCEIRAS)
-    if {"despesas", "despesas financeiras"} & selected_names:
-        visible_components.add(_ROW_COMPONENT_DESPESAS_FINANCEIRAS)
 
     return visible_components
 
