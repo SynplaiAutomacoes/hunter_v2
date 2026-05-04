@@ -1,51 +1,68 @@
-FROM python:3.11-slim
+# syntax=docker/dockerfile:1.7
+
+FROM mcr.microsoft.com/playwright/python:v1.58.0-noble AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PATH="/app/.venv/bin:$PATH" \
+    UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1
 
 WORKDIR /app
 
-# Install system dependencies (Python + Node build tooling)
-RUN apt-get update && apt-get install -y \
-  git \
-  curl \
-  build-essential \
-  python3-dev \
-  libcairo2-dev \
-  pkg-config \
-  && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    curl \
+    git \
+    libcairo2-dev \
+    pkg-config \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js (LTS) + npm
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-  && apt-get update && apt-get install -y nodejs \
-  && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
+    pip install --no-cache-dir uv
 
-# Copy requirements first for better caching
-COPY pyproject.toml ./
-COPY uv.lock ./
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get update && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy Node manifests first for better caching
-COPY package.json ./
-COPY package-lock.json ./
+COPY pyproject.toml uv.lock package.json package-lock.json ./
 
-# Install uv
-RUN pip install uv
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
+    uv sync --frozen --no-dev
 
-# Install Python dependencies
-RUN uv sync --frozen
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+    npm ci
 
-# Install Playwright browser runtime
-RUN uv run playwright install --with-deps chromium
-
-# Install Node dependencies (needed for Tailwind plugins)
-RUN npm ci
-
-# Copy the rest of the application
 COPY . .
 
-# Set the path to include the virtual environment
-ENV PATH="/app/.venv/bin:$PATH"
+RUN python manage.py tailwind build
+RUN python manage.py collectstatic --noinput
 
-RUN uv run python manage.py tailwind build
-RUN uv run python manage.py collectstatic --noinput
 
+FROM mcr.microsoft.com/playwright/python:v1.58.0-noble AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PATH="/app/.venv/bin:$PATH" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+    libcairo2 \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /app /app
+
+RUN rm -rf /app/node_modules
 RUN chmod +x /app/entrypoint.sh
 
 CMD ["/app/entrypoint.sh"]

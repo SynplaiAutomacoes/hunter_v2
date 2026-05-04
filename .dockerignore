@@ -1,28 +1,35 @@
 # Version control
+
 .git/
 .gitignore
 
 # Python
-__pycache__/
-*.py[cod]
+
+**pycache**/
+_.py[cod]
 .venv/
-*.egg-info/
+_.egg-info/
 
 # Node — rebuilt inside Docker via `npm ci`
+
 node_modules/
 
 # IDE
+
 .idea/
 .vscode/
 
 # Collected / compiled artifacts (rebuilt inside Docker)
+
 staticfiles/
 static/css/tailwind.css
 
 # Misc
+
 .DS_Store
-*.sqlite3
+\*.sqlite3
 media/
 .mypy_cache/
 .ruff_cache/
-
+docs/
+README.md
