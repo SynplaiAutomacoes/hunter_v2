@@ -256,16 +256,53 @@ class Budget(TimeStampedModel):
             year=self.pricing_reference_year,
         )
 
+    def _get_live_pricing_fallback_context(self) -> SimpleNamespace:
+        workshop_cost = self._get_reference_workshop_cost()
+        productive_salary_total = Money(0, "BRL")
+        working_hours_per_month = Decimal("0.00")
+        hourly_cost_value = Money(0, "BRL")
+        profitability_multiplier = Decimal("1.00")
+
+        if workshop_cost is not None:
+            working_hours_per_month = workshop_cost.working_hours_per_month or Decimal("0.00")
+            hourly_cost_value = workshop_cost.hourly_cost_value or Money(0, "BRL")
+            profitability_multiplier = workshop_cost.profitability_multiplier or Decimal("1.00")
+
+            mechanic_salary_obj = get_mechanic_salary_monthly_cost(workshop=self.workshop)
+            if mechanic_salary_obj is not None:
+                salary_item = WorkshopCostItem.objects.filter(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_obj).first()
+                if salary_item is not None:
+                    productive_salary_total = salary_item.amount
+
+        return SimpleNamespace(
+            hourly_cost_value=hourly_cost_value,
+            profitability_multiplier=profitability_multiplier,
+            working_hours_per_month=working_hours_per_month,
+            productive_salary_total=productive_salary_total,
+        )
+
     @property
     def get_mlr(self):
-        return self.get_frozen_pricing_context().profitability_multiplier
+        frozen_profitability_multiplier = self.get_frozen_pricing_context().profitability_multiplier
+        if frozen_profitability_multiplier and frozen_profitability_multiplier > 0:
+            return frozen_profitability_multiplier
+
+        return self._get_live_pricing_fallback_context().profitability_multiplier
 
     @property
     def get_mlo(self):
         pricing_context = self.get_frozen_pricing_context()
         salario_mecanicos = pricing_context.productive_salary_total
-        duracao_total = Decimal(self.total_duration.total_seconds()) / Decimal(3600)
         horas_uteis_mes = pricing_context.working_hours_per_month
+
+        if not horas_uteis_mes or horas_uteis_mes == 0:
+            pricing_context = self._get_live_pricing_fallback_context()
+            salario_mecanicos = pricing_context.productive_salary_total
+            horas_uteis_mes = pricing_context.working_hours_per_month
+            if not horas_uteis_mes or horas_uteis_mes == 0:
+                return Decimal("1.00")
+
+        duracao_total = Decimal(self.total_duration.total_seconds()) / Decimal(3600)
 
         # Custos
         custo_pecas = self.total_costs_products_value
@@ -284,7 +321,7 @@ class Budget(TimeStampedModel):
         valor_orcamento_hun = soma_base_orcamento + venda_mao_obra_hun
         divisor_mlo = (custo_pecas + custo_frete_pecas + custo_servico_terceiro + custo_total_mao_obra).amount
 
-        return valor_orcamento_hun.amount / divisor_mlo if divisor_mlo > 0 else 0
+        return (valor_orcamento_hun.amount / divisor_mlo) if divisor_mlo > 0 else Decimal("1.00")
 
     def calculate_pricing_methods(self):
         fallback_data = self._build_pricing_fallback_data()

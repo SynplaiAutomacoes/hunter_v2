@@ -3364,6 +3364,38 @@ class BudgetPricingSnapshotTests(TestCase):
         self.assertEqual(budget.mechanic_hour_cost_value, Money("10.00", "BRL"))
         self.assertEqual(budget.get_mlr, Decimal("2.50"))
 
+    def test_budget_get_mlr_and_get_mlo_fall_back_to_live_workshop_cost_when_snapshot_is_empty(self) -> None:
+        workshop = create_workshop(suffix=13)
+        budget = create_budget(workshop=workshop)
+        mechanic_cost, _ = create_salary_monthly_costs(workshop=workshop)
+        reference_date = budget.criado_em if budget.criado_em else timezone.now()
+
+        workshop_cost = WorkshopCost.objects.create(
+            workshop=workshop,
+            month=reference_date.month,
+            year=reference_date.year,
+            mechanic_quantity=1,
+            working_hours_per_month=Decimal("100.00"),
+            minimum_hourly_cost=Money("30.00", "BRL"),
+            hourly_cost_value=Money("80.00", "BRL"),
+            profitability_multiplier=Decimal("2.50"),
+        )
+        WorkshopCostItem.objects.create(workshop_cost=workshop_cost, monthly_cost=mechanic_cost, amount=Money("1000.00", "BRL"))
+
+        Budget.objects.filter(pk=budget.pk).update(
+            pricing_reference_month=reference_date.month,
+            pricing_reference_year=reference_date.year,
+            pricing_productive_salary_total=Money("0.00", "BRL"),
+            pricing_working_hours_per_month=Decimal("0.00"),
+            pricing_minimum_hourly_cost=Money("0.00", "BRL"),
+            pricing_hourly_cost_value=Money("0.00", "BRL"),
+            pricing_profitability_multiplier=Decimal("0.00"),
+        )
+        budget.refresh_from_db()
+
+        self.assertEqual(budget.get_mlr, Decimal("2.50"))
+        self.assertEqual(budget.get_mlo, Decimal("1.00"))
+
 
 class CollaboratorSalarySyncTests(TestCase):
     def test_new_collaborator_updates_current_month_and_preserves_existing_budget_and_workorder(self) -> None:
