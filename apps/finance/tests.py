@@ -7507,6 +7507,86 @@ class DreReportViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
 
+    def test_results_page_includes_legacy_workorder_movement_without_due_date(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+
+        workorder = self._create_workorder_with_values(
+            reference_date=date(2026, 5, 15),
+            product_selling_price="250.00",
+            product_cost_price="120.00",
+            service_selling_price="150.00",
+            service_cost_price="60.00",
+        )
+        source = Source.objects.create(workshop=self.workshop, name=f"OS Nº {workorder.pk}")
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            workorder=workorder,
+            source=source,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            description="Receita legado sem vencimento",
+            amount=Money("400.00", "BRL"),
+            due_date=None,
+            is_paid=False,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-05-01",
+                "data_final": "2026-05-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        rows = {row["label"]: row for row in response.context["dre_rows"]}
+        self.assertEqual(rows["(+) Receita Bruta de Vendas e Serviços"]["amount"], Money("400.00", "BRL"))
+        detail = rows["(+) Receita Bruta de Vendas e Serviços"]["details"][0]
+        self.assertEqual(detail["payment_date"], date(2026, 5, 15))
+
+    def test_results_page_excludes_legacy_workorder_movement_outside_period_when_due_date_is_missing(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+
+        workorder = self._create_workorder_with_values(
+            reference_date=date(2026, 4, 15),
+            product_selling_price="250.00",
+            product_cost_price="120.00",
+            service_selling_price="150.00",
+            service_cost_price="60.00",
+        )
+        source = Source.objects.create(workshop=self.workshop, name=f"OS Nº {workorder.pk}")
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            workorder=workorder,
+            source=source,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            description="Receita legado fora do periodo",
+            amount=Money("400.00", "BRL"),
+            due_date=None,
+            is_paid=False,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-05-01",
+                "data_final": "2026-05-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        rows = {row["label"]: row for row in response.context["dre_rows"]}
+        self.assertEqual(rows["(+) Receita Bruta de Vendas e Serviços"]["amount"], Money("0.00", "BRL"))
+
         rows = {row["label"]: row["amount"] for row in response.context["dre_rows"]}
         cards = {card["label"]: card["amount"] for card in response.context["dre_summary_cards"]}
 
