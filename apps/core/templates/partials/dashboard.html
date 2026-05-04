@@ -4,11 +4,34 @@
 
     <div class="flex flex-col gap-8">
         <!-- Header Section -->
-        <div class="flex items-center justify-between gap-4">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
                 <h1 class="text-3xl font-bold text-base-content">Dashboard</h1>
-                <p class="text-base-content/70 mt-1">Visão geral e métricas do sistema para o mês atual</p>
+                <p class="text-base-content/70 mt-1">
+                    Visão geral para 
+                    <span class="font-semibold text-primary">
+                        {% for val, name in meses %}{% if val == mes_selecionado %}{{ name }}{% endif %}{% endfor %} de {{ ano_selecionado|stringformat:"d" }}
+                    </span>
+                </p>
             </div>
+
+            <!-- Filter Section -->
+            <form method="get" hx-boost="true" hx-trigger="change from:select" class="flex items-center gap-2 bg-base-100 p-2 rounded-xl shadow-sm border border-base-200">
+                <div class="flex items-center gap-2 px-2">
+                    <i class="ph ph-calendar-blank text-primary text-xl"></i>
+                    <select name="mes" class="select select-sm select-ghost focus:bg-transparent font-medium">
+                        {% for val, name in meses %}
+                            <option value="{{ val }}" {% if val == mes_selecionado %}selected{% endif %}>{{ name }}</option>
+                        {% endfor %}
+                    </select>
+                    <div class="divider divider-horizontal mx-0"></div>
+                    <select name="ano" class="select select-sm select-ghost focus:bg-transparent font-medium">
+                        {% for val in anos %}
+                            <option value="{{ val }}" {% if val == ano_selecionado %}selected{% endif %}>{{ val|stringformat:"d" }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </form>
         </div>
 
         <!-- KPI Stats Section -->
